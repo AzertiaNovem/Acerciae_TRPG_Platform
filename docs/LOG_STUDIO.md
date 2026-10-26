@@ -1,8 +1,8 @@
 # Log Studio architecture and compatibility
 
-Log Studio extends the existing campaign channel, identity and permission system. A campaign ID in the exchange model is the existing channel ID; no parallel campaign membership system exists. Canonical events live in `log_events`, immutable materialized selections in `log_snapshots`/`log_snapshot_events`, performance data in `log_presentations`/`presentation_events`, and output style in `pdf_templates`/`pdf_render_jobs`. The existing React player/editor is retained. Automatic visual-novel template generation is deferred by request.
+Log Studio extends the existing campaign channel, identity and permission system. A campaign ID in the exchange model is the existing channel ID; no parallel campaign membership system exists. Canonical events live in `log_events`, immutable materialized selections in `log_snapshots`/`log_snapshot_events`, performance data in `log_presentations`/`presentation_events`, and output style in `pdf_templates`/`pdf_render_jobs`. The existing React player/editor is retained. Visual-novel look templates and LLM-organised scripts are described in [VISUAL_NOVEL.md](VISUAL_NOVEL.md).
 
-Migrations `0007_logstudio.sql`, `0008_tts_audit.sql`, `0009_studio_publication.sql`, `0010_snapshot_metadata.sql` and `0011_studio_cloud_policy.sql` are additive. The two historical `0007_*` files belong to separate Claude branches; the migration ledger keys full filenames, so both run once. Do not renumber an already applied migration. Backfilling old snapshots can freeze only their state at migration time; it cannot reconstruct earlier metadata that was never stored.
+Migrations `0007_logstudio.sql`, `0008_tts_audit.sql`, `0009_studio_publication.sql`, `0010_snapshot_metadata.sql`, `0011_studio_cloud_policy.sql`, `0012_user_preferences.sql` and `0013_vn_scripts.sql` are additive. The two historical `0007_*` files belong to separate Claude branches; the migration ledger keys full filenames, so both run once. Do not renumber an already applied migration. Backfilling old snapshots can freeze only their state at migration time; it cannot reconstruct earlier metadata that was never stored.
 
 ## Import compatibility
 
@@ -36,6 +36,7 @@ npm --prefix pdf-worker ci
 npm --prefix pdf-worker test
 API_BASE=http://127.0.0.1:18081 node --test tests/integration/scenarios.test.mjs
 API_BASE=http://127.0.0.1:18081 node --test tests/integration/logstudio.test.mjs
+API_BASE=http://127.0.0.1:18081 node --test tests/integration/vnscript.test.mjs
 ```
 
 Run the HTTP suites against an isolated server/database with `TTS_PROVIDER=mock`, `IMAGE_PROVIDER=mock`, and a running PDF worker. They create their own users/campaigns and leave those test records for inspection. `PDF_TEST_OUTPUT` can point to an existing directory to save the three generated PDFs. The studio suite exercises source preservation, multiline/renamed/OOC imports, immutable metadata, structured dice, affected-line cache invalidation, private audio/jobs/PDF access, candidate images, approval/reuse, three actual PDFs, publication file permissions and revocation. Browser playback/audio unlock is a manual check; HTTP tests do not certify every browser or real Qwen speech quality.

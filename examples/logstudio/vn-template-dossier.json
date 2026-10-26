@@ -1,0 +1,8 @@
+{
+  "base": "dossier",
+  "letterbox": true,
+  "text_scale": 1.05,
+  "character_colors": {
+    "replace-with-character-id": "#9b2226"
+  }
+}

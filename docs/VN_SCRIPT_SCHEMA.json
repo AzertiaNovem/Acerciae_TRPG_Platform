@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Acerciae Visual Novel Script 1.0",
+  "description": "Stored in vn_script_jobs.script. Produced by VnScriptService::normalize from the planner output. Lines are referenced by canonical log event id only; the script never carries dialogue text.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "provider",
+    "scenes",
+    "line_count"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "provider": {
+      "description": "'mock' or the LLM mode that planned it",
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "snapshot_id": {
+      "type": "string"
+    },
+    "snapshot_scope": {
+      "enum": [
+        "gm_full",
+        "pl_public",
+        "character"
+      ]
+    },
+    "line_count": {
+      "type": "integer"
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "lines"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "location": {
+            "type": "string"
+          },
+          "time_of_day": {
+            "type": "string"
+          },
+          "mood": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "Model-written; empty for the mock planner"
+          },
+          "background_asset_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Approved background visible to the snapshot audience"
+          },
+          "background_brief": {
+            "type": "string",
+            "description": "Visual brief when no approved background fits"
+          },
+          "bgm_asset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment": {
+            "enum": [
+              "none",
+              "rain",
+              "fog",
+              "dim",
+              "warm",
+              "cold"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "event_id",
+                "hidden"
+              ],
+              "properties": {
+                "event_id": {
+                  "type": "string"
+                },
+                "hidden": {
+                  "type": "boolean"
+                },
+                "exclusion_reason": {
+                  "type": "string"
+                },
+                "display_kind": {
+                  "enum": [
+                    "dialogue",
+                    "narration",
+                    "action",
+                    "ooc",
+                    "dice",
+                    "scene_change",
+                    "system",
+                    "media"
+                  ]
+                },
+                "speaker_character_id": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "array",
+                  "maxItems": 3,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "character_id": {
+                        "type": "string"
+                      },
+                      "position": {
+                        "enum": [
+                          "left",
+                          "center",
+                          "right"
+                        ]
+                      },
+                      "expression": {
+                        "type": "string",
+                        "maxLength": 32
+                      },
+                      "asset_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "effect": {
+                  "enum": [
+                    "shake",
+                    "flash",
+                    "zoom"
+                  ]
+                },
+                "delivery": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "asset_needs": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "enum": [
+              "background",
+              "standee"
+            ]
+          },
+          "brief": {
+            "type": "string"
+          },
+          "scene_key": {
+            "type": "string"
+          },
+          "character_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "scenes": {
+          "type": "integer"
+        },
+        "shown": {
+          "type": "integer"
+        },
+        "hidden": {
+          "type": "integer"
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -21,6 +21,7 @@
 #include "../logstudio/TtsService.h"
 #include "../logstudio/PublicationService.h"
 #include "../logstudio/CreativeService.h"
+#include "../logstudio/VnScriptService.h"
 #include "../servers/ServerSettingsService.h"
 #include "../dice/DiceService.h"
 
@@ -59,6 +60,7 @@ Services& Services::build(const Config& cfg) {
     s.tts = std::make_unique<logstudio::TtsService>(s.cfg, *s.db, *s.objectStore, *s.notifier, *s.presentations, *s.settings);
     s.publication = std::make_unique<logstudio::PublicationService>(*s.db,*s.objectStore,*s.notifier,*s.studio,*s.presentations,*s.media,*s.documents);
     s.creative = std::make_unique<logstudio::CreativeService>(*s.db,*s.media,*s.presentations,*s.studio,*s.llm,*s.notifier);
+    s.vnScripts = std::make_unique<logstudio::VnScriptService>(*s.db,*s.auth,*s.studio,*s.presentations,*s.llm,*s.notifier);
     s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge);
     return s;
 }
@@ -67,6 +69,7 @@ void Services::shutdown() {
     if (!g_services) return;
     if (g_services->observer) g_services->observer->stop();
     if (g_services->creative) g_services->creative->stop();
+    if (g_services->vnScripts) g_services->vnScripts->stop();
     if (g_services->tts) g_services->tts->stop();
     g_services.reset();
 }

@@ -9,7 +9,7 @@ class AuthService; class EventStore; class ChatService; class SceneManager; clas
 class DocumentService; class HighlightService; class ContextRetrievalService; class LlmGateway;
 class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
 class Notifier;
-namespace logstudio { class LogStudioService; class ObjectStore; class MediaService; class PresentationService; class StyleService; class TtsService; class PublicationService; class CreativeService; }
+namespace logstudio { class LogStudioService; class ObjectStore; class MediaService; class PresentationService; class StyleService; class TtsService; class PublicationService; class CreativeService; class VnScriptService; }
 class ServerSettingsService; class DiceService;
 
 // Composition root: every module gets its dependencies through here (constructed once in main).
@@ -40,6 +40,7 @@ struct Services {
     std::unique_ptr<logstudio::TtsService> tts;
     std::unique_ptr<logstudio::PublicationService> publication;
     std::unique_ptr<logstudio::CreativeService> creative;
+    std::unique_ptr<logstudio::VnScriptService> vnScripts;
 
     static Services& build(const Config& cfg);   // constructs the singleton
     static void shutdown();

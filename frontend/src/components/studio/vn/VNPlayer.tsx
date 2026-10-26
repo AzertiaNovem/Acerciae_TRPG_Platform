@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { api } from '../../../api/client';
 import type { Presentation, PresentationEvent, PresentationScene } from '../../../types';
 import { VnAudio } from './audio';
+import { inkFor, resolveVnTemplate, speakerColor, templateStyle } from './templates';
 import './vn.css';
 
 export interface VNPlayerProps {
@@ -22,6 +23,8 @@ const POS_CLASS: Record<string, string> = { left: 'pos-left', center: 'pos-cente
 export default function VNPlayer({ channelId, presentation, index, onIndexChange, editorMode, characterNames, assetUrl, audioUrl }: VNPlayerProps) {
   const settings = presentation.settings ?? {};
   const animations: boolean = settings.animations_enabled !== false;
+  const tpl = useMemo(() => resolveVnTemplate(settings.template), [settings.template]);
+  const profileColors = useMemo(() => Object.fromEntries((presentation.character_visuals ?? []).map((v) => [v.character_id, v.color])), [presentation.character_visuals]);
   const events = useMemo(() => (presentation.events ?? []).filter((e) => !e.hidden), [presentation.events]);
   const scenes = useMemo(() => { const m: Record<string, PresentationScene> = {}; for (const s of presentation.scenes ?? []) m[s.id] = s; return m; }, [presentation.scenes]);
   const cur: PresentationEvent | undefined = events[index];
@@ -45,6 +48,8 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   const chars = useMemo(() => [...text], [text]);
   const cps = (settings.typewriter_cps ?? 28) * speed;
   const hasAudio = !!cur?.audio_asset_id && !skipTts;
+  // Novel page: the lines of this scene so far stay on the page above the line being read.
+  const pageLines = useMemoPage(tpl.base === 'nvl', events, index);
 
   // ---- typewriter + audio per line -------------------------------------------------------------
   useEffect(() => {
@@ -52,7 +57,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
     audio.stopVoice();
     if (!cur) return;
     if (cur.display_kind === 'dice' && animations) { /* dice effect rendered below */ }
-    if (scene?.id && scene.id !== prevSceneId.current) { prevSceneId.current = scene.id; if (cur.display_kind === 'scene_change' || index === 0) { setSceneTitleFlash(scene.title); setTimeout(() => setSceneTitleFlash(null), 1400); } }
+    if (scene?.id && scene.id !== prevSceneId.current) { prevSceneId.current = scene.id; if (cur.display_kind === 'scene_change' || index === 0) { setSceneTitleFlash(scene.title); setTimeout(() => setSceneTitleFlash(null), tpl.scene_card === 'caption' ? 2600 : 1400); } }
     const bgm = scene?.bgm_asset_id ? (assetUrl ? assetUrl(scene.bgm_asset_id) : api.mediaUrl(channelId, scene.bgm_asset_id)) : null; audio.playBgm(bgm);
     let timer: number | null = null; let cancelled = false;
     const total = chars.length;
@@ -102,7 +107,9 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   }, [next, back, audio, editorMode]);
   const toggleFullscreen = () => { const el = stageRef.current; if (!el) return; if (document.fullscreenElement) document.exitFullscreen(); else el.requestFullscreen?.(); };
 
-  if (!cur) return <div className="vn-stage" ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">{tr("No visible lines in this presentation.")}</div></div></div>;
+  const stageClass = `vn-stage tpl-${tpl.base} grade-${tpl.color_grade} names-${tpl.name_style}${tpl.letterbox ? ' letterboxed' : ''}`;
+  const stageStyle = templateStyle(tpl) as React.CSSProperties;
+  if (!cur) return <div className={stageClass} style={stageStyle} ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">{tr("No visible lines in this presentation.")}</div></div></div>;
 
   const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version)) : null;
   const placements = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' ? [] : (cur.character_asset_ids ?? []);
@@ -112,9 +119,12 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   const words = cur.word_timestamps;
   const fadeDur = animations ? 0.45 : 0;
   const dialogueStyle = cur.dialogue_style ?? {};
+  const nameBg = speakerColor(tpl, cur.speaker_character_id, cur.speaker_character_id ? profileColors[cur.speaker_character_id] : null, dialogueStyle.name_color);
+  const diceStyle = settings.dice_effect === 'none' ? 'hide' : tpl.dice_style;
+  const showDiceChip = cur.display_kind === 'dice' && cur.dice?.total != null && (diceStyle === 'inline' || (!animations && diceStyle !== 'hide'));
 
   return (
-    <div className={`vn-stage ${hideUi ? '' : 'show-hud'}`} ref={stageRef} tabIndex={0} onClick={(e) => { if ((e.target as HTMLElement).closest('.vn-hud, .vn-raw, .vn-unlock')) return; next(); }} style={{ ['--vn-font' as any]: settings.font || undefined }}>
+    <div className={`${stageClass} ${hideUi ? '' : 'show-hud'}`} ref={stageRef} tabIndex={0} onClick={(e) => { if ((e.target as HTMLElement).closest('.vn-hud, .vn-raw, .vn-unlock')) return; next(); }} style={stageStyle}>
       {/* 1. background */}
       <AnimatePresence initial={false}>
         <motion.div key={bgUrl ?? 'empty'} className={`vn-layer vn-bg ${bgUrl ? '' : 'empty'}`} style={bgUrl ? { backgroundImage: `url("${bgUrl}")` } : undefined}
@@ -131,7 +141,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
               const url = p.asset_id ? (assetUrl ? assetUrl(p.asset_id) : api.mediaUrl(channelId, p.asset_id, p.asset_version)) : null;
               return (
                 <motion.div key={p.character_id} className={`vn-char ${POS_CLASS[p.position] ?? 'pos-center'}`} layout={animations}
-                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0, scale: active ? 1 : 0.94, filter: active ? 'brightness(1)' : 'brightness(0.55)', zIndex: active ? 2 : 1 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: fadeDur }}>
+                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0, scale: active || !tpl.dim_inactive ? 1 : 0.94, filter: active || !tpl.dim_inactive ? 'brightness(1)' : 'brightness(0.55)', zIndex: active ? 2 : 1 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: fadeDur }}>
                   {url ? <img src={url} alt={characterNames[p.character_id] ?? ''} style={{ transform: p.flip ? 'scaleX(-1)' : undefined }} /> : <div className="vn-char-placeholder">{characterNames[p.character_id] ?? tr("character")}<br /><span style={{ fontSize: 10 }}>{tr("no standee assigned")}</span></div>}
                 </motion.div>
               );
@@ -140,25 +150,41 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
         </div>
       )}
       {/* dice effect */}
-      {cur.display_kind === 'dice' && cur.dice?.total != null && animations && settings.dice_effect !== 'none' && (
+      {cur.display_kind === 'dice' && cur.dice?.total != null && animations && diceStyle === 'burst' && (
         <motion.div className="vn-dice-fx" key={cur.id} initial={{ scale: 0.3, opacity: 0, rotate: -40 }} animate={{ scale: 1, opacity: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 14 }}>
           {cur.dice.total}{cur.dice.outcome ? <span style={{ fontSize: '0.4em', marginLeft: 12 }}>{cur.dice.outcome}</span> : null}
         </motion.div>
       )}
+      {cur.display_kind === 'dice' && cur.dice?.total != null && animations && diceStyle === 'stamp' && (
+        <motion.div className="vn-dice-stamp" key={cur.id} initial={{ scale: 1.8, opacity: 0, rotate: -2 }} animate={{ scale: 1, opacity: 1, rotate: -7 }} transition={{ type: 'spring', stiffness: 420, damping: 22 }}>
+          <span className="total">{cur.dice.total}</span>{cur.dice.outcome ? <span className="outcome">{cur.dice.outcome}</span> : null}
+        </motion.div>
+      )}
+      {tpl.letterbox && <div className="vn-letterbox" aria-hidden />}
       {/* 4. dialogue */}
       {!hideUi && (
         <AnimatePresence mode="wait">
-          <motion.div key={cur.id} className={`vn-dialogue ${isNarr ? 'narration' : ''} ${cur.display_kind === 'dice' ? 'dice' : ''}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: animations ? 0.2 : 0 }}
-            style={{ ['--vn-name-bg' as any]: dialogueStyle.name_color, fontFamily: dialogueStyle.font }}>
-            {!isNarr && <div className="vn-name">{speaker}</div>}
-            <div className="vn-text">
-              {words && hasAudio ? words.map((w, i) => <span key={i} className={`vn-word ${audioMs >= w.start_ms ? 'said' : ''}`}>{w.word}</span>) : shownText}
-              {typed < chars.length && <span className="vn-cursor">▌</span>}
+          <motion.div key={tpl.base === 'nvl' ? `page-${cur.scene_id ?? ''}` : cur.id} className={`vn-dialogue ${isNarr ? 'narration' : ''} ${cur.display_kind === 'dice' ? 'dice' : ''} ${cur.display_kind === 'ooc' ? 'ooc' : ''}`} initial={{ opacity: 0, y: tpl.base === 'nvl' ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: animations ? (tpl.base === 'nvl' ? 0.35 : 0.2) : 0 }}
+            style={{ ['--vn-name-bg' as any]: nameBg, ['--vn-name-ink' as any]: inkFor(nameBg) }}>
+            {pageLines.map((e) => {
+              const n = e.speaker_name_override ?? e.character_name ?? e.speaker_display_name;
+              const narr = e.display_kind === 'narration' || e.display_kind === 'scene_change' || e.display_kind === 'system';
+              const c = speakerColor(tpl, e.speaker_character_id, e.speaker_character_id ? profileColors[e.speaker_character_id] : null, e.dialogue_style?.name_color);
+              return <p key={e.id} className={`vn-page-line ${narr ? 'narration' : ''}`}>{!narr && tpl.name_style !== 'hidden' && <span className="vn-name" style={{ ['--vn-name-bg' as any]: c }}>{n}</span>}{e.display_text}</p>;
+            })}
+            <div className={tpl.base === 'nvl' ? 'vn-page-line current' : 'vn-line'}>
+              {!isNarr && tpl.name_style !== 'hidden' && <div className="vn-name">{speaker}</div>}
+              <div className="vn-text">
+                {showDiceChip && <span className="vn-dice-chip">{cur.dice!.total}{cur.dice!.outcome ? ` · ${cur.dice!.outcome}` : ''}</span>}
+                {words && hasAudio ? words.map((w, i) => <span key={i} className={`vn-word ${audioMs >= w.start_ms ? 'said' : ''}`}>{w.word}</span>) : shownText}
+                {typed < chars.length && <span className="vn-cursor">▌</span>}
+              </div>
             </div>
           </motion.div>
         </AnimatePresence>
       )}
-      {sceneTitleFlash && animations && <motion.div className="vn-scene-title" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>{sceneTitleFlash}</motion.div>}
+      {sceneTitleFlash && animations && tpl.scene_card === 'fade' && <motion.div className="vn-scene-title" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>{sceneTitleFlash}</motion.div>}
+      {sceneTitleFlash && tpl.scene_card === 'caption' && <motion.div className="vn-scene-caption" initial={{ opacity: 0, x: animations ? -24 : 0 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: animations ? 0.35 : 0 }}>{sceneTitleFlash}</motion.div>}
       {/* 5. HUD */}
       {!hideUi && (
         <div className="vn-hud" onClick={(e) => e.stopPropagation()}>
@@ -184,4 +210,17 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
       {needUnlock && <div className="vn-unlock" onClick={async () => { const ok = await audio.unlock(); if (ok) { setNeedUnlock(false); } }}><div style={{ textAlign: 'center' }}><div style={{ fontSize: 28 }}>🔊</div><div>{tr("Click to enable audio playback")}</div><div className="tiny" style={{ opacity: .7 }}>{tr("Browsers block sound until you interact with the page.")}</div></div></div>}
     </div>
   );
+}
+
+// Lines already read in the current scene, oldest first, for the novel-page layout. The page holds the most
+// recent few so long scenes scroll off the top rather than shrinking the type.
+const PAGE_LINES = 6;
+function useMemoPage(enabled: boolean, events: PresentationEvent[], index: number): PresentationEvent[] {
+  return useMemo(() => {
+    if (!enabled || !events[index]) return [];
+    const sceneId = events[index].scene_id;
+    let start = index;
+    while (start > 0 && events[start - 1].scene_id === sceneId && events[start - 1].display_kind !== 'scene_change') start--;
+    return events.slice(Math.max(start, index - PAGE_LINES), index);
+  }, [enabled, events, index]);
 }

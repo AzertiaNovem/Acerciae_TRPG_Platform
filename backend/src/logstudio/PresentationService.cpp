@@ -5,12 +5,71 @@
 #include "../core/Json.h"
 #include "../core/Text.h"
 #include "../knowledge/Visibility.h"
+#include <cmath>
 #include <map>
+#include <regex>
 #include <set>
+#include <tuple>
 
 namespace acerciae::logstudio {
 
 static DbParam opt(const std::string& s) { return s.empty() ? dbNull() : DbParam(s); }
+
+Json::Value PresentationService::validateVnTemplate(const Json::Value& in) {
+    if (!in.isObject()) throw badRequest("template must be an object");
+    static const std::regex hex("#[0-9a-fA-F]{6}");
+    Json::Value t(Json::objectValue);
+    auto base = json::str(in, "base", "adv");
+    if (!std::set<std::string>{"adv", "nvl", "dossier", "cinematic"}.count(base)) throw badRequest("invalid template base");
+    t["base"] = base;
+    auto choice = [&](const char* key, std::set<std::string> values) {
+        if (!in.isMember(key)) return;
+        if (!in[key].isString() || !values.count(in[key].asString())) throw badRequest(std::string("invalid template ") + key);
+        t[key] = in[key].asString();
+    };
+    choice("font", {"sans", "serif", "mono"});
+    choice("name_style", {"tag", "inline", "hidden"});
+    choice("color_grade", {"none", "sepia", "mono", "cold", "warm"});
+    choice("dice_style", {"burst", "stamp", "inline", "hide"});
+    choice("scene_card", {"fade", "caption", "none"});
+    for (auto [key, low, high] : {std::tuple{"text_scale", 0.8, 1.5}, {"box_opacity", 0.0, 1.0}}) {
+        if (!in.isMember(key)) continue;
+        if (!in[key].isNumeric()) throw badRequest(std::string("invalid template ") + key);
+        double v = in[key].asDouble();
+        if (!std::isfinite(v) || v < low || v > high) throw badRequest(std::string("invalid template ") + key);
+        t[key] = std::round(v * 100.0) / 100.0;
+    }
+    for (auto key : {"letterbox", "dim_inactive"}) {
+        if (!in.isMember(key)) continue;
+        if (!in[key].isBool()) throw badRequest(std::string("invalid template ") + key);
+        t[key] = in[key].asBool();
+    }
+    if (in.isMember("accent_color")) {
+        if (!in["accent_color"].isString() || !std::regex_match(in["accent_color"].asString(), hex)) throw badRequest("colors must be six-digit hex");
+        t["accent_color"] = in["accent_color"].asString();
+    }
+    if (in.isMember("character_colors")) {
+        const auto& cc = in["character_colors"];
+        if (!cc.isObject()) throw badRequest("character_colors must be an object");
+        if (cc.size() > 200) throw badRequest("too many character colors");
+        Json::Value out(Json::objectValue);
+        for (auto it = cc.begin(); it != cc.end(); ++it) {
+            if (it.name().size() > 64) throw badRequest("invalid character key");
+            if (!it->isString() || !std::regex_match(it->asString(), hex)) throw badRequest("colors must be six-digit hex");
+            out[it.name()] = it->asString();
+        }
+        t["character_colors"] = out;
+    }
+    return t;
+}
+Json::Value PresentationService::sanitizeSettings(const Json::Value& settings) {
+    Json::Value s = settings;
+    if (s.isMember("template")) {
+        if (s["template"].isNull()) s.removeMember("template");
+        else s["template"] = validateVnTemplate(s["template"]);
+    }
+    return s;
+}
 
 Json::Value PresentationService::presentationRow(const ChannelAccess& a, const std::string& id) {
     auto p = db_.queryOne("SELECT p.*, s.scope AS snapshot_scope, s.scope_character_id FROM log_presentations p JOIN log_snapshots s ON s.id=p.snapshot_id WHERE p.id=$1 AND p.channel_id=$2", {id, a.channelId});
@@ -35,7 +94,7 @@ Json::Value PresentationService::list(const ChannelAccess& a, const std::string&
 
 Json::Value PresentationService::create(const ChannelAccess& a, const std::string& snapshotId, const Json::Value& body) {
     Json::Value snap; auto events = studio_.snapshotEvents(a, snapshotId, &snap);
-    Json::Value settings = body.isMember("settings") && body["settings"].isObject() ? body["settings"] : Json::Value(Json::objectValue);
+    Json::Value settings = sanitizeSettings(body.isMember("settings") && body["settings"].isObject() ? body["settings"] : Json::Value(Json::objectValue));
     if (!settings.isMember("animations_enabled")) settings["animations_enabled"] = true;
     if (!settings.isMember("typewriter_cps")) settings["typewriter_cps"] = 28;
     if (!settings.isMember("aspect")) settings["aspect"] = "16:9";
@@ -110,8 +169,80 @@ Json::Value PresentationService::get(const ChannelAccess& a, const std::string& 
 Json::Value PresentationService::update(const ChannelAccess& a, const std::string& id, const Json::Value& body) {
     auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
     Json::Value settings = p["settings"]; if (body.isMember("settings") && body["settings"].isObject()) for (auto it = body["settings"].begin(); it != body["settings"].end(); ++it) settings[it.name()] = *it;
+    settings = sanitizeSettings(settings);
     auto out = db_.queryOne("UPDATE log_presentations SET title=$2, settings=$3::jsonb, style_profile_id=$4, version=version+1, updated_at=now() WHERE id=$1 RETURNING *", {id, json::str(body, "title", p["title"].asString()), json::dump(settings), opt(json::str(body, "style_profile_id", p["style_profile_id"].isNull() ? "" : p["style_profile_id"].asString()))});
     touch(id, a.channelId, "settings"); return out;
+}
+void PresentationService::applyScript(const ChannelAccess& a, const std::string& id, const Json::Value& script) {
+    auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
+    bool gmOnly = p["snapshot_scope"].asString() == "gm_full";
+    // Assets the script names must be approved, in this channel, of the right type and visible to the audience.
+    std::map<std::string, Json::Value> assetCache;
+    auto asset = [&](const Json::Value& v, std::set<std::string> types) -> Json::Value {
+        if (!v.isString() || v.asString().empty()) return Json::Value();
+        auto key = v.asString();
+        if (!assetCache.count(key)) assetCache[key] = db_.queryOne("SELECT id, version, asset_type, approval_status, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2", {key, a.channelId});
+        const auto& r = assetCache[key];
+        if (r.isNull() || r["approval_status"] != "approved" || !types.count(r["asset_type"].asString()) || (!gmOnly && r["visibility_scope"] == "gm")) return Json::Value();
+        return r;
+    };
+    static const std::set<std::string> kinds = {"dialogue","narration","action","ooc","dice","scene_change","system","media"};
+    static const std::set<std::string> envs = {"none","rain","fog","dim","warm","cold"};
+    static const std::set<std::string> effects = {"none","shake","flash","zoom"};
+    db_.tx([&](pqxx::work& w) {
+        std::map<std::string, Json::Value> byCanonical;
+        for (auto& r : Db::queryJson(w, "SELECT id, canonical_event_id, display_kind, speaker_character_id, character_asset_ids FROM presentation_events WHERE presentation_id=$1 ORDER BY position", {id}))
+            if (r["canonical_event_id"].isString()) byCanonical.emplace(r["canonical_event_id"].asString(), r);
+        Db::exec(w, "DELETE FROM presentation_scenes WHERE presentation_id=$1", {id});
+        int scenePos = 0, pos = 0;
+        std::set<std::string> placed;
+        for (const auto& s : script["scenes"]) {
+            auto bg = asset(s["background_asset_id"], {"background"});
+            auto bgm = asset(s["bgm_asset_id"], {"bgm","audio"});
+            Json::Value env; auto e = json::str(s, "environment", "none"); env["effect"] = envs.count(e) ? e : "none";
+            Json::Value meta; for (auto k : {"location","time_of_day","mood","summary","background_brief"}) meta[k] = json::str(s, k).substr(0, 400);
+            meta["generated"] = true; meta["script_key"] = json::str(s, "key");
+            auto sc = Db::queryOne(w, "INSERT INTO presentation_scenes(presentation_id, position, title, canonical_scene_key, background_asset_id, background_asset_version, bgm_asset_id, environment, metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb) RETURNING id",
+                {id, (int64_t)scenePos++, json::str(s, "title").substr(0, 200), json::str(s, "key").substr(0, 64), bg.isNull() ? dbNull() : DbParam(bg["id"].asString()), bg.isNull() ? dbNull() : DbParam((int64_t)bg["version"].asInt()), bgm.isNull() ? dbNull() : DbParam(bgm["id"].asString()), json::dump(env), json::dump(meta)});
+            auto sceneId = sc["id"].asString();
+            bool first = true;
+            for (const auto& l : s["lines"]) {
+                auto cid = json::str(l, "event_id");
+                auto it = byCanonical.find(cid);
+                if (it == byCanonical.end() || placed.count(cid)) continue;
+                placed.insert(cid);
+                const auto& ev = it->second;
+                auto kind = json::str(l, "display_kind", ev["display_kind"].asString()); if (!kinds.count(kind)) kind = ev["display_kind"].asString();
+                Json::Value stage = ev["character_asset_ids"];
+                if (l["stage"].isArray()) {
+                    stage = Json::Value(Json::arrayValue);
+                    auto speaker = json::str(l, "speaker_character_id", ev["speaker_character_id"].isNull() ? "" : ev["speaker_character_id"].asString());
+                    for (const auto& c : l["stage"]) {
+                        Json::Value x; x["character_id"] = c["character_id"]; x["position"] = c["position"]; x["expression"] = c["expression"]; x["active"] = c["character_id"].asString() == speaker;
+                        auto st = asset(c["asset_id"], {"standee"});
+                        x["asset_id"] = st.isNull() ? Json::Value() : st["id"]; x["asset_version"] = st.isNull() ? Json::Value() : st["version"];
+                        stage.append(x);
+                    }
+                }
+                if (kind == "narration" || kind == "scene_change") stage = Json::Value(Json::arrayValue);
+                auto speakerId = json::str(l, "speaker_character_id");
+                if (!speakerId.empty() && Db::queryOne(w, "SELECT 1 AS ok FROM characters WHERE id=$1 AND channel_id=$2", {speakerId, a.channelId}).isNull()) speakerId.clear();
+                auto effect = json::str(l, "effect", "none"); if (!effects.count(effect)) effect = "none";
+                Db::exec(w, "UPDATE presentation_events SET scene_id=$2, position=$3, display_kind=$4, hidden=$5, speaker_character_id=COALESCE($6::uuid, speaker_character_id), character_asset_ids=$7::jsonb, effect=$8, style_instruction=$9, transition=$10, updated_at=now() WHERE id=$1",
+                    {ev["id"].asString(), sceneId, (int64_t)pos++, kind, json::toBool(l, "hidden"), speakerId.empty() ? dbNull() : DbParam(speakerId), json::dump(stage), effect, json::str(l, "delivery").substr(0, 400), first ? "fade" : (kind == "scene_change" ? "fade" : "none")});
+                first = false;
+            }
+        }
+        // Anything the script did not mention keeps its place after the script, visible, in a final scene.
+        std::vector<std::string> rest;
+        for (auto& r : Db::queryJson(w, "SELECT id, canonical_event_id FROM presentation_events WHERE presentation_id=$1 ORDER BY position", {id}))
+            if (!placed.count(json::str(r, "canonical_event_id"))) rest.push_back(r["id"].asString());
+        if (!rest.empty()) {
+            auto sc = Db::queryOne(w, "INSERT INTO presentation_scenes(presentation_id, position, title, canonical_scene_key) VALUES($1,$2,'Unplaced lines','unplaced') RETURNING id", {id, (int64_t)scenePos++});
+            for (auto& r : rest) Db::exec(w, "UPDATE presentation_events SET scene_id=$2, position=$3 WHERE id=$1", {r, sc["id"].asString(), (int64_t)pos++});
+        }
+    });
+    touch(id, a.channelId, "script");
 }
 Json::Value PresentationService::remove(const ChannelAccess& a, const std::string& id) {
     auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");

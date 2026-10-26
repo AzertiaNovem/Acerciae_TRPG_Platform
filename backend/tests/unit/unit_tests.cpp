@@ -13,6 +13,8 @@
 #include "logstudio/TtsProvider.h"
 #include "logstudio/TtsService.h"
 #include "logstudio/PublicationService.h"
+#include "logstudio/PresentationService.h"
+#include "logstudio/VnScriptService.h"
 #include "logstudio/ImageProvider.h"
 #include <iostream>
 #include <functional>
@@ -252,6 +254,72 @@ int main() {
         Json::Value c;c["base"]="novel";auto safe=logstudio::PublicationService::validateConfig(c);CHECK(safe["page_size"]=="A5");
         bool rejected=false;c["page_size"]="A4; @import url(http://localhost)";try{logstudio::PublicationService::validateConfig(c);}catch(...){rejected=true;}CHECK(rejected);
         c.removeMember("page_size");c["character_colors"]["gm"]="red; background:url(http://localhost)";rejected=false;try{logstudio::PublicationService::validateConfig(c);}catch(...){rejected=true;}CHECK(rejected);
+    });
+    test("visual-novel template keeps bounded overrides and rejects CSS injection", [] {
+        using logstudio::PresentationService;
+        auto rejects = [](const Json::Value& t) { try { PresentationService::validateVnTemplate(t); return false; } catch (...) { return true; } };
+        Json::Value t; t["base"] = "dossier"; t["text_scale"] = 1.234; t["letterbox"] = true; t["accent_color"] = "#8B1E1E"; t["unknown"] = "x";
+        t["character_colors"]["c1"] = "#112233";
+        auto safe = PresentationService::validateVnTemplate(t);
+        CHECK(safe["base"] == "dossier"); CHECK(safe["text_scale"].asDouble() == 1.23); CHECK(safe["letterbox"].asBool());
+        CHECK(!safe.isMember("unknown")); CHECK(!safe.isMember("font")); CHECK(safe["character_colors"]["c1"] == "#112233");
+        CHECK(PresentationService::validateVnTemplate(Json::Value(Json::objectValue))["base"] == "adv");
+        Json::Value bad = t; bad["base"] = "custom"; CHECK(rejects(bad));
+        bad = t; bad["accent_color"] = "red; background:url(http://localhost)"; CHECK(rejects(bad));
+        bad = t; bad["character_colors"]["c2"] = "#12345"; CHECK(rejects(bad));
+        bad = t; bad["text_scale"] = 3; CHECK(rejects(bad));
+        bad = t; bad["box_opacity"] = "0.5"; CHECK(rejects(bad));
+        bad = t; bad["font"] = "Arial; } body { display:none"; CHECK(rejects(bad));
+        bad = t; bad["letterbox"] = "yes"; CHECK(rejects(bad));
+        Json::Value settings; settings["typewriter_cps"] = 30; settings["template"] = Json::Value(Json::nullValue);
+        auto cleaned = PresentationService::sanitizeSettings(settings); CHECK(!cleaned.isMember("template")); CHECK(cleaned["typewriter_cps"] == 30);
+    });
+    test("visual-novel script keeps every canonical line and only hides lines excluded with a reason", [] {
+        using logstudio::VnScriptService; using logstudio::LogEvent;
+        logstudio::ScriptInputs in;
+        auto ev = [&](std::string id, std::string win, std::string scene, std::string type, std::string who, std::string text) {
+            LogEvent e; e.eventId = id; e.chatWindowId = win; e.sceneKey = scene; e.sceneTitle = scene == "s1" ? "Library" : "Docks"; e.eventType = type; e.speakerCharacterId = who; e.content = text; return e; };
+        in.events = {ev("e1","wA","s1","dialogue","c1","The ledger is missing."), ev("e2","wB","s2","dialogue","c2","Fog on the water."),
+                     ev("e3","wA","s1","ooc","","brb"), ev("e4","wB","s2","action","c2","She lowers the lamp."), ev("e5","wA","s1","dialogue","c1","Check the shelves.")};
+        in.windowNames = {{"wA","Library window"},{"wB","Harbour window"}};
+        in.cast = json::parse(R"([{"ref":"C1","character_id":"c1","name":"Ada","kind":"pc","default_asset_id":"std-ada"},{"ref":"C2","character_id":"c2","name":"Mo","kind":"pc","default_asset_id":null}])");
+        in.assets = json::parse(R"([{"ref":"B1","id":"bg-lib","type":"background","name":"Library at night","tags":[],"character_id":null,"expression":""},{"ref":"S1","id":"std-mo-fear","type":"standee","name":"Mo afraid","tags":[],"character_id":"c2","expression":"afraid"}])");
+        // Two model parts: the second continues scene "library" and references things that do not exist.
+        auto part1 = json::parse(R"({"scenes":[{"key":"Library","title":"The Library","background":{"ref":"B1"},"lines":[{"ref":"L1","stage":[{"who":"C1","pos":"left","expr":"calm"}]}]},
+                                              {"key":"docks","title":"Docks","background":{"ref":"B9","brief":"foggy pier"},"environment":"fog","lines":[{"ref":"L2","delivery":"hushed","stage":[{"who":"C2","pos":"right","expr":"afraid"},{"who":"C9","pos":"left"}]}]}],
+                                    "excluded":[{"ref":"L3","reason":"out-of-character"},{"ref":"L4"}]})");
+        auto part2 = json::parse(R"({"scenes":[{"key":"library","lines":[{"ref":"L5","kind":"bogus"},{"ref":"L1"},{"ref":"L77"}]}]})");
+        auto script = VnScriptService::normalize(in, {part1, part2}, "llm");
+        CHECK(script["scenes"].size() == 2);
+        auto& lib = script["scenes"][0]; auto& dock = script["scenes"][1];
+        CHECK(lib["key"] == "library"); CHECK(lib["background_asset_id"] == "bg-lib");
+        // Library holds L1, the excluded OOC line L3 (hidden) and L5, in canonical order.
+        CHECK(lib["lines"].size() == 3); CHECK(lib["lines"][0]["event_id"] == "e1"); CHECK(lib["lines"][1]["event_id"] == "e3"); CHECK(lib["lines"][2]["event_id"] == "e5");
+        CHECK(lib["lines"][1]["hidden"].asBool()); CHECK(lib["lines"][1]["exclusion_reason"] == "out-of-character");
+        CHECK(!lib["lines"][2]["hidden"].asBool()); CHECK(!lib["lines"][2].isMember("display_kind"));
+        CHECK(lib["lines"][2]["stage"][0]["character_id"] == "c1");           // stage carries forward
+        CHECK(lib["lines"][0]["stage"][0]["asset_id"] == "std-ada");           // default standee
+        // L4 was excluded without a reason, so it stays visible next to its neighbour.
+        CHECK(dock["lines"].size() == 2); CHECK(dock["lines"][1]["event_id"] == "e4"); CHECK(!dock["lines"][1]["hidden"].asBool());
+        CHECK(dock["background_asset_id"].isNull()); CHECK(dock["background_brief"] == "foggy pier"); CHECK(dock["environment"] == "fog");
+        CHECK(dock["lines"][0]["stage"].size() == 1); CHECK(dock["lines"][0]["stage"][0]["asset_id"] == "std-mo-fear"); CHECK(dock["lines"][0]["delivery"] == "hushed");
+        CHECK(script["stats"]["hidden"] == 1); CHECK(script["stats"]["shown"] == 4);
+        // Mock: parallel windows become separate scenes; OOC is excluded with a reason.
+        auto mock = VnScriptService::normalize(in, {VnScriptService::mockPlan(in)}, "mock");
+        CHECK(mock["scenes"].size() == 2); CHECK(mock["scenes"][0]["title"] == "Library · Library window");
+        CHECK(mock["scenes"][0]["lines"].size() == 3); CHECK(mock["scenes"][0]["lines"][1]["hidden"].asBool());
+        CHECK(mock["scenes"][0]["background_asset_id"] == "bg-lib"); CHECK(mock["notes"].size() == 1);
+        auto chunks = VnScriptService::chunk(in.events, 2, 100000); CHECK(chunks.size() == 3); CHECK(chunks[2].first == 4 && chunks[2].second == 5);
+        // A scene marker has no chat window: it opens the scene that follows it rather than closing the previous one.
+        auto marker = ev("m2","","s2","scene_change","","Docks"); in.events.insert(in.events.begin() + 1, marker);
+        auto withMarker = VnScriptService::normalize(in, {VnScriptService::mockPlan(in)}, "mock");
+        CHECK(withMarker["scenes"].size() == 2); CHECK(withMarker["scenes"][1]["lines"][0]["event_id"] == "m2");
+        // Non-ASCII keys continue across parts instead of collapsing to numbered fallbacks.
+        auto zh1 = json::parse(R"({"scenes":[{"key":"码头","title":"码头","lines":[{"ref":"L3"}]},{"key":"图书馆","lines":[{"ref":"L1"}]}]})");
+        auto zh2 = json::parse(R"({"scenes":[{"key":"码头","lines":[{"ref":"L5"}]}]})");
+        auto zh = VnScriptService::normalize(in, {zh1, zh2}, "llm");
+        bool merged = false; for (auto& sc : zh["scenes"]) if (sc["key"] == "码头") merged = sc["lines"].size() >= 2;
+        CHECK(merged);
     });
     test("mock speech produces measurable audio and dictionary never alters its source", [] {
         setenv("TTS_PROVIDER","mock",1);auto provider=logstudio::makeTtsProvider();logstudio::TtsSynthesisRequest req;req.text="调查员打开了门。";req.voiceId="mock-cherry";auto r=provider->synthesize(req);CHECK(r.ok&&r.mime=="audio/wav");CHECK(logstudio::wavDurationMs(r.audioBytes)==r.durationMs);CHECK(logstudio::wavDurationMs("RIFFtruncated")==0);

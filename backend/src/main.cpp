@@ -5,6 +5,7 @@
 #include "llm/LlmGateway.h"
 #include "logstudio/TtsService.h"
 #include "logstudio/CreativeService.h"
+#include "logstudio/VnScriptService.h"
 #include "seed/DemoSeed.h"
 #include "core/Log.h"
 #include <drogon/drogon.h>
@@ -40,7 +41,7 @@ int main(int argc, char** argv) {
         .setLogLevel(trantor::Logger::kInfo)
         .setIdleConnectionTimeout(300)
         .enableGzip(false);
-    drogon::app().registerBeginningAdvice([&] { S.observer->start(); S.tts->start(); S.creative->start(); });
+    drogon::app().registerBeginningAdvice([&] { S.observer->start(); S.tts->start(); S.creative->start(); S.vnScripts->start(); });
     std::signal(SIGTERM, [](int) { drogon::app().quit(); });
     std::signal(SIGINT, [](int) { drogon::app().quit(); });
     ALOG_INFO << "Acerciae TRPG backend listening on :" << cfg.httpPort << " (LLM mode: " << S.llm->mode() << ")";

@@ -164,6 +164,10 @@ npm --prefix pdf-worker ci
 API_BASE=http://127.0.0.1:8080 PDF_WORKER_TOKEN="$PDF_WORKER_TOKEN" node pdf-worker/src/index.mjs
 ```
 
+On the Visual novel tab a GM can have the LLM read every chat window and organise the log into a visual-novel script,
+built as a draft presentation in one of four look templates (Classic ADV, Novel page, Case file, Cinematic). The model
+only arranges existing lines; it never rewrites them. See [visual novel guide](docs/VISUAL_NOVEL.md).
+
 See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.md), [media/generation](docs/ASSETS.md),
 [PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the
 shared mobile-facing contracts; `mobile/` development is maintained independently.

@@ -29,6 +29,16 @@ public:
     Json::Value saveProgress(const ChannelAccess& a, const std::string& presentationId, const Json::Value& body);
     Json::Value getProgress(const ChannelAccess& a, const std::string& presentationId);
     Json::Value presentationRow(const ChannelAccess& a, const std::string& presentationId);
+    // Visual-novel look template (settings.template): a base preset plus bounded overrides.
+    // Keys that are absent fall back to the preset's defaults in the player. Unknown keys are dropped;
+    // out-of-range or malformed values are rejected so nothing free-form reaches the player's CSS.
+    static Json::Value validateVnTemplate(const Json::Value& tpl);
+    // Validates settings.template in place when present.
+    static Json::Value sanitizeSettings(const Json::Value& settings);
+    // Lays a validated visual-novel script (VnScriptService::normalize) over a freshly built presentation:
+    // regroups and reorders events into the script's scenes, applies staging, hiding and delivery.
+    // Canonical text is untouched; every asset is re-checked against the presentation's scope.
+    void applyScript(const ChannelAccess& a, const std::string& presentationId, const Json::Value& script);
 private:
     bool canEdit(const ChannelAccess& a, const Json::Value& pres);
     void touch(const std::string& presentationId, const std::string& channelId, const std::string& what);

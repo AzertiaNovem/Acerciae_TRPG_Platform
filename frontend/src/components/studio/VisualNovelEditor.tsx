@@ -6,6 +6,8 @@ import { useStudio } from '../../store/studio';
 import { useUi } from '../../store/ui';
 import type { MediaAsset, Presentation, PresentationEvent, PresentationScene, CharacterPlacement } from '../../types';
 import VNPlayer from './vn/VNPlayer';
+import VnTemplatePanel from './VnTemplatePanel';
+import VnScriptGenerator from './VnScriptGenerator';
 import './vn/vn.css';
 
 const KINDS = ['dialogue', 'narration', 'action', 'ooc', 'dice', 'scene_change', 'system', 'media'];
@@ -66,6 +68,7 @@ export default function VisualNovelEditor() {
           <table className="simple" style={{ marginTop: 8 }}><tbody>{list.map((p) => <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setPresentation(p.id)}><td><b>{p.title}</b><div className="tiny muted">{tr("snapshot v")}{p.snapshot_version} · {p.snapshot_scope} · {p.line_count}{tr(" lines · ")}{p.voiced_count}{tr(" voiced · v")}{p.version}</div></td><td><button className="small">{tr("open")}</button></td></tr>)}</tbody></table>
           {list.length === 0 && <div className="muted small" style={{ marginTop: 6 }}>{tr("No presentations yet.")}</div>}
         </div>
+        {channel?.my_role === 'gm' && <VnScriptGenerator onOpen={(id) => { setPresentation(id); loadList(); }} />}
       </div>
     );
   }
@@ -111,6 +114,9 @@ export default function VisualNovelEditor() {
           <VNPlayer channelId={channelId!} presentation={pres} index={index} onIndexChange={setIndex} editorMode characterNames={names} />
           <div className="vn-timeline">{visibleEvents.map((e, i) => <div key={e.id} className={`tick ${i === index ? 'current' : ''} ${e.audio_asset_id ? 'voiced' : ''} ${e.display_kind === 'scene_change' ? 'scene' : ''}`} title={`${i + 1}: ${e.display_text.slice(0, 60)}`} onClick={() => setIndex(i)} />)}</div>
           <div className="row"><button className="small" onClick={() => setIndex(Math.max(0, index - 1))}>{tr("⟨ prev")}</button><button className="small" onClick={() => setIndex(Math.min(visibleEvents.length - 1, index + 1))}>{tr("next ⟩")}</button><span className="tiny muted">{index + 1}/{visibleEvents.length}</span></div>
+          <VnTemplatePanel presentation={pres} characters={characters} canEdit={!!canEdit}
+            onPreview={(template) => setPres((p) => (p ? { ...p, settings: { ...p.settings, template } } : p))}
+            onSave={async (template, presentationId) => { if (!channelId) return; try { await api.updatePresentation(channelId, presentationId, { settings: { template } }); } catch (err: any) { toast(err.message, 'error'); } }} />
         </div>
         <div className="card list">
           {scene && (

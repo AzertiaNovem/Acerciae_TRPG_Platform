@@ -31,7 +31,116 @@
       "type": "integer"
     },
     "settings": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "animations_enabled": {
+          "type": "boolean"
+        },
+        "typewriter_cps": {
+          "type": "number"
+        },
+        "aspect": {
+          "type": "string"
+        },
+        "template": {
+          "description": "Visual-novel look template. Only base is required; absent keys use the preset's defaults. Validated server-side (PresentationService::validateVnTemplate); unknown keys are dropped.",
+          "type": "object",
+          "required": [
+            "base"
+          ],
+          "properties": {
+            "base": {
+              "enum": [
+                "adv",
+                "nvl",
+                "dossier",
+                "cinematic"
+              ]
+            },
+            "font": {
+              "enum": [
+                "sans",
+                "serif",
+                "mono"
+              ]
+            },
+            "text_scale": {
+              "type": "number",
+              "minimum": 0.8,
+              "maximum": 1.5
+            },
+            "box_opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "accent_color": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "name_style": {
+              "enum": [
+                "tag",
+                "inline",
+                "hidden"
+              ]
+            },
+            "color_grade": {
+              "enum": [
+                "none",
+                "sepia",
+                "mono",
+                "cold",
+                "warm"
+              ]
+            },
+            "letterbox": {
+              "type": "boolean"
+            },
+            "dim_inactive": {
+              "type": "boolean"
+            },
+            "dice_style": {
+              "enum": [
+                "burst",
+                "stamp",
+                "inline",
+                "hide"
+              ]
+            },
+            "scene_card": {
+              "enum": [
+                "fade",
+                "caption",
+                "none"
+              ]
+            },
+            "character_colors": {
+              "type": "object",
+              "maxProperties": 200,
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              }
+            }
+          }
+        },
+        "generated": {
+          "description": "Present when the presentation was built by a visual-novel script job.",
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            }
+          }
+        }
+      }
     },
     "events": {
       "type": "array",

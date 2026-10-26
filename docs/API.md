@@ -145,7 +145,7 @@ A Canonical event includes `event_id`, `campaign_id`, `speaker_id` (alias of sta
 
 ### Existing performance and media contracts
 
-Automatic visual-novel template generation is outside this change. Existing manually authored presentations are still supported; publication and TTS reuse them.
+Presentations can be authored by hand or built by a visual-novel script job (below). `settings.template` holds the look template; see [VISUAL_NOVEL.md](VISUAL_NOVEL.md).
 
 | Method | Suffix | Contract |
 |---|---|---|
@@ -157,6 +157,10 @@ Automatic visual-novel template generation is outside this change. Existing manu
 | POST | `/presentations/{p}/events/bulk` · `/merge` · `/reorder` | Existing edit operations; all event IDs must belong to the specified presentation. |
 | POST | `/pevents/{event}/split` · `/suggestion` | Split uses character ranges; suggestion decision uses `{accept:boolean}`. |
 | GET/POST | `/presentations/{p}/progress` | Per-user reading position. |
+| GET | `/vn-scripts/status` | `{mock, model, cloud_allowed, max_lines, note}`. |
+| GET · POST | `/vn-scripts` | GM only. POST `{snapshot_id, title?, template?, instructions?, allow_cloud?}` queues a script job over that snapshot; `allow_cloud:true` and the campaign cloud policy are required unless the LLM is in mock mode. Template values are validated (400 on bad values). |
+| GET | `/vn-scripts/{j}` | GM only. Job with `status`, `progress {chunks_total, chunks_done, lines}`, validated `script` ([VN_SCRIPT_SCHEMA.json](VN_SCRIPT_SCHEMA.json)) and the draft `presentation_id`. Progress also arrives as GM-only `studio.vnscript.progress` WebSocket events. |
+| POST | `/vn-scripts/{j}/cancel` | GM only; pending or running jobs. |
 | GET/POST | `/styles` | Versioned campaign art direction (POST GM). |
 | PUT | `/styles/{id}` | GM edits/version bump. |
 | GET | `/character-visuals` | NPC profiles are GM-only. |

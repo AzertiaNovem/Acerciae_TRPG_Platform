@@ -20,6 +20,7 @@
 #include "../logstudio/TtsService.h"
 #include "../logstudio/PublicationService.h"
 #include "../logstudio/CreativeService.h"
+#include "../logstudio/VnScriptService.h"
 #include "../servers/ServerSettingsService.h"
 #include "../dice/DiceService.h"
 #include "../core/Errors.h"
@@ -236,6 +237,11 @@ void registerRoutes() {
     route1("/api/channels/{1}/studio/images/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.creative->jobs(access(p,a[0])); });
     route1("/api/channels/{1}/studio/images/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->create(access(p,a[0]),body(req)); });
     route2("/api/channels/{1}/studio/images/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.creative->cancel(access(p,a[0]),a[1]); });
+    route1("/api/channels/{1}/studio/vn-scripts/status", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->status(access(p,a[0])); });
+    route1("/api/channels/{1}/studio/vn-scripts", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->list(access(p,a[0])); });
+    route1("/api/channels/{1}/studio/vn-scripts", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->create(access(p,a[0]),body(req)); });
+    route2("/api/channels/{1}/studio/vn-scripts/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->get(access(p,a[0]),a[1]); });
+    route2("/api/channels/{1}/studio/vn-scripts/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.vnScripts->cancel(access(p,a[0]),a[1]); });
     route2("/api/channels/{1}/studio/presentations/{2}/suggest", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->suggest(access(p,a[0]),a[1],body(req)); });
     route1("/api/channels/{1}/studio/pdf/templates", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->templates(access(p,a[0])); });
     route1("/api/channels/{1}/studio/pdf/templates", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->saveTemplate(access(p,a[0]),body(req)); });

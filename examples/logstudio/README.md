@@ -6,4 +6,4 @@ Select a public-player snapshot and use `pdf-classic.json`, `pdf-dossier.json` o
 
 `voices.json` illustrates real Qwen and explicitly mock profiles plus a pronunciation dictionary. Create campaign characters first and use their returned IDs; do not submit the wrapper object directly to the voices endpoint. Confirm cloud processing and regional credentials before live synthesis.
 
-`presentation-reference.json` documents the existing manual timeline data shape. Its illustrative IDs must be replaced with API-returned IDs. It is not a visual-novel template generator. The application can create the existing basic presentation from a snapshot, then accept user edits and uploaded media.
+`vn-template-dossier.json` is a look template for `settings.template` (see `docs/VISUAL_NOVEL.md`); replace the character id. `presentation-reference.json` documents the existing manual timeline data shape. Its illustrative IDs must be replaced with API-returned IDs. The application can create the existing basic presentation from a snapshot, then accept user edits and uploaded media.
