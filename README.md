@@ -72,7 +72,7 @@ Everything is read from environment variables; see [`.env.example`](.env.example
 | `AI_OBSERVER_INTERVAL_MS` (5000) | scan cadence of the high-frequency observer |
 | `AI_CONSOLIDATOR_INTERVAL_MS` (60000) | cadence of the low-frequency consolidation pass |
 | `HIGHLIGHT_TTL_SECONDS`, `HIGHLIGHT_CLEANUP_INTERVAL_MS` | highlight lifetime and the independent expiry sweeper |
-| `AUTH_SECRET` | HMAC key for API tokens (change in production) |
+| `AUTH_SECRET` | HMAC key for API tokens and the key that seals per-server API keys (change in production; rotating it invalidates stored server keys) |
 
 LLM API keys live only in the backend process; the frontend never sees them.
 
@@ -112,6 +112,18 @@ see why and jump to the original event, dismissable, swept by an independent cle
 or blocks the draft and never leaks GM-only facts. Inspiration returns an editable draft grounded only in the character's
 knowledge, never auto-sent (insert / regenerate / discard).
 
+**Integrated dice (Sealdice-compatible)** — `.r` `.rh` `.ra`/`.rc` `.rah` `.sc` `.st` `.en` typed into chat, evaluated against the
+speaking character's attributes (`characters.sheet.attrs`, CoC 7e base values, English and 中文 aliases): hard/extreme
+difficulty, bonus/penalty dice, sanity loss written back to SAN, hidden rolls whispered to the roller and the GM. While typing,
+a gray hint follows the command (`.ra research —— Alice's research is 53`). Reply wording comes from built-in English/中文 texts
+or server-defined text groups; each channel's GM picks one. GMs maintain NPC sheets by speaking as the NPC or in the character sheet.
+
+**Server maintainers** — the server owner and admins ("maintainers") set the server's language, LLM API base/key/model and
+thinking effort, TTS credentials, and switch Consistency Check, Integrated Dice and Inspiration on or off; they invite and remove
+members. Keys are sealed with AES-256-GCM under `AUTH_SECRET` and never returned to clients; a server API base is only used with
+the server's own key. Members are chosen with search-and-click pickers when creating chat windows, inviting to the server or a
+channel, and managing an existing window's participants.
+
 **PDF module import** — poppler text extraction per page → chunked LLM structuring into a conditional knowledge graph
 (`module_nodes` / `module_edges`) with page citations → GM review/edit → progress recognition and “potential association”
 hints when play touches or leaves module content. Module data is a separate GM-only layer from play events.
@@ -127,7 +139,7 @@ live in separate stores so highlight traffic never re-renders document text; the
 ```bash
 scripts/test.sh                      # unit + DB + end-to-end + typecheck against a local PostgreSQL
 # or individually
-backend/build/unit_tests             # no DB needed (71 checks)
+backend/build/unit_tests             # no DB needed
 TEST_DATABASE_URL=postgresql://postgres@localhost:5432/acerciae_test backend/build/db_tests
 API_BASE=http://localhost:8080 node --test tests/integration/scenarios.test.mjs   # the 7 acceptance scenarios + realtime
 ```

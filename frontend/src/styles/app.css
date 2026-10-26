@@ -140,3 +140,41 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
   .dock { right: 8px; bottom: 8px; } .bubble { width: 200px; } .doc-viewer { width: calc(100vw - 72px); height: 60vh; }
   .panel-float { left: 8px; right: 8px; }
 }
+
+/* ---- pickers, settings, character sheets ---- */
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); margin-top: 4px; }
+.picker { display: flex; flex-direction: column; gap: 6px; }
+.picker-list { display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: #1b2847; border: 1px solid #2c3f6e; color: var(--fg-0); border-radius: 999px; padding: 1px 4px 1px 10px; font-size: 12px; }
+.chip-x { border: none; background: transparent; padding: 0 5px; color: var(--fg-2); border-radius: 999px; }
+.chip-x:hover { background: var(--bg-4); color: var(--fg-0); }
+.pick { display: flex; align-items: center; gap: 8px; text-align: left; background: var(--bg-3); border-color: transparent; padding: 5px 9px; }
+.pick.on { background: #1b2847; border-color: #2c3f6e; }
+.pick-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; background: var(--bg-3); }
+.field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--fg-2); }
+.field > input, .field > select { color: var(--fg-0); font-size: 14px; }
+.modal.wide { width: min(720px, 94vw); }
+.tabs.inline { padding: 0; background: transparent; }
+.feature { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: var(--bg-3); cursor: pointer; }
+.feature input { margin-top: 3px; }
+.text-keys { display: grid; grid-template-columns: 1fr; gap: 6px; max-height: 46vh; overflow-y: auto; padding-right: 4px; }
+.mono { font-family: var(--mono); }
+.attr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px; max-height: 50vh; overflow-y: auto; }
+.attr { display: flex; align-items: center; gap: 6px; background: var(--bg-3); border-radius: 6px; padding: 3px 4px 3px 9px; }
+.attr-value { width: 58px; text-align: right; padding: 3px 6px; font-variant-numeric: tabular-nums; }
+.channel-sidebar .item .member-count { padding: 0 5px; font-size: 11px; color: var(--fg-2); }
+
+/* ---- dice ---- */
+.composer-input { position: relative; }
+.composer-input textarea { display: block; line-height: 1.45; }
+.composer-ghost { position: absolute; inset: 0; padding: 8px 10px; border: 1px solid transparent; pointer-events: none; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; line-height: 1.45; }
+.ghost-text { color: transparent; }
+.ghost-hint { color: var(--fg-3); }
+.message .content.dice-command { font-family: var(--mono); font-size: 12px; color: var(--fg-2); }
+.dice-result { margin-top: 3px; padding: 4px 10px; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--bg-4); white-space: pre-wrap; display: inline-block; max-width: 100%; }
+.dice-result.ok { border-color: #22503a; background: #13261b; }
+.dice-result.fail { border-color: #4a2d31; background: #23171a; }
+.dice-result.crit { border-color: var(--ok); background: #163222; font-weight: 600; }
+.dice-result.fumble { border-color: var(--danger); background: #331a1e; font-weight: 600; }
+.dice-result.notice { color: var(--fg-2); font-style: italic; }

@@ -363,7 +363,8 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
             if (diceResult.hidden) {
                 // Hidden rolls: the result reaches the roller's character and the GM; the window only sees a notice.
                 if (!characterId.empty() && characterKind == "pc") { visibility = "whisper"; whisperTo = {characterId}; }
-                else { visibility = "gm_only"; whisperTo.clear(); }
+                else if (a.isGm) { visibility = "gm_only"; whisperTo.clear(); }
+                else throw ApiError(400, "dice_error", "Hidden rolls need a character to speak as, so the result has someone to reach.");
             }
         }
         auto insert = [&](const std::string& vis, const std::vector<std::string>& to, const std::string& text, const Json::Value& dice) {

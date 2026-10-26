@@ -6,8 +6,10 @@ import { useUi } from '../store/ui';
 import ConsistencyButton from './ConsistencyButton';
 import InspirationButton from './InspirationButton';
 
+const DICE_PREFIX = /^\s*[.。．](r|ra|rc|rh|rah|rch|sc|st|en)/i;
+
 export default function MessageComposer() {
-  const { channelId, windowId, channel, windows, characters } = useNav();
+  const { channelId, windowId, channel, windows, characters, serverSettings } = useNav();
   const user = useAuth((s) => s.user);
   const { composerInsert, toast } = useUi();
   const [text, setText] = useState('');
@@ -16,7 +18,10 @@ export default function MessageComposer() {
   const [whisperTo, setWhisperTo] = useState<string>('');
   const [characterId, setCharacterId] = useState<string>('');
   const [sending, setSending] = useState(false);
+  const [hint, setHint] = useState<{ text: string; for: string } | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const ghost = useRef<HTMLDivElement>(null);
+  const features = serverSettings?.features;
   const isGm = channel?.my_role === 'gm';
   const win = windows.find((w) => w.id === windowId);
   const myCharacters = characters.filter((c) => c.user_id === user?.id);
@@ -25,6 +30,21 @@ export default function MessageComposer() {
 
   useEffect(() => { if (composerInsert) { setText((t) => (t ? t + '\n' : '') + composerInsert.text); ta.current?.focus(); } }, [composerInsert]);
   useEffect(() => { setKind(isGm ? 'narration' : 'ic'); }, [isGm, windowId]);
+
+  // Gray hint after a dice command (".ra research —— Alice's research is 53"); the server renders it with the
+  // channel's dice texts and the speaking character's attributes, without rolling.
+  const diceOn = features?.dice !== false;
+  const isDice = diceOn && !text.includes('\n') && DICE_PREFIX.test(text);
+  useEffect(() => {
+    if (!isDice || !channelId || !windowId) { setHint(null); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      api.dicePreview(channelId, { content: text, chat_window_id: windowId, character_id: activeCharacter || undefined })
+        .then((r) => { if (live) setHint(r.hint ? { text: r.hint, for: text } : null); })
+        .catch(() => { if (live) setHint(null); });
+    }, 160);
+    return () => { live = false; clearTimeout(t); };
+  }, [text, isDice, channelId, windowId, activeCharacter, characters]);
 
   const send = async () => {
     if (!text.trim() || !channelId || !windowId || sending) return;
@@ -37,8 +57,14 @@ export default function MessageComposer() {
   };
   return (
     <div className="composer">
-      <textarea ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? 'Narrate, speak as an NPC, or adjudicate…' : 'What does your character do or say?'}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+      <div className="composer-input">
+        <textarea ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? 'Narrate, speak as an NPC, or adjudicate…' + (diceOn ? '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)' : '') : 'What does your character do or say?' + (diceOn ? '  (.ra skill to roll)' : '')}
+          onScroll={(e) => { if (ghost.current) ghost.current.scrollTop = e.currentTarget.scrollTop; }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+        {isDice && hint && hint.for === text && (
+          <div className="composer-ghost" ref={ghost} aria-hidden><span className="ghost-text">{text}</span><span className="ghost-hint">{'  —— '}{hint.text}</span></div>
+        )}
+      </div>
       <div className="toolbar">
         <select value={kind} onChange={(e) => setKind(e.target.value as any)} title="Message kind">
           <option value="ic">In character</option><option value="narration">Narration</option><option value="ooc">Out of character</option><option value="roll">Dice / roll</option>
@@ -58,8 +84,8 @@ export default function MessageComposer() {
           <select value={whisperTo} onChange={(e) => setWhisperTo(e.target.value)}><option value="">choose character…</option>{characters.filter((c) => c.kind === 'pc').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         )}
         <span className="spacer" />
-        <ConsistencyButton draft={text} characterId={activeCharacter} />
-        <InspirationButton characterId={activeCharacter} />
+        {features?.consistency !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
+        {features?.inspiration !== false && <InspirationButton characterId={activeCharacter} />}
         <button className="primary" onClick={send} disabled={!text.trim() || sending}>Send</button>
       </div>
     </div>

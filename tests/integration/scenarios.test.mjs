@@ -282,3 +282,43 @@ test('Knowledge sharing suggestion is proposed to the GM, never applied automati
 });
 
 after(() => { /* data stays for inspection; each run uses unique names */ });
+
+test('Dice, character attributes and server maintainer settings over HTTP', async () => {
+  const ch = ids.channel;
+  // .st sets attributes on the speaking character; the preview is the composer's gray hint; .ra rolls against them.
+  const st = await say(U.pl1, ids.winArchive, '.st research53 侦查60 SAN55');
+  assert.equal(st.kind, 'roll'); assert.ok(st.dice.text.includes('research 53'));
+  const attrs = await api('GET', `/api/channels/${ch}/characters/${ids.c1}/attributes`, undefined, U.pl1);
+  assert.equal(attrs.attrs.research, 53); assert.equal(attrs.attrs['Spot Hidden'], 60); assert.equal(attrs.editable, true);
+  const preview = await api('POST', `/api/channels/${ch}/dice/preview`, { content: '.ra research', chat_window_id: ids.winArchive }, U.pl1);
+  assert.equal(preview.hint, "Ada Vance's research is 53");
+  const ra = await say(U.pl1, ids.winArchive, '.ra hard research');
+  assert.match(ra.dice.text, /^Ada Vance's Hard research check: D100=\d+\/26 — /);
+  await assert.rejects(api('PUT', `/api/channels/${ch}/characters/${ids.c1}/attributes`, { set: { STR: 90 } }, U.pl2), (e) => e.status === 403);
+  // GM maintains an NPC sheet.
+  const npc = (await api('GET', `/api/channels/${ch}/characters`, undefined, U.gm)).find((c) => c.kind === 'npc');
+  const npcAttrs = await api('PUT', `/api/channels/${ch}/characters/${npc.id}/attributes`, { set: { 'persuade': 60 } }, U.gm);
+  assert.equal(npcAttrs.attrs.Persuade, 60);
+  await assert.rejects(api('GET', `/api/channels/${ch}/characters/${npc.id}/attributes`, undefined, U.pl1), (e) => e.status === 403);
+  // Maintainer settings: players see the public view only; keys never come back.
+  const pub = await api('GET', `/api/servers/${ids.server}/settings`, undefined, U.pl1);
+  assert.equal(pub.is_maintainer, false); assert.equal(pub.llm, undefined);
+  await assert.rejects(api('PUT', `/api/servers/${ids.server}/settings`, { language: 'ja' }, U.pl1), (e) => e.status === 403);
+  const saved = await api('PUT', `/api/servers/${ids.server}/settings`, { features: { consistency: false }, llm: { api_key: 'sk-e2e-secret-value-1234', model: 'x' } }, U.gm);
+  assert.ok(!JSON.stringify(saved).includes('sk-e2e')); assert.equal(saved.llm.api_key_set, true);
+  await assert.rejects(api('POST', `/api/channels/${ch}/consistency`, { chat_window_id: ids.main, draft: 'hello' }, U.pl1), (e) => e.status === 403 && e.data.error === 'feature_disabled');
+  await api('PUT', `/api/servers/${ids.server}/settings`, { features: { consistency: true }, llm: { clear_api_key: true, model: '' } }, U.gm);
+  // Text group chosen by the GM.
+  const group = await api('POST', `/api/servers/${ids.server}/dice-texts`, { name: `Plain ${RUN}`, base: 'en', texts: { 'attr.value': '{attr}={value} ({name})' } }, U.gm);
+  await api('PUT', `/api/channels/${ch}`, { dice_text_group: group.id }, U.gm);
+  const p2 = await api('POST', `/api/channels/${ch}/dice/preview`, { content: '.ra research', chat_window_id: ids.winArchive }, U.pl1);
+  assert.equal(p2.hint, 'research=53 (Ada Vance)');
+  await api('PUT', `/api/channels/${ch}`, { dice_text_group: '' }, U.gm);
+  // Window membership from the picker: remove and re-add a player.
+  await api('DELETE', `/api/channels/${ch}/windows/${ids.winArchive}/members/${ids.pl2_user}`, undefined, U.gm);
+  await assert.rejects(api('GET', `/api/channels/${ch}/windows/${ids.winArchive}/messages`, undefined, U.pl2), (e) => e.status === 403);
+  await api('POST', `/api/channels/${ch}/windows/${ids.winArchive}/members`, { user_id: ids.pl2_user }, U.gm);
+  assert.ok(Array.isArray(await api('GET', `/api/channels/${ch}/windows/${ids.winArchive}/messages`, undefined, U.pl2)));
+  const found = await api('GET', `/api/users/search?q=pl3_${RUN}`, undefined, U.gm);
+  assert.equal(found[0].id, ids.pl3_user);
+});
