@@ -1,5 +1,5 @@
 // Shared API types (mirrors backend JSON shapes).
-export interface User { id: string; username: string; display_name: string }
+export interface User { id: string; username: string; display_name: string; ui_language: string; avatar_data: string; avatar_version: number; languages?: string[] }
 export interface Server { id: string; name: string; owner_id: string; my_role: string }
 export interface Channel {
   id: string; server_id: string; name: string; description: string; rule_system: string;
@@ -15,7 +15,7 @@ export interface ChatWindow {
 export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null }
 export interface Message {
   id: string; channel_id: string; chat_window_id: string; scene_id: string | null; author_id: string; author_role: 'gm' | 'player';
-  character_id: string | null; character_name: string | null; author_name: string; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
+  character_id: string | null; character_name: string | null; author_name: string; author_avatar_version?: number; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
   content: string; visibility: 'window' | 'gm_only' | 'whisper'; whisper_to: string[]; seq: number; created_at: string;
   dice?: DiceResult | null;
 }

@@ -32,6 +32,8 @@ export const api = {
   login: (username: string, password: string) => post<{ token: string; user: T.User }>('/api/auth/login', { username, password }),
   logout: () => post('/api/auth/logout'),
   me: () => get<T.User>('/api/auth/me'),
+  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'avatar_data'>>) => put<T.User>('/api/auth/me', body),
+  avatarUrl: (id: string, version: number) => `${BASE}/api/users/${encodeURIComponent(id)}/avatar?v=${version}&token=${encodeURIComponent(getToken() || '')}`,
   servers: () => get<T.Server[]>('/api/servers'),
   createServer: (name: string) => post<T.Server>('/api/servers', { name }),
   joinServer: (id: string) => post<T.Server>(`/api/servers/${id}/join`),

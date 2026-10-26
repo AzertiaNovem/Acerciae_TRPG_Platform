@@ -1,3 +1,4 @@
+import { t as tr } from '../../i18n';
 import { useEffect, useState } from "react";
 import { request } from "../../api/client";
 import { useNav } from "../../store/nav";
@@ -22,12 +23,8 @@ export default function StudioPolicyPanel() {
   const editable = channel?.my_role === "gm";
   return (
     <details className="card">
-      <summary>Campaign production settings</summary>
-      <p>
-        Cloud processing uses the providers and region configured by server
-        maintainers. Local uploads, cached audio, PDFs and Mock providers remain
-        usable with cloud processing disabled.
-      </p>
+      <summary>{tr("Campaign production settings")}</summary>
+      <p>{tr("Cloud processing uses the providers and region configured by server maintainers. Local uploads, cached audio, PDFs and Mock providers remain usable with cloud processing disabled.")}</p>
       <div className="row">
         <label>
           <input
@@ -37,12 +34,8 @@ export default function StudioPolicyPanel() {
             onChange={(e) =>
               setPolicy({ ...policy, studio_cloud_allowed: e.target.checked })
             }
-          />{" "}
-          Allow selected Log Studio content to be sent to configured cloud
-          providers
-        </label>
-        <label>
-          Total TTS character budget{" "}
+          />{" "}{tr("Allow selected Log Studio content to be sent to configured cloud providers")}</label>
+        <label>{tr("Total TTS character budget")}{" "}
           <input
             type="number"
             min="0"
@@ -70,9 +63,7 @@ export default function StudioPolicyPanel() {
                 setMessage((e as Error).message);
               }
             }}
-          >
-            Save production settings
-          </button>
+          >{tr("Save production settings")}</button>
         )}
       </div>
       {message && <p role="status">{message}</p>}

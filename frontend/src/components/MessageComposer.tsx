@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
@@ -58,7 +59,7 @@ export default function MessageComposer() {
   return (
     <div className="composer">
       <div className="composer-input">
-        <textarea ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? 'Narrate, speak as an NPC, or adjudicate…' + (diceOn ? '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)' : '') : 'What does your character do or say?' + (diceOn ? '  (.ra skill to roll)' : '')}
+        <textarea ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? tr("Narrate, speak as an NPC, or adjudicate…") + (diceOn ? '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)' : '') : tr("What does your character do or say?") + (diceOn ? '  (.ra skill to roll)' : '')}
           onScroll={(e) => { if (ghost.current) ghost.current.scrollTop = e.currentTarget.scrollTop; }}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
         {isDice && hint && hint.for === text && (
@@ -66,27 +67,27 @@ export default function MessageComposer() {
         )}
       </div>
       <div className="toolbar">
-        <select value={kind} onChange={(e) => setKind(e.target.value as any)} title="Message kind">
-          <option value="ic">In character</option><option value="narration">Narration</option><option value="ooc">Out of character</option><option value="roll">Dice / roll</option>
+        <select value={kind} onChange={(e) => setKind(e.target.value as any)} title={tr("Message kind")}>
+          <option value="ic">{tr("In character")}</option><option value="narration">{tr("Narration")}</option><option value="ooc">{tr("Out of character")}</option><option value="roll">{tr("Dice / roll")}</option>
         </select>
         {(isGm ? characters : myCharacters).length > 0 && (
-          <select value={activeCharacter} onChange={(e) => setCharacterId(e.target.value)} title="Speak as">
-            {isGm && <option value="">— as GM —</option>}
-            {(isGm ? characters : myCharacters).map((c) => <option key={c.id} value={c.id}>{c.name}{c.kind === 'npc' ? ' (NPC)' : ''}</option>)}
+          <select value={activeCharacter} onChange={(e) => setCharacterId(e.target.value)} title={tr("Speak as")}>
+            {isGm && <option value="">{tr("— as GM —")}</option>}
+            {(isGm ? characters : myCharacters).map((c) => <option key={c.id} value={c.id}>{c.name}{c.kind === 'npc' ? tr(" (NPC)") : ''}</option>)}
           </select>
         )}
         {isGm && (
-          <select value={visibility} onChange={(e) => setVisibility(e.target.value as any)} title="Visibility">
-            <option value="window">Visible to window</option><option value="gm_only">GM-only note</option><option value="whisper">Whisper to characters</option>
+          <select value={visibility} onChange={(e) => setVisibility(e.target.value as any)} title={tr("Visibility")}>
+            <option value="window">{tr("Visible to window")}</option><option value="gm_only">{tr("GM-only note")}</option><option value="whisper">{tr("Whisper to characters")}</option>
           </select>
         )}
         {isGm && visibility === 'whisper' && (
-          <select value={whisperTo} onChange={(e) => setWhisperTo(e.target.value)}><option value="">choose character…</option>{characters.filter((c) => c.kind === 'pc').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+          <select value={whisperTo} onChange={(e) => setWhisperTo(e.target.value)}><option value="">{tr("choose character…")}</option>{characters.filter((c) => c.kind === 'pc').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         )}
         <span className="spacer" />
         {features?.consistency !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
         {features?.inspiration !== false && <InspirationButton characterId={activeCharacter} />}
-        <button className="primary" onClick={send} disabled={!text.trim() || sending}>Send</button>
+        <button className="primary" onClick={send} disabled={!text.trim() || sending}>{tr("Send")}</button>
       </div>
     </div>
   );

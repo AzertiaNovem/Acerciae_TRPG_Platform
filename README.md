@@ -80,6 +80,8 @@ LLM API keys live only in the backend process; the frontend never sees them.
 
 ## What is implemented
 
+**Personal settings** — Eleven interface languages matching server settings, saved per account; editable login username, Unicode display name and uploaded avatar. The sidebar profile gear opens these controls. Personal language is independent of the server's AI/dice language. See [USER_SETTINGS.md](docs/USER_SETTINGS.md) for the API and validation.
+
 **Product structure** — Servers → Channels (one campaign each, strictly isolated context) → Chat Windows (each with
 its own participants; windows and scenes are many-to-many). GM / player roles; GM-only notes and whispers.
 

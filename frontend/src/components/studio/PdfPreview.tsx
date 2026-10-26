@@ -1,3 +1,4 @@
+import { t as tr } from '../../i18n';
 import { useEffect, useRef, useState } from "react";
 import type {
   PDFDocumentProxy,
@@ -100,28 +101,21 @@ export default function PdfPreview({ url }: { url: string }) {
     };
   }, [document, page, width]);
   return (
-    <section aria-label="PDF preview">
+    <section aria-label={tr("PDF preview")}>
       <div className="row" style={{ margin: "12px 0" }}>
         <button
           disabled={!document || page <= 1}
           onClick={() => setPage((p) => p - 1)}
-        >
-          Previous page
-        </button>
-        <span>
-          Page {page} / {document?.numPages || "…"}
+        >{tr("Previous page")}</button>
+        <span>{tr("Page ")}{page} / {document?.numPages || "…"}
         </span>
         <button
           disabled={!document || page >= document.numPages}
           onClick={() => setPage((p) => p + 1)}
-        >
-          Next page
-        </button>
-        <a href={url} target="_blank" rel="noreferrer">
-          Open PDF file
-        </a>
+        >{tr("Next page")}</button>
+        <a href={url} target="_blank" rel="noreferrer">{tr("Open PDF file")}</a>
       </div>
-      {busy && <p role="status">Rendering preview…</p>}
+      {busy && <p role="status">{tr("Rendering preview…")}</p>}
       {error && <p role="alert">{error}</p>}
       <div
         ref={host}
@@ -135,7 +129,7 @@ export default function PdfPreview({ url }: { url: string }) {
       </div>
       {text && (
         <details>
-          <summary>Text on this page</summary>
+          <summary>{tr("Text on this page")}</summary>
           <p style={{ whiteSpace: "pre-wrap" }}>{text}</p>
         </details>
       )}

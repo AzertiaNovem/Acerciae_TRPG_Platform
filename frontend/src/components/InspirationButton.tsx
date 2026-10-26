@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
@@ -12,5 +13,5 @@ export default function InspirationButton({ characterId }: { characterId: string
     catch (e: any) { toast(e.message, 'error'); }
     finally { setInspirationBusy(false); }
   };
-  return <button className="ai-btn" onClick={run} disabled={inspirationBusy} title="Draft a possible response from what your character knows">{inspirationBusy ? 'Drafting…' : '✦ Inspiration'}</button>;
+  return <button className="ai-btn" onClick={run} disabled={inspirationBusy} title={tr("Draft a possible response from what your character knows")}>{inspirationBusy ? tr("Drafting…") : tr("✦ Inspiration")}</button>;
 }

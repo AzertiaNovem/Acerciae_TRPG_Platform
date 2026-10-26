@@ -1,3 +1,4 @@
+import { t as tr } from '../../i18n';
 import PdfPreview from "./PdfPreview";
 import { useEffect, useState } from "react";
 import { api as coreApi } from "../../api/client";
@@ -51,7 +52,7 @@ export default function PdfTemplateEditor() {
       clearInterval(timer);
     };
   }, [ch]);
-  if (!ch || !config) return <p>{error || "Loading PDF templates…"}</p>;
+  if (!ch || !config) return <p>{error || tr("Loading PDF templates…")}</p>;
   const patch = (p: Partial<PdfConfig>) => setConfig({ ...config, ...p });
   const submit = async () => {
     if (!snapshot) return;
@@ -69,20 +70,15 @@ export default function PdfTemplateEditor() {
   return (
     <div className="studio-publishing">
       <div className="card">
-        <h2>PDF publication</h2>
-        <p>
-          Choose a snapshot in the library. Preview and download use the same
-          frozen text and visibility scope.
-        </p>
+        <h2>{tr("PDF publication")}</h2>
+        <p>{tr("Choose a snapshot in the library. Preview and download use the same frozen text and visibility scope.")}</p>
         {error && (
           <p role="alert" className="error">
             {error}
           </p>
         )}
         <div className="publication-fields">
-          <label>
-            Template
-            <select
+          <label>{tr("Template")}<select
               onChange={(e) =>
                 setConfig(
                   templates.find((t) => t.id === e.target.value)!.config,
@@ -99,7 +95,7 @@ export default function PdfTemplateEditor() {
           {(["page_size", "orientation", "font", "dice_style"] as const).map(
             (k) => (
               <label key={k}>
-                {k.replace(/_/g, " ")}
+                {tr(k.replace(/_/g, " "))}
                 <select
                   value={config[k]}
                   onChange={(e) => patch({ [k]: e.target.value })}
@@ -110,7 +106,7 @@ export default function PdfTemplateEditor() {
                     font: ["serif", "sans"],
                     dice_style: ["box", "inline", "hide"],
                   }[k].map((v) => (
-                    <option key={v}>{v}</option>
+                    <option key={v} value={v}>{tr(v)}</option>
                   ))}
                 </select>
               </label>
@@ -118,7 +114,7 @@ export default function PdfTemplateEditor() {
           )}
           {(["font_size", "line_height", "margin_mm"] as const).map((k) => (
             <label key={k}>
-              {k.replace(/_/g, " ")}
+              {tr(k.replace(/_/g, " "))}
               <input
                 type="number"
                 step={k === "line_height" ? 0.1 : 1}
@@ -131,7 +127,7 @@ export default function PdfTemplateEditor() {
             ["title", "subtitle", "header", "footer", "cover_asset_id"] as const
           ).map((k) => (
             <label key={k}>
-              {k.replace(/_/g, " ")}
+              {tr(k.replace(/_/g, " "))}
               <input
                 value={config[k]}
                 onChange={(e) => patch({ [k]: e.target.value })}
@@ -155,16 +151,13 @@ export default function PdfTemplateEditor() {
                 checked={config[k]}
                 onChange={(e) => patch({ [k]: e.target.checked })}
               />
-              {k.replace(/_/g, " ")}
+              {tr(k.replace(/_/g, " "))}
             </label>
           ))}
         </div>
         <details>
-          <summary>Character colors and scene illustrations</summary>
-          <p>
-            Colors use speaker keys and #RRGGBB values. Illustrations map scene
-            keys to approved image IDs from the asset library.
-          </p>
+          <summary>{tr("Character colors and scene illustrations")}</summary>
+          <p>{tr("Colors use speaker keys and #RRGGBB values. Illustrations map scene keys to approved image IDs from the asset library.")}</p>
           {(["character_colors", "scene_images"] as const).map((k) => (
             <label key={k}>
               {k}
@@ -183,11 +176,8 @@ export default function PdfTemplateEditor() {
           ))}
         </details>
         <fieldset>
-          <legend>Optional document appendices</legend>
-          <p className="tiny muted">
-            Only confirmed or resolved entries visible to this snapshot's
-            audience are included, with source references.
-          </p>
+          <legend>{tr("Optional document appendices")}</legend>
+          <p className="tiny muted">{tr("Only confirmed or resolved entries visible to this snapshot's audience are included, with source references.")}</p>
           {documents
             .filter((d) => snapshot?.scope === "gm_full" || !d.gm_only)
             .map((d) => (
@@ -209,7 +199,7 @@ export default function PdfTemplateEditor() {
         </fieldset>
         <div className="row">
           <button disabled={!snapshot || busy} onClick={submit}>
-            {busy ? "Submitting…" : "Render PDF"}
+            {busy ? tr("Submitting…") : tr("Render PDF")}
           </button>
           {channel?.my_role === "gm" && (
             <button
@@ -223,30 +213,24 @@ export default function PdfTemplateEditor() {
                     setError((e as Error).message);
                   }
               }}
-            >
-              Save template
-            </button>
+            >{tr("Save template")}</button>
           )}
         </div>
         {!snapshot && (
-          <p className="muted">Select a snapshot in Library first.</p>
+          <p className="muted">{tr("Select a snapshot in Library first.")}</p>
         )}
       </div>
       <div className="card">
-        <h3>Render jobs</h3>
+        <h3>{tr("Render jobs")}</h3>
         {jobs.map((j) => (
           <div className="row" key={j.id}>
             <span>
-              {j.template_config.base} · {j.status} · attempt {j.attempts}
+              {j.template_config.base} · {tr(j.status)}{tr(" · attempt ")}{j.attempts}
             </span>
             {j.status === "completed" && (
               <>
-                <button onClick={() => setPreview(api.file(ch, j.id))}>
-                  Preview
-                </button>
-                <a href={api.file(ch, j.id)} target="_blank" rel="noreferrer">
-                  Download
-                </a>
+                <button onClick={() => setPreview(api.file(ch, j.id))}>{tr("Preview")}</button>
+                <a href={api.file(ch, j.id)} target="_blank" rel="noreferrer">{tr("Download")}</a>
               </>
             )}
             {j.error && <span role="alert">{j.error}</span>}

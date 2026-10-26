@@ -1,3 +1,4 @@
+import { t as tr } from '../../i18n';
 import { useEffect, useState } from "react";
 import { api, request } from "../../api/client";
 import { useNav } from "../../store/nav";
@@ -56,35 +57,29 @@ export default function CreativePanel({ onChange }: { onChange: () => void }) {
   };
   return (
     <div className="card">
-      <h3>AI candidates</h3>
-      <p>{status?.note || "Loading provider…"}</p>
+      <h3>{tr("AI candidates")}</h3>
+      <p>{status?.note || tr("Loading provider…")}</p>
       {error && <p role="alert">{error}</p>}
       <div className="publication-fields">
-        <label>
-          Style profile
-          <select value={style} onChange={(e) => setStyle(e.target.value)}>
-            <option value="">Choose style</option>
+        <label>{tr("Style profile")}<select value={style} onChange={(e) => setStyle(e.target.value)}>
+            <option value="">{tr("Choose style")}</option>
             {styles.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.style_name} · v{s.version}
+                {s.style_name}{tr(" · v")}{s.version}
               </option>
             ))}
           </select>
         </label>
-        <label>
-          Asset type
-          <select value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="background">Background</option>
-            <option value="standee">Character standee</option>
+        <label>{tr("Asset type")}<select value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="background">{tr("Background")}</option>
+            <option value="standee">{tr("Character standee")}</option>
           </select>
         </label>
-        <label>
-          Character
-          <select
+        <label>{tr("Character")}<select
             value={character}
             onChange={(e) => setCharacter(e.target.value)}
           >
-            <option value="">No character</option>
+            <option value="">{tr("No character")}</option>
             {characters.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -94,9 +89,7 @@ export default function CreativePanel({ onChange }: { onChange: () => void }) {
         </label>
       </div>
       {character && (
-        <label>
-          Fixed appearance (hair, face, clothing)
-          <textarea
+        <label>{tr("Fixed appearance (hair, face, clothing)")}<textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -110,18 +103,14 @@ export default function CreativePanel({ onChange }: { onChange: () => void }) {
                 ),
               )
             }
-          >
-            Save visual identity
-          </button>
+          >{tr("Save visual identity")}</button>
         </label>
       )}
-      <label>
-        Requested visual content
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+      <label>{tr("Requested visual content")}<textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} />
       </label>
       {snapshot && (
         <details>
-          <summary>Explicit source lines from selected snapshot</summary>
+          <summary>{tr("Explicit source lines from selected snapshot")}</summary>
           {snapshot.events?.map((e) => (
             <label key={e.event_id} style={{ display: "block" }}>
               <input
@@ -145,10 +134,7 @@ export default function CreativePanel({ onChange }: { onChange: () => void }) {
           type="checkbox"
           checked={cloud}
           onChange={(e) => setCloud(e.target.checked)}
-        />
-        Allow these selected inputs, visual profiles and reference images to be
-        sent to the configured cloud provider
-      </label>
+        />{tr("Allow these selected inputs, visual profiles and reference images to be sent to the configured cloud provider")}</label>
       <div className="row">
         <button
           disabled={
@@ -172,19 +158,14 @@ export default function CreativePanel({ onChange }: { onChange: () => void }) {
               }),
             )
           }
-        >
-          Generate candidate
-        </button>
-        <button onClick={onChange}>Refresh asset library</button>
+        >{tr("Generate candidate")}</button>
+        <button onClick={onChange}>{tr("Refresh asset library")}</button>
       </div>
-      <p className="tiny muted">
-        Candidates remain GM-only until you review identity, style and plot
-        details, then explicitly approve and share them.
-      </p>
+      <p className="tiny muted">{tr("Candidates remain GM-only until you review identity, style and plot details, then explicitly approve and share them.")}</p>
       {jobs.map((j) => (
         <div className="row" key={j.id}>
           <span>
-            {j.kind} · {j.provider} · {j.status} {j.error}
+            {j.kind} · {j.provider} · {tr(j.status)} {j.error}
           </span>
           {["pending", "running"].includes(j.status) && (
             <button
@@ -196,18 +177,13 @@ export default function CreativePanel({ onChange }: { onChange: () => void }) {
                   ),
                 )
               }
-            >
-              Cancel
-            </button>
+            >{tr("Cancel")}</button>
           )}
         </div>
       ))}
       <hr />
-      <h3>Voice delivery suggestions</h3>
-      <p>
-        Uses only selected performance lines. Accepting changes delivery
-        instructions; canonical text remains unchanged.
-      </p>
+      <h3>{tr("Voice delivery suggestions")}</h3>
+      <p>{tr("Uses only selected performance lines. Accepting changes delivery instructions; canonical text remains unchanged.")}</p>
       <button
         disabled={!presentationId}
         onClick={() =>
@@ -228,9 +204,7 @@ export default function CreativePanel({ onChange }: { onChange: () => void }) {
             );
           })
         }
-      >
-        Suggest for first 30 visible lines
-      </button>
+      >{tr("Suggest for first 30 visible lines")}</button>
       {suggestions.map((s) => (
         <div key={s.event_id}>
           <p>
@@ -252,7 +226,7 @@ export default function CreativePanel({ onChange }: { onChange: () => void }) {
                 })
               }
             >
-              {accept ? "Accept" : "Discard"}
+              {accept ? tr("Accept") : tr("Discard")}
             </button>
           ))}
         </div>

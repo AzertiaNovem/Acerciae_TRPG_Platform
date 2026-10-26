@@ -1,3 +1,4 @@
+import { t as tr } from '../../i18n';
 import PdfPreview from "./PdfPreview";
 import { useEffect, useState, useMemo } from "react";
 import { speakerColor, fmtTime } from "./StyledLogViewer";
@@ -107,7 +108,7 @@ export default function SharedPublication({ token }: { token: string }) {
       ) : publication ? (
         <PublicationContent publication={publication} token={token} />
       ) : (
-        <p>Loading publication…</p>
+        <p>{tr("Loading publication…")}</p>
       )}
     </main>
   );

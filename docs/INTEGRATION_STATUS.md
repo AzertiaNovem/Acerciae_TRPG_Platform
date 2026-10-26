@@ -10,6 +10,8 @@ The seeded Studio accounts are `keeper`, `alice`, `bob`, and `carol`, with devel
 
 ## Client contracts
 
+Personal settings are now available on the Studio backend through `PUT /api/auth/me`: username, display name, avatar and one of the same eleven interface languages as server settings. Login/me responses carry these preferences; message payloads add `author_avatar_version`. See [USER_SETTINGS.md](USER_SETTINGS.md). This additive change does not restart the mobile backend on 18082.
+
 The exact request and response fields are documented in [API.md](API.md). Authenticated clients should send `Authorization: Bearer <login token>` for JSON, media, stored speech and PDF downloads. IDs and UI visibility are not authorization. Treat 403/404 as unavailable rather than retrying a broader scope.
 
 The minimal snapshot/read/export chain is:

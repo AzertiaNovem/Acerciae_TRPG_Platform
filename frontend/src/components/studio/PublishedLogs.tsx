@@ -1,3 +1,4 @@
+import { t as tr } from '../../i18n';
 import { useEffect, useState } from "react";
 import { useNav } from "../../store/nav";
 import { useStudio } from "../../store/studio";
@@ -55,42 +56,31 @@ export default function PublishedLogs() {
   };
   return (
     <div className="card">
-      <h2>Published logs</h2>
-      <p>
-        Publishing freezes the selected snapshot, performance and approved asset
-        versions. Public links require a public-player snapshot.
-      </p>
+      <h2>{tr("Published logs")}</h2>
+      <p>{tr("Publishing freezes the selected snapshot, performance and approved asset versions. Public links require a public-player snapshot.")}</p>
       {error && <p role="alert">{error}</p>}
       {channel?.my_role === "gm" && (
         <div className="publication-fields">
-          <label>
-            Title
-            <input value={title} onChange={(e) => setTitle(e.target.value)} />
+          <label>{tr("Title")}<input value={title} onChange={(e) => setTitle(e.target.value)} />
           </label>
-          <label>
-            Format
-            <select value={kind} onChange={(e) => setKind(e.target.value)}>
-              <option value="styled">Styled log</option>
-              <option value="pdf">PDF</option>
-              <option value="vn">Existing visual novel</option>
+          <label>{tr("Format")}<select value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="styled">{tr("Styled log")}</option>
+              <option value="pdf">{tr("PDF")}</option>
+              <option value="vn">{tr("Existing visual novel")}</option>
             </select>
           </label>
-          <label>
-            Audience
-            <select
+          <label>{tr("Audience")}<select
               value={visibility}
               onChange={(e) => setVisibility(e.target.value)}
             >
-              <option value="players">Channel players</option>
-              <option value="gm">GM only</option>
-              <option value="link">Anyone with the link</option>
+              <option value="players">{tr("Channel players")}</option>
+              <option value="gm">{tr("GM only")}</option>
+              <option value="link">{tr("Anyone with the link")}</option>
             </select>
           </label>
           {kind === "pdf" && (
-            <label>
-              Completed PDF
-              <select value={pdf} onChange={(e) => setPdf(e.target.value)}>
-                <option value="">Choose PDF</option>
+            <label>{tr("Completed PDF")}<select value={pdf} onChange={(e) => setPdf(e.target.value)}>
+                <option value="">{tr("Choose PDF")}</option>
                 {jobs
                   .filter(
                     (j) =>
@@ -112,14 +102,11 @@ export default function PublishedLogs() {
               (kind === "vn" && !presentationId)
             }
             onClick={publish}
-          >
-            Publish selected snapshot
-          </button>
+          >{tr("Publish selected snapshot")}</button>
         </div>
       )}
       {share && (
-        <p>
-          Share link:{" "}
+        <p>{tr("Share link:")}{" "}
           <a href={share} target="_blank" rel="noreferrer">
             {share}
           </a>
@@ -128,7 +115,7 @@ export default function PublishedLogs() {
       {items.map((p) => (
         <div className="row" key={p.id}>
           <span>
-            {p.title} · {p.kind} · {p.revoked ? "revoked" : p.visibility}
+            {p.title} · {p.kind} · {p.revoked ? tr("revoked") : p.visibility}
           </span>
           {!p.revoked && (
             <button
@@ -138,9 +125,7 @@ export default function PublishedLogs() {
                   .then(setSelected)
                   .catch((e) => setError(e.message))
               }
-            >
-              Open
-            </button>
+            >{tr("Open")}</button>
           )}
           {!p.revoked && channel?.my_role === "gm" && (
             <button
@@ -153,9 +138,7 @@ export default function PublishedLogs() {
                   setError((e as Error).message);
                 }
               }}
-            >
-              Revoke
-            </button>
+            >{tr("Revoke")}</button>
           )}
         </div>
       ))}

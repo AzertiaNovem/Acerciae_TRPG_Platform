@@ -10,6 +10,13 @@ Errors: `{ "error": "<code>", "message": "..." }` with 400/401/403/404/409/500.
 | GET | `/llm/status` | mode, model, provider, embeddings flag, note |
 
 ## Auth
+
+User objects now include `ui_language`, `avatar_data`, `avatar_version` and `languages`. See [personal settings](USER_SETTINGS.md) for validation, image limits and native client integration.
+
+| Method | Path | Notes |
+|---|---|---|
+| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?}`. Empty avatar removes it; duplicate username returns 409. |
+| GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. |
 | POST | `/auth/register` | `{username, password, display_name}` → `{token, user}` |
 | POST | `/auth/login` | `{username, password}` → `{token, user}` |
 | POST | `/auth/logout` | |

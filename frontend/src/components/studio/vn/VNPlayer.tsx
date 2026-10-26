@@ -1,3 +1,4 @@
+import { t as tr } from '../../../i18n';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { api } from '../../../api/client';
@@ -101,7 +102,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   }, [next, back, audio, editorMode]);
   const toggleFullscreen = () => { const el = stageRef.current; if (!el) return; if (document.fullscreenElement) document.exitFullscreen(); else el.requestFullscreen?.(); };
 
-  if (!cur) return <div className="vn-stage" ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">No visible lines in this presentation.</div></div></div>;
+  if (!cur) return <div className="vn-stage" ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">{tr("No visible lines in this presentation.")}</div></div></div>;
 
   const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version)) : null;
   const placements = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' ? [] : (cur.character_asset_ids ?? []);
@@ -131,7 +132,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
               return (
                 <motion.div key={p.character_id} className={`vn-char ${POS_CLASS[p.position] ?? 'pos-center'}`} layout={animations}
                   initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0, scale: active ? 1 : 0.94, filter: active ? 'brightness(1)' : 'brightness(0.55)', zIndex: active ? 2 : 1 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: fadeDur }}>
-                  {url ? <img src={url} alt={characterNames[p.character_id] ?? ''} style={{ transform: p.flip ? 'scaleX(-1)' : undefined }} /> : <div className="vn-char-placeholder">{characterNames[p.character_id] ?? 'character'}<br /><span style={{ fontSize: 10 }}>no standee assigned</span></div>}
+                  {url ? <img src={url} alt={characterNames[p.character_id] ?? ''} style={{ transform: p.flip ? 'scaleX(-1)' : undefined }} /> : <div className="vn-char-placeholder">{characterNames[p.character_id] ?? tr("character")}<br /><span style={{ fontSize: 10 }}>{tr("no standee assigned")}</span></div>}
                 </motion.div>
               );
             })}
@@ -161,26 +162,26 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
       {/* 5. HUD */}
       {!hideUi && (
         <div className="vn-hud" onClick={(e) => e.stopPropagation()}>
-          <button onClick={back} title="previous (←)">⟨</button>
-          <button onClick={() => setPlaying(!playing)} className={playing ? 'on' : ''} title="auto-play (a)">{playing ? '❚❚ auto' : '▶ auto'}</button>
-          <button onClick={next} title="next (space)">⟩</button>
-          <button onClick={() => setSkipTts(!skipTts)} className={skipTts ? 'on' : ''} title="skip voice (s)">skip TTS</button>
-          <button onClick={() => audio.replayVoice()} title="replay line (l)">↻ line</button>
-          <select value={speed} onChange={(e) => { setSpeed(+e.target.value); audio.setRate(+e.target.value); }} title="speed" style={{ fontSize: 11, padding: '2px 4px' }}>{[0.75, 1, 1.25, 1.5, 2].map((s) => <option key={s} value={s}>{s}×</option>)}</select>
-          <select value={cur.scene_id ?? ''} onChange={(e) => { const i = events.findIndex((ev) => ev.scene_id === e.target.value); if (i >= 0) onIndexChange(i); }} title="jump to scene" style={{ fontSize: 11, padding: '2px 4px', maxWidth: 160 }}>{(presentation.scenes ?? []).map((s) => <option key={s.id} value={s.id}>{s.title || `Scene ${s.position + 1}`}</option>)}</select>
+          <button onClick={back} title={tr("previous (←)")}>⟨</button>
+          <button onClick={() => setPlaying(!playing)} className={playing ? 'on' : ''} title={tr("auto-play (a)")}>{playing ? tr("❚❚ auto") : tr("▶ auto")}</button>
+          <button onClick={next} title={tr("next (space)")}>⟩</button>
+          <button onClick={() => setSkipTts(!skipTts)} className={skipTts ? 'on' : ''} title={tr("skip voice (s)")}>{tr("skip TTS")}</button>
+          <button onClick={() => audio.replayVoice()} title={tr("replay line (l)")}>{tr("↻ line")}</button>
+          <select value={speed} onChange={(e) => { setSpeed(+e.target.value); audio.setRate(+e.target.value); }} title={tr("speed")} style={{ fontSize: 11, padding: '2px 4px' }}>{[0.75, 1, 1.25, 1.5, 2].map((s) => <option key={s} value={s}>{s}×</option>)}</select>
+          <select value={cur.scene_id ?? ''} onChange={(e) => { const i = events.findIndex((ev) => ev.scene_id === e.target.value); if (i >= 0) onIndexChange(i); }} title={tr("jump to scene")} style={{ fontSize: 11, padding: '2px 4px', maxWidth: 160 }}>{(presentation.scenes ?? []).map((s) => <option key={s.id} value={s.id}>{s.title || `Scene ${s.position + 1}`}</option>)}</select>
           <span className="grow" />
-          <label className="tiny" title="voice volume">🗣<input type="range" min={0} max={1} step={0.05} value={volumes.voice} onChange={(e) => { audio.setVolumes({ voice: +e.target.value }); setVolumes({ ...audio.volumes }); }} style={{ width: 60 }} /></label>
-          <label className="tiny" title="BGM volume">♫<input type="range" min={0} max={1} step={0.05} value={volumes.bgm} onChange={(e) => { audio.setVolumes({ bgm: +e.target.value }); setVolumes({ ...audio.volumes }); }} style={{ width: 60 }} /></label>
-          <button onClick={() => setHideChars(!hideChars)} className={hideChars ? 'on' : ''} title="hide standees (c)">standees</button>
-          <button onClick={() => setShowRaw(!showRaw)} className={showRaw ? 'on' : ''} title="raw log (r)">raw</button>
-          <button onClick={() => setHideUi(true)} title="hide UI (h)">hide UI</button>
-          {!editorMode && <button onClick={toggleFullscreen} title="fullscreen (f)">⛶</button>}
+          <label className="tiny" title={tr("voice volume")}>🗣<input type="range" min={0} max={1} step={0.05} value={volumes.voice} onChange={(e) => { audio.setVolumes({ voice: +e.target.value }); setVolumes({ ...audio.volumes }); }} style={{ width: 60 }} /></label>
+          <label className="tiny" title={tr("BGM volume")}>♫<input type="range" min={0} max={1} step={0.05} value={volumes.bgm} onChange={(e) => { audio.setVolumes({ bgm: +e.target.value }); setVolumes({ ...audio.volumes }); }} style={{ width: 60 }} /></label>
+          <button onClick={() => setHideChars(!hideChars)} className={hideChars ? 'on' : ''} title={tr("hide standees (c)")}>{tr("standees")}</button>
+          <button onClick={() => setShowRaw(!showRaw)} className={showRaw ? 'on' : ''} title={tr("raw log (r)")}>{tr("raw")}</button>
+          <button onClick={() => setHideUi(true)} title={tr("hide UI (h)")}>{tr("hide UI")}</button>
+          {!editorMode && <button onClick={toggleFullscreen} title={tr("fullscreen (f)")}>⛶</button>}
           <span className="tiny" style={{ color: '#ccc' }}>{index + 1}/{events.length}</span>
         </div>
       )}
       <div className="vn-progress"><div style={{ width: `${((index + 1) / Math.max(1, events.length)) * 100}%` }} /></div>
-      {showRaw && <div className="vn-raw" onClick={(e) => e.stopPropagation()}><div className="row"><b>Raw log (canonical, verbatim)</b><span className="grow" /><button className="small" onClick={() => setShowRaw(false)}>close</button></div>{events.map((e, i) => <div key={e.id} style={{ padding: '3px 0', color: i === index ? '#ffe74c' : undefined, cursor: 'pointer' }} onClick={() => onIndexChange(i)}><b>{e.speaker_display_name}</b>: {e.content}</div>)}</div>}
-      {needUnlock && <div className="vn-unlock" onClick={async () => { const ok = await audio.unlock(); if (ok) { setNeedUnlock(false); } }}><div style={{ textAlign: 'center' }}><div style={{ fontSize: 28 }}>🔊</div><div>Click to enable audio playback</div><div className="tiny" style={{ opacity: .7 }}>Browsers block sound until you interact with the page.</div></div></div>}
+      {showRaw && <div className="vn-raw" onClick={(e) => e.stopPropagation()}><div className="row"><b>{tr("Raw log (canonical, verbatim)")}</b><span className="grow" /><button className="small" onClick={() => setShowRaw(false)}>{tr("close")}</button></div>{events.map((e, i) => <div key={e.id} style={{ padding: '3px 0', color: i === index ? '#ffe74c' : undefined, cursor: 'pointer' }} onClick={() => onIndexChange(i)}><b>{e.speaker_display_name}</b>: {e.content}</div>)}</div>}
+      {needUnlock && <div className="vn-unlock" onClick={async () => { const ok = await audio.unlock(); if (ok) { setNeedUnlock(false); } }}><div style={{ textAlign: 'center' }}><div style={{ fontSize: 28 }}>🔊</div><div>{tr("Click to enable audio playback")}</div><div className="tiny" style={{ opacity: .7 }}>{tr("Browsers block sound until you interact with the page.")}</div></div></div>}
     </div>
   );
 }

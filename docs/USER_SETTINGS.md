@@ -1,0 +1,23 @@
+# Personal profile and interface language
+
+Open the gear beside your identity at the bottom of the channel sidebar. Personal settings allow changing the login username, display name, avatar and interface language. Saving takes effect immediately; the account preference is restored at login and on other devices. Changing a username keeps the same user ID, memberships, sessions and record ownership. The next login uses the new username. Existing usernames keep the platform's 3–32 ASCII letters/digits/underscore/dot/hyphen rule; display names support Unicode.
+
+There are eleven interface languages, matching `ServerSettingsService::languages()`: English, Simplified Chinese, Traditional Chinese, Japanese, Korean, Spanish, French, German, Russian, Portuguese and Italian. Personal language does not change the server's LLM/dice language. Campaign names, character names, chat, generated narrative documents, dice results and canonical log text are content, so they remain in their original language.
+
+The English source-key catalog is `frontend/src/i18n/catalog.json`; each row contains translations in the explicit locale order in `i18n/index.ts`, excluding English. Application text is translated during React rendering, never by rewriting the DOM. Unknown provider errors and new unregistered runtime messages fall back to their original text. API identifiers, dice commands, model IDs and technical abbreviations stay literal. `npm --prefix frontend test` checks catalog completeness for static UI calls, all eleven language preferences, whitespace/interpolation behavior, and stable form option values. New UI copy should use `t`/`tr` and add all ten translations. Dynamic catalog labels need to be translated at render time, not when a module is loaded.
+
+## Client API
+
+`GET /api/auth/me`, login and registration responses include `ui_language`, `avatar_data`, `avatar_version`, and `languages` in the user object. `languages` is the same backend list used by server settings. Native clients may continue ignoring these additive fields until they implement personal settings.
+
+`PUT /api/auth/me` accepts a partial JSON object containing only `username`, `display_name`, `ui_language`, and `avatar_data`. No user ID is accepted: the authenticated account is always the target. Updates lock the account row and apply atomically. A duplicate username returns 409 without saving any other field; invalid fields/language/image return 400; missing authentication returns 401. Empty `avatar_data` removes the avatar. Unspecified fields are retained. The response is the updated user object.
+
+The browser accepts PNG, JPEG and WebP uploads up to 5 MB, crops the center to a square, and re-encodes at 256 × 256 as PNG or JPEG to remove metadata and avoid retaining arbitrary external sources. The API accepts only canonical base64 `data:image/png;base64,...` or `data:image/jpeg;base64,...`, at most 128 KiB decoded and 512 × 512 pixels, checked by file signature and dimensions. SVG and external URLs are rejected. Small profile images are bounded database fields; they are separate from campaign media and publication assets.
+
+`GET /api/users/{user_id}/avatar` returns image bytes to the owner or an authenticated user sharing a server. It returns 404 when absent or inaccessible and sets `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff`. Native clients should use an Authorization header. Browser image requests use the existing token query convention. Chat messages add `author_avatar_version` (zero means no avatar); clients can load the corresponding author's image without duplicating base64 data in every message. Existing loaded message/member lists from other sessions refresh through their normal reload; this change does not add a new profile WebSocket event.
+
+Migration `0012_user_preferences.sql` adds the fields without replacing existing users. The new backend was validated on port 18081 and the UI on 5175. The other development backends on 8080 and 18082 were not restarted; they need an intentional upgrade before serving these new endpoints.
+
+## Verification
+
+`API_BASE=http://127.0.0.1:18081 node --test tests/integration/profile.test.mjs` verifies all language choices against the server list, fresh-login persistence, atomic duplicate-name rejection, stable identity and server permissions, image validation/download/removal, and account isolation. It creates disposable accounts in the selected test backend. The original ten integration scenarios, 188 unit checks and 98 database checks also passed after migration. Chinese and Japanese settings, image upload, display-name changes and reload persistence were checked in the browser using a separate test login.

@@ -1,3 +1,4 @@
+import { t as tr } from '../../i18n';
 import { useEffect } from 'react';
 import { useNav } from '../../store/nav';
 import { useStudio, type StudioView } from '../../store/studio';
@@ -25,11 +26,11 @@ export default function StudioWorkspace() {
   return (
     <div className="workspace">
       <div className="tabs studio-tabs">
-        {TABS.filter((t) => !t.gm || isGm).map((t) => <button key={t.id} className={view === t.id ? 'active' : ''} onClick={() => setView(t.id)}>{t.label}</button>)}
+        {TABS.filter((t) => !t.gm || isGm).map((t) => <button key={t.id} className={view === t.id ? 'active' : ''} onClick={() => setView(t.id)}>{tr(t.label)}</button>)}
         <span className="grow" />
-        {project && <span className="pill" title="current log project">{project.title}</span>}
-        {snapshot && <span className="pill ai" title="current snapshot">v{snapshot.version} · {snapshot.scope}</span>}
-        <button className="ghost" onClick={() => setStudioOpen(false)}>← back to chat</button>
+        {project && <span className="pill" title={tr("current log project")}>{project.title}</span>}
+        {snapshot && <span className="pill ai" title={tr("current snapshot")}>{tr("v")}{snapshot.version} · {snapshot.scope}</span>}
+        <button className="ghost" onClick={() => setStudioOpen(false)}>{tr("← back to chat")}</button>
       </div>
       <div className="content" style={{ paddingBottom: 40 }}>
         {view === 'library' && <LogLibrary />}

@@ -99,10 +99,26 @@ void registerRoutes() {
     route0("/api/llm/status", {Get}, [&](auto&, auto&, auto&) { return S.llm->status(); }, false);
 
     // ---- auth ----
-    route0("/api/auth/register", {Post}, [&](auto& req, auto&, auto&) { auto b = body(req); auto u = S.auth->registerUser(json::requireStr(b, "username"), json::requireStr(b, "password"), json::str(b, "display_name")); auto login = S.auth->login(json::requireStr(b, "username"), json::requireStr(b, "password")); login["user"] = u; return login; }, false);
+    route0("/api/auth/register", {Post}, [&](auto& req, auto&, auto&) { auto b = body(req); auto u = S.auth->registerUser(json::requireStr(b, "username"), json::requireStr(b, "password"), json::str(b, "display_name")); auto login = S.auth->login(json::requireStr(b, "username"), json::requireStr(b, "password")); login["user"] = S.auth->profile(u["id"].asString()); return login; }, false);
     route0("/api/auth/login", {Post}, [&](auto& req, auto&, auto&) { auto b = body(req); return S.auth->login(json::requireStr(b, "username"), json::requireStr(b, "password")); }, false);
     route0("/api/auth/logout", {Post}, [&](auto& req, auto&, auto&) { S.auth->logout(bearer(req)); return ok(); });
-    route0("/api/auth/me", {Get}, [&](auto&, auto& p, auto&) { Json::Value v; v["id"] = p.userId; v["username"] = p.username; v["display_name"] = p.displayName; return v; });
+    route0("/api/auth/me", {Get}, [&](auto&, auto& p, auto&) { return S.auth->profile(p.userId); });
+    route0("/api/auth/me", {Put}, [&](auto& req, auto& p, auto&) { return S.auth->updateProfile(p, body(req)); });
+    app().registerHandler("/api/users/{1}/avatar", [](const HttpRequestPtr& req, Cb&& cb, std::string userId) {
+        try {
+            auto principal = services().auth->authenticate(bearer(req));
+            if (!principal) throw unauthorized("missing or invalid token");
+            auto [mime, bytes] = services().auth->avatar(*principal, userId);
+            auto response = HttpResponse::newHttpResponse();
+            response->setContentTypeString(mime);
+            response->setBody(bytes);
+            response->addHeader("X-Content-Type-Options", "nosniff");
+            response->addHeader("Cache-Control", "private, no-store");
+            cb(response);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
+          catch (const std::exception&) { cb(errResp(400, "bad_request", "invalid avatar request")); }
+    }, {Get});
+
 
     // ---- servers ----
     route0("/api/servers", {Get}, [&](auto&, auto& p, auto&) { return S.chat->listServers(p); });
