@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
-import type { Server, Channel, ChatWindow, Character, Scene } from '../types';
+import type { Server, Channel, ChatWindow, Character, Scene, ServerSettings } from '../types';
 import { chatSocket, contextSocket } from '../api/ws';
 import { sessionEpoch, bumpEpoch, isStale } from './session';
 import { resetChannelStores } from './reset';
@@ -9,6 +9,7 @@ interface NavState {
   servers: Server[]; channels: Channel[]; windows: ChatWindow[]; characters: Character[]; scenes: Scene[];
   serverId: string | null; channelId: string | null; windowId: string | null; channel: Channel | null;
   gmWorkspaceOpen: boolean; studioOpen: boolean; error: string | null;
+  serverSettings: ServerSettings | null;
   loadServers: () => Promise<void>;
   selectServer: (id: string) => Promise<void>;
   selectChannel: (id: string) => Promise<void>;
@@ -21,8 +22,11 @@ interface NavState {
   applyWindowChange: (w: ChatWindow) => void;
   applySceneChange: (s: Scene) => void;
   reset: () => void;
+  loadServerSettings: () => Promise<void>;
+  applyServerSettings: (s: Partial<ServerSettings> & { server_id: string }) => void;
+  refreshChannel: () => Promise<void>;
 }
-const initial = (): Pick<NavState, 'servers' | 'channels' | 'windows' | 'characters' | 'scenes' | 'serverId' | 'channelId' | 'windowId' | 'channel' | 'gmWorkspaceOpen' | 'studioOpen' | 'error'> => ({ servers: [], channels: [], windows: [], characters: [], scenes: [], serverId: null, channelId: null, windowId: null, channel: null, gmWorkspaceOpen: false, studioOpen: false, error: null });
+const initial = (): Pick<NavState, 'servers' | 'channels' | 'windows' | 'characters' | 'scenes' | 'serverId' | 'channelId' | 'windowId' | 'channel' | 'gmWorkspaceOpen' | 'studioOpen' | 'error' | 'serverSettings'> => ({ servers: [], channels: [], windows: [], characters: [], scenes: [], serverId: null, channelId: null, windowId: null, channel: null, gmWorkspaceOpen: false, studioOpen: false, error: null, serverSettings: null });
 export const useNav = create<NavState>((set, get) => ({
   ...initial(),
   reset: () => { const prev = get().channelId; if (prev) { chatSocket.unsubscribe(prev); contextSocket.unsubscribe(prev); } set(initial()); },
@@ -40,10 +44,12 @@ export const useNav = create<NavState>((set, get) => ({
     const e = sessionEpoch();
     const channels = await api.channels(id);
     if (isStale(e)) return;
-    set({ serverId: id, channels, channelId: null, windowId: null, channel: null, windows: [], scenes: [] });
+    set({ serverId: id, channels, channelId: null, windowId: null, channel: null, windows: [], scenes: [], serverSettings: null });
+
     const remembered = localStorage.getItem('acerciae.channel');
     const pick = channels.find((c) => c.id === remembered) ?? channels[0];
     if (pick) await get().selectChannel(pick.id);
+    get().loadServerSettings().catch(() => undefined);
   },
   selectChannel: async (id) => {
     const prev = get().channelId;
@@ -67,5 +73,9 @@ export const useNav = create<NavState>((set, get) => ({
   setGmWorkspaceOpen: (o) => set({ gmWorkspaceOpen: o, studioOpen: o ? false : get().studioOpen }),
   setStudioOpen: (o) => set({ studioOpen: o, gmWorkspaceOpen: o ? false : get().gmWorkspaceOpen }),
   applyWindowChange: (w) => set((s) => ({ windows: s.windows.some((x) => x.id === w.id) ? s.windows.map((x) => (x.id === w.id ? { ...x, ...w } : x)) : s.windows })),
+  loadServerSettings: async () => { const id = get().serverId; if (!id) return; const e = sessionEpoch(); const st = await api.serverSettings(id); if (!isStale(e) && get().serverId === id) set({ serverSettings: st }); },
+  // Pushed settings carry only the public view; keep the maintainer-only parts already loaded.
+  applyServerSettings: (st) => set((s) => (s.serverId === st.server_id ? { serverSettings: { ...(s.serverSettings ?? {}), ...st } as ServerSettings, servers: st.name ? s.servers.map((x) => (x.id === st.server_id ? { ...x, name: st.name! } : x)) : s.servers } : s)),
+  refreshChannel: async () => { const ch = get().channelId; if (!ch) return; const e = sessionEpoch(); const channel = await api.channel(ch); if (!isStale(e) && get().channelId === ch) set({ channel }); },
   applySceneChange: (sc) => set((s) => ({ scenes: s.scenes.some((x) => x.id === sc.id) ? s.scenes.map((x) => (x.id === sc.id ? { ...x, ...sc } : x)) : [...s.scenes, sc] })),
 }));

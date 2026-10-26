@@ -6,6 +6,9 @@
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../knowledge/Visibility.h"
+#include "../dice/Dice.h"
+#include "../dice/DiceService.h"
+#include "../core/Text.h"
 
 namespace acerciae {
 
@@ -33,18 +36,75 @@ Json::Value ChatService::joinServer(const Principal& p, const std::string& serve
     s["my_role"] = "member";
     return s;
 }
-Json::Value ChatService::addServerMember(const Principal& p, const std::string& serverId, const std::string& username, const std::string& role) {
+Json::Value ChatService::findUser(const std::string& user) {
+    auto u = Visibility::isUuid(user)
+        ? db_.queryOne("SELECT id, username, display_name FROM users WHERE id=$1", {user})
+        : db_.queryOne("SELECT id, username, display_name FROM users WHERE username=$1", {user});
+    if (u.isNull()) throw notFound("user not found");
+    return u;
+}
+bool ChatService::isServerMaintainer(const std::string& userId, const std::string& serverId) {
+    auto r = db_.queryOne("SELECT role FROM server_members WHERE server_id=$1 AND user_id=$2", {serverId, userId});
+    return !r.isNull() && (r["role"].asString() == "owner" || r["role"].asString() == "admin");
+}
+static std::string serverRole(Db& db, const std::string& serverId, const std::string& userId) {
+    auto r = db.queryOne("SELECT role FROM server_members WHERE server_id=$1 AND user_id=$2", {serverId, userId});
+    return r.isNull() ? "" : r["role"].asString();
+}
+Json::Value ChatService::addServerMember(const Principal& p, const std::string& serverId, const std::string& user, const std::string& role) {
     auth_.requireServerAdmin(p.userId, serverId);
     if (role != "admin" && role != "member") throw badRequest("role must be admin or member");
-    auto u = db_.queryOne("SELECT id, username, display_name FROM users WHERE username=$1", {username});
-    if (u.isNull()) throw notFound("user not found");
+    if (role == "admin" && serverRole(db_, serverId, p.userId) != "owner") throw forbidden("only the server owner can appoint maintainers");
+    auto u = findUser(user);
+    auto existing = serverRole(db_, serverId, u["id"].asString());
+    if (existing == "owner") throw badRequest("the owner is already a member");
+    if (existing == "admin" && role == "member" && serverRole(db_, serverId, p.userId) != "owner") throw forbidden("only the server owner can change a maintainer's role");
     db_.exec("INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT (server_id,user_id) DO UPDATE SET role=EXCLUDED.role", {serverId, u["id"].asString(), role});
     u["role"] = role;
     return u;
 }
+Json::Value ChatService::setServerMemberRole(const Principal& p, const std::string& serverId, const std::string& userId, const std::string& role) {
+    if (serverRole(db_, serverId, p.userId) != "owner") throw forbidden("only the server owner can change roles");
+    if (role != "admin" && role != "member") throw badRequest("role must be admin or member");
+    auto cur = serverRole(db_, serverId, userId);
+    if (cur.empty()) throw notFound("not a member of this server");
+    if (cur == "owner") throw badRequest("the owner's role cannot be changed");
+    db_.exec("UPDATE server_members SET role=$3 WHERE server_id=$1 AND user_id=$2", {serverId, userId, role});
+    return serverMembers(p, serverId);
+}
+Json::Value ChatService::removeServerMember(const Principal& p, const std::string& serverId, const std::string& userId) {
+    auto mine = serverRole(db_, serverId, p.userId);
+    auto theirs = serverRole(db_, serverId, userId);
+    if (theirs.empty()) throw notFound("not a member of this server");
+    if (theirs == "owner") throw badRequest("the owner cannot be removed");
+    bool self = userId == p.userId;
+    if (!self) {
+        if (mine != "owner" && mine != "admin") throw forbidden("server maintainer required");
+        if (theirs == "admin" && mine != "owner") throw forbidden("only the server owner can remove a maintainer");
+    }
+    std::vector<std::string> windows;
+    db_.tx([&](pqxx::work& w) {
+        for (auto& r : Db::queryJson(w, "DELETE FROM chat_window_members wm USING chat_windows cw, channels c WHERE cw.id=wm.chat_window_id AND c.id=cw.channel_id AND c.server_id=$1 AND wm.user_id=$2 RETURNING cw.id", {serverId, userId}))
+            windows.push_back(r["id"].asString());
+        Db::exec(w, "DELETE FROM channel_members cm USING channels c WHERE c.id=cm.channel_id AND c.server_id=$1 AND cm.user_id=$2", {serverId, userId});
+        Db::exec(w, "DELETE FROM server_members WHERE server_id=$1 AND user_id=$2", {serverId, userId});
+    });
+    for (auto& wid : windows) { auto win = db_.queryOne("SELECT * FROM chat_windows WHERE id=$1", {wid}); if (!win.isNull()) notifier_.windowChanged(win["channel_id"].asString(), win); }
+    if (self) { Json::Value v; v["ok"] = true; return v; }
+    return serverMembers(p, serverId);
+}
 Json::Value ChatService::serverMembers(const Principal& p, const std::string& serverId) {
     auth_.requireServerMember(p.userId, serverId);
-    return db_.queryJson("SELECT u.id, u.username, u.display_name, sm.role FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 ORDER BY sm.joined_at", {serverId});
+    return db_.queryJson("SELECT u.id, u.username, u.display_name, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 "
+                         "ORDER BY CASE sm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, sm.joined_at", {serverId});
+}
+Json::Value ChatService::searchUsers(const Principal& p, const std::string& query, int limit) {
+    auto q = text::trim(query);
+    if (q.empty()) return Json::Value(Json::arrayValue);
+    std::string like;
+    for (char c : q) { if (c == '%' || c == '_' || c == '\\') like += '\\'; like += c; }
+    return db_.queryJson("SELECT id, username, display_name FROM users WHERE username ILIKE '%' || $1 || '%' OR display_name ILIKE '%' || $1 || '%' "
+                         "ORDER BY (lower(username) = lower($2)) DESC, username LIMIT " + std::to_string(std::max(1, std::min(limit, 25))), {like, q});
 }
 
 // ---- channels --------------------------------------------------------------------------------
@@ -83,24 +143,48 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
     auto cur = getChannel(a);
     auto mode = json::str(body, "knowledge_mode", cur["knowledge_mode"].asString());
     if (mode != "public" && mode != "isolated") throw badRequest("knowledge_mode must be public or isolated");
-    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5 WHERE id=$1",
-        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool())});
+    // Dice text group: '' (follow the server language), a built-in group, or one of this server's groups.
+    auto group = json::str(body, "dice_text_group", cur["dice_text_group"].asString());
+    if (!group.empty() && group != "builtin:en" && group != "builtin:zh") {
+        if (!Visibility::isUuid(group) || db_.queryOne("SELECT 1 AS ok FROM dice_text_groups WHERE id=$1 AND server_id=$2", {group, a.serverId}).isNull())
+            throw badRequest("unknown dice text group");
+    }
+    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6 WHERE id=$1",
+        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool()), group});
     return getChannel(a);
 }
-Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::string& username, const std::string& role) {
+Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::string& user, const std::string& role) {
     auth_.requireGm(a);
     if (role != "gm" && role != "player") throw badRequest("role must be gm or player");
-    auto u = db_.queryOne("SELECT id, username, display_name FROM users WHERE username=$1", {username});
-    if (u.isNull()) throw notFound("user not found");
+    auto u = findUser(user);
+    auto uid = u["id"].asString();
+    bool inServer = !db_.queryOne("SELECT 1 AS ok FROM server_members WHERE server_id=$1 AND user_id=$2", {a.serverId, uid}).isNull();
+    if (!inServer && !isServerMaintainer(a.userId, a.serverId)) throw badRequest("that user is not on this server yet — ask a server maintainer to invite them");
+    std::string mainId;
     db_.tx([&](pqxx::work& w) {
-        Db::exec(w, "INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING", {a.serverId, u["id"].asString()});
-        Db::exec(w, "INSERT INTO channel_members(channel_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT (channel_id,user_id) DO UPDATE SET role=EXCLUDED.role", {a.channelId, u["id"].asString(), role});
+        Db::exec(w, "INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING", {a.serverId, uid});
+        Db::exec(w, "INSERT INTO channel_members(channel_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT (channel_id,user_id) DO UPDATE SET role=EXCLUDED.role", {a.channelId, uid, role});
         // Everyone joins the main window by default.
         auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {a.channelId});
-        if (!main.isNull()) Db::exec(w, "INSERT INTO chat_window_members(chat_window_id, user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {main["id"].asString(), u["id"].asString()});
+        if (!main.isNull()) { mainId = main["id"].asString(); Db::exec(w, "INSERT INTO chat_window_members(chat_window_id, user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {mainId, uid}); }
     });
+    if (!mainId.empty()) notifier_.windowChanged(a.channelId, db_.queryOne("SELECT * FROM chat_windows WHERE id=$1", {mainId}));
     u["role"] = role;
     return u;
+}
+Json::Value ChatService::removeChannelMember(const ChannelAccess& a, const std::string& userId) {
+    auth_.requireGm(a);
+    if (userId == a.userId) throw badRequest("you cannot remove yourself from the channel");
+    if (!Visibility::isUuid(userId)) throw notFound("not a member of this channel");
+    std::vector<std::string> windows;
+    db_.tx([&](pqxx::work& w) {
+        auto m = Db::queryOne(w, "DELETE FROM channel_members WHERE channel_id=$1 AND user_id=$2 RETURNING role", {a.channelId, userId});
+        if (m.isNull()) throw notFound("not a member of this channel");
+        for (auto& r : Db::queryJson(w, "DELETE FROM chat_window_members wm USING chat_windows cw WHERE cw.id=wm.chat_window_id AND cw.channel_id=$1 AND wm.user_id=$2 RETURNING cw.id", {a.channelId, userId}))
+            windows.push_back(r["id"].asString());
+    });
+    for (auto& wid : windows) notifier_.windowChanged(a.channelId, db_.queryOne("SELECT * FROM chat_windows WHERE id=$1", {wid}));
+    return channelMembers(a);
 }
 Json::Value ChatService::channelMembers(const ChannelAccess& a) {
     return db_.queryJson(
@@ -124,7 +208,7 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     std::string ownerId = a.userId;
     if (kind == "npc") { auth_.requireGm(a); ownerId.clear(); }
     else if (a.isGm && !json::str(body, "user_id").empty()) ownerId = json::str(body, "user_id");
-    auto sheet = body.isMember("sheet") && body["sheet"].isObject() ? body["sheet"] : Json::Value(Json::objectValue);
+    auto sheet = dice::normalizeSheet(body.isMember("sheet") && body["sheet"].isObject() ? body["sheet"] : Json::Value(Json::objectValue));
     return db_.tx([&](pqxx::work& w) {
         auto c = Db::queryOne(w, "INSERT INTO characters(channel_id, user_id, name, kind, speaking_style, sheet) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *",
             {a.channelId, ownerId.empty() ? dbNull() : DbParam(ownerId), name, kind, json::str(body, "speaking_style"), json::dump(sheet)});
@@ -142,7 +226,7 @@ Json::Value ChatService::updateCharacter(const ChannelAccess& a, const std::stri
     auto cur = db_.queryOne("SELECT * FROM characters WHERE id=$1 AND channel_id=$2", {characterId, a.channelId});
     if (cur.isNull()) throw notFound("character not found");
     if (!a.isGm && (cur["user_id"].isNull() || cur["user_id"].asString() != a.userId)) throw forbidden("not your character");
-    auto sheet = body.isMember("sheet") && body["sheet"].isObject() ? body["sheet"] : cur["sheet"];
+    auto sheet = body.isMember("sheet") && body["sheet"].isObject() ? dice::normalizeSheet(body["sheet"]) : cur["sheet"];
     return db_.queryOne("UPDATE characters SET name=$3, speaking_style=$4, sheet=$5::jsonb WHERE id=$1 AND channel_id=$2 RETURNING *",
         {characterId, a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "speaking_style", cur["speaking_style"].asString()), json::dump(sheet)});
 }
@@ -256,33 +340,67 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
 
     std::string characterId = json::str(body, "character_id");
     if (characterId.empty()) { auto wc = auth_.windowCharacter(a.userId, windowId); if (wc) characterId = *wc; }
+    std::string characterKind;
     if (!characterId.empty()) {
         auto c = db_.queryOne("SELECT user_id, kind FROM characters WHERE id=$1 AND channel_id=$2", {characterId, a.channelId});
         if (c.isNull()) throw badRequest("character not in this channel");
         if (!a.isGm && (c["user_id"].isNull() || c["user_id"].asString() != a.userId)) throw forbidden("not your character");
+        characterKind = c["kind"].asString();
     }
+    // Sealdice-style commands (.r .ra .sc .st .en ...) are evaluated by the dice service and stored as roll messages.
+    auto diceCmd = dice_.recognise(a, content);
+    if (diceCmd) kind = "roll";
+
+    DiceService::Result diceResult;
+    Json::Value notice;
     auto msg = db_.tx([&](pqxx::work& w) {
         auto sceneId = scenes_.resolveSceneForWindow(w, a.channelId, windowId);
-        auto m = Db::queryOne(w,
-            "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, character_id, kind, content, visibility, whisper_to) "
-            "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid[]) RETURNING id",
-            {a.channelId, windowId, sceneId, a.userId, a.isGm ? "gm" : "player", characterId.empty() ? dbNull() : DbParam(characterId), kind, content, visibility, pgArrayLiteral(whisperTo)});
-        // Audience = characters who can read this message in-fiction.
-        std::vector<std::string> audience;
-        std::string evVis = "window";
-        if (visibility == "window") {
-            for (auto& r : Db::queryJson(w, "SELECT character_id FROM chat_window_members WHERE chat_window_id=$1 AND character_id IS NOT NULL", {windowId}))
-                audience.push_back(r["character_id"].asString());
-        } else if (visibility == "whisper") { audience = whisperTo; evVis = "whisper"; }
-        else evVis = "gm_only";
-        NewEvent e; e.channelId = a.channelId; e.chatWindowId = windowId; e.sceneId = sceneId; e.messageId = m["id"].asString();
-        e.actorUserId = a.userId; e.actorRole = a.isGm ? "gm" : "player"; e.characterId = characterId; e.kind = "message.posted";
-        e.visibility = evVis; e.audience = audience;
-        e.payload["content"] = content; e.payload["message_kind"] = kind;
-        events_.append(w, e);
-        return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {m["id"].asString()});
+        std::string eventText = content;
+        Json::Value diceJson;
+        if (diceCmd) {
+            diceResult = dice_.execute(w, a, characterId, *diceCmd);
+            diceJson = diceResult.dice; eventText = diceResult.text;
+            if (diceResult.hidden) {
+                // Hidden rolls: the result reaches the roller's character and the GM; the window only sees a notice.
+                if (!characterId.empty() && characterKind == "pc") { visibility = "whisper"; whisperTo = {characterId}; }
+                else if (a.isGm) { visibility = "gm_only"; whisperTo.clear(); }
+                else throw ApiError(400, "dice_error", "Hidden rolls need a character to speak as, so the result has someone to reach.");
+            }
+        }
+        auto insert = [&](const std::string& vis, const std::vector<std::string>& to, const std::string& text, const Json::Value& dice) {
+            return Db::queryOne(w,
+                "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, character_id, kind, content, visibility, whisper_to, dice) "
+                "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid[],$11::jsonb) RETURNING id",
+                {a.channelId, windowId, sceneId, a.userId, a.isGm ? "gm" : "player", characterId.empty() ? dbNull() : DbParam(characterId), kind, text, vis,
+                 pgArrayLiteral(to), dice.isNull() ? dbNull() : DbParam(json::dump(dice))})["id"].asString();
+        };
+        auto messageId = insert(visibility, whisperTo, content, diceJson);
+        if (diceCmd && diceResult.hidden) {
+            Json::Value nd; nd["type"] = "hidden_notice"; nd["command"] = diceCmd->raw; nd["text"] = diceResult.hiddenNotice;
+            notice = Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {insert("window", {}, diceCmd->raw, nd)});
+        }
+        // Sheet maintenance (.st/.en) is bookkeeping, not something that happened in the story.
+        if (!diceCmd || diceResult.narrative) {
+            // Audience = characters who can read this message in-fiction.
+            std::vector<std::string> audience;
+            std::string evVis = "window";
+            if (visibility == "window") {
+                for (auto& r : Db::queryJson(w, "SELECT character_id FROM chat_window_members WHERE chat_window_id=$1 AND character_id IS NOT NULL", {windowId}))
+                    audience.push_back(r["character_id"].asString());
+            } else if (visibility == "whisper") { audience = whisperTo; evVis = "whisper"; }
+            else evVis = "gm_only";
+            NewEvent e; e.channelId = a.channelId; e.chatWindowId = windowId; e.sceneId = sceneId; e.messageId = messageId;
+            e.actorUserId = a.userId; e.actorRole = a.isGm ? "gm" : "player"; e.characterId = characterId; e.kind = "message.posted";
+            e.visibility = evVis; e.audience = audience;
+            e.payload["content"] = eventText; e.payload["message_kind"] = kind;
+            if (diceCmd) { e.payload["command"] = content; e.payload["dice"] = diceJson; }
+            events_.append(w, e);
+        }
+        return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {messageId});
     });
     notifier_.messagePosted(msg);
+    if (!notice.isNull()) notifier_.messagePosted(notice);
+    if (diceCmd) dice_.afterCommit(a, characterId, diceResult);
     return msg;
 }
 

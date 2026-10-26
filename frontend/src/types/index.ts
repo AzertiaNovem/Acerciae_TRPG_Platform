@@ -5,6 +5,7 @@ export interface Channel {
   id: string; server_id: string; name: string; description: string; rule_system: string;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null;
   ai_enabled: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
+  dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }
 export interface WindowMember { user_id: string; character_id: string | null; display_name: string; character_name: string | null }
 export interface ChatWindow {
@@ -16,7 +17,9 @@ export interface Message {
   id: string; channel_id: string; chat_window_id: string; scene_id: string | null; author_id: string; author_role: 'gm' | 'player';
   character_id: string | null; character_name: string | null; author_name: string; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
   content: string; visibility: 'window' | 'gm_only' | 'whisper'; whisper_to: string[]; seq: number; created_at: string;
+  dice?: DiceResult | null;
 }
+export interface DiceResult { type: string; command: string; text: string; hidden?: boolean; [k: string]: unknown }
 export interface Scene { id: string; title: string; location: string; narrative_time: string; status: 'active' | 'closed'; summary: string; off_module: boolean; sequence: number; event_count?: number; windows?: { chat_window_id: string; name: string }[] | null }
 export type DocType = 'current_scene' | 'clue_journal' | 'relationships' | 'open_threads' | 'timeline' | 'module_progress';
 export interface DocumentSummary { id: string; doc_type: DocType; title: string; version: number; gm_only: boolean; updated_at: string; entry_count: number; recent_changes: number; preview: string | null }
@@ -76,3 +79,16 @@ export interface Presentation { id: string; project_id: string; snapshot_id: str
 export interface VoiceProfile { id: string; channel_id: string; character_id: string | null; character_name?: string | null; name: string; provider: string; model_id: string; voice_id: string; voice_type: 'preset' | 'design' | 'clone'; language: string; dialect: string; style_instruction: string; pronunciation_dictionary_id: string | null; synthesis_parameters: Record<string, any>; consent_metadata: Record<string, any> | null; design_prompt: string | null; version: number; created_at: string; cached_lines?: number }
 export interface PronunciationDictionary { id: string; name: string; entries: { term: string; reading: string; mode: 'replace' | 'phoneme'; language: string }[]; version: number }
 export interface TtsJob { id: string; presentation_id: string | null; kind: string; scope: Record<string, any>; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; total: number; done: number; failed: number; cached: number; estimated_chars: number; estimated_cost: number; provider: string; error: string | null; result: Record<string, any>; created_at: string; finished_at: string | null }
+export interface UserLite { id: string; username: string; display_name: string }
+export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member'; joined_at: string }
+export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
+export type Feature = 'consistency' | 'dice' | 'inspiration';
+export interface ServerSettings {
+  server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; is_maintainer?: boolean;
+  llm?: { api_base: string; model: string; reasoning_effort: string; api_key_set: boolean; api_key_hint: string; default_api_base: string; default_model: string; default_key_configured: boolean };
+  tts?: { api_base: string; model: string; voice: string; api_key_set: boolean; api_key_hint: string };
+  languages?: string[];
+}
+export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: Record<string, string>; updated_at: string; created_by_name?: string | null }
+export interface BuiltinDiceTexts { keys: string[]; en: Record<string, string>; zh: Record<string, string> }
+export interface CharacterAttributes { character_id: string; name: string; kind: 'pc' | 'npc'; attrs: Record<string, number>; editable: boolean }

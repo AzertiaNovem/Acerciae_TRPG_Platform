@@ -108,7 +108,7 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         job = db_.tx([&](pqxx::work& w) {
             auto c = Db::queryOne(w, "SELECT last_seq FROM ai_processing_cursors WHERE channel_id=$1 AND kind='observe' AND group_key=$2", {channelId, groupKey});
             lastSeq = c.isNull() ? 0 : c["last_seq"].asInt64();
-            return Db::queryOne(w, "INSERT INTO ai_jobs(channel_id, kind, group_key, from_seq, llm_mode) VALUES($1,'observe',$2,$3,$4) RETURNING id", {channelId, groupKey, lastSeq, llm_.mode()});
+            return Db::queryOne(w, "INSERT INTO ai_jobs(channel_id, kind, group_key, from_seq, llm_mode) VALUES($1,'observe',$2,$3,$4) RETURNING id", {channelId, groupKey, lastSeq, llm_.mode(channelId)});
         });
     } catch (const pqxx::unique_violation&) { return Json::Value(); }   // another instance holds the lock
     auto jobId = job["id"].asString();
@@ -136,7 +136,7 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         std::vector<std::string> terms;
         auto ctx = buildGroupContext(sys, channelId, windowId, sceneId, batch, terms);
 
-        LlmRequest req; req.task = "observer_extract"; req.system = observerSystemPrompt(); req.responseSchema = observerSchema();
+        LlmRequest req; req.channelId = channelId; req.task = "observer_extract"; req.system = observerSystemPrompt(); req.responseSchema = observerSchema();
         req.tools = ContextRetrievalService::toolSpecs(true); req.temperature = cfg_.llmTemperature; req.maxTokens = cfg_.llmMaxTokens;
         LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
         auto outcome = llm_.runStructured(req, [&](const std::string& name, const Json::Value& args) { return retrieval_.executeTool(sys, name, args); }, 4);
@@ -343,7 +343,7 @@ Json::Value ObserverScheduler::consolidateChannel(const std::string& channelId) 
     auto c = db_.queryOne("SELECT last_seq FROM ai_processing_cursors WHERE channel_id=$1 AND kind='consolidate' AND group_key=''", {channelId});
     lastSeq = c.isNull() ? 0 : c["last_seq"].asInt64();
     if (maxSeq <= lastSeq) return Json::Value();           // nothing new since last consolidation → no LLM call
-    try { job = db_.queryOne("INSERT INTO ai_jobs(channel_id, kind, group_key, from_seq, llm_mode) VALUES($1,'consolidate','',$2,$3) RETURNING id", {channelId, lastSeq, llm_.mode()}); }
+    try { job = db_.queryOne("INSERT INTO ai_jobs(channel_id, kind, group_key, from_seq, llm_mode) VALUES($1,'consolidate','',$2,$3) RETURNING id", {channelId, lastSeq, llm_.mode(channelId)}); }
     catch (const pqxx::unique_violation&) { return Json::Value(); }
     auto jobId = job["id"].asString();
     Json::Value summary; summary["job_id"] = jobId; summary["kind"] = "consolidate"; summary["documents"] = Json::Value(Json::arrayValue);
@@ -352,7 +352,7 @@ Json::Value ObserverScheduler::consolidateChannel(const std::string& channelId) 
         Json::Value ctx; Json::Value docs(Json::objectValue);
         for (auto& t : DocumentService::coreDocTypes()) docs[t] = retrieval_.documentSnapshot(sys, t, "", 80);
         ctx["documents"] = docs; ctx["channel_id"] = channelId;
-        LlmRequest req; req.task = "consolidate"; req.responseSchema = consolidateSchema(); req.temperature = cfg_.llmTemperature;
+        LlmRequest req; req.channelId = channelId; req.task = "consolidate"; req.responseSchema = consolidateSchema(); req.temperature = cfg_.llmTemperature;
         req.system = "You are the low-frequency consolidation pass of a TRPG campaign chronicler. Review the documents and propose ONLY structural maintenance: resolve threads that later confirmed records answer (cite the confirming source_event_ids), merge duplicate relationships, and flag long timelines. Never add new facts, never change confirmed records. Reply with JSON {\"proposals\":[{\"document_type\":..., \"ops\":[...]}], \"notes\":[...]}.";
         LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
         auto outcome = llm_.runStructured(req, nullptr, 2);

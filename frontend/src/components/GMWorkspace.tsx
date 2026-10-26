@@ -4,9 +4,11 @@ import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 import ModuleImportPanel from './ModuleImportPanel';
 import SceneManager from './SceneManager';
-import type { Proposal, ModuleHint, AiJob } from '../types';
+import type { Proposal, ModuleHint, AiJob, ChannelMember, DiceTextGroup } from '../types';
+import { useAuth } from '../store/auth';
+import { LANGUAGE_LABELS } from './ServerSettingsModal';
 
-type Tab = 'overview' | 'module' | 'scenes' | 'knowledge';
+type Tab = 'overview' | 'module' | 'scenes' | 'knowledge' | 'settings';
 
 function Overview() {
   const { channelId } = useNav();
@@ -111,13 +113,69 @@ function Knowledge() {
   );
 }
 
+function ChannelSettings() {
+  const { channelId, channel, serverId, serverSettings, refreshChannel, refreshWindows } = useNav();
+  const me = useAuth((s) => s.user);
+  const toast = useUi((s) => s.toast);
+  const [groups, setGroups] = useState<DiceTextGroup[]>([]);
+  const [members, setMembers] = useState<ChannelMember[]>([]);
+  const [form, setForm] = useState({ name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, dice_text_group: '' });
+  useEffect(() => { if (channel) setForm({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, dice_text_group: channel.dice_text_group ?? '' }); }, [channel]);
+  useEffect(() => {
+    if (serverId) api.diceTextGroups(serverId).then(setGroups).catch(() => undefined);
+    if (channelId) api.channelMembers(channelId).then(setMembers).catch(() => undefined);
+  }, [serverId, channelId]);
+  if (!channelId || !channel) return null;
+  const save = async () => { try { await api.updateChannel(channelId, form as any); await refreshChannel(); toast('Channel settings saved'); } catch (e: any) { toast(e.message, 'error'); } };
+  const remove = async (m: ChannelMember) => {
+    if (!confirm(`Remove ${m.display_name} from this channel? They leave every chat window here; their characters stay.`)) return;
+    try { setMembers(await api.removeChannelMember(channelId, m.id)); await refreshWindows(); } catch (e: any) { toast(e.message, 'error'); }
+  };
+  const lang = serverSettings?.language ?? 'en';
+  const diceOn = serverSettings?.features?.dice !== false;
+  return (
+    <div className="grid-2">
+      <div className="card col">
+        <h3>Channel</h3>
+        <label className="field"><span>Name</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+        <label className="field"><span>Description</span><input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+        <label className="field"><span>Knowledge mode</span>
+          <select value={form.knowledge_mode} onChange={(e) => setForm({ ...form, knowledge_mode: e.target.value })}><option value="isolated">Character knowledge isolation (Mode B)</option><option value="public">Public knowledge (Mode A)</option></select>
+        </label>
+        <label className="row small"><input type="checkbox" checked={form.ai_enabled} onChange={(e) => setForm({ ...form, ai_enabled: e.target.checked })} />Background chronicler enabled</label>
+        <label className="field"><span>Dice reply texts</span>
+          <select value={form.dice_text_group} onChange={(e) => setForm({ ...form, dice_text_group: e.target.value })} disabled={!diceOn}>
+            <option value="">Follow server language ({LANGUAGE_LABELS[lang] ?? lang})</option>
+            <option value="builtin:en">Built-in · English</option>
+            <option value="builtin:zh">Built-in · 中文</option>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        </label>
+        <div className="tiny muted">{diceOn ? 'Server maintainers add custom text groups in Server settings → Dice texts.' : 'Integrated dice are turned off for this server.'}</div>
+        <div className="row"><span className="grow" /><button className="primary" onClick={save}>Save</button></div>
+      </div>
+      <div className="card">
+        <h3>Channel members <span className="pill">{members.length}</span></h3>
+        <div className="tiny muted" style={{ marginBottom: 6 }}>Invite people with “Invite player” in the sidebar; manage who is in each chat window with the ⚇ button next to it.</div>
+        {members.map((m) => (
+          <div key={m.id} className="pick-row">
+            <span className="grow">{m.display_name} <span className="tiny muted">@{m.username}{m.characters?.length ? ` · ${m.characters.map((c) => c.name).join(', ')}` : ''}</span></span>
+            <span className={`pill ${m.role === 'gm' ? 'gm' : ''}`}>{m.role}</span>
+            {m.id !== me?.id && <button className="small" onClick={() => remove(m)}>Remove</button>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function GMWorkspace() {
   const [tab, setTab] = useState<Tab>('overview');
   const setOpen = useNav((s) => s.setGmWorkspaceOpen);
   return (
     <div className="workspace">
       <div className="tabs">
-        {(['overview', 'module', 'scenes', 'knowledge'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}
+        {(['overview', 'module', 'scenes', 'knowledge', 'settings'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}
         <span className="grow" /><button className="ghost" onClick={() => setOpen(false)}>← back to chat</button>
       </div>
       <div className="content">
@@ -125,6 +183,7 @@ export default function GMWorkspace() {
         {tab === 'module' && <ModuleImportPanel />}
         {tab === 'scenes' && <SceneManager />}
         {tab === 'knowledge' && <Knowledge />}
+        {tab === 'settings' && <ChannelSettings />}
       </div>
     </div>
   );

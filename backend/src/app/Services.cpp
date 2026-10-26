@@ -19,6 +19,8 @@
 #include "../logstudio/PresentationService.h"
 #include "../logstudio/StyleService.h"
 #include "../logstudio/TtsService.h"
+#include "../servers/ServerSettingsService.h"
+#include "../dice/DiceService.h"
 
 namespace acerciae {
 
@@ -38,8 +40,11 @@ Services& Services::build(const Config& cfg) {
     s.knowledge = std::make_unique<KnowledgeService>(*s.db);
     s.documents = std::make_unique<DocumentService>(*s.db, *s.knowledge, *s.notifier);
     s.highlights = std::make_unique<HighlightService>(*s.db, *s.notifier, cfg.highlightTtlSeconds);
-    s.chat = std::make_unique<ChatService>(*s.db, *s.auth, *s.events, *s.scenes, *s.notifier, *s.documents);
+    s.settings = std::make_unique<ServerSettingsService>(s.cfg, *s.db, *s.auth, *s.notifier);
+    s.dice = std::make_unique<DiceService>(*s.db, *s.auth, *s.settings, *s.notifier);
+    s.chat = std::make_unique<ChatService>(*s.db, *s.auth, *s.events, *s.scenes, *s.notifier, *s.documents, *s.dice);
     s.llm = std::make_unique<LlmGateway>(s.cfg);
+    s.llm->setProfileResolver([&s](const std::string& channelId) { return s.settings->profileForChannel(channelId); });
     s.retrieval = std::make_unique<ContextRetrievalService>(*s.db, *s.knowledge, *s.events, *s.llm);
     s.consistency = std::make_unique<ConsistencyService>(s.cfg, *s.db, *s.retrieval, *s.llm, *s.highlights, *s.knowledge);
     s.inspiration = std::make_unique<InspirationService>(s.cfg, *s.db, *s.retrieval, *s.llm);

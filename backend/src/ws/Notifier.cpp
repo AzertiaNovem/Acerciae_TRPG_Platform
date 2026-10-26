@@ -48,6 +48,20 @@ void Notifier::sceneChanged(const std::string& channelId, const Json::Value& sce
     WsGateway::instance().broadcast("chat", channelId, msg);
     WsGateway::instance().broadcast("context", channelId, msg);
 }
+void Notifier::characterUpdated(const std::string& channelId, const Json::Value& c) {
+    Json::Value msg; msg["type"] = "character.updated"; msg["channel_id"] = channelId; msg["character"] = c;
+    if (json::str(c, "kind") == "npc") {
+        std::set<std::string> gms; for (auto& u : gmUsers(channelId)) gms.insert(u);
+        WsGateway::instance().broadcast("chat", channelId, msg, setFilter(std::move(gms)));
+    } else WsGateway::instance().broadcast("chat", channelId, msg);
+}
+void Notifier::serverSettingsChanged(const std::string& serverId, const Json::Value& settings) {
+    Json::Value msg; msg["type"] = "server.settings"; msg["server_id"] = serverId; msg["settings"] = settings;
+    for (auto& r : db_.queryJson("SELECT id FROM channels WHERE server_id=$1", {serverId})) {
+        msg["channel_id"] = r["id"];
+        WsGateway::instance().broadcast("chat", r["id"].asString(), msg);
+    }
+}
 void Notifier::documentUpdated(const std::string& channelId, const Json::Value& payload) {
     Json::Value msg; msg["type"] = "document.updated"; msg["channel_id"] = channelId;
     for (auto it = payload.begin(); it != payload.end(); ++it) msg[it.name()] = *it;

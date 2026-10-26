@@ -6,6 +6,7 @@
 #include <sstream>
 #include <iomanip>
 #include <vector>
+#include <memory>
 #include <cstring>
 #include <stdexcept>
 
@@ -70,6 +71,54 @@ std::string uuid4() {
     b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
     auto h = hex(b, 16);
     return h.substr(0,8)+"-"+h.substr(8,4)+"-"+h.substr(12,4)+"-"+h.substr(16,4)+"-"+h.substr(20);
+}
+
+
+static std::vector<unsigned char> secretKey(const std::string& master) {
+    std::string material = "acerciae-server-secrets|" + master;
+    std::vector<unsigned char> k(SHA256_DIGEST_LENGTH);
+    SHA256(reinterpret_cast<const unsigned char*>(material.data()), material.size(), k.data());
+    return k;
+}
+static std::vector<unsigned char> unhex(const std::string& h) {
+    if (h.size() % 2) throw std::runtime_error("bad hex");
+    std::vector<unsigned char> out(h.size() / 2);
+    for (size_t i = 0; i < out.size(); ++i) out[i] = (unsigned char)std::stoi(h.substr(i * 2, 2), nullptr, 16);
+    return out;
+}
+
+std::string sealSecret(const std::string& master, const std::string& plaintext) {
+    auto key = secretKey(master);
+    unsigned char iv[12], tag[16];
+    if (RAND_bytes(iv, sizeof iv) != 1) throw std::runtime_error("RAND_bytes failed");
+    std::vector<unsigned char> ct(plaintext.size() + 16);
+    int len = 0, total = 0;
+    std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
+    if (!ctx || EVP_EncryptInit_ex(ctx.get(), EVP_aes_256_gcm(), nullptr, key.data(), iv) != 1 ||
+        EVP_EncryptUpdate(ctx.get(), ct.data(), &len, reinterpret_cast<const unsigned char*>(plaintext.data()), (int)plaintext.size()) != 1)
+        throw std::runtime_error("encrypt failed");
+    total = len;
+    if (EVP_EncryptFinal_ex(ctx.get(), ct.data() + total, &len) != 1 || EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_GET_TAG, 16, tag) != 1) throw std::runtime_error("encrypt failed");
+    total += len;
+    return "v1:" + hex(iv, sizeof iv) + hex(tag, sizeof tag) + hex(ct.data(), total);
+}
+
+std::string openSecret(const std::string& master, const std::string& sealed) {
+    if (sealed.rfind("v1:", 0) != 0) throw std::runtime_error("unknown secret format");
+    auto raw = unhex(sealed.substr(3));
+    if (raw.size() < 28) throw std::runtime_error("secret too short");
+    auto key = secretKey(master);
+    std::vector<unsigned char> pt(raw.size() - 28 + 16);
+    int len = 0, total = 0;
+    std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
+    if (!ctx || EVP_DecryptInit_ex(ctx.get(), EVP_aes_256_gcm(), nullptr, key.data(), raw.data()) != 1 ||
+        EVP_DecryptUpdate(ctx.get(), pt.data(), &len, raw.data() + 28, (int)raw.size() - 28) != 1)
+        throw std::runtime_error("decrypt failed");
+    total = len;
+    if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG, 16, raw.data() + 12) != 1 || EVP_DecryptFinal_ex(ctx.get(), pt.data() + total, &len) != 1)
+        throw std::runtime_error("secret authentication failed");
+    total += len;
+    return std::string(reinterpret_cast<char*>(pt.data()), total);
 }
 
 } // namespace acerciae::crypto

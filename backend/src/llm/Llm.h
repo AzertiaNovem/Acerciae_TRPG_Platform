@@ -20,7 +20,24 @@ struct LlmToolSpec {
     Json::Value parameters;     // JSON schema
 };
 
+// Where and how to reach a model. Built from the process config, optionally overridden per server.
+struct LlmEndpoint {
+    std::string apiBase;
+    std::string apiKey;            // empty => mock mode
+    std::string model;
+    std::string reasoningEffort;   // '' | minimal | low | medium | high (sent as reasoning_effort)
+    std::string embeddingModel;
+    int timeoutMs = 60000;
+    int maxTokens = 2048;
+};
+// What a channel's server asks for: its endpoint and the language human-readable output should be written in.
+struct LlmProfile {
+    LlmEndpoint endpoint;
+    std::string language;          // BCP-47-ish code, '' or 'en' = English
+};
+
 struct LlmRequest {
+    std::string channelId;      // selects the server's LLM profile; empty = process default
     std::string task;           // observer_extract | consolidate | consistency | inspiration | module_structure
     std::string system;
     std::vector<LlmMessage> messages;

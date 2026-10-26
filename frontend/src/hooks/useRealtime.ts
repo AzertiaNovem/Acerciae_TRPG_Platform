@@ -18,6 +18,8 @@ export function useRealtime() {
       if (m.type === 'message.posted') useChat.getState().push(m.message);
       else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows(); }
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
+      else if (m.type === 'character.updated') useNav.getState().refreshCharacters();
+      else if (m.type === 'server.settings') useNav.getState().applyServerSettings(m.settings);
     });
     const offCtx = contextSocket.on((m) => {
       const ch = useNav.getState().channelId;

@@ -66,7 +66,6 @@ bool isOocText(const std::string& t0) {
 std::optional<DiceInfo> parseDice(const std::string& t) {
     DiceInfo d; d.raw = t;
     // SealDice result lines: "<name>的侦查检定结果为: D100=37/55 成功" / "ra 侦查 ... D100=37/55 困难成功"
-    static const std::regex sealCheck("(?:的)?([\\p{L}\\w ]{1,20}?)(?:检定|鉴定)?(?:结果)?(?:为|:|：)\\s*D(\\d+)\\s*=\\s*(\\d+)\\s*/\\s*(\\d+)\\s*(大成功|极难成功|困难成功|成功|失败|大失败)?");
     std::smatch m;
     try {
         static const std::regex sealResult("D(\\d+)\\s*=\\s*(\\d+)\\s*/\\s*(\\d+)\\s*(大成功|极难成功|困难成功|成功|失败|大失败|critical|extreme success|hard success|success|failure|fumble)?", std::regex::icase);
