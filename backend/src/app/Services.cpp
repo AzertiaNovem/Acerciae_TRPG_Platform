@@ -17,6 +17,8 @@
 #include "../logstudio/ObjectStore.h"
 #include "../logstudio/MediaService.h"
 #include "../logstudio/PresentationService.h"
+#include "../logstudio/StyleService.h"
+#include "../logstudio/TtsService.h"
 
 namespace acerciae {
 
@@ -46,6 +48,8 @@ Services& Services::build(const Config& cfg) {
     s.objectStore = logstudio::makeObjectStore(s.cfg);
     s.media = std::make_unique<logstudio::MediaService>(s.cfg, *s.db, *s.objectStore);
     s.presentations = std::make_unique<logstudio::PresentationService>(s.cfg, *s.db, *s.notifier, *s.studio);
+    s.styles = std::make_unique<logstudio::StyleService>(*s.db);
+    s.tts = std::make_unique<logstudio::TtsService>(s.cfg, *s.db, *s.objectStore, *s.notifier, *s.presentations);
     s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge);
     return s;
 }
@@ -53,6 +57,7 @@ Services& Services::build(const Config& cfg) {
 void Services::shutdown() {
     if (!g_services) return;
     if (g_services->observer) g_services->observer->stop();
+    if (g_services->tts) g_services->tts->stop();
     g_services.reset();
 }
 

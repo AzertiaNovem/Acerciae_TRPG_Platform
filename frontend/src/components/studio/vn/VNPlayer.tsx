@@ -42,7 +42,6 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   const chars = useMemo(() => [...text], [text]);
   const cps = (settings.typewriter_cps ?? 28) * speed;
   const hasAudio = !!cur?.audio_asset_id && !skipTts;
-  const audioUrl = cur?.audio_asset_id ? `${api.mediaUrl(channelId, '')}`.replace(/\/media\/\?/, `/media/`) : '';
 
   // ---- typewriter + audio per line -------------------------------------------------------------
   useEffect(() => {
@@ -56,7 +55,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
     const total = chars.length;
     const finishLine = () => { if (cancelled || doneRef.current) return; doneRef.current = true; setTyped(total); };
     if (hasAudio && cur.audio_asset_id) {
-      const src = `/api/channels/${channelId}/studio/tts/audio/${cur.audio_asset_id}?token=${encodeURIComponent(localStorage.getItem('acerciae.token') ?? '')}`;
+      const src = api.ttsAudioUrl(channelId, cur.audio_asset_id);
       const fmt = cur.audio_mime === 'audio/wav' ? 'wav' : cur.audio_mime === 'audio/mpeg' ? 'mp3' : undefined;
       audio.unlock().then((ok) => {
         if (cancelled) return;
@@ -110,7 +109,6 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   const words = cur.word_timestamps;
   const fadeDur = animations ? 0.45 : 0;
   const dialogueStyle = cur.dialogue_style ?? {};
-  void audioUrl;
 
   return (
     <div className={`vn-stage ${hideUi ? '' : 'show-hud'}`} ref={stageRef} tabIndex={0} onClick={(e) => { if ((e.target as HTMLElement).closest('.vn-hud, .vn-raw, .vn-unlock')) return; next(); }} style={{ ['--vn-font' as any]: settings.font || undefined }}>

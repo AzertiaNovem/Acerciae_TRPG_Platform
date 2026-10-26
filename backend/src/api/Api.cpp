@@ -16,6 +16,8 @@
 #include "../logstudio/LogStudioService.h"
 #include "../logstudio/MediaService.h"
 #include "../logstudio/PresentationService.h"
+#include "../logstudio/StyleService.h"
+#include "../logstudio/TtsService.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Log.h"
@@ -274,6 +276,42 @@ void registerRoutes() {
     route2("/api/channels/{1}/studio/pevents/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->updateEvent(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/pevents/{2}/split", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->splitEvent(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/pevents/{2}/suggestion", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->acceptSuggestion(access(p, a[0]), a[1], json::toBool(body(req), "accept", false)); });
+
+    // ---- Log Studio: visual styles / character visuals ----
+    route1("/api/channels/{1}/studio/styles", {Get}, [&](auto&, auto& p, auto& a) { return S.styles->listStyles(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/styles", {Post}, [&](auto& req, auto& p, auto& a) { return S.styles->createStyle(access(p, a[0]), body(req)); });
+    route2("/api/channels/{1}/studio/styles/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.styles->updateStyle(access(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/studio/character-visuals", {Get}, [&](auto&, auto& p, auto& a) { return S.styles->listCharacterVisuals(access(p, a[0])); });
+    route2("/api/channels/{1}/studio/character-visuals/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.styles->upsertCharacterVisual(access(p, a[0]), a[1], body(req)); });
+
+    // ---- Log Studio: TTS ----
+    route1("/api/channels/{1}/studio/tts/status", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->status(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/tts/available-voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->availableVoices(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/tts/usage", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->usage(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listVoices(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/voices", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto ac = access(p, a[0]); MultiPartParser mp;
+        if (mp.parse(req) == 0 && !mp.getParameters().empty()) { Json::Value b(Json::objectValue); for (auto& [k, v] : mp.getParameters()) { if (k == "consent_metadata" || k == "synthesis_parameters") { try { b[k] = json::parse(v); } catch (...) { b[k] = v; } } else b[k] = v; } std::string audio, mime; if (!mp.getFiles().empty()) { audio = std::string(mp.getFiles()[0].fileContent()); mime = "audio/wav"; } return S.tts->createVoice(ac, b, audio, mime); }
+        return S.tts->createVoice(ac, body(req), "", "");
+    });
+    route2("/api/channels/{1}/studio/voices/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.tts->updateVoice(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/voices/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.tts->deleteVoice(access(p, a[0]), a[1]); });
+    route1("/api/channels/{1}/studio/dictionaries", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listDictionaries(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/dictionaries", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->saveDictionary(access(p, a[0]), "", body(req)); });
+    route2("/api/channels/{1}/studio/dictionaries/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.tts->saveDictionary(access(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/studio/tts/preview", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->preview(access(p, a[0]), body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/tts/estimate", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->estimate(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->createJob(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listJobs(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/tts/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->getJob(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/tts/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.tts->cancelJob(access(p, a[0]), a[1]); });
+    app().registerHandler("/api/channels/{1}/studio/tts/audio/{2}", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string id) {
+        try {
+            auto pr = S.auth->authenticate(bearer(req)); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
+            std::string bytes, mime; if (!S.tts->fetchAudio(access(*pr, ch), id, bytes, mime)) { cb(errResp(404, "not_found", "audio not found")); return; }
+            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=86400"); cb(r);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+    }, {Get});
 
     // CORS for dev setups where the frontend is served from another origin.
     app().registerPreRoutingAdvice([](const HttpRequestPtr& req, AdviceCallback&& acb, AdviceChainCallback&& ccb) {

@@ -91,3 +91,11 @@ void Notifier::aiJobFinished(const std::string& channelId, const Json::Value& jo
 }
 
 } // namespace acerciae
+
+namespace acerciae {
+void Notifier::studioEvent(const std::string& channelId, const std::string& kind, const Json::Value& payload, bool gmOnly) {
+    Json::Value msg; msg["type"] = "studio." + kind; msg["channel_id"] = channelId; msg["payload"] = payload;
+    if (gmOnly) { std::set<std::string> gms; for (auto& u : gmUsers(channelId)) gms.insert(u); WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(gms))); }
+    else WsGateway::instance().broadcast("context", channelId, msg);
+}
+}

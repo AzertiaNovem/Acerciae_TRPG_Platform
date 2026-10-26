@@ -47,12 +47,17 @@ Json::Value PresentationService::create(const ChannelAccess& a, const std::strin
         std::map<std::string, std::string> defaultStandee;
         for (auto& r : Db::queryJson(w, "SELECT character_id, default_asset_id FROM character_visual_profiles WHERE channel_id=$1 AND default_asset_id IS NOT NULL", {a.channelId})) defaultStandee[r["character_id"].asString()] = r["default_asset_id"].asString();
         std::string curSceneKey = "\x01"; std::string curSceneId; int scenePos = 0, pos = 0;
+        std::map<std::string, std::string> sceneByKey;   // a canonical scene revisited later reuses its presentation scene
         std::vector<std::string> onStage;   // speaker character ids currently placed (max 3: left/center/right)
         for (auto& e : events) {
             if (e.sceneKey != curSceneKey) {
                 curSceneKey = e.sceneKey;
-                auto s = Db::queryOne(w, "INSERT INTO presentation_scenes(presentation_id, position, title, canonical_scene_key) VALUES($1,$2,$3,$4) RETURNING id", {pid, (int64_t)scenePos++, e.sceneTitle.empty() ? (e.eventType == "scene_change" ? e.content : "Scene " + std::to_string(scenePos)) : e.sceneTitle, e.sceneKey});
-                curSceneId = s["id"].asString(); onStage.clear();
+                if (sceneByKey.count(e.sceneKey)) curSceneId = sceneByKey[e.sceneKey];
+                else {
+                    auto s = Db::queryOne(w, "INSERT INTO presentation_scenes(presentation_id, position, title, canonical_scene_key) VALUES($1,$2,$3,$4) RETURNING id", {pid, (int64_t)scenePos++, e.sceneTitle.empty() ? (e.eventType == "scene_change" ? e.content : "Scene " + std::to_string(scenePos)) : e.sceneTitle, e.sceneKey});
+                    curSceneId = s["id"].asString(); sceneByKey[e.sceneKey] = curSceneId;
+                }
+                onStage.clear();
             }
             std::string displayKind = e.eventType == "narration" ? "narration" : e.eventType == "dice_roll" ? "dice" : e.eventType == "ooc" ? "ooc" : e.eventType == "action" ? "action" : e.eventType == "scene_change" ? "scene_change" : e.eventType == "media" ? "media" : e.eventType == "system" ? "system" : "dialogue";
             bool hidden = e.eventType == "ooc" || e.eventType == "system" || e.unrecognised;
