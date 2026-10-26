@@ -9,6 +9,7 @@
 #include "highlights/HighlightService.h"
 #include "observer/ObserverScheduler.h"
 #include "consistency/ConsistencyService.h"
+#include "inspiration/InspirationService.h"
 #include "core/Json.h"
 #include "core/Errors.h"
 #include <iostream>
@@ -161,6 +162,66 @@ int main() {
         for (auto& e : r3["evidence"]) CHECK(e["summary"].asString().find("crypt") == std::string::npos);
         auto r1 = S.consistency->check(p1, splitWin, c1, "I take out the brass key.");
         CHECK(!r1["evidence"].empty() || r1["insufficient_evidence"].asBool());
+    });
+    test("P1: private-window mention of a shared entry stays private (append_text → scoped side note)", [&] {
+        auto gmMsg = say(gmUser, mainWin, "On the mantelpiece you all notice a silver locket engraved with a lantern.", "narration");
+        auto gev = eventOf(gmMsg["id"].asString());
+        Proposal p; p.channelId = channelId; p.documentType = "clue_journal"; p.actor = "ai";
+        Json::Value op; op["op"] = "add_entry"; op["fact"]["summary"] = "A silver locket engraved with a lantern"; op["fact"]["status"] = "confirmed"; op["fact"]["source_event_ids"].append(gev["id"]); op["fact"]["data"]["title"] = "silver locket"; p.ops.append(op);
+        auto r = S.documents->commit(p); CHECK(r.applied == 1);
+        auto lockFact = r.log[0]["fact_id"].asString(); auto lockEntry = r.log[0]["entry_id"].asString();
+        CHECK(!S.knowledge->listFacts(p3, "clue", "locket", "", 10).empty());
+        auto priv = say(p1User, splitWin, "About that silver locket — I pocketed it when nobody was looking.");
+        auto pev = eventOf(priv["id"].asString());
+        Proposal ap; ap.channelId = channelId; ap.documentType = "clue_journal"; ap.actor = "ai";
+        Json::Value a2; a2["op"] = "append_text"; a2["fact_id"] = lockFact; a2["text"] = "↩ Alpha admits pocketing the locket."; a2["source_event_ids"].append(pev["id"]); ap.ops.append(a2);
+        auto r2 = S.documents->commit(ap);
+        CHECK(r2.applied == 1); CHECK(r2.log[0]["note"].asString().find("scoped side note") != std::string::npos);
+        auto shared = S.documents->getEntry(p3, lockEntry);
+        CHECK(shared["content_md"].asString().find("pocketing") == std::string::npos);
+        auto doc3 = S.documents->getDocument(p3, clueDocId, "", -1);
+        for (auto& e : doc3["entries"]) CHECK(e["content_md"].asString().find("pocketing") == std::string::npos);
+        auto doc1 = S.documents->getDocument(p1, clueDocId, "", -1);
+        bool alphaSeesNote = false; for (auto& e : doc1["entries"]) if (e["content_md"].asString().find("pocketing") != std::string::npos) alphaSeesNote = true;
+        CHECK(alphaSeesNote);
+        Proposal up; up.channelId = channelId; up.documentType = "clue_journal"; up.actor = "ai";
+        Json::Value u; u["op"] = "update_entry"; u["fact_id"] = lockFact; u["summary"] = "A silver locket, now in Alpha's pocket"; u["source_event_ids"].append(pev["id"]); up.ops.append(u);
+        auto r3 = S.documents->commit(up); CHECK(r3.applied == 0); CHECK(r3.pendingReview == 1);
+        CHECK(S.documents->getEntry(p3, lockEntry)["summary"].asString().find("pocket") == std::string::npos);
+    });
+    test("P1: highlights are scoped to witnesses of the triggering event, not just readers of the fact", [&] {
+        // The split window moves to its own scene so the locket mention counts as a cross-scene callback.
+        Json::Value sb; sb["title"] = "Split scene"; sb["location"] = "Back room";
+        auto splitScene = S.scenes->create(gm, sb)["id"].asString();
+        S.scenes->enterScene(gm, splitWin, splitScene);
+        say(p1User, splitWin, "I look at the silver locket again under the lamp.");
+        S.observer->observeChannel(channelId, true);
+        auto hl3 = S.highlights->listActive(p3, "");
+        for (auto& h : hl3) CHECK(h["reason"].asString().find("locket") == std::string::npos);
+        auto hl1 = S.highlights->listActive(p1, "");
+        bool alphaHas = false; for (auto& h : hl1) if (h["reason"].asString().find("locket") != std::string::npos) alphaHas = true;
+        CHECK(alphaHas);
+    });
+    test("P1: setting gm_secret through a status-only GM correction removes player access", [&] {
+        auto doc = S.documents->getDocument(gm, clueDocId, "", -1);
+        std::string entryId, factId;
+        for (auto& e : doc["entries"]) if (e["summary"].asString().find("silver locket") != std::string::npos && e["status"] == "confirmed") { entryId = e["id"].asString(); factId = e["fact_id"].asString(); }
+        CHECK(!entryId.empty());
+        Json::Value body; body["status"] = "gm_secret"; body["summary"] = "The silver locket is the cult's key to the sea cave"; body["reason"] = "keeper only";
+        S.documents->gmCorrectEntry(gm, clueDocId, entryId, body);
+        bool threw = false; try { S.documents->getEntry(p3, entryId); } catch (const ApiError& e) { threw = e.status() == 404; }
+        CHECK(threw);
+        CHECK(S.knowledge->listFacts(p1, "clue", "sea cave", "", 10).empty());
+        auto scope = S.db->tx([&](pqxx::work& w) { return S.knowledge->getScope(w, factId); }); CHECK(scope.scope == "gm");
+    });
+    test("P1: inspiration never reveals an NPC's undisclosed full name", [&] {
+        Json::Value npc; npc["name"] = "Arthur Crowley"; npc["kind"] = "npc"; S.chat->createCharacter(gm, npc);
+        say(gmUser, mainWin, "A thin man introduces himself only as Arthur and offers you tea.", "narration");
+        S.observer->observeChannel(channelId, true);
+        bool leaked = false;
+        for (int v = 0; v < 5; ++v) { auto d = S.inspiration->draft(p1, mainWin, c1, "", v); if (d["draft"].asString().find("Crowley") != std::string::npos) leaked = true; }
+        CHECK(!leaked);
+        CHECK(S.knowledge->listFacts(p1, "", "Crowley", "", 10).empty());
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();

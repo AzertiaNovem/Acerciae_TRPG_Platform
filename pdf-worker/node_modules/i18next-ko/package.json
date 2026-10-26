@@ -1,0 +1,32 @@
+{
+  "name": "i18next-ko",
+  "version": "3.0.1",
+  "description": "KnockoutJS bindings for i18next.",
+  "main": "lib/i18next-ko.bundle.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/leMaik/i18next-ko.git"
+  },
+  "keywords": [
+    "i18n",
+    "knockoutjs",
+    "knockout",
+    "internationalization"
+  ],
+  "author": "leMaik",
+  "license": "MIT",
+  "dependencies": {
+    "i18next": "^3.4.3"
+  },
+  "devDependencies": {
+    "browserify": "^11.0.1",
+    "coffee-script": "^1.9.3",
+    "del": "^1.2.1",
+    "gulp": "^3.9.0",
+    "gulp-rename": "^1.2.2",
+    "vinyl-source-stream": "^1.1.0"
+  }
+}

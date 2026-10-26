@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
 import type { Message } from '../types';
+import { sessionEpoch, isStale } from './session';
+
+function merge(existing: Message[], incoming: Message[]): Message[] {
+  const byId = new Map<string, Message>();
+  for (const m of existing) byId.set(m.id, m);
+  for (const m of incoming) byId.set(m.id, m);
+  return [...byId.values()].sort((a, b) => a.seq - b.seq);
+}
 
 interface ChatState {
   byWindow: Record<string, Message[]>;
@@ -10,20 +18,28 @@ interface ChatState {
   loadOlder: (channelId: string, windowId: string) => Promise<void>;
   push: (m: Message) => void;
   requestJump: (messageId: string) => void;
+  clearJump: () => void;
+  reset: () => void;
 }
 export const useChat = create<ChatState>((set, get) => ({
   byWindow: {}, loading: {}, jumpTo: null,
   load: async (ch, w) => {
+    const e = sessionEpoch();
     set((s) => ({ loading: { ...s.loading, [w]: true } }));
-    const msgs = await api.messages(ch, w);
-    set((s) => ({ byWindow: { ...s.byWindow, [w]: msgs }, loading: { ...s.loading, [w]: false } }));
+    try {
+      const msgs = await api.messages(ch, w);
+      if (isStale(e)) return;
+      // Merge: messages that arrived over the WebSocket while the request was in flight are kept.
+      set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], msgs) } }));
+    } finally { if (!isStale(e)) set((s) => ({ loading: { ...s.loading, [w]: false } })); }
   },
   loadOlder: async (ch, w) => {
     const cur = get().byWindow[w] ?? [];
     if (!cur.length) return;
+    const e = sessionEpoch();
     const older = await api.messages(ch, w, cur[0].seq);
-    if (!older.length) return;
-    set((s) => ({ byWindow: { ...s.byWindow, [w]: [...older, ...(s.byWindow[w] ?? [])] } }));
+    if (isStale(e) || !older.length) return;
+    set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], older) } }));
   },
   push: (m) => set((s) => {
     const list = s.byWindow[m.chat_window_id] ?? [];
@@ -31,4 +47,6 @@ export const useChat = create<ChatState>((set, get) => ({
     return { byWindow: { ...s.byWindow, [m.chat_window_id]: [...list, m].sort((a, b) => a.seq - b.seq) } };
   }),
   requestJump: (messageId) => set({ jumpTo: { messageId, nonce: Date.now() } }),
+  clearJump: () => set({ jumpTo: null }),
+  reset: () => set({ byWindow: {}, loading: {}, jumpTo: null }),
 }));

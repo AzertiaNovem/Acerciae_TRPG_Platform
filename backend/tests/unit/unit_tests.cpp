@@ -8,6 +8,7 @@
 #include "llm/LlmGateway.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
+#include "logstudio/LogAdapters.h"
 #include <iostream>
 #include <functional>
 #include <vector>
@@ -123,6 +124,52 @@ int main() {
         Json::Value f; f["summary"] = "A brass key"; f["status"] = "confirmed"; f["data"]["title"] = "Brass key"; f["data"]["source"] = "found at the docks";
         auto md = DocumentService::renderEntry("clue", f); CHECK(md.find("**Brass key**") != std::string::npos); CHECK(md.find("status: confirmed") != std::string::npos);
         CHECK(DocumentService::titleFor("open_threads") == "Open Threads");
+    });
+    test("log studio: SealDice text log import keeps every line, order, dice, OOC and renames", [] {
+        using namespace logstudio;
+        std::string txt =
+            "前言：这是一段未格式化的说明。\n"
+            "守秘人(10001) 2023/05/06 20:11:12\n夜色下的黑水湾，灯塔没有亮。\n第二行 narration continues.\n\n"
+            "哈维·沃尔特斯(20002) 2023/05/06 20:11:40\n“警长，我们想去灯塔看看。” I remove my hat.\n\n"
+            "海豹骰娘(30003) 2023/05/06 20:12:01\n哈维·沃尔特斯的侦查检定结果为: D100=37/55 成功\n\n"
+            "哈维·沃尔特斯(20002) 2023/05/06 20:12:30\n（ooc：今晚几点结束？）\n\n"
+            "Harvey(20002) 2023/05/06 20:13:00\n我把帽子放在桌上。[CQ:image,file=abc.jpg]\n";
+        AdapterRegistry reg; auto* ad = reg.detect(txt);
+        CHECK(ad && ad->name() == "sealdice_text");
+        auto log = ad->parse(txt);
+        CHECK(log.events.size() == 6);                       // leading note + 5 messages
+        CHECK(log.events[0].unrecognised && log.events[0].content.find("前言") != std::string::npos);
+        CHECK(log.events[1].speakerRole == "gm" && log.events[1].eventType == "narration");
+        CHECK(log.events[1].content == "夜色下的黑水湾，灯塔没有亮。\n第二行 narration continues.");
+        CHECK(log.events[2].eventType == "dialogue" && log.events[2].content.rfind("\xe2\x80\x9c", 0) == 0);
+        CHECK(log.events[3].eventType == "dice_roll" && log.events[3].dice && log.events[3].dice->total == 37 && log.events[3].dice->outcome == "成功" && log.events[3].dice->checkName == "侦查");
+        CHECK(log.events[4].eventType == "ooc");
+        CHECK(log.events[5].eventType == "media" && !log.events[5].media.isNull() && log.events[5].media[0]["file"] == "abc.jpg");
+        CHECK(log.events[5].content.find("[CQ:") == std::string::npos && log.events[5].metadata["content_with_cq"].asString().find("[CQ:image") != std::string::npos);
+        CHECK(log.events[2].occurredAtUnix.has_value());
+        for (size_t i = 1; i < log.events.size(); ++i) CHECK(log.events[i].sequenceNumber == log.events[i-1].sequenceNumber + 1);
+        // same IM id under two nicknames → two speaker keys (mapping is a user decision)
+        int harvey = 0; for (auto& sp : log.speakers) if (sp.imUserId == "20002") harvey++;
+        CHECK(harvey == 2); CHECK(log.issues.size() == 1);
+        // round trip through native JSON preserves text verbatim
+        auto j = toNativeJson(log.events, Json::Value(Json::objectValue));
+        CHECK(j["schemaVersion"] == "1.0");
+        auto* nat = reg.detect(json::dump(j)); CHECK(nat && nat->name() == "native_json");
+        auto back = nat->parse(json::dump(j)); CHECK(back.events.size() == log.events.size()); CHECK(back.events[1].content == log.events[1].content);
+    });
+    test("log studio: SealDice JSON, rendered and QQ export detection", [] {
+        using namespace logstudio; AdapterRegistry reg;
+        std::string sj = R"({"version":105,"items":[{"nickname":"KP","IMUserId":"QQ:1","time":1683375072,"message":"门开了。\r\n里面一片漆黑。","isDice":false,"commandId":0},{"nickname":"海豹","IMUserId":"QQ:2","time":1683375080,"message":"KP的侦查检定结果为: D100=90/50 失败","isDice":true,"commandId":1,"commandInfo":{"rule":"coc7","items":[{"expr1":"D100","checkVal":90,"attr":"侦查","rank":-1}]}}]})";
+        auto* a1 = reg.detect(sj); CHECK(a1 && a1->name() == "sealdice_json");
+        auto l1 = a1->parse(sj); CHECK(l1.events.size() == 2); CHECK(l1.events[0].content == "门开了。\n里面一片漆黑。"); CHECK(l1.events[1].speakerRole == "dice" && l1.events[1].eventType == "dice_roll" && l1.events[1].dice->checkName == "侦查" && l1.events[1].dice->total == 90); CHECK(l1.formatVersion == "105");
+        std::string rendered = "2022/08/18 19:43:21<Keeper(904002355)>:领航技能会判定自动失败\n2022/08/18 19:43:32<昆特·爱尔芙(562308967)>:唔……那我的信息有没有什么可以利用的）\n继续上一行\n";
+        auto* a2 = reg.detect(rendered); CHECK(a2 && a2->name() == "rendered_log");
+        auto l2 = a2->parse(rendered); CHECK(l2.events.size() == 2); CHECK(l2.events[1].content == "唔……那我的信息有没有什么可以利用的）\n继续上一行"); CHECK(l2.speakers[0].imUserId == "QQ:904002355");
+        std::string qq = "2022-05-10 11:28:25 名字(12345)\n你好\n2022-05-10 11:28:30 别人<67890>\n再见\n";
+        auto* a3 = reg.detect(qq); CHECK(a3 && a3->name() == "qq_export");
+        auto l3 = a3->parse(qq); CHECK(l3.events.size() == 2 && l3.events[0].content == "你好" && l3.events[1].content == "再见");
+        CHECK(reg.detect("just some prose without any header") == nullptr);
+        std::string enc; auto s16 = normaliseEncoding(std::string("\xFF\xFE" "A\x00" "B\x00", 6), enc); CHECK(s16 == "AB" && enc == "utf-16le");
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;

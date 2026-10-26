@@ -173,17 +173,16 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
         auto quotes = quotedSpeech(content);
         // Who is speaking/addressed
         std::string npc;
-        for (auto& n : mentionedCharacters(content, characters, "npc")) { npc = n; break; }
+        for (auto& n : mentionedCharacters(content, characters, "npc")) { if (icontains(content, n)) { npc = n; break; } }
         for (auto& en : ents) {
             if (!npc.empty()) break;
             if (json::str(en, "kind") != "npc" || std::find(pcNames.begin(), pcNames.end(), json::str(en, "name")) != pcNames.end()) continue;
             auto cand = json::str(en, "name");
-            // Prefer the canonical name of a known NPC character ("Mrs. Hale" -> "Mrs. Agnes Hale").
-            auto candWords = words(cand);
+            // Use the canonical character name only when the text itself contains it; otherwise keep the form the
+            // players actually heard ("Mrs. Hale"), so undisclosed full names never enter player-visible records.
             for (auto& c : characters) {
                 if (json::str(c, "kind") != "npc") continue;
-                auto cw = words(json::str(c, "name"));
-                if (!candWords.empty() && !cw.empty() && lower(candWords.back()) == lower(cw.back())) { cand = json::str(c, "name"); break; }
+                if (icontains(content, json::str(c, "name"))) { cand = json::str(c, "name"); break; }
             }
             if (npc.empty()) npc = cand;
             if (cand != json::str(en, "name")) { npc = cand; break; }

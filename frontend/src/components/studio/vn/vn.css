@@ -1,0 +1,39 @@
+/* Visual novel player: 16:9 stage, layered back→front: background, environment, characters, dialogue, HUD */
+.vn-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; user-select: none; outline: none; font-family: var(--vn-font, var(--font)); }
+.vn-stage:fullscreen { border-radius: 0; aspect-ratio: auto; height: 100%; }
+.vn-layer { position: absolute; inset: 0; }
+.vn-bg { background-size: cover; background-position: center; }
+.vn-bg.empty { background: radial-gradient(ellipse at 50% 30%, #2a3240 0%, #0b0e14 70%); }
+.vn-env.rain { background: repeating-linear-gradient(100deg, transparent 0 6px, rgba(255,255,255,.06) 6px 7px); animation: vn-rain .6s linear infinite; }
+.vn-env.dim { background: rgba(0,0,0,.35); } .vn-env.fog { background: linear-gradient(180deg, rgba(200,210,220,.0), rgba(200,210,220,.25)); } .vn-env.warm { background: rgba(255,170,60,.12); mix-blend-mode: soft-light; } .vn-env.cold { background: rgba(80,120,255,.12); mix-blend-mode: soft-light; }
+@keyframes vn-rain { to { background-position: -30px 60px; } }
+.vn-chars { pointer-events: none; }
+.vn-char { position: absolute; bottom: 0; height: 92%; width: 34%; display: flex; align-items: flex-end; justify-content: center; transform-origin: bottom center; }
+.vn-char img { max-height: 100%; max-width: 100%; object-fit: contain; filter: drop-shadow(0 8px 20px rgba(0,0,0,.5)); }
+.vn-char.pos-left { left: 2%; } .vn-char.pos-center { left: 33%; } .vn-char.pos-right { right: 2%; }
+.vn-char .vn-char-placeholder { width: 60%; height: 70%; border-radius: 50% 50% 8px 8px; background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.04)); border: 1px dashed rgba(255,255,255,.3); display: grid; place-items: center; color: rgba(255,255,255,.6); font-size: 12px; text-align: center; padding: 8px; }
+.vn-dialogue { position: absolute; left: 4%; right: 4%; bottom: 4%; background: rgba(10,12,18,.82); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 14px 20px 16px; min-height: 22%; color: #f1f3f7; backdrop-filter: blur(6px); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.vn-dialogue .vn-name { position: absolute; top: -16px; left: 18px; background: var(--vn-name-bg, #7c9cff); color: #0b0e14; font-weight: 700; padding: 3px 12px; border-radius: 8px; font-size: 14px; }
+.vn-dialogue .vn-text { font-size: clamp(14px, 1.9vw, 22px); line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.vn-dialogue.narration { background: rgba(10,12,18,.6); font-style: italic; text-align: center; border-style: dashed; }
+.vn-dialogue.dice .vn-text { font-family: var(--mono); }
+.vn-dialogue .vn-word.said { color: #ffe9a8; }
+.vn-cursor { display: inline-block; width: .5em; animation: vn-blink 1s steps(2) infinite; } @keyframes vn-blink { to { opacity: 0; } }
+.vn-hud { position: absolute; left: 0; right: 0; top: 0; padding: 8px 10px; display: flex; gap: 6px; align-items: center; background: linear-gradient(180deg, rgba(0,0,0,.55), transparent); opacity: 0; transition: opacity .2s; }
+.vn-stage:hover .vn-hud, .vn-stage.show-hud .vn-hud { opacity: 1; }
+.vn-hud button { padding: 3px 8px; font-size: 12px; background: rgba(0,0,0,.5); border-color: rgba(255,255,255,.2); }
+.vn-hud button.on { background: var(--accent); color: #0b0e14; }
+.vn-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.15); } .vn-progress > div { height: 100%; background: var(--accent-2); }
+.vn-dice-fx { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); font-size: clamp(28px, 6vw, 72px); font-weight: 800; color: #ffe74c; text-shadow: 0 0 24px rgba(255,231,76,.8); }
+.vn-raw { position: absolute; inset: 0; background: rgba(0,0,0,.92); color: #ddd; overflow: auto; padding: 24px; font-size: 13px; }
+.vn-unlock { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.6); color: #fff; z-index: 5; cursor: pointer; }
+.vn-scene-title { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: clamp(18px, 3vw, 40px); letter-spacing: .1em; font-variant: small-caps; text-shadow: 0 2px 20px #000; background: rgba(0,0,0,.6); }
+.vn-editor { display: grid; grid-template-columns: 260px 1fr 300px; gap: 12px; }
+.vn-editor .list { max-height: 70vh; overflow: auto; }
+.vn-editor .evt { padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; font-size: 12px; }
+.vn-editor .evt.current { background: var(--bg-3); border-color: var(--accent); } .vn-editor .evt.hidden { opacity: .45; } .vn-editor .evt:hover { background: var(--bg-3); }
+.vn-editor .evt .who { font-weight: 600; } .vn-editor .evt .sug { color: var(--accent-2); }
+.vn-timeline { display: flex; gap: 2px; overflow-x: auto; padding: 6px 0; }
+.vn-timeline .tick { width: 10px; height: 22px; border-radius: 3px; background: var(--bg-4); flex: none; cursor: pointer; }
+.vn-timeline .tick.voiced { background: var(--accent-2); } .vn-timeline .tick.current { background: var(--accent); } .vn-timeline .tick.hidden { opacity: .3; } .vn-timeline .tick.scene { background: var(--warn); width: 4px; }
+@media (max-width: 1100px) { .vn-editor { grid-template-columns: 1fr; } }

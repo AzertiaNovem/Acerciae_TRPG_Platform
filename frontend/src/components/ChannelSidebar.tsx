@@ -44,7 +44,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
           <>
             <div className="section"><span>Chat windows</span>{isGm && <button className="ghost small" title="New chat window" onClick={() => setDialog('window')}>+</button>}</div>
             {nav.windows.map((w) => (
-              <div key={w.id} className={`item ${w.id === nav.windowId && !nav.gmWorkspaceOpen ? 'active' : ''}`} onClick={() => { nav.selectWindow(w.id); onClose(); }} title={(w.members ?? []).map((m) => m.character_name ?? m.display_name).join(', ')}>
+              <div key={w.id} className={`item ${w.id === nav.windowId && !nav.gmWorkspaceOpen && !nav.studioOpen ? 'active' : ''}`} onClick={() => { nav.selectWindow(w.id); onClose(); }} title={(w.members ?? []).map((m) => m.character_name ?? m.display_name).join(', ')}>
                 <span className="muted">{w.kind === 'main' ? '◎' : w.kind === 'private' ? '◌' : '○'}</span><span className="name">{w.name}</span>
                 <span className="tiny muted">{(w.members ?? []).length}</span>
               </div>
@@ -59,6 +59,8 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
                 <span className="name small">{c.name}</span><span className="tiny muted">{c.kind === 'npc' ? 'NPC' : c.player_name ?? ''}</span>
               </div>
             ))}
+            <div className="section"><span>Production</span></div>
+            <div className={`item ${nav.studioOpen ? 'active' : ''}`} onClick={() => { nav.setStudioOpen(true); onClose(); }}><span>✎</span><span className="name">Log Studio</span></div>
             {isGm && (
               <>
                 <div className="section"><span>Game master</span></div>

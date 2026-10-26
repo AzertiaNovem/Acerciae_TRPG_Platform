@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
 import type { DocumentSummary, DocumentFull, DocType } from '../types';
+import { sessionEpoch, isStale } from './session';
 
 // Document bodies live here. Highlights live in a separate store so that a highlight arriving every few
 // seconds never re-renders the markdown of every entry.
@@ -20,14 +21,22 @@ interface DocState {
   onUpdated: (payload: { document_id: string; version: number; change_count: number; doc_type: DocType; entry_ids?: string[] }, ch: string, sceneId?: string) => void;
   focusEntry: (entryId: string | null) => void;
   byType: (t: DocType) => DocumentSummary | undefined;
+  reset: () => void;
 }
 export const useDocuments = create<DocState>((set, get) => ({
   list: [], full: {}, seenVersion: JSON.parse(localStorage.getItem('acerciae.seen') || '{}'), pulse: {}, expandedId: null, dockCollapsed: false, focusEntryId: null,
-  loadList: async (ch) => { const list = await api.documents(ch); set({ list }); },
+  loadList: async (ch) => { const e = sessionEpoch(); const list = await api.documents(ch); if (isStale(e)) return; set({ list }); },
   loadDocument: async (ch, id, sceneId) => {
     const since = get().seenVersion[id] ?? -1;
-    const doc = await api.document(ch, id, sceneId, since);
-    set((s) => ({ full: { ...s.full, [id]: doc } }));
+    const e = sessionEpoch();
+    try {
+      const doc = await api.document(ch, id, sceneId, since);
+      if (isStale(e)) return;
+      set((s) => ({ full: { ...s.full, [id]: doc } }));
+    } catch {
+      // A document that no longer exists in this context must not keep showing cached content.
+      if (!isStale(e)) set((s) => { const full = { ...s.full }; delete full[id]; return { full, expandedId: s.expandedId === id ? null : s.expandedId }; });
+    }
   },
   expand: (id) => { set({ expandedId: id, dockCollapsed: false }); if (id) get().markSeen(id); },
   toggleDock: () => set((s) => ({ dockCollapsed: !s.dockCollapsed, expandedId: s.dockCollapsed ? s.expandedId : null })),
@@ -44,8 +53,9 @@ export const useDocuments = create<DocState>((set, get) => ({
     }));
     // Refresh the body when it is open or when the summary list needs the preview; never touches the composer.
     if (get().expandedId === p.document_id) get().loadDocument(ch, p.document_id, sceneId);
-    api.documents(ch).then((list) => set({ list })).catch(() => undefined);
+    get().loadList(ch).catch(() => undefined);
   },
+  reset: () => set({ list: [], full: {}, pulse: {}, expandedId: null, focusEntryId: null }),
   focusEntry: (entryId) => set({ focusEntryId: entryId }),
   byType: (t) => get().list.find((d) => d.doc_type === t),
 }));

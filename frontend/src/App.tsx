@@ -8,11 +8,12 @@ import ServerSidebar from './components/ServerSidebar';
 import ChannelSidebar from './components/ChannelSidebar';
 import ChatWindow from './components/ChatWindow';
 import GMWorkspace from './components/GMWorkspace';
+import StudioWorkspace from './components/studio/StudioWorkspace';
 import EvidenceModal from './components/EvidenceModal';
 
 function Shell() {
   useRealtime();
-  const { channelId, windowId, gmWorkspaceOpen, channel, loadServers } = useNav();
+  const { channelId, windowId, gmWorkspaceOpen, studioOpen, channel, loadServers } = useNav();
   const toasts = useUi((s) => s.toasts);
   const aiActivity = useUi((s) => s.aiActivity);
   const llmMode = useAuth((s) => s.llmMode);
@@ -25,7 +26,7 @@ function Shell() {
       <div className="main">
         {llmMode === 'mock' && <div className="mode-banner">MOCK LLM MODE — no LLM_API_KEY configured; the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.</div>}
         {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
-        {channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
+        {channelId && studioOpen ? <StudioWorkspace /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
           <div style={{ padding: 40 }} className="muted">Pick a server and channel, or create one from the left.</div>
         )}
       </div>

@@ -265,6 +265,10 @@ void ObserverScheduler::applyExtraction(const ChannelAccess& sys, const std::str
         nh.sourceEventIds = json::strArray(h["source_event_ids"]); nh.priority = json::toInt(h, "priority", 2); nh.ttlSeconds = cfg_.highlightTtlSeconds;
         // Only cite events from this batch (never fabricated ids).
         std::vector<std::string> src; for (auto& s : nh.sourceEventIds) if (std::find(batchIds.begin(), batchIds.end(), s) != batchIds.end()) src.push_back(s); nh.sourceEventIds = src;
+        // A highlight reveals that the triggering conversation happened. Only people who could both read
+        // the entry AND witness the triggering events may see it.
+        if (!src.empty()) { auto evScope = db_.tx([&](pqxx::work& w) { return knowledge_.deriveScope(w, channelId, sys.knowledgeMode, src); }); scope = scope.intersect(evScope); }
+        else scope = KnowledgeScope{"gm", {}};
         if (entry["gm_only"].asBool() || scope.scope == "gm") { nh.visibilityScope = "gm"; highlights_.create(nh); summary["highlights"] = summary["highlights"].asInt() + 1; }
         else if (scope.scope == "public") { nh.visibilityScope = "public"; highlights_.create(nh); summary["highlights"] = summary["highlights"].asInt() + 1; }
         else { int n = 0; for (auto& c : scope.characterIds) { if (n++ >= 6) break; nh.visibilityScope = "character"; nh.characterId = c; highlights_.create(nh); summary["highlights"] = summary["highlights"].asInt() + 1; } }
@@ -295,7 +299,6 @@ void ObserverScheduler::applyExtraction(const ChannelAccess& sys, const std::str
         if (!when.empty()) db_.exec("UPDATE scenes SET narrative_time=$2 WHERE id=$1 AND narrative_time <> $2", {sceneId, when});
         if (!loc.empty() || !when.empty()) notifier_.sceneChanged(channelId, db_.queryOne("SELECT * FROM scenes WHERE id=$1", {sceneId}));
     }
-    (void)sys;
 }
 
 // Intelligent knowledge grouping (v1): when a character talks about a fact they know in front of

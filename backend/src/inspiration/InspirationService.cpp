@@ -19,8 +19,7 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     ChannelAccess view = a; if (!a.isGm && !characterId.empty()) view.characterIds = {characterId};
     Json::Value ctx;
     ctx["character"] = characterId.empty() ? Json::Value(Json::objectValue) : db_.queryOne("SELECT id, name, speaking_style, sheet FROM characters WHERE id=$1 AND channel_id=$2", {characterId, a.channelId});
-    // Names only (no sheets): NPC names are public table knowledge once they appear in play.
-    ctx["characters"] = db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1", {a.channelId});
+    ctx["characters"] = Json::Value(Json::arrayValue);
     auto scene = retrieval_.getCurrentScene(view, chatWindowId, 16);
     ctx["recent_messages"] = scene.isMember("log") ? scene["log"] : Json::Value(Json::arrayValue);
     scene.removeMember("log"); scene.removeMember("facts");
@@ -28,6 +27,14 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     // Facts the character knows, most recently updated first, bounded.
     std::string sql = "SELECT f.id AS fact_id, f.kind, f.summary, f.status, f.data, s.title AS scene_title FROM knowledge_facts f LEFT JOIN scenes s ON s.id=f.scene_id LEFT JOIN document_entries de ON de.fact_id=f.id AND NOT de.removed LEFT JOIN documents d ON d.id=de.document_id WHERE f.channel_id=$1 AND f.status <> 'retracted' AND " + Visibility::factFilter(view) + (a.isGm ? "" : " AND coalesce(d.gm_only,false)=false") + " ORDER BY f.updated_at DESC LIMIT 30";
     ctx["known_facts"] = db_.queryJson(sql, {a.channelId});
+    // Identity information: PCs are table knowledge; an NPC's full name is only passed when that exact
+    // name already appears in records the character can read (facts or messages they witnessed).
+    std::string visibleText;
+    for (auto& f : ctx["known_facts"]) visibleText += json::str(f, "summary") + "\n";
+    for (auto& m : ctx["recent_messages"]) visibleText += json::str(m, "content") + "\n";
+    for (auto& c : db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1", {a.channelId})) {
+        if (c["kind"].asString() == "pc" || a.isGm || text::icontains(visibleText, c["name"].asString())) ctx["characters"].append(c);
+    }
     ctx["hint"] = hint; ctx["variant"] = variant;
 
     LlmRequest req; req.task = "inspiration"; req.responseSchema = schema(); req.temperature = 0.8;

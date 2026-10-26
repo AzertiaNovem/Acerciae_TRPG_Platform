@@ -43,3 +43,32 @@ export interface ModuleInfo { id: string; title: string; file_name: string; page
 export interface ModuleHint { id: string; node_id: string | null; node_name: string | null; node_type: string | null; reason: string; source_event_ids: string[]; status: string; created_at: string }
 export interface Proposal { id: string; document_id: string | null; doc_type: DocType | null; ops: any[]; rejection_reason: string | null; source_event_ids: string[]; status: string; created_at: string }
 export interface AiJob { id: string; kind: string; group_key: string; status: string; event_count: number; llm_calls: number; llm_mode: string; error: string | null; started_at: string; finished_at: string | null; result?: any }
+
+// ---- Log Studio ----
+export type LogEventType = 'dialogue' | 'action' | 'narration' | 'dice_roll' | 'system' | 'ooc' | 'scene_change' | 'media' | 'secret';
+export interface LogEvent {
+  event_id: string; sequence_number: number; event_type: LogEventType; content: string;
+  speaker_key: string; speaker_display_name: string; speaker_character_id: string | null; speaker_role: 'gm' | 'pc' | 'npc' | 'dice' | 'system' | 'hidden';
+  timestamp: number | null; time_text: string; scene_key: string; scene_title: string; scene_id: string | null; chat_window_id: string | null;
+  visibility_scope: 'public' | 'gm' | 'character'; audience: string[]; source_kind: 'channel_event' | 'import'; source_reference: Record<string, any>;
+  dice: { expression: string; rolls: number[]; total: number | null; check_name: string; outcome: string; raw: string } | null;
+  media: { kind: string; file?: string; url?: string; cq?: string }[] | null; metadata: Record<string, any>; raw_text: string | null; unrecognised: boolean;
+}
+export interface LogProject { id: string; channel_id: string; title: string; description: string; source_kind: string; character_map: Record<string, { character_id?: string | null; display_name?: string; role?: string; color?: string }>; version: number; created_at: string; updated_at: string; event_count?: number; snapshot_count?: number; presentation_count?: number; published_count?: number; snapshots?: LogSnapshot[]; imports?: LogImport[]; speakers?: { speaker_key: string; display_name: string; role: string; character_id: string | null; n: number }[]; scenes?: SceneSummary[] }
+export interface SceneSummary { scene_key: string; scene_title: string; scene_id: string | null; from_seq: number; to_seq: number; n: number }
+export interface LogSnapshot { id: string; project_id: string; version: number; title: string; selection: Record<string, any>; scope: 'gm_full' | 'pl_public' | 'character'; scope_character_id: string | null; schema_version: string; event_count: number; created_at: string; presentation_count?: number; visible_event_count?: number; events?: LogEvent[]; project_title?: string; character_map?: LogProject['character_map'] }
+export interface LogImport { id: string; adapter: string; file_name: string; encoding: string; status: string; stats: Record<string, any>; created_at: string; committed_at: string | null; issue_count?: number; speaker_map?: Record<string, SpeakerMapEntry>; speakers?: Record<string, SpeakerMapEntry>; preview?: LogEvent[]; issues?: { line_no: number; raw: string; reason: string; severity: string }[]; start_text?: string }
+export interface SpeakerMapEntry { display_name: string; role: string; im_user_id?: string; message_count?: number; character_id: string | null; suggested?: boolean; drop?: boolean }
+
+export interface MediaAsset { id: string; channel_id: string; asset_type: string; source_type: string; name: string; mime: string; bytes: number; width: number | null; height: number | null; duration_ms: number | null; character_id: string | null; expression: string; outfit: string; generation_provider: string | null; generation_model: string | null; prompt: string | null; approval_status: 'candidate' | 'approved' | 'rejected'; visibility_scope: 'channel' | 'gm'; version: number; tags: string[]; created_at: string; license_metadata: Record<string, unknown>; style_profile_id?: string | null }
+export interface CharacterPlacement { character_id: string; asset_id?: string | null; asset_version?: number; position: 'left' | 'center' | 'right' | string; active?: boolean; expression?: string; scale?: number; flip?: boolean }
+export interface PresentationScene { id: string; presentation_id: string; position: number; title: string; canonical_scene_key: string; background_asset_id: string | null; background_asset_version: number | null; bgm_asset_id: string | null; environment: Record<string, any>; transition_in: string; locked: boolean }
+export interface PresentationEvent {
+  id: string; scene_id: string | null; position: number; canonical_event_id: string; merged_event_ids: string[]; segment_index: number; segment_text: string | null;
+  display_kind: 'dialogue' | 'narration' | 'action' | 'ooc' | 'dice' | 'scene_change' | 'system' | 'media'; hidden: boolean; speaker_character_id: string | null; speaker_name_override: string | null;
+  tts_text: string | null; character_asset_ids: CharacterPlacement[]; expression_ids: Record<string, string>; dialogue_style: Record<string, any>; voice_profile_id: string | null; audio_asset_id: string | null;
+  style_instruction: string; transition: string; effect: string; estimated_duration_ms: number; actual_audio_duration_ms: number | null; ai_suggestion?: Record<string, any> | null;
+  content: string; display_text: string; event_type: LogEventType; speaker_display_name: string; speaker_role: string; dice: LogEvent['dice']; media: LogEvent['media']; sequence_number: number;
+  audio_duration_ms: number | null; word_timestamps: { word: string; start_ms: number; end_ms: number }[] | null; audio_is_mock: boolean | null; audio_mime: string | null; character_name: string | null;
+}
+export interface Presentation { id: string; project_id: string; snapshot_id: string; title: string; settings: Record<string, any>; style_profile_id: string | null; version: number; created_by: string; created_at: string; updated_at: string; snapshot_scope?: string; snapshot_version?: number; line_count?: number; voiced_count?: number; scenes?: PresentationScene[]; events?: PresentationEvent[]; can_edit?: boolean; character_visuals?: { character_id: string; name: string; default_asset_id: string | null; expressions: Record<string, string>; color: string }[] }

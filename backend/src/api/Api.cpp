@@ -13,6 +13,9 @@
 #include "../consistency/ConsistencyService.h"
 #include "../inspiration/InspirationService.h"
 #include "../modules/ModuleImporter.h"
+#include "../logstudio/LogStudioService.h"
+#include "../logstudio/MediaService.h"
+#include "../logstudio/PresentationService.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Log.h"
@@ -192,6 +195,85 @@ void registerRoutes() {
     route2("/api/channels/{1}/modules/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.modules->get(access(p, a[0]), a[1]); });
     route3("/api/channels/{1}/modules/{2}/pages/{3}", {Get}, [&](auto&, auto& p, auto& a) { return S.modules->page(access(p, a[0]), a[1], std::stoi(a[2])); });
     route1("/api/channels/{1}/gm/workspace", {Get}, [&](auto&, auto& p, auto& a) { return S.modules->gmWorkspace(access(p, a[0])); });
+
+    // ---- Log Studio: projects / canonical events / imports / snapshots / exports ----
+    route1("/api/channels/{1}/studio/adapters", {Get}, [&](auto&, auto& p, auto& a) { access(p, a[0]); return S.studio->adapters(); });
+    route1("/api/channels/{1}/studio/projects", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listProjects(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/projects", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createProject(access(p, a[0]), body(req)); });
+    route2("/api/channels/{1}/studio/projects/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->getProject(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.studio->updateProject(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/projects/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.studio->deleteProject(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/events", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->listEvents(access(p, a[0]), a[1], qint(req, "limit", 500), qint(req, "after_seq", 0), req->getParameter("scene_key")); });
+    route3("/api/channels/{1}/studio/projects/{2}/events/{3}", {Put}, [&](auto& req, auto& p, auto& a) { return S.studio->updateEvent(access(p, a[0]), a[1], a[2], body(req)); });
+    route2("/api/channels/{1}/studio/projects/{2}/scenes", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->sceneSummary(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/scenes/split", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.studio->splitScene(access(p, a[0]), a[1], json::toInt(b, "from_seq", 0), json::str(b, "title", "New scene")); });
+    route2("/api/channels/{1}/studio/projects/{2}/scenes/merge", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.studio->mergeScene(access(p, a[0]), a[1], json::requireStr(b, "scene_key"), json::requireStr(b, "into_key")); });
+    route2("/api/channels/{1}/studio/projects/{2}/scenes/rename", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.studio->renameScene(access(p, a[0]), a[1], json::requireStr(b, "scene_key"), json::str(b, "title")); });
+    route2("/api/channels/{1}/studio/projects/{2}/scenes/suggest", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->suggestScenes(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/sync", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->syncFromChannel(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/projects/{2}/imports", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listImports(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/imports", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto ac = access(p, a[0]);
+        MultiPartParser mp; std::string adapter = "auto";
+        if (mp.parse(req) == 0 && !mp.getFiles().empty()) { auto& f = mp.getFiles()[0]; auto& ps = mp.getParameters(); if (ps.count("adapter")) adapter = ps.at("adapter"); return S.studio->previewImport(ac, a[1], f.getFileName(), std::string(f.fileContent()), adapter); }
+        auto b = body(req); return S.studio->previewImport(ac, a[1], json::str(b, "file_name", "pasted.txt"), json::str(b, "text"), json::str(b, "adapter", "auto"));
+    });
+    route3("/api/channels/{1}/studio/projects/{2}/imports/{3}/commit", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.studio->commitImport(access(p, a[0]), a[1], a[2], b["speaker_map"]); });
+    route2("/api/channels/{1}/studio/imports/{2}/errors", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->importErrors(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/snapshots", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listSnapshots(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/snapshots", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createSnapshot(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/snapshots/{2}", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->getSnapshot(access(p, a[0]), a[1], req->getParameter("events") != "false"); });
+    app().registerHandler("/api/channels/{1}/studio/snapshots/{2}/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string snap) {
+        try {
+            auto pr = S.auth->authenticate(bearer(req)); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
+            std::string mime, name; auto data = S.studio->exportSnapshot(access(*pr, ch), snap, req->getParameter("format").empty() ? "json" : req->getParameter("format"), mime, name);
+            auto r = HttpResponse::newHttpResponse(); r->setBody(data); r->setContentTypeString(mime);
+            if (req->getParameter("download") == "1") r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
+            cb(r);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+    }, {Get});
+
+    // ---- Log Studio: media assets ----
+    route1("/api/channels/{1}/media", {Get}, [&](auto& req, auto& p, auto& a) { return S.media->list(access(p, a[0]), req->getParameter("type"), req->getParameter("character_id"), req->getParameter("approval")); });
+    route1("/api/channels/{1}/media", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto ac = access(p, a[0]); MultiPartParser mp;
+        if (mp.parse(req) != 0 || mp.getFiles().empty()) throw badRequest("multipart upload with a 'file' field required");
+        auto& f = mp.getFiles()[0]; Json::Value meta(Json::objectValue); for (auto& [k, v] : mp.getParameters()) meta[k] = v;
+        if (meta.isMember("tags") && meta["tags"].isString()) { Json::Value t(Json::arrayValue); std::string cur; for (char c : meta["tags"].asString()) { if (c == ',') { if (!cur.empty()) t.append(cur); cur.clear(); } else cur += c; } if (!cur.empty()) t.append(cur); meta["tags"] = t; }
+        if (meta.isMember("gm_only")) meta["gm_only"] = meta["gm_only"].asString() == "true";
+        return S.media->upload(ac, f.getFileName(), std::string(f.fileContent()), "", meta);
+    });
+    route2("/api/channels/{1}/media/{2}/meta", {Get}, [&](auto&, auto& p, auto& a) { return S.media->get(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/media/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.media->update(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/media/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.media->remove(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/media/{2}/versions", {Post}, [&](auto& req, auto& p, auto& a) { auto ac = access(p, a[0]); MultiPartParser mp; if (mp.parse(req) != 0 || mp.getFiles().empty()) throw badRequest("file required"); auto& f = mp.getFiles()[0]; auto& ps = mp.getParameters(); return S.media->newVersion(ac, a[1], f.getFileName(), std::string(f.fileContent()), "", ps.count("note") ? ps.at("note") : ""); });
+    // Binary delivery (images/audio for <img>/<audio>/howler): token may come as ?token= since media tags cannot set headers.
+    app().registerHandler("/api/channels/{1}/media/{2}", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string id) {
+        try {
+            auto pr = S.auth->authenticate(bearer(req)); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
+            auto ac = access(*pr, ch); std::string bytes, mime, name; int v = qint(req, "v", 0);
+            if (!S.media->fetch(ac, id, v, bytes, mime, name)) { cb(errResp(404, "not_found", "asset not found")); return; }
+            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=3600"); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
+            if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
+            cb(r);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+    }, {Get});
+
+    // ---- Log Studio: presentations (performance timeline) ----
+    route1("/api/channels/{1}/studio/presentations", {Get}, [&](auto& req, auto& p, auto& a) { return S.presentations->list(access(p, a[0]), req->getParameter("project_id")); });
+    route2("/api/channels/{1}/studio/snapshots/{2}/presentations", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->create(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.presentations->get(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/presentations/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->update(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.presentations->remove(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/presentations/{2}/events/bulk", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->bulkUpdateEvents(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/merge", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->mergeEvents(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/reorder", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->reorder(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/progress", {Get}, [&](auto&, auto& p, auto& a) { return S.presentations->getProgress(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/presentations/{2}/progress", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->saveProgress(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/pscenes/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->updateScene(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/pevents/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->updateEvent(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/pevents/{2}/split", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->splitEvent(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/pevents/{2}/suggestion", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->acceptSuggestion(access(p, a[0]), a[1], json::toBool(body(req), "accept", false)); });
 
     // CORS for dev setups where the frontend is served from another origin.
     app().registerPreRoutingAdvice([](const HttpRequestPtr& req, AdviceCallback&& acb, AdviceChainCallback&& ccb) {

@@ -15,6 +15,7 @@ interface UiState {
   toast: (text: string, kind?: Toast['kind']) => void; dismissToast: (id: number) => void;
   setAiActivity: (s: string | null) => void;
   showEvidence: (ids: string[] | null) => void;
+  reset: () => void;
 }
 export const useUi = create<UiState>((set) => ({
   consistency: null, consistencyBusy: false, inspiration: null, inspirationBusy: false, composerInsert: null, toasts: [], aiActivity: null, evidenceEventIds: null,
@@ -25,4 +26,5 @@ export const useUi = create<UiState>((set) => ({
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setAiActivity: (s) => set({ aiActivity: s }),
   showEvidence: (ids) => set({ evidenceEventIds: ids }),
+  reset: () => set({ consistency: null, consistencyBusy: false, inspiration: null, inspirationBusy: false, composerInsert: null, aiActivity: null, evidenceEventIds: null }),
 }));

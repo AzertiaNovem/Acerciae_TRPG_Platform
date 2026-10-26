@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
 import type { Highlight } from '../types';
+import { sessionEpoch, isStale } from './session';
 
 // Short-term attention state, decoupled from document bodies.
 interface HighlightState {
@@ -12,10 +13,12 @@ interface HighlightState {
   forEntry: (entryId: string) => Highlight[];
   forDocument: (docId: string) => Highlight[];
   prune: () => void;
+  reset: () => void;
 }
 export const useHighlights = create<HighlightState>((set, get) => ({
   byId: {},
-  load: async (ch) => { const hs = await api.highlights(ch); const byId: Record<string, Highlight> = {}; for (const h of hs) byId[h.id] = h; set({ byId }); },
+  load: async (ch) => { const e = sessionEpoch(); const hs = await api.highlights(ch); if (isStale(e)) return; const byId: Record<string, Highlight> = {}; for (const h of hs) byId[h.id] = h; set({ byId }); },
+  reset: () => set({ byId: {} }),
   add: (h) => set((s) => ({ byId: { ...s.byId, [h.id]: h } })),
   remove: (ids) => set((s) => { const byId = { ...s.byId }; for (const id of ids) delete byId[id]; return { byId }; }),
   dismiss: async (ch, id) => { get().remove([id]); try { await api.dismissHighlight(ch, id); } catch { /* already gone */ } },

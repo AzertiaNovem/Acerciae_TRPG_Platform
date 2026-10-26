@@ -13,6 +13,10 @@
 #include "../inspiration/InspirationService.h"
 #include "../modules/ModuleImporter.h"
 #include "../ws/Notifier.h"
+#include "../logstudio/LogStudioService.h"
+#include "../logstudio/ObjectStore.h"
+#include "../logstudio/MediaService.h"
+#include "../logstudio/PresentationService.h"
 
 namespace acerciae {
 
@@ -38,6 +42,10 @@ Services& Services::build(const Config& cfg) {
     s.consistency = std::make_unique<ConsistencyService>(s.cfg, *s.db, *s.retrieval, *s.llm, *s.highlights, *s.knowledge);
     s.inspiration = std::make_unique<InspirationService>(s.cfg, *s.db, *s.retrieval, *s.llm);
     s.modules = std::make_unique<ModuleImporter>(s.cfg, *s.db, *s.llm, *s.notifier);
+    s.studio = std::make_unique<logstudio::LogStudioService>(s.cfg, *s.db, *s.notifier);
+    s.objectStore = logstudio::makeObjectStore(s.cfg);
+    s.media = std::make_unique<logstudio::MediaService>(s.cfg, *s.db, *s.objectStore);
+    s.presentations = std::make_unique<logstudio::PresentationService>(s.cfg, *s.db, *s.notifier, *s.studio);
     s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge);
     return s;
 }

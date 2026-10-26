@@ -234,6 +234,16 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         if (isAi && cur["created_by"].asString() == "gm" && newSummary != cur["summary"].asString()) {
             Json::Value payload = op; payload["previous"] = cur["summary"]; return pending("would alter a GM-authored entry", payload);
         }
+        if (isAi) {
+            // The audience of the new sources must cover everyone who can already read this entry; otherwise
+            // information from a narrower (e.g. private) conversation would be published to the wider audience.
+            auto curScope = knowledge_.getScope(w, factId);
+            auto srcScope = knowledge_.deriveScope(w, ctx.channelId, ctx.knowledgeMode, sources);
+            if (!curScope.narrowerThan(srcScope)) {
+                Json::Value payload = op; payload["previous"] = cur["summary"]; payload["previous_status"] = curStatus; payload["source_scope"] = srcScope.toJson(); payload["entry_scope"] = curScope.toJson();
+                return pending("source audience is narrower than the entry's readers", payload);
+            }
+        }
         Db::exec(w, "UPDATE knowledge_facts SET summary=$2, data=$3::jsonb, status=$4, source_event_ids=$5::uuid[], version=version+1, updated_at=now() WHERE id=$1",
             {factId, newSummary, json::dump(newData), newStatus, pgArrayLiteral(mergedSources)});
         Json::Value full; full["summary"] = newSummary; full["status"] = newStatus; full["data"] = newData; full["scene_id"] = cur["scene_id"].isNull() ? "" : cur["scene_id"].asString();
@@ -242,6 +252,8 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         auto md = json::str(op, "content_md"); if (md.empty()) md = renderEntry(ctx.factKind, full);
         Db::exec(w, "UPDATE document_entries SET content_md=$2, updated_version=$3, removed=false, updated_at=now() WHERE id=$1", {cur["entry_id"].asString(), md, (int64_t)ctx.newVersion});
         if (!isAi && op.isMember("visibility")) knowledge_.setScope(w, factId, KnowledgeScope::fromJson(op["visibility"]), "gm");
+        // Becoming a GM secret always tightens access, whether or not a visibility was supplied.
+        if (newStatus == "gm_secret") { knowledge_.setScope(w, factId, KnowledgeScope{"gm", {}}, isAi ? "ai_proposal" : "gm"); log["scope"] = "gm"; }
         log["decision"] = "applied"; log["status"] = newStatus; res.applied++;
         res.touchedFactIds.push_back(factId); res.touchedEntryIds.push_back(cur["entry_id"].asString());
         for (auto& s : sources) res.sourceEventIds.push_back(s);
@@ -252,6 +264,30 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         auto t = text::trim(json::str(op, "text"));
         if (t.empty()) return reject("append_text requires text");
         if (isAi && sources.empty()) return reject("AI updates require a source event");
+        if (isAi) {
+            auto curScope = knowledge_.getScope(w, factId);
+            auto srcScope = knowledge_.deriveScope(w, ctx.channelId, ctx.knowledgeMode, sources);
+            if (!curScope.narrowerThan(srcScope)) {
+                // Readers of the shared entry did not witness the new source. Record the note as a separate
+                // entry scoped to the witnesses (linked to the original) instead of widening the private content.
+                if (srcScope.scope == "gm" && json::toBool(op, "allow_gm_note", true)) { /* falls through to a GM-only side note */ }
+                auto pos = Db::queryOne(w, "SELECT coalesce(max(position),0)+1 AS p FROM document_entries WHERE document_id=$1", {ctx.documentId});
+                Json::Value data; data["note_for_fact_id"] = factId; data["facet"] = "note";
+                auto noteSummary = text::truncate(t, 200);
+                auto row = Db::queryOne(w, "INSERT INTO knowledge_facts(channel_id, kind, summary, data, status, scene_id, source_event_ids, created_by) VALUES($1,$2,$3,$4::jsonb,'ai_inferred',(SELECT scene_id FROM events WHERE id=$5::uuid),$6::uuid[],'ai') RETURNING id",
+                    {ctx.channelId, ctx.factKind, noteSummary, json::dump(data), sources.front(), pgArrayLiteral(sources)});
+                auto noteId = row["id"].asString();
+                knowledge_.setScope(w, noteId, srcScope, "event");
+                Db::exec(w, "UPDATE knowledge_facts SET data = data || jsonb_build_object('related_fact_ids', coalesce(data->'related_fact_ids','[]'::jsonb) || to_jsonb($2::text)) WHERE id=$1", {noteId, factId});
+                auto entry = Db::queryOne(w, "INSERT INTO document_entries(document_id, fact_id, section, position, content_md, created_version, updated_version) VALUES($1,$2,'',$3,$4,$5,$5) RETURNING id",
+                    {ctx.documentId, noteId, (int64_t)pos["p"].asInt(), "_(private note on \"" + text::truncate(cur["summary"].asString(), 60) + "\")_ " + t, (int64_t)ctx.newVersion});
+                log["decision"] = "applied"; log["note"] = "sources narrower than entry readers: stored as a scoped side note"; log["fact_id"] = noteId; log["entry_id"] = entry["id"]; log["scope"] = srcScope.toJson();
+                res.applied++; res.touchedFactIds.push_back(noteId); res.touchedEntryIds.push_back(entry["id"].asString());
+                for (auto& s : sources) res.sourceEventIds.push_back(s);
+                res.log.append(log);
+                return;
+            }
+        }
         Db::exec(w, "UPDATE document_entries SET content_md = content_md || E'\\n\\n' || $2, updated_version=$3, updated_at=now() WHERE id=$1", {cur["entry_id"].asString(), t, (int64_t)ctx.newVersion});
         Db::exec(w, "UPDATE knowledge_facts SET source_event_ids=$2::uuid[], version=version+1, updated_at=now() WHERE id=$1", {factId, pgArrayLiteral(mergedSources)});
         log["decision"] = "applied"; res.applied++; res.touchedFactIds.push_back(factId); res.touchedEntryIds.push_back(cur["entry_id"].asString()); res.log.append(log);

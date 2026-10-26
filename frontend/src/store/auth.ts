@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { api, setToken, getToken } from '../api/client';
 import type { User } from '../types';
 import { connectSockets, closeSockets } from '../api/ws';
+import { bumpEpoch } from './session';
+import { resetUserStores } from './reset';
 
 interface AuthState {
   user: User | null; loading: boolean; error: string | null; llmMode: string;
@@ -20,13 +22,18 @@ export const useAuth = create<AuthState>((set) => ({
   },
   login: async (u, p) => {
     set({ error: null });
-    try { const r = await api.login(u, p); setToken(r.token); set({ user: r.user }); connectSockets(); }
+    try { const r = await api.login(u, p); bumpEpoch(); resetUserStores(); setToken(r.token); set({ user: r.user }); connectSockets(); }
     catch (e: any) { set({ error: e.message }); }
   },
   register: async (u, p, d) => {
     set({ error: null });
-    try { const r = await api.register(u, p, d); setToken(r.token); set({ user: r.user }); connectSockets(); }
+    try { const r = await api.register(u, p, d); bumpEpoch(); resetUserStores(); setToken(r.token); set({ user: r.user }); connectSockets(); }
     catch (e: any) { set({ error: e.message }); }
   },
-  logout: async () => { try { await api.logout(); } catch { /* ignore */ } setToken(null); closeSockets(); set({ user: null }); },
+  logout: async () => {
+    // Invalidate in-flight requests first, then drop every per-user store before the token goes away.
+    bumpEpoch();
+    try { await api.logout(); } catch { /* ignore */ }
+    setToken(null); closeSockets(); resetUserStores(); set({ user: null });
+  },
 }));

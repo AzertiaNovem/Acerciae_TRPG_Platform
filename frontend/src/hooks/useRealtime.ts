@@ -13,6 +13,8 @@ export function useRealtime() {
   const windows = useNav((s) => s.windows);
   useEffect(() => {
     const offChat = chatSocket.on((m) => {
+      const ch = useNav.getState().channelId;
+      if (m.channel_id && m.channel_id !== ch) return;
       if (m.type === 'message.posted') useChat.getState().push(m.message);
       else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows(); }
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
