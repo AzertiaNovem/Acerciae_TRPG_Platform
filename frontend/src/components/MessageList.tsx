@@ -1,4 +1,7 @@
+import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '../store/auth';
+import { api } from '../api/client';
 import { useChat } from '../store/chat';
 import { useNav } from '../store/nav';
 import type { Message } from '../types';
@@ -16,17 +19,22 @@ function diceTone(m: Message): string {
 }
 
 function MessageRow({ m, jumped }: { m: Message; jumped: boolean }) {
-  const name = m.character_name ?? (m.author_role === 'gm' ? `${m.author_name} (GM)` : m.author_name);
+  const user = useAuth((s) => s.user);
+  const own = user?.id === m.author_id;
+  const avatar = own ? user.avatar_data : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
+  const [failedAvatar, setFailedAvatar] = useState('');
+  const author = own ? user.display_name : m.author_name;
+  const name = m.character_name ?? (m.author_role === 'gm' ? `${author} (GM)` : author);
   return (
-    <div className={`message ${m.kind} ${m.visibility}`} id={`msg-${m.id}`}>
-      <div className={`avatar ${m.author_role}`}>{(m.character_name ?? m.author_name).slice(0, 2).toUpperCase()}</div>
+    <div className={`message ${tr(m.kind)} ${m.visibility}`} id={`msg-${m.id}`}>
+      <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <img src={avatar} alt="" onError={() => setFailedAvatar(avatar)} /> : (m.character_name ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
         <div className="meta"><span className="author">{name}</span>
-          {m.kind !== 'ic' && !m.dice && <span className="pill">{m.kind}</span>}
-          {m.dice?.hidden && <span className="pill ai">hidden roll</span>}
-          {m.visibility === 'gm_only' && <span className="pill gm">GM note</span>}
-          {m.visibility === 'whisper' && <span className="pill ai">whisper</span>}
-          <span className="tiny muted">{new Date(m.created_at).toLocaleTimeString()}</span>
+          {m.kind !== 'ic' && !m.dice && <span className="pill">{tr(m.kind)}</span>}
+          {m.dice?.hidden && <span className="pill ai">{tr("hidden roll")}</span>}
+          {m.visibility === 'gm_only' && <span className="pill gm">{tr("GM note")}</span>}
+          {m.visibility === 'whisper' && <span className="pill ai">{tr("whisper")}</span>}
+          <span className="tiny muted">{new Date(m.created_at).toLocaleTimeString(currentLocale())}</span>
         </div>
         {m.dice?.type === 'hidden_notice' ? <div className="dice-result notice">🎲 {m.dice.text}</div>
           : m.dice ? (<>
@@ -55,7 +63,7 @@ export default function MessageList() {
   const onScroll = () => { const el = ref.current; if (!el) return; setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 40); if (el.scrollTop < 20 && channelId && windowId) loadOlder(channelId, windowId); };
   return (
     <div className="message-list" ref={ref} onScroll={onScroll}>
-      {messages.length === 0 && <div className="muted small">No messages yet. The chronicler is listening.</div>}
+      {messages.length === 0 && <div className="muted small">{tr("No messages yet. The chronicler is listening.")}</div>}
       {messages.map((m) => <MessageRow key={m.id} m={m} jumped={jumped === m.id} />)}
     </div>
   );

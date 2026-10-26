@@ -13,7 +13,7 @@
 namespace acerciae {
 
 static const std::string MSG_SELECT =
-    "SELECT m.*, c.name AS character_name, u.display_name AS author_name FROM messages m "
+    "SELECT m.*, c.name AS character_name, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' THEN u.avatar_version ELSE 0 END AS author_avatar_version FROM messages m "
     "LEFT JOIN characters c ON c.id=m.character_id LEFT JOIN users u ON u.id=m.author_id ";
 
 // ---- servers ---------------------------------------------------------------------------------

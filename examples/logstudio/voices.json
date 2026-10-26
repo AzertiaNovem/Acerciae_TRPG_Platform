@@ -1,0 +1,49 @@
+{
+  "note": "Create these profiles through the voices API, mapping character IDs from your campaign. Live IDs depend on model/region.",
+  "profiles": [
+    {
+      "name": "旁白",
+      "voice_type": "preset",
+      "voice_id": "longanhuan_v3.1",
+      "model_id": "qwen-audio-3.1-tts-plus",
+      "language": "zh",
+      "style_instruction": "平静、清晰，语速略慢"
+    },
+    {
+      "name": "调查员",
+      "voice_type": "preset",
+      "voice_id": "xunanchuan_v3.1",
+      "model_id": "qwen-audio-3.1-tts-plus",
+      "language": "zh"
+    }
+  ],
+  "mock_profiles": [
+    {
+      "name": "Mock narrator",
+      "voice_type": "preset",
+      "voice_id": "mock-serena"
+    },
+    {
+      "name": "Mock investigator",
+      "voice_type": "preset",
+      "voice_id": "mock-ethan"
+    }
+  ],
+  "dictionary": {
+    "name": "克苏鲁术语",
+    "entries": [
+      {
+        "term": "R’lyeh",
+        "reading": "拉莱耶",
+        "mode": "replace",
+        "language": "zh"
+      },
+      {
+        "term": "乐",
+        "reading": "yue4",
+        "mode": "phoneme",
+        "language": "zh"
+      }
+    ]
+  }
+}

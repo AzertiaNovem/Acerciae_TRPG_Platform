@@ -85,16 +85,18 @@ Json::Value PresentationService::get(const ChannelAccess& a, const std::string& 
     auto p = presentationRow(a, id);
     p["scenes"] = db_.queryJson("SELECT s.*, b.version AS background_current_version FROM presentation_scenes s LEFT JOIN media_assets b ON b.id=s.background_asset_id WHERE s.presentation_id=$1 ORDER BY s.position", {id});
     auto rows = db_.queryJson("SELECT " + PE_COLS + " FROM presentation_events pe LEFT JOIN log_events le ON le.id=pe.canonical_event_id LEFT JOIN tts_audio_assets ta ON ta.id=pe.audio_asset_id LEFT JOIN characters c ON c.id=pe.speaker_character_id WHERE pe.presentation_id=$1 ORDER BY pe.position", {id});
+    std::map<std::string,LogEvent> frozen; for(const auto& e:studio_.snapshotEvents(a,p["snapshot_id"].asString())) frozen[e.eventId]=e;
     Json::Value visible(Json::arrayValue);
     for (auto& r : rows) {
+        auto it=frozen.find(json::str(r,"canonical_event_id")); if(it==frozen.end())continue;
+        auto stored=it->second.toJson(); for(const auto key:{"content","event_type","speaker_display_name","speaker_role","dice","media","sequence_number"})r[key]=stored[key];
         // Canonical visibility is re-checked per viewer at read time: a GM-only line never reaches a player even
         // if a presentation was built by the GM and later shared.
         if (!LogStudioService::eventVisibleTo(a, r["visibility_scope"].isNull() ? "public" : r["visibility_scope"].asString(), json::strArray(r["audience"]))) continue;
         if (!r["segment_text"].isNull()) r["display_text"] = r["segment_text"]; else r["display_text"] = r["content"];
         if (!r["merged_event_ids"].isNull() && r["merged_event_ids"].isArray() && !r["merged_event_ids"].empty()) {
             auto ids = json::strArray(r["merged_event_ids"]);
-            auto parts = db_.queryJson("SELECT content, visibility_scope, audience FROM log_events WHERE id = ANY(" + Visibility::uuidArray(ids) + ") ORDER BY sequence_number", {});
-            std::string joined; for (auto& pt : parts) if (LogStudioService::eventVisibleTo(a, pt["visibility_scope"].asString(), json::strArray(pt["audience"]))) joined += (joined.empty() ? "" : "\n") + pt["content"].asString();
+            std::string joined; bool all=true; for(const auto& id:ids){auto part=frozen.find(id);if(part==frozen.end()){all=false;break;}joined+=(joined.empty()?"":"\n")+part->second.content;} if(!all) {r["audio_asset_id"]=Json::Value();continue;}
             r["display_text"] = joined;
         }
         if (!a.isGm) r.removeMember("ai_suggestion");
@@ -121,8 +123,11 @@ Json::Value PresentationService::updateScene(const ChannelAccess& a, const std::
     auto p = presentationRow(a, s["presentation_id"].asString()); if (!canEdit(a, p)) throw forbidden("not your presentation");
     auto bg = json::str(body, "background_asset_id", s["background_asset_id"].isNull() ? "" : s["background_asset_id"].asString());
     DbParam bgVer = dbNull();
-    if (!bg.empty()) { auto asset = db_.queryOne("SELECT version, approval_status, asset_type FROM media_assets WHERE id=$1 AND channel_id=$2", {bg, a.channelId}); if (asset.isNull()) throw badRequest("background asset not found"); if (asset["approval_status"].asString() != "approved") throw badRequest("asset is not approved yet"); bgVer = (int64_t)asset["version"].asInt(); }
+    if (!bg.empty()) { auto asset = db_.queryOne("SELECT version, approval_status, asset_type, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2", {bg, a.channelId}); if (asset.isNull()) throw badRequest("background asset not found"); if (asset["approval_status"].asString() != "approved") throw badRequest("asset is not approved yet"); if(p["snapshot_scope"]!="gm_full"&&asset["visibility_scope"]=="gm")throw forbidden("private image requires a GM presentation"); bgVer = (int64_t)asset["version"].asInt(); }
     auto bgm = json::str(body, "bgm_asset_id", s["bgm_asset_id"].isNull() ? "" : s["bgm_asset_id"].asString());
+    if(!bgm.empty()) { auto asset=db_.queryOne("SELECT approval_status,visibility_scope,asset_type FROM media_assets WHERE id=$1 AND channel_id=$2",{bgm,a.channelId});
+        if(asset.isNull()||asset["approval_status"]!="approved"||(asset["asset_type"]!="bgm"&&asset["asset_type"]!="audio")) throw badRequest("approved audio asset required");
+        if(p["snapshot_scope"]!="gm_full"&&asset["visibility_scope"]=="gm") throw forbidden("private audio requires a GM presentation"); }
     Json::Value env = body.isMember("environment") && body["environment"].isObject() ? body["environment"] : s["environment"];
     auto out = db_.queryOne("UPDATE presentation_scenes SET title=$2, background_asset_id=$3, background_asset_version=$4, bgm_asset_id=$5, environment=$6::jsonb, transition_in=$7, locked=$8 WHERE id=$1 RETURNING *",
         {sceneId, json::str(body, "title", s["title"].asString()), opt(bg), bgVer, opt(bgm), json::dump(env), json::str(body, "transition_in", s["transition_in"].asString()), json::toBool(body, "locked", s["locked"].asBool())});
@@ -135,7 +140,7 @@ Json::Value PresentationService::updateEvent(const ChannelAccess& a, const std::
     static const std::set<std::string> kinds = {"dialogue","narration","action","ooc","dice","scene_change","system","media"};
     auto kind = json::str(body, "display_kind", e["display_kind"].asString()); if (!kinds.count(kind)) throw badRequest("invalid display_kind");
     Json::Value assets = body.isMember("character_asset_ids") && body["character_asset_ids"].isArray() ? body["character_asset_ids"] : e["character_asset_ids"];
-    for (auto& c : assets) if (c.isMember("asset_id") && c["asset_id"].isString() && !c["asset_id"].asString().empty()) { auto as = db_.queryOne("SELECT version, approval_status FROM media_assets WHERE id=$1 AND channel_id=$2", {c["asset_id"].asString(), a.channelId}); if (as.isNull()) throw badRequest("standee asset not found"); if (as["approval_status"].asString() != "approved") throw badRequest("asset is not approved yet"); c["asset_version"] = as["version"]; }
+    for (auto& c : assets) if (c.isMember("asset_id") && c["asset_id"].isString() && !c["asset_id"].asString().empty()) { auto as = db_.queryOne("SELECT version, approval_status, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2", {c["asset_id"].asString(), a.channelId}); if (as.isNull()) throw badRequest("standee asset not found"); if (as["approval_status"].asString() != "approved") throw badRequest("asset is not approved yet"); if(p["snapshot_scope"]!="gm_full"&&as["visibility_scope"]=="gm")throw forbidden("private image requires a GM presentation"); c["asset_version"] = as["version"]; }
     // tts_text is the separately stored speech adaptation; it never replaces display text.
     bool clearAudio = body.isMember("tts_text") || body.isMember("voice_profile_id") || body.isMember("style_instruction");
     auto out = db_.queryOne("UPDATE presentation_events SET display_kind=$2, hidden=$3, speaker_character_id=$4, speaker_name_override=$5, tts_text=$6, character_asset_ids=$7::jsonb, expression_ids=$8::jsonb, dialogue_style=$9::jsonb, voice_profile_id=$10, style_instruction=$11, transition=$12, effect=$13, scene_id=$14, audio_asset_id = CASE WHEN $15 THEN NULL ELSE audio_asset_id END, actual_audio_duration_ms = CASE WHEN $15 THEN NULL ELSE actual_audio_duration_ms END, updated_at=now() WHERE id=$1 RETURNING *",
@@ -146,7 +151,7 @@ Json::Value PresentationService::updateEvent(const ChannelAccess& a, const std::
 }
 Json::Value PresentationService::bulkUpdateEvents(const ChannelAccess& a, const std::string& presentationId, const Json::Value& body) {
     auto p = presentationRow(a, presentationId); if (!canEdit(a, p)) throw forbidden("not your presentation");
-    int n = 0; for (auto& id : json::strArray(body["event_ids"])) { updateEvent(a, id, body["patch"]); n++; }
+    int n = 0; for (auto& id : json::strArray(body["event_ids"])) { if(db_.queryOne("SELECT id FROM presentation_events WHERE id=$1 AND presentation_id=$2",{id,presentationId}).isNull())throw badRequest("event not in presentation"); updateEvent(a, id, body["patch"]); n++; }
     Json::Value out; out["updated"] = n; return out;
 }
 Json::Value PresentationService::splitEvent(const ChannelAccess& a, const std::string& eventId, const Json::Value& body) {

@@ -3,6 +3,7 @@ import { api, setToken, getToken } from '../api/client';
 import type { User } from '../types';
 import { connectSockets, closeSockets } from '../api/ws';
 import { bumpEpoch } from './session';
+import { useLocale } from '../i18n';
 import { resetUserStores } from './reset';
 
 interface AuthState {
@@ -17,17 +18,17 @@ export const useAuth = create<AuthState>((set) => ({
   bootstrap: async () => {
     try { const h = await api.health(); set({ llmMode: h.llm_mode }); } catch { /* backend down */ }
     if (!getToken()) { set({ loading: false }); return; }
-    try { const me = await api.me(); set({ user: me, loading: false }); connectSockets(); }
+    try { const me = await api.me(); useLocale.getState().setLanguage(me.ui_language || 'en'); set({ user: me, loading: false }); connectSockets(); }
     catch { setToken(null); set({ user: null, loading: false }); }
   },
   login: async (u, p) => {
     set({ error: null });
-    try { const r = await api.login(u, p); bumpEpoch(); resetUserStores(); setToken(r.token); set({ user: r.user }); connectSockets(); }
+    try { const r = await api.login(u, p); bumpEpoch(); resetUserStores(); setToken(r.token); useLocale.getState().setLanguage(r.user.ui_language || 'en'); set({ user: r.user }); connectSockets(); }
     catch (e: any) { set({ error: e.message }); }
   },
   register: async (u, p, d) => {
     set({ error: null });
-    try { const r = await api.register(u, p, d); bumpEpoch(); resetUserStores(); setToken(r.token); set({ user: r.user }); connectSockets(); }
+    try { const r = await api.register(u, p, d); bumpEpoch(); resetUserStores(); setToken(r.token); useLocale.getState().setLanguage(r.user.ui_language || 'en'); set({ user: r.user }); connectSockets(); }
     catch (e: any) { set({ error: e.message }); }
   },
   logout: async () => {

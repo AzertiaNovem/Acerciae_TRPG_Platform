@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
@@ -17,5 +18,5 @@ export default function ConsistencyButton({ draft, characterId }: { draft: strin
     } catch (e: any) { toast(e.message, 'error'); }
     finally { setConsistencyBusy(false); }
   };
-  return <button className="ai-btn" onClick={run} disabled={!draft.trim() || consistencyBusy} title="Check the draft against what your character knows">{consistencyBusy ? 'Checking…' : '⚖ Consistency check'}</button>;
+  return <button className="ai-btn" onClick={run} disabled={!draft.trim() || consistencyBusy} title={tr("Check the draft against what your character knows")}>{consistencyBusy ? tr("Checking…") : tr("⚖ Consistency check")}</button>;
 }

@@ -16,13 +16,21 @@ pkg_check_modules(POPPLER REQUIRED IMPORTED_TARGET poppler-cpp)
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(Iconv REQUIRED)
 
 file(GLOB_RECURSE LIB_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 list(REMOVE_ITEM LIB_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 
 add_library(acerciae_core STATIC ${LIB_SOURCES})
 target_include_directories(acerciae_core PUBLIC src)
-target_link_libraries(acerciae_core PUBLIC Drogon::Drogon PkgConfig::PQXX PkgConfig::JSONCPP PkgConfig::POPPLER CURL::libcurl OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(acerciae_core PUBLIC Drogon::Drogon PkgConfig::PQXX PkgConfig::JSONCPP PkgConfig::POPPLER CURL::libcurl OpenSSL::SSL OpenSSL::Crypto Threads::Threads ZLIB::ZLIB)
+# Apple SDK already supplies iconv.h; adding its usr/include ahead of libc++ breaks standard headers.
+if(APPLE)
+  target_link_libraries(acerciae_core PUBLIC iconv)
+else()
+  target_link_libraries(acerciae_core PUBLIC Iconv::Iconv)
+endif()
 
 add_executable(acerciae-server src/main.cpp)
 target_link_libraries(acerciae-server PRIVATE acerciae_core)

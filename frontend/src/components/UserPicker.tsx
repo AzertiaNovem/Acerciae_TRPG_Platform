@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { useEffect, useMemo, useState } from 'react';
 
 export interface Candidate { id: string; label: string; sublabel?: string }
@@ -56,17 +57,17 @@ export default function UserPicker(props: {
       {mode === 'select' && selected.length > 0 && (
         <div className="chips">
           {selected.map((id) => { const c = nameOf(id); return (
-            <span key={id} className="chip">{c?.label ?? id.slice(0, 8)}<button className="chip-x" title="Remove" onClick={() => c ? onToggle?.(c) : onToggle?.({ id, label: id })}>×</button></span>
+            <span key={id} className="chip">{c?.label ?? id.slice(0, 8)}<button className="chip-x" title={tr("Remove")} onClick={() => c ? onToggle?.(c) : onToggle?.({ id, label: id })}>×</button></span>
           ); })}
         </div>
       )}
       <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder} autoFocus={props.autoFocus} />
       <div className="picker-list">
-        {shown.length === 0 && <div className="tiny muted" style={{ padding: '4px 2px' }}>{q ? emptyText : search && candidates.length === 0 ? 'Type to search.' : emptyText}</div>}
+        {shown.length === 0 && <div className="tiny muted" style={{ padding: '4px 2px' }}>{q ? emptyText : search && candidates.length === 0 ? tr("Type to search.") : emptyText}</div>}
         {shown.map((c) => {
           const on = selected.includes(c.id);
           return mode === 'select' ? (
-            <button key={c.id} className={`pick ${on ? 'on' : ''}`} onClick={() => act(c)} title={on ? 'Click to remove' : 'Click to add'}>
+            <button key={c.id} className={`pick ${on ? 'on' : ''}`} onClick={() => act(c)} title={on ? tr("Click to remove") : tr("Click to add")}>
               <span>{on ? '✓' : '+'}</span><span className="grow">{c.label}</span>{c.sublabel && <span className="tiny muted">{c.sublabel}</span>}
             </button>
           ) : (

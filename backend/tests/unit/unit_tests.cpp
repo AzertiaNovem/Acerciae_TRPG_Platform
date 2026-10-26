@@ -10,6 +10,10 @@
 #include "documents/DocumentService.h"
 #include "logstudio/LogAdapters.h"
 #include "dice/Dice.h"
+#include "logstudio/TtsProvider.h"
+#include "logstudio/TtsService.h"
+#include "logstudio/PublicationService.h"
+#include "logstudio/ImageProvider.h"
 #include <iostream>
 #include <functional>
 #include <vector>
@@ -141,12 +145,12 @@ int main() {
         CHECK(log.events.size() == 6);                       // leading note + 5 messages
         CHECK(log.events[0].unrecognised && log.events[0].content.find("前言") != std::string::npos);
         CHECK(log.events[1].speakerRole == "gm" && log.events[1].eventType == "narration");
-        CHECK(log.events[1].content == "夜色下的黑水湾，灯塔没有亮。\n第二行 narration continues.");
+        CHECK(log.events[1].content == "夜色下的黑水湾，灯塔没有亮。\n第二行 narration continues.\n\n");
         CHECK(log.events[2].eventType == "dialogue" && log.events[2].content.rfind("\xe2\x80\x9c", 0) == 0);
         CHECK(log.events[3].eventType == "dice_roll" && log.events[3].dice && log.events[3].dice->total == 37 && log.events[3].dice->outcome == "成功" && log.events[3].dice->checkName == "侦查");
         CHECK(log.events[4].eventType == "ooc");
         CHECK(log.events[5].eventType == "media" && !log.events[5].media.isNull() && log.events[5].media[0]["file"] == "abc.jpg");
-        CHECK(log.events[5].content.find("[CQ:") == std::string::npos && log.events[5].metadata["content_with_cq"].asString().find("[CQ:image") != std::string::npos);
+        CHECK(log.events[5].content.find("[CQ:image") != std::string::npos && log.events[5].metadata["display_text_without_cq"].asString().find("[CQ:") == std::string::npos);
         CHECK(log.events[2].occurredAtUnix.has_value());
         for (size_t i = 1; i < log.events.size(); ++i) CHECK(log.events[i].sequenceNumber == log.events[i-1].sequenceNumber + 1);
         // same IM id under two nicknames → two speaker keys (mapping is a user decision)
@@ -162,15 +166,17 @@ int main() {
         using namespace logstudio; AdapterRegistry reg;
         std::string sj = R"({"version":105,"items":[{"nickname":"KP","IMUserId":"QQ:1","time":1683375072,"message":"门开了。\r\n里面一片漆黑。","isDice":false,"commandId":0},{"nickname":"海豹","IMUserId":"QQ:2","time":1683375080,"message":"KP的侦查检定结果为: D100=90/50 失败","isDice":true,"commandId":1,"commandInfo":{"rule":"coc7","items":[{"expr1":"D100","checkVal":90,"attr":"侦查","rank":-1}]}}]})";
         auto* a1 = reg.detect(sj); CHECK(a1 && a1->name() == "sealdice_json");
-        auto l1 = a1->parse(sj); CHECK(l1.events.size() == 2); CHECK(l1.events[0].content == "门开了。\n里面一片漆黑。"); CHECK(l1.events[1].speakerRole == "dice" && l1.events[1].eventType == "dice_roll" && l1.events[1].dice->checkName == "侦查" && l1.events[1].dice->total == 90); CHECK(l1.formatVersion == "105");
+        auto l1 = a1->parse(sj); CHECK(l1.events.size() == 2); CHECK(l1.events[0].content == "门开了。\r\n里面一片漆黑。"); CHECK(l1.events[1].speakerRole == "dice" && l1.events[1].eventType == "dice_roll" && l1.events[1].dice->checkName == "侦查" && l1.events[1].dice->total == 90); CHECK(l1.formatVersion == "105");
         std::string rendered = "2022/08/18 19:43:21<Keeper(904002355)>:领航技能会判定自动失败\n2022/08/18 19:43:32<昆特·爱尔芙(562308967)>:唔……那我的信息有没有什么可以利用的）\n继续上一行\n";
         auto* a2 = reg.detect(rendered); CHECK(a2 && a2->name() == "rendered_log");
-        auto l2 = a2->parse(rendered); CHECK(l2.events.size() == 2); CHECK(l2.events[1].content == "唔……那我的信息有没有什么可以利用的）\n继续上一行"); CHECK(l2.speakers[0].imUserId == "QQ:904002355");
+        auto l2 = a2->parse(rendered); CHECK(l2.events.size() == 2); CHECK(l2.events[1].content == "唔……那我的信息有没有什么可以利用的）\n继续上一行\n"); CHECK(l2.speakers[0].imUserId == "QQ:904002355");
         std::string qq = "2022-05-10 11:28:25 名字(12345)\n你好\n2022-05-10 11:28:30 别人<67890>\n再见\n";
         auto* a3 = reg.detect(qq); CHECK(a3 && a3->name() == "qq_export");
-        auto l3 = a3->parse(qq); CHECK(l3.events.size() == 2 && l3.events[0].content == "你好" && l3.events[1].content == "再见");
+        auto l3 = a3->parse(qq); CHECK(l3.events.size() == 2 && l3.events[0].content == "你好\n" && l3.events[1].content == "再见\n");
         CHECK(reg.detect("just some prose without any header") == nullptr);
         std::string enc; auto s16 = normaliseEncoding(std::string("\xFF\xFE" "A\x00" "B\x00", 6), enc); CHECK(s16 == "AB" && enc == "utf-16le");
+        CHECK(normaliseEncoding(std::string("\xD6\xD0\xCE\xC4",4),enc)=="中文" && enc=="gb18030-inferred");
+        bool bad=false;try{normaliseEncoding(std::string("\xFF",1),enc);}catch(const std::invalid_argument&){bad=true;}CHECK(bad);
     });
     test("dice expressions", [] {
         dice::SeqRng rng({2, 5, 1, 6});
@@ -241,6 +247,16 @@ int main() {
         Json::Value custom; custom["check.result"] = "{name} → {attr}: {roll} vs {target} = {level}"; custom["level.hard"] = "HARD!";
         dice::TextSet group("en", custom); dice::SeqRng r11({20});
         CHECK(dice::execute(*dice::parseCommand(".ra research"), ctx, group, r11).text == "Alice → research: 20 vs 53 = HARD!");
+    });
+    test("studio render configuration rejects injection and preserves bounded settings", [] {
+        Json::Value c;c["base"]="novel";auto safe=logstudio::PublicationService::validateConfig(c);CHECK(safe["page_size"]=="A5");
+        bool rejected=false;c["page_size"]="A4; @import url(http://localhost)";try{logstudio::PublicationService::validateConfig(c);}catch(...){rejected=true;}CHECK(rejected);
+        c.removeMember("page_size");c["character_colors"]["gm"]="red; background:url(http://localhost)";rejected=false;try{logstudio::PublicationService::validateConfig(c);}catch(...){rejected=true;}CHECK(rejected);
+    });
+    test("mock speech produces measurable audio and dictionary never alters its source", [] {
+        setenv("TTS_PROVIDER","mock",1);auto provider=logstudio::makeTtsProvider();logstudio::TtsSynthesisRequest req;req.text="调查员打开了门。";req.voiceId="mock-cherry";auto r=provider->synthesize(req);CHECK(r.ok&&r.mime=="audio/wav");CHECK(logstudio::wavDurationMs(r.audioBytes)==r.durationMs);CHECK(logstudio::wavDurationMs("RIFFtruncated")==0);
+        auto entries=json::parse(R"([{"term":"拉莱耶","reading":"拉来耶","mode":"replace"}])");std::string source="我们前往拉莱耶。";CHECK(logstudio::TtsService::applyDictionary(source,entries,false)=="我们前往拉来耶。");CHECK(source=="我们前往拉莱耶。");
+        Json::Value params;auto k=logstudio::TtsService::cacheKey("mock","model","voice",1,source,"",1,params);CHECK(k!=logstudio::TtsService::cacheKey("mock","model","voice",2,source,"",1,params));CHECK(k!=logstudio::TtsService::cacheKey("mock","model","voice",1,source,"whisper",1,params));
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;

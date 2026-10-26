@@ -1,0 +1,52 @@
+{
+  "version": 105,
+  "items": [
+    {
+      "nickname": "守秘人",
+      "IMUserId": "QQ:10001",
+      "time": 1683375072,
+      "message": "雨夜的码头。\n远处有一盏灯。",
+      "isDice": false
+    },
+    {
+      "nickname": "林调查员",
+      "IMUserId": "QQ:20002",
+      "time": 1683375080,
+      "message": "我检查门上的锁。",
+      "isDice": false
+    },
+    {
+      "nickname": "海豹",
+      "IMUserId": "QQ:30003",
+      "time": 1683375081,
+      "message": "林调查员的侦查检定结果为: D100=37/55 成功",
+      "isDice": true,
+      "commandId": 1,
+      "commandInfo": {
+        "rule": "coc7",
+        "items": [
+          {
+            "expr1": "D100",
+            "checkVal": 37,
+            "attr": "侦查",
+            "rank": 1
+          }
+        ]
+      }
+    },
+    {
+      "nickname": "林的新昵称",
+      "IMUserId": "QQ:20002",
+      "time": 1683375085,
+      "message": "（OOC：暂停五分钟。）",
+      "isDice": false
+    },
+    {
+      "nickname": "顾调查员",
+      "IMUserId": "QQ:20004",
+      "time": 1683375090,
+      "message": "我守在这里。[CQ:image,file=door.jpg]",
+      "isDice": false
+    }
+  ]
+}

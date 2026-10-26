@@ -178,3 +178,16 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .dice-result.crit { border-color: var(--ok); background: #163222; font-weight: 600; }
 .dice-result.fumble { border-color: var(--danger); background: #331a1e; font-weight: 600; }
 .dice-result.notice { color: var(--fg-2); font-style: italic; }
+
+.publication-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:16px 0}.publication-fields label {display:flex;flex-direction:column;gap:6px}.publication-fields input,.publication-fields select {width:100%}.studio-publishing {display:grid;gap:18px}.shared-publication {max-width:1100px;margin:32px auto;padding:20px}.published-reading article {padding:12px 0;border-bottom:1px solid var(--border)}
+
+.studio-tabs {flex-wrap:wrap;flex-shrink:0;gap:4px;padding:6px 10px}.studio-tabs button {white-space:nowrap;flex-shrink:0;padding:7px 10px}.studio-tabs .grow {display:none}.studio-tabs .pill {max-width:180px;overflow:hidden;text-overflow:ellipsis}
+
+.avatar { overflow: hidden; flex-shrink: 0; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.profile-avatar { width: 72px; height: 72px; font-size: 24px; }
+.profile-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.profile-fields .field { min-width: 0; }
+.profile-fields input[type=file] { width: 100%; }
+.profile-error { color: var(--danger); }
+.sidebar-footer .grow { min-width: 0; overflow-wrap: anywhere; }

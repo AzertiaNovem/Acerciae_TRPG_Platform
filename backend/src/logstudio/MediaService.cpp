@@ -89,10 +89,10 @@ Json::Value MediaService::storeInternal(const std::string& channelId, const std:
     store_.put(key, bytes, mime);
     int w = 0, h = 0; probeDimensions(bytes, mime, w, h);
     auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, license_metadata, created_by) "
-        "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16::uuid[],$17,$18,$19,'channel',$20::jsonb,$21) RETURNING " + ASSET_COLS,
+        "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16::uuid[],$17,$18,$19,$22,$20::jsonb,$21) RETURNING " + ASSET_COLS,
         {channelId, assetType, sourceType, json::str(meta, "name", assetType), key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull(), opt(json::str(meta, "character_id")), json::str(meta, "expression"),
          json::dump(meta.isMember("source_reference") ? meta["source_reference"] : Json::Value(Json::objectValue)), opt(json::str(meta, "generation_provider")), opt(json::str(meta, "generation_model")), opt(json::str(meta, "prompt")), pgArrayLiteral(json::strArray(meta["reference_asset_ids"])),
-         opt(json::str(meta, "style_profile_id")), meta["style_profile_version"].isNumeric() ? DbParam((int64_t)meta["style_profile_version"].asInt()) : dbNull(), json::str(meta, "approval_status", "candidate"), json::dump(meta.isMember("license_metadata") ? meta["license_metadata"] : Json::Value(Json::objectValue)), opt(json::str(meta, "created_by"))});
+         opt(json::str(meta, "style_profile_id")), meta["style_profile_version"].isNumeric() ? DbParam((int64_t)meta["style_profile_version"].asInt()) : dbNull(), json::str(meta, "approval_status", "candidate"), json::dump(meta.isMember("license_metadata") ? meta["license_metadata"] : Json::Value(Json::objectValue)), opt(json::str(meta, "created_by")), json::str(meta,"visibility_scope","gm")});
     db_.exec("INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note) VALUES($1,1,$2,$3,$4,$5)", {row["id"].asString(), key, mime, (int64_t)bytes.size(), sourceType});
     return row;
 }
@@ -111,13 +111,14 @@ Json::Value MediaService::newVersion(const ChannelAccess& a, const std::string& 
     auto cur = db_.queryOne("SELECT * FROM media_assets WHERE id=$1 AND channel_id=$2", {id, a.channelId});
     if (cur.isNull()) throw notFound("asset not found");
     if (!a.isGm && cur["created_by"].asString() != a.userId) throw forbidden("not your asset");
+    if(bytes.empty()||bytes.size()>50*1024*1024) throw badRequest("replacement media must be between 1 byte and 50 MB");
     auto mime = sniffMime(bytes, fileName);
     if (!allowedMime(mime, cur["asset_type"].asString())) throw badRequest("file content not allowed for this asset type");
     auto key = safeObjectKey(a.channelId, cur["asset_type"].asString(), fileName.find('.') != std::string::npos ? fileName.substr(fileName.rfind('.') + 1) : "bin");
     store_.put(key, bytes, mime);
     int w = 0, h = 0; probeDimensions(bytes, mime, w, h);
     return db_.tx([&](pqxx::work& w2) {
-        auto v = Db::queryOne(w2, "UPDATE media_assets SET version=version+1, object_key=$2, mime=$3, bytes=$4, width=$5, height=$6, updated_at=now() WHERE id=$1 RETURNING " + ASSET_COLS, {id, key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull()});
+        auto v = Db::queryOne(w2, "UPDATE media_assets SET approval_status='candidate', version=version+1, object_key=$2, mime=$3, bytes=$4, width=$5, height=$6, updated_at=now() WHERE id=$1 RETURNING " + ASSET_COLS, {id, key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull()});
         Db::exec(w2, "INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note) VALUES($1,$2,$3,$4,$5,$6)", {id, (int64_t)v["version"].asInt(), key, mime, (int64_t)bytes.size(), note});
         return v;
     });
@@ -135,7 +136,7 @@ Json::Value MediaService::remove(const ChannelAccess& a, const std::string& id) 
 bool MediaService::fetch(const ChannelAccess& a, const std::string& id, int version, std::string& bytes, std::string& mime, std::string& fileName) {
     auto cur = db_.queryOne("SELECT * FROM media_assets WHERE id=$1 AND channel_id=$2", {id, a.channelId});
     if (cur.isNull()) return false;
-    if (!a.isGm && cur["visibility_scope"].asString() == "gm") return false;
+    if (!a.isGm && (cur["visibility_scope"].asString() == "gm" || cur["approval_status"] != "approved")) return false;
     std::string key = cur["object_key"].asString(); mime = cur["mime"].asString();
     if (version > 0 && version != cur["version"].asInt()) { auto v = db_.queryOne("SELECT object_key, mime FROM asset_versions WHERE asset_id=$1 AND version=$2", {id, (int64_t)version}); if (v.isNull()) return false; key = v["object_key"].asString(); mime = v["mime"].asString(); }
     auto data = store_.get(key); if (!data) return false;

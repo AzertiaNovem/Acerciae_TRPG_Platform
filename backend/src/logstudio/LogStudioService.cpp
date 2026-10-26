@@ -8,15 +8,29 @@
 #include <map>
 #include <set>
 #include <algorithm>
+#include <regex>
 
 namespace acerciae::logstudio {
 
+static std::string eventScope(const ChannelAccess& a) { return a.isGm ? "" : " AND (visibility_scope='public' OR (visibility_scope='character' AND audience && " + Visibility::uuidArray(a.characterIds) + "))"; }
 static DbParam opt(const std::string& s) { return s.empty() ? dbNull() : DbParam(s); }
 
 static std::string htmlEscape(const std::string& s) {
     std::string o; o.reserve(s.size());
     for (char c : s) { switch (c) { case '&': o += "&amp;"; break; case '<': o += "&lt;"; break; case '>': o += "&gt;"; break; case '"': o += "&quot;"; break; default: o += c; } }
     return o;
+}
+
+// Derive the map from the selected events, never from unrelated (possibly secret) speakers.
+static Json::Value snapshotMap(const std::vector<LogEvent>& events, const Json::Value& source) {
+    Json::Value out(Json::objectValue);
+    for (const auto& e : events) {
+        auto& m=out[e.speakerKey]; m["display_name"]=e.speakerDisplayName; m["role"]=e.speakerRole;
+        if(!e.speakerCharacterId.empty()) m["character_id"]=e.speakerCharacterId;
+        auto color=json::str(source[e.speakerKey],"color");
+        if(std::regex_match(color,std::regex("#[0-9a-fA-F]{6}"))) m["color"]=color;
+    }
+    return out;
 }
 
 void LogStudioService::audit(const ChannelAccess& a, const std::string& action, const Json::Value& target) {
@@ -34,15 +48,40 @@ bool LogStudioService::eventVisibleTo(const ChannelAccess& a, const std::string&
 Json::Value LogStudioService::projectRow(const ChannelAccess& a, const std::string& projectId) {
     auto p = db_.queryOne("SELECT * FROM log_projects WHERE id=$1 AND channel_id=$2", {projectId, a.channelId});
     if (p.isNull()) throw notFound("log project not found");
+    if(!a.isGm) {
+        Json::Value map(Json::objectValue);
+        for(const auto& r:db_.queryJson("SELECT DISTINCT speaker_key FROM log_events WHERE project_id=$1"+eventScope(a),{projectId})) {
+            auto key=r["speaker_key"].asString(); if(p["character_map"].isMember(key)) map[key]=p["character_map"][key];
+        }
+        p["character_map"]=map;
+    }
     return p;
 }
 
 // ---- projects --------------------------------------------------------------------------------------
+Json::Value LogStudioService::settings(const ChannelAccess& a) { return db_.queryOne("SELECT studio_cloud_allowed,tts_budget_chars FROM channels WHERE id=$1",{a.channelId}); }
+Json::Value LogStudioService::saveSettings(const ChannelAccess& a,const Json::Value& b) {
+    if(!a.isGm) throw forbidden("GM role required"); auto cur=settings(a);
+    if(b.isMember("tts_budget_chars")&&!b["tts_budget_chars"].isIntegral()) throw badRequest("tts_budget_chars must be an integer");
+    auto budget=b.isMember("tts_budget_chars")?b["tts_budget_chars"].asInt64():cur["tts_budget_chars"].asInt64();
+    if(budget<0||budget>100000000) throw badRequest("budget must be 0..100000000 characters");
+    if(b.isMember("studio_cloud_allowed")&&!b["studio_cloud_allowed"].isBool()) throw badRequest("studio_cloud_allowed must be boolean");
+    auto row=db_.queryOne("UPDATE channels SET studio_cloud_allowed=$2,tts_budget_chars=$3 WHERE id=$1 RETURNING studio_cloud_allowed,tts_budget_chars",{a.channelId,json::toBool(b,"studio_cloud_allowed",cur["studio_cloud_allowed"].asBool()),budget});
+    audit(a,"settings.update",row);return row;
+}
 Json::Value LogStudioService::listProjects(const ChannelAccess& a) {
-    return db_.queryJson(
-        "SELECT p.*, (SELECT count(*) FROM log_events e WHERE e.project_id=p.id) AS event_count, (SELECT count(*) FROM log_snapshots s WHERE s.project_id=p.id) AS snapshot_count, "
-        "(SELECT count(*) FROM log_presentations pr WHERE pr.project_id=p.id) AS presentation_count, (SELECT count(*) FROM published_logs pl WHERE pl.project_id=p.id AND NOT pl.revoked) AS published_count "
-        "FROM log_projects p WHERE p.channel_id=$1 ORDER BY p.created_at DESC", {a.channelId});
+    auto rows=db_.queryJson("SELECT id FROM log_projects WHERE channel_id=$1 ORDER BY created_at DESC",{a.channelId});
+    Json::Value out(Json::arrayValue);
+    for(const auto& row:rows) {
+        auto id=row["id"].asString(); auto p=projectRow(a,id);
+        p["event_count"]=db_.queryOne("SELECT count(*) AS n FROM log_events WHERE project_id=$1"+eventScope(a),{id})["n"];
+        auto snaps=listSnapshots(a,id); p["snapshot_count"]=(int)snaps.size(); int presentations=0;
+        for(const auto& snap:snaps) presentations+=snap["presentation_count"].asInt();
+        p["presentation_count"]=presentations;
+        p["published_count"]=db_.queryOne("SELECT count(*) AS n FROM published_logs WHERE project_id=$1 AND NOT revoked"+std::string(a.isGm?"":" AND visibility='players'"),{id})["n"];
+        out.append(p);
+    }
+    return out;
 }
 Json::Value LogStudioService::createProject(const ChannelAccess& a, const Json::Value& body) {
     auto title = json::requireStr(body, "title");
@@ -54,10 +93,10 @@ Json::Value LogStudioService::createProject(const ChannelAccess& a, const Json::
 }
 Json::Value LogStudioService::getProject(const ChannelAccess& a, const std::string& projectId) {
     auto p = projectRow(a, projectId);
-    p["event_count"] = db_.queryOne("SELECT count(*) AS n FROM log_events WHERE project_id=$1", {projectId})["n"];
+    p["event_count"] = db_.queryOne("SELECT count(*) AS n FROM log_events WHERE project_id=$1"+eventScope(a), {projectId})["n"];
     p["snapshots"] = listSnapshots(a, projectId);
     p["imports"] = a.isGm ? listImports(a, projectId) : Json::Value(Json::arrayValue);
-    p["speakers"] = db_.queryJson("SELECT speaker_key, max(speaker_display_name) AS display_name, max(speaker_role) AS role, max(speaker_character_id::text) AS character_id, count(*) AS n FROM log_events WHERE project_id=$1 GROUP BY speaker_key ORDER BY n DESC", {projectId});
+    p["speakers"] = db_.queryJson("SELECT speaker_key, max(speaker_display_name) AS display_name, max(speaker_role) AS role, max(speaker_character_id::text) AS character_id, count(*) AS n FROM log_events WHERE project_id=$1"+eventScope(a)+" GROUP BY speaker_key ORDER BY n DESC", {projectId});
     p["scenes"] = sceneSummary(a, projectId);
     return p;
 }
@@ -72,8 +111,8 @@ Json::Value LogStudioService::updateProject(const ChannelAccess& a, const std::s
         db_.tx([&](pqxx::work& w) {
             for (auto it = cmap.begin(); it != cmap.end(); ++it) {
                 auto key = it.name(); auto& m = *it;
-                Db::exec(w, "UPDATE log_events SET speaker_character_id=$3, speaker_display_name=coalesce(nullif($4,''), speaker_display_name), speaker_role=coalesce(nullif($5,''), speaker_role) WHERE project_id=$1 AND speaker_key=$2",
-                    {projectId, key, opt(json::str(m, "character_id")), json::str(m, "display_name"), json::str(m, "role")});
+                Db::exec(w, "UPDATE log_events SET speaker_character_id=CASE WHEN $6::boolean THEN $3::uuid ELSE speaker_character_id END, speaker_display_name=coalesce(nullif($4,''), speaker_display_name), speaker_role=coalesce(nullif($5,''), speaker_role) WHERE project_id=$1 AND speaker_key=$2",
+                    {projectId, key, opt(json::str(m, "character_id")), json::str(m, "display_name"), json::str(m, "role"),m.isMember("character_id")});
             }
         });
     }
@@ -89,7 +128,7 @@ Json::Value LogStudioService::deleteProject(const ChannelAccess& a, const std::s
 }
 
 // ---- events ----------------------------------------------------------------------------------------
-static const std::string EVENT_COLS = "id AS event_id, sequence_number, event_type, content, speaker_key, speaker_display_name, speaker_character_id, speaker_role, extract(epoch from occurred_at)::bigint AS timestamp, time_text, scene_key, scene_title, scene_id, chat_window_id, visibility_scope, audience, source_kind, source_event_id, source_message_id, source_reference, dice, media, metadata, raw_text, unrecognised";
+static const std::string EVENT_COLS = "id AS event_id, channel_id AS campaign_id, sequence_number, event_type, content, speaker_key, speaker_display_name, speaker_character_id, speaker_role, extract(epoch from occurred_at)::bigint AS timestamp, time_text, scene_key, scene_title, scene_id, chat_window_id, visibility_scope, audience, source_kind, source_event_id, source_message_id, source_reference, dice, media, metadata, raw_text, unrecognised";
 
 std::vector<LogEvent> LogStudioService::loadEvents(pqxx::work& w, const std::string& projectId, const std::vector<std::string>& ids) {
     std::vector<LogEvent> out;
@@ -129,7 +168,7 @@ Json::Value LogStudioService::updateEvent(const ChannelAccess& a, const std::str
 }
 Json::Value LogStudioService::sceneSummary(const ChannelAccess& a, const std::string& projectId) {
     projectRow(a, projectId);
-    return db_.queryJson("SELECT scene_key, max(scene_title) AS scene_title, max(scene_id::text) AS scene_id, min(sequence_number) AS from_seq, max(sequence_number) AS to_seq, count(*) AS n FROM log_events WHERE project_id=$1 GROUP BY scene_key ORDER BY min(sequence_number)", {projectId});
+    return db_.queryJson("SELECT scene_key, max(scene_title) AS scene_title, max(scene_id::text) AS scene_id, min(sequence_number) AS from_seq, max(sequence_number) AS to_seq, count(*) AS n FROM log_events WHERE project_id=$1"+eventScope(a)+" GROUP BY scene_key ORDER BY min(sequence_number)", {projectId});
 }
 
 Json::Value LogStudioService::splitScene(const ChannelAccess& a, const std::string& projectId, long long fromSeq, const std::string& title) {
@@ -163,7 +202,7 @@ Json::Value LogStudioService::renameScene(const ChannelAccess& a, const std::str
 Json::Value LogStudioService::suggestScenes(const ChannelAccess& a, const std::string& projectId) {
     projectRow(a, projectId);
     Json::Value out(Json::arrayValue);
-    auto rows = db_.queryJson("SELECT sequence_number, scene_key, scene_id, extract(epoch from occurred_at)::bigint AS ts, content, event_type FROM log_events WHERE project_id=$1 ORDER BY sequence_number", {projectId});
+    auto rows = db_.queryJson("SELECT sequence_number, scene_key, scene_id, extract(epoch from occurred_at)::bigint AS ts, content, event_type FROM log_events WHERE project_id=$1"+eventScope(a)+" ORDER BY sequence_number", {projectId});
     long long prevTs = 0; std::string prevSceneId;
     for (auto& r : rows) {
         long long ts = r["ts"].isNull() ? 0 : r["ts"].asInt64();
@@ -197,7 +236,7 @@ void LogStudioService::insertEvents(pqxx::work& w, const std::string& projectId,
 Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std::string& projectId, const Json::Value& sel) {
     auto proj = projectRow(a, projectId);
     std::string sql = "SELECT e.id, e.seq, e.kind, e.payload, e.visibility, e.audience, e.actor_role, e.character_id, e.message_id, e.chat_window_id, e.scene_id, e.created_at, extract(epoch from e.created_at)::bigint AS ts, "
-                      "c.name AS character_name, u.display_name AS actor_name, s.title AS scene_title, m.kind AS message_kind FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN users u ON u.id=e.actor_user_id LEFT JOIN scenes s ON s.id=e.scene_id LEFT JOIN messages m ON m.id=e.message_id "
+                      "c.name AS character_name, u.display_name AS actor_name, s.title AS scene_title, m.content AS message_content, m.kind AS message_kind FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN users u ON u.id=e.actor_user_id LEFT JOIN scenes s ON s.id=e.scene_id LEFT JOIN messages m ON m.id=e.message_id "
                       "WHERE e.channel_id=$1 AND e.kind IN ('message.posted','scene.entered','scene.created') AND " + Visibility::eventFilter(a) +
                       " AND NOT EXISTS (SELECT 1 FROM log_events le WHERE le.project_id=$2 AND le.source_event_id=e.id)";
     DbParams p{a.channelId, projectId};
@@ -220,14 +259,20 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
         auto kind = r["kind"].asString();
         e.sourceReference["channel_event_kind"] = kind; e.sourceReference["seq"] = r["seq"];
         if (kind != "message.posted") { e.eventType = "scene_change"; e.content = e.sceneTitle.empty() ? json::str(r["payload"], "content") : e.sceneTitle; e.speakerRole = "system"; e.speakerKey = "system"; e.speakerDisplayName = "Scene"; e.metadata["location"] = r["payload"]["location"]; events.push_back(e); continue; }
-        e.content = json::str(r["payload"], "content");
+        e.content = r["message_content"].isString() ? r["message_content"].asString() : json::str(r["payload"], "content");
         bool gm = r["actor_role"].asString() == "gm";
         e.speakerRole = gm ? (r["character_id"].isNull() ? "gm" : "npc") : "pc";
         e.speakerCharacterId = r["character_id"].isNull() ? "" : r["character_id"].asString();
         e.speakerDisplayName = r["character_name"].isNull() ? (gm ? "GM" : r["actor_name"].asString()) : r["character_name"].asString();
         e.speakerKey = e.speakerCharacterId.empty() ? (gm ? "gm" : "user:" + r["actor_name"].asString()) : e.speakerCharacterId;
         auto mk = r["message_kind"].isNull() ? "ic" : r["message_kind"].asString();
-        if (mk == "ooc") e.eventType = "ooc"; else if (mk == "roll") { e.eventType = "dice_roll"; e.dice = parseDice(e.content); } else if (mk == "narration") e.eventType = "narration";
+        if (mk == "ooc") e.eventType = "ooc"; else if (mk == "roll") { e.eventType = "dice_roll"; if (r["payload"]["dice"].isObject()) {
+            const auto& actual = r["payload"]["dice"]; e.metadata["dice_result"] = actual;
+            DiceInfo d; d.raw = json::str(actual,"text"); d.expression = json::str(actual,"expr"); d.checkName = json::str(actual,"attr");
+            for (const auto& roll : actual["rolls"]) { if (roll["roll"].isInt()) d.rolls.push_back(roll["roll"].asInt()); }
+            if (actual["rolls"].size() == 1) { auto one=actual["rolls"][0]; if (one["total"].isInt()) d.total=one["total"].asInt(); else if (one["roll"].isInt()) d.total=one["roll"].asInt(); d.outcome=json::str(one,"level"); }
+            e.dice=d;
+        } else e.dice = parseDice(e.content); } else if (mk == "narration") e.eventType = "narration";
         else e.eventType = gm ? "narration" : classifyMessage(e.content, false, false);
         if (vis == "gm_only") e.eventType = "secret";
         events.push_back(e);
@@ -249,11 +294,11 @@ Json::Value LogStudioService::previewImport(const ChannelAccess& a, const std::s
     projectRow(a, projectId);
     if (bytes.empty()) throw badRequest("empty file");
     if (bytes.size() > 50 * 1024 * 1024) throw badRequest("file too large (50 MB max)");
-    std::string encoding; auto text = normaliseEncoding(bytes, encoding);
+    std::string encoding,text; try { text=normaliseEncoding(bytes,encoding); } catch(const std::invalid_argument& e) {throw badRequest(e.what());}
     const LogAdapter* ad = adapterName.empty() || adapterName == "auto" ? registry_.detect(text) : registry_.byName(adapterName);
     if (!ad) throw badRequest("could not detect log format; choose an adapter explicitly or convert the file to UTF-8");
     auto parsed = ad->parse(text);
-    if (encoding == "unknown-8bit") { ImportIssue is; is.lineNo = 0; is.raw = ""; is.reason = "file is not valid UTF-8 (GBK/GB18030?). Re-save as UTF-8 for correct characters; text was kept byte-for-byte."; is.severity = "warning"; parsed.issues.insert(parsed.issues.begin(), is); }
+    if (encoding == "gb18030-inferred") { ImportIssue is; is.lineNo = 0; is.raw = ""; is.reason = "GB18030/GBK encoding was inferred and converted to UTF-8. Verify Chinese text in the preview before committing."; is.severity = "warning"; parsed.issues.insert(parsed.issues.begin(), is); }
     // Suggest speaker→character mapping by name similarity to the channel's characters.
     auto chars = db_.queryJson("SELECT id, name, kind, user_id FROM characters WHERE channel_id=$1", {a.channelId});
     Json::Value speakerMap(Json::objectValue);
@@ -314,6 +359,7 @@ Json::Value LogStudioService::commitImport(const ChannelAccess& a, const std::st
     return out;
 }
 Json::Value LogStudioService::listImports(const ChannelAccess& a, const std::string& projectId) {
+    projectRow(a, projectId);
     if (!a.isGm) throw forbidden("GM role required");
     return db_.queryJson("SELECT id, adapter, file_name, encoding, status, (stats - 'parsed') AS stats, created_at, committed_at, (SELECT count(*) FROM log_import_errors e WHERE e.import_id=i.id) AS issue_count FROM log_imports i WHERE project_id=$1 ORDER BY created_at DESC", {projectId});
 }
@@ -349,16 +395,22 @@ Json::Value LogStudioService::createSnapshot(const ChannelAccess& a, const std::
         if (keep) ids.push_back(r["id"].asString());
     }
     auto snap = db_.tx([&](pqxx::work& w) {
+        Db::exec(w,"SELECT id FROM log_projects WHERE id=$1 FOR UPDATE",{projectId});
         auto v = Db::queryOne(w, "SELECT coalesce(max(version),0)+1 AS v FROM log_snapshots WHERE project_id=$1", {projectId})["v"].asInt();
         auto s = Db::queryOne(w, "INSERT INTO log_snapshots(project_id, channel_id, version, title, selection, scope, scope_character_id, event_count, created_by) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) RETURNING *",
             {projectId, a.channelId, (int64_t)v, json::str(body, "title", "Snapshot v" + std::to_string(v)), json::dump(sel), scope, opt(scopeChar), (int64_t)ids.size(), a.userId});
-        int pos = 0; for (auto& id : ids) Db::exec(w, "INSERT INTO log_snapshot_events(snapshot_id, position, log_event_id) VALUES($1,$2,$3)", {s["id"].asString(), (int64_t)pos++, id});
-        return s;
+        int pos = 0; for (auto& id : ids) Db::exec(w, "INSERT INTO log_snapshot_events(snapshot_id, position, log_event_id, frozen_event) SELECT $1,$2,id,to_jsonb(e) || jsonb_build_object('event_id',id,'timestamp',extract(epoch from occurred_at)::bigint) FROM log_events e WHERE id=$3", {s["id"].asString(), (int64_t)pos++, id});
+        auto proj=Db::queryOne(w,"SELECT title,character_map FROM log_projects WHERE id=$1",{projectId});
+        auto selected=ids.empty()?std::vector<LogEvent>{}:loadEvents(w,projectId,ids);
+        Json::Value meta; meta["project_title"]=proj["title"]; meta["character_map"]=snapshotMap(selected,proj["character_map"]);
+        Db::exec(w,"UPDATE log_snapshots SET frozen_metadata=$2::jsonb WHERE id=$1",{s["id"].asString(),json::dump(meta)});
+        s["frozen_metadata"]=meta; return s;
     });
     audit(a, "snapshot.create", snap);
     return snap;
 }
 Json::Value LogStudioService::listSnapshots(const ChannelAccess& a, const std::string& projectId) {
+    projectRow(a, projectId);
     std::string sql = "SELECT s.*, (SELECT count(*) FROM log_presentations p WHERE p.snapshot_id=s.id) AS presentation_count FROM log_snapshots s WHERE project_id=$1";
     if (!a.isGm) sql += " AND (s.scope='pl_public' OR (s.scope='character' AND s.scope_character_id = ANY(" + Visibility::uuidArray(a.characterIds) + ")))";
     return db_.queryJson(sql + " ORDER BY version DESC", {projectId});
@@ -369,9 +421,9 @@ std::vector<LogEvent> LogStudioService::snapshotEvents(const ChannelAccess& a, c
     if (!a.isGm && s["scope"].asString() == "gm_full") throw forbidden("GM snapshot");
     if (!a.isGm && s["scope"].asString() == "character" && std::find(a.characterIds.begin(), a.characterIds.end(), s["scope_character_id"].asString()) == a.characterIds.end()) throw forbidden("snapshot belongs to another character");
     if (snapOut) *snapOut = s;
-    auto rows = db_.queryJson("SELECT " + EVENT_COLS + " FROM log_events e JOIN log_snapshot_events se ON se.log_event_id=e.id WHERE se.snapshot_id=$1 ORDER BY se.position", {snapshotId});
+    auto rows = db_.queryJson("SELECT se.frozen_event, e.visibility_scope, e.audience FROM log_events e JOIN log_snapshot_events se ON se.log_event_id=e.id WHERE se.snapshot_id=$1 ORDER BY se.position", {snapshotId});
     std::vector<LogEvent> out;
-    for (auto& r : rows) { auto e = LogEvent::fromJson(r); if (eventVisibleTo(a, e.visibilityScope, e.audience)) out.push_back(e); }
+    for (auto& r : rows) { auto e = LogEvent::fromJson(r["frozen_event"]); if (eventVisibleTo(a, e.visibilityScope, e.audience) && eventVisibleTo(a,json::str(r,"visibility_scope"),json::strArray(r["audience"]))) out.push_back(e); }
     return out;
 }
 Json::Value LogStudioService::getSnapshot(const ChannelAccess& a, const std::string& snapshotId, bool withEvents) {
@@ -379,7 +431,8 @@ Json::Value LogStudioService::getSnapshot(const ChannelAccess& a, const std::str
     s["visible_event_count"] = (int)events.size();
     if (withEvents) { s["events"] = Json::Value(Json::arrayValue); for (auto& e : events) s["events"].append(e.toJson()); }
     auto proj = db_.queryOne("SELECT title, character_map FROM log_projects WHERE id=$1", {s["project_id"].asString()});
-    s["project_title"] = proj["title"]; s["character_map"] = proj["character_map"];
+    s["project_title"] = s["frozen_metadata"].isMember("project_title")?s["frozen_metadata"]["project_title"]:proj["title"]; s["character_map"] = snapshotMap(events,s["frozen_metadata"].isMember("character_map")?s["frozen_metadata"]["character_map"]:proj["character_map"]);
+    s.removeMember("frozen_metadata");
     return s;
 }
 
@@ -388,7 +441,7 @@ std::string LogStudioService::renderStyledHtml(const Json::Value& snap, const st
     static const char* palette[] = {"#7c9cff","#5bd1b9","#f0b35b","#ef6b73","#c9a4ff","#6fcf97","#ff9f6e","#9ad0ff"};
     std::map<std::string, std::string> colors; int ci = 0;
     auto colorFor = [&](const LogEvent& e) -> std::string {
-        if (cmap.isObject() && cmap.isMember(e.speakerKey) && !json::str(cmap[e.speakerKey], "color").empty()) return json::str(cmap[e.speakerKey], "color");
+        if (cmap.isObject() && cmap.isMember(e.speakerKey) && !json::str(cmap[e.speakerKey], "color").empty()) { auto color=json::str(cmap[e.speakerKey],"color"); if(std::regex_match(color,std::regex("#[0-9a-fA-F]{6}"))) return color; }
         if (e.speakerRole == "gm") return json::str(style, "gm_color", "#d7b26d");
         if (!colors.count(e.speakerKey)) colors[e.speakerKey] = palette[(ci++) % 8];
         return colors[e.speakerKey];
@@ -416,10 +469,10 @@ std::string LogStudioService::exportSnapshot(const ChannelAccess& a, const std::
     snap["project_title"] = proj["title"];
     std::string base = "log-" + snapshotId.substr(0, 8) + "-v" + std::to_string(snap["version"].asInt());
     Json::Value target; target["snapshot_id"] = snapshotId; target["format"] = format; audit(a, "snapshot.export", target);
-    if (format == "json") { mime = "application/json; charset=utf-8"; fileName = base + ".json"; Json::Value meta; meta["project"] = proj["title"]; meta["snapshot_version"] = snap["version"]; meta["scope"] = snap["scope"]; meta["character_map"] = proj["character_map"]; return json::dump(toNativeJson(events, meta), true); }
+    if (format == "json") { mime = "application/json; charset=utf-8"; fileName = base + ".json"; Json::Value meta; meta["project"] = snap["frozen_metadata"]["project_title"]; meta["snapshot_version"] = snap["version"]; meta["scope"] = snap["scope"]; meta["character_map"] = snapshotMap(events,snap["frozen_metadata"]["character_map"]); return json::dump(toNativeJson(events, meta), true); }
     if (format == "txt") { mime = "text/plain; charset=utf-8"; fileName = base + ".txt"; return toPlainText(events); }
     if (format == "sealdice_txt") { mime = "text/plain; charset=utf-8"; fileName = base + ".sealdice.txt"; return registry_.byName("sealdice_text")->exportText(events); }
-    if (format == "html") { mime = "text/html; charset=utf-8"; fileName = base + ".html"; return renderStyledHtml(snap, events, Json::Value(Json::objectValue), proj["character_map"]); }
+    if (format == "html") { mime = "text/html; charset=utf-8"; fileName = base + ".html"; return renderStyledHtml(snap, events, Json::Value(Json::objectValue), snapshotMap(events,snap["frozen_metadata"]["character_map"])); }
     throw badRequest("unknown export format (json|txt|sealdice_txt|html)");
 }
 

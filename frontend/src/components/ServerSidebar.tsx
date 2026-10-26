@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { useState } from 'react';
 import { useNav } from '../store/nav';
 import { api } from '../api/client';
@@ -12,13 +13,13 @@ export default function ServerSidebar({ onPick }: { onPick: () => void }) {
       {servers.map((s) => (
         <div key={s.id} className={`server-icon ${s.id === serverId ? 'active' : ''}`} title={s.name} onClick={() => { selectServer(s.id); onPick(); }}>{s.name.slice(0, 2).toUpperCase()}</div>
       ))}
-      <div className="server-icon add" title="Create server" onClick={() => setCreating(true)}>+</div>
+      <div className="server-icon add" title={tr("Create server")} onClick={() => setCreating(true)}>+</div>
       {creating && (
         <div className="modal-backdrop" onClick={() => setCreating(false)}>
           <div className="modal col" onClick={(e) => e.stopPropagation()}>
-            <h3>New server</h3>
-            <input placeholder="Server name" value={name} onChange={(e) => setName(e.target.value)} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
-            <div className="row"><button className="primary" onClick={create}>Create</button><button className="ghost" onClick={() => setCreating(false)}>Cancel</button></div>
+            <h3>{tr("New server")}</h3>
+            <input placeholder={tr("Server name")} value={name} onChange={(e) => setName(e.target.value)} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
+            <div className="row"><button className="primary" onClick={create}>{tr("Create")}</button><button className="ghost" onClick={() => setCreating(false)}>{tr("Cancel")}</button></div>
           </div>
         </div>
       )}

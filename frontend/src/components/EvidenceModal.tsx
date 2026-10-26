@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
@@ -26,16 +27,16 @@ export default function EvidenceModal() {
   return (
     <div className="modal-backdrop" onClick={() => showEvidence(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Original events</h3>
-        {events.length === 0 && <div className="muted small">No events visible to you for this entry.</div>}
+        <h3>{tr("Original events")}</h3>
+        {events.length === 0 && <div className="muted small">{tr("No events visible to you for this entry.")}</div>}
         {events.map((e) => (
           <div key={e.id} className="evidence-item" onClick={() => jump(e)}>
             <div className="row"><span className="pill">{e.kind}</span>{e.character_name && <b className="small">{e.character_name}</b>}{e.scene_title && <span className="tiny muted">· {e.scene_title}</span>}<span className="grow" /><span className="tiny muted">#{e.seq}</span></div>
             <div className="small">{(e.payload?.content as string) ?? ''}</div>
-            {e.message_id && windows.some((w) => w.id === e.chat_window_id) && <div className="tiny" style={{ color: 'var(--accent)' }}>jump to message ↗</div>}
+            {e.message_id && windows.some((w) => w.id === e.chat_window_id) && <div className="tiny" style={{ color: 'var(--accent)' }}>{tr("jump to message ↗")}</div>}
           </div>
         ))}
-        <div className="row" style={{ marginTop: 8 }}><span className="grow" /><button onClick={() => showEvidence(null)}>Close</button></div>
+        <div className="row" style={{ marginTop: 8 }}><span className="grow" /><button onClick={() => showEvidence(null)}>{tr("Close")}</button></div>
       </div>
     </div>
   );

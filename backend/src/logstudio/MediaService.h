@@ -24,8 +24,8 @@ public:
     static std::string sniffMime(const std::string& bytes, const std::string& fileName);
     static bool allowedMime(const std::string& mime, const std::string& assetType);
     ObjectStore& store() { return store_; }
+    static void probeDimensions(const std::string& bytes, const std::string& mime, int& w, int& h);
 private:
-    void probeDimensions(const std::string& bytes, const std::string& mime, int& w, int& h);
     const Config& cfg_; Db& db_; ObjectStore& store_;
 };
 

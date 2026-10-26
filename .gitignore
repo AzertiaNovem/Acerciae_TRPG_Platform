@@ -15,3 +15,6 @@ data/
 uploads/
 tests/integration/node_modules/
 backend/seed/*.tmp
+
+pdf-worker/node_modules/
+pdf-worker/output/

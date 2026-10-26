@@ -10,6 +10,13 @@ Errors: `{ "error": "<code>", "message": "..." }` with 400/401/403/404/409/500.
 | GET | `/llm/status` | mode, model, provider, embeddings flag, note |
 
 ## Auth
+
+User objects now include `ui_language`, `avatar_data`, `avatar_version` and `languages`. See [personal settings](USER_SETTINGS.md) for validation, image limits and native client integration.
+
+| Method | Path | Notes |
+|---|---|---|
+| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?}`. Empty avatar removes it; duplicate username returns 409. |
+| GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. |
 | POST | `/auth/register` | `{username, password, display_name}` → `{token, user}` |
 | POST | `/auth/login` | `{username, password}` → `{token, user}` |
 | POST | `/auth/logout` | |
@@ -111,3 +118,88 @@ Context stream: `document.updated {document_id, doc_type, version, change_count,
 
 Both streams answer `{"type":"ping"}` with `pong`. The upgrade must be the first request on its TCP connection (browsers
 always do this).
+
+## Log Studio contracts
+
+All paths in this section start with `/api/channels/{channel_id}/studio` unless stated otherwise. The channel is the campaign. Existing chat, document and mobile contracts are retained. IDs are UUIDs from responses; JSON timestamps in Canonical events are Unix seconds, while database task timestamps are ISO strings. Unknown optional fields must be tolerated by clients.
+
+| Method | Suffix | Contract |
+|---|---|---|
+| GET/PUT | `/settings` | `{studio_cloud_allowed:boolean,tts_budget_chars:integer}`; PUT requires channel GM. Default cloud processing is off. |
+| GET | `/adapters` | Supported adapter names and precise compatibility descriptions. |
+| GET/POST | `/projects` | Create `{title,description?,source_kind?:channel\|import\|mixed}`. List counts are audience-filtered. |
+| GET/PUT/DELETE | `/projects/{p}` | PUT/DELETE GM. PUT supports title/description/character_map keyed by speaker key. Mapping has character_id/display_name/role/color; omitted identity fields stay unchanged. |
+| GET | `/projects/{p}/events?limit=500&after_seq=0&scene_key=` | Ordered visible events. Paginate by last sequence number; do not assume sequence numbers are contiguous after permission filtering. |
+| PUT | `/projects/{p}/events/{e}` | GM changes classification/mapping/scene metadata; original content cannot be rewritten. |
+| POST | `/projects/{p}/sync` | `{mode:campaign\|scenes\|range\|session,scene_ids?,from_seq?,to_seq?,from?,to?,chat_window_ids?}`. Explicit pull; existing snapshot content stays frozen. |
+| GET | `/projects/{p}/scenes` · `/scenes/suggest` | Visible scene summaries / existing scene-boundary suggestions. |
+| POST | `/projects/{p}/scenes/split` · `/merge` · `/rename` | GM: `{from_seq,title}`, `{scene_key,into_key}`, `{scene_key,title}` respectively. |
+| GET/POST | `/projects/{p}/imports` | POST multipart file + adapter, or JSON `{text,adapter}`. Returns persisted preview, speaker_map, issues and stats; does not commit events. |
+| POST | `/projects/{p}/imports/{i}/commit` | GM `{speaker_map:{key:{character_id?,display_name?,role?,color?}}}`. |
+| GET | `/imports/{i}/errors` | GM parser diagnostics, including retained unrecognized data. |
+| GET/POST | `/projects/{p}/snapshots` | POST `{title?,scope:gm_full\|pl_public\|character,scope_character_id?,selection?:{mode,...}}`. Selection supports campaign, scenes (`scene_keys`), range, session, events (`event_ids`). |
+| GET | `/snapshots/{s}?events=false` | Omit `events=false` for frozen ordered events and filtered frozen role map. |
+| GET | `/snapshots/{s}/export?format=json\|txt\|html\|sealdice_txt` | Permission-filtered download; native JSON is schemaVersion 1.0. |
+
+A Canonical event includes `event_id`, `campaign_id`, `speaker_id` (alias of stable `speaker_key`), `speaker_display_name`, nullable `speaker_character_id`, `event_type`, original `content`, nullable `timestamp`, `sequence_number`, scene/window IDs, `visibility_scope:public|gm|character`, `audience`, `source_reference`, `metadata`, `raw_text`, optional `dice` and `media`. The complete exchange schema is [LOG_SCHEMA.json](LOG_SCHEMA.json). `metadata.dice_result` is the exact structured chat dice object; `content` retains the original command such as `.ra 侦查 55`. A result is never rerolled during import/export. Hidden rolls keep their secret audience; the public `hidden_notice` is not a result and contains no total or target. Native clients should render `dice.text` for live chat results and preserve the whole `dice` object for structured controls.
+
+### Existing performance and media contracts
+
+Automatic visual-novel template generation is outside this change. Existing manually authored presentations are still supported; publication and TTS reuse them.
+
+| Method | Suffix | Contract |
+|---|---|---|
+| GET | `/presentations?project_id=` | Audience-filtered list. |
+| POST | `/snapshots/{s}/presentations` | `{title?,style_profile_id?,settings?}` creates the existing basic presentation from a snapshot. |
+| GET/PUT/DELETE | `/presentations/{p}` | Owner/GM edits; snapshot permissions always checked. |
+| PUT | `/pscenes/{scene}` | Title, approved background/BGM IDs, environment, transition, lock. Assets must belong to the channel and match audience. |
+| PUT | `/pevents/{event}` | Performance-only fields: hidden, display_kind, segments, voice, tts_text, style_instruction, assets/positions/effects. Canonical text remains immutable. |
+| POST | `/presentations/{p}/events/bulk` · `/merge` · `/reorder` | Existing edit operations; all event IDs must belong to the specified presentation. |
+| POST | `/pevents/{event}/split` · `/suggestion` | Split uses character ranges; suggestion decision uses `{accept:boolean}`. |
+| GET/POST | `/presentations/{p}/progress` | Per-user reading position. |
+| GET/POST | `/styles` | Versioned campaign art direction (POST GM). |
+| PUT | `/styles/{id}` | GM edits/version bump. |
+| GET | `/character-visuals` | NPC profiles are GM-only. |
+| PUT | `/character-visuals/{character}` | Owner/GM maintains identity and reference/default assets. |
+
+Media routes are under `/api/channels/{channel_id}/media`, not `/studio/media`. `GET /media` lists metadata; `POST /media/upload` accepts multipart `file` and metadata. `GET /media/{id}/meta`, `PUT /media/{id}`, `DELETE /media/{id}` manage metadata; `POST /media/{id}/versions` uploads a replacement. `GET /media/{id}?v=N` returns bytes after authorization. Browser media URLs may carry `?token=...`; native clients should use `Authorization: Bearer ...` headers. Never copy authenticated media URLs into public pages; use publication file endpoints.
+
+### Voices and generation
+
+| Method | Suffix | Contract |
+|---|---|---|
+| GET | `/tts/status` · `/tts/available-voices` · `/tts/usage` | Provider/capabilities, configured presets, application character budget and cache usage. |
+| GET/POST | `/voices` | POST `{name,character_id?,voice_type:preset\|design\|clone,voice_id?,model_id?,language?,dialect?,style_instruction?,pronunciation_dictionary_id?,synthesis_parameters?,design_prompt?}`. Clone uses multipart reference audio plus consent_metadata JSON. |
+| PUT/DELETE | `/voices/{v}` | Creator/GM; edits increment profile version. Player profiles must belong to their own character. |
+| GET/POST | `/dictionaries` | Full dictionary contents are GM-only (players receive an empty list). POST GM `{name,entries:[{term,reading,mode:replace\|phoneme,language}]}`. |
+| PUT | `/dictionaries/{d}` | GM updates entries and increments version. |
+| POST | `/tts/preview` | `{voice_profile_id,text,style_instruction?,model_id?}` → stored audio metadata; owner/GM audition. |
+| POST | `/presentations/{p}/tts/estimate` | `{event_ids?,scene_ids?,force?,model_id?}` → lines, chars, cached_lines, lines_to_synthesize, estimated_cost, cost_known, currency_note, within_budget. Show unknown cost honestly. |
+| POST | `/presentations/{p}/tts/jobs` | `{scope?:{event_ids?,scene_ids?},force?,retry?,model_id?}`. Estimate scope is flattened; submission scope is nested. |
+| GET | `/presentations/{p}/tts/jobs` · `/tts/jobs/{j}` | Persisted state/progress. |
+| POST | `/tts/jobs/{j}/cancel` | Owner/GM; pending work cancelled, completed provider charges not reversible. |
+| GET | `/tts/audio/{audio}` | Authorized stored audio bytes; repeat playback performs no provider call. |
+| GET | `/images/status` | Disabled/mock/http provider state. |
+| GET/POST | `/images/jobs` | GM POST `{kind:background\|standee,style_profile_id,character_id?,prompt,snapshot_id?,event_ids?,allow_cloud?,request_id?}`. |
+| POST | `/images/jobs/{j}/cancel` | GM cancels pending/running generation. |
+| POST | `/presentations/{p}/suggest` | GM `{event_ids:[presentation event IDs],allow_cloud?}` → candidate delivery instructions/reasons. No fact edits. |
+
+See [TTS_PROVIDER.md](TTS_PROVIDER.md) and [ASSETS.md](ASSETS.md) for exact provider contracts, consent, caching, retry semantics and mock limitations.
+
+### PDF and publishing
+
+| Method | Suffix | Contract |
+|---|---|---|
+| GET/POST | `/pdf/templates` | Built-ins plus saved templates. GM POST `{name,config}` saves a template. |
+| POST | `/snapshots/{s}/pdf` | `{config,appendix_document_ids?,retry?}` creates/reuses a frozen render job; `retry:true` requeues failed jobs. |
+| GET | `/pdf/jobs` · `/pdf/jobs/{j}` | Permission-filtered job states/errors. |
+| GET | `/pdf/jobs/{j}/file` | Completed PDF bytes, with audited access. |
+| GET/POST | `/publications` | GM POST `{snapshot_id,title?,kind:styled\|pdf\|vn,visibility:gm\|players\|link,pdf_job_id?,presentation_id?}`. Link token is returned only when created. |
+| GET | `/publications/{p}` · `/publications/{p}/files/{asset_or_audio_id\|pdf}` | Authenticated frozen artifact and files. |
+| POST | `/publications/{p}/revoke` | GM revokes content and file access. |
+
+Anonymous routes are `GET /api/published/{token}` and `GET /api/published/{token}/files/{asset_or_audio_id|pdf}`. They authorize only the explicitly published frozen content. Viewer URL is `/?publication={token}`. The backend never exposes internal object keys in a publication response. Internal PDF-worker routes use `X-Worker-Token` and per-job leases, described in [PDF_TEMPLATES.md](PDF_TEMPLATES.md).
+
+Context WebSocket notifications include `studio.tts.progress`, `studio.tts.finished`, `studio.pdf.updated`, `studio.asset.generated`. Existing presentation changes arrive as `module.updated` with `payload.kind: "presentation.updated"`. Sensitive task notifications are GM-only; clients must poll authorized job endpoints and refetch after reconnecting. Do not infer permission from receiving an ID.
+
+Server maintainers and channel GMs are different authorities: maintainer status controls encrypted provider credentials, endpoint region, language and feature toggles; GM status controls campaign snapshots, production cloud permission, budgets, asset review and publication. A channel GM is not automatically a server administrator. The backend remains authoritative for all these checks; clients should handle 400 validation, 403 forbidden, 404 unavailable and 429 budget/provider limits without falling back to a broader endpoint.

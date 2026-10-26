@@ -1,0 +1,25 @@
+{
+  "base": "classic",
+  "title": "码头调查记录",
+  "subtitle": "示例排版配置",
+  "page_size": "A5",
+  "orientation": "portrait",
+  "font": "serif",
+  "font_size": 11,
+  "line_height": 1.7,
+  "margin_mm": 18,
+  "include_ooc": false,
+  "timestamps": true,
+  "toc": true,
+  "page_numbers": true,
+  "chapter_breaks": true,
+  "dice_style": "box",
+  "header": "码头调查",
+  "footer": "示例记录",
+  "cover_asset_id": "",
+  "character_colors": {
+    "QQ:10001": "#355c68",
+    "QQ:20002": "#894c38"
+  },
+  "scene_images": {}
+}

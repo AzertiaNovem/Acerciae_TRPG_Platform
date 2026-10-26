@@ -1,3 +1,5 @@
+import { t as tr } from './i18n';
+import { useLocale } from './i18n';
 import { useEffect, useState } from 'react';
 import { useAuth } from './store/auth';
 import { useNav } from './store/nav';
@@ -9,6 +11,7 @@ import ChannelSidebar from './components/ChannelSidebar';
 import ChatWindow from './components/ChatWindow';
 import GMWorkspace from './components/GMWorkspace';
 import StudioWorkspace from './components/studio/StudioWorkspace';
+import SharedPublication from './components/studio/PublicationViewer';
 import EvidenceModal from './components/EvidenceModal';
 
 function Shell() {
@@ -26,22 +29,29 @@ function Shell() {
       <ServerSidebar onPick={() => setSidebarOpen(true)} />
       <ChannelSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main">
-        {llmMode === 'mock' && <div className="mode-banner">MOCK LLM MODE — no LLM API key for this server or the platform; the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.</div>}
+        {llmMode === 'mock' && <div className="mode-banner">{tr("MOCK LLM MODE — no LLM API key for this server or the platform; the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.")}</div>}
         {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
-        {channelId && studioOpen ? <StudioWorkspace /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
-          <div style={{ padding: 40 }} className="muted">Pick a server and channel, or create one from the left.</div>
+        {channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
+          <div style={{ padding: 40 }} className="muted">{tr("Pick a server and channel, or create one from the left.")}</div>
         )}
       </div>
       <EvidenceModal />
-      <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{t.text}</div>)}</div>
+      <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{tr(t.text)}</div>)}</div>
     </div>
   );
 }
 
-export default function App() {
+function AuthenticatedApp() {
   const { user, loading, bootstrap } = useAuth();
   useEffect(() => { bootstrap(); }, [bootstrap]);
-  if (loading) return <div className="login"><div className="muted">Loading…</div></div>;
+  if (loading) return <div className="login"><div className="muted">{tr("Loading…")}</div></div>;
   if (!user) return <LoginScreen />;
   return <Shell />;
+}
+
+export default function App() {
+  const language = useLocale((s) => s.language);
+  useEffect(() => { document.documentElement.lang = language; }, [language]);
+  const token = new URLSearchParams(location.search).get("publication");
+  return token ? <SharedPublication token={token} /> : <AuthenticatedApp />;
 }

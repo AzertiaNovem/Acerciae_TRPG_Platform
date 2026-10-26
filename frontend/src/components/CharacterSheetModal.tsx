@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
@@ -37,12 +38,12 @@ export default function CharacterSheetModal({ characterId, onClose }: { characte
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal col" onClick={(e) => e.stopPropagation()}>
-        <div className="row"><h3 className="grow" style={{ margin: 0 }}>{sheet?.name ?? character?.name ?? 'Character'}</h3><span className="pill">{sheet?.kind === 'npc' ? 'NPC' : 'PC'}</span></div>
-        {!sheet ? <div className="muted">Loading…</div> : (
+        <div className="row"><h3 className="grow" style={{ margin: 0 }}>{sheet?.name ?? character?.name ?? tr("Character")}</h3><span className="pill">{sheet?.kind === 'npc' ? tr("NPC") : tr("PC")}</span></div>
+        {!sheet ? <div className="muted">{tr("Loading…")}</div> : (
           <>
-            {names.length > 6 && <input placeholder="Filter attributes" value={filter} onChange={(e) => setFilter(e.target.value)} />}
+            {names.length > 6 && <input placeholder={tr("Filter attributes")} value={filter} onChange={(e) => setFilter(e.target.value)} />}
             <div className="attr-grid">
-              {names.length === 0 && <div className="muted small">No attributes yet.</div>}
+              {names.length === 0 && <div className="muted small">{tr("No attributes yet.")}</div>}
               {names.map((n) => (
                 <div key={n} className="attr">
                   <span className="grow small">{n}</span>
@@ -50,21 +51,21 @@ export default function CharacterSheetModal({ characterId, onClose }: { characte
                     <input className="attr-value" value={edits[n] ?? String(sheet.attrs[n])} onChange={(e) => setEdits({ ...edits, [n]: e.target.value })}
                       onBlur={() => commitEdit(n)} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} inputMode="numeric" />
                   ) : <span className="attr-value">{sheet.attrs[n]}</span>}
-                  {sheet.editable && <button className="ghost small" title="Remove" onClick={() => save({ remove: [n] })}>×</button>}
+                  {sheet.editable && <button className="ghost small" title={tr("Remove")} onClick={() => save({ remove: [n] })}>×</button>}
                 </div>
               ))}
             </div>
             {sheet.editable && (
               <div className="row">
-                <input className="grow" placeholder="Attribute (e.g. Spot Hidden, 侦查, research)" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
-                <input style={{ width: 80 }} placeholder="Value" value={newValue} onChange={(e) => setNewValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} inputMode="numeric" />
-                <button className="primary small" onClick={add}>Add</button>
+                <input className="grow" placeholder={tr("Attribute (e.g. Spot Hidden, 侦查, research)")} value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+                <input style={{ width: 80 }} placeholder={tr("Value")} value={newValue} onChange={(e) => setNewValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} inputMode="numeric" />
+                <button className="primary small" onClick={add}>{tr("Add")}</button>
               </div>
             )}
-            <div className="tiny muted">In chat, speak as this character and type <code>.st str60 dex50 research53</code> to set many at once, <code>.st hp-2</code> to adjust, <code>.ra research</code> or <code>.ra hard spot hidden</code> to check, <code>.sc 1/1d6</code> for sanity.</div>
+            <div className="tiny muted">{tr("In chat, speak as this character and type ")}<code>{tr(".st str60 dex50 research53")}</code>{tr(" to set many at once, ")}<code>{tr(".st hp-2")}</code>{tr(" to adjust, ")}<code>{tr(".ra research")}</code>{tr(" or ")}<code>{tr(".ra hard spot hidden")}</code>{tr(" to check, ")}<code>{tr(".sc 1/1d6")}</code>{tr(" for sanity.")}</div>
           </>
         )}
-        <div className="row"><span className="grow" /><button className="ghost" onClick={onClose}>Close</button></div>
+        <div className="row"><span className="grow" /><button className="ghost" onClick={onClose}>{tr("Close")}</button></div>
       </div>
     </div>
   );

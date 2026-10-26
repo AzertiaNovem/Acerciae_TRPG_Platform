@@ -3,6 +3,11 @@
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include <regex>
+#include <algorithm>
+#include <drogon/utils/Utilities.h>
+#include "../servers/ServerSettingsService.h"
+#include "../logstudio/MediaService.h"
+#include "../core/Text.h"
 
 namespace acerciae {
 
@@ -21,7 +26,7 @@ Json::Value AuthService::registerUser(const std::string& username, const std::st
     auto existing = db_.queryOne("SELECT id FROM users WHERE username=$1", {username});
     if (!existing.isNull()) throw conflict("username already taken");
     auto row = db_.queryOne(
-        "INSERT INTO users(username, display_name, password_hash) VALUES($1,$2,$3) RETURNING id, username, display_name, created_at",
+        "INSERT INTO users(username, display_name, password_hash) VALUES($1,$2,$3) RETURNING id, username, display_name, ui_language, avatar_version, avatar_data, created_at",
         {username, displayName.empty() ? username : displayName, crypto::hashPassword(password)});
     return row;
 }
@@ -35,9 +40,64 @@ Json::Value AuthService::login(const std::string& username, const std::string& p
              {tokenHash(token), row["id"].asString(), std::to_string(cfg_.authTokenTtlHours)});
     Json::Value out;
     out["token"] = token;
-    Json::Value user; user["id"] = row["id"]; user["username"] = row["username"]; user["display_name"] = row["display_name"];
-    out["user"] = user;
+    out["user"] = profile(row["id"].asString());
     return out;
+}
+
+Json::Value AuthService::profile(const std::string& userId) {
+    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, avatar_data, avatar_version FROM users WHERE id=$1", {userId});
+    result["languages"] = Json::arrayValue;
+    for (const auto& code : ServerSettingsService::languages()) result["languages"].append(code);
+    return result;
+}
+
+Json::Value AuthService::updateProfile(const Principal& principal, const Json::Value& body) {
+    if (!body.isObject()) throw badRequest("profile must be an object");
+    for (const auto& key : body.getMemberNames()) {
+        if (key != "username" && key != "display_name" && key != "ui_language" && key != "avatar_data") throw badRequest("unknown profile field");
+        if (!body[key].isString()) throw badRequest("profile fields must be strings");
+    }
+    // Validate every supplied field before writing; a failed edit cannot partially change the account.
+    if (body.isMember("username")) validateUsername(body["username"].asString());
+    if (body.isMember("display_name")) {
+        auto name = text::trim(body["display_name"].asString());
+        if (name.empty() || name.size() > 200 || name.find_first_of("\r\n\t") != std::string::npos) throw badRequest("display name must be 1-200 bytes on one line");
+    }
+    if (body.isMember("ui_language")) {
+        auto& languages = ServerSettingsService::languages();
+        if (std::find(languages.begin(), languages.end(), body["ui_language"].asString()) == languages.end()) throw badRequest("unsupported interface language");
+    }
+    if (body.isMember("avatar_data") && !body["avatar_data"].asString().empty()) {
+        auto data = body["avatar_data"].asString();
+        auto comma = data.find(',');
+        auto prefix = data.substr(0, comma);
+        if (data.size() > 180000 || comma == std::string::npos || (prefix != "data:image/png;base64" && prefix != "data:image/jpeg;base64")) throw badRequest("avatar must be a PNG or JPEG under 128 KiB");
+        auto encoded = data.substr(comma + 1);
+        auto bytes = drogon::utils::base64Decode(encoded);
+        if (bytes.empty() || bytes.size() > 131072 || drogon::utils::base64Encode(bytes) != encoded) throw badRequest("invalid avatar encoding");
+        auto mime = logstudio::MediaService::sniffMime(bytes, "avatar");
+        int width = 0, height = 0;
+        logstudio::MediaService::probeDimensions(bytes, mime, width, height);
+        if (prefix != "data:" + mime + ";base64" || width < 1 || height < 1 || width > 512 || height > 512) throw badRequest("avatar dimensions must be at most 512 by 512");
+    }
+    try {
+        db_.tx([&](pqxx::work& w) {
+            auto current = Db::queryOne(w, "SELECT * FROM users WHERE id=$1 FOR UPDATE", {principal.userId});
+            auto username = json::str(body, "username", current["username"].asString());
+            auto name = text::trim(json::str(body, "display_name", current["display_name"].asString()));
+            auto language = json::str(body, "ui_language", current["ui_language"].asString());
+            auto data = json::str(body, "avatar_data", current["avatar_data"].asString());
+            Db::exec(w, "UPDATE users SET username=$2, display_name=$3, ui_language=$4, avatar_version=avatar_version + CASE WHEN avatar_data<>$5 THEN 1 ELSE 0 END, avatar_data=$5 WHERE id=$1", {principal.userId, username, name, language, data});
+        });
+    } catch (const pqxx::unique_violation&) { throw conflict("username already taken"); }
+    return profile(principal.userId);
+}
+
+std::pair<std::string, std::string> AuthService::avatar(const Principal& principal, const std::string& userId) {
+    auto row = db_.queryOne("SELECT avatar_data FROM users WHERE id=$1 AND (id=$2 OR EXISTS (SELECT 1 FROM server_members a JOIN server_members b ON a.server_id=b.server_id WHERE a.user_id=$1 AND b.user_id=$2))", {userId, principal.userId});
+    if (row.isNull() || row["avatar_data"].asString().empty()) throw notFound("avatar not found");
+    auto data = row["avatar_data"].asString();
+    return {data.substr(5, data.find(';') - 5), drogon::utils::base64Decode(data.substr(data.find(',') + 1))};
 }
 
 void AuthService::logout(const std::string& token) {

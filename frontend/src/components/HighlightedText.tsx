@@ -1,3 +1,4 @@
+import { t as tr, currentLocale } from '../i18n';
 import { memo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useHighlights } from '../store/highlights';
@@ -25,18 +26,18 @@ function HighlightedTextImpl({ entryId, content }: { entryId: string; content: s
     : <span className={`hl-text ${top.kind}`}><ReactMarkdown components={{ p: ({ children }) => <>{children}</> }}>{content}</ReactMarkdown></span>;
   return (
     <div className="md" style={{ position: 'relative' }} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <span className="hl-dot" title="Highlighted by the chronicler" />
+      <span className="hl-dot" title={tr("Highlighted by the chronicler")} />
       {inner}
       {open && (
         <div className="hl-reason" onClick={(e) => e.stopPropagation()}>
           {highlights.map((h: Highlight) => (
             <div key={h.id} style={{ marginBottom: 6 }}>
-              <div><b>{h.kind === 'consistency' ? 'Consistency check' : h.kind === 'potential_association' ? 'Potential association' : 'Related to the current conversation'}</b></div>
+              <div><b>{h.kind === 'consistency' ? tr("Consistency check") : h.kind === 'potential_association' ? tr("Potential association") : tr("Related to the current conversation")}</b></div>
               <div>{h.reason}</div>
               <div className="row" style={{ marginTop: 4 }}>
-                {h.source_event_ids?.length > 0 && <button className="ghost small" onClick={() => showEvidence(h.source_event_ids)}>jump to original event</button>}
-                <button className="ghost small" onClick={() => channelId && dismiss(channelId, h.id)}>dismiss</button>
-                <span className="tiny muted">fades {new Date(h.expires_at).toLocaleTimeString()}</span>
+                {h.source_event_ids?.length > 0 && <button className="ghost small" onClick={() => showEvidence(h.source_event_ids)}>{tr("jump to original event")}</button>}
+                <button className="ghost small" onClick={() => channelId && dismiss(channelId, h.id)}>{tr("dismiss")}</button>
+                <span className="tiny muted">{tr("fades ")}{new Date(h.expires_at).toLocaleTimeString(currentLocale())}</span>
               </div>
             </div>
           ))}

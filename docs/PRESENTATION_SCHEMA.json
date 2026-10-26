@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Acerciae Presentation Timeline 1.0",
+  "type": "object",
+  "required": [
+    "id",
+    "snapshot_id",
+    "events",
+    "scenes"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string"
+    },
+    "snapshot_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "channel_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer"
+    },
+    "settings": {
+      "type": "object"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "canonical_event_id",
+          "position",
+          "display_kind"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canonical_event_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scene_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "speaker_character_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "speaker_name_override": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "segment_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tts_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "voice_profile_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "audio_asset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "position": {
+            "type": "integer"
+          },
+          "segment_index": {
+            "type": "integer"
+          },
+          "merged_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "display_kind": {
+            "enum": [
+              "dialogue",
+              "narration",
+              "action",
+              "ooc",
+              "dice",
+              "scene_change",
+              "system",
+              "media"
+            ]
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "character_asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "asset_id"
+              ],
+              "properties": {
+                "character_id": {
+                  "type": "string"
+                },
+                "asset_id": {
+                  "type": "string"
+                },
+                "asset_version": {
+                  "type": "integer"
+                },
+                "position": {
+                  "type": "string"
+                },
+                "expression": {
+                  "type": "string"
+                },
+                "scale": {
+                  "type": "number"
+                },
+                "flip": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "expression_ids": {
+            "type": "object"
+          },
+          "dialogue_style": {
+            "type": "object"
+          },
+          "transition": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "estimated_duration_ms": {
+            "type": "integer"
+          },
+          "actual_audio_duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "style_instruction": {
+            "type": "string"
+          },
+          "ai_suggestion": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "background_asset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "background_asset_version": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "bgm_asset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment": {
+            "type": "object"
+          },
+          "transition_in": {
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

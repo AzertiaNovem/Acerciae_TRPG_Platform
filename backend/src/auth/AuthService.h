@@ -31,6 +31,9 @@ public:
 
     Json::Value registerUser(const std::string& username, const std::string& password, const std::string& displayName);
     Json::Value login(const std::string& username, const std::string& password);   // {token, user}
+    Json::Value profile(const std::string& userId);
+    Json::Value updateProfile(const Principal& principal, const Json::Value& body);
+    std::pair<std::string, std::string> avatar(const Principal& principal, const std::string& userId);
     void logout(const std::string& token);
     std::optional<Principal> authenticate(const std::string& token);
 

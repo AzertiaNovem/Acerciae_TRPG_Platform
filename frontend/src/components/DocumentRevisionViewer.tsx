@@ -1,3 +1,4 @@
+import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
@@ -19,15 +20,15 @@ export default function DocumentRevisionViewer({ documentId, isGm, onRolledBack 
   };
   return (
     <div>
-      {revisions.length === 0 && <div className="muted small">No revisions yet.</div>}
+      {revisions.length === 0 && <div className="muted small">{tr("No revisions yet.")}</div>}
       {revisions.map((r) => (
         <div key={r.id} className="entry" style={{ cursor: 'pointer' }} onClick={() => view(r.version)}>
-          <div className="row"><b>v{r.version}</b><span className={`pill ${r.actor === 'gm' ? 'gm' : 'ai'}`}>{r.actor}</span><span className="small">{r.summary}</span><span className="grow" /><span className="tiny muted">{new Date(r.created_at).toLocaleString()}</span></div>
-          <div className="tiny muted">{r.op_count} op(s) · {r.source_event_ids?.length ?? 0} source event(s)</div>
+          <div className="row"><b>{tr("v")}{r.version}</b><span className={`pill ${r.actor === 'gm' ? 'gm' : 'ai'}`}>{r.actor}</span><span className="small">{r.summary}</span><span className="grow" /><span className="tiny muted">{new Date(r.created_at).toLocaleString(currentLocale())}</span></div>
+          <div className="tiny muted">{r.op_count}{tr(" op(s) · ")}{r.source_event_ids?.length ?? 0}{tr(" source event(s)")}</div>
           {open === r.version && snapshot && (
             <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: '2px solid var(--bg-4)' }} onClick={(e) => e.stopPropagation()}>
               {(snapshot.snapshot ?? []).filter((s: any) => !s.removed).map((s: any) => <div key={s.entry_id} className="tiny" style={{ marginBottom: 3 }}><span className={`status-${s.status}`}>{s.status}</span> · {s.summary}</div>)}
-              {isGm && <button className="small" style={{ marginTop: 6 }} onClick={() => rollback(r.version)}>Roll back to this version</button>}
+              {isGm && <button className="small" style={{ marginTop: 6 }} onClick={() => rollback(r.version)}>{tr("Roll back to this version")}</button>}
             </div>
           )}
         </div>
