@@ -1,4 +1,5 @@
 #include "Api.h"
+#include "../ws/Notifier.h"
 #include "../app/Services.h"
 #include "../auth/AuthService.h"
 #include "../chat/ChatService.h"
@@ -190,6 +191,11 @@ void registerRoutes() {
     // ---- highlights ----
     route1("/api/channels/{1}/highlights", {Get}, [&](auto& req, auto& p, auto& a) { return S.highlights->listActive(access(p, a[0]), req->getParameter("document_id")); });
     route2("/api/channels/{1}/highlights/{2}/dismiss", {Post}, [&](auto&, auto& p, auto& a) { return S.highlights->dismiss(access(p, a[0]), a[1]); });
+
+    route1("/api/channels/{1}/player-groups", {Get}, [&](auto&, auto& p, auto& a) { return S.knowledge->playerGroups(access(p,a[0])); });
+    route1("/api/channels/{1}/player-groups", {Post}, [&](auto& req, auto& p, auto& a) { return S.knowledge->createPlayerGroup(access(p,a[0]),json::requireStr(body(req),"name")); });
+    route2("/api/channels/{1}/player-groups/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.knowledge->renamePlayerGroup(access(p,a[0]),a[1],json::requireStr(body(req),"name")); });
+    route3("/api/channels/{1}/player-groups/{2}/members/{3}", {Put}, [&](auto&, auto& p, auto& a) { auto result=S.knowledge->movePlayer(access(p,a[0]),a[1],a[2]); S.notifier->knowledgeChanged(a[0]); return result; });
 
     // ---- knowledge / shards ----
     route1("/api/channels/{1}/facts", {Get}, [&](auto& req, auto& p, auto& a) { return S.knowledge->listFacts(access(p, a[0]), req->getParameter("kind"), req->getParameter("q"), req->getParameter("scene_id"), qint(req, "limit", 50)); });

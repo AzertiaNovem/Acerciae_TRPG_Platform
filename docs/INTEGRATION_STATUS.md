@@ -12,6 +12,13 @@ The seeded Studio accounts are `keeper`, `alice`, `bob`, and `carol`, with devel
 
 Personal settings are now available on the Studio backend through `PUT /api/auth/me`: username, display name, avatar and one of the same eleven interface languages as server settings. Login/me responses carry these preferences; message payloads add `author_avatar_version`. See [USER_SETTINGS.md](USER_SETTINGS.md). This additive change does not restart the mobile backend on 18082.
 
+The Studio backend now has independent KP/player-group memory (migrations 0013–0015). Existing shared facts become
+KP-only; players receive new journals derived exclusively from readable chat. Native clients should use `player-groups`,
+show the current group, and discard memory/chat caches when `knowledge.reset` arrives or the group version changes.
+Message posting accepts up to five `reference_ids`; fetch originals separately under the current user's token. A reference
+never grants access. Existing 18082 remains on its running version until its owner chooses to rebuild and migrate.
+See [KNOWLEDGE_GROUPS.md](KNOWLEDGE_GROUPS.md) for migration behavior and the updated API reference for exact contracts.
+
 The exact request and response fields are documented in [API.md](API.md). Authenticated clients should send `Authorization: Bearer <login token>` for JSON, media, stored speech and PDF downloads. IDs and UI visibility are not authorization. Treat 403/404 as unavailable rather than retrying a broader scope.
 
 The minimal snapshot/read/export chain is:
@@ -31,6 +38,6 @@ The schemas and routes above are the implemented integration contract. Future pr
 
 ## Verified and pending
 
-The backend compiled; 188 unit checks and 98 database checks passed. All 10 existing HTTP integration scenarios passed. The Studio HTTP acceptance scenario passed against a real PostgreSQL database and running Vivliostyle worker, including Chinese/source preservation, frozen snapshots, structured dice, two character voices, selective cache invalidation, private data isolation, candidate approval, three real PDF templates, and revocable publication. The PDF worker's three unit tests and frontend production build passed. PDF.js browser preview was visually inspected, including Chinese text, colors, dice and pagination; [the screenshot](screenshots/log-studio-pdf.png) records that result.
+The backend compiled; 188 unit checks and 287 database checks passed. All 10 existing HTTP integration scenarios passed. The Studio HTTP acceptance scenario passed against a real PostgreSQL database and running Vivliostyle worker, including Chinese/source preservation, frozen snapshots, structured dice, two character voices, selective cache invalidation, private data isolation, candidate approval, three real PDF templates, and revocable publication. The PDF worker's three unit tests and frontend production build passed. PDF.js browser preview was visually inspected, including Chinese text, colors, dice and pagination; [the screenshot](screenshots/log-studio-pdf.png) records that result.
 
 Qwen and image providers have real configured execution paths plus explicit mock modes, but no paid external request was made. Real credentials, regional availability, speech quality, Docker/MinIO deployment and the complete native mobile playback experience remain environment-specific validation. The frontend build reports its existing large-main-chunk warning. See [LOG_STUDIO.md](LOG_STUDIO.md) for repeatable test commands; database tests must use a disposable database because they reset its schema.

@@ -9,7 +9,7 @@ import HighlightedText from './HighlightedText';
 import DocumentRevisionViewer from './DocumentRevisionViewer';
 import type { DocEntry } from '../types';
 
-function EntryCard({ e, focused, isGm, onChanged }: { e: DocEntry; focused: boolean; isGm: boolean; onChanged: () => void }) {
+export function EntryCard({ e, focused, isGm, onChanged }: { e: DocEntry; focused: boolean; isGm: boolean; onChanged: () => void }) {
   const { channelId } = useNav();
   const { showEvidence, toast } = useUi();
   const [related, setRelated] = useState<DocEntry[] | null>(null);
@@ -36,7 +36,7 @@ function EntryCard({ e, focused, isGm, onChanged }: { e: DocEntry; focused: bool
         </div>
       )}
       <div className="entry-meta">
-        <span className={`tiny status-${e.status}`}>{e.status.replace('_', ' ')}</span>
+        <span className={`tiny status-${e.status}`}>{tr(e.status)}</span>
         {e.scene_title && <span className="tiny muted">· {e.scene_title}</span>}
         <span className="tiny muted">{tr("· v")}{e.updated_version}</span>
         {e.created_by === 'gm' && <span className="pill gm">{tr("GM")}</span>}
@@ -70,7 +70,7 @@ export default function ContextDocumentViewer({ documentId, onClose }: { documen
   return (
     <div className="doc-viewer">
       <header>
-        <h3>{doc?.title ?? '…'} <span className="tiny muted">{tr("v")}{doc?.version ?? ''}</span>{hlCount > 0 && <span className="badge hl" style={{ marginLeft: 6 }}>✦{hlCount}</span>}</h3>
+        <h3>{doc ? tr(doc.title) : '…'} <span className="tiny muted">{tr("v")}{doc?.version ?? ''}</span>{hlCount > 0 && <span className="badge hl" style={{ marginLeft: 6 }}>✦{hlCount}</span>}</h3>
         {doc?.scene && <span className="scene-chip">{doc.scene.title}</span>}
         <button className="ghost small" onClick={() => setShowRevisions(!showRevisions)} title={tr("Revision history")}>{showRevisions ? tr("entries") : tr("history")}</button>
         <button className="ghost small" onClick={onClose}>✕</button>

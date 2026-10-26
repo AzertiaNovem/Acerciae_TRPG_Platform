@@ -18,7 +18,7 @@ struct KnowledgeScope {
     static KnowledgeScope fromJson(const Json::Value& v);
 };
 
-// Fact–Knower model: facts are stored once; knowledge_visibility rows record who knows them.
+// Independent KP/player-group memory. Legacy scope helpers remain for historical metadata.
 class KnowledgeService {
 public:
     explicit KnowledgeService(Db& db) : db_(db) {}
@@ -28,14 +28,19 @@ public:
     void setScope(pqxx::work& w, const std::string& factId, const KnowledgeScope& s, const std::string& source);
     KnowledgeScope getScope(pqxx::work& w, const std::string& factId);
     Json::Value getScopeJson(const ChannelAccess& a, const std::string& factId);
-    // GM override of who knows a fact (also records a `knowledge.shared` event for traceability).
+    // Retired sharing endpoint: rejects attempts to expose KP facts to player groups.
     Json::Value gmSetScope(const ChannelAccess& a, const std::string& factId, const KnowledgeScope& s);
 
     // Entities and relations ----------------------------------------------------------------
-    std::string upsertEntity(pqxx::work& w, const std::string& channelId, const std::string& kind, const std::string& name, const std::string& description = "");
-    Json::Value findEntity(pqxx::work& w, const std::string& channelId, const std::string& name);   // by name/alias, any kind
+    std::string upsertEntity(pqxx::work& w, const std::string& channelId, const std::string& kind, const std::string& name, const std::string& description = "", const std::string& groupId = "");
+    Json::Value findEntity(pqxx::work& w, const std::string& channelId, const std::string& name, const std::string& groupId = "");   // by name/alias, any kind
     void linkFactEntity(pqxx::work& w, const std::string& factId, const std::string& entityId, const std::string& role);
     std::string addRelation(pqxx::work& w, const std::string& channelId, const std::string& fromEntity, const std::string& toEntity, const std::string& relation, const std::string& factId);
+
+    Json::Value playerGroups(const ChannelAccess& a);
+    Json::Value createPlayerGroup(const ChannelAccess& a, const std::string& name);
+    Json::Value movePlayer(const ChannelAccess& a, const std::string& groupId, const std::string& userId);
+    Json::Value renamePlayerGroup(const ChannelAccess& a, const std::string& groupId, const std::string& name);
 
     // Viewer-facing queries ---------------------------------------------------------------------
     Json::Value listFacts(const ChannelAccess& a, const std::string& kind, const std::string& query, const std::string& sceneId, int limit);

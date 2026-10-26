@@ -18,14 +18,14 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     if (!a.isGm && !characterId.empty() && std::find(a.characterIds.begin(), a.characterIds.end(), characterId) == a.characterIds.end()) throw forbidden("not your character");
     ChannelAccess view = a; if (!a.isGm && !characterId.empty()) view.characterIds = {characterId};
     Json::Value ctx;
-    ctx["character"] = characterId.empty() ? Json::Value(Json::objectValue) : db_.queryOne("SELECT id, name, speaking_style, sheet FROM characters WHERE id=$1 AND channel_id=$2", {characterId, a.channelId});
+    ctx["character"] = characterId.empty() ? Json::Value(Json::objectValue) : db_.queryOne("SELECT id, name, speaking_style FROM characters WHERE id=$1 AND channel_id=$2", {characterId, a.channelId});
     ctx["characters"] = Json::Value(Json::arrayValue);
     auto scene = retrieval_.getCurrentScene(view, chatWindowId, 16);
     ctx["recent_messages"] = scene.isMember("log") ? scene["log"] : Json::Value(Json::arrayValue);
     scene.removeMember("log"); scene.removeMember("facts");
     ctx["scene"] = scene;
     // Facts the character knows, most recently updated first, bounded.
-    std::string sql = "SELECT f.id AS fact_id, f.kind, f.summary, f.status, f.data, s.title AS scene_title FROM knowledge_facts f LEFT JOIN scenes s ON s.id=f.scene_id LEFT JOIN document_entries de ON de.fact_id=f.id AND NOT de.removed LEFT JOIN documents d ON d.id=de.document_id WHERE f.channel_id=$1 AND f.status <> 'retracted' AND " + Visibility::factFilter(view) + (a.isGm ? "" : " AND coalesce(d.gm_only,false)=false") + " ORDER BY f.updated_at DESC LIMIT 30";
+    std::string sql = "SELECT f.id AS fact_id, f.kind, f.summary, f.status, f.data, CASE WHEN f.player_group_id IS NULL THEN s.title ELSE NULL END AS scene_title FROM knowledge_facts f LEFT JOIN scenes s ON s.id=f.scene_id LEFT JOIN document_entries de ON de.fact_id=f.id AND NOT de.removed LEFT JOIN documents d ON d.id=de.document_id WHERE f.channel_id=$1 AND f.status <> 'retracted' AND " + Visibility::factFilter(view) + (a.isGm ? "" : " AND coalesce(d.gm_only,false)=false") + " ORDER BY f.updated_at DESC LIMIT 30";
     ctx["known_facts"] = db_.queryJson(sql, {a.channelId});
     // Identity information: PCs are table knowledge; an NPC's full name is only passed when that exact
     // name already appears in records the character can read (facts or messages they witnessed).
@@ -33,7 +33,7 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     for (auto& f : ctx["known_facts"]) visibleText += json::str(f, "summary") + "\n";
     for (auto& m : ctx["recent_messages"]) visibleText += json::str(m, "content") + "\n";
     for (auto& c : db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1", {a.channelId})) {
-        if (c["kind"].asString() == "pc" || a.isGm || text::icontains(visibleText, c["name"].asString())) ctx["characters"].append(c);
+        if (a.isGm || text::icontains(visibleText, c["name"].asString())) ctx["characters"].append(c);
     }
     ctx["hint"] = hint; ctx["variant"] = variant;
 
@@ -43,6 +43,7 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
     auto outcome = llm_.runStructured(req, [&](const std::string& n, const Json::Value& args) { return retrieval_.executeTool(view, n, args); }, 3);
     if (!outcome.ok) throw ApiError(502, "llm_error", "inspiration failed: " + outcome.error);
+    if(!a.isGm && db_.queryOne("SELECT 1 AS ok WHERE "+Visibility::groupGuard(a)).isNull()) throw conflict("Player group changed; retry the draft");
     Json::Value out = outcome.data;
     std::vector<std::string> used;
     std::set<std::string> allowed; for (auto& f : ctx["known_facts"]) allowed.insert(f["fact_id"].asString());

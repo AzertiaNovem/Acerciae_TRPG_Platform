@@ -5,6 +5,7 @@ import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 import ModuleImportPanel from './ModuleImportPanel';
 import SceneManager from './SceneManager';
+import KnowledgeWorkspace, { PlayerGroups } from './KnowledgeWorkspace';
 import type { Proposal, ModuleHint, AiJob, ChannelMember, DiceTextGroup } from '../types';
 import { useAuth } from '../store/auth';
 import { LANGUAGE_LABELS } from './ServerSettingsModal';
@@ -39,7 +40,7 @@ function Overview() {
         </div>
         <div className="card">
           <h3>{tr("Pending AI proposals ")}<span className="pill">{ws.pending_proposals.length}</span></h3>
-          <div className="tiny muted">{tr("Contradictions with confirmed records, edits to GM-authored entries and knowledge-sharing suggestions wait here instead of being applied silently.")}</div>
+          <div className="tiny muted">{tr("Contradictions and edits to KP records wait here for review.")}</div>
           {ws.pending_proposals.length === 0 && <div className="muted small" style={{ marginTop: 6 }}>{tr("Nothing pending.")}</div>}
           {(ws.pending_proposals as Proposal[]).map((p) => (
             <div key={p.id} className="node">
@@ -71,45 +72,9 @@ function Overview() {
       </div>
       <div className="card">
         <h3>{tr("GM-only knowledge ")}<span className="pill gm">{ws.gm_secrets.length}</span></h3>
-        <div className="tiny muted">{tr("Facts no player character knows. Share them from the Knowledge tab when the fiction reveals them.")}</div>
-        {ws.gm_secrets.slice(0, 20).map((f: any) => <div key={f.id} className="small" style={{ marginTop: 4 }}><span className="pill">{f.kind}</span> <span className={`status-${tr(f.status)}`}>{tr(f.status)}</span> · {f.summary}</div>)}
+        <div className="tiny muted">{tr("KP memory is never copied into a player group. Reveal information through chat.")}</div>
+        {ws.gm_secrets.slice(0, 20).map((f: any) => <div key={f.id} className="small" style={{ marginTop: 4 }}><span className="pill">{f.kind}</span> <span className={`status-${f.status}`}>{tr(f.status)}</span> · {f.summary}</div>)}
       </div>
-    </div>
-  );
-}
-
-function Knowledge() {
-  const { channelId, characters } = useNav();
-  const toast = useUi((s) => s.toast);
-  const [facts, setFacts] = useState<any[]>([]);
-  const [query, setQuery] = useState('');
-  const [editing, setEditing] = useState<string | null>(null);
-  const [scope, setScope] = useState<{ scope: string; character_ids: string[] }>({ scope: 'gm', character_ids: [] });
-  const load = () => { if (channelId) api.facts(channelId, undefined, query || undefined).then(setFacts); };
-  useEffect(load, [channelId]);
-  const pcs = characters.filter((c) => c.kind === 'pc');
-  const startEdit = async (f: any) => { if (!channelId) return; setEditing(f.id); setScope(await api.factVisibility(channelId, f.id)); };
-  const save = async () => { if (!channelId || !editing) return; try { await api.setFactVisibility(channelId, editing, scope); toast('Knowledge scope updated'); setEditing(null); load(); } catch (e: any) { toast(e.message, 'error'); } };
-  return (
-    <div className="card">
-      <h3>{tr("Fact–knower mapping")}</h3>
-      <div className="row"><input placeholder={tr("search facts")} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} /><button className="small" onClick={load}>{tr("Search")}</button></div>
-      <table className="simple" style={{ marginTop: 8 }}><thead><tr><th>{tr("kind")}</th><th>{tr("fact")}</th><th>{tr("status")}</th><th>{tr("who knows")}</th><th /></tr></thead><tbody>
-        {facts.map((f) => {
-          const vis = (f.visibility ?? []) as { scope: string; character_id: string | null }[];
-          const label = vis.some((v) => v.scope === 'public') ? 'everyone' : vis.filter((v) => v.scope === 'character').map((v) => characters.find((c) => c.id === v.character_id)?.name ?? '?').join(', ') || 'GM only';
-          return (
-            <tr key={f.id}><td>{f.kind}</td><td className="small">{f.summary}</td><td><span className={`status-${tr(f.status)}`}>{tr(f.status)}</span></td>
-              <td className="small">{editing === f.id ? (
-                <div className="col">
-                  <select value={scope.scope} onChange={(e) => setScope({ ...scope, scope: e.target.value })}><option value="gm">{tr("GM only")}</option><option value="public">{tr("Everyone")}</option><option value="character">{tr("Specific characters")}</option></select>
-                  {scope.scope === 'character' && pcs.map((c) => <label key={c.id} className="row tiny"><input type="checkbox" checked={scope.character_ids.includes(c.id)} onChange={(e) => setScope({ ...scope, character_ids: e.target.checked ? [...scope.character_ids, c.id] : scope.character_ids.filter((x) => x !== c.id) })} />{c.name}</label>)}
-                  <div className="row"><button className="primary small" onClick={save}>{tr("Save")}</button><button className="ghost small" onClick={() => setEditing(null)}>{tr("Cancel")}</button></div>
-                </div>) : label}</td>
-              <td>{editing !== f.id && <button className="ghost small" onClick={() => startEdit(f)}>{tr("edit")}</button>}</td></tr>
-          );
-        })}
-      </tbody></table>
     </div>
   );
 }
@@ -141,7 +106,7 @@ function ChannelSettings() {
         <label className="field"><span>{tr("Name")}</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
         <label className="field"><span>{tr("Description")}</span><input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
         <label className="field"><span>{tr("Knowledge mode")}</span>
-          <select value={form.knowledge_mode} onChange={(e) => setForm({ ...form, knowledge_mode: e.target.value })}><option value="isolated">{tr("Character knowledge isolation (Mode B)")}</option><option value="public">{tr("Public knowledge (Mode A)")}</option></select>
+          <select value={form.knowledge_mode} onChange={(e) => setForm({ ...form, knowledge_mode: e.target.value })}><option value="isolated">{tr("New players: separate groups")}</option><option value="public">{tr("New players: shared group")}</option></select>
         </label>
         <label className="row small"><input type="checkbox" checked={form.ai_enabled} onChange={(e) => setForm({ ...form, ai_enabled: e.target.checked })} />{tr("Background chronicler enabled")}</label>
         <label className="field"><span>{tr("Dice reply texts")}</span>
@@ -155,6 +120,7 @@ function ChannelSettings() {
         <div className="tiny muted">{diceOn ? tr("Server maintainers add custom text groups in Server settings → Dice texts.") : tr("Integrated dice are turned off for this server.")}</div>
         <div className="row"><span className="grow" /><button className="primary" onClick={save}>{tr("Save")}</button></div>
       </div>
+      <PlayerGroups />
       <div className="card">
         <h3>{tr("Channel members ")}<span className="pill">{members.length}</span></h3>
         <div className="tiny muted" style={{ marginBottom: 6 }}>{tr("Invite people with “Invite player” in the sidebar; manage who is in each chat window with the ⚇ button next to it.")}</div>
@@ -183,7 +149,7 @@ export default function GMWorkspace() {
         {tab === 'overview' && <Overview />}
         {tab === 'module' && <ModuleImportPanel />}
         {tab === 'scenes' && <SceneManager />}
-        {tab === 'knowledge' && <Knowledge />}
+        {tab === 'knowledge' && <KnowledgeWorkspace />}
         {tab === 'settings' && <ChannelSettings />}
       </div>
     </div>

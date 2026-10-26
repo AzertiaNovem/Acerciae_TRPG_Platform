@@ -25,7 +25,7 @@ Json::Value ConsistencyService::gatherEvidence(Db& db, const ChannelAccess& a, c
     ChannelAccess view = a;
     if (!a.isGm) { view.characterIds = {characterId}; view.primaryCharacterId = characterId; }
     std::string terms; for (auto& k : text::keywords(draft, 4)) { if (!terms.empty()) terms += " "; terms += k; }
-    std::string sql = "SELECT f.id AS fact_id, f.kind, f.summary, f.status, f.data, f.scene_id, f.source_event_ids, s.title AS scene_title, de.id AS entry_id, d.doc_type AS document_type, d.id AS document_id, "
+    std::string sql = "SELECT f.id AS fact_id, f.kind, f.summary, f.status, f.data, f.scene_id, f.source_event_ids, CASE WHEN f.player_group_id IS NULL THEN s.title ELSE NULL END AS scene_title, de.id AS entry_id, d.doc_type AS document_type, d.id AS document_id, "
         "ts_rank(f.search, plainto_tsquery('english', $2)) AS rank FROM knowledge_facts f LEFT JOIN scenes s ON s.id=f.scene_id LEFT JOIN document_entries de ON de.fact_id=f.id AND NOT de.removed LEFT JOIN documents d ON d.id=de.document_id "
         "WHERE f.channel_id=$1 AND f.status <> 'retracted' AND " + Visibility::factFilter(view, "f") + (a.isGm ? "" : " AND coalesce(d.gm_only,false)=false") +
         " AND (f.search @@ to_tsquery('english', $3) OR f.summary % $2 OR f.kind IN ('clue','relationship')) ORDER BY rank DESC, f.updated_at DESC LIMIT " + std::to_string(limit);
@@ -65,6 +65,7 @@ Json::Value ConsistencyService::check(const ChannelAccess& a, const std::string&
     if (!outcome.ok) { result["insufficient_evidence"] = true; result["score"] = Json::Value(); result["rationale"] = "The consistency model did not return a usable answer (" + outcome.error + "). Evidence listed below is from rule-based retrieval only."; result["conflicts"] = Json::Value(Json::arrayValue); }
     else result = outcome.data;
 
+    if(!a.isGm && db_.queryOne("SELECT 1 AS ok WHERE "+Visibility::groupGuard(a)).isNull()) throw conflict("Player group changed; retry the check");
     // Post-validate: only cite facts the viewer may actually see (defence against leaks), attach evidence locations.
     std::set<std::string> allowed; std::map<std::string, Json::Value> byId;
     for (auto& f : ctx["known_facts"]) { allowed.insert(f["fact_id"].asString()); byId[f["fact_id"].asString()] = f; }
@@ -92,6 +93,7 @@ Json::Value ConsistencyService::check(const ChannelAccess& a, const std::string&
         "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::uuid[],$12) RETURNING id, created_at",
         {a.channelId, chatWindowId.empty() ? dbNull() : DbParam(chatWindowId), a.userId, characterId.empty() ? dbNull() : DbParam(characterId), draft,
          result["score"].isNull() ? dbNull() : DbParam((int64_t)result["score"].asInt()), insufficient, json::str(result, "rationale"), json::dump(result["conflicts"]), json::dump(evidence), pgArrayLiteral(recEntries), llm_.mode(a.channelId)});
+    db_.exec("UPDATE consistency_checks SET player_group_id=$2::uuid,player_group_version=$3 WHERE id=$1",{row["id"].asString(),a.playerGroupId.empty()?dbNull():DbParam(a.playerGroupId),(int64_t)a.playerGroupVersion});
     result["id"] = row["id"]; result["created_at"] = row["created_at"];
     Json::Value hls(Json::arrayValue);
     for (auto& e : evidence) {
@@ -107,7 +109,7 @@ Json::Value ConsistencyService::check(const ChannelAccess& a, const std::string&
 }
 
 Json::Value ConsistencyService::history(const ChannelAccess& a, int limit) {
-    return db_.queryJson("SELECT id, chat_window_id, character_id, draft, score, insufficient_evidence, rationale, conflicts, evidence, llm_mode, created_at FROM consistency_checks WHERE channel_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT $3", {a.channelId, a.userId, (int64_t)std::max(1, std::min(limit, 50))});
+    return db_.queryJson("SELECT id, chat_window_id, character_id, draft, score, insufficient_evidence, rationale, conflicts, evidence, llm_mode, created_at FROM consistency_checks f WHERE channel_id=$1 AND user_id=$2 AND " + Visibility::partitionFilter(a,"f") + " AND (f.player_group_id IS NULL OR f.player_group_version="+std::to_string(a.playerGroupVersion)+") ORDER BY created_at DESC LIMIT $3", {a.channelId, a.userId, (int64_t)std::max(1, std::min(limit, 50))});
 }
 
 } // namespace acerciae

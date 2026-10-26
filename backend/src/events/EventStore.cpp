@@ -33,7 +33,7 @@ Json::Value EventStore::listAfter(const std::string& channelId, int64_t afterSeq
 Json::Value EventStore::search(const ChannelAccess& a, const std::string& query, const std::string& sceneId, int limit) {
     std::string sql =
         "SELECT e.id, e.kind, e.seq, e.scene_id, e.chat_window_id, e.character_id, e.created_at, e.payload, "
-        "c.name AS character_name, s.title AS scene_title, "
+        "c.name AS character_name, " + std::string(a.isGm ? "s.title" : "NULL::text") + " AS scene_title, "
         "ts_rank(to_tsvector('english', coalesce(e.payload->>'content','')), plainto_tsquery('english', $2)) AS rank "
         "FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN scenes s ON s.id=e.scene_id "
         "WHERE e.channel_id=$1 AND " + Visibility::eventFilter(a) +
@@ -49,7 +49,7 @@ Json::Value EventStore::listByIds(const ChannelAccess& a, const std::vector<std:
     if (ids.empty()) return Json::Value(Json::arrayValue);
     return db_.queryJson(
         "SELECT e.id, e.kind, e.seq, e.scene_id, e.chat_window_id, e.message_id, e.character_id, e.created_at, e.payload, "
-        "c.name AS character_name, s.title AS scene_title FROM events e "
+        "c.name AS character_name, " + std::string(a.isGm ? "s.title" : "NULL::text") + " AS scene_title FROM events e "
         "LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN scenes s ON s.id=e.scene_id "
         "WHERE e.channel_id=$1 AND e.id = ANY(" + Visibility::uuidArray(ids) + ") AND " + Visibility::eventFilter(a) + " ORDER BY e.seq",
         {a.channelId});

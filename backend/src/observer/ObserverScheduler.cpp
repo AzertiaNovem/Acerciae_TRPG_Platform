@@ -92,6 +92,9 @@ Json::Value ObserverScheduler::observeChannel(const std::string& channelId, bool
         auto r = processGroup(channelId, g["window_id"].asString(), g["scene_id"].asString(), g["from_seq"].asInt64(), waitForInflight);
         if (!r.isNull()) out.append(r);
     }
+    for(const auto& g : db_.queryJson("SELECT id,version FROM player_groups WHERE channel_id=$1 AND EXISTS(SELECT 1 FROM player_group_members pm WHERE pm.group_id=player_groups.id)",{channelId})) {
+        auto r=processPlayerGroup(channelId,g,waitForInflight); if(!r.isNull()) out.append(r);
+    }
     return out;
 }
 
@@ -144,7 +147,7 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         if (!outcome.ok) { finish("failed", outcome.error, summary, lastSeq, (int)batch.size(), outcome.llmCalls); ALOG_WARN << "observer job failed: " << outcome.error; summary["error"] = outcome.error; notifier_.aiJobFinished(channelId, summary); return summary; }
         summary["tool_calls"] = outcome.toolCalls;
         applyExtraction(sys, channelId, jobId, outcome.data, batch, summary);
-        suggestKnowledgeSharing(channelId, batch, jobId, summary);
+
         finish("succeeded", "", summary, toSeq, (int)batch.size(), outcome.llmCalls);
         groupsProcessed_++;
         summary["status"] = "succeeded";
@@ -257,7 +260,7 @@ void ObserverScheduler::applyExtraction(const ChannelAccess& sys, const std::str
     for (auto& h : data["highlights"]) {
         auto factId = json::str(h, "fact_id");
         if (!Visibility::isUuid(factId)) continue;
-        auto entry = db_.queryOne("SELECT de.id AS entry_id, de.document_id, d.gm_only FROM document_entries de JOIN documents d ON d.id=de.document_id JOIN knowledge_facts f ON f.id=de.fact_id WHERE de.fact_id=$1 AND f.channel_id=$2 AND NOT de.removed LIMIT 1", {factId, channelId});
+        auto entry = db_.queryOne("SELECT de.id AS entry_id, de.document_id, d.gm_only FROM document_entries de JOIN documents d ON d.id=de.document_id JOIN knowledge_facts f ON f.id=de.fact_id WHERE de.fact_id=$1 AND f.channel_id=$2 AND f.player_group_id IS NULL AND NOT de.removed LIMIT 1", {factId, channelId});
         if (entry.isNull()) continue;
         auto scope = db_.tx([&](pqxx::work& w) { return knowledge_.getScope(w, factId); });
         NewHighlight nh; nh.channelId = channelId; nh.documentId = entry["document_id"].asString(); nh.entryId = entry["entry_id"].asString();
@@ -299,39 +302,6 @@ void ObserverScheduler::applyExtraction(const ChannelAccess& sys, const std::str
         if (!when.empty()) db_.exec("UPDATE scenes SET narrative_time=$2 WHERE id=$1 AND narrative_time <> $2", {sceneId, when});
         if (!loc.empty() || !when.empty()) notifier_.sceneChanged(channelId, db_.queryOne("SELECT * FROM scenes WHERE id=$1", {sceneId}));
     }
-}
-
-// Intelligent knowledge grouping (v1): when a character talks about a fact they know in front of
-// characters who do not, propose sharing it — the GM confirms or overrides.
-void ObserverScheduler::suggestKnowledgeSharing(const std::string& channelId, const Json::Value& batch, const std::string& jobId, Json::Value& summary) {
-    auto mode = knowledge_.channelMode(channelId);
-    if (mode.isNull() || mode["knowledge_mode"].asString() != "isolated") return;
-    for (auto& e : batch) {
-        if (json::str(e, "actor_role") != "player" || json::str(e, "visibility") != "window") continue;
-        auto speaker = json::str(e, "character_id"); if (speaker.empty()) continue;
-        auto audience = json::strArray(e["audience"]);
-        std::vector<std::string> others; for (auto& a : audience) if (a != speaker) others.push_back(a);
-        if (others.empty()) continue;
-        auto content = json::str(e["payload"], "content");
-        auto kws = text::keywords(content, 5); if (kws.empty()) continue;
-        // Facts the speaker knows privately (character scope) that match the message and that some listener lacks.
-        for (auto& f : db_.queryJson("SELECT f.id, f.summary FROM knowledge_facts f WHERE f.channel_id=$1 AND f.status <> 'retracted' AND f.kind IN ('clue','relationship','timeline') AND EXISTS (SELECT 1 FROM knowledge_visibility kv WHERE kv.fact_id=f.id AND kv.scope='character' AND kv.character_id=$2) AND NOT EXISTS (SELECT 1 FROM knowledge_visibility kv WHERE kv.fact_id=f.id AND kv.scope='public') LIMIT 100", {channelId, speaker})) {
-            int hits = 0; for (auto& k : kws) if (text::icontains(f["summary"].asString(), k)) hits++;
-            if (hits < 2) continue;
-            std::vector<std::string> lacking;
-            for (auto& o : others) { auto r = db_.queryOne("SELECT 1 AS ok FROM knowledge_visibility WHERE fact_id=$1 AND scope='character' AND character_id=$2", {f["id"].asString(), o}); if (r.isNull()) lacking.push_back(o); }
-            if (lacking.empty()) continue;
-            Json::Value op; op["op"] = "share_knowledge"; op["fact_id"] = f["id"]; op["character_ids"] = json::fromStrArray(lacking); op["fact_summary"] = f["summary"];
-            op["reason"] = json::str(e, "character_name", "A character") + " appears to share this in conversation: \"" + text::truncate(content, 120) + "\"";
-            Json::Value ops(Json::arrayValue); ops.append(op);
-            auto dup = db_.queryOne("SELECT id FROM document_proposals WHERE channel_id=$1 AND status IN ('needs_gm_review','rejected') AND ops->0->>'op'='share_knowledge' AND ops->0->>'fact_id'=$2 AND ops->0->'character_ids' = $3::jsonb", {channelId, f["id"].asString(), json::dump(json::fromStrArray(lacking))});
-            if (!dup.isNull()) continue;
-            db_.exec("INSERT INTO document_proposals(channel_id, ai_job_id, ops, source_event_ids, status, rejection_reason) VALUES($1,$2,$3::jsonb,$4::uuid[],'needs_gm_review','knowledge sharing suggestion')",
-                {channelId, jobId, json::dump(ops), pgArrayLiteral({json::str(e, "event_id")})});
-            summary["knowledge_suggestions"] = summary["knowledge_suggestions"].asInt() + 1;
-        }
-    }
-    if (summary["knowledge_suggestions"].asInt() > 0) { Json::Value p; p["kind"] = "knowledge_sharing"; p["count"] = summary["knowledge_suggestions"]; notifier_.proposalPending(channelId, p); }
 }
 
 Json::Value ObserverScheduler::consolidateChannel(const std::string& channelId) {
@@ -392,6 +362,7 @@ Rules:
 - Raw events are the only source of truth. Every op MUST cite source_event_ids from the batch you were given. Never invent ids.
 - Distinguish epistemic status precisely: a character attempting something = "attempted"; the GM declaring it happened = "confirmed"; an NPC asserting something = "npc_claim"; a player theory = "hypothesis"; your own inference = "ai_inferred". Only GM-authored events justify "confirmed".
 - Never record speculation as fact. Never write module secrets into player-visible documents. Never author plot.
+- Organize entries into useful sections: current_scene (location, participants, actions, NPC claims); clue_journal (discoveries, evidence, hypotheses); relationships (identities, alliances, conflicts, promises); open_threads (questions, leads, promises, deadlines); timeline (scene and event order); module_progress (touched nodes, unresolved hooks, deviations, GM secrets). Sections describe evidence, never invent it.
 - Prefer small incremental ops (add_entry, update_entry, set_status, append_text, add_relation, link_facts, remove_entry) over rewriting. Reuse existing fact_id values from the provided document snapshots when updating.
 - When new text refers back to something recorded in an earlier scene (see related_history, or use the search tools), emit a highlight on that fact_id with a short reason and the event ids that triggered it.
 - If play touches module elements (module_nodes) or leaves the module, propose module_progress entries and module_hints marked as potential associations; do not treat the module as what actually happened.

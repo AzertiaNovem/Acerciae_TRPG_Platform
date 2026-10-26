@@ -66,7 +66,7 @@ export const api = {
   addWindowMember: (ch: string, w: string, user_id: string, character_id?: string) => post(`/api/channels/${ch}/windows/${w}/members`, { user_id, character_id }),
   removeWindowMember: (ch: string, w: string, user_id: string) => del(`/api/channels/${ch}/windows/${w}/members/${user_id}`),
   messages: (ch: string, w: string, beforeSeq?: number, limit = 80) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ before_seq: beforeSeq, limit })}`),
-  postMessage: (ch: string, w: string, body: { content: string; kind?: string; character_id?: string; visibility?: string; whisper_to?: string[] }) => post<T.Message>(`/api/channels/${ch}/windows/${w}/messages`, body),
+  postMessage: (ch: string, w: string, body: { content: string; kind?: string; character_id?: string; visibility?: string; whisper_to?: string[]; reference_ids?: string[] }) => post<T.Message>(`/api/channels/${ch}/windows/${w}/messages`, body),
   message: (ch: string, id: string) => get<T.Message>(`/api/channels/${ch}/messages/${id}`),
   enterScene: (ch: string, w: string, scene_id: string) => post<T.ChatWindow>(`/api/channels/${ch}/windows/${w}/scene`, { scene_id }),
   scenes: (ch: string) => get<T.Scene[]>(`/api/channels/${ch}/scenes`),
@@ -105,6 +105,9 @@ export const api = {
   updateNode: (ch: string, id: string, body: Partial<T.ModuleNode>) => put<T.ModuleNode>(`/api/channels/${ch}/modules/nodes/${id}`, body),
   hints: (ch: string, status = 'potential') => get<T.ModuleHint[]>(`/api/channels/${ch}/modules/hints${q({ status })}`),
   decideHint: (ch: string, id: string, decision: 'accepted' | 'dismissed') => post(`/api/channels/${ch}/modules/hints/${id}/decide`, { decision }),
+  playerGroups: (ch: string) => get<T.PlayerGroup[]>(`/api/channels/${ch}/player-groups`),
+  createPlayerGroup: (ch: string, name: string) => post<T.PlayerGroup>(`/api/channels/${ch}/player-groups`, {name}),
+  movePlayer: (ch: string, group: string, user: string) => put<T.PlayerGroup[]>(`/api/channels/${ch}/player-groups/${group}/members/${user}`, {}),
   gmWorkspace: (ch: string) => get<any>(`/api/channels/${ch}/gm/workspace`),
   // ---- Log Studio ----
   studioAdapters: (ch: string) => get<{ name: string; supported: string }[]>(`/api/channels/${ch}/studio/adapters`),

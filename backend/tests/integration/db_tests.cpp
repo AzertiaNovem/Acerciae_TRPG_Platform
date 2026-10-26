@@ -13,6 +13,9 @@
 #include "servers/ServerSettingsService.h"
 #include "dice/DiceService.h"
 #include "llm/LlmGateway.h"
+#include "llm/MockLlmClient.h"
+#include "retrieval/ContextRetrievalService.h"
+#include "events/EventStore.h"
 #include "core/Json.h"
 #include "core/Errors.h"
 #include <iostream>
@@ -22,6 +25,28 @@ using namespace acerciae;
 static int failures = 0, passed = 0;
 #define CHECK(cond) do { if (!(cond)) { std::cerr << "  FAIL " << __LINE__ << ": " #cond "\n"; failures++; } else passed++; } while (0)
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
+
+class RecordingMemoryClient : public ILlmClient {
+public:
+    std::vector<LlmRequest> requests;
+    std::string secretEntityId,sceneId;
+    MockLlmClient mock;
+    std::string mode() const override{return "mock";}
+    std::string modelName() const override{return "recorded-memory-test";}
+    LlmResponse complete(const LlmRequest& req) override {
+        requests.push_back(req);
+        bool hadTool=false;for(const auto& m:req.messages)if(m.role=="tool")hadTool=true;
+        if(req.system.find("ONE player group")!=std::string::npos && !hadTool) {
+            LlmResponse r;r.ok=true;
+            auto add=[&](const std::string& name,const Json::Value& args){Json::Value call;call["id"]=name;call["name"]=name;call["arguments"]=json::dump(args);r.toolCalls.append(call);};
+            Json::Value m;m["query"]="secret";add("get_module_excerpt",m);
+            Json::Value e;e["entity"]=secretEntityId;add("get_entity",e);
+            Json::Value scene;scene["scene_id"]=sceneId;add("get_scene_by_id",scene);
+            return r;
+        }
+        return mock.complete(req);
+    }
+};
 
 int main() {
     const char* url = std::getenv("TEST_DATABASE_URL");
@@ -49,6 +74,7 @@ int main() {
     Json::Value wb; wb["name"] = "Split"; wb["kind"] = "group"; wb["members"] = Json::Value(Json::arrayValue);
     { Json::Value m; m["user_id"] = p1User; wb["members"].append(m); m["user_id"] = p2User; wb["members"].append(m); }
     auto splitWin = S.chat->createWindow(gm, wb)["id"].asString();
+    p1=S.auth->channelAccess(p1User,channelId); p3=S.auth->channelAccess(p3User,channelId);
     auto say = [&](const std::string& uid, const std::string& win, const std::string& content, const std::string& kind = "ic") { Json::Value b; b["content"] = content; b["kind"] = kind; return S.chat->postMessage(S.auth->channelAccess(uid, channelId), win, b); };
     auto eventOf = [&](const std::string& messageId) { return S.db->queryOne("SELECT id, audience FROM events WHERE message_id=$1", {messageId}); };
 
@@ -76,21 +102,18 @@ int main() {
         auto r = S.documents->commit(p);
         CHECK(r.applied == 0); CHECK(r.rejected == 1);
     });
-    test("knowledge scope is derived from the witnessing audience (split party isolation)", [&] {
-        auto docs1 = S.documents->getDocument(p1, clueDocId, "", -1);
-        auto docs3 = S.documents->getDocument(p3, clueDocId, "", -1);
-        bool p1Sees = false, p3Sees = false;
-        for (auto& e : docs1["entries"]) if (e["fact_id"] == clueFactId) p1Sees = true;
-        for (auto& e : docs3["entries"]) if (e["fact_id"] == clueFactId) p3Sees = true;
-        CHECK(p1Sees); CHECK(!p3Sees);
-        CHECK(S.knowledge->listFacts(p3, "clue", "brass", "", 10).empty());
-        CHECK(!S.knowledge->listFacts(p1, "clue", "brass", "", 10).empty());
-        // AI may not widen visibility beyond the sources
-        auto ev = eventOf(say(gmUser, splitWin, "Only Alpha and Bravo hear the whisper of the sea.", "narration")["id"].asString());
-        Proposal p; p.channelId = channelId; p.documentType = "clue_journal"; p.actor = "ai";
-        Json::Value op; op["op"] = "add_entry"; op["fact"]["summary"] = "Whisper of the sea heard"; op["fact"]["status"] = "confirmed"; op["fact"]["source_event_ids"].append(ev["id"]); op["fact"]["visibility"]["scope"] = "public"; p.ops.append(op);
-        auto r = S.documents->commit(p);
-        CHECK(r.applied == 1); CHECK(r.log[0]["scope"]["scope"] == "character");
+    test("KP records are inaccessible to players; each group independently summarizes witnessed chat", [&] {
+        for(const auto& viewer : {p1,p3}) {
+            bool denied=false; try {S.documents->getDocument(viewer,clueDocId,"",-1);} catch(const ApiError& e){denied=e.status()==404;} CHECK(denied);
+            denied=false; try {S.documents->listRevisions(viewer,clueDocId,10);} catch(const ApiError& e){denied=e.status()==404;} CHECK(denied);
+        }
+        CHECK(S.knowledge->listFacts(p1,"clue","brass","",10).empty());
+        auto jobs=S.observer->observeChannel(channelId,true);
+        for(const auto& j : jobs) CHECK(j["status"]=="succeeded");
+        auto p1facts=S.knowledge->listFacts(p1,"clue","brass","",10);
+        CHECK(!p1facts.empty()); CHECK(S.knowledge->listFacts(p3,"clue","brass","",10).empty());
+        for(const auto& f : p1facts) CHECK(f["id"]!=clueFactId);
+        bool denied=false; try{S.knowledge->gmSetScope(gm,clueFactId,KnowledgeScope{"public",{}});}catch(const ApiError& e){denied=e.status()==409;} CHECK(denied);
     });
     test("contradicting a confirmed record becomes a pending GM proposal, not a silent overwrite", [&] {
         auto ev = eventOf(say(p1User, splitWin, "Actually I never took the key.")["id"].asString());
@@ -166,31 +189,18 @@ int main() {
         auto r1 = S.consistency->check(p1, splitWin, c1, "I take out the brass key.");
         CHECK(!r1["evidence"].empty() || r1["insufficient_evidence"].asBool());
     });
-    test("P1: private-window mention of a shared entry stays private (append_text → scoped side note)", [&] {
-        auto gmMsg = say(gmUser, mainWin, "On the mantelpiece you all notice a silver locket engraved with a lantern.", "narration");
-        auto gev = eventOf(gmMsg["id"].asString());
-        Proposal p; p.channelId = channelId; p.documentType = "clue_journal"; p.actor = "ai";
-        Json::Value op; op["op"] = "add_entry"; op["fact"]["summary"] = "A silver locket engraved with a lantern"; op["fact"]["status"] = "confirmed"; op["fact"]["source_event_ids"].append(gev["id"]); op["fact"]["data"]["title"] = "silver locket"; p.ops.append(op);
-        auto r = S.documents->commit(p); CHECK(r.applied == 1);
-        auto lockFact = r.log[0]["fact_id"].asString(); auto lockEntry = r.log[0]["entry_id"].asString();
-        CHECK(!S.knowledge->listFacts(p3, "clue", "locket", "", 10).empty());
-        auto priv = say(p1User, splitWin, "About that silver locket — I pocketed it when nobody was looking.");
-        auto pev = eventOf(priv["id"].asString());
-        Proposal ap; ap.channelId = channelId; ap.documentType = "clue_journal"; ap.actor = "ai";
-        Json::Value a2; a2["op"] = "append_text"; a2["fact_id"] = lockFact; a2["text"] = "↩ Alpha admits pocketing the locket."; a2["source_event_ids"].append(pev["id"]); ap.ops.append(a2);
-        auto r2 = S.documents->commit(ap);
-        CHECK(r2.applied == 1); CHECK(r2.log[0]["note"].asString().find("scoped side note") != std::string::npos);
-        auto shared = S.documents->getEntry(p3, lockEntry);
-        CHECK(shared["content_md"].asString().find("pocketing") == std::string::npos);
-        auto doc3 = S.documents->getDocument(p3, clueDocId, "", -1);
-        for (auto& e : doc3["entries"]) CHECK(e["content_md"].asString().find("pocketing") == std::string::npos);
-        auto doc1 = S.documents->getDocument(p1, clueDocId, "", -1);
-        bool alphaSeesNote = false; for (auto& e : doc1["entries"]) if (e["content_md"].asString().find("pocketing") != std::string::npos) alphaSeesNote = true;
-        CHECK(alphaSeesNote);
-        Proposal up; up.channelId = channelId; up.documentType = "clue_journal"; up.actor = "ai";
-        Json::Value u; u["op"] = "update_entry"; u["fact_id"] = lockFact; u["summary"] = "A silver locket, now in Alpha's pocket"; u["source_event_ids"].append(pev["id"]); up.ops.append(u);
-        auto r3 = S.documents->commit(up); CHECK(r3.applied == 0); CHECK(r3.pendingReview == 1);
-        CHECK(S.documents->getEntry(p3, lockEntry)["summary"].asString().find("pocket") == std::string::npos);
+    test("Private conversations update only the relevant independent player memory", [&] {
+        auto gmMsg=say(gmUser,mainWin,"On the mantelpiece you all notice a silver locket engraved with a lantern.","narration");
+        auto gev=eventOf(gmMsg["id"].asString());
+        Proposal p; p.channelId=channelId; p.documentType="clue_journal";
+        Json::Value op; op["op"]="add_entry"; op["fact"]["summary"]="A silver locket engraved with a lantern"; op["fact"]["status"]="confirmed"; op["fact"]["source_event_ids"].append(gev["id"]); p.ops.append(op);
+        auto result=S.documents->commit(p); CHECK(result.applied==1);
+        S.observer->observeChannel(channelId,true);
+        CHECK(!S.knowledge->listFacts(p3,"clue","locket","",10).empty());
+        say(p1User,splitWin,"About that silver locket, I pocket it when nobody is looking.");
+        S.observer->observeChannel(channelId,true);
+        CHECK(json::dump(S.knowledge->listFacts(p3,"","","",200)).find("pocket")==std::string::npos);
+        CHECK(json::dump(S.knowledge->listFacts(p1,"","","",200)).find("pocket")!=std::string::npos);
     });
     test("P1: highlights are scoped to witnesses of the triggering event, not just readers of the fact", [&] {
         // The split window moves to its own scene so the locket mention counts as a cross-scene callback.
@@ -264,6 +274,101 @@ int main() {
         for (auto& x : S.chat->listMessages(p2, splitWin, 50, 0)) { if (x["id"] == m["id"]) p2SeesResult = true; if (x["dice"]["type"].asString() == "hidden_notice") p2SeesNotice = true; }
         CHECK(!p2SeesResult); CHECK(p2SeesNotice);
         bool p1Sees = false; for (auto& x : S.chat->listMessages(p1, splitWin, 50, 0)) if (x["id"] == m["id"]) p1Sees = true; CHECK(p1Sees);
+    });
+    test("Independent groups: model input, hostile retrieval, provenance, regrouping and chat references", [&] {
+        Json::Value cb2; cb2["name"]="Group boundary tests"; cb2["knowledge_mode"]="isolated";
+        auto ch=S.chat->createChannel(gmP,server["id"].asString(),cb2)["id"].asString();
+        auto keeper=S.auth->channelAccess(gmUser,ch);
+        for(const auto& uid : {p1User,p2User,p3User}) S.chat->addChannelMember(keeper,uid,"player");
+        auto makePc=[&](const std::string& uid,const std::string& name) {Json::Value b;b["name"]=name;return S.chat->createCharacter(S.auth->channelAccess(uid,ch),b)["id"].asString();};
+        auto pc1=makePc(p1User,"Investigator One"),pc2=makePc(p2User,"Investigator Two"),pc3=makePc(p3User,"Investigator Three");
+        auto main=S.chat->listWindows(keeper)[0]["id"].asString();
+        Json::Value wb2; wb2["name"]="One private";wb2["kind"]="private";Json::Value member;member["user_id"]=p1User;wb2["members"].append(member);
+        auto privateWin=S.chat->createWindow(keeper,wb2)["id"].asString();
+        auto one=S.auth->channelAccess(p1User,ch),two=S.auth->channelAccess(p2User,ch),three=S.auth->channelAccess(p3User,ch);
+        auto originalTwoGroup=two.playerGroupId;
+        CHECK(one.playerGroupId!=two.playerGroupId && two.playerGroupId!=three.playerGroupId);
+        auto write=[&](const ChannelAccess& ac,const std::string& win,const std::string& content,const std::string& vis="window") {Json::Value b;b["content"]=content;b["kind"]="narration";b["visibility"]=vis;return S.chat->postMessage(ac,win,b);};
+        Json::Value scene;scene["title"]="KP_SCENE_CLASSIFIED_847";scene["summary"]="KP_SCENE_CLASSIFIED_847";scene["location"]="KP_SCENE_CLASSIFIED_847";
+        auto sid=S.scenes->create(keeper,scene)["id"].asString(); S.scenes->enterScene(keeper,main,sid); S.scenes->enterScene(keeper,privateWin,sid);
+        auto pub=write(keeper,main,"You find a brass lantern on the table.");
+        auto priv=write(keeper,privateWin,"You find a violet key labelled GROUP_ONE_ONLY_592.");
+        auto secret=write(keeper,main,"You find the KP_RAW_CLASSIFIED_347 crypt key.","gm_only");
+        Json::Value whisper;whisper["content"]="You find a blue key labelled GROUP_TWO_ONLY_845.";whisper["visibility"]="whisper";whisper["whisper_to"].append(pc2);whisper["kind"]="narration";
+        S.chat->postMessage(keeper,main,whisper);
+        auto secretEvent=eventOf(secret["id"].asString())["id"].asString();
+        Proposal kp;kp.channelId=ch;kp.documentType="clue_journal";kp.actor="gm";
+        Json::Value secretOp;secretOp["op"]="add_entry";secretOp["fact"]["summary"]="KP_FACT_CLASSIFIED_998";secretOp["fact"]["source_event_ids"].append(secretEvent);secretOp["fact"]["status"]="gm_secret";secretOp["fact"]["entities"][0]["name"]="KP_ENTITY_CLASSIFIED_124";secretOp["fact"]["entities"][0]["kind"]="npc";kp.ops.append(secretOp);
+        auto kpResult=S.documents->commit(kp);CHECK(kpResult.applied==1);
+        auto entityId=S.knowledge->listEntities(keeper,"KP_ENTITY")[0]["id"].asString();
+        auto recording=std::make_unique<RecordingMemoryClient>();auto* recorded=recording.get();recorded->secretEntityId=entityId;recorded->sceneId=sid;
+        LlmGateway gateway(cfg,std::move(recording));
+        ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge);
+        auto jobs=observer.observeChannel(ch,true); for(const auto& j:jobs) {if(j["status"]!="succeeded")std::cerr<<json::dump(j)<<"\n";CHECK(j["status"]=="succeeded");}
+        int playerCalls=0,deniedToolResponses=0;
+        for(const auto& req:recorded->requests) if(req.system.find("ONE player group")!=std::string::npos) {
+            playerCalls++;
+            for(const auto& tool:req.tools) CHECK(tool.name!="get_module_excerpt");
+            std::string group;
+            for(const auto& m:req.messages) if(m.role=="user") {auto c=json::parse(m.content);if(c.isMember("memory_group_id"))group=c["memory_group_id"].asString();}
+            for(const auto& m:req.messages) {
+                CHECK(m.content.find("KP_RAW_CLASSIFIED")==std::string::npos);CHECK(m.content.find("KP_FACT_CLASSIFIED")==std::string::npos);CHECK(m.content.find("KP_SCENE_CLASSIFIED")==std::string::npos);CHECK(m.content.find("KP_ENTITY_CLASSIFIED")==std::string::npos);
+                if(group==three.playerGroupId) {CHECK(m.content.find("GROUP_ONE_ONLY")==std::string::npos);CHECK(m.content.find("GROUP_TWO_ONLY")==std::string::npos);}
+                if(m.role=="tool" && m.content.find("error")!=std::string::npos)deniedToolResponses++;
+            }
+        }
+        CHECK(playerCalls>=6);CHECK(deniedToolResponses>=6);
+        auto oneFacts=S.knowledge->listFacts(one,"","","",200),twoFacts=S.knowledge->listFacts(two,"","","",200),threeFacts=S.knowledge->listFacts(three,"","","",200);
+        CHECK(json::dump(oneFacts).find("GROUP_ONE_ONLY")!=std::string::npos);CHECK(json::dump(oneFacts).find("GROUP_TWO_ONLY")==std::string::npos);
+        CHECK(json::dump(twoFacts).find("GROUP_TWO_ONLY")!=std::string::npos);CHECK(json::dump(twoFacts).find("GROUP_ONE_ONLY")==std::string::npos);
+        CHECK(json::dump(threeFacts).find("GROUP_ONE_ONLY")==std::string::npos);CHECK(json::dump(threeFacts).find("GROUP_TWO_ONLY")==std::string::npos);
+        CHECK(S.documents->listDocuments(keeper,0).size()==6);CHECK(S.documents->listDocuments(one,0).size()==5);
+        auto ownFact=oneFacts[0]["id"].asString();
+        bool invalidName=false;
+        try { S.knowledge->createPlayerGroup(keeper,std::string(101,'x')); } catch(const ApiError& e) { invalidName=e.status()==400; }
+        CHECK(invalidName);
+        auto playerEntity=S.knowledge->listEntities(one,"")[0]["id"].asString();
+        CHECK(!playerEntity.empty());
+        bool crossedRelation=false;
+        try { S.db->exec("INSERT INTO entity_relations(channel_id,from_entity_id,to_entity_id,relation,fact_id) VALUES($1,$2,$2,'test',$3)",{ch,playerEntity,kpResult.touchedFactIds[0]}); }
+        catch(const std::exception& e) { crossedRelation=std::string(e.what()).find("Cross-partition relation provenance")!=std::string::npos; }
+        CHECK(crossedRelation);
+
+        for(const auto& denied : {keeper,two,three}) {bool blocked=false;try{S.knowledge->getFact(denied,ownFact);}catch(const ApiError& e){blocked=e.status()==404;}CHECK(blocked);}
+        auto accessibleEvent=eventOf(pub["id"].asString())["id"].asString();
+        Proposal hostile;hostile.channelId=ch;hostile.playerGroupId=one.playerGroupId;hostile.playerGroupVersion=one.playerGroupVersion;hostile.documentType="clue_journal";hostile.allowedSourceEventIds={accessibleEvent,secretEvent};
+        hostile.ops=kp.ops;hostile.ops[0]["fact"]["status"]="ai_inferred";
+        CHECK(S.documents->commit(hostile).rejected==1);
+        hostile.ops[0]["fact"]["source_event_ids"][0]=accessibleEvent;hostile.ops[0]["fact"]["data"]["related_fact_ids"].append(kpResult.touchedFactIds[0]);
+        CHECK(S.documents->commit(hostile).rejected==1);
+        hostile.ops[0]["fact"]["data"].removeMember("related_fact_ids");hostile.documentId=kpResult.documentId;
+        bool crossDoc=false;try{S.documents->commit(hostile);}catch(const ApiError& e){crossDoc=e.status()==403;}CHECK(crossDoc);hostile.documentId.clear();
+        Json::Value quoted;quoted["content"]="This earlier message is my reference.";quoted["reference_ids"].append(pub["id"]);
+        auto quote=S.chat->postMessage(one,main,quoted);CHECK(quote["reference_ids"][0]==pub["id"]);
+        quoted["reference_ids"][0]=secret["id"];bool cannotQuote=false;try{S.chat->postMessage(one,main,quoted);}catch(const ApiError& e){cannotQuote=e.status()==404;}CHECK(cannotQuote);
+        quoted["reference_ids"][0]=priv["id"];cannotQuote=false;try{S.chat->postMessage(two,main,quoted);}catch(const ApiError& e){cannotQuote=e.status()==404;}CHECK(cannotQuote);
+        auto oldGroupVersion=one.playerGroupVersion;
+        S.knowledge->movePlayer(keeper,one.playerGroupId,p2User);
+        CHECK(S.documents->listDocuments(one,0).empty()); // stale access cannot retrieve old or rebuilt memory
+        bool stale=false;try{S.documents->commit(hostile);}catch(const ApiError& e){stale=e.status()==409;}CHECK(stale);
+        one=S.auth->channelAccess(p1User,ch);two=S.auth->channelAccess(p2User,ch);CHECK(one.playerGroupVersion>oldGroupVersion);CHECK(two.playerGroupId==one.playerGroupId);
+        CHECK(S.knowledge->listFacts(one,"","","",200).empty());
+        CHECK(S.chat->getMessage(two,priv["id"].asString())["id"]==priv["id"]);
+        bool cannotPost=false;try{write(two,privateWin,"I am not a window participant");}catch(const ApiError& e){cannotPost=e.status()==403;}CHECK(cannotPost);
+        observer.observeChannel(ch,true);
+        CHECK(json::dump(S.knowledge->listFacts(two,"","","",200)).find("GROUP_ONE_ONLY")!=std::string::npos);
+        quoted["reference_ids"][0]=priv["id"];CHECK(S.chat->postMessage(two,main,quoted)["reference_ids"][0]==priv["id"]);
+        S.knowledge->movePlayer(keeper,originalTwoGroup,p2User);one=S.auth->channelAccess(p1User,ch);two=S.auth->channelAccess(p2User,ch);
+        cannotQuote=false;try{S.chat->getMessage(two,priv["id"].asString());}catch(const ApiError& e){cannotQuote=e.status()==404;}CHECK(cannotQuote);
+        observer.observeChannel(ch,true);CHECK(json::dump(S.knowledge->listFacts(two,"","","",200)).find("GROUP_ONE_ONLY")==std::string::npos);
+        // Removing a direct window grant invalidates its group's historical summaries too.
+        S.chat->removeWindowMember(keeper,privateWin,p1User);one=S.auth->channelAccess(p1User,ch);CHECK(S.knowledge->listFacts(one,"","","",200).empty());
+        observer.observeChannel(ch,true);CHECK(json::dump(S.knowledge->listFacts(one,"","","",200)).find("GROUP_ONE_ONLY")==std::string::npos);
+        CHECK(S.knowledge->getFact(keeper,kpResult.touchedFactIds[0])["summary"]=="KP_FACT_CLASSIFIED_998");
+        // Public-mode invitation defaults to one group, without admitting the KP.
+        cb2["name"]="Shared default";cb2["knowledge_mode"]="public";auto sharedCh=S.chat->createChannel(gmP,server["id"].asString(),cb2)["id"].asString();auto sharedKeeper=S.auth->channelAccess(gmUser,sharedCh);
+        S.chat->addChannelMember(sharedKeeper,p1User,"player");S.chat->addChannelMember(sharedKeeper,p2User,"player");
+        CHECK(S.auth->channelAccess(p1User,sharedCh).playerGroupId==S.auth->channelAccess(p2User,sharedCh).playerGroupId);CHECK(sharedKeeper.playerGroupId.empty());
     });
     test("server maintainers control features, LLM profile and members; keys are sealed", [&] {
         auto sid = server["id"].asString();

@@ -11,6 +11,10 @@ class Notifier;
 
 // A proposal is what the AI (or the GM) asks to change. The backend validates and commits.
 struct Proposal {
+    std::string playerGroupId;
+    int playerGroupVersion = 0;
+    std::vector<std::string> allowedSourceEventIds; // batch allow-list for player AI
+
     std::string channelId;
     std::string documentType;        // resolved to documentId
     std::string documentId;

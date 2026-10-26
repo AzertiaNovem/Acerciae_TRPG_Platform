@@ -119,7 +119,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
         <div className="modal-backdrop" onClick={close}>
           <div className="modal col" onClick={(e) => e.stopPropagation()}>
             {dialog === 'channel' && (<><h3>{tr("New campaign channel")}</h3><input placeholder={tr("Name")} value={f('name')} onChange={(e) => set('name', e.target.value)} autoFocus /><input placeholder={tr("Description")} value={f('description')} onChange={(e) => set('description', e.target.value)} />
-              <select value={f('mode') || 'isolated'} onChange={(e) => set('mode', e.target.value)}><option value="isolated">{tr("Character knowledge isolation (Mode B)")}</option><option value="public">{tr("Public knowledge (Mode A)")}</option></select></>)}
+              <select value={f('mode') || 'isolated'} onChange={(e) => set('mode', e.target.value)}><option value="isolated">{tr("New players: separate groups")}</option><option value="public">{tr("New players: shared group")}</option></select></>)}
             {dialog === 'window' && (<><h3>{tr("New chat window")}</h3><input placeholder={tr("Name (e.g. Solo investigation)")} value={f('name')} onChange={(e) => set('name', e.target.value)} autoFocus />
               <select value={f('kind') || 'group'} onChange={(e) => set('kind', e.target.value)}><option value="group">{tr("Group")}</option><option value="private">{tr("Private")}</option></select>
               <div className="section-label">{tr("Members")}</div>

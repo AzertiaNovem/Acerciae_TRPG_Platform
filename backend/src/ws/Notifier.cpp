@@ -36,17 +36,24 @@ void Notifier::messagePosted(const Json::Value& m) {
     for (auto& u : gmUsers(channelId)) allowed.insert(u);
     if (vis == "window") for (auto& u : windowUsers(windowId)) allowed.insert(u);
     else if (vis == "whisper") for (auto& u : usersOfCharacters(json::strArray(m["whisper_to"]))) allowed.insert(u);
+    for(const auto& r : db_.queryJson("SELECT DISTINCT pm.user_id FROM player_group_members pm JOIN player_group_readable_messages ge ON ge.group_id=pm.group_id WHERE ge.message_id=$1",{m["id"].asString()})) allowed.insert(r["user_id"].asString());
     Json::Value msg; msg["type"] = "message.posted"; msg["channel_id"] = channelId; msg["message"] = m;
     WsGateway::instance().broadcast("chat", channelId, msg, setFilter(std::move(allowed)));
 }
+void Notifier::knowledgeChanged(const std::string& channelId) {
+    Json::Value msg; msg["type"]="knowledge.reset"; msg["channel_id"]=channelId;
+    WsGateway::instance().broadcast("context",channelId,msg);
+}
 void Notifier::windowChanged(const std::string& channelId, const Json::Value& window) {
-    Json::Value msg; msg["type"] = "window.changed"; msg["channel_id"] = channelId; msg["window"] = window;
+    knowledgeChanged(channelId);
+    Json::Value msg; msg["type"] = "window.changed"; msg["channel_id"] = channelId; msg["window"]["id"] = window["id"];
     WsGateway::instance().broadcast("chat", channelId, msg);
 }
 void Notifier::sceneChanged(const std::string& channelId, const Json::Value& scene) {
     Json::Value msg; msg["type"] = "scene.changed"; msg["channel_id"] = channelId; msg["scene"] = scene;
-    WsGateway::instance().broadcast("chat", channelId, msg);
-    WsGateway::instance().broadcast("context", channelId, msg);
+    std::set<std::string> allowed; for(const auto& u : gmUsers(channelId)) allowed.insert(u);
+    WsGateway::instance().broadcast("chat", channelId, msg, setFilter(allowed));
+    WsGateway::instance().broadcast("context", channelId, msg, setFilter(allowed));
 }
 void Notifier::characterUpdated(const std::string& channelId, const Json::Value& c) {
     Json::Value msg; msg["type"] = "character.updated"; msg["channel_id"] = channelId; msg["character"] = c;
@@ -65,23 +72,24 @@ void Notifier::serverSettingsChanged(const std::string& serverId, const Json::Va
 void Notifier::documentUpdated(const std::string& channelId, const Json::Value& payload) {
     Json::Value msg; msg["type"] = "document.updated"; msg["channel_id"] = channelId;
     for (auto it = payload.begin(); it != payload.end(); ++it) msg[it.name()] = *it;
-    if (json::toBool(payload, "gm_only")) {
-        std::set<std::string> gms; for (auto& u : gmUsers(channelId)) gms.insert(u);
-        WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(gms)));
-    } else {
-        // Entry-level visibility is enforced when the client refetches the document.
-        WsGateway::instance().broadcast("context", channelId, msg);
-    }
+    std::set<std::string> allowed;
+    auto doc=db_.queryOne("SELECT player_group_id FROM documents WHERE id=$1 AND channel_id=$2",{json::str(payload,"document_id"),channelId});
+    if(doc.isNull()) return;
+    if(doc["player_group_id"].isNull()) for(const auto& u : gmUsers(channelId)) allowed.insert(u);
+    else for(const auto& r : db_.queryJson("SELECT user_id FROM player_group_members WHERE group_id=$1",{doc["player_group_id"].asString()})) allowed.insert(r["user_id"].asString());
+    WsGateway::instance().broadcast("context",channelId,msg,setFilter(std::move(allowed)));
 }
 void Notifier::highlightCreated(const std::string& channelId, const Json::Value& h) {
     Json::Value msg; msg["type"] = "highlight.created"; msg["channel_id"] = channelId; msg["highlight"] = h;
-    auto scope = json::str(h, "visibility_scope");
-    if (scope == "public") { WsGateway::instance().broadcast("context", channelId, msg); return; }
+    auto doc=db_.queryOne("SELECT player_group_id FROM documents WHERE id=$1 AND channel_id=$2",{json::str(h,"document_id"),channelId});
+    if(doc.isNull()) return;
     std::set<std::string> allowed;
-    if (scope == "gm") for (auto& u : gmUsers(channelId)) allowed.insert(u);
-    else if (scope == "character") { for (auto& u : usersOfCharacters({json::str(h, "character_id")})) allowed.insert(u); for (auto& u : gmUsers(channelId)) allowed.insert(u); }
-    else if (scope == "user") allowed.insert(json::str(h, "user_id"));
-    WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(allowed)));
+    if(doc["player_group_id"].isNull()) for(const auto& u : gmUsers(channelId)) allowed.insert(u);
+    else for(const auto& r : db_.queryJson("SELECT user_id FROM player_group_members WHERE group_id=$1",{doc["player_group_id"].asString()})) allowed.insert(r["user_id"].asString());
+    if(json::str(h,"visibility_scope")=="user") {
+        auto uid=json::str(h,"user_id"); bool included=allowed.count(uid); allowed.clear(); if(included) allowed.insert(uid);
+    }
+    WsGateway::instance().broadcast("context",channelId,msg,setFilter(std::move(allowed)));
 }
 void Notifier::highlightExpired(const std::string& channelId, const std::vector<std::string>& ids) {
     Json::Value msg; msg["type"] = "highlight.expired"; msg["channel_id"] = channelId; msg["highlight_ids"] = json::fromStrArray(ids);

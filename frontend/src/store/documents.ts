@@ -25,7 +25,7 @@ interface DocState {
 }
 export const useDocuments = create<DocState>((set, get) => ({
   list: [], full: {}, seenVersion: JSON.parse(localStorage.getItem('acerciae.seen') || '{}'), pulse: {}, expandedId: null, dockCollapsed: false, focusEntryId: null,
-  loadList: async (ch) => { const e = sessionEpoch(); const list = await api.documents(ch); if (isStale(e)) return; set({ list }); },
+  loadList: async (ch) => { const e = sessionEpoch(); const list = await api.documents(ch); if (isStale(e)) return; set(s=>({list, full:Object.fromEntries(Object.entries(s.full).filter(([id])=>list.some(d=>d.id===id))), expandedId:list.some(d=>d.id===s.expandedId)?s.expandedId:null})); },
   loadDocument: async (ch, id, sceneId) => {
     const since = get().seenVersion[id] ?? -1;
     const e = sessionEpoch();

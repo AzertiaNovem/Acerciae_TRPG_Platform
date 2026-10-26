@@ -129,6 +129,10 @@ ChannelAccess AuthService::channelAccess(const std::string& userId, const std::s
     auto chars = db_.queryJson("SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2 AND kind='pc' ORDER BY created_at", {channelId, userId});
     for (auto& c : chars) a.characterIds.push_back(c["id"].asString());
     if (!a.characterIds.empty()) a.primaryCharacterId = a.characterIds.front();
+    if (!a.isGm) {
+        auto group = db_.queryOne("SELECT g.id,g.version FROM player_groups g JOIN player_group_members pm ON pm.group_id=g.id WHERE pm.channel_id=$1 AND pm.user_id=$2", {channelId,userId});
+        if (!group.isNull()) { a.playerGroupId=group["id"].asString(); a.playerGroupVersion=group["version"].asInt(); }
+    }
     return a;
 }
 

@@ -73,6 +73,7 @@ const docEntries = async (token, type, sceneId) => (await api('GET', `/api/chann
 
 test('Scenario 2: messages within one scan interval are analysed as ONE batch, bubbles get a change indicator', async () => {
   const { ws, received } = await openWs('context', U.pl1, ids.channel);
+  try {
   const before = await api('GET', `/api/channels/${ids.channel}/ai/jobs`, undefined, U.gm);
   // Session 1 in the main window — a burst of messages well inside the 5s window.
   await say(U.gm, ids.main, 'The investigators arrive at the Sheriff\'s Office on a grey Monday morning. Sheriff Dunmore rises with a careful smile.', 'narration');
@@ -90,13 +91,14 @@ test('Scenario 2: messages within one scan interval are analysed as ONE batch, b
   assert.equal(job.llm_calls <= 2, true, 'the batch must not call the LLM once per message');
   const updates = await waitFor(async () => { const u = received.filter((m) => m.type === 'document.updated'); return u.length >= 1 ? u : null; }, { label: 'document.updated push' });
   assert.ok(updates.some((u) => u.change_count > 0));
+  await waitFor(async()=> (await docEntries(U.pl1,'clue_journal')).some(e=>/badge/i.test(e.summary)),{label:'independent player journal'});
   const docs = await api('GET', `/api/channels/${ids.channel}/documents`, undefined, U.pl1);
   assert.ok(docs.find((d) => d.doc_type === 'clue_journal').recent_changes >= 1, 'clue journal bubble shows a change indicator');
   const clues = await docEntries(U.pl1, 'clue_journal');
   assert.ok(clues.some((e) => /badge/i.test(e.summary) && e.status === 'confirmed'));
   const rel = await docEntries(U.pl1, 'relationships');
   assert.ok(rel.some((e) => e.data?.relation === 'promised' && e.status === 'npc_claim'), 'NPC promise recorded as a claim, not a fact');
-  ws.close();
+  } finally { ws.close(); }
 });
 
 test('Scenario 1: split-party investigation — PL3 cannot read PL1/PL2\'s private clue', async () => {
@@ -266,19 +268,14 @@ test('Realtime: chat stream delivers messages only to window participants', asyn
   a.ws.close(); c.ws.close();
 });
 
-test('Knowledge sharing suggestion is proposed to the GM, never applied automatically (Mode B)', async () => {
+test('KP records cannot be shared directly; player journals remain independent', async () => {
   const proposals = await api('GET', `/api/channels/${ids.channel}/proposals?status=needs_gm_review`, undefined, U.gm);
-  // Cora talked about the badge (her private clue) in front of Ada and Ben → suggestion to share.
-  const share = proposals.find((p) => p.ops?.[0]?.op === 'share_knowledge');
-  if (share) {
-    const factId = share.ops[0].fact_id;
-    const beforeScope = await api('GET', `/api/channels/${ids.channel}/facts/${factId}/visibility`, undefined, U.gm);
-    assert.ok(!share.ops[0].character_ids.every((c) => beforeScope.character_ids.includes(c)), 'not yet shared automatically');
-    await api('POST', `/api/channels/${ids.channel}/proposals/${share.id}/decide`, { accept: true }, U.gm);
-    const afterScope = await api('GET', `/api/channels/${ids.channel}/facts/${factId}/visibility`, undefined, U.gm);
-    assert.ok(share.ops[0].character_ids.every((c) => afterScope.character_ids.includes(c)), 'GM acceptance widens knowledge');
-  }
-  await assert.rejects(api('GET', `/api/channels/${ids.channel}/proposals`, undefined, U.pl1), (e) => e.status === 403);
+  assert.ok(!proposals.some(p=>p.ops?.[0]?.op==='share_knowledge'));
+  const gmFacts = await api('GET', `/api/channels/${ids.channel}/facts`, undefined, U.gm);
+  assert.ok(gmFacts.length);
+  await assert.rejects(api('PUT', `/api/channels/${ids.channel}/facts/${gmFacts[0].id}/visibility`, {scope:'public'}, U.gm),e=>e.status===409);
+  await assert.rejects(api('GET', `/api/channels/${ids.channel}/facts/${gmFacts[0].id}`, undefined, U.pl1),e=>e.status===404);
+  await assert.rejects(api('GET', `/api/channels/${ids.channel}/proposals`, undefined, U.pl1), e => e.status === 403);
 });
 
 after(() => { /* data stays for inspection; each run uses unique names */ });
