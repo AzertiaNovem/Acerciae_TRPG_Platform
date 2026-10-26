@@ -39,10 +39,12 @@ export interface Highlight {
 }
 export interface Revision { id: string; version: number; actor: string; actor_name: string | null; summary: string; source_event_ids: string[]; created_at: string; op_count: number }
 export interface EventRow { id: string; kind: string; seq: number; scene_id: string | null; chat_window_id: string | null; message_id: string | null; character_id: string | null; character_name: string | null; scene_title: string | null; created_at: string; payload: { content?: string; [k: string]: unknown } }
-export interface ConsistencyConflict { description: string; severity?: string; evidence_fact_ids: string[]; quote?: string }
-export interface ConsistencyEvidence { fact_id: string; entry_id: string | null; document_id: string | null; document_type: DocType | null; summary: string; status: string; scene_title: string | null; source_event_ids: string[]; role: 'conflict' | 'support' | 'recommended' }
-export interface ConsistencyResult { id: string; score: number | null; score_label: string; insufficient_evidence: boolean; rationale: string; conflicts: ConsistencyConflict[]; evidence: ConsistencyEvidence[]; highlights: Highlight[]; llm_mode: string }
-export interface InspirationResult { id: string; draft: string; used_fact_ids: string[]; notes?: string; llm_mode: string; editable: boolean; auto_sent: boolean }
+export interface RecallMessage { type: 'message'; id: string; chat_window_id: string; window_name: string; seq: number; created_at: string; kind: Message['kind']; content: string; visibility: string; character_id: string | null; character_name: string | null; author_name: string; dice?: DiceResult | null }
+export interface RecallRecord { type: 'record'; fact_id: string; entry_id: string | null; document_id: string | null; document_type: DocType | null; kind: string; summary: string; status: string; scene_title: string | null; source_event_ids: string[]; data: Record<string, any> }
+export type RecallItem = RecallMessage | RecallRecord;
+export interface RecallTopic { label: string; items: RecallItem[] }
+// What the chat log and the journal already say: the AI only chose and grouped existing items. No score, no verdict, no drafted text.
+export interface RecallResult { id: string; mode: 'hint' | 'draft'; query: string; query_source: 'hint' | 'draft' | 'recent_chat'; character_id: string; terms: string[]; topics: RecallTopic[]; candidates: { messages: number; records: number }; selected: number; message_ids: string[]; fact_ids: string[]; highlights: Highlight[]; llm_mode: string; notes: string[]; created_at: string }
 export interface ModuleNode { id: string; module_id: string; node_type: string; name: string; description: string; data: Record<string, unknown>; citations: { page: number; excerpt: string }[]; gm_edited: boolean; progress: string; pending_hints?: number }
 export interface ModuleEdge { id: string; from_node_id: string; to_node_id: string; relation: string; from_name: string; to_name: string }
 export interface ModuleInfo { id: string; title: string; file_name: string; page_count: number; status: string; error: string | null; llm_mode: string; created_at: string; node_count?: number; edge_count?: number; nodes?: ModuleNode[]; edges?: ModuleEdge[] }

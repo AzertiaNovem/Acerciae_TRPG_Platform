@@ -15,9 +15,9 @@ A multiplayer online table for Call of Cthulhu and other Basic Roleplaying games
 
 Screenshots (taken from the running app in mock mode):
 
-| Context Bubble Dock | Fluorescent highlight on an earlier clue | Consistency check |
+| Context Bubble Dock | Fluorescent highlight on an earlier clue | Recall ("Already said") |
 |---|---|---|
-| ![](docs/screenshots/bubble-dock.png) | ![](docs/screenshots/clue-journal-highlight.png) | ![](docs/screenshots/consistency-check.png) |
+| ![](docs/screenshots/bubble-dock.png) | ![](docs/screenshots/clue-journal-highlight.png) | ![](docs/screenshots/recall.png) |
 
 | GM workspace | Module knowledge graph | Revision history |
 |---|---|---|
@@ -118,10 +118,13 @@ viewer. References store IDs rather than copied excerpts; viewing or jumping to 
 reason, source events, priority, scope and expiry; pushed over the context WebSocket, fade-in in the UI, hover/click to
 see why and jump to the original event, dismissable, swept by an independent cleanup loop.
 
-**Consistency Check / Inspiration** — user-triggered only. Consistency returns a heuristic 0–100 % score (or
-*Insufficient Evidence*), rationale, conflicts, traceable evidence and temporary user-scoped highlights; it never rewrites
-or blocks the draft and never leaks GM-only facts. Inspiration returns an editable draft grounded only in the character's
-knowledge, never auto-sent (insert / regenerate / discard).
+**Recall ("Already said")** — user-triggered only. Instead of judging a draft or writing a reply, the AI looks up what
+has already been said: verbatim chat messages the character may read and the chronicler's existing journal records about
+the people, places and things involved, grouped by concept. The model only chooses and groups existing items; it never
+writes new text, decides what is true or scores anything, and a group label must be a phrase quoted from the question
+or from a shown item. *Already said about this* runs on the draft being written; *Recall* runs on the window's current
+topic or a typed question. Quotes can be opened in place or attached to the next message as chat references. Nothing is
+sent automatically and GM-only lines never reach players.
 
 **Integrated dice (Sealdice-compatible)** — `.r` `.rh` `.ra`/`.rc` `.rah` `.sc` `.st` `.en` typed into chat, evaluated against the
 speaking character's attributes (`characters.sheet.attrs`, CoC 7e base values, English and 中文 aliases): hard/extreme
@@ -141,7 +144,7 @@ hints when play touches or leaves module content. Module data is a separate GM-o
 
 **Frontend** — all required components (`ServerSidebar`, `ChannelSidebar`, `ChatWindow`, `MessageList`,
 `MessageComposer`, `ContextBubbleDock`, `ContextDocumentViewer`, `DocumentRevisionViewer`, `HighlightedText`,
-`ConsistencyButton`, `ConsistencyResultPanel`, `InspirationButton`, `InspirationDraftPanel`, `GMWorkspace`,
+`RecallButton`, `RecallPanel`, `GMWorkspace`,
 `ModuleImportPanel`, `SceneManager`). Two WebSocket streams (`/ws/chat`, `/ws/context`); document bodies and highlights
 live in separate stores so highlight traffic never re-renders document text; the dock collapses and never covers Send.
 

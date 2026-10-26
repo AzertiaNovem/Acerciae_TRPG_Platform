@@ -11,8 +11,7 @@
 #include "../retrieval/ContextRetrievalService.h"
 #include "../llm/LlmGateway.h"
 #include "../observer/ObserverScheduler.h"
-#include "../consistency/ConsistencyService.h"
-#include "../inspiration/InspirationService.h"
+#include "../recall/RecallService.h"
 #include "../modules/ModuleImporter.h"
 #include "../logstudio/LogStudioService.h"
 #include "../logstudio/MediaService.h"
@@ -209,9 +208,22 @@ void registerRoutes() {
     route1("/api/channels/{1}/shards", {Get}, [&](auto& req, auto& p, auto& a) { return S.retrieval->getShard(access(p, a[0]), req->getParameter("id")); });
 
     // ---- AI auxiliary (user-triggered) ----
-    route1("/api/channels/{1}/consistency", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "consistency"); return S.consistency->check(ac, json::str(b, "chat_window_id"), json::str(b, "character_id"), json::str(b, "draft")); });
-    route1("/api/channels/{1}/consistency/history", {Get}, [&](auto& req, auto& p, auto& a) { return S.consistency->history(access(p, a[0]), qint(req, "limit", 20)); });
-    route1("/api/channels/{1}/inspiration", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "inspiration"); return S.inspiration->draft(ac, json::str(b, "chat_window_id"), json::str(b, "character_id"), json::str(b, "hint"), json::toInt(b, "variant", 0)); });
+    // Recall: what the chat log and the journal already say. mode "draft" checks the message being written
+    // (feature flag "consistency"); mode "hint" answers a question or the current topic (flag "inspiration").
+    // Copied into each route below: a by-reference capture would dangle once registration returns.
+    auto runRecall = [&](auto& req, auto& p, auto& a, const char* forcedMode) {
+        auto b = body(req); auto ac = access(p, a[0]);
+        std::string mode = forcedMode ? forcedMode : json::str(b, "mode", "hint"); if (mode != "draft") mode = "hint";
+        S.settings->requireFeature(ac.serverId, mode == "draft" ? "consistency" : "inspiration");
+        auto query = json::str(b, "query", json::str(b, mode == "draft" ? "draft" : "hint"));
+        return S.recall->recall(ac, json::str(b, "chat_window_id"), json::str(b, "character_id"), query, mode, json::toInt(b, "variant", 0));
+    };
+    route1("/api/channels/{1}/recall", {Post}, [&, runRecall](auto& req, auto& p, auto& a) { return runRecall(req, p, a, nullptr); });
+    route1("/api/channels/{1}/recall/history", {Get}, [&](auto& req, auto& p, auto& a) { return S.recall->history(access(p, a[0]), qint(req, "limit", 20)); });
+    // The former endpoints keep their paths and return the recall shape.
+    route1("/api/channels/{1}/consistency", {Post}, [&, runRecall](auto& req, auto& p, auto& a) { return runRecall(req, p, a, "draft"); });
+    route1("/api/channels/{1}/consistency/history", {Get}, [&](auto& req, auto& p, auto& a) { return S.recall->history(access(p, a[0]), qint(req, "limit", 20)); });
+    route1("/api/channels/{1}/inspiration", {Post}, [&, runRecall](auto& req, auto& p, auto& a) { return runRecall(req, p, a, "hint"); });
 
     // ---- AI observer admin ----
     route1("/api/channels/{1}/ai/status", {Get}, [&](auto&, auto& p, auto& a) { access(p, a[0]); auto s = S.observer->status(); s["llm"] = S.llm->status(a[0]); s["cursors"] = S.db->queryJson("SELECT kind, group_key, last_seq, updated_at FROM ai_processing_cursors WHERE channel_id=$1", {a[0]}); return s; });

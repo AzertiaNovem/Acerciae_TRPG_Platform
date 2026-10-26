@@ -152,40 +152,59 @@ test('Scenario 3: return of historical foreshadowing — mention of the badge hi
   ws.close();
 });
 
-test('Scenario 4: consistency conflict — claiming an item that was only promised', async () => {
-  const r = await api('POST', `/api/channels/${ids.channel}/consistency`, { chat_window_id: ids.main, character_id: ids.c1, draft: 'I take out the key that the Sheriff gave me last week and unlock the lighthouse door.' }, U.pl1);
-  assert.equal(r.insufficient_evidence, false);
-  assert.ok(typeof r.score === 'number' && r.score >= 0 && r.score <= 100);
-  assert.ok(r.score < 70, `expected a low heuristic score, got ${r.score}`);
-  assert.ok(r.conflicts.length >= 1);
-  assert.ok(/promised|no confirmed record|no record/i.test(r.conflicts[0].description));
-  assert.ok(r.evidence.length >= 1, 'evidence list is present');
-  assert.ok(r.evidence.some((e) => e.source_event_ids?.length >= 1), 'evidence is traceable to events');
-  assert.ok(r.highlights.length >= 1 && r.highlights.every((h) => h.kind === 'consistency' && h.visibility_scope === 'user'), 'temporary user-scoped highlights were created');
-  assert.ok(/heuristic/i.test(r.rationale));
-  // Insufficient evidence path
-  const r2 = await api('POST', `/api/channels/${ids.channel}/consistency`, { chat_window_id: ids.main, character_id: ids.c1, draft: 'I hum quietly to myself.' }, U.pl1);
-  assert.equal(r2.insufficient_evidence, true); assert.equal(r2.score, null); assert.equal(r2.score_label, 'Insufficient Evidence');
+test('Scenario 4: draft recall — what was already said about the key, quoted verbatim, never a GM secret', async () => {
+  const recall = (body, who) => api('POST', `/api/channels/${ids.channel}/recall`, { chat_window_id: ids.main, ...body }, who);
+  const r = await recall({ character_id: ids.c1, mode: 'draft', query: 'I take out the key that the Sheriff gave me last week and unlock the lighthouse door.' }, U.pl1);
+  assert.equal(r.mode, 'draft'); assert.equal(r.query_source, 'draft');
+  assert.ok(!('score' in r) && !('conflicts' in r) && !('rationale' in r) && !('draft' in r), 'no verdict, score, rationale or drafted text');
+  const items = r.topics.flatMap((t) => t.items);
+  const quotes = items.filter((i) => i.type === 'message');
+  assert.ok(quotes.length >= 1, 'chat lines about the key are quoted');
+  for (const q of quotes) {
+    const original = await api('GET', `/api/channels/${ids.channel}/messages/${q.id}`, undefined, U.pl1);
+    assert.equal(original.content, q.content, 'quotes are verbatim and readable by the caller');
+  }
+  assert.ok(items.some((i) => i.type === 'record' && i.source_event_ids?.length >= 1), 'journal records about the key are included and traceable to events');
+  const haystack = (r.query + '\n' + items.map((i) => (i.type === 'message' ? i.content : i.summary)).join('\n')).toLowerCase();
+  for (const t of r.topics) if (t.label) assert.ok(haystack.includes(t.label.toLowerCase()), `label "${t.label}" is a quoted phrase`);
+  assert.ok(r.highlights.every((h) => h.kind === 'consistency' && h.visibility_scope === 'user'), 'journal pointers are temporary and user-scoped');
+  // Nothing has been said about humming.
+  const r2 = await recall({ character_id: ids.c1, mode: 'draft', query: 'I hum quietly to myself.' }, U.pl1);
+  assert.equal(r2.selected, 0); assert.deepEqual(r2.topics, []);
   // The draft was never posted.
   const msgs = await api('GET', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, undefined, U.pl1);
   assert.ok(!msgs.some((m) => /unlock the lighthouse door/.test(m.content)));
-  // GM-only secrets never leak into a player's check.
+  // GM-only secrets never leak into a player's recall.
   await api('POST', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, { content: 'KEEPER NOTE: the real key is hidden inside the lighthouse lamp.', kind: 'narration', visibility: 'gm_only' }, U.gm);
   await api('POST', `/api/channels/${ids.channel}/ai/observe-now`, undefined, U.gm);
-  const r3 = await api('POST', `/api/channels/${ids.channel}/consistency`, { chat_window_id: ids.main, character_id: ids.c1, draft: 'I search the lighthouse lamp for the real key.' }, U.pl1);
-  assert.ok(!JSON.stringify(r3).includes('hidden inside the lighthouse lamp'), 'GM secret must not be revealed or hinted');
+  const r3 = await recall({ character_id: ids.c1, mode: 'draft', query: 'I search the lighthouse lamp for the real key.' }, U.pl1);
+  assert.ok(!JSON.stringify(r3.topics).includes('hidden inside the lighthouse lamp'), 'GM secret must not be quoted or hinted');
+  // The GM may recall their own secret line.
+  const g = await recall({ mode: 'hint', query: 'the real key' }, U.gm);
+  assert.ok(g.topics.flatMap((t) => t.items).some((i) => i.type === 'message' && /hidden inside the lighthouse lamp/.test(i.content)));
+  // The former endpoint keeps answering, in the recall shape.
+  const legacy = await api('POST', `/api/channels/${ids.channel}/consistency`, { chat_window_id: ids.main, character_id: ids.c1, draft: 'the key' }, U.pl1);
+  assert.equal(legacy.mode, 'draft'); assert.ok(Array.isArray(legacy.topics));
 });
 
-test('Scenario 5: inspiration — editable draft grounded in the character\'s knowledge, never auto-sent', async () => {
+test('Scenario 5: recall about the current topic — only what Ben can read, nothing written or sent', async () => {
+  const recall = (body, who) => api('POST', `/api/channels/${ids.channel}/recall`, { chat_window_id: ids.main, ...body }, who);
   const countBefore = (await api('GET', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, undefined, U.pl2)).length;
-  const r = await api('POST', `/api/channels/${ids.channel}/inspiration`, { chat_window_id: ids.main, character_id: ids.c2 }, U.pl2);
-  assert.ok(r.draft.length > 20); assert.equal(r.editable, true); assert.equal(r.auto_sent, false);
-  assert.ok(!/Jonah|planks|harbour|lamp/i.test(r.draft), 'draft must not use facts Ben does not know (PL3 harbour-only clue or GM secrets)');
+  const r = await recall({ character_id: ids.c2, mode: 'hint' }, U.pl2);
+  assert.equal(r.query_source, 'recent_chat');
+  assert.ok(!/new moon|planks|hidden inside the lighthouse lamp/i.test(JSON.stringify(r)), 'nothing Ben cannot read (PL3 private harbour window, GM secrets)');
+  for (const i of r.topics.flatMap((t) => t.items)) if (i.type === 'message') {
+    const m = await api('GET', `/api/channels/${ids.channel}/messages/${i.id}`, undefined, U.pl2);
+    assert.equal(m.content, i.content, 'every quote is a readable message, verbatim');
+  }
   const countAfter = (await api('GET', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, undefined, U.pl2)).length;
   assert.equal(countAfter, countBefore, 'nothing was sent');
-  const r2 = await api('POST', `/api/channels/${ids.channel}/inspiration`, { chat_window_id: ids.main, character_id: ids.c2, variant: 3 }, U.pl2);
-  assert.notEqual(r2.draft, r.draft, 'regeneration yields a different draft');
-  await assert.rejects(api('POST', `/api/channels/${ids.channel}/inspiration`, { chat_window_id: ids.main, character_id: ids.c1 }, U.pl2), (e) => e.status === 403, 'cannot draft as someone else\'s character');
+  const r2 = await recall({ character_id: ids.c2, mode: 'hint', query: 'the Sheriff' }, U.pl2);
+  assert.equal(r2.query_source, 'hint'); assert.ok(r2.terms.map((t) => t.toLowerCase()).includes('sheriff'));
+  assert.ok(r2.topics.flatMap((t) => t.items).every((i) => /sheriff/i.test(i.type === 'message' ? i.content : i.summary + ' ' + JSON.stringify(i.data))), 'a question returns only items that mention it');
+  await assert.rejects(recall({ character_id: ids.c1, mode: 'hint' }, U.pl2), (e) => e.status === 403, 'cannot recall as someone else\'s character');
+  const legacy = await api('POST', `/api/channels/${ids.channel}/inspiration`, { chat_window_id: ids.main, character_id: ids.c2, hint: 'the Sheriff' }, U.pl2);
+  assert.equal(legacy.mode, 'hint'); assert.ok(!('draft' in legacy));
 });
 
 test('Scenario 6: module deviation — events are recorded, GM gets potential associations, no module truth invented', async () => {

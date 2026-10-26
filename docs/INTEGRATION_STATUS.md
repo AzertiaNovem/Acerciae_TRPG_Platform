@@ -19,6 +19,8 @@ Message posting accepts up to five `reference_ids`; fetch originals separately u
 never grants access. Existing 18082 remains on its running version until its owner chooses to rebuild and migrate.
 See [KNOWLEDGE_GROUPS.md](KNOWLEDGE_GROUPS.md) for migration behavior and the updated API reference for exact contracts.
 
+The consistency score and the drafted inspiration reply have been replaced by recall (`POST /recall`, see API.md). The former `/consistency` and `/inspiration` paths still answer, but with the recall shape: verbatim chat messages and existing journal records the caller may read, grouped under quoted labels, with no score, conflicts, rationale or `draft` field. Native clients that rendered those fields must switch to the `topics` list; message items can be opened with `GET /channels/{id}/messages/{mid}` and attached as `reference_ids`.
+
 The exact request and response fields are documented in [API.md](API.md). Authenticated clients should send `Authorization: Bearer <login token>` for JSON, media, stored speech and PDF downloads. IDs and UI visibility are not authorization. Treat 403/404 as unavailable rather than retrying a broader scope.
 
 The minimal snapshot/read/export chain is:

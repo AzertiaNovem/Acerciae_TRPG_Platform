@@ -11,9 +11,9 @@ type Tab = 'general' | 'ai' | 'features' | 'members' | 'dice';
 import { LANGUAGE_LABELS } from '../i18n';
 export { LANGUAGE_LABELS } from '../i18n';
 const FEATURES: { key: Feature; label: string; help: string }[] = [
-  { key: 'consistency', label: 'Consistency Check', help: 'Players and GMs can check a draft against what their character knows.' },
+  { key: 'consistency', label: 'Already said about this', help: 'Before sending, players and GMs can see what the chat log and the journal already say about the things in their draft.' },
   { key: 'dice', label: 'Integrated Dice', help: 'Sealdice-style commands in chat: .r .ra .sc .st .en, with the gray attribute hint while typing.' },
-  { key: 'inspiration', label: 'Inspiration', help: 'Drafts a possible in-character reply from the character’s knowledge (never sent automatically).' },
+  { key: 'inspiration', label: 'Recall', help: 'Shows what the chat log and the journal already say about the current topic or a question. Nothing is written or sent.' },
 ];
 
 interface Form {
@@ -56,7 +56,7 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'feature
             {(settings.languages ?? Object.keys(LANGUAGE_LABELS)).map((l) => <option key={l} value={l}>{LANGUAGE_LABELS[l] ?? l}</option>)}
           </select>
         </label>
-        <div className="tiny muted">{tr("The language the AI chronicler, consistency check and inspiration write in, and the default dice reply texts (Chinese settings use the 中文 dice texts unless a channel picks another group).")}</div>
+        <div className="tiny muted">{tr("The language the AI chronicler writes in, and the default dice reply texts (Chinese settings use the 中文 dice texts unless a channel picks another group).")}</div>
       </>)}
       {tab === 'ai' && (<>
         <div className="section-label">{tr("Language model")}</div>

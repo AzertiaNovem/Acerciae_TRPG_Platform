@@ -2,16 +2,14 @@ import { t as tr } from '../i18n';
 import { useNav } from '../store/nav';
 import MessageList from './MessageList';
 import MessageComposer from './MessageComposer';
-import ConsistencyResultPanel from './ConsistencyResultPanel';
-import InspirationDraftPanel from './InspirationDraftPanel';
+import RecallPanel from './RecallPanel';
 import { useUi } from '../store/ui';
 import ContextBubbleDock from './ContextBubbleDock';
 
 export default function ChatWindow() {
   const { windows, windowId, channel, scenes } = useNav();
   const win = windows.find((w) => w.id === windowId);
-  const consistency = useUi((s) => s.consistency);
-  const inspiration = useUi((s) => s.inspiration);
+  const recall = useUi((s) => s.recall);
   if (!win || !channel) return null;
   const scene = scenes.find((s) => s.id === win.active_scene_id);
   return (
@@ -29,8 +27,7 @@ export default function ChatWindow() {
         <ContextBubbleDock />
       </div>
       <div style={{ position: 'relative' }}>
-        {consistency && <ConsistencyResultPanel />}
-        {inspiration && !consistency && <InspirationDraftPanel />}
+        {recall && <RecallPanel />}
         <MessageComposer />
       </div>
     </>

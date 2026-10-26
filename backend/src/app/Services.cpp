@@ -9,8 +9,7 @@
 #include "../retrieval/ContextRetrievalService.h"
 #include "../llm/LlmGateway.h"
 #include "../observer/ObserverScheduler.h"
-#include "../consistency/ConsistencyService.h"
-#include "../inspiration/InspirationService.h"
+#include "../recall/RecallService.h"
 #include "../modules/ModuleImporter.h"
 #include "../ws/Notifier.h"
 #include "../logstudio/LogStudioService.h"
@@ -49,8 +48,7 @@ Services& Services::build(const Config& cfg) {
     s.llm = std::make_unique<LlmGateway>(s.cfg);
     s.llm->setProfileResolver([&s](const std::string& channelId) { return s.settings->profileForChannel(channelId); });
     s.retrieval = std::make_unique<ContextRetrievalService>(*s.db, *s.knowledge, *s.events, *s.llm);
-    s.consistency = std::make_unique<ConsistencyService>(s.cfg, *s.db, *s.retrieval, *s.llm, *s.highlights, *s.knowledge);
-    s.inspiration = std::make_unique<InspirationService>(s.cfg, *s.db, *s.retrieval, *s.llm);
+    s.recall = std::make_unique<RecallService>(s.cfg, *s.db, *s.llm, *s.highlights);
     s.modules = std::make_unique<ModuleImporter>(s.cfg, *s.db, *s.llm, *s.notifier);
     s.studio = std::make_unique<logstudio::LogStudioService>(s.cfg, *s.db, *s.notifier);
     s.objectStore = logstudio::makeObjectStore(s.cfg);
