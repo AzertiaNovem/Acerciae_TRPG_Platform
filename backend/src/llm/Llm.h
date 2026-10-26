@@ -1,0 +1,51 @@
+#pragma once
+#include <json/json.h>
+#include <string>
+#include <vector>
+#include <functional>
+
+namespace acerciae {
+
+struct LlmMessage {
+    std::string role;           // system | user | assistant | tool
+    std::string content;
+    Json::Value toolCalls;      // assistant: [{id, name, arguments(json string)}]
+    std::string toolCallId;     // tool: id of the call this answers
+    std::string name;           // tool: tool name
+};
+
+struct LlmToolSpec {
+    std::string name;
+    std::string description;
+    Json::Value parameters;     // JSON schema
+};
+
+struct LlmRequest {
+    std::string task;           // observer_extract | consolidate | consistency | inspiration | module_structure
+    std::string system;
+    std::vector<LlmMessage> messages;
+    std::vector<LlmToolSpec> tools;
+    Json::Value responseSchema; // when set, the final answer must validate against it
+    double temperature = 0.2;
+    int maxTokens = 2048;
+};
+
+struct LlmResponse {
+    bool ok = false;
+    std::string error;
+    std::string content;
+    Json::Value toolCalls = Json::Value(Json::arrayValue);   // [{id, name, arguments}]
+    int promptTokens = 0, completionTokens = 0;
+};
+
+// Pluggable backend. Implementations: OpenAiCompatClient, MockLlmClient.
+class ILlmClient {
+public:
+    virtual ~ILlmClient() = default;
+    virtual LlmResponse complete(const LlmRequest& req) = 0;
+    virtual std::string mode() const = 0;      // "live" | "mock"
+    virtual std::string modelName() const = 0;
+    virtual std::vector<float> embed(const std::string& text) { (void)text; return {}; }
+};
+
+} // namespace acerciae

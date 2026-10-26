@@ -1,0 +1,60 @@
+#pragma once
+#include "../core/Config.h"
+#include "../core/Db.h"
+#include "../auth/AuthService.h"
+#include <json/json.h>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <set>
+#include <string>
+#include <thread>
+
+namespace acerciae {
+class EventStore; class DocumentService; class HighlightService; class ContextRetrievalService; class LlmGateway; class Notifier; class KnowledgeService;
+
+// Background AI observer. Three independent loops:
+//   observe      (default 5 s)  – high-frequency fact identification + localised document updates
+//   consolidate  (default 60 s) – low-frequency relationship consolidation / thread review
+//   cleanup      (default 30 s) – highlight expiry
+// No LLM call is made when there are no new events. Each (channel, window, scene) group has its own
+// cursor and a DB-level task lock (ai_jobs partial unique index), so identical events are never
+// processed twice and two cycles never modify the same documents concurrently.
+class ObserverScheduler {
+public:
+    ObserverScheduler(const Config& cfg, Db& db, EventStore& events, DocumentService& docs, HighlightService& highlights,
+                      ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge);
+    ~ObserverScheduler();
+    void start();
+    void stop();
+
+    // Synchronous entry points (used by the admin API and the tests).
+    Json::Value observeChannel(const std::string& channelId);       // processes every pending group once
+    Json::Value consolidateChannel(const std::string& channelId);
+    int cleanupHighlights();
+    Json::Value status() const;
+    Json::Value listJobs(const std::string& channelId, int limit);
+
+    static Json::Value observerSchema();
+    static Json::Value consolidateSchema();
+    static std::string observerSystemPrompt();
+private:
+    void observeLoop(); void consolidateLoop(); void cleanupLoop();
+    void observeTick();
+    Json::Value processGroup(const std::string& channelId, const std::string& windowId, const std::string& sceneId, int64_t fromSeq);
+    Json::Value buildGroupContext(const ChannelAccess& sys, const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, std::vector<std::string>& terms);
+    void applyExtraction(const ChannelAccess& sys, const std::string& channelId, const std::string& jobId, const Json::Value& data, const Json::Value& batch, Json::Value& summary);
+    void suggestKnowledgeSharing(const std::string& channelId, const Json::Value& batch, const std::string& jobId, Json::Value& summary);
+    ChannelAccess systemAccess(const std::string& channelId);
+    bool tryLock(const std::string& key);
+    void unlock(const std::string& key);
+
+    const Config& cfg_; Db& db_; EventStore& events_; DocumentService& docs_; HighlightService& highlights_;
+    ContextRetrievalService& retrieval_; LlmGateway& llm_; Notifier& notifier_; KnowledgeService& knowledge_;
+    std::atomic<bool> running_{false};
+    std::thread observeThread_, consolidateThread_, cleanupThread_;
+    std::mutex cvMu_; std::condition_variable cv_;
+    std::mutex lockMu_; std::set<std::string> locks_;
+    std::atomic<int> ticks_{0}, groupsProcessed_{0}, llmCalls_{0};
+};
+}

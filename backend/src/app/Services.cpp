@@ -1,0 +1,51 @@
+#include "Services.h"
+#include "../auth/AuthService.h"
+#include "../events/EventStore.h"
+#include "../chat/ChatService.h"
+#include "../scenes/SceneManager.h"
+#include "../knowledge/KnowledgeService.h"
+#include "../documents/DocumentService.h"
+#include "../highlights/HighlightService.h"
+#include "../retrieval/ContextRetrievalService.h"
+#include "../llm/LlmGateway.h"
+#include "../observer/ObserverScheduler.h"
+#include "../consistency/ConsistencyService.h"
+#include "../inspiration/InspirationService.h"
+#include "../modules/ModuleImporter.h"
+#include "../ws/Notifier.h"
+
+namespace acerciae {
+
+static std::unique_ptr<Services> g_services;
+
+Services& services() { return *g_services; }
+
+Services& Services::build(const Config& cfg) {
+    g_services = std::make_unique<Services>();
+    auto& s = *g_services;
+    s.cfg = cfg;
+    s.db = std::make_unique<Db>(cfg.databaseUrl, (std::size_t)std::max(4, cfg.httpThreads * 2 + 4));
+    s.auth = std::make_unique<AuthService>(*s.db, s.cfg);
+    s.events = std::make_unique<EventStore>(*s.db);
+    s.notifier = std::make_unique<Notifier>(*s.db);
+    s.scenes = std::make_unique<SceneManager>(*s.db, *s.events, *s.notifier);
+    s.knowledge = std::make_unique<KnowledgeService>(*s.db);
+    s.documents = std::make_unique<DocumentService>(*s.db, *s.knowledge, *s.notifier);
+    s.highlights = std::make_unique<HighlightService>(*s.db, *s.notifier, cfg.highlightTtlSeconds);
+    s.chat = std::make_unique<ChatService>(*s.db, *s.auth, *s.events, *s.scenes, *s.notifier, *s.documents);
+    s.llm = std::make_unique<LlmGateway>(s.cfg);
+    s.retrieval = std::make_unique<ContextRetrievalService>(*s.db, *s.knowledge, *s.events, *s.llm);
+    s.consistency = std::make_unique<ConsistencyService>(s.cfg, *s.db, *s.retrieval, *s.llm, *s.highlights, *s.knowledge);
+    s.inspiration = std::make_unique<InspirationService>(s.cfg, *s.db, *s.retrieval, *s.llm);
+    s.modules = std::make_unique<ModuleImporter>(s.cfg, *s.db, *s.llm, *s.notifier);
+    s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge);
+    return s;
+}
+
+void Services::shutdown() {
+    if (!g_services) return;
+    if (g_services->observer) g_services->observer->stop();
+    g_services.reset();
+}
+
+} // namespace acerciae
