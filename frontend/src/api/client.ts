@@ -1,0 +1,92 @@
+import type * as T from '../types';
+
+const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '';
+let token: string | null = localStorage.getItem('acerciae.token');
+
+export function setToken(t: string | null) { token = t; if (t) localStorage.setItem('acerciae.token', t); else localStorage.removeItem('acerciae.token'); }
+export function getToken() { return token; }
+
+export class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }
+
+async function request<R>(method: string, path: string, body?: unknown, raw?: BodyInit): Promise<R> {
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const res = await fetch(BASE + path, { method, headers, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
+  const text = await res.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText);
+  return data as R;
+}
+const get = <R,>(p: string) => request<R>('GET', p);
+const post = <R,>(p: string, b?: unknown) => request<R>('POST', p, b);
+const put = <R,>(p: string, b?: unknown) => request<R>('PUT', p, b);
+const del = <R,>(p: string) => request<R>('DELETE', p);
+const q = (o: Record<string, string | number | undefined>) => { const s = Object.entries(o).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&'); return s ? `?${s}` : ''; };
+
+export const api = {
+  health: () => get<{ status: string; llm_mode: string }>('/api/health'),
+  llmStatus: () => get<{ mode: string; model: string; note: string }>('/api/llm/status'),
+  register: (username: string, password: string, display_name: string) => post<{ token: string; user: T.User }>('/api/auth/register', { username, password, display_name }),
+  login: (username: string, password: string) => post<{ token: string; user: T.User }>('/api/auth/login', { username, password }),
+  logout: () => post('/api/auth/logout'),
+  me: () => get<T.User>('/api/auth/me'),
+  servers: () => get<T.Server[]>('/api/servers'),
+  createServer: (name: string) => post<T.Server>('/api/servers', { name }),
+  joinServer: (id: string) => post<T.Server>(`/api/servers/${id}/join`),
+  addServerMember: (id: string, username: string, role = 'member') => post(`/api/servers/${id}/members`, { username, role }),
+  channels: (serverId: string) => get<T.Channel[]>(`/api/servers/${serverId}/channels`),
+  createChannel: (serverId: string, body: { name: string; description?: string; knowledge_mode?: string; rule_system?: string }) => post<T.Channel>(`/api/servers/${serverId}/channels`, body),
+  channel: (id: string) => get<T.Channel>(`/api/channels/${id}`),
+  updateChannel: (id: string, body: Partial<T.Channel>) => put<T.Channel>(`/api/channels/${id}`, body),
+  channelMembers: (id: string) => get<any[]>(`/api/channels/${id}/members`),
+  addChannelMember: (id: string, username: string, role: 'gm' | 'player') => post(`/api/channels/${id}/members`, { username, role }),
+  characters: (ch: string) => get<T.Character[]>(`/api/channels/${ch}/characters`),
+  createCharacter: (ch: string, body: Partial<T.Character> & { name: string; description?: string; user_id?: string }) => post<T.Character>(`/api/channels/${ch}/characters`, body),
+  windows: (ch: string) => get<T.ChatWindow[]>(`/api/channels/${ch}/windows`),
+  createWindow: (ch: string, body: { name: string; kind: string; members: { user_id: string; character_id?: string }[]; scene_id?: string }) => post<T.ChatWindow>(`/api/channels/${ch}/windows`, body),
+  addWindowMember: (ch: string, w: string, user_id: string, character_id?: string) => post(`/api/channels/${ch}/windows/${w}/members`, { user_id, character_id }),
+  removeWindowMember: (ch: string, w: string, user_id: string) => del(`/api/channels/${ch}/windows/${w}/members/${user_id}`),
+  messages: (ch: string, w: string, beforeSeq?: number, limit = 80) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ before_seq: beforeSeq, limit })}`),
+  postMessage: (ch: string, w: string, body: { content: string; kind?: string; character_id?: string; visibility?: string; whisper_to?: string[] }) => post<T.Message>(`/api/channels/${ch}/windows/${w}/messages`, body),
+  message: (ch: string, id: string) => get<T.Message>(`/api/channels/${ch}/messages/${id}`),
+  enterScene: (ch: string, w: string, scene_id: string) => post<T.ChatWindow>(`/api/channels/${ch}/windows/${w}/scene`, { scene_id }),
+  scenes: (ch: string) => get<T.Scene[]>(`/api/channels/${ch}/scenes`),
+  createScene: (ch: string, body: Partial<T.Scene> & { title: string }) => post<T.Scene>(`/api/channels/${ch}/scenes`, body),
+  updateScene: (ch: string, id: string, body: Partial<T.Scene>) => put<T.Scene>(`/api/channels/${ch}/scenes/${id}`, body),
+  closeScene: (ch: string, id: string) => post<T.Scene>(`/api/channels/${ch}/scenes/${id}/close`),
+  sceneLog: (ch: string, id: string) => get<T.EventRow[]>(`/api/channels/${ch}/scenes/${id}/log`),
+  events: (ch: string, ids: string[]) => get<T.EventRow[]>(`/api/channels/${ch}/events${q({ ids: ids.join(',') })}`),
+  documents: (ch: string) => get<T.DocumentSummary[]>(`/api/channels/${ch}/documents`),
+  document: (ch: string, id: string, sceneId?: string, sinceVersion?: number) => get<T.DocumentFull>(`/api/channels/${ch}/documents/${id}${q({ scene_id: sceneId, since_version: sinceVersion })}`),
+  revisions: (ch: string, id: string) => get<T.Revision[]>(`/api/channels/${ch}/documents/${id}/revisions`),
+  revision: (ch: string, id: string, v: number) => get<any>(`/api/channels/${ch}/documents/${id}/revisions/${v}`),
+  rollback: (ch: string, id: string, version: number) => post<T.DocumentFull>(`/api/channels/${ch}/documents/${id}/rollback`, { version }),
+  correctEntry: (ch: string, doc: string, entry: string, body: { summary?: string; status?: string; content_md?: string; reason?: string; visibility?: unknown; op?: string }) => put<{ version: number; entry: T.DocEntry; log: unknown[] }>(`/api/channels/${ch}/documents/${doc}/entries/${entry}`, body),
+  entry: (ch: string, id: string) => get<T.DocEntry>(`/api/channels/${ch}/entries/${id}`),
+  related: (ch: string, id: string) => get<T.DocEntry[]>(`/api/channels/${ch}/entries/${id}/related`),
+  proposals: (ch: string, status = 'needs_gm_review') => get<T.Proposal[]>(`/api/channels/${ch}/proposals${q({ status })}`),
+  decideProposal: (ch: string, id: string, accept: boolean) => post(`/api/channels/${ch}/proposals/${id}/decide`, { accept }),
+  highlights: (ch: string, documentId?: string) => get<T.Highlight[]>(`/api/channels/${ch}/highlights${q({ document_id: documentId })}`),
+  dismissHighlight: (ch: string, id: string) => post(`/api/channels/${ch}/highlights/${id}/dismiss`),
+  facts: (ch: string, kind?: string, query?: string) => get<any[]>(`/api/channels/${ch}/facts${q({ kind, q: query })}`),
+  factVisibility: (ch: string, id: string) => get<{ scope: string; character_ids: string[] }>(`/api/channels/${ch}/facts/${id}/visibility`),
+  setFactVisibility: (ch: string, id: string, body: { scope: string; character_ids?: string[] }) => put(`/api/channels/${ch}/facts/${id}/visibility`, body),
+  entities: (ch: string, query?: string) => get<any[]>(`/api/channels/${ch}/entities${q({ q: query })}`),
+  consistency: (ch: string, body: { chat_window_id: string; character_id?: string; draft: string }) => post<T.ConsistencyResult>(`/api/channels/${ch}/consistency`, body),
+  inspiration: (ch: string, body: { chat_window_id: string; character_id?: string; hint?: string; variant?: number }) => post<T.InspirationResult>(`/api/channels/${ch}/inspiration`, body),
+  aiStatus: (ch: string) => get<any>(`/api/channels/${ch}/ai/status`),
+  aiJobs: (ch: string) => get<T.AiJob[]>(`/api/channels/${ch}/ai/jobs`),
+  observeNow: (ch: string) => post<{ jobs: unknown[] }>(`/api/channels/${ch}/ai/observe-now`),
+  consolidateNow: (ch: string) => post(`/api/channels/${ch}/ai/consolidate-now`),
+  modules: (ch: string) => get<T.ModuleInfo[]>(`/api/channels/${ch}/modules`),
+  module: (ch: string, id: string) => get<T.ModuleInfo>(`/api/channels/${ch}/modules/${id}`),
+  modulePage: (ch: string, id: string, page: number) => get<{ page_number: number; text: string }>(`/api/channels/${ch}/modules/${id}/pages/${page}`),
+  uploadModule: (ch: string, file: File, title: string) => { const fd = new FormData(); fd.append('file', file); fd.append('title', title); return request<T.ModuleInfo>('POST', `/api/channels/${ch}/modules`, undefined, fd); },
+  importModuleText: (ch: string, title: string, text: string) => post<T.ModuleInfo>(`/api/channels/${ch}/modules/text`, { title, text }),
+  updateNode: (ch: string, id: string, body: Partial<T.ModuleNode>) => put<T.ModuleNode>(`/api/channels/${ch}/modules/nodes/${id}`, body),
+  hints: (ch: string, status = 'potential') => get<T.ModuleHint[]>(`/api/channels/${ch}/modules/hints${q({ status })}`),
+  decideHint: (ch: string, id: string, decision: 'accepted' | 'dismissed') => post(`/api/channels/${ch}/modules/hints/${id}/decide`, { decision }),
+  gmWorkspace: (ch: string) => get<any>(`/api/channels/${ch}/gm/workspace`),
+};

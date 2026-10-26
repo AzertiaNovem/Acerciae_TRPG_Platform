@@ -64,6 +64,7 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
             auto data = extractJson(resp.content);
             std::vector<std::string> errs;
             if (!SchemaValidator::validate(req.responseSchema, data, errs)) {
+                ALOG_WARN << "LLM output for task '" << req.task << "' failed schema validation: " << SchemaValidator::errorsToString(errs);
                 if (round + 1 < maxRounds) {
                     // One repair attempt: tell the model what was wrong.
                     LlmMessage a; a.role = "assistant"; a.content = resp.content; req.messages.push_back(a);

@@ -56,8 +56,15 @@ int ObserverScheduler::cleanupHighlights() {
     return n;
 }
 
-bool ObserverScheduler::tryLock(const std::string& key) { std::lock_guard<std::mutex> lk(lockMu_); return locks_.insert(key).second; }
-void ObserverScheduler::unlock(const std::string& key) { std::lock_guard<std::mutex> lk(lockMu_); locks_.erase(key); }
+bool ObserverScheduler::tryLock(const std::string& key, bool wait) {
+    std::unique_lock<std::mutex> lk(lockMu_);
+    if (!wait) return locks_.insert(key).second;
+    // Synchronous callers (admin API, tests) wait for a running cycle on the same group so that their
+    // call observes everything posted before it.
+    lockCv_.wait_for(lk, std::chrono::seconds(60), [&] { return !locks_.count(key); });
+    return locks_.insert(key).second;
+}
+void ObserverScheduler::unlock(const std::string& key) { { std::lock_guard<std::mutex> lk(lockMu_); locks_.erase(key); } lockCv_.notify_all(); }
 
 ChannelAccess ObserverScheduler::systemAccess(const std::string& channelId) {
     ChannelAccess a; a.channelId = channelId; a.isGm = true; a.userId = "00000000-0000-0000-0000-000000000000";
@@ -75,23 +82,23 @@ void ObserverScheduler::observeTick() {
 
 static const char* OBSERVED_KINDS = "('message.posted','scene.entered','scene.created','scene.updated','scene.closed','gm.declared')";
 
-Json::Value ObserverScheduler::observeChannel(const std::string& channelId) {
+Json::Value ObserverScheduler::observeChannel(const std::string& channelId, bool waitForInflight) {
     Json::Value out(Json::arrayValue);
     auto groups = db_.queryJson(
         "SELECT coalesce(e.chat_window_id::text,'') AS window_id, coalesce(e.scene_id::text,'') AS scene_id, count(*) AS pending, min(e.seq) AS from_seq, max(e.seq) AS to_seq "
         "FROM events e LEFT JOIN ai_processing_cursors c ON c.channel_id=e.channel_id AND c.kind='observe' AND c.group_key = coalesce(e.chat_window_id::text,'') || ':' || coalesce(e.scene_id::text,'') "
         "WHERE e.channel_id=$1 AND e.seq > coalesce(c.last_seq, 0) AND e.kind IN " + std::string(OBSERVED_KINDS) + " GROUP BY 1,2 ORDER BY min(e.seq)", {channelId});
     for (auto& g : groups) {
-        auto r = processGroup(channelId, g["window_id"].asString(), g["scene_id"].asString(), g["from_seq"].asInt64());
+        auto r = processGroup(channelId, g["window_id"].asString(), g["scene_id"].asString(), g["from_seq"].asInt64(), waitForInflight);
         if (!r.isNull()) out.append(r);
     }
     return out;
 }
 
-Json::Value ObserverScheduler::processGroup(const std::string& channelId, const std::string& windowId, const std::string& sceneId, int64_t) {
+Json::Value ObserverScheduler::processGroup(const std::string& channelId, const std::string& windowId, const std::string& sceneId, int64_t, bool waitForInflight) {
     std::string groupKey = windowId + ":" + sceneId;
     std::string lockKey = channelId + "/" + groupKey;
-    if (!tryLock(lockKey)) return Json::Value();           // previous cycle for this group still running
+    if (!tryLock(lockKey, waitForInflight)) return Json::Value();           // previous cycle for this group still running
     struct Unlock { ObserverScheduler* s; std::string k; ~Unlock() { s->unlock(k); } } ul{this, lockKey};
 
     // DB-level task lock + cursor read.
@@ -202,8 +209,22 @@ Json::Value ObserverScheduler::buildGroupContext(const ChannelAccess& sys, const
     ctx["scene_is_off_module"] = false;
     if (!mod.isNull()) {
         std::string all; for (auto& e : batch) all += json::str(e["payload"], "content") + "\n";
-        for (auto& n : db_.queryJson("SELECT id AS node_id, name, node_type, progress FROM module_nodes WHERE module_id=$1 AND length(name) >= 4 AND $2 ILIKE '%' || name || '%' LIMIT 10", {mod["id"].asString(), all}))
-            ctx["module_nodes"].append(n);
+        std::set<std::string> seenNodes;
+        for (auto& n : db_.queryJson("SELECT id AS node_id, name, node_type, progress, (citations->0->>'page') AS page FROM module_nodes WHERE module_id=$1 AND length(name) >= 4 AND $2 ILIKE '%' || name || '%' LIMIT 10", {mod["id"].asString(), all}))
+            { seenNodes.insert(n["node_id"].asString()); n["matched_terms"] = Json::Value(Json::arrayValue); ctx["module_nodes"].append(n); }
+        // Fuzzy: distinctive terms of the batch found in node descriptions (full-text), ranked.
+        std::string orq; for (auto& t : terms) { auto l = text::lower(t); if (l.size() < 5 || l.find(' ') != std::string::npos) continue; if (!orq.empty()) orq += " | "; orq += l; }
+        if (!orq.empty()) {
+            try {
+                for (auto& n : db_.queryJson("SELECT id AS node_id, name, node_type, progress, description, (citations->0->>'page') AS page FROM module_nodes WHERE module_id=$1 AND search @@ to_tsquery('english', $2) ORDER BY ts_rank(search, to_tsquery('english', $2)) DESC LIMIT 6", {mod["id"].asString(), orq})) {
+                    if (seenNodes.count(n["node_id"].asString())) continue;
+                    Json::Value mt(Json::arrayValue);
+                    for (auto& t : terms) if (t.size() >= 5 && (text::icontains(n["description"].asString(), t) || text::icontains(n["name"].asString(), t))) mt.append(t);
+                    if (mt.empty()) continue;
+                    n.removeMember("description"); n["matched_terms"] = mt; ctx["module_nodes"].append(n);
+                }
+            } catch (...) { /* malformed tsquery token: skip fuzzy matching */ }
+        }
         auto loc = json::str(scene, "location");
         if (!loc.empty()) {
             auto match = db_.queryOne("SELECT id FROM module_nodes WHERE module_id=$1 AND node_type IN ('location','scene') AND (name ILIKE '%' || $2 || '%' OR $2 ILIKE '%' || name || '%' OR similarity(name, $2) > 0.4) LIMIT 1", {mod["id"].asString(), loc});
@@ -252,11 +273,14 @@ void ObserverScheduler::applyExtraction(const ChannelAccess& sys, const std::str
     auto mod = db_.queryOne("SELECT id FROM modules WHERE channel_id=$1 AND status='ready' ORDER BY created_at DESC LIMIT 1", {channelId});
     for (auto& mh : data["module_hints"]) {
         auto nodeId = json::str(mh, "node_id");
-        if (!Visibility::isUuid(nodeId) || mod.isNull()) continue;
+        if (mod.isNull()) continue;
+        bool hasNode = Visibility::isUuid(nodeId);
+        if (!hasNode) nodeId.clear();
         std::vector<std::string> src; for (auto& s : json::strArray(mh["source_event_ids"])) if (std::find(batchIds.begin(), batchIds.end(), s) != batchIds.end()) src.push_back(s);
-        auto dup = db_.queryOne("SELECT id FROM module_hints WHERE channel_id=$1 AND node_id=$2 AND status='potential' AND reason=$3", {channelId, nodeId, json::str(mh, "reason")});
+        auto dup = db_.queryOne("SELECT id FROM module_hints WHERE channel_id=$1 AND node_id IS NOT DISTINCT FROM $2 AND status='potential' AND reason=$3", {channelId, hasNode ? DbParam(nodeId) : dbNull(), json::str(mh, "reason")});
         if (!dup.isNull()) continue;
-        db_.exec("INSERT INTO module_hints(channel_id, module_id, node_id, reason, source_event_ids) VALUES($1,$2,$3,$4,$5::uuid[])", {channelId, mod["id"].asString(), nodeId, json::str(mh, "reason", "Potential association"), pgArrayLiteral(src)});
+        db_.exec("INSERT INTO module_hints(channel_id, module_id, node_id, reason, source_event_ids) VALUES($1,$2,$3,$4,$5::uuid[])", {channelId, mod["id"].asString(), hasNode ? DbParam(nodeId) : dbNull(), json::str(mh, "reason", "Potential association"), pgArrayLiteral(src)});
+        if (!hasNode) { summary["module_hints"] = summary["module_hints"].asInt() + 1; continue; }
         db_.exec("UPDATE module_nodes SET progress = CASE WHEN progress='untouched' THEN 'active' ELSE progress END, progress_event_ids = (SELECT array_agg(DISTINCT x) FROM unnest(progress_event_ids || $2::uuid[]) x), updated_at=now() WHERE id=$1", {nodeId, pgArrayLiteral(src)});
         summary["module_hints"] = summary["module_hints"].asInt() + 1;
         // Surface it on the GM-only Module Progress document as a potential-association highlight when an entry exists.
@@ -288,16 +312,16 @@ void ObserverScheduler::suggestKnowledgeSharing(const std::string& channelId, co
         auto content = json::str(e["payload"], "content");
         auto kws = text::keywords(content, 5); if (kws.empty()) continue;
         // Facts the speaker knows privately (character scope) that match the message and that some listener lacks.
-        for (auto& f : db_.queryJson("SELECT f.id, f.summary FROM knowledge_facts f WHERE f.channel_id=$1 AND f.status <> 'retracted' AND EXISTS (SELECT 1 FROM knowledge_visibility kv WHERE kv.fact_id=f.id AND kv.scope='character' AND kv.character_id=$2) AND NOT EXISTS (SELECT 1 FROM knowledge_visibility kv WHERE kv.fact_id=f.id AND kv.scope='public') LIMIT 100", {channelId, speaker})) {
+        for (auto& f : db_.queryJson("SELECT f.id, f.summary FROM knowledge_facts f WHERE f.channel_id=$1 AND f.status <> 'retracted' AND f.kind IN ('clue','relationship','timeline') AND EXISTS (SELECT 1 FROM knowledge_visibility kv WHERE kv.fact_id=f.id AND kv.scope='character' AND kv.character_id=$2) AND NOT EXISTS (SELECT 1 FROM knowledge_visibility kv WHERE kv.fact_id=f.id AND kv.scope='public') LIMIT 100", {channelId, speaker})) {
             int hits = 0; for (auto& k : kws) if (text::icontains(f["summary"].asString(), k)) hits++;
             if (hits < 2) continue;
             std::vector<std::string> lacking;
             for (auto& o : others) { auto r = db_.queryOne("SELECT 1 AS ok FROM knowledge_visibility WHERE fact_id=$1 AND scope='character' AND character_id=$2", {f["id"].asString(), o}); if (r.isNull()) lacking.push_back(o); }
             if (lacking.empty()) continue;
-            Json::Value op; op["op"] = "share_knowledge"; op["fact_id"] = f["id"]; op["character_ids"] = json::fromStrArray(lacking);
+            Json::Value op; op["op"] = "share_knowledge"; op["fact_id"] = f["id"]; op["character_ids"] = json::fromStrArray(lacking); op["fact_summary"] = f["summary"];
             op["reason"] = json::str(e, "character_name", "A character") + " appears to share this in conversation: \"" + text::truncate(content, 120) + "\"";
             Json::Value ops(Json::arrayValue); ops.append(op);
-            auto dup = db_.queryOne("SELECT id FROM document_proposals WHERE channel_id=$1 AND status='needs_gm_review' AND ops->0->>'op'='share_knowledge' AND ops->0->>'fact_id'=$2", {channelId, f["id"].asString()});
+            auto dup = db_.queryOne("SELECT id FROM document_proposals WHERE channel_id=$1 AND status IN ('needs_gm_review','rejected') AND ops->0->>'op'='share_knowledge' AND ops->0->>'fact_id'=$2 AND ops->0->'character_ids' = $3::jsonb", {channelId, f["id"].asString(), json::dump(json::fromStrArray(lacking))});
             if (!dup.isNull()) continue;
             db_.exec("INSERT INTO document_proposals(channel_id, ai_job_id, ops, source_event_ids, status, rejection_reason) VALUES($1,$2,$3::jsonb,$4::uuid[],'needs_gm_review','knowledge sharing suggestion')",
                 {channelId, jobId, json::dump(ops), pgArrayLiteral({json::str(e, "event_id")})});
@@ -309,7 +333,7 @@ void ObserverScheduler::suggestKnowledgeSharing(const std::string& channelId, co
 
 Json::Value ObserverScheduler::consolidateChannel(const std::string& channelId) {
     std::string lockKey = channelId + "/consolidate";
-    if (!tryLock(lockKey)) return Json::Value();
+    if (!tryLock(lockKey, false)) return Json::Value();
     struct Unlock { ObserverScheduler* s; std::string k; ~Unlock() { s->unlock(k); } } ul{this, lockKey};
     Json::Value job;
     int64_t lastSeq = 0, maxSeq = events_.maxSeq(channelId);
@@ -387,7 +411,7 @@ Json::Value ObserverScheduler::observerSchema() {
           "ops":{"type":"array","items":{"type":"object","required":["op"],"properties":{"op":{"type":"string"},"fact":{"type":"object"},"fact_id":{"type":"string"},"status":{"type":"string"},"source_event_ids":{"type":"array","items":{"type":"string"}}}}},
           "source_event_ids":{"type":"array","items":{"type":"string"}}}}},
         "highlights":{"type":"array","items":{"type":"object","required":["fact_id","reason"],"properties":{"fact_id":{"type":"string"},"reason":{"type":"string"},"source_event_ids":{"type":"array","items":{"type":"string"}},"kind":{"type":"string"}}}},
-        "module_hints":{"type":"array","items":{"type":"object","required":["node_id","reason"],"properties":{"node_id":{"type":"string"},"reason":{"type":"string"}}}},
+        "module_hints":{"type":"array","items":{"type":"object","required":["reason"],"properties":{"node_id":{"type":["string","null"]},"reason":{"type":"string"}}}},
         "scene_update":{"type":"object","properties":{"location":{"type":"string"},"narrative_time":{"type":"string"}}},
         "knowledge_suggestions":{"type":"array"}
       }})");

@@ -29,7 +29,7 @@ public:
     void stop();
 
     // Synchronous entry points (used by the admin API and the tests).
-    Json::Value observeChannel(const std::string& channelId);       // processes every pending group once
+    Json::Value observeChannel(const std::string& channelId, bool waitForInflight = false);   // processes every pending group once
     Json::Value consolidateChannel(const std::string& channelId);
     int cleanupHighlights();
     Json::Value status() const;
@@ -41,12 +41,12 @@ public:
 private:
     void observeLoop(); void consolidateLoop(); void cleanupLoop();
     void observeTick();
-    Json::Value processGroup(const std::string& channelId, const std::string& windowId, const std::string& sceneId, int64_t fromSeq);
+    Json::Value processGroup(const std::string& channelId, const std::string& windowId, const std::string& sceneId, int64_t fromSeq, bool waitForInflight);
     Json::Value buildGroupContext(const ChannelAccess& sys, const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, std::vector<std::string>& terms);
     void applyExtraction(const ChannelAccess& sys, const std::string& channelId, const std::string& jobId, const Json::Value& data, const Json::Value& batch, Json::Value& summary);
     void suggestKnowledgeSharing(const std::string& channelId, const Json::Value& batch, const std::string& jobId, Json::Value& summary);
     ChannelAccess systemAccess(const std::string& channelId);
-    bool tryLock(const std::string& key);
+    bool tryLock(const std::string& key, bool wait);
     void unlock(const std::string& key);
 
     const Config& cfg_; Db& db_; EventStore& events_; DocumentService& docs_; HighlightService& highlights_;
@@ -54,7 +54,7 @@ private:
     std::atomic<bool> running_{false};
     std::thread observeThread_, consolidateThread_, cleanupThread_;
     std::mutex cvMu_; std::condition_variable cv_;
-    std::mutex lockMu_; std::set<std::string> locks_;
+    std::mutex lockMu_; std::condition_variable lockCv_; std::set<std::string> locks_;
     std::atomic<int> ticks_{0}, groupsProcessed_{0}, llmCalls_{0};
 };
 }

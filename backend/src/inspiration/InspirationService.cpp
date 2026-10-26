@@ -19,7 +19,8 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     ChannelAccess view = a; if (!a.isGm && !characterId.empty()) view.characterIds = {characterId};
     Json::Value ctx;
     ctx["character"] = characterId.empty() ? Json::Value(Json::objectValue) : db_.queryOne("SELECT id, name, speaking_style, sheet FROM characters WHERE id=$1 AND channel_id=$2", {characterId, a.channelId});
-    ctx["characters"] = db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1 AND kind='pc'", {a.channelId});
+    // Names only (no sheets): NPC names are public table knowledge once they appear in play.
+    ctx["characters"] = db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1", {a.channelId});
     auto scene = retrieval_.getCurrentScene(view, chatWindowId, 16);
     ctx["recent_messages"] = scene.isMember("log") ? scene["log"] : Json::Value(Json::arrayValue);
     scene.removeMember("log"); scene.removeMember("facts");

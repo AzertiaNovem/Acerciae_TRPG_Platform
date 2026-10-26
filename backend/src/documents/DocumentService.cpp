@@ -80,7 +80,7 @@ struct DocumentService::OpContext {
     std::string channelId, documentId, docType, factKind, knowledgeMode, actor, actorUserId;
     int newVersion = 0;
     std::vector<std::string> defaultSources;
-    std::string proposalId;
+    std::string proposalId, aiJobId;
 };
 
 static std::vector<std::string> mergeSources(const Json::Value& op, const std::vector<std::string>& defaults) {
@@ -134,7 +134,7 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         Json::Value ops(Json::arrayValue); ops.append(payload);
         auto pr = Db::queryOne(w, "INSERT INTO document_proposals(channel_id, document_id, ai_job_id, expected_version, ops, source_event_ids, evidence, status, rejection_reason) "
                                   "VALUES($1,$2,$3,$4,$5::jsonb,$6::uuid[],'[]'::jsonb,'needs_gm_review',$7) RETURNING id",
-            {ctx.channelId, ctx.documentId, ctx.proposalId.empty() ? dbNull() : DbParam(ctx.proposalId), (int64_t)ctx.newVersion - 1, json::dump(ops), pgArrayLiteral(mergeSources(op, ctx.defaultSources)), why});
+            {ctx.channelId, ctx.documentId, ctx.aiJobId.empty() ? dbNull() : DbParam(ctx.aiJobId), (int64_t)ctx.newVersion - 1, json::dump(ops), pgArrayLiteral(mergeSources(op, ctx.defaultSources)), why});
         log["decision"] = "needs_gm_review"; log["reason"] = why; log["proposal_id"] = pr["id"];
         res.pendingReview++; res.log.append(log);
     };
@@ -255,6 +255,7 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         Db::exec(w, "UPDATE document_entries SET content_md = content_md || E'\\n\\n' || $2, updated_version=$3, updated_at=now() WHERE id=$1", {cur["entry_id"].asString(), t, (int64_t)ctx.newVersion});
         Db::exec(w, "UPDATE knowledge_facts SET source_event_ids=$2::uuid[], version=version+1, updated_at=now() WHERE id=$1", {factId, pgArrayLiteral(mergedSources)});
         log["decision"] = "applied"; res.applied++; res.touchedFactIds.push_back(factId); res.touchedEntryIds.push_back(cur["entry_id"].asString()); res.log.append(log);
+        for (auto& s : sources) res.sourceEventIds.push_back(s);
         return;
     }
     if (type == "remove_entry") {
@@ -304,7 +305,7 @@ CommitResult DocumentService::commit(const Proposal& p) {
             throw conflict("document version mismatch: expected " + std::to_string(p.expectedVersion) + ", current " + std::to_string(curVersion));
         auto mode = Db::queryOne(w, "SELECT knowledge_mode FROM channels WHERE id=$1", {p.channelId});
         OpContext ctx; ctx.channelId = p.channelId; ctx.documentId = docId; ctx.docType = doc["doc_type"].asString(); ctx.factKind = kindForDoc(ctx.docType);
-        ctx.knowledgeMode = mode["knowledge_mode"].asString(); ctx.actor = p.actor; ctx.actorUserId = p.actorUserId; ctx.newVersion = curVersion + 1; ctx.defaultSources = p.sourceEventIds;
+        ctx.knowledgeMode = mode["knowledge_mode"].asString(); ctx.actor = p.actor; ctx.actorUserId = p.actorUserId; ctx.newVersion = curVersion + 1; ctx.defaultSources = p.sourceEventIds; ctx.aiJobId = p.aiJobId;
         // Record the proposal itself for traceability.
         auto pr = Db::queryOne(w, "INSERT INTO document_proposals(channel_id, document_id, ai_job_id, expected_version, ops, source_event_ids, evidence, status) VALUES($1,$2,$3,$4,$5::jsonb,$6::uuid[],$7::jsonb,'pending') RETURNING id",
             {p.channelId, docId, p.aiJobId.empty() ? dbNull() : DbParam(p.aiJobId), (int64_t)curVersion, json::dump(p.ops), pgArrayLiteral(p.sourceEventIds), json::dump(p.evidence)});

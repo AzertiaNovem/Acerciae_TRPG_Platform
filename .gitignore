@@ -13,3 +13,5 @@ frontend/dist/
 # data
 data/
 uploads/
+tests/integration/node_modules/
+backend/seed/*.tmp

@@ -10,9 +10,11 @@ namespace acerciae {
 using namespace text;
 
 Json::Value MockLlmClient::lastUserJson(const LlmRequest& req) {
+    // The structured context is the most recent user message that parses as a JSON object; later plain-text
+    // user turns (schema repair requests) are skipped.
     for (auto it = req.messages.rbegin(); it != req.messages.rend(); ++it)
-        if (it->role == "user") { try { return json::parse(it->content); } catch (...) { Json::Value v; v["text"] = it->content; return v; } }
-    return Json::Value(Json::objectValue);
+        if (it->role == "user") { try { auto v = json::parse(it->content); if (v.isObject()) return v; } catch (...) {} }
+    Json::Value v; v["text"] = req.messages.empty() ? "" : req.messages.back().content; return v;
 }
 
 LlmResponse MockLlmClient::complete(const LlmRequest& req) {
@@ -55,13 +57,18 @@ LlmResponse MockLlmClient::complete(const LlmRequest& req) {
 // ---- shared helpers --------------------------------------------------------------------------
 static bool anyOf(const std::string& l, std::initializer_list<const char*> ws) { for (auto w : ws) if (l.find(w) != std::string::npos) return true; return false; }
 
+static bool anyWord(const std::string& l, std::initializer_list<const char*> ws) {
+    auto toks = words(l); std::set<std::string> t(toks.begin(), toks.end());
+    for (auto w : ws) if (t.count(w)) return true;
+    return false;
+}
 static std::string guessEntityKind(const std::string& name, const Json::Value& characters) {
     auto l = lower(name);
     for (auto& c : characters) if (lower(json::str(c, "name")) == l) return json::str(c, "kind", "pc");
-    if (anyOf(l, {"house","street","office","dock","room","library","church","station","cellar","basement","hotel","manor","hall","road","avenue","bridge","square","inn","tavern","warehouse","hospital","asylum","university","museum","theatre","theater","cemetery","graveyard","farm","lake","river","forest","woods","town","city","village","harbor","harbour","bar","shop","store","bank","club","mansion","chapel","attic","alley"})) return "location";
-    if (anyOf(l, {"sheriff","dr","dr.","doctor","mr","mr.","mrs","mrs.","miss","professor","father","reverend","detective","officer","captain","sergeant","inspector","lady","lord","sir","nurse","judge","mayor"})) return "npc";
-    if (anyOf(l, {"society","cult","order","company","brotherhood","church of","family","gang","police","press","gazette","herald","times"})) return "organisation";
-    if (anyOf(l, {"key","badge","letter","book","diary","journal","tome","knife","gun","pistol","revolver","map","photograph","photo","amulet","ring","statue","idol","box","note","ledger","manuscript","scroll","medallion","locket","coin"})) return "item";
+    if (anyWord(l, {"house","street","office","dock","docks","room","library","church","station","cellar","basement","hotel","manor","hall","road","avenue","bridge","square","inn","tavern","warehouse","hospital","asylum","university","museum","theatre","theater","cemetery","graveyard","farm","lake","river","forest","woods","town","city","village","harbor","harbour","bar","shop","store","bank","club","mansion","chapel","attic","alley","lighthouse","cove","quarry","pier","cave","interior","archive"})) return "location";
+    if (anyWord(l, {"sheriff","dr","doctor","mr","mrs","miss","professor","father","reverend","detective","officer","captain","sergeant","inspector","lady","lord","sir","nurse","judge","mayor"})) return "npc";
+    if (anyOf(l, {"society","cult","order of","company","brotherhood","church of","family","gang","police","press","gazette","herald","times"})) return "organisation";
+    if (anyWord(l, {"key","badge","letter","book","diary","journal","tome","knife","gun","pistol","revolver","map","photograph","photo","amulet","ring","statue","idol","box","note","ledger","manuscript","scroll","medallion","locket","coin","lantern","documents","clipping"})) return "item";
     return "npc";
 }
 
@@ -130,8 +137,9 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
     std::string lastNpc;
     std::set<std::string> linkedTerms;
 
-    static const std::regex findRe("\\b(?:you|they|he|she|[A-Z][a-z]+)\\s+(?:find|finds|found|discover|discovers|discovered|notice|notices|noticed|uncover|uncovers|spot|spots|retrieve|retrieves|recover|recovers)\\s+(?:(?:a|an|the|some|several|two|three)\\s+)?", std::regex::icase);
+    static const std::regex findRe("\\b(?:you|they|he|she|[A-Z][a-z]+)\\s+(?:find|finds|found|discover|discovers|discovered|notice|notices|noticed|uncover|uncovers|retrieve|retrieves|recover|recovers)\\s+(?:(?:a|an|the|some|several|two|three)\\s+)?", std::regex::icase);
     static const std::regex handRe("\\b(?:hands|gives|passes|offers|slides|tosses|presents)\\s+(?:you|him|her|them|[A-Z][a-z]+)\\s+(?:(?:a|an|the|his|her|some)\\s+)?", std::regex::icase);
+    static const std::regex dropRe("\\b(?:drops|dropped|leaves behind|left behind|lets fall|slips you|slides you)\\s+(?:(?:a|an|the|his|her|some)\\s+)?", std::regex::icase);
     static const std::regex revealRe("\\b(?:reads|read|says|is written|inscribed|the text reads|it reads|reveals|revealing|shows|showing)\\b", std::regex::icase);
     static const std::regex tryRe("\\b(?:I|we)\\s+(?:try|attempt|search|look|examine|inspect|pick|take|grab|open|force|climb|sneak|listen|check|read|follow|light|break|push|pull|dig|unlock|draw|pocket|investigate|study|approach|go|head|walk|run|hide|wait|watch|roll|cast)\\b", std::regex::icase);
     static const std::regex hypoRe("\\b(?:maybe|perhaps|I think|I bet|could be|must be|probably|I suspect|what if|I wonder|my guess|it seems)\\b", std::regex::icase);
@@ -199,6 +207,7 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
             auto obj = objectAfter(content, findRe);
             bool handed = false;
             if (obj.empty()) { obj = objectAfter(content, handRe); handed = !obj.empty(); }
+            if (obj.empty()) obj = objectAfter(content, dropRe);
             if (!obj.empty()) {
                 Json::Value d; d["title"] = obj; d["source"] = handed ? ("handed over by " + (npc.empty() ? std::string("an NPC") : npc)) : ("found at " + (sceneLoc.empty() ? std::string("the current scene") : sceneLoc));
                 d["discovered_by"] = join(pcNames, ", "); d["handed_over"] = handed;
@@ -280,7 +289,8 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
                 auto ts = t.asString();
                 if (!icontains(content, ts)) continue;
                 hit = true;
-                bool better = term.empty() || (std::isupper((unsigned char)ts[0]) && !std::isupper((unsigned char)term[0])) || (std::isupper((unsigned char)ts[0]) == std::isupper((unsigned char)term[0]) && ts.size() > term.size());
+                auto rank = [&](const std::string& x) { if (std::isupper((unsigned char)x[0])) return 3; auto k = guessEntityKind(x, characters); if (k == "item" || k == "location" || k == "organisation") return 2; return 1; };
+                bool better = term.empty() || rank(ts) > rank(term) || (rank(ts) == rank(term) && ts.size() > term.size());
                 if (better) term = ts;
             }
             if (!hit) continue;
@@ -304,15 +314,26 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
         }
         // Module awareness
         for (auto& n : ctx["module_nodes"]) {
-            if (!icontains(content, json::str(n, "name"))) continue;
-            Json::Value d; d["node_id"] = n["node_id"]; d["node_name"] = n["name"]; d["node_type"] = n["node_type"]; d["progress"] = "active";
-            addOp("module_progress", mkFact("Play touches module element \"" + json::str(n, "name") + "\" (" + json::str(n, "node_type") + ").", "ai_inferred", d, eid, ents));
-            Json::Value mh; mh["node_id"] = n["node_id"]; mh["reason"] = "Potential association: current events mention \"" + json::str(n, "name") + "\", which appears in the module as a " + json::str(n, "node_type") + "."; mh["source_event_ids"] = Json::Value(Json::arrayValue); mh["source_event_ids"].append(eid);
+            auto nname = json::str(n, "name");
+            bool byName = icontains(content, nname);
+            // Text matches come from the retrieval layer (FTS over node name+description); they carry matched_terms.
+            std::string matched; for (auto& t : n["matched_terms"]) if (icontains(content, t.asString())) { matched = t.asString(); break; }
+            if (!byName && matched.empty()) continue;
+            if (byName) {
+                Json::Value d; d["node_id"] = n["node_id"]; d["node_name"] = nname; d["node_type"] = n["node_type"]; d["progress"] = "active";
+                addOp("module_progress", mkFact("Play touches module element \"" + nname + "\" (" + json::str(n, "node_type") + ").", "ai_inferred", d, eid, ents));
+            }
+            Json::Value mh; mh["node_id"] = n["node_id"]; mh["source_event_ids"] = Json::Value(Json::arrayValue); mh["source_event_ids"].append(eid);
+            mh["reason"] = byName ? "Potential association: current events mention \"" + nname + "\", which appears in the module as a " + json::str(n, "node_type") + "."
+                                  : "Potential association: \"" + matched + "\" in the current conversation also appears in module " + json::str(n, "node_type") + " \"" + nname + "\" (p." + json::str(n, "page", "?") + ").";
             out["module_hints"].append(mh);
         }
         if (json::toBool(ctx, "has_module") && json::toBool(ctx, "scene_is_off_module") && isGm && !sceneLoc.empty()) {
             Json::Value d; d["node_name"] = sceneLoc; d["node_type"] = "location"; d["progress"] = "off_module";
             addOp("module_progress", mkFact("Players are at \"" + sceneLoc + "\", a location not present in the module. Events are being recorded; no module truth is assumed.", "ai_inferred", d, eid, ents));
+            Json::Value mh; mh["node_id"] = Json::Value(); mh["source_event_ids"] = Json::Value(Json::arrayValue); mh["source_event_ids"].append(eid);
+            mh["reason"] = "Off-module: \"" + sceneLoc + "\" is not a module location. The chronicler keeps recording actual events; older module hooks are listed as potential associations only.";
+            out["module_hints"].append(mh);
         }
     }
     for (auto& [doc, ops] : byDoc) { Json::Value p; p["document_type"] = doc; p["ops"] = ops; out["proposals"].append(p); }
@@ -373,15 +394,18 @@ Json::Value MockLlmClient::consistency(const Json::Value& ctx) {
         auto ik = keywords(item, 3);
         if (ik.empty()) continue;
         bool delivered = false, promised = false; std::string promisedId, deliveredId, promisedText;
+        auto giverWords = keywords(giver, 4);
         for (auto& f : facts) {
             auto s = json::str(f, "summary"); auto title = json::str(f["data"], "title");
             int hit = 0; for (auto& k : ik) if (icontains(s, k) || icontains(title, k)) hit++;
-            if (hit == 0) continue;
-            anyEvidence = true;
+            bool mentionsGiver = false; for (auto& g : giverWords) if (icontains(s, g)) mentionsGiver = true;
+            if (hit == 0 && !mentionsGiver) continue;
             auto st = json::str(f, "status");
             bool handLike = json::toBool(f["data"], "handed_over") || anyOf(lower(s), {"hands over","hands you","gives you","handed","gave you","receive","obtain","you take","now holds","possess"});
-            if (st == "confirmed" && handLike) { delivered = true; deliveredId = json::str(f, "fact_id"); }
-            else if (anyOf(lower(s), {"promise","will bring","will get","will look","will find","i'll","look for","try to find","not yet","attempt"}) || st == "npc_claim" || st == "attempted") { promised = true; promisedId = json::str(f, "fact_id"); promisedText = s; }
+            bool promiseLike = json::str(f["data"], "relation") == "promised" || anyOf(lower(s), {"promise","will bring","will get","will look","will find","i'll look","i'll bring","look for","try to find","not yet","has not brought","hasn't brought"});
+            if (hit > 0 && st == "confirmed" && handLike) { anyEvidence = true; delivered = true; deliveredId = json::str(f, "fact_id"); }
+            else if (promiseLike && (hit > 0 || mentionsGiver) && st != "confirmed") { anyEvidence = true; promised = true; promisedId = json::str(f, "fact_id"); promisedText = s; }
+            else if (hit > 0) anyEvidence = true;
         }
         if (delivered) { supporting.insert(deliveredId); notes.push_back("Possession of \"" + item + "\" is backed by a confirmed record."); }
         else if (promised) {
@@ -456,7 +480,12 @@ Json::Value MockLlmClient::inspiration(const Json::Value& ctx) {
     unsigned seed = (unsigned)json::toInt(ctx, "variant", 0);
     std::string lastGm, lastSpeaker, lastQuote;
     for (auto& m : ctx["recent_messages"]) {
-        if (json::str(m, "actor_role") == "gm") { lastGm = json::str(m, "content"); auto qs = quotedSpeech(lastGm); if (!qs.empty()) lastQuote = qs.back(); auto pn = properNouns(lastGm); for (auto& p : pn) if (guessEntityKind(p, ctx["characters"]) == "npc") { lastSpeaker = p; break; } }
+        if (json::str(m, "actor_role") == "gm") {
+            lastGm = json::str(m, "content"); auto qs = quotedSpeech(lastGm); if (!qs.empty()) lastQuote = qs.back();
+            auto known = mentionedCharacters(lastGm, ctx["characters"], "npc");
+            if (!known.empty()) lastSpeaker = known.front();
+            else { for (auto& p : properNouns(lastGm)) if (guessEntityKind(p, ctx["characters"]) == "npc") { lastSpeaker = p; break; } }
+        }
     }
     std::string clue, thread, relation;
     std::vector<std::string> usedIds;
@@ -477,7 +506,11 @@ Json::Value MockLlmClient::inspiration(const Json::Value& ctx) {
     variants.push_back("I take a slow look around " + (loc.empty() ? "the room" : loc) + ", noting exits and anything out of place, and keep my hand near my coat pocket. \"Let's not rush this. Tell me again exactly what happened here.\"");
     auto draft = variants[seed % variants.size()];
     if (style.find("formal") != std::string::npos) { size_t p; while ((p = draft.find("I'll")) != std::string::npos) draft.replace(p, 4, "I shall"); while ((p = draft.find("Let's")) != std::string::npos) draft.replace(p, 5, "Let us"); }
-    if (style.find("terse") != std::string::npos || style.find("blunt") != std::string::npos) { auto s = sentences(draft); if (s.size() > 2) draft = s[0] + " " + s.back(); }
+    if (style.find("terse") != std::string::npos || style.find("blunt") != std::string::npos) {
+        // Keep the spoken line intact; trim the narration before it to one short beat.
+        auto q = draft.find('"');
+        if (q != std::string::npos && q > 60) draft = "I keep it short. " + draft.substr(q);
+    }
     Json::Value out; out["draft"] = draft; out["used_fact_ids"] = json::fromStrArray(usedIds);
     out["notes"] = "Draft uses only facts known to " + name + "; it proposes an action and a question without deciding outcomes.";
     return out;
@@ -505,10 +538,26 @@ Json::Value MockLlmClient::moduleStructure(const Json::Value& ctx) {
             auto& line = lines[i];
             if (line.empty()) continue;
             std::string body; for (size_t j = i + 1; j < lines.size() && j < i + 6 && !lines[j].empty(); ++j) { body += lines[j] + " "; }
+            { size_t q; while ((q = line.find("\xe2\x80\x99")) != std::string::npos) line.replace(q, 3, "'"); }
             auto l = lower(line);
-            bool heading = line.size() < 70 && (std::regex_match(line, headingRe) || line == upper(line) || l.rfind("scene", 0) == 0 || l.rfind("chapter", 0) == 0 || l.rfind("npc:", 0) == 0 || l.rfind("location:", 0) == 0 || l.rfind("handout", 0) == 0);
+            bool heading = line.size() < 70 && (std::regex_match(line, headingRe) || line == upper(line) || l.rfind("scene", 0) == 0 || l.rfind("chapter", 0) == 0 || l.rfind("npc:", 0) == 0 || l.rfind("location:", 0) == 0 || l.rfind("item:", 0) == 0 || l.rfind("handout", 0) == 0 || l.rfind("condition:", 0) == 0 || l.rfind("twist:", 0) == 0 || l.rfind("ending:", 0) == 0 || l.rfind("secret:", 0) == 0);
             if (heading) {
-                std::string name = line; if (auto p = name.find(':'); p != std::string::npos && p + 1 < name.size()) name = trim(name.substr(p + 1));
+                std::string prefix; std::string name = line;
+                if (auto p = name.find(':'); p != std::string::npos && p + 1 < name.size()) { prefix = lower(trim(name.substr(0, p))); name = trim(name.substr(p + 1)); }
+                if (page == 1 && out["nodes"].empty() && line == upper(line)) { addNode("stage", name, body, page, line + " " + body); continue; }
+                static const std::map<std::string, std::string> prefixTypes = {{"npc","npc"},{"location","location"},{"item","item"},{"handout","clue"},{"clue","clue"},{"secret","secret"},{"condition","condition"},{"twist","twist"},{"ending","ending"},{"scene","scene"},{"chapter","stage"},{"act","stage"},{"part","stage"}};
+                std::string pt; for (auto& [k, v] : prefixTypes) if (prefix == k || prefix.rfind(k + " ", 0) == 0) pt = v;
+                if (!pt.empty() && pt != "scene" && pt != "stage") {
+                    auto key = addNode(pt, name, body, page, line + " " + body);
+                    if (pt == "location") { currentLocation = key; if (!currentScene.empty()) addEdge(currentScene, key, "takes_place_at"); }
+                    else if (pt == "condition") { if (!currentScene.empty()) addEdge(currentScene, key, "requires"); }
+                    else if (pt == "twist") { if (!currentScene.empty()) addEdge(currentScene, key, "triggers"); }
+                    else if (pt == "ending") { if (!currentScene.empty()) addEdge(currentScene, key, "leads_to"); }
+                    else if (pt == "secret") { if (!currentScene.empty()) addEdge(key, currentScene, "hidden_in"); }
+                    else if (!currentLocation.empty()) addEdge(key, currentLocation, pt == "npc" ? "found_at" : "located_in");
+                    else if (!currentScene.empty()) addEdge(key, currentScene, pt == "npc" ? "appears_in" : "found_in");
+                    continue;
+                }
                 if (anyOf(l, {"scene", "chapter", "act ", "part ", "prologue", "introduction", "the investigation", "day "})) {
                     auto key = addNode(anyOf(l, {"chapter","act ","part ","prologue","introduction"}) ? "stage" : "scene", name, body, page, line + " " + body);
                     if (!prevSceneKey.empty()) addEdge(prevSceneKey, key, "leads_to");
@@ -529,8 +578,11 @@ Json::Value MockLlmClient::moduleStructure(const Json::Value& ctx) {
                 auto key = addNode("condition", truncate(line, 90), line, page, line);
                 if (!currentScene.empty()) addEdge(currentScene, key, "requires");
             }
+            // Handouts referenced in prose: "Handout 1: Elias's Letter."
+            static const std::regex handoutRe("\\b(Handout\\s+\\d+\\s*:\\s*[^.;\\n]{3,60})", std::regex::icase);
+            { std::smatch hm; if (std::regex_search(line, hm, handoutRe)) { auto key = addNode("clue", trim(hm[1]), line, page, line); if (!currentLocation.empty()) addEdge(key, currentLocation, "located_in"); else if (!currentScene.empty()) addEdge(key, currentScene, "found_in"); } }
             // Items/clues introduced in prose: "a brass key", "the diary of ..."
-            static const std::regex itemRe("\\b(?:a|an|the)\\s+((?:\\w+\\s){0,2}(?:key|letter|diary|journal|book|tome|photograph|map|knife|amulet|ring|statue|idol|ledger|manuscript|medallion|locket|note|badge|revolver|pistol))\\b", std::regex::icase);
+            static const std::regex itemRe("\\b(?:a|an|the)\\s+((?:(?!(?:a|an|the|investigators|he|she|they|you)\\s)\\w+\\s){0,2}(?:key|letter|diary|journal|book|tome|photograph|map|knife|amulet|ring|statue|idol|ledger|manuscript|medallion|locket|note|badge|revolver|pistol))\\b", std::regex::icase);
             std::smatch m; std::string rest = line; int guard = 0;
             while (std::regex_search(rest, m, itemRe) && guard++ < 3) {
                 auto key = addNode("item", m[1], line, page, line);

@@ -1,0 +1,11 @@
+{
+  "name": "acerciae-integration-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test scenarios.test.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

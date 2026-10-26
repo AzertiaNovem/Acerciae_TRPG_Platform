@@ -122,7 +122,7 @@ bool DemoSeed::run(Services& s, bool force) {
         auto acc = s.auth->channelAccess(userId, channelId);
         Json::Value b; b["content"] = content; b["kind"] = kind; return s.chat->postMessage(acc, win, b)["id"].asString();
     };
-    auto observe = [&] { s.observer->observeChannel(channelId); };
+    auto observe = [&] { s.observer->observeChannel(channelId, true); };
 
     // --- Session 1: main chat, everyone present ---
     say(keeperId, mainWin, "The investigators arrive at the Sheriff's Office on a grey Tuesday morning. Sheriff Amos Dunmore rises from behind his desk with a careful smile. \"Mrs. Hale said you'd be coming. Terrible business about Elias.\"", "narration");
