@@ -3,6 +3,7 @@ export interface User { id: string; username: string; display_name: string; ui_l
 export interface Server { id: string; name: string; owner_id: string; my_role: string }
 export interface Channel {
   id: string; server_id: string; name: string; description: string; rule_system: string;
+  player_group_id?: string; player_group_name?: string; player_group_version?: number;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null;
   ai_enabled: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
@@ -13,7 +14,9 @@ export interface ChatWindow {
   scene_title?: string | null; members: WindowMember[] | null; last_seq: number | null;
 }
 export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null }
+export interface PlayerGroup { id: string; channel_id: string; name: string; version: number; members: {user_id: string; display_name: string}[] }
 export interface Message {
+  reference_ids?: string[];
   id: string; channel_id: string; chat_window_id: string; scene_id: string | null; author_id: string; author_role: 'gm' | 'player';
   character_id: string | null; character_name: string | null; author_name: string; author_avatar_version?: number; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
   content: string; visibility: 'window' | 'gm_only' | 'whisper'; whisper_to: string[]; seq: number; created_at: string;

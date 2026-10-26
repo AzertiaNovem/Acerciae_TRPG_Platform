@@ -8,12 +8,14 @@
 namespace acerciae {
 
 Json::Value SceneManager::list(const ChannelAccess& a) {
+    if(!a.isGm) return db_.queryJson("SELECT s.id,s.channel_id,'Scene '||s.sequence AS title,s.sequence,s.status,count(e.id) AS event_count FROM scenes s JOIN events e ON e.scene_id=s.id WHERE s.channel_id=$1 AND "+Visibility::eventFilter(a)+" GROUP BY s.id ORDER BY s.sequence",{a.channelId});
     return db_.queryJson(
         "SELECT s.*, (SELECT count(*) FROM events e WHERE e.scene_id=s.id) AS event_count, "
         "(SELECT json_agg(json_build_object('chat_window_id', ws.chat_window_id, 'name', cw.name)) FROM chat_window_scenes ws JOIN chat_windows cw ON cw.id=ws.chat_window_id WHERE ws.scene_id=s.id) AS windows "
         "FROM scenes s WHERE s.channel_id=$1 ORDER BY s.sequence, s.created_at", {a.channelId});
 }
 Json::Value SceneManager::get(const ChannelAccess& a, const std::string& sceneId) {
+    if(!a.isGm) { for(const auto& scene : list(a)) if(scene["id"].asString()==sceneId) return scene; throw notFound("scene not found"); }
     auto s = db_.queryOne("SELECT * FROM scenes WHERE id=$1 AND channel_id=$2", {sceneId, a.channelId});
     if (s.isNull()) throw notFound("scene not found");
     return s;

@@ -36,7 +36,7 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET/POST | `/servers/{id}/channels` | create `{name, description?, knowledge_mode: public|isolated, rule_system?}` — creator becomes GM; Main Chat + 6 documents created |
 
 ## Channels
-| GET/PUT | `/channels/{id}` | details incl. `my_role`, `my_character_ids`; GM may update `name, description, knowledge_mode, ai_enabled, dice_text_group` (`''` = follow server language, `builtin:en`, `builtin:zh`, or a text group id) |
+| GET/PUT | `/channels/{id}` | details incl. `my_role`, `my_character_ids`, `player_group_id`, `player_group_version`, `player_group_name`; GM may update `name, description, knowledge_mode, ai_enabled, dice_text_group` (`''` = follow server language, `builtin:en`, `builtin:zh`, or a text group id) |
 | GET/POST | `/channels/{id}/members` | add `{user_id | username, role: gm|player}` (GM; the user must already be on the server unless the GM is a server maintainer) |
 | DELETE | `/channels/{id}/members/{uid}` | (GM) also removes them from every chat window of the channel |
 | GET/POST | `/channels/{id}/characters` | create `{name, kind: pc|npc, speaking_style?, sheet?, description?}` (NPC: GM) |
@@ -49,7 +49,7 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET/POST | `/channels/{id}/windows/{w}/members` | add `{user_id, character_id?}` (GM) |
 | DELETE | `/channels/{id}/windows/{w}/members/{uid}` | (GM) |
 | GET | `/channels/{id}/windows/{w}/messages?limit&before_seq` | viewer-filtered |
-| POST | `/channels/{id}/windows/{w}/messages` | `{content, kind: ic|ooc|narration|roll, character_id?, visibility: window|gm_only|whisper, whisper_to?[]}`. When dice are enabled, Sealdice commands are evaluated: `.r [N#]<expr> [reason]`, `.rh` (hidden), `.ra`/`.rc [N#] [hard|extreme|困难|极难] [b|p[n]] <skill> [value][±mod] [reason]`, `.rah`, `.sc <ok>/<fail> [SAN]`, `.st <name><value>…` / `.st <name>±<dice>` / `.st show|del|clr`, `.en <skill>`. The message keeps the command as `content`, gets `kind: roll` and `dice: {type, command, text, …}`; hidden rolls are whispered to the roller's character and the window gets a `hidden_notice`. Errors (no character, unknown attribute) return 400 `dice_error` |
+| POST | `/channels/{id}/windows/{w}/messages` | `{content, kind: ic|ooc|narration|roll, character_id?, visibility: window|gm_only|whisper, whisper_to?[], reference_ids?: UUID[0..5]}`. When dice are enabled, Sealdice commands are evaluated: `.r [N#]<expr> [reason]`, `.rh` (hidden), `.ra`/`.rc [N#] [hard|extreme|困难|极难] [b|p[n]] <skill> [value][±mod] [reason]`, `.rah`, `.sc <ok>/<fail> [SAN]`, `.st <name><value>…` / `.st <name>±<dice>` / `.st show|del|clr`, `.en <skill>`. The message keeps the command as `content`, gets `kind: roll` and `dice: {type, command, text, …}`; hidden rolls are whispered to the roller's character and the window gets a `hidden_notice`. Errors (no character, unknown attribute) return 400 `dice_error` |
 | POST | `/channels/{id}/windows/{w}/scene` | `{scene_id}` move window into scene (GM) |
 | GET | `/channels/{id}/messages?q=` | search |
 | GET | `/channels/{id}/messages/{mid}` | |
@@ -66,12 +66,12 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET | `/channels/{id}/documents` | summaries: `version, entry_count, recent_changes, preview, gm_only` |
 | GET | `/channels/{id}/documents/{did}?scene_id&since_version` | entries (viewer-filtered) + `markdown`; `current_scene` filters by scene; `changed_since` per entry |
 | GET | `/channels/{id}/documents/{did}/revisions` | |
-| GET | `/channels/{id}/documents/{did}/revisions/{v}` | ops + snapshot (players: filtered snapshot) |
+| GET | `/channels/{id}/documents/{did}/revisions/{v}` | ops + snapshot (same memory partition) |
 | POST | `/channels/{id}/documents/{did}/rollback` | `{version}` (GM) |
-| PUT | `/channels/{id}/documents/{did}/entries/{eid}` | GM correction `{summary?, status?, content_md?, data?, visibility?{scope, character_ids}, reason?, expected_version?}` |
+| PUT | `/channels/{id}/documents/{did}/entries/{eid}` | KP correction `{summary?, status?, content_md?, data?, reason?, expected_version?}` (KP partition only; cannot widen visibility) |
 | GET | `/channels/{id}/entries/{eid}` · `/related` | entry · related entries |
 | GET | `/channels/{id}/proposals?status=needs_gm_review` | (GM) |
-| POST | `/channels/{id}/proposals/{pid}/decide` | `{accept: bool}` (GM) — also applies knowledge-sharing suggestions |
+| POST | `/channels/{id}/proposals/{pid}/decide` | `{accept: bool}` (GM) — KP memory proposals only; legacy sharing is retired |
 
 ## Highlights
 | GET | `/channels/{id}/highlights?document_id` | active, scope-filtered |
@@ -79,7 +79,7 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 
 ## Knowledge / shards
 | GET | `/channels/{id}/facts?kind&q&scene_id` · `/facts/{fid}` | viewer-filtered facts |
-| GET/PUT | `/channels/{id}/facts/{fid}/visibility` | `{scope: gm|public|character, character_ids[]}` (PUT: GM) |
+| GET/PUT | `/channels/{id}/facts/{fid}/visibility` | GET returns `scope: gm|player_group` and group identity; PUT returns 409 (direct KP sharing retired) |
 | GET | `/channels/{id}/entities?q` · `/entities/{eid}` | entity graph |
 | GET | `/channels/{id}/knowledge/{cid}` | facts a character knows (own character or GM) |
 | POST | `/channels/{id}/tools/{tool}` | execute a Tool API call under the caller's identity (`search_scene_history`, `get_entity`, …) |
@@ -203,3 +203,38 @@ Anonymous routes are `GET /api/published/{token}` and `GET /api/published/{token
 Context WebSocket notifications include `studio.tts.progress`, `studio.tts.finished`, `studio.pdf.updated`, `studio.asset.generated`. Existing presentation changes arrive as `module.updated` with `payload.kind: "presentation.updated"`. Sensitive task notifications are GM-only; clients must poll authorized job endpoints and refetch after reconnecting. Do not infer permission from receiving an ID.
 
 Server maintainers and channel GMs are different authorities: maintainer status controls encrypted provider credentials, endpoint region, language and feature toggles; GM status controls campaign snapshots, production cloud permission, budgets, asset review and publication. A channel GM is not automatically a server administrator. The backend remains authoritative for all these checks; clients should handle 400 validation, 403 forbidden, 404 unavailable and 429 budget/provider limits without falling back to a broader endpoint.
+
+
+## Independent player groups and chat references
+
+All paths below are under `/api`. A channel player belongs to one group; KP identities cannot be assigned to groups.
+`knowledge_mode=public` allocates new players to the first group; `isolated` creates a separate group for each new player.
+Changing the mode does not move existing members.
+
+| Method | Path | Contract |
+| --- | --- | --- |
+| GET | `/channels/{id}/player-groups` | KP: all groups; player: own group. Rows include `id`, `name`, `version`, `members` (`user_id`, `display_name`). |
+| POST | `/channels/{id}/player-groups` | KP only, `{name}` (1–100 characters); creates an empty group. |
+| PUT | `/channels/{id}/player-groups/{gid}` | KP only, `{name}`; renames a group. |
+| PUT | `/channels/{id}/player-groups/{gid}/members/{uid}` | KP only, empty body; moves a channel player to the target group. Returns groups. |
+
+Moving a player invalidates both affected groups' derived memory and increments their versions. Window membership changes
+also invalidate affected groups. Raw chat and KP memory remain unchanged. Empty groups remain available for reuse.
+`knowledge.reset` on the context WebSocket tells clients to discard cached documents, highlights, chat and pending drafts,
+then refetch. Clients should reconcile group versions after reconnect (the web client also polls every ten seconds).
+A group member can read a window witnessed by another member, but only direct window participants may post there.
+
+Documents/facts/entities/revisions/highlights/shards/tools use the caller's memory partition. KP document endpoints return
+only KP documents; player endpoints return only that group's five journals. `scene_id=all` retrieves all current-scene
+entries for workshop browsing. Player scene titles are neutral sequence labels; private KP scene metadata is omitted.
+The old fact-visibility write endpoint and sharing proposals cannot expose KP memory to players.
+
+Posting a message accepts optional `reference_ids`, with at most five original message UUIDs from the same channel.
+The server validates access before storing and again in the posting transaction. Message responses contain only the IDs,
+never an embedded source excerpt. Fetch each reference with `GET /channels/{id}/messages/{mid}`; 404 means unavailable
+for the current reader. A reference link grants no additional access. A quote may point at a message from another readable
+window; the original `chat_window_id` is returned for navigation. Chat-origin event payloads retain `reference_message_ids`.
+
+PDFs with memory appendices are private exports bound to KP or the originating player group and version. They cannot be
+published as share links or requested with `pl_public` scope. Group changes invalidate access to old player memory exports.
+Legacy PDFs containing shared-memory appendices become KP-only, and their old publication links are revoked by migration.

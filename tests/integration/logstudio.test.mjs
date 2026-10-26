@@ -374,8 +374,28 @@ test("Log Studio A–I: imports, immutable snapshots, structured dice, TTS inval
       config: {},
       appendix_document_ids: [secretDoc.id],
     }),
-    (e) => e.status === 403,
+    (e) => e.status === 403 || e.status === 400,
   );
+  const privatePdf = await call(gm, "POST", root + `/snapshots/${secret.id}/pdf`, {
+    config: {}, appendix_document_ids: [secretDoc.id],
+  });
+  assert.equal(privatePdf.kp_memory, true);
+  await assert.rejects(call(pl, "GET", root + `/pdf/jobs/${privatePdf.id}`), e=>e.status===403);
+  await assert.rejects(call(gm, "POST", root + '/publications', {
+    snapshot_id:pub.id, kind:'pdf', pdf_job_id:privatePdf.id, visibility:'link', title:'Private appendix',
+  }), e=>e.status===403);
+  const characterSnapshot = await call(gm, 'POST', root + `/projects/${project.id}/snapshots`, {
+    scope:'character', scope_character_id:c1.id,
+  });
+  const playerDocs = await call(pl,'GET',`/api/channels/${ch}/documents`);
+  const groupPdf = await call(pl,'POST',root + `/snapshots/${characterSnapshot.id}/pdf`, {
+    config:{}, appendix_document_ids:[playerDocs[0].id],
+  });
+  assert.ok(groupPdf.memory_group_id);
+  await assert.rejects(call(gm,'GET',root+`/pdf/jobs/${groupPdf.id}`),e=>e.status===403);
+  const splitGroup = await call(gm,'POST',`/api/channels/${ch}/player-groups`,{name:'New perspective'});
+  await call(gm,'PUT',`/api/channels/${ch}/player-groups/${splitGroup.id}/members/${u.p1.user.id}`,{});
+  await assert.rejects(call(pl,'GET',root+`/pdf/jobs/${groupPdf.id}`),e=>e.status===403);
   const builtins = await call(gm, "GET", root + "/pdf/templates");
   for (const t of builtins.filter((t) => t.builtin)) {
     const j = await call(gm, "POST", root + `/snapshots/${pub.id}/pdf`, {

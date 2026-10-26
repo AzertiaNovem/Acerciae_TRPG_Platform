@@ -134,6 +134,9 @@ Json::Value ChatService::createChannel(const Principal& p, const std::string& se
 }
 Json::Value ChatService::getChannel(const ChannelAccess& a) {
     auto c = db_.queryOne("SELECT c.*, s.title AS current_scene_title FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
+    if(!a.isGm) c["current_scene_title"]=Json::Value();
+    if(!a.playerGroupId.empty()) c["player_group_name"]=db_.queryOne("SELECT name FROM player_groups WHERE id=$1",{a.playerGroupId})["name"];
+    c["player_group_id"]=a.playerGroupId; c["player_group_version"]=a.playerGroupVersion;
     c["my_role"] = a.isGm ? "gm" : "player";
     c["my_character_ids"] = json::fromStrArray(a.characterIds);
     return c;
@@ -217,7 +220,7 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
             Db::exec(w, "UPDATE chat_window_members wm SET character_id=$2 FROM chat_windows cw WHERE cw.id=wm.chat_window_id AND cw.channel_id=$1 AND wm.user_id=$3 AND wm.character_id IS NULL",
                 {a.channelId, c["id"].asString(), ownerId});
         }
-        Db::exec(w, "INSERT INTO entities(channel_id, kind, name, character_id, description) VALUES($1,$2,$3,$4,$5) ON CONFLICT (channel_id, kind, name) DO UPDATE SET character_id=EXCLUDED.character_id",
+        Db::exec(w, "INSERT INTO entities(channel_id, kind, name, character_id, description) VALUES($1,$2,$3,$4,$5) ON CONFLICT (channel_id, kind, name) WHERE player_group_id IS NULL DO UPDATE SET character_id=EXCLUDED.character_id",
             {a.channelId, kind, name, c["id"].asString(), json::str(body, "description")});
         return c;
     });
@@ -234,14 +237,14 @@ Json::Value ChatService::updateCharacter(const ChannelAccess& a, const std::stri
 // ---- windows ---------------------------------------------------------------------------------
 Json::Value ChatService::listWindows(const ChannelAccess& a) {
     std::string sql =
-        "SELECT w.*, s.title AS scene_title, "
+        "SELECT w.*, " + std::string(a.isGm ? "s.title" : "NULL::text") + " AS scene_title, "
         "(SELECT json_agg(json_build_object('user_id', wm.user_id, 'character_id', wm.character_id, 'display_name', u.display_name, 'character_name', ch.name)) "
         " FROM chat_window_members wm JOIN users u ON u.id=wm.user_id LEFT JOIN characters ch ON ch.id=wm.character_id WHERE wm.chat_window_id=w.id) AS members, "
         "(SELECT max(seq) FROM messages m WHERE m.chat_window_id=w.id) AS last_seq "
         "FROM chat_windows w LEFT JOIN scenes s ON s.id=w.active_scene_id WHERE w.channel_id=$1";
-    if (!a.isGm) sql += " AND EXISTS (SELECT 1 FROM chat_window_members wm2 WHERE wm2.chat_window_id=w.id AND wm2.user_id=$2)";
+    if (!a.isGm) sql += " AND EXISTS (SELECT 1 FROM chat_window_members wm2 JOIN player_group_members pm ON pm.user_id=wm2.user_id WHERE pm.channel_id=w.channel_id AND pm.group_id=$2::uuid AND wm2.chat_window_id=w.id) AND " + Visibility::groupGuard(a);
     sql += " ORDER BY w.created_at";
-    DbParams p{a.channelId}; if (!a.isGm) p.push_back(a.userId);
+    DbParams p{a.channelId}; if (!a.isGm) p.push_back(a.playerGroupId.empty()?dbNull():DbParam(a.playerGroupId));
     return db_.queryJson(sql, p);
 }
 Json::Value ChatService::createWindow(const ChannelAccess& a, const Json::Value& body) {
@@ -306,7 +309,9 @@ Json::Value ChatService::windowMembers(const ChannelAccess& a, const std::string
 
 // ---- messages --------------------------------------------------------------------------------
 Json::Value ChatService::listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq) {
-    auth_.requireWindowMember(a, windowId);
+    auto window=db_.queryOne("SELECT id FROM chat_windows WHERE id=$1 AND channel_id=$2",{windowId,a.channelId});
+    if(window.isNull()) throw notFound("chat window not found");
+    if(!a.isGm && db_.queryOne("SELECT 1 AS ok FROM chat_window_members wm JOIN player_group_members pm ON pm.user_id=wm.user_id WHERE wm.chat_window_id=$1 AND pm.channel_id=$2 AND pm.group_id=$3::uuid AND "+Visibility::groupGuard(a)+" LIMIT 1",{windowId,a.channelId,a.playerGroupId.empty()?dbNull():DbParam(a.playerGroupId)}).isNull()) throw forbidden("Chat window is outside this player group's views");
     std::string sql = MSG_SELECT + "WHERE m.chat_window_id=$1 AND " + Visibility::messageFilter(a);
     DbParams p{windowId};
     if (beforeSeq > 0) { sql += " AND m.seq < $2"; p.push_back(beforeSeq); }
@@ -335,6 +340,12 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     auto visibility = json::str(body, "visibility", "window");
     if (visibility != "window" && visibility != "gm_only" && visibility != "whisper") throw badRequest("invalid visibility");
     if (visibility != "window" && !a.isGm) throw forbidden("only the GM can post gm_only or whisper messages");
+    if(body.isMember("reference_ids") && !body["reference_ids"].isArray()) throw badRequest("reference_ids must be an array");
+    if(body["reference_ids"].size()>5) throw badRequest("At most five chat references");
+    for(const auto& ref : body["reference_ids"]) if(!ref.isString()) throw badRequest("Reference IDs must be strings");
+    auto references=json::strArray(body["reference_ids"]);
+    if(references.size()>5) throw badRequest("At most five chat references");
+    for(const auto& id : references) { if(!Visibility::isUuid(id)) throw badRequest("Invalid reference ID"); getMessage(a,id); }
     auto whisperTo = json::strArray(body["whisper_to"]);
     if (visibility == "whisper" && whisperTo.empty()) throw badRequest("whisper_to required for whisper");
 
@@ -375,6 +386,8 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
                  pgArrayLiteral(to), dice.isNull() ? dbNull() : DbParam(json::dump(dice))})["id"].asString();
         };
         auto messageId = insert(visibility, whisperTo, content, diceJson);
+        for(const auto& id : references) if(Db::queryOne(w,MSG_SELECT+"WHERE m.id=$1 AND m.channel_id=$2 AND "+Visibility::messageFilter(a),{id,a.channelId}).isNull()) throw forbidden("Referenced chat is no longer accessible");
+        Db::exec(w,"UPDATE messages SET reference_ids=$2::uuid[] WHERE id=$1",{messageId,pgArrayLiteral(references)});
         if (diceCmd && diceResult.hidden) {
             Json::Value nd; nd["type"] = "hidden_notice"; nd["command"] = diceCmd->raw; nd["text"] = diceResult.hiddenNotice;
             notice = Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {insert("window", {}, diceCmd->raw, nd)});
@@ -392,7 +405,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
             NewEvent e; e.channelId = a.channelId; e.chatWindowId = windowId; e.sceneId = sceneId; e.messageId = messageId;
             e.actorUserId = a.userId; e.actorRole = a.isGm ? "gm" : "player"; e.characterId = characterId; e.kind = "message.posted";
             e.visibility = evVis; e.audience = audience;
-            e.payload["content"] = eventText; e.payload["message_kind"] = kind;
+            e.payload["content"] = eventText; e.payload["message_kind"] = kind; e.payload["reference_message_ids"]=json::fromStrArray(references);
             if (diceCmd) { e.payload["command"] = content; e.payload["dice"] = diceJson; }
             events_.append(w, e);
         }

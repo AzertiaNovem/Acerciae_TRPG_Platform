@@ -12,7 +12,7 @@ function Bubble({ d }: { d: DocumentSummary }) {
   const pulsing = pulse[d.id] && Date.now() - pulse[d.id] < 1500;
   return (
     <div className={`bubble ${pulsing ? 'pulse' : ''} ${hlCount ? 'has-highlight' : ''}`} onClick={() => expand(d.id)} title={`${d.entry_count} entries · v${d.version}`}>
-      <div className="title"><span>{d.title}{d.gm_only && <span className="pill gm" style={{ marginLeft: 6 }}>{tr("GM")}</span>}</span>
+      <div className="title"><span>{tr(d.title)}{d.gm_only && <span className="pill gm" style={{ marginLeft: 6 }}>{tr("GM")}</span>}</span>
         <span className="row" style={{ gap: 4 }}>{hlCount > 0 && <span className="badge hl" title={tr("active highlights")}>✦{hlCount}</span>}{unseen > 0 && <span className="badge" title={tr("new changes since you looked")}>{d.recent_changes || unseen}</span>}</span></div>
       <div className="preview">{d.preview ?? `${d.entry_count} entries`}</div>
     </div>

@@ -22,7 +22,7 @@ export default function ChatWindow() {
         {scene && <span className="scene-chip" title={scene.location}>{scene.title}{scene.location ? ` · ${scene.location}` : ''}{scene.narrative_time ? ` · ${scene.narrative_time}` : ''}</span>}
         <span className="grow" />
         <span className="tiny muted" title={tr("Participants")}>{(win.members ?? []).map((m) => m.character_name ?? m.display_name).join(' · ')}</span>
-        <span className="pill" title={tr("Knowledge mode")}>{channel.knowledge_mode === 'isolated' ? tr("knowledge: isolated") : tr("knowledge: public")}</span>
+        <span className="pill" title={tr("Knowledge mode")}>{channel.my_role === 'gm' ? tr("GM only") : `${tr("Player group")}: ${channel.player_group_name ?? "…"}`}</span>
       </div>
       <div className="chat-body">
         <MessageList />

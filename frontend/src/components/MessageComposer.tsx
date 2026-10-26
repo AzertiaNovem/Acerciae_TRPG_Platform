@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useAuth } from '../store/auth';
+import { useChat } from '../store/chat';
 import { useUi } from '../store/ui';
 import ConsistencyButton from './ConsistencyButton';
 import InspirationButton from './InspirationButton';
@@ -13,6 +14,7 @@ export default function MessageComposer() {
   const { channelId, windowId, channel, windows, characters, serverSettings } = useNav();
   const user = useAuth((s) => s.user);
   const { composerInsert, toast } = useUi();
+  const { references, removeReference, clearReferences } = useChat();
   const [text, setText] = useState('');
   const [kind, setKind] = useState<'ic' | 'ooc' | 'narration' | 'roll'>('ic');
   const [visibility, setVisibility] = useState<'window' | 'gm_only' | 'whisper'>('window');
@@ -27,6 +29,7 @@ export default function MessageComposer() {
   const win = windows.find((w) => w.id === windowId);
   const myCharacters = characters.filter((c) => c.user_id === user?.id);
   const myWindowCharacter = win?.members?.find((m) => m.user_id === user?.id)?.character_id ?? myCharacters[0]?.id ?? '';
+  const canPost = isGm || win?.members?.some(m=>m.user_id===user?.id);
   const activeCharacter = characterId || myWindowCharacter;
 
   useEffect(() => { if (composerInsert) { setText((t) => (t ? t + '\n' : '') + composerInsert.text); ta.current?.focus(); } }, [composerInsert]);
@@ -48,18 +51,22 @@ export default function MessageComposer() {
   }, [text, isDice, channelId, windowId, activeCharacter, characters]);
 
   const send = async () => {
-    if (!text.trim() || !channelId || !windowId || sending) return;
+    if (!canPost || !text.trim() || !channelId || !windowId || sending) return;
     setSending(true);
     try {
-      await api.postMessage(channelId, windowId, { content: text.trim(), kind, character_id: activeCharacter || undefined, visibility, whisper_to: visibility === 'whisper' ? whisperTo.split(',').map((x) => x.trim()).filter(Boolean) : undefined });
-      setText('');
+      await api.postMessage(channelId, windowId, { content: text.trim(), reference_ids: references.map(m=>m.id), kind, character_id: activeCharacter || undefined, visibility, whisper_to: visibility === 'whisper' ? whisperTo.split(',').map((x) => x.trim()).filter(Boolean) : undefined });
+      setText(''); clearReferences();
     } catch (e: any) { toast(e.message, 'error'); }
     finally { setSending(false); ta.current?.focus(); }
   };
   return (
     <div className="composer">
+      {!canPost && <p className="small muted">{tr('Shared group view: reading only. Join this chat window to speak.')}</p>}
+      {references.length>0 && <div className="chat-reference-drafts" aria-label={tr('Chat references')}>
+        {references.map(m=><div className="chat-reference" key={m.id}><div className="row"><span className="grow">{m.character_name ?? m.author_name}</span><button className="ghost small" aria-label={tr('Remove reference')} onClick={()=>removeReference(m.id)}>×</button></div><div className="small">{m.content.slice(0,240)}</div></div>)}
+      </div>}
       <div className="composer-input">
-        <textarea ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? tr("Narrate, speak as an NPC, or adjudicate…") + (diceOn ? '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)' : '') : tr("What does your character do or say?") + (diceOn ? '  (.ra skill to roll)' : '')}
+        <textarea disabled={!canPost} ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? tr("Narrate, speak as an NPC, or adjudicate…") + (diceOn ? '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)' : '') : tr("What does your character do or say?") + (diceOn ? '  (.ra skill to roll)' : '')}
           onScroll={(e) => { if (ghost.current) ghost.current.scrollTop = e.currentTarget.scrollTop; }}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
         {isDice && hint && hint.for === text && (
@@ -87,7 +94,7 @@ export default function MessageComposer() {
         <span className="spacer" />
         {features?.consistency !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
         {features?.inspiration !== false && <InspirationButton characterId={activeCharacter} />}
-        <button className="primary" onClick={send} disabled={!text.trim() || sending}>{tr("Send")}</button>
+        <button className="primary" onClick={send} disabled={!canPost || !text.trim() || sending}>{tr("Send")}</button>
       </div>
     </div>
   );

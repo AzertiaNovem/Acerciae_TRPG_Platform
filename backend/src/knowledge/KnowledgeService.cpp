@@ -74,29 +74,20 @@ Json::Value KnowledgeService::getScopeJson(const ChannelAccess& a, const std::st
     return db_.tx([&](pqxx::work& w) {
         auto f = Db::queryOne(w, "SELECT id FROM knowledge_facts f WHERE id=$1 AND channel_id=$2 AND " + Visibility::factFilter(a), {factId, a.channelId});
         if (f.isNull()) throw notFound("fact not found");
-        auto s = getScope(w, factId).toJson();
+        Json::Value s; s["scope"]=a.isGm?"gm":"player_group"; s["player_group_id"]=a.playerGroupId; s["character_ids"]=Json::Value(Json::arrayValue);
         s["fact_id"] = factId;
         return s;
     });
 }
 Json::Value KnowledgeService::gmSetScope(const ChannelAccess& a, const std::string& factId, const KnowledgeScope& s) {
     if (!a.isGm) throw forbidden("GM role required");
-    return db_.tx([&](pqxx::work& w) {
-        auto f = Db::queryOne(w, "SELECT id, summary FROM knowledge_facts WHERE id=$1 AND channel_id=$2", {factId, a.channelId});
-        if (f.isNull()) throw notFound("fact not found");
-        setScope(w, factId, s, "gm");
-        Json::Value payload; payload["fact_id"] = factId; payload["scope"] = s.toJson();
-        payload["content"] = "GM adjusted who knows: " + f["summary"].asString();
-        Db::exec(w, "INSERT INTO events(channel_id, actor_user_id, actor_role, kind, payload, visibility) VALUES($1,$2,'gm','knowledge.shared',$3::jsonb,'gm_only')",
-            {a.channelId, a.userId, json::dump(payload)});
-        auto out = s.toJson(); out["fact_id"] = factId; return out;
-    });
+    throw conflict("KP memory cannot be shared directly. Reveal information in chat; each player group summarizes its own chat.");
 }
 
-std::string KnowledgeService::upsertEntity(pqxx::work& w, const std::string& channelId, const std::string& kind, const std::string& nameIn, const std::string& description) {
+std::string KnowledgeService::upsertEntity(pqxx::work& w, const std::string& channelId, const std::string& kind, const std::string& nameIn, const std::string& description, const std::string& groupId) {
     auto name = text::trim(nameIn);
     if (name.empty()) throw badRequest("entity name required");
-    auto found = findEntity(w, channelId, name);
+    auto found = findEntity(w, channelId, name, groupId);
     if (!found.isNull()) {
         if (!description.empty() && found["description"].asString().empty())
             Db::exec(w, "UPDATE entities SET description=$2, updated_at=now() WHERE id=$1", {found["id"].asString(), description});
@@ -104,14 +95,16 @@ std::string KnowledgeService::upsertEntity(pqxx::work& w, const std::string& cha
     }
     static const std::set<std::string> kinds = {"pc","npc","location","item","organisation","concept"};
     auto k = kinds.count(kind) ? kind : "concept";
-    auto r = Db::queryOne(w, "INSERT INTO entities(channel_id, kind, name, description) VALUES($1,$2,$3,$4) ON CONFLICT (channel_id, kind, name) DO UPDATE SET updated_at=now() RETURNING id",
-        {channelId, k, name, description});
+    auto r = Db::queryOne(w, "INSERT INTO entities(channel_id, kind, name, description, player_group_id) VALUES($1,$2,$3,$4,$5::uuid) ON CONFLICT " +
+        std::string(groupId.empty() ? "(channel_id, kind, name) WHERE player_group_id IS NULL" : "(player_group_id, kind, name) WHERE player_group_id IS NOT NULL") +
+        " DO UPDATE SET updated_at=now() RETURNING id",
+        {channelId, k, name, description, groupId.empty() ? dbNull() : DbParam(groupId)});
     return r["id"].asString();
 }
-Json::Value KnowledgeService::findEntity(pqxx::work& w, const std::string& channelId, const std::string& name) {
+Json::Value KnowledgeService::findEntity(pqxx::work& w, const std::string& channelId, const std::string& name, const std::string& groupId) {
     return Db::queryOne(w,
-        "SELECT * FROM entities WHERE channel_id=$1 AND (lower(name)=lower($2) OR lower($2) = ANY(SELECT lower(x) FROM unnest(aliases) x)) ORDER BY created_at LIMIT 1",
-        {channelId, name});
+        "SELECT * FROM entities WHERE channel_id=$1 AND player_group_id IS NOT DISTINCT FROM $3::uuid AND (lower(name)=lower($2) OR lower($2) = ANY(SELECT lower(x) FROM unnest(aliases) x)) ORDER BY created_at LIMIT 1",
+        {channelId, name, groupId.empty() ? dbNull() : DbParam(groupId)});
 }
 void KnowledgeService::linkFactEntity(pqxx::work& w, const std::string& factId, const std::string& entityId, const std::string& role) {
     Db::exec(w, "INSERT INTO fact_entities(fact_id, entity_id, role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", {factId, entityId, role.empty() ? "mentioned" : role});
@@ -127,7 +120,7 @@ std::string KnowledgeService::addRelation(pqxx::work& w, const std::string& chan
 
 static const std::string FACT_SELECT =
     "SELECT f.id, f.kind, f.summary, f.data, f.status, f.scene_id, f.source_event_ids, f.created_by, f.version, f.created_at, f.updated_at, "
-    "s.title AS scene_title, "
+    "CASE WHEN f.player_group_id IS NULL THEN s.title ELSE NULL END AS scene_title, "
     "(SELECT json_agg(json_build_object('id', e.id, 'name', e.name, 'kind', e.kind, 'role', fe.role)) FROM fact_entities fe JOIN entities e ON e.id=fe.entity_id WHERE fe.fact_id=f.id) AS entities, "
     "(SELECT json_agg(json_build_object('scope', kv.scope, 'character_id', kv.character_id)) FROM knowledge_visibility kv WHERE kv.fact_id=f.id) AS visibility "
     "FROM knowledge_facts f LEFT JOIN scenes s ON s.id=f.scene_id ";
@@ -152,17 +145,18 @@ Json::Value KnowledgeService::getFact(const ChannelAccess& a, const std::string&
     return f;
 }
 Json::Value KnowledgeService::listEntities(const ChannelAccess& a, const std::string& query) {
-    std::string sql = "SELECT e.*, (SELECT count(*) FROM fact_entities fe JOIN knowledge_facts f ON f.id=fe.fact_id WHERE fe.entity_id=e.id AND " + Visibility::factFilter(a) + ") AS fact_count FROM entities e WHERE e.channel_id=$1";
+    std::string sql = "SELECT e.*, (SELECT count(*) FROM fact_entities fe JOIN knowledge_facts f ON f.id=fe.fact_id WHERE fe.entity_id=e.id AND " + Visibility::factFilter(a) + ") AS fact_count FROM entities e WHERE e.channel_id=$1 AND " + Visibility::partitionFilter(a,"e");
     DbParams p{a.channelId};
     if (!query.empty()) { p.push_back(query); sql += " AND (e.name ILIKE '%' || $2 || '%' OR similarity(e.name, $2) > 0.3)"; }
-    if (!a.isGm) sql = "SELECT * FROM (" + sql + ") x WHERE fact_count > 0 OR kind='pc'";
+    if (!a.isGm) sql = "SELECT * FROM (" + sql + ") x WHERE fact_count > 0";
     sql += " ORDER BY kind, name";
     return db_.queryJson(sql, p);
 }
 Json::Value KnowledgeService::getEntity(const ChannelAccess& a, const std::string& entityId) {
-    auto e = db_.queryOne("SELECT * FROM entities WHERE id=$1 AND channel_id=$2", {entityId, a.channelId});
+    auto e = db_.queryOne("SELECT e.* FROM entities e WHERE e.id=$1 AND e.channel_id=$2 AND " + Visibility::partitionFilter(a,"e"), {entityId, a.channelId});
     if (e.isNull()) throw notFound("entity not found");
     e["facts"] = db_.queryJson(FACT_SELECT + "JOIN fact_entities fe ON fe.fact_id=f.id WHERE fe.entity_id=$1 AND f.status <> 'retracted' AND " + Visibility::factFilter(a) + " ORDER BY f.updated_at DESC LIMIT 50", {entityId});
+    if (!a.isGm && e["facts"].empty()) throw notFound("entity not found");
     e["relations"] = relationsOf(a, entityId);
     return e;
 }
@@ -170,15 +164,12 @@ Json::Value KnowledgeService::relationsOf(const ChannelAccess& a, const std::str
     return db_.queryJson(
         "SELECT r.id, r.relation, r.fact_id, r.created_at, ef.id AS from_id, ef.name AS from_name, ef.kind AS from_kind, et.id AS to_id, et.name AS to_name, et.kind AS to_kind, f.summary, f.status "
         "FROM entity_relations r JOIN entities ef ON ef.id=r.from_entity_id JOIN entities et ON et.id=r.to_entity_id LEFT JOIN knowledge_facts f ON f.id=r.fact_id "
-        "WHERE r.channel_id=$1 AND (r.from_entity_id=$2 OR r.to_entity_id=$2) AND (r.fact_id IS NULL OR " + Visibility::factFilter(a) + ") ORDER BY r.created_at DESC",
+        "WHERE r.channel_id=$1 AND (r.from_entity_id=$2 OR r.to_entity_id=$2) AND " + Visibility::partitionFilter(a,"ef") + " AND " + Visibility::partitionFilter(a,"et") + " AND (" + std::string(a.isGm ? "r.fact_id IS NULL OR " : "") + Visibility::factFilter(a) + ") ORDER BY r.created_at DESC",
         {a.channelId, entityId});
 }
 Json::Value KnowledgeService::knowledgeScope(const ChannelAccess& a, const std::string& characterId) {
     if (!a.isGm && std::find(a.characterIds.begin(), a.characterIds.end(), characterId) == a.characterIds.end()) throw forbidden("not your character");
-    return db_.queryJson(
-        "SELECT f.id, f.kind, f.summary, f.status, kv.scope FROM knowledge_facts f JOIN knowledge_visibility kv ON kv.fact_id=f.id "
-        "WHERE f.channel_id=$1 AND f.status <> 'retracted' AND (kv.scope='public' OR (kv.scope='character' AND kv.character_id=$2)) ORDER BY f.updated_at DESC",
-        {a.channelId, characterId});
+    return listFacts(a, "", "", "", 200);
 }
 Json::Value KnowledgeService::channelMode(const std::string& channelId) {
     return db_.queryOne("SELECT knowledge_mode, current_scene_id, ai_enabled FROM channels WHERE id=$1", {channelId});

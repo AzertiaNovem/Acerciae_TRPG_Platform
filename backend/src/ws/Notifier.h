@@ -13,6 +13,7 @@ public:
     explicit Notifier(Db& db) : db_(db) {}
     // chat stream
     void messagePosted(const Json::Value& message);                      // audience from message visibility
+    void knowledgeChanged(const std::string& channelId);
     void windowChanged(const std::string& channelId, const Json::Value& window);
     void sceneChanged(const std::string& channelId, const Json::Value& scene);
     void characterUpdated(const std::string& channelId, const Json::Value& character);  // NPC changes reach GMs only

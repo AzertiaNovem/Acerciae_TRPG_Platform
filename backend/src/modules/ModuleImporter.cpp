@@ -196,9 +196,9 @@ Json::Value ModuleImporter::gmWorkspace(const ChannelAccess& a) {
     w["modules"] = list(a);
     w["scenes"] = db_.queryJson("SELECT s.id, s.title, s.location, s.narrative_time, s.status, s.off_module, s.module_node_id, n.name AS module_node_name, (SELECT count(*) FROM events e WHERE e.scene_id=s.id) AS event_count FROM scenes s LEFT JOIN module_nodes n ON n.id=s.module_node_id WHERE s.channel_id=$1 ORDER BY s.sequence", {a.channelId});
     w["pending_hints"] = listHints(a, "potential");
-    w["pending_proposals"] = db_.queryJson("SELECT p.id, p.document_id, d.doc_type, p.ops, p.rejection_reason, p.source_event_ids, p.created_at FROM document_proposals p LEFT JOIN documents d ON d.id=p.document_id WHERE p.channel_id=$1 AND p.status='needs_gm_review' ORDER BY p.created_at DESC LIMIT 50", {a.channelId});
+    w["pending_proposals"] = db_.queryJson("SELECT p.id, p.document_id, d.doc_type, p.ops, p.rejection_reason, p.source_event_ids, p.created_at FROM document_proposals p LEFT JOIN documents d ON d.id=p.document_id WHERE p.channel_id=$1 AND p.status='needs_gm_review' AND (p.document_id IS NULL OR d.player_group_id IS NULL) ORDER BY p.created_at DESC LIMIT 50", {a.channelId});
     w["node_progress"] = db_.queryJson("SELECT n.node_type, n.progress, count(*) AS n FROM module_nodes n JOIN modules m ON m.id=n.module_id WHERE m.channel_id=$1 AND m.status='ready' GROUP BY 1,2 ORDER BY 1,2", {a.channelId});
-    w["gm_secrets"] = db_.queryJson("SELECT f.id, f.kind, f.summary, f.status FROM knowledge_facts f WHERE f.channel_id=$1 AND f.status <> 'retracted' AND NOT EXISTS (SELECT 1 FROM knowledge_visibility kv WHERE kv.fact_id=f.id AND kv.scope IN ('public','character')) ORDER BY f.updated_at DESC LIMIT 50", {a.channelId});
+    w["gm_secrets"] = db_.queryJson("SELECT f.id, f.kind, f.summary, f.status FROM knowledge_facts f WHERE f.channel_id=$1 AND f.status <> 'retracted' AND f.player_group_id IS NULL ORDER BY f.updated_at DESC LIMIT 50", {a.channelId});
     w["recent_jobs"] = db_.queryJson("SELECT id, kind, group_key, status, event_count, llm_calls, llm_mode, error, started_at, finished_at FROM ai_jobs WHERE channel_id=$1 ORDER BY started_at DESC LIMIT 15", {a.channelId});
     return w;
 }

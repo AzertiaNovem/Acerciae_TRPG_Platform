@@ -150,6 +150,7 @@ Json::Value PublicationService::createPdf(const ChannelAccess &a,
     if (snap["scope"] == "character")
       reader.characterIds.push_back(snap["scope_character_id"].asString());
   }
+  if(!docIds.empty() && snap["scope"]=="pl_public") throw badRequest("Independent memory appendices require a private export");
   payload["appendices"] = Json::Value(Json::arrayValue);
   for (const auto &docId : docIds) {
     auto doc = documents_.getDocument(reader, docId, "", -1);
@@ -187,13 +188,15 @@ Json::Value PublicationService::createPdf(const ChannelAccess &a,
   auto job = db_.queryOne(
       "INSERT INTO "
       "pdf_render_jobs(channel_id,project_id,snapshot_id,template_config,scope,"
-      "scope_character_id,created_by,idempotency_key,render_payload) "
-      "VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9::jsonb) ON "
+      "scope_character_id,created_by,idempotency_key,render_payload,kp_memory,memory_group_id,memory_group_version) "
+      "VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9::jsonb,$10,$11::uuid,$12) ON "
       "CONFLICT(idempotency_key) DO UPDATE SET "
       "idempotency_key=EXCLUDED.idempotency_key RETURNING id",
       {a.channelId, snap["project_id"].asString(), id, json::dump(c),
        snap["scope"].asString(), opt(json::str(snap, "scope_character_id")),
-       a.userId, idem, data});
+       a.userId, idem, data, !docIds.empty() && reader.isGm,
+       docIds.empty() || reader.playerGroupId.empty() ? dbNull() : DbParam(reader.playerGroupId),
+       docIds.empty() ? dbNull() : DbParam((int64_t)reader.playerGroupVersion)});
   logs_.audit(a, "pdf.create", job);
   return pdfJob(a, job["id"].asString());
 }
@@ -202,11 +205,13 @@ Json::Value PublicationService::pdfJob(const ChannelAccess &a,
   auto j = db_.queryOne(
       "SELECT "
       "id,channel_id,snapshot_id,template_config,scope,scope_character_id,"
-      "status,bytes,pages,attempts,error,created_at,finished_at FROM "
+      "status,bytes,pages,attempts,error,created_at,finished_at,kp_memory,memory_group_id,memory_group_version FROM "
       "pdf_render_jobs WHERE id=$1 AND channel_id=$2",
       {id, a.channelId});
   if (j.isNull())
     throw notFound("PDF job not found");
+  if(j["kp_memory"].asBool() && !a.isGm) throw forbidden("KP memory export");
+  if(!j["memory_group_id"].isNull() && (a.isGm || j["memory_group_id"].asString()!=a.playerGroupId || j["memory_group_version"].asInt()!=a.playerGroupVersion)) throw forbidden("Player memory export belongs to another group version");
   snapshotAccess(a, j["snapshot_id"].asString());
   return j;
 }
@@ -311,6 +316,7 @@ Json::Value PublicationService::publish(const ChannelAccess &a,
               pid = json::str(b, "presentation_id");
   if (kind == "pdf") {
     auto j = pdfJob(a, pdf);
+    if(j["kp_memory"].asBool() || !j["memory_group_id"].isNull()) throw forbidden("Memory appendices are private exports and cannot be published");
     if (j["snapshot_id"] != snap["id"] || j["status"] != "completed")
       throw badRequest("PDF must be completed and use this snapshot");
   }

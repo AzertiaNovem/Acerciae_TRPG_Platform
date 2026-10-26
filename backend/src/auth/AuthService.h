@@ -22,6 +22,8 @@ struct ChannelAccess {
     bool isGm = false;
     std::string knowledgeMode = "isolated";          // 'public' | 'isolated'
     std::vector<std::string> characterIds;            // characters this user controls in the channel
+    std::string playerGroupId;                       // empty = KP, or an unassigned player (fail closed)
+    int playerGroupVersion = 0;
     std::string primaryCharacterId;                   // first PC, used as default viewpoint
 };
 

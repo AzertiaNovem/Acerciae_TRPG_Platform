@@ -39,12 +39,12 @@ public:
     static Json::Value consolidateSchema();
     static std::string observerSystemPrompt();
 private:
+    Json::Value processPlayerGroup(const std::string& channelId, const Json::Value& group, bool wait);
     void observeLoop(); void consolidateLoop(); void cleanupLoop();
     void observeTick();
     Json::Value processGroup(const std::string& channelId, const std::string& windowId, const std::string& sceneId, int64_t fromSeq, bool waitForInflight);
     Json::Value buildGroupContext(const ChannelAccess& sys, const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, std::vector<std::string>& terms);
     void applyExtraction(const ChannelAccess& sys, const std::string& channelId, const std::string& jobId, const Json::Value& data, const Json::Value& batch, Json::Value& summary);
-    void suggestKnowledgeSharing(const std::string& channelId, const Json::Value& batch, const std::string& jobId, Json::Value& summary);
     ChannelAccess systemAccess(const std::string& channelId);
     bool tryLock(const std::string& key, bool wait);
     void unlock(const std::string& key);

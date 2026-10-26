@@ -8,12 +8,13 @@
 #include "../core/Text.h"
 #include "../core/Log.h"
 #include <map>
+#include <set>
 #include <algorithm>
 
 namespace acerciae {
 
 static const std::string FACT_COLS =
-    "f.id AS fact_id, f.kind, f.summary, f.status, f.data, f.scene_id, f.source_event_ids, f.updated_at, s.title AS scene_title, "
+    "f.id AS fact_id, f.kind, f.summary, f.status, f.data, f.scene_id, f.source_event_ids, f.updated_at, CASE WHEN f.player_group_id IS NULL THEN s.title ELSE NULL END AS scene_title, "
     "de.id AS entry_id, d.doc_type AS document_type ";
 static const std::string FACT_FROM =
     "FROM knowledge_facts f LEFT JOIN scenes s ON s.id=f.scene_id LEFT JOIN document_entries de ON de.fact_id=f.id AND NOT de.removed LEFT JOIN documents d ON d.id=de.document_id ";
@@ -23,6 +24,10 @@ Json::Value ContextRetrievalService::getCurrentScene(const ChannelAccess& a, con
     if (!chatWindowId.empty()) { auto w = db_.queryOne("SELECT active_scene_id FROM chat_windows WHERE id=$1 AND channel_id=$2", {chatWindowId, a.channelId}); if (!w.isNull() && !w["active_scene_id"].isNull()) sceneId = w["active_scene_id"].asString(); }
     if (sceneId.empty()) { auto c = db_.queryOne("SELECT current_scene_id FROM channels WHERE id=$1", {a.channelId}); if (!c.isNull() && !c["current_scene_id"].isNull()) sceneId = c["current_scene_id"].asString(); }
     if (sceneId.empty()) { Json::Value v; v["error"] = "no active scene"; return v; }
+    if(!a.isGm) {
+        auto visible=db_.queryOne("SELECT e.id FROM events e WHERE e.channel_id=$1 AND e.scene_id=$2 AND "+Visibility::eventFilter(a)+" LIMIT 1",{a.channelId,sceneId});
+        if(visible.isNull()) { Json::Value empty; empty["log"]=Json::Value(Json::arrayValue); empty["facts"]=Json::Value(Json::arrayValue); return empty; }
+    }
     return getSceneById(a, sceneId, logLimit);
 }
 Json::Value ContextRetrievalService::getSceneById(const ChannelAccess& a, const std::string& sceneId, int logLimit) {
@@ -34,6 +39,16 @@ Json::Value ContextRetrievalService::getSceneById(const ChannelAccess& a, const 
         "SELECT * FROM (SELECT e.id AS event_id, e.seq, e.actor_role, e.character_id, c.name AS character_name, e.kind, e.payload->>'content' AS content, e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id "
         "WHERE e.channel_id=$1 AND e.scene_id=$2 AND " + Visibility::eventFilter(a) + " ORDER BY e.seq DESC LIMIT $3) x ORDER BY seq ASC", {a.channelId, sceneId, (int64_t)std::max(1, logLimit)});
     s["facts"] = db_.queryJson("SELECT " + FACT_COLS + FACT_FROM + "WHERE f.channel_id=$1 AND f.scene_id=$2 AND f.status <> 'retracted' AND " + Visibility::factFilter(a) + (a.isGm ? "" : " AND coalesce(d.gm_only,false)=false") + " ORDER BY f.updated_at DESC LIMIT 60", {a.channelId, sceneId});
+    if(!a.isGm) {
+        if(s["log"].empty() && s["facts"].empty()) throw notFound("No accessible chat in this scene");
+        Json::Value safe; safe["id"]=sceneId; safe["log"]=s["log"]; safe["facts"]=s["facts"];
+        safe["participants"]=Json::Value(Json::arrayValue);
+        std::set<std::string> seen;
+        for(auto& e : safe["log"]) if(e["character_id"].isString() && seen.insert(e["character_id"].asString()).second) {
+            Json::Value c; c["character_id"]=e["character_id"]; c["name"]=e["character_name"]; safe["participants"].append(c);
+        }
+        return safe;
+    }
     return s;
 }
 Json::Value ContextRetrievalService::searchSceneHistory(const ChannelAccess& a, const std::string& query, const std::string& sceneId, const std::string& excludeSceneId, int limit) {
@@ -56,7 +71,7 @@ Json::Value ContextRetrievalService::searchEvents(const ChannelAccess& a, const 
 }
 Json::Value ContextRetrievalService::getEntity(const ChannelAccess& a, const std::string& idOrName) {
     if (Visibility::isUuid(idOrName)) return knowledge_.getEntity(a, idOrName);
-    auto e = db_.tx([&](pqxx::work& w) { return knowledge_.findEntity(w, a.channelId, idOrName); });
+    auto e = db_.tx([&](pqxx::work& w) { return knowledge_.findEntity(w, a.channelId, idOrName, a.playerGroupId); });
     if (e.isNull()) { auto list = knowledge_.listEntities(a, idOrName); if (list.empty()) { Json::Value v; v["error"] = "entity not found"; v["candidates"] = Json::Value(Json::arrayValue); return v; } e = list[0]; }
     return knowledge_.getEntity(a, e["id"].asString());
 }
@@ -140,10 +155,10 @@ Json::Value ContextRetrievalService::relatedHistory(const ChannelAccess& a, cons
 }
 Json::Value ContextRetrievalService::documentSnapshot(const ChannelAccess& a, const std::string& docType, const std::string& sceneId, int limit) {
     Json::Value out;
-    auto d = db_.queryOne("SELECT id, version, gm_only FROM documents WHERE channel_id=$1 AND doc_type=$2", {a.channelId, docType});
+    auto d = db_.queryOne("SELECT d.id, d.version, d.gm_only FROM documents d WHERE channel_id=$1 AND doc_type=$2 AND " + Visibility::partitionFilter(a,"d"), {a.channelId, docType});
     if (d.isNull()) { out["version"] = 0; out["entries"] = Json::Value(Json::arrayValue); return out; }
     if (d["gm_only"].asBool() && !a.isGm) { out["version"] = d["version"]; out["entries"] = Json::Value(Json::arrayValue); return out; }
-    std::string sql = "SELECT f.id AS fact_id, de.id AS entry_id, f.summary, f.status, f.data, f.scene_id, f.source_event_ids, s.title AS scene_title FROM document_entries de JOIN knowledge_facts f ON f.id=de.fact_id LEFT JOIN scenes s ON s.id=f.scene_id WHERE de.document_id=$1 AND NOT de.removed AND " + Visibility::factFilter(a);
+    std::string sql = "SELECT f.id AS fact_id, de.id AS entry_id, f.summary, f.status, f.data, f.scene_id, f.source_event_ids, CASE WHEN f.player_group_id IS NULL THEN s.title ELSE NULL END AS scene_title FROM document_entries de JOIN knowledge_facts f ON f.id=de.fact_id LEFT JOIN scenes s ON s.id=f.scene_id WHERE de.document_id=$1 AND NOT de.removed AND " + Visibility::factFilter(a);
     DbParams p{d["id"].asString()};
     if (!sceneId.empty() && docType == "current_scene") { p.push_back(sceneId); sql += " AND f.scene_id=$2"; }
     sql += " ORDER BY de.updated_version DESC, de.position DESC LIMIT " + std::to_string(std::max(1, limit));

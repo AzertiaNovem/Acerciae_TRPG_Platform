@@ -13,6 +13,10 @@ function merge(existing: Message[], incoming: Message[]): Message[] {
 interface ChatState {
   byWindow: Record<string, Message[]>;
   loading: Record<string, boolean>;
+  references: Message[];
+  addReference: (message: Message) => void;
+  removeReference: (id: string) => void;
+  clearReferences: () => void;
   jumpTo: { messageId: string; nonce: number } | null;
   load: (channelId: string, windowId: string) => Promise<void>;
   loadOlder: (channelId: string, windowId: string) => Promise<void>;
@@ -22,7 +26,10 @@ interface ChatState {
   reset: () => void;
 }
 export const useChat = create<ChatState>((set, get) => ({
-  byWindow: {}, loading: {}, jumpTo: null,
+  byWindow: {}, loading: {}, jumpTo: null, references: [],
+  addReference: (m) => set(s=>({references:s.references.some(r=>r.id===m.id)?s.references:[...s.references,m].slice(0,5)})),
+  removeReference: (id) => set(s=>({references:s.references.filter(m=>m.id!==id)})),
+  clearReferences: () => set({references:[]}),
   load: async (ch, w) => {
     const e = sessionEpoch();
     set((s) => ({ loading: { ...s.loading, [w]: true } }));
@@ -48,5 +55,5 @@ export const useChat = create<ChatState>((set, get) => ({
   }),
   requestJump: (messageId) => set({ jumpTo: { messageId, nonce: Date.now() } }),
   clearJump: () => set({ jumpTo: null }),
-  reset: () => set({ byWindow: {}, loading: {}, jumpTo: null }),
+  reset: () => set({ byWindow: {}, loading: {}, jumpTo: null, references: [] }),
 }));

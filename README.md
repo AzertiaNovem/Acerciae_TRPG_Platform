@@ -95,17 +95,24 @@ sources, permissions, epistemic status, version and conflicts before committing.
 gm_secret | resolved | retracted`. The validator downgrades AI "confirmed" claims that lack a GM-authored source, and turns
 contradictions of confirmed records into **pending GM proposals** instead of overwriting.
 
-**Fact–Knower model** — `knowledge_facts` + `knowledge_visibility` record *who knows what* (GM / public / per character).
-Scope is derived from the audience of the cited events (intersection), so a secret never widens by itself. Mode A
-(public knowledge) and Mode B (character isolation) per channel; v1 knowledge-sharing suggestions for the GM to confirm.
+**Independent memory partitions** — KP memory and each channel player group's facts, entities, documents and revisions
+have separate identities. Players share their group's readable chat perspectives. A separate observer builds each group's
+five journals only from that chat and its own earlier summaries; it cannot retrieve KP/module memory. KP's six categories
+are available in GM Workshop, with sections, source citations, revisions and correction controls.
+Group or window-access changes invalidate and rebuild the affected player summaries. Existing KP records remain intact.
+See [knowledge architecture and migration](docs/KNOWLEDGE_GROUPS.md).
 
 **Scheduled AI observer** — every 5 s (configurable) per (channel, window, scene) group: cursor-based event reading, DB-level
 task locks (`ai_jobs` partial unique index) plus in-process locks, batch analysis, tool-assisted retrieval, validated commit,
-WebSocket notification, cursor advance. No new events ⇒ no LLM call. A separate consolidator runs at low frequency.
+WebSocket notification, cursor advance. Player groups use independent generation-bound cursors and commits.
+No new events ⇒ no LLM call. A separate KP consolidator runs at low frequency.
 
 **Sharded context and the Tool API** — `get_current_scene`, `get_scene_by_id`, `search_scene_history`, `search_events`,
 `get_entity`, `get_relationships`, `get_clue`, `get_open_threads`, `get_module_excerpt`, `get_knowledge_scope`, `get_shard`.
 Every tool call runs under the calling identity's visibility filters (FTS + trigram, optional pgvector).
+
+**Chat references** — players can attach up to five original messages to a new message, including from a journal source
+viewer. References store IDs rather than copied excerpts; viewing or jumping to the original rechecks chat access.
 
 **Highlights** — a separate short-lived `highlights` object bound to document entries (optionally a text range), with
 reason, source events, priority, scope and expiry; pushed over the context WebSocket, fade-in in the UI, hover/click to
@@ -197,8 +204,8 @@ reproduce it by hand with the demo campaign.
 * Semantic (pgvector) retrieval is wired but only active when `LLM_EMBEDDING_MODEL` is set; FTS + trigram is the default.
 * Timeline compression and relationship merging in the consolidator are conservative (resolve promise threads, drop exact
   duplicate relationships); richer long-term compression is left to the live model.
-* Intelligent knowledge grouping is v1: the observer proposes sharing when a character talks about a private fact in front
-  of others; the GM confirms. No automatic merging on reunion.
+* Group membership is managed explicitly by the KP. Changing it rebuilds derived player journals from currently readable
+  chat; the AI never directly shares or copies KP facts. Public/isolated channel mode controls new-player allocation.
 * Database access is synchronous on Drogon's IO threads (pooled libpqxx connections); adequate for table-sized loads,
   not tuned for very large deployments. Multi-instance deployment is possible (locks and cursors live in PostgreSQL;
   WebSocket fan-out is per instance and would need a broker for cross-instance pushes).

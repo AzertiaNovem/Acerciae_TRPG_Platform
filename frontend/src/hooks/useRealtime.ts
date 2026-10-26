@@ -1,3 +1,5 @@
+import { api } from '../api/client';
+import { bumpEpoch } from '../store/session';
 import { useEffect } from 'react';
 import { chatSocket, contextSocket } from '../api/ws';
 import { useChat } from '../store/chat';
@@ -27,6 +29,11 @@ export function useRealtime() {
       const activeWindow = useNav.getState().windows.find((w) => w.id === useNav.getState().windowId);
       const sceneId = activeWindow?.active_scene_id ?? undefined;
       if (m.type === 'document.updated') { useDocuments.getState().onUpdated(m, ch, sceneId); useUi.getState().setAiActivity(`${m.doc_type.replace('_', ' ')} updated (v${m.version})`); setTimeout(() => useUi.getState().setAiActivity(null), 4000); }
+      else if (m.type === 'knowledge.reset') {
+        bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useUi.getState().reset();
+        useDocuments.getState().loadList(ch).catch(()=>undefined); useHighlights.getState().load(ch).catch(()=>undefined); useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
+        const win=useNav.getState().windowId; if(win) useChat.getState().load(ch,win).catch(()=>undefined);
+      }
       else if (m.type === 'highlight.created') useHighlights.getState().add(m.highlight);
       else if (m.type === 'highlight.expired') useHighlights.getState().remove(m.highlight_ids);
       else if (m.type === 'proposal.pending') useUi.getState().toast('The AI filed a change that needs GM review.', 'ai');
@@ -40,6 +47,24 @@ export function useRealtime() {
     if (!channelId) return;
     useDocuments.getState().loadList(channelId);
     useHighlights.getState().load(channelId);
+    // Reconcile revocations even after a missed/disconnected socket notification.
+    let active=true; let groupVersion='';
+    const poll=async()=>{
+      try {
+        if(useNav.getState().channel?.my_role==='gm') return;
+        const groups=await api.playerGroups(channelId);
+        if(!active) return;
+        const next=groups.map(g=>`${g.id}:${g.version}`).join(',');
+        if(groupVersion && groupVersion!==next) {
+          bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useUi.getState().reset();
+          useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
+          const win=useNav.getState().windowId; if(win) useChat.getState().load(channelId,win).catch(()=>undefined);
+        }
+        groupVersion=next; await useDocuments.getState().loadList(channelId);
+      } catch { /* socket reconnect or next poll will retry */ }
+    };
+    poll(); const timer=setInterval(poll,10000);
+    return ()=>{active=false;clearInterval(timer);};
   }, [channelId]);
   useEffect(() => {
     if (!channelId || !windowId) return;

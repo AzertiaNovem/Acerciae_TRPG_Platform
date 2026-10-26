@@ -4,6 +4,7 @@ import { useAuth } from '../store/auth';
 import { api } from '../api/client';
 import { useChat } from '../store/chat';
 import { useNav } from '../store/nav';
+import ChatReference from './ChatReference';
 import type { Message } from '../types';
 
 // Colour a check by its (last) outcome so successes and failures read at a glance.
@@ -20,13 +21,15 @@ function diceTone(m: Message): string {
 
 function MessageRow({ m, jumped }: { m: Message; jumped: boolean }) {
   const user = useAuth((s) => s.user);
+  const references = useChat(s=>s.references);
+  const addReference = useChat(s=>s.addReference);
   const own = user?.id === m.author_id;
   const avatar = own ? user.avatar_data : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
   const [failedAvatar, setFailedAvatar] = useState('');
   const author = own ? user.display_name : m.author_name;
   const name = m.character_name ?? (m.author_role === 'gm' ? `${author} (GM)` : author);
   return (
-    <div className={`message ${tr(m.kind)} ${m.visibility}`} id={`msg-${m.id}`}>
+    <div className={`message ${m.kind} ${m.visibility}`} id={`msg-${m.id}`}>
       <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <img src={avatar} alt="" onError={() => setFailedAvatar(avatar)} /> : (m.character_name ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
         <div className="meta"><span className="author">{name}</span>
@@ -35,7 +38,9 @@ function MessageRow({ m, jumped }: { m: Message; jumped: boolean }) {
           {m.visibility === 'gm_only' && <span className="pill gm">{tr("GM note")}</span>}
           {m.visibility === 'whisper' && <span className="pill ai">{tr("whisper")}</span>}
           <span className="tiny muted">{new Date(m.created_at).toLocaleTimeString(currentLocale())}</span>
+          <button className="ghost small" onClick={()=>addReference(m)} disabled={references.length>=5 || references.some(r=>r.id===m.id)}>{tr('Quote as reference')}</button>
         </div>
+        {m.reference_ids?.map(id=><ChatReference key={id} channelId={m.channel_id} messageId={id}/>)}
         {m.dice?.type === 'hidden_notice' ? <div className="dice-result notice">🎲 {m.dice.text}</div>
           : m.dice ? (<>
             <div className={`content dice-command ${jumped ? 'jumped' : ''}`}>{m.content}</div>
