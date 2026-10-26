@@ -49,7 +49,7 @@ Json::Value ModuleImporter::importPdf(const ChannelAccess& a, const std::string&
     auto path = (std::filesystem::path(cfg_.uploadDir) / safeName).string();
     { std::ofstream out(path, std::ios::binary); out.write(bytes.data(), (std::streamsize)bytes.size()); }
     auto row = db_.queryOne("INSERT INTO modules(channel_id, title, file_name, file_path, status, llm_mode, uploaded_by) VALUES($1,$2,$3,$4,'uploaded',$5,$6) RETURNING *",
-        {a.channelId, title.empty() ? fileName : title, fileName.substr(0, 200), path, llm_.mode(), a.userId});
+        {a.channelId, title.empty() ? fileName : title, fileName.substr(0, 200), path, llm_.mode(a.channelId), a.userId});
     auto id = row["id"].asString();
     std::thread([this, id] { try { process(id); } catch (const std::exception& e) { ALOG_ERROR << "module import failed: " << e.what(); } }).detach();
     return row;
@@ -59,7 +59,7 @@ Json::Value ModuleImporter::importText(const ChannelAccess& a, const std::string
     if (!a.isGm) throw forbidden("GM role required");
     if (pages.empty()) throw badRequest("no text");
     auto row = db_.queryOne("INSERT INTO modules(channel_id, title, file_name, status, llm_mode, uploaded_by, page_count) VALUES($1,$2,'(text import)','extracting',$3,$4,$5) RETURNING *",
-        {a.channelId, title.empty() ? "Imported module" : title, llm_.mode(), a.userId, (int64_t)pages.size()});
+        {a.channelId, title.empty() ? "Imported module" : title, llm_.mode(a.channelId), a.userId, (int64_t)pages.size()});
     auto id = row["id"].asString();
     db_.tx([&](pqxx::work& w) { for (size_t i = 0; i < pages.size(); ++i) Db::exec(w, "INSERT INTO module_pages(module_id, page_number, text) VALUES($1,$2,$3)", {id, (int64_t)(i + 1), pages[i]}); });
     process(id);
@@ -108,7 +108,7 @@ void ModuleImporter::structurePages(const std::string& moduleId, const std::stri
     int chunkIdx = 0;
     for (auto& chunk : chunks) {
         chunkIdx++;
-        LlmRequest req; req.task = "module_structure"; req.responseSchema = structureSchema(); req.temperature = 0.1; req.maxTokens = 4096;
+        LlmRequest req; req.channelId = channelId; req.task = "module_structure"; req.responseSchema = structureSchema(); req.temperature = 0.1; req.maxTokens = 4096;
         req.system = R"(You convert tabletop RPG module text (Call of Cthulhu / BRP) into a conditional knowledge graph. Extract nodes of type npc, location, item, clue, secret, stage, scene, condition, twist, ending and edges (requires, reveals, leads_to, located_in, knows, holds, unlocks, triggers, found_in, takes_place_at, appears_in). Every node MUST cite page numbers and a short verbatim excerpt. Keys are stable slugs like "npc|sheriff dunmore" so later chunks can reference earlier nodes. Do not invent content that is not in the text. Output JSON {"nodes":[{"key","node_type","name","description","citations":[{"page","excerpt"}]}],"edges":[{"from_key","to_key","relation"}]})";
         Json::Value ctx; ctx["pages"] = chunk; ctx["chunk"] = chunkIdx; ctx["total_chunks"] = (int)chunks.size();
         Json::Value known(Json::arrayValue); for (auto& [k, id] : keyToId) known.append(k); ctx["known_keys"] = known;

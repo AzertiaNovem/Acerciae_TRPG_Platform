@@ -30,7 +30,7 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     ctx["known_facts"] = db_.queryJson(sql, {a.channelId});
     ctx["hint"] = hint; ctx["variant"] = variant;
 
-    LlmRequest req; req.task = "inspiration"; req.responseSchema = schema(); req.temperature = 0.8;
+    LlmRequest req; req.channelId = a.channelId; req.task = "inspiration"; req.responseSchema = schema(); req.temperature = 0.8;
     req.system = R"(You draft ONE possible in-character response for a player who is unsure what to say next in a Call of Cthulhu / BRP game. Use only the information in known_facts, recent_messages and scene — the character's actual knowledge. Hard rules: do not invent world facts or NPC answers; do not decide whether actions succeed; do not fabricate character backstory; never use module secrets; you may propose an action, a question or a line of dialogue in the character's speaking_style. 2-4 sentences, first person, editable. Output JSON {"draft":"...","used_fact_ids":["..."],"notes":"..."})";
     req.tools = ContextRetrievalService::toolSpecs(false);
     LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
@@ -42,8 +42,8 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     for (auto& id : out["used_fact_ids"]) if (id.isString() && allowed.count(id.asString())) used.push_back(id.asString());
     out["used_fact_ids"] = json::fromStrArray(used);
     auto row = db_.queryOne("INSERT INTO inspiration_drafts(channel_id, chat_window_id, user_id, character_id, hint, draft, used_fact_ids, llm_mode) VALUES($1,$2,$3,$4,$5,$6,$7::uuid[],$8) RETURNING id, created_at",
-        {a.channelId, chatWindowId.empty() ? dbNull() : DbParam(chatWindowId), a.userId, characterId.empty() ? dbNull() : DbParam(characterId), hint, json::str(out, "draft"), pgArrayLiteral(used), llm_.mode()});
-    out["id"] = row["id"]; out["created_at"] = row["created_at"]; out["llm_mode"] = llm_.mode(); out["character_id"] = characterId; out["editable"] = true; out["auto_sent"] = false;
+        {a.channelId, chatWindowId.empty() ? dbNull() : DbParam(chatWindowId), a.userId, characterId.empty() ? dbNull() : DbParam(characterId), hint, json::str(out, "draft"), pgArrayLiteral(used), llm_.mode(a.channelId)});
+    out["id"] = row["id"]; out["created_at"] = row["created_at"]; out["llm_mode"] = llm_.mode(a.channelId); out["character_id"] = characterId; out["editable"] = true; out["auto_sent"] = false;
     return out;
 }
 

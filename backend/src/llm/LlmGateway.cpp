@@ -7,17 +7,46 @@
 
 namespace acerciae {
 
-LlmGateway::LlmGateway(const Config& cfg) : cfg_(cfg) {
-    if (cfg.mockLlm()) client_ = std::make_unique<MockLlmClient>();
-    else client_ = std::make_unique<OpenAiCompatClient>(cfg);
+LlmGateway::LlmGateway(const Config& cfg) : cfg_(cfg), mock_(std::make_shared<MockLlmClient>()) {
+    if (cfg.mockLlm()) client_ = mock_;
+    else client_ = std::make_shared<OpenAiCompatClient>(cfg);
     ALOG_INFO << "LLM gateway mode=" << client_->mode() << " model=" << client_->modelName();
 }
-LlmGateway::LlmGateway(const Config& cfg, std::unique_ptr<ILlmClient> client) : cfg_(cfg), client_(std::move(client)) {}
+LlmGateway::LlmGateway(const Config& cfg, std::unique_ptr<ILlmClient> client) : cfg_(cfg), client_(std::move(client)), mock_(std::make_shared<MockLlmClient>()) {}
 
-Json::Value LlmGateway::status() const {
-    Json::Value s; s["mode"] = client_->mode(); s["model"] = client_->modelName(); s["provider"] = cfg_.llmProvider;
-    s["api_base"] = cfg_.mockLlm() ? "" : cfg_.llmApiBase; s["embeddings"] = !cfg_.llmEmbeddingModel.empty();
-    s["note"] = cfg_.mockLlm() ? "MOCK LLM MODE: no LLM_API_KEY configured. Rule-based extraction demonstrates the pipeline end to end." : "live";
+LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId) const {
+    Resolved r; r.client = client_;
+    if (channelId.empty() || !resolver_) return r;
+    std::optional<LlmProfile> profile;
+    try { profile = resolver_(channelId); } catch (const std::exception& e) { ALOG_WARN << "LLM profile lookup failed for channel " << channelId << ": " << e.what(); }
+    if (!profile) return r;
+    r.language = profile->language;
+    const auto& ep = profile->endpoint;
+    if (ep.apiKey.empty()) { r.client = mock_; r.custom = true; return r; }
+    auto key = ep.apiBase + "\n" + ep.apiKey + "\n" + ep.model + "\n" + ep.reasoningEffort + "\n" + ep.embeddingModel;
+    std::lock_guard<std::mutex> lk(mu_);
+    auto& c = clients_[key];
+    if (!c) c = std::make_shared<OpenAiCompatClient>(ep);
+    r.client = c; r.custom = true;
+    return r;
+}
+
+std::string LlmGateway::languageName(const std::string& code) {
+    static const std::map<std::string, std::string> names = {
+        {"zh", "Simplified Chinese"}, {"zh-CN", "Simplified Chinese"}, {"zh-TW", "Traditional Chinese"}, {"ja", "Japanese"}, {"ko", "Korean"},
+        {"es", "Spanish"}, {"fr", "French"}, {"de", "German"}, {"ru", "Russian"}, {"pt", "Portuguese"}, {"it", "Italian"}};
+    auto it = names.find(code);
+    return it == names.end() ? "" : it->second;
+}
+
+Json::Value LlmGateway::status(const std::string& channelId) const {
+    auto r = clientFor(channelId);
+    bool mock = r.client->mode() == "mock";
+    Json::Value s; s["mode"] = r.client->mode(); s["model"] = r.client->modelName(); s["provider"] = cfg_.llmProvider;
+    s["source"] = r.custom ? "server" : "process";
+    s["api_base"] = mock || r.custom ? "" : cfg_.llmApiBase; s["embeddings"] = !cfg_.llmEmbeddingModel.empty();
+    s["language"] = r.language.empty() ? "en" : r.language;
+    s["note"] = mock ? "MOCK LLM MODE: no LLM API key configured. Rule-based extraction demonstrates the pipeline end to end." : "live";
     return s;
 }
 
@@ -39,8 +68,14 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
     if (req.maxTokens <= 0) req.maxTokens = cfg_.llmMaxTokens;
     if (req.temperature < 0) req.temperature = cfg_.llmTemperature;
     if (!exec) req.tools.clear();
+    auto resolved = clientFor(req.channelId);
+    auto& client = *resolved.client;
+    auto lang = languageName(resolved.language);
+    if (!lang.empty())
+        req.system += "\n\nOutput language: write every human-readable string (summaries, titles, rationale, descriptions, drafts) in " + lang +
+                      ". Keep JSON keys, enum values, status values and ids exactly as specified.";
     for (int round = 0; round < maxRounds; ++round) {
-        auto resp = client_->complete(req);
+        auto resp = client.complete(req);
         out.llmCalls++;
         if (!resp.ok) { out.error = resp.error; return out; }
         if (resp.toolCalls.isArray() && !resp.toolCalls.empty() && exec) {

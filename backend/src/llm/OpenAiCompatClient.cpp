@@ -9,21 +9,27 @@ static size_t writeCb(char* ptr, size_t size, size_t nmemb, void* ud) {
     auto* s = static_cast<std::string*>(ud); s->append(ptr, size * nmemb); return size * nmemb;
 }
 
+LlmEndpoint OpenAiCompatClient::endpointFrom(const Config& cfg) {
+    LlmEndpoint e; e.apiBase = cfg.llmApiBase; e.apiKey = cfg.llmApiKey; e.model = cfg.llmModel; e.embeddingModel = cfg.llmEmbeddingModel;
+    e.timeoutMs = cfg.llmTimeoutMs; e.maxTokens = cfg.llmMaxTokens;
+    return e;
+}
+
 std::string OpenAiCompatClient::post(const std::string& path, const std::string& body, long& status, std::string& err) {
     std::string out;
     CURL* c = curl_easy_init();
     if (!c) { err = "curl init failed"; return out; }
-    std::string url = cfg_.llmApiBase; if (!url.empty() && url.back() == '/') url.pop_back(); url += path;
+    std::string url = ep_.apiBase; if (!url.empty() && url.back() == '/') url.pop_back(); url += path;
     struct curl_slist* hdr = nullptr;
     hdr = curl_slist_append(hdr, "Content-Type: application/json");
-    hdr = curl_slist_append(hdr, ("Authorization: Bearer " + cfg_.llmApiKey).c_str());
+    hdr = curl_slist_append(hdr, ("Authorization: Bearer " + ep_.apiKey).c_str());
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
     curl_easy_setopt(c, CURLOPT_HTTPHEADER, hdr);
     curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)body.size());
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, writeCb);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &out);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, (long)cfg_.llmTimeoutMs);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, (long)ep_.timeoutMs);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 10000L);
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
     auto rc = curl_easy_perform(c);
@@ -36,9 +42,16 @@ std::string OpenAiCompatClient::post(const std::string& path, const std::string&
 
 LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
     Json::Value body;
-    body["model"] = cfg_.llmModel;
-    body["temperature"] = req.temperature;
-    body["max_tokens"] = req.maxTokens > 0 ? req.maxTokens : cfg_.llmMaxTokens;
+    body["model"] = ep_.model;
+    int maxTokens = req.maxTokens > 0 ? req.maxTokens : ep_.maxTokens;
+    if (!ep_.reasoningEffort.empty()) {
+        // Reasoning models take an effort level and max_completion_tokens, and reject a custom temperature.
+        body["reasoning_effort"] = ep_.reasoningEffort;
+        body["max_completion_tokens"] = maxTokens;
+    } else {
+        body["temperature"] = req.temperature;
+        body["max_tokens"] = maxTokens;
+    }
     Json::Value msgs(Json::arrayValue);
     if (!req.system.empty()) { Json::Value m; m["role"] = "system"; m["content"] = req.system; msgs.append(m); }
     for (auto& m : req.messages) {
@@ -87,8 +100,8 @@ LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
 }
 
 std::vector<float> OpenAiCompatClient::embed(const std::string& text) {
-    if (cfg_.llmEmbeddingModel.empty()) return {};
-    Json::Value body; body["model"] = cfg_.llmEmbeddingModel; body["input"] = text;
+    if (ep_.embeddingModel.empty()) return {};
+    Json::Value body; body["model"] = ep_.embeddingModel; body["input"] = text;
     long status = 0; std::string err;
     auto out = post("/embeddings", json::dump(body), status, err);
     if (!err.empty() || status < 200 || status >= 300) { ALOG_WARN << "embedding failed: " << err << " status " << status; return {}; }

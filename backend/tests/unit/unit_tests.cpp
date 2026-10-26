@@ -8,6 +8,7 @@
 #include "llm/LlmGateway.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
+#include "dice/Dice.h"
 #include <iostream>
 #include <functional>
 #include <vector>
@@ -123,6 +124,76 @@ int main() {
         Json::Value f; f["summary"] = "A brass key"; f["status"] = "confirmed"; f["data"]["title"] = "Brass key"; f["data"]["source"] = "found at the docks";
         auto md = DocumentService::renderEntry("clue", f); CHECK(md.find("**Brass key**") != std::string::npos); CHECK(md.find("status: confirmed") != std::string::npos);
         CHECK(DocumentService::titleFor("open_threads") == "Open Threads");
+    });
+    test("dice expressions", [] {
+        dice::SeqRng rng({2, 5, 1, 6});
+        auto r = dice::evaluate("3d6+2", rng); CHECK(r.total == 10); CHECK(r.detail == "[2+5+1]+2");
+        dice::SeqRng r2({47}); auto d = dice::evaluate("d%", r2); CHECK(d.total == 47);
+        dice::SeqRng r3({6, 1, 5, 3}); auto k = dice::evaluate("4d6k3", r3); CHECK(k.total == 14);
+        dice::SeqRng r4({3, 4}); CHECK(dice::evaluate("(2d6+6)*5", r4).total == 65);
+        CHECK(dice::isExpression("1d100")); CHECK(dice::isExpression("2d6 + 3")); CHECK(!dice::isExpression("dodge")); CHECK(!dice::isExpression("1d0"));
+        dice::SeqRng r5({}); bool threw = false; try { dice::evaluate("5/0", r5); } catch (const dice::DiceError&) { threw = true; } CHECK(threw);
+    });
+    test("dice CoC7 success levels and bonus/penalty dice", [] {
+        using L = dice::Level;
+        CHECK(dice::successLevel(1, 40) == L::Critical); CHECK(dice::successLevel(100, 90) == L::Fumble); CHECK(dice::successLevel(97, 45) == L::Fumble);
+        CHECK(dice::successLevel(97, 60) == L::Failure); CHECK(dice::successLevel(10, 53) == L::Extreme); CHECK(dice::successLevel(26, 53) == L::Hard);
+        CHECK(dice::successLevel(53, 53) == L::Regular); CHECK(dice::successLevel(54, 53) == L::Failure);
+        dice::SeqRng b({4, 3, 1}); auto bonus = dice::rollD100(b, 1, 0); CHECK(bonus.roll == 3); CHECK(bonus.tens.size() == 2);   // units 3, tens 20/00 -> min(23, 3)
+        dice::SeqRng p({4, 3, 1}); CHECK(dice::rollD100(p, 0, 1).roll == 23);
+        dice::SeqRng z({1, 1}); CHECK(dice::rollD100(z, 0, 1).roll == 100);   // 00 + 0 reads as 100
+    });
+    test("dice attribute aliases and CoC base values", [] {
+        Json::Value attrs; attrs["DEX"] = 60; attrs["EDU"] = 70; attrs["research"] = 53; attrs["Spot Hidden"] = 55;
+        CHECK(dice::canonicalName("侦查") == "Spot Hidden"); CHECK(dice::canonicalName("spothidden") == "Spot Hidden"); CHECK(dice::canonicalName("san") == "SAN");
+        CHECK(dice::canonicalName("理智") == "SAN"); CHECK(dice::canonicalName("research") == "research");
+        auto v = dice::lookup(attrs, "侦查"); CHECK(v.found && v.value == 55 && !v.isBase);
+        auto dodge = dice::lookup(attrs, "dodge"); CHECK(dodge.found && dodge.value == 30 && dodge.isBase);
+        CHECK(dice::lookup(attrs, "母语").value == 70); CHECK(dice::lookup(attrs, "library").value == 20); CHECK(!dice::lookup(attrs, "unknownskill").found);
+        Json::Value legacy; legacy["occupation"] = "Journalist"; legacy["STR"] = 55; legacy["skills"]["Spot Hidden"] = 40;
+        auto n = dice::normalizeSheet(legacy); CHECK(n["attrs"]["STR"].asInt() == 55); CHECK(n["attrs"]["Spot Hidden"].asInt() == 40); CHECK(!n.isMember("STR")); CHECK(n["occupation"].asString() == "Journalist"); CHECK(!n.isMember("skills"));
+    });
+    test("dice command parsing (Sealdice syntax)", [] {
+        auto c = dice::parseCommand(".ra research"); CHECK(c && c->name == "ra" && c->args == "research" && !c->hidden);
+        auto zh = dice::parseCommand("。ra侦查"); CHECK(zh && zh->name == "ra" && zh->args == "侦查");
+        auto rh = dice::parseCommand(".rh 1d20"); CHECK(rh && rh->name == "r" && rh->hidden);
+        auto rah = dice::parseCommand(".rah spot"); CHECK(rah && rah->name == "ra" && rah->hidden);
+        CHECK(dice::parseCommand(".r3d6") && dice::parseCommand(".r3d6")->args == "3d6");
+        CHECK(dice::parseCommand(".rd20")); CHECK(dice::parseCommand(".rc 侦查")->name == "ra");
+        CHECK(!dice::parseCommand(".random thought")); CHECK(!dice::parseCommand("...")); CHECK(!dice::parseCommand("hello .ra x")); CHECK(!dice::parseCommand(".stats"));
+    });
+    test("dice command execution", [] {
+        dice::TextSet en; dice::TextSet zh("zh", Json::Value());
+        dice::Context ctx; ctx.name = "Alice"; ctx.hasCharacter = true; ctx.attrs["research"] = 53; ctx.attrs["SAN"] = 60; ctx.attrs["Spot Hidden"] = 50;
+        CHECK(dice::preview(*dice::parseCommand(".ra research"), ctx, en) == "Alice's research is 53");
+        CHECK(dice::preview(*dice::parseCommand(".ra hard research"), ctx, en) == "Alice's research is 53 (Hard target ≤ 26)");
+        CHECK(dice::preview(*dice::parseCommand(".ra 侦查"), ctx, zh) == "Alice的Spot Hidden为50");
+        dice::SeqRng r1({20});
+        auto o = dice::execute(*dice::parseCommand(".ra research"), ctx, en, r1);
+        CHECK(o.text == "Alice's research check: D100=20/53 — Hard Success"); CHECK(!o.attrsChanged);
+        dice::SeqRng r2({30}); auto hard = dice::execute(*dice::parseCommand(".ra 困难research"), ctx, en, r2);
+        CHECK(hard.text.find("Failure") != std::string::npos); CHECK(hard.detail["difficulty"].asString() == "hard");
+        dice::SeqRng r3({40}); auto withValue = dice::execute(*dice::parseCommand(".ra climb 70 the wall"), ctx, en, r3);
+        CHECK(withValue.text == "Alice's Climb check (the wall): D100=40/70 — Success");
+        dice::SeqRng r4({50, 4}); auto sc = dice::execute(*dice::parseCommand(".sc 1/1d6"), ctx, en, r4);
+        CHECK(sc.attrsChanged && sc.attrs["SAN"].asInt() == 59);
+        dice::SeqRng r5({80, 5}); auto scFail = dice::execute(*dice::parseCommand(".sc 1/1d6"), ctx, en, r5);
+        CHECK(scFail.attrs["SAN"].asInt() == 55); CHECK(scFail.text.find("temporary insanity") != std::string::npos);
+        dice::SeqRng r6({}); auto st = dice::execute(*dice::parseCommand(".st str60 dex 50 Library Use: 70 力量65"), ctx, en, r6);
+        CHECK(st.attrs["STR"].asInt() == 65); CHECK(st.attrs["DEX"].asInt() == 50); CHECK(st.attrs["Library Use"].asInt() == 70); CHECK(st.attrs["research"].asInt() == 53);
+        dice::SeqRng r7({3}); auto mod = dice::execute(*dice::parseCommand(".st san-1d6"), ctx, en, r7);
+        CHECK(mod.attrs["SAN"].asInt() == 57); CHECK(mod.text == "Alice: SAN 60 → 57 (-1d6=-3)");
+        dice::SeqRng r8({}); auto del = dice::execute(*dice::parseCommand(".st del research"), ctx, en, r8); CHECK(!del.attrs.isMember("research"));
+        dice::SeqRng r9({96, 7}); auto grow = dice::execute(*dice::parseCommand(".en spot hidden"), ctx, en, r9);
+        CHECK(grow.attrs["Spot Hidden"].asInt() == 57);
+        dice::SeqRng r10({4, 2}); auto roll = dice::execute(*dice::parseCommand(".r 2d6 damage"), ctx, en, r10);
+        CHECK(roll.text == "Alice rolls (damage): 2d6=[4+2]=6");
+        dice::Context nobody; nobody.name = "Bob";
+        bool threw = false; try { dice::SeqRng r({}); dice::execute(*dice::parseCommand(".ra research"), nobody, en, r); } catch (const dice::DiceError& e) { threw = std::string(e.what()).find(".ra") != std::string::npos; }
+        CHECK(threw);
+        Json::Value custom; custom["check.result"] = "{name} → {attr}: {roll} vs {target} = {level}"; custom["level.hard"] = "HARD!";
+        dice::TextSet group("en", custom); dice::SeqRng r11({20});
+        CHECK(dice::execute(*dice::parseCommand(".ra research"), ctx, group, r11).text == "Alice → research: 20 vs 53 = HARD!");
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;

@@ -9,6 +9,9 @@
 #include "highlights/HighlightService.h"
 #include "observer/ObserverScheduler.h"
 #include "consistency/ConsistencyService.h"
+#include "servers/ServerSettingsService.h"
+#include "dice/DiceService.h"
+#include "llm/LlmGateway.h"
 #include "core/Json.h"
 #include "core/Errors.h"
 #include <iostream>
@@ -161,6 +164,82 @@ int main() {
         for (auto& e : r3["evidence"]) CHECK(e["summary"].asString().find("crypt") == std::string::npos);
         auto r1 = S.consistency->check(p1, splitWin, c1, "I take out the brass key.");
         CHECK(!r1["evidence"].empty() || r1["insufficient_evidence"].asBool());
+    });
+    test("dice commands update the speaking character and render with the channel's text group", [&] {
+        S.dice->setRng(std::make_unique<dice::SeqRng>(std::vector<int>{20, 50, 3}));
+        auto st = say(p1User, splitWin, ".st research53 SAN60 侦查50");
+        CHECK(st["kind"].asString() == "roll"); CHECK(st["content"].asString() == ".st research53 SAN60 侦查50");
+        auto sheet = S.db->queryOne("SELECT sheet FROM characters WHERE id=$1", {c1})["sheet"];
+        CHECK(sheet["attrs"]["research"].asInt() == 53); CHECK(sheet["attrs"]["Spot Hidden"].asInt() == 50);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM events WHERE message_id=$1", {st["id"].asString()})["n"].asInt() == 0);   // bookkeeping, not story
+        auto hint = S.dice->preview(p1, splitWin, "", ".ra research");
+        CHECK(hint["hint"].asString() == "Alpha's research is 53");
+        auto ra = say(p1User, splitWin, ".ra research");
+        CHECK(ra["dice"]["text"].asString() == "Alpha's research check: D100=20/53 — Hard Success");
+        auto ev = S.db->queryOne("SELECT payload FROM events WHERE message_id=$1", {ra["id"].asString()});
+        CHECK(ev["payload"]["content"].asString().find("Hard Success") != std::string::npos);
+        auto sc = say(p1User, splitWin, ".sc 1/1d6");
+        CHECK(S.db->queryOne("SELECT sheet FROM characters WHERE id=$1", {c1})["sheet"]["attrs"]["SAN"].asInt() == 59);
+        CHECK(sc["dice"]["san_new"].asInt() == 59);
+        // The GM switches the channel to a custom text group.
+        Json::Value g; g["name"] = "Terse"; g["base"] = "en"; g["texts"]["check.result"] = "{attr} {roll}/{target} {level}"; g["texts"]["level.regular"] = "OK";
+        auto group = S.settings->createTextGroup(gmP, server["id"].asString(), g);
+        Json::Value up; up["dice_text_group"] = group["id"].asString(); S.chat->updateChannel(gm, up);
+        S.dice->setRng(std::make_unique<dice::SeqRng>(std::vector<int>{40}));
+        CHECK(say(p1User, splitWin, ".ra research")["dice"]["text"].asString() == "research 40/53 OK");
+        Json::Value zh; zh["dice_text_group"] = "builtin:zh"; S.chat->updateChannel(gm, zh);
+        CHECK(S.dice->preview(p1, splitWin, "", ".ra research")["hint"].asString() == "Alpha的research为53");
+        Json::Value bad; bad["dice_text_group"] = "nonsense"; bool rejected = false; try { S.chat->updateChannel(gm, bad); } catch (const ApiError& e) { rejected = e.status() == 400; } CHECK(rejected);
+        // A player cannot roll as someone else's character; missing attributes are reported, not posted.
+        bool forbiddenRoll = false; try { Json::Value b; b["content"] = ".ra research"; b["character_id"] = c2; S.chat->postMessage(p1, splitWin, b); } catch (const ApiError& e) { forbiddenRoll = e.status() == 403; } CHECK(forbiddenRoll);
+        bool missing = false; try { say(p1User, splitWin, ".ra nosuchskill"); } catch (const ApiError& e) { missing = e.code() == "dice_error"; } CHECK(missing);
+    });
+    test("hidden rolls reach only the roller and the GM; the window sees a notice", [&] {
+        S.dice->setRng(std::make_unique<dice::SeqRng>(std::vector<int>{77}));
+        auto m = say(p1User, splitWin, ".rh 1d100");
+        CHECK(m["visibility"].asString() == "whisper");
+        auto p2 = S.auth->channelAccess(p2User, channelId);
+        bool p2SeesResult = false, p2SeesNotice = false;
+        for (auto& x : S.chat->listMessages(p2, splitWin, 50, 0)) { if (x["id"] == m["id"]) p2SeesResult = true; if (x["dice"]["type"].asString() == "hidden_notice") p2SeesNotice = true; }
+        CHECK(!p2SeesResult); CHECK(p2SeesNotice);
+        bool p1Sees = false; for (auto& x : S.chat->listMessages(p1, splitWin, 50, 0)) if (x["id"] == m["id"]) p1Sees = true; CHECK(p1Sees);
+    });
+    test("server maintainers control features, LLM profile and members; keys are sealed", [&] {
+        auto sid = server["id"].asString();
+        Principal p1P{p1User, "p1", "P1"};
+        auto pub = S.settings->get(p1P, sid);
+        CHECK(!pub["is_maintainer"].asBool()); CHECK(!pub.isMember("llm")); CHECK(pub["features"]["dice"].asBool());
+        bool denied = false; try { S.settings->update(p1P, sid, Json::Value(Json::objectValue)); } catch (const ApiError& e) { denied = e.status() == 403; } CHECK(denied);
+        Json::Value b; b["language"] = "zh-CN"; b["llm"]["api_key"] = "sk-test-1234567890abcd"; b["llm"]["model"] = "my-model"; b["llm"]["reasoning_effort"] = "high"; b["llm"]["api_base"] = "https://llm.example/v1";
+        b["tts"]["api_key"] = "tts-secret-key-9999"; b["tts"]["voice"] = "alloy"; b["features"]["consistency"] = false; b["features"]["dice"] = false;
+        auto full = S.settings->update(gmP, sid, b);
+        CHECK(json::dump(full).find("sk-test") == std::string::npos); CHECK(full["llm"]["api_key_set"].asBool()); CHECK(full["llm"]["api_key_hint"].asString() == "…abcd");
+        auto stored = S.db->queryOne("SELECT llm_api_key_sealed FROM server_settings WHERE server_id=$1", {sid});
+        CHECK(stored["llm_api_key_sealed"].asString().rfind("v1:", 0) == 0); CHECK(stored["llm_api_key_sealed"].asString().find("sk-test") == std::string::npos);
+        auto prof = S.settings->profileForChannel(channelId);
+        CHECK(prof && prof->endpoint.apiKey == "sk-test-1234567890abcd" && prof->endpoint.model == "my-model" && prof->endpoint.reasoningEffort == "high" && prof->endpoint.apiBase == "https://llm.example/v1" && prof->language == "zh-CN");
+        CHECK(S.llm->mode(channelId) == "live"); CHECK(S.llm->status(channelId)["source"].asString() == "server");
+        CHECK(S.settings->ttsConfig(sid).apiKey == "tts-secret-key-9999");
+        bool off = false; try { S.settings->requireFeature(sid, "consistency"); } catch (const ApiError& e) { off = e.code() == "feature_disabled"; } CHECK(off);
+        auto plain = say(p1User, splitWin, ".ra research");   // dice off: posted as an ordinary message
+        CHECK(plain["kind"].asString() == "ic"); CHECK(plain["dice"].isNull());
+        Json::Value clear; clear["llm"]["clear_api_key"] = true; clear["features"]["consistency"] = true; clear["features"]["dice"] = true; clear["language"] = "en";
+        S.settings->update(gmP, sid, clear);
+        CHECK(S.llm->mode(channelId) == "mock");
+        // A server base URL without the server's own key is ignored, so the process key never travels to it.
+        Json::Value baseOnly; baseOnly["llm"]["api_base"] = "https://attacker.example/v1"; S.settings->update(gmP, sid, baseOnly);
+        CHECK(S.settings->profileForChannel(channelId)->endpoint.apiBase == S.cfg.llmApiBase);
+        // Members: only the owner appoints maintainers; removal also drops channel and window membership.
+        bool adminDenied = false;
+        S.chat->addServerMember(gmP, sid, p2User, "admin");
+        Principal p2P{p2User, "p2", "P2"};
+        try { S.chat->addServerMember(p2P, sid, p3User, "admin"); } catch (const ApiError& e) { adminDenied = e.status() == 403; } CHECK(adminDenied);
+        bool ownerSafe = false; try { S.chat->removeServerMember(p2P, sid, gmUser); } catch (const ApiError& e) { ownerSafe = e.status() == 400; } CHECK(ownerSafe);
+        S.chat->removeServerMember(p2P, sid, p3User);
+        CHECK(S.db->queryOne("SELECT 1 AS ok FROM channel_members WHERE user_id=$1", {p3User}).isNull());
+        CHECK(S.db->queryOne("SELECT 1 AS ok FROM chat_window_members WHERE user_id=$1", {p3User}).isNull());
+        bool gone = false; try { S.auth->channelAccess(p3User, channelId); } catch (const ApiError& e) { gone = e.status() == 403; } CHECK(gone);
+        CHECK(!S.chat->searchUsers(gmP, "p3" + suffix, 10).empty());
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();

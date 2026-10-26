@@ -1,0 +1,50 @@
+#pragma once
+#include "../core/Config.h"
+#include "../core/Db.h"
+#include "../auth/AuthService.h"
+#include "../llm/Llm.h"
+#include <json/json.h>
+#include <optional>
+
+namespace acerciae {
+class Notifier;
+
+// Per-server settings owned by the server's maintainers (owner and admins): LLM endpoint/model/reasoning effort,
+// output language, TTS credentials, which user-facing features are available, and the dice reply text groups.
+// API keys are sealed at rest and never leave the backend; clients only learn whether one is set.
+class ServerSettingsService {
+public:
+    ServerSettingsService(const Config& cfg, Db& db, AuthService& auth, Notifier& notifier) : cfg_(cfg), db_(db), auth_(auth), notifier_(notifier) {}
+
+    bool isMaintainer(const std::string& userId, const std::string& serverId);
+    // Members get the public view (language, features, effective LLM mode); maintainers also get the configuration.
+    Json::Value get(const Principal& p, const std::string& serverId);
+    Json::Value update(const Principal& p, const std::string& serverId, const Json::Value& body);
+
+    // Features: "consistency" | "dice" | "inspiration".
+    bool featureEnabled(const std::string& serverId, const std::string& feature);
+    void requireFeature(const std::string& serverId, const std::string& feature);   // 403 feature_disabled
+
+    // LLM profile for the gateway: process config overridden by the server's non-empty fields.
+    std::optional<LlmProfile> profileForChannel(const std::string& channelId);
+
+    // For the TTS integration: the server's TTS endpoint with the key unsealed. Empty fields = not configured.
+    struct TtsConfig { std::string apiBase, apiKey, model, voice, language; };
+    TtsConfig ttsConfig(const std::string& serverId);
+
+    // Dice reply text groups
+    Json::Value listTextGroups(const Principal& p, const std::string& serverId);
+    Json::Value createTextGroup(const Principal& p, const std::string& serverId, const Json::Value& body);
+    Json::Value updateTextGroup(const Principal& p, const std::string& serverId, const std::string& groupId, const Json::Value& body);
+    Json::Value deleteTextGroup(const Principal& p, const std::string& serverId, const std::string& groupId);
+    static Json::Value builtinTexts();   // {keys:[...], en:{...}, zh:{...}}
+
+    static const std::vector<std::string>& languages();
+private:
+    Json::Value row(const std::string& serverId);
+    Json::Value publicView(const Json::Value& r, const std::string& serverId);
+    void validateTexts(const Json::Value& texts);
+    const Config& cfg_; Db& db_; AuthService& auth_; Notifier& notifier_;
+};
+
+} // namespace acerciae

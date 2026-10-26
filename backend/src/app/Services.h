@@ -8,7 +8,7 @@ namespace acerciae {
 class AuthService; class EventStore; class ChatService; class SceneManager; class KnowledgeService;
 class DocumentService; class HighlightService; class ContextRetrievalService; class LlmGateway;
 class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
-class Notifier;
+class Notifier; class ServerSettingsService; class DiceService;
 
 // Composition root: every module gets its dependencies through here (constructed once in main).
 struct Services {
@@ -21,6 +21,8 @@ struct Services {
     std::unique_ptr<KnowledgeService> knowledge;
     std::unique_ptr<DocumentService> documents;
     std::unique_ptr<HighlightService> highlights;
+    std::unique_ptr<ServerSettingsService> settings;
+    std::unique_ptr<DiceService> dice;
     std::unique_ptr<ChatService> chat;
     std::unique_ptr<ContextRetrievalService> retrieval;
     std::unique_ptr<LlmGateway> llm;
