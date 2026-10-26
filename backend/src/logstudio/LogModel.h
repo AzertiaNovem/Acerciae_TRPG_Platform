@@ -20,6 +20,7 @@ struct DiceInfo {
 };
 
 struct LogEvent {
+    std::string campaignId;              // campaign = existing channel
     std::string eventId;                 // filled on save
     long long sequenceNumber = 0;
     std::string eventType = "dialogue";  // dialogue|action|narration|dice_roll|system|ooc|scene_change|media|secret

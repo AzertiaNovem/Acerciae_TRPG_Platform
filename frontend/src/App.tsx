@@ -9,6 +9,7 @@ import ChannelSidebar from './components/ChannelSidebar';
 import ChatWindow from './components/ChatWindow';
 import GMWorkspace from './components/GMWorkspace';
 import StudioWorkspace from './components/studio/StudioWorkspace';
+import SharedPublication from './components/studio/PublicationViewer';
 import EvidenceModal from './components/EvidenceModal';
 
 function Shell() {
@@ -28,7 +29,7 @@ function Shell() {
       <div className="main">
         {llmMode === 'mock' && <div className="mode-banner">MOCK LLM MODE — no LLM API key for this server or the platform; the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.</div>}
         {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
-        {channelId && studioOpen ? <StudioWorkspace /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
+        {channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
           <div style={{ padding: 40 }} className="muted">Pick a server and channel, or create one from the left.</div>
         )}
       </div>
@@ -38,10 +39,15 @@ function Shell() {
   );
 }
 
-export default function App() {
+function AuthenticatedApp() {
   const { user, loading, bootstrap } = useAuth();
   useEffect(() => { bootstrap(); }, [bootstrap]);
   if (loading) return <div className="login"><div className="muted">Loading…</div></div>;
   if (!user) return <LoginScreen />;
   return <Shell />;
+}
+
+export default function App() {
+  const token = new URLSearchParams(location.search).get("publication");
+  return token ? <SharedPublication token={token} /> : <AuthenticatedApp />;
 }

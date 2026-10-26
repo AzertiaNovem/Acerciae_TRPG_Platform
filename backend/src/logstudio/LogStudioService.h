@@ -15,6 +15,8 @@ public:
     LogStudioService(const Config& cfg, Db& db, Notifier& notifier) : cfg_(cfg), db_(db), notifier_(notifier) {}
 
     // projects
+    Json::Value settings(const ChannelAccess& a);
+    Json::Value saveSettings(const ChannelAccess& a,const Json::Value& body);
     Json::Value listProjects(const ChannelAccess& a);
     Json::Value createProject(const ChannelAccess& a, const Json::Value& body);
     Json::Value getProject(const ChannelAccess& a, const std::string& projectId);

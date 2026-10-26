@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "id": "example-presentation",
+  "snapshot_id": "replace-with-snapshot-id",
+  "title": "手工演出数据示例",
+  "settings": {
+    "animations_enabled": true
+  },
+  "scenes": [
+    {
+      "id": "dock-scene",
+      "title": "雨夜码头",
+      "position": 0,
+      "background_asset_id": null
+    }
+  ],
+  "events": [
+    {
+      "id": "presentation-event-1",
+      "canonical_event_id": "replace-with-canonical-event-id",
+      "position": 0,
+      "scene_id": "dock-scene",
+      "display_kind": "narration",
+      "hidden": false,
+      "character_asset_ids": [],
+      "voice_profile_id": null,
+      "audio_asset_id": null,
+      "style_instruction": "平静叙述"
+    }
+  ]
+}

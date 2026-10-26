@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Acerciae Canonical Log 1.0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "events"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "generator": {
+      "type": "string"
+    },
+    "meta": {
+      "type": "object"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "event": {
+      "type": "object",
+      "required": [
+        "content",
+        "event_type",
+        "sequence_number",
+        "visibility_scope"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "campaign_id": {
+          "type": "string"
+        },
+        "speaker_id": {
+          "type": "string"
+        },
+        "speaker_key": {
+          "type": "string"
+        },
+        "speaker_display_name": {
+          "type": "string"
+        },
+        "speaker_role": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "scene_key": {
+          "type": "string"
+        },
+        "scene_title": {
+          "type": "string"
+        },
+        "time_text": {
+          "type": "string"
+        },
+        "source_kind": {
+          "type": "string"
+        },
+        "source_event_id": {
+          "type": "string"
+        },
+        "source_message_id": {
+          "type": "string"
+        },
+        "speaker_character_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scene_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chat_window_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event_type": {
+          "enum": [
+            "dialogue",
+            "action",
+            "narration",
+            "dice_roll",
+            "system",
+            "ooc",
+            "scene_change",
+            "media",
+            "secret"
+          ]
+        },
+        "sequence_number": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Unix seconds; null when not provided by source"
+        },
+        "visibility_scope": {
+          "enum": [
+            "public",
+            "gm",
+            "character"
+          ]
+        },
+        "audience": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_reference": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "media": {
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "unrecognised": {
+          "type": "boolean"
+        },
+        "dice": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "expression": {
+              "type": "string"
+            },
+            "rolls": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "total": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "check_name": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "raw": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

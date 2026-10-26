@@ -44,6 +44,7 @@ public:
     virtual ~TtsProvider() = default;
     virtual std::string name() const = 0;                        // qwen | mock
     virtual bool isMock() const = 0;
+    virtual std::string cacheNamespace() const { return name(); }
     virtual std::string officialModel() const = 0;
     virtual std::string previewModel() const = 0;
     virtual TtsSynthesisResult synthesize(const TtsSynthesisRequest& req) = 0;
@@ -56,7 +57,7 @@ public:
     virtual Json::Value capabilities() const = 0;
 };
 
-std::unique_ptr<TtsProvider> makeTtsProvider();   // from env: TTS_PROVIDER=auto|qwen|mock
+std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& overrides = Json::Value());   // from env: TTS_PROVIDER=auto|qwen|mock
 int wavDurationMs(const std::string& bytes);        // 0 if not a PCM WAV
 std::string makeWav(const std::vector<int16_t>& samples, int sampleRate);
 

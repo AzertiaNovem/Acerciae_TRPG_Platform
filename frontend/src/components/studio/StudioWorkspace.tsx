@@ -24,7 +24,7 @@ export default function StudioWorkspace() {
   useEffect(() => { if (channelId) loadProjects(channelId).catch(() => undefined); }, [channelId, loadProjects]);
   return (
     <div className="workspace">
-      <div className="tabs">
+      <div className="tabs studio-tabs">
         {TABS.filter((t) => !t.gm || isGm).map((t) => <button key={t.id} className={view === t.id ? 'active' : ''} onClick={() => setView(t.id)}>{t.label}</button>)}
         <span className="grow" />
         {project && <span className="pill" title="current log project">{project.title}</span>}

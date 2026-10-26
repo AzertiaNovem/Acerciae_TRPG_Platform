@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import { useNav } from '../../store/nav';
 import { useUi } from '../../store/ui';
 import type { MediaAsset } from '../../types';
+import CreativePanel from './CreativePanel';
 import VisualStylePanel from './VisualStylePanel';
 
 const TYPES = ['background', 'standee', 'portrait', 'illustration', 'cover', 'bgm', 'sfx', 'audio'];
@@ -45,6 +46,7 @@ export default function AssetLibrary() {
         </div>
         <VisualStylePanel />
       </div>
+      {isGm && <CreativePanel onChange={load} />}
       <div className="card">
         <div className="row"><h3 style={{ margin: 0 }}>Assets <span className="pill">{assets.length}</span></h3><span className="grow" />
           <select value={filter.type} onChange={(e) => setFilter({ ...filter, type: e.target.value })}><option value="">all types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}</select>
@@ -62,6 +64,8 @@ export default function AssetLibrary() {
                 {a.visibility_scope === 'gm' && <span className="pill gm">GM</span>}
               </div>
               {isGm && a.approval_status !== 'approved' && <div className="row"><button className="small primary" onClick={() => setApproval(a, 'approved')}>approve</button><button className="small" onClick={() => setApproval(a, 'rejected')}>reject</button></div>}
+              {isGm && a.approval_status === 'approved' && a.visibility_scope === 'gm' && <button onClick={async()=>{await api.mediaUpdate(channelId!,a.id,{visibility_scope:'channel'});load();}}>Share approved asset with players</button>}
+              {isGm && <span className="tiny muted">ID: {a.id}</span>}
               {isGm && <button className="ghost small" onClick={async () => { if (!channelId || !confirm('Delete this asset?')) return; try { await api.mediaDelete(channelId, a.id); load(); } catch (e: any) { toast(e.message, 'error'); } }}>delete</button>}
             </div>
           ))}

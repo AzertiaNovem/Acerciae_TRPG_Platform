@@ -11,7 +11,7 @@ A multiplayer online table for Call of Cthulhu and other Basic Roleplaying games
 | Database | PostgreSQL 16 with full-text search, `pg_trgm`, optional `pgvector` |
 | Frontend | React 18 + TypeScript + Vite, zustand, react-markdown |
 | AI | Pluggable LLM gateway: any OpenAI-compatible chat-completions API, or a clearly labelled **Mock LLM mode** |
-| Deployment | Docker Compose (db / backend / frontend) |
+| Deployment | Docker Compose (db / backend / frontend / PDF worker; optional MinIO) |
 
 Screenshots (taken from the running app in mock mode):
 
@@ -27,6 +27,8 @@ Screenshots (taken from the running app in mock mode):
 
 ```bash
 cp .env.example .env            # leave LLM_API_KEY empty for Mock LLM mode, or fill in a key
+# Set PDF_WORKER_TOKEN in .env to a random secret of at least 32 characters first
+# openssl rand -hex 32
 docker compose up --build
 ```
 
@@ -45,7 +47,7 @@ Prerequisites (Ubuntu 24.04 names): `build-essential cmake ninja-build pkg-confi
 libpq-dev libjsoncpp-dev libpoppler-cpp-dev libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libbrotli-dev libhiredis-dev
 libyaml-cpp-dev libsqlite3-dev libmariadb-dev` (the last one is only needed because Ubuntu's Drogon package was compiled with
 MySQL support and its CMake config insists on finding the client headers; the platform itself is PostgreSQL-only),
-PostgreSQL 16 (+ `postgresql-16-pgvector` optional), Node 20+.
+PostgreSQL 16 (+ `postgresql-16-pgvector` optional), Node 22.13+ (or Node 24+), Chromium/Chrome and Noto CJK fonts for PDF publication.
 
 ```bash
 # backend
@@ -134,14 +136,46 @@ hints when play touches or leaves module content. Module data is a separate GM-o
 `ModuleImportPanel`, `SceneManager`). Two WebSocket streams (`/ws/chat`, `/ws/context`); document bodies and highlights
 live in separate stores so highlight traffic never re-renders document text; the dock collapses and never covers Send.
 
+## Log Studio
+
+The production workspace now supports SealDice/native import previews, alias mapping, source-preserving Canonical Logs,
+versioned snapshots, styled HTML/JSON/text export, existing manually edited performances, character speech profiles,
+Qwen HTTP and explicit Mock TTS, pronunciation dictionaries, selective audio cache invalidation, budgets and queued jobs.
+Vivliostyle renders Classic Log, Investigation Dossier and Novel PDFs with Chinese text, covers, illustrations, configurable
+page styles and permission-filtered document appendices. Published styled logs, existing performances and PDFs freeze their
+content/resources and support revocable sharing. Style/character profiles, uploaded assets, candidate image generation and
+reviewed delivery suggestions reuse the same campaign context without modifying historical facts.
+
+Automatic visual-novel template generation is intentionally deferred. Real Qwen and image HTTP adapters are implemented,
+but paid-service credentials were not available for live verification. Mock TTS produces labelled tone WAVs; Mock images are
+labelled procedural test patterns. They do not pretend to be real voices/artwork. The image HTTP adapter requires a gateway
+matching the documented contract. Local Qwen3 inference, video/FFmpeg export and pixel-perfect generated identity are not
+implemented. Docker/MinIO deployment has not been executed here; the local C++/PostgreSQL/Node path was tested.
+
+Open Log Studio → Library to create/import a project and select a snapshot. The GM can set the character budget and enable
+cloud processing under Campaign production settings (disabled by default). Configure provider credentials/region in server
+settings or the backend environment. A separate PDF worker must be running for PDF jobs to leave pending state:
+
+```bash
+npm --prefix pdf-worker ci
+# Set the same PDF_WORKER_TOKEN on the backend and this worker.
+API_BASE=http://127.0.0.1:8080 PDF_WORKER_TOKEN="$PDF_WORKER_TOKEN" node pdf-worker/src/index.mjs
+```
+
+See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.md), [media/generation](docs/ASSETS.md),
+[PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the
+shared mobile-facing contracts; `mobile/` development is maintained independently.
+
 ## Tests
 
 ```bash
 scripts/test.sh                      # unit + DB + end-to-end + typecheck against a local PostgreSQL
 # or individually
 backend/build/unit_tests             # no DB needed
-TEST_DATABASE_URL=postgresql://postgres@localhost:5432/acerciae_test backend/build/db_tests
-API_BASE=http://localhost:8080 node --test tests/integration/scenarios.test.mjs   # the 7 acceptance scenarios + realtime
+(cd backend && TEST_DATABASE_URL=postgresql://postgres@localhost:5432/acerciae_test ./build/db_tests)
+API_BASE=http://localhost:8080 node --test tests/integration/scenarios.test.mjs
+npm --prefix pdf-worker test
+API_BASE=http://localhost:18081 node --test tests/integration/logstudio.test.mjs  # isolated mock server + real PDF worker
 ```
 
 See [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) for how each mandated scenario is exercised and how to

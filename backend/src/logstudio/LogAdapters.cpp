@@ -1,5 +1,6 @@
 #include "LogAdapters.h"
 #include "../core/Json.h"
+#include "../core/Errors.h"
 #include "../core/Text.h"
 #include <regex>
 #include <map>
@@ -41,7 +42,7 @@ struct SpeakerTable {
 
 void finishEvent(LogEvent& e, const SpeakerInfo& sp, const std::string& adapter, int lineNo, const std::string& rawLine) {
     std::string cleaned; auto media = extractCqMedia(e.content, cleaned);
-    if (!media.isNull()) { e.media = media; e.metadata["content_with_cq"] = e.content; e.content = cleaned; }
+    if (!media.isNull()) { e.media = media; e.metadata["display_text_without_cq"] = cleaned; }
     bool isDice = sp.role == "dice";
     e.speakerRole = sp.role;
     e.eventType = classifyMessage(e.content, isDice, sp.role == "gm");
@@ -67,22 +68,22 @@ ParsedLog parseHeaderFormat(const std::string& textIn, const std::regex& header,
             if (imId.empty()) imId = "auto:" + lower(nick);
             LogEvent e; e.sequenceNumber = ++seq; e.speakerDisplayName = nick; e.speakerKey = speakers.add(nick, imId, false);
             auto ts = parseTime(timeStr); if (ts) e.occurredAtUnix = ts; else e.timeText = timeStr;
-            e.content = inlineMsg; e.rawText = lines[i]; e.sourceKind = "import";
+            e.content = inlineMsg + (!inlineMsg.empty() && i + 1 < lines.size() ? "\n" : ""); e.rawText = lines[i]; e.sourceKind = "import";
             out.events.push_back(e); last = &out.events.back(); lastHeaderLine = (int)i + 1;
             continue;
         }
-        if (last) { if (!last->content.empty() || !lines[i].empty()) last->content += (last->content.empty() ? "" : "\n") + lines[i]; last->rawText += "\n" + lines[i]; }
+        if (last) { last->content += lines[i] + (i + 1 < lines.size() ? "\n" : ""); last->rawText += "\n" + lines[i]; }
         else startText += lines[i] + "\n";
     }
-    for (auto& e : out.events) { e.content = trim(e.content); auto& sp = speakers.byKey[e.speakerKey]; finishEvent(e, sp, adapter, (int)e.sequenceNumber, e.rawText); }
+    for (auto& e : out.events) { auto& sp = speakers.byKey[e.speakerKey]; finishEvent(e, sp, adapter, (int)e.sequenceNumber, e.rawText); }
     // Dice-bot speakers: SealDice names its bot replies; a speaker whose every message parses as a dice result is a dice bot.
     for (auto& [k, sp] : speakers.byKey) {
         int diceLike = 0, total = 0; for (auto& e : out.events) if (e.speakerKey == k) { total++; if (e.dice && e.dice->total) diceLike++; }
         if (total >= 2 && diceLike * 100 / total >= 80) { sp.role = "dice"; for (auto& e : out.events) if (e.speakerKey == k) { e.speakerRole = "dice"; if (e.eventType != "dice_roll") e.eventType = e.dice ? "dice_roll" : "system"; } }
     }
     out.speakers = speakers.list();
-    out.startText = trim(startText);
-    if (!out.startText.empty()) { ImportIssue is; is.lineNo = 1; is.raw = truncate(out.startText, 200); is.reason = "text before the first recognised message was kept as a leading note"; out.issues.push_back(is); LogEvent e; e.sequenceNumber = 0; e.eventType = "system"; e.content = out.startText; e.rawText = out.startText; e.unrecognised = true; e.speakerRole = "system"; e.sourceReference["adapter"] = adapter; e.sourceReference["line_no"] = 1; out.events.insert(out.events.begin(), e); for (size_t i = 0; i < out.events.size(); ++i) out.events[i].sequenceNumber = (long long)i + 1; }
+    out.startText = startText;
+    if (!trim(out.startText).empty()) { ImportIssue is; is.lineNo = 1; is.raw = truncate(out.startText, 200); is.reason = "text before the first recognised message was kept as a leading note"; out.issues.push_back(is); LogEvent e; e.sequenceNumber = 0; e.eventType = "system"; e.content = out.startText; e.rawText = out.startText; e.unrecognised = true; e.speakerRole = "system"; e.sourceReference["adapter"] = adapter; e.sourceReference["line_no"] = 1; out.events.insert(out.events.begin(), e); for (size_t i = 0; i < out.events.size(); ++i) out.events[i].sequenceNumber = (long long)i + 1; }
     (void)lastHeaderLine;
     return out;
 }
@@ -100,9 +101,11 @@ public:
     ParsedLog parse(const std::string& t) const override {
         ParsedLog out; out.adapter = name();
         auto j = json::parse(t); out.formatVersion = json::str(j, "schemaVersion");
+        if(out.formatVersion!="1.0"||!j["events"].isArray()) throw badRequest("native JSON requires schemaVersion 1.0 and events array");
         SpeakerTable speakers; long long seq = 0;
         for (auto& ev : j["events"]) {
-            auto e = LogEvent::fromJson(ev); e.sequenceNumber = ++seq; e.sourceKind = "import";
+            if(!ev.isObject()) { LogEvent e;e.sequenceNumber=++seq;e.eventType="system";e.speakerRole="system";e.rawText=json::dump(ev);e.content=e.rawText;e.unrecognised=true;out.events.push_back(e);out.issues.push_back({(int)seq,e.rawText,"non-object event retained","warning"});continue; }
+            auto e = LogEvent::fromJson(ev); if(e.rawText.empty()) e.rawText=json::dump(ev); e.sequenceNumber = ++seq; e.sourceKind = "import";
             if (e.speakerKey.empty()) e.speakerKey = speakers.add(e.speakerDisplayName, json::str(ev["source_reference"], "im_user_id", "native"), e.speakerRole == "dice");
             else { speakers.add(e.speakerDisplayName, json::str(ev["source_reference"], "im_user_id", "native"), e.speakerRole == "dice"); speakers.byKey.erase(e.speakerDisplayName + "-" + json::str(ev["source_reference"], "im_user_id", "native")); SpeakerInfo s; s.key = e.speakerKey; s.displayName = e.speakerDisplayName; s.role = e.speakerRole; auto& ref = speakers.byKey[e.speakerKey]; if (ref.key.empty()) { ref = s; speakers.order.push_back(e.speakerKey); } ref.messageCount++; }
             if (e.content.empty() && e.rawText.empty()) { ImportIssue is; is.lineNo = (int)seq; is.raw = json::dump(ev); is.reason = "event without content"; out.issues.push_back(is); e.unrecognised = true; }
@@ -121,7 +124,7 @@ public:
 class SealDiceJsonAdapter : public LogAdapter {
 public:
     std::string name() const override { return "sealdice_json"; }
-    std::string supportedVersions() const override { return "SealDice log JSON export (items[].{nickname,IMUserId,time,message,isDice,commandId}; version field as emitted by SealDice ≥1.2, e.g. 105)"; }
+    std::string supportedVersions() const override { return "SealDice log JSON export (items[].{nickname,IMUserId,time,message,isDice,commandId}; fixture version 105; compatible item shapes are accepted, other versions are not certified)"; }
     bool detect(const std::string& t) const override {
         try { auto j = json::parse(t); return j.isObject() && j["items"].isArray() && !j["items"].empty() && j["items"][0].isMember("isDice") && j["items"][0].isMember("message"); } catch (...) { return false; }
     }
@@ -137,8 +140,7 @@ public:
             e.speakerDisplayName = nick; e.speakerKey = speakers.add(nick, imId, isDice);
             if (isDice) speakers.byKey[e.speakerKey].role = "dice";
             if (it["time"].isNumeric()) e.occurredAtUnix = it["time"].asInt64(); else if (it["time"].isString()) { auto p = parseTime(it["time"].asString()); if (p) e.occurredAtUnix = p; else e.timeText = it["time"].asString(); }
-            std::string msg = json::str(it, "message"); { std::string r; for (size_t i = 0; i < msg.size(); ++i) { if (msg[i] == '\r' && i + 1 < msg.size() && msg[i+1] == '\n') continue; r += msg[i]; } msg = r; }
-            e.content = trim(msg); e.rawText = json::dump(it);
+            e.content = json::str(it,"message"); e.rawText=json::dump(it);
             if (it.isMember("commandId") && it["commandId"].isNumeric()) e.metadata["command_id"] = it["commandId"];
             if (it.isMember("commandInfo") && !it["commandInfo"].isNull()) { e.metadata["command_info"] = it["commandInfo"]; }
             for (auto k : {"rawMsgId", "uniformId", "isRaw", "role", "color"}) if (it.isMember(k)) e.metadata[k] = it[k];

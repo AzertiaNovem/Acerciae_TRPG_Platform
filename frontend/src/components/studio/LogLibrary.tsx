@@ -1,3 +1,4 @@
+import StudioPolicyPanel from './StudioPolicyPanel';
 import { useState } from 'react';
 import { api } from '../../api/client';
 import { useNav } from '../../store/nav';
@@ -35,6 +36,7 @@ export default function LogLibrary() {
   };
   return (
     <div>
+      <StudioPolicyPanel />
       <div className="grid-2">
         <div className="card">
           <h3>Log projects</h3>

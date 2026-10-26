@@ -1,0 +1,152 @@
+{
+  "schemaVersion": "1.0",
+  "generator": "acerciae-example-fixture",
+  "meta": {
+    "title": "码头调查",
+    "note": "Authored sample, not a real campaign export"
+  },
+  "events": [
+    {
+      "event_id": "example-1",
+      "sequence_number": 1,
+      "event_type": "narration",
+      "content": "雨夜的码头。\n远处有一盏灯。",
+      "speaker_key": "QQ:10001",
+      "speaker_display_name": "守秘人",
+      "speaker_role": "gm",
+      "timestamp": 1683375072,
+      "scene_key": "dock",
+      "scene_title": "雨夜码头",
+      "visibility_scope": "public",
+      "source_reference": {
+        "fixture": "authored-example"
+      },
+      "metadata": {
+        "original_item": {
+          "nickname": "守秘人",
+          "IMUserId": "QQ:10001",
+          "time": 1683375072,
+          "message": "雨夜的码头。\n远处有一盏灯。",
+          "isDice": false
+        }
+      },
+      "audience": []
+    },
+    {
+      "event_id": "example-2",
+      "sequence_number": 2,
+      "event_type": "dialogue",
+      "content": "我检查门上的锁。",
+      "speaker_key": "QQ:20002",
+      "speaker_display_name": "林调查员",
+      "speaker_role": "pc",
+      "timestamp": 1683375080,
+      "scene_key": "dock",
+      "scene_title": "雨夜码头",
+      "visibility_scope": "public",
+      "source_reference": {
+        "fixture": "authored-example"
+      },
+      "metadata": {
+        "original_item": {
+          "nickname": "林调查员",
+          "IMUserId": "QQ:20002",
+          "time": 1683375080,
+          "message": "我检查门上的锁。",
+          "isDice": false
+        }
+      },
+      "audience": []
+    },
+    {
+      "event_id": "example-3",
+      "sequence_number": 3,
+      "event_type": "dice_roll",
+      "content": "林调查员的侦查检定结果为: D100=37/55 成功",
+      "speaker_key": "QQ:30003",
+      "speaker_display_name": "海豹",
+      "speaker_role": "dice",
+      "timestamp": 1683375081,
+      "scene_key": "dock",
+      "scene_title": "雨夜码头",
+      "visibility_scope": "public",
+      "source_reference": {
+        "fixture": "authored-example"
+      },
+      "metadata": {
+        "original_item": {
+          "nickname": "海豹",
+          "IMUserId": "QQ:30003",
+          "time": 1683375081,
+          "message": "林调查员的侦查检定结果为: D100=37/55 成功",
+          "isDice": true,
+          "commandId": 1,
+          "commandInfo": {
+            "rule": "coc7",
+            "items": [
+              {
+                "expr1": "D100",
+                "checkVal": 37,
+                "attr": "侦查",
+                "rank": 1
+              }
+            ]
+          }
+        }
+      },
+      "audience": []
+    },
+    {
+      "event_id": "example-4",
+      "sequence_number": 4,
+      "event_type": "ooc",
+      "content": "（OOC：暂停五分钟。）",
+      "speaker_key": "QQ:20002",
+      "speaker_display_name": "林的新昵称",
+      "speaker_role": "pc",
+      "timestamp": 1683375085,
+      "scene_key": "dock",
+      "scene_title": "雨夜码头",
+      "visibility_scope": "public",
+      "source_reference": {
+        "fixture": "authored-example"
+      },
+      "metadata": {
+        "original_item": {
+          "nickname": "林的新昵称",
+          "IMUserId": "QQ:20002",
+          "time": 1683375085,
+          "message": "（OOC：暂停五分钟。）",
+          "isDice": false
+        }
+      },
+      "audience": []
+    },
+    {
+      "event_id": "example-5",
+      "sequence_number": 5,
+      "event_type": "media",
+      "content": "我守在这里。[CQ:image,file=door.jpg]",
+      "speaker_key": "QQ:20004",
+      "speaker_display_name": "顾调查员",
+      "speaker_role": "pc",
+      "timestamp": 1683375090,
+      "scene_key": "dock",
+      "scene_title": "雨夜码头",
+      "visibility_scope": "public",
+      "source_reference": {
+        "fixture": "authored-example"
+      },
+      "metadata": {
+        "original_item": {
+          "nickname": "顾调查员",
+          "IMUserId": "QQ:20004",
+          "time": 1683375090,
+          "message": "我守在这里。[CQ:image,file=door.jpg]",
+          "isDice": false
+        }
+      },
+      "audience": []
+    }
+  ]
+}

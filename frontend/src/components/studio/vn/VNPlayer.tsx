@@ -7,6 +7,8 @@ import './vn.css';
 
 export interface VNPlayerProps {
   channelId: string;
+  assetUrl?: (id: string) => string;
+  audioUrl?: (id: string) => string;
   presentation: Presentation;
   index: number;                       // controlled current event index (over visible, non-hidden events)
   onIndexChange: (i: number) => void;
@@ -16,7 +18,7 @@ export interface VNPlayerProps {
 
 const POS_CLASS: Record<string, string> = { left: 'pos-left', center: 'pos-center', right: 'pos-right' };
 
-export default function VNPlayer({ channelId, presentation, index, onIndexChange, editorMode, characterNames }: VNPlayerProps) {
+export default function VNPlayer({ channelId, presentation, index, onIndexChange, editorMode, characterNames, assetUrl, audioUrl }: VNPlayerProps) {
   const settings = presentation.settings ?? {};
   const animations: boolean = settings.animations_enabled !== false;
   const events = useMemo(() => (presentation.events ?? []).filter((e) => !e.hidden), [presentation.events]);
@@ -50,12 +52,12 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
     if (!cur) return;
     if (cur.display_kind === 'dice' && animations) { /* dice effect rendered below */ }
     if (scene?.id && scene.id !== prevSceneId.current) { prevSceneId.current = scene.id; if (cur.display_kind === 'scene_change' || index === 0) { setSceneTitleFlash(scene.title); setTimeout(() => setSceneTitleFlash(null), 1400); } }
-    const bgm = scene?.bgm_asset_id ? api.mediaUrl(channelId, scene.bgm_asset_id) : null; audio.playBgm(bgm);
+    const bgm = scene?.bgm_asset_id ? (assetUrl ? assetUrl(scene.bgm_asset_id) : api.mediaUrl(channelId, scene.bgm_asset_id)) : null; audio.playBgm(bgm);
     let timer: number | null = null; let cancelled = false;
     const total = chars.length;
     const finishLine = () => { if (cancelled || doneRef.current) return; doneRef.current = true; setTyped(total); };
     if (hasAudio && cur.audio_asset_id) {
-      const src = api.ttsAudioUrl(channelId, cur.audio_asset_id);
+      const src = (audioUrl ? audioUrl(cur.audio_asset_id) : api.ttsAudioUrl(channelId, cur.audio_asset_id));
       const fmt = cur.audio_mime === 'audio/wav' ? 'wav' : cur.audio_mime === 'audio/mpeg' ? 'mp3' : undefined;
       audio.unlock().then((ok) => {
         if (cancelled) return;
@@ -101,7 +103,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
 
   if (!cur) return <div className="vn-stage" ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">No visible lines in this presentation.</div></div></div>;
 
-  const bgUrl = scene?.background_asset_id ? api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version) : null;
+  const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version)) : null;
   const placements = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' ? [] : (cur.character_asset_ids ?? []);
   const speaker = cur.speaker_name_override ?? cur.character_name ?? cur.speaker_display_name;
   const isNarr = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' || cur.display_kind === 'system';
@@ -125,7 +127,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
           <AnimatePresence>
             {placements.map((p) => {
               const active = p.character_id === cur.speaker_character_id || p.active;
-              const url = p.asset_id ? api.mediaUrl(channelId, p.asset_id, p.asset_version) : null;
+              const url = p.asset_id ? (assetUrl ? assetUrl(p.asset_id) : api.mediaUrl(channelId, p.asset_id, p.asset_version)) : null;
               return (
                 <motion.div key={p.character_id} className={`vn-char ${POS_CLASS[p.position] ?? 'pos-center'}`} layout={animations}
                   initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0, scale: active ? 1 : 0.94, filter: active ? 'brightness(1)' : 'brightness(0.55)', zIndex: active ? 2 : 1 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: fadeDur }}>

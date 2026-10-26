@@ -8,7 +8,7 @@ export function getToken() { return token; }
 
 export class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }
 
-async function request<R>(method: string, path: string, body?: unknown, raw?: BodyInit): Promise<R> {
+export async function request<R>(method: string, path: string, body?: unknown, raw?: BodyInit): Promise<R> {
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -162,7 +162,7 @@ export const api = {
   ttsPreview: (ch: string, body: { voice_profile_id: string; text: string; style_instruction?: string; model_id?: string }) => post<{ id: string; mime: string; duration_ms: number; is_mock: boolean; spoken_text: string; spoken_text_note: string }>(`/api/channels/${ch}/studio/tts/preview`, body),
   ttsAudioUrl: (ch: string, id: string) => `${BASE}/api/channels/${ch}/studio/tts/audio/${id}?token=${encodeURIComponent(getToken() ?? '')}`,
   ttsEstimate: (ch: string, presId: string, scope: Record<string, unknown>) => post<any>(`/api/channels/${ch}/studio/presentations/${presId}/tts/estimate`, scope),
-  ttsCreateJob: (ch: string, presId: string, body: { scope?: Record<string, unknown>; force?: boolean; model_id?: string }) => post<T.TtsJob>(`/api/channels/${ch}/studio/presentations/${presId}/tts/jobs`, body),
+  ttsCreateJob: (ch: string, presId: string, body: { scope?: Record<string, unknown>; force?: boolean; retry?: boolean; model_id?: string }) => post<T.TtsJob>(`/api/channels/${ch}/studio/presentations/${presId}/tts/jobs`, body),
   ttsJobs: (ch: string, presId: string) => get<T.TtsJob[]>(`/api/channels/${ch}/studio/presentations/${presId}/tts/jobs`),
   ttsJob: (ch: string, id: string) => get<T.TtsJob>(`/api/channels/${ch}/studio/tts/jobs/${id}`),
   ttsCancel: (ch: string, id: string) => post<T.TtsJob>(`/api/channels/${ch}/studio/tts/jobs/${id}/cancel`),

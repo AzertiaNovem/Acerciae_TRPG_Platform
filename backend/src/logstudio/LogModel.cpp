@@ -2,6 +2,9 @@
 #include "../core/Json.h"
 #include "../core/Text.h"
 #include <regex>
+#include <iconv.h>
+#include <cerrno>
+#include <stdexcept>
 
 namespace acerciae::logstudio {
 
@@ -13,6 +16,8 @@ Json::Value DiceInfo::toJson() const {
 
 Json::Value LogEvent::toJson() const {
     Json::Value v;
+    v["campaign_id"]=campaignId; v["speaker_id"]=speakerKey;
+    v["source_event_id"]=sourceEventId; v["source_message_id"]=sourceMessageId;
     v["event_id"] = eventId; v["sequence_number"] = (Json::Int64)sequenceNumber; v["event_type"] = eventType; v["content"] = content;
     v["speaker_key"] = speakerKey; v["speaker_display_name"] = speakerDisplayName; v["speaker_character_id"] = speakerCharacterId.empty() ? Json::Value() : Json::Value(speakerCharacterId);
     v["speaker_role"] = speakerRole;
@@ -28,6 +33,7 @@ Json::Value LogEvent::toJson() const {
 
 LogEvent LogEvent::fromJson(const Json::Value& v) {
     LogEvent e;
+    e.campaignId=json::str(v,"campaign_id",json::str(v,"channel_id")); e.sourceEventId=json::str(v,"source_event_id"); e.sourceMessageId=json::str(v,"source_message_id");
     e.eventId = json::str(v, "event_id"); e.sequenceNumber = v["sequence_number"].isNumeric() ? v["sequence_number"].asInt64() : 0;
     e.eventType = json::str(v, "event_type", "dialogue"); e.content = json::str(v, "content");
     e.speakerKey = json::str(v, "speaker_key"); e.speakerDisplayName = json::str(v, "speaker_display_name"); e.speakerCharacterId = json::str(v, "speaker_character_id");
@@ -127,23 +133,21 @@ Json::Value extractCqMedia(const std::string& t, std::string& cleaned) {
 }
 
 std::string normaliseEncoding(const std::string& b, std::string& detected) {
-    detected = "utf-8";
-    if (b.size() >= 3 && (unsigned char)b[0] == 0xEF && (unsigned char)b[1] == 0xBB && (unsigned char)b[2] == 0xBF) { detected = "utf-8-bom"; return b.substr(3); }
-    auto utf16 = [&](bool le) {
-        std::string out; for (size_t i = 2; i + 1 < b.size(); i += 2) {
-            unsigned cp = le ? ((unsigned char)b[i] | ((unsigned char)b[i+1] << 8)) : (((unsigned char)b[i] << 8) | (unsigned char)b[i+1]);
-            if (cp >= 0xD800 && cp <= 0xDBFF && i + 3 < b.size()) { unsigned lo = le ? ((unsigned char)b[i+2] | ((unsigned char)b[i+3] << 8)) : (((unsigned char)b[i+2] << 8) | (unsigned char)b[i+3]); cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); i += 2; }
-            if (cp < 0x80) out += (char)cp; else if (cp < 0x800) { out += (char)(0xC0 | (cp >> 6)); out += (char)(0x80 | (cp & 0x3F)); }
-            else if (cp < 0x10000) { out += (char)(0xE0 | (cp >> 12)); out += (char)(0x80 | ((cp >> 6) & 0x3F)); out += (char)(0x80 | (cp & 0x3F)); }
-            else { out += (char)(0xF0 | (cp >> 18)); out += (char)(0x80 | ((cp >> 12) & 0x3F)); out += (char)(0x80 | ((cp >> 6) & 0x3F)); out += (char)(0x80 | (cp & 0x3F)); }
-        } return out; };
-    if (b.size() >= 2 && (unsigned char)b[0] == 0xFF && (unsigned char)b[1] == 0xFE) { detected = "utf-16le"; return utf16(true); }
-    if (b.size() >= 2 && (unsigned char)b[0] == 0xFE && (unsigned char)b[1] == 0xFF) { detected = "utf-16be"; return utf16(false); }
-    // Validate UTF-8; if invalid, flag (GBK/GB18030 conversion is not bundled; the UI tells the user to re-save as UTF-8).
-    size_t i = 0; bool valid = true;
-    while (i < b.size()) { unsigned char c = b[i]; size_t n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 0; if (!n || i + n > b.size()) { valid = false; break; } for (size_t k = 1; k < n; ++k) if (((unsigned char)b[i+k] >> 6) != 2) { valid = false; break; } if (!valid) break; i += n; }
-    if (!valid) detected = "unknown-8bit";
-    return b;
+    auto convert=[](const std::string& in,const char* encoding)->std::optional<std::string> {
+        auto cd=iconv_open("UTF-8",encoding); if(cd==(iconv_t)-1) return std::nullopt;
+        std::string out(in.size()*4+16,'\0'); char* input=const_cast<char*>(in.data()); size_t left=in.size();
+        char* output=out.data(); size_t room=out.size(); auto result=iconv(cd,&input,&left,&output,&room); iconv_close(cd);
+        if(result==(size_t)-1||left) return std::nullopt; out.resize(out.size()-room); return out;
+    };
+    detected="utf-8"; std::string input=b;
+    if(b.size()>=3&&b.compare(0,3,"\xEF\xBB\xBF")==0) {detected="utf-8-bom";input=b.substr(3);}
+    if(b.size()>=2&&(b.compare(0,2,"\xFF\xFE")==0||b.compare(0,2,"\xFE\xFF")==0)) {
+        bool le=(unsigned char)b[0]==0xFF; auto out=convert(b.substr(2),le?"UTF-16LE":"UTF-16BE");
+        if(!out) throw std::invalid_argument("invalid UTF-16; re-export the log as UTF-8"); detected=le?"utf-16le":"utf-16be"; return *out;
+    }
+    if(convert(input,"UTF-8")) return input;
+    if(auto out=convert(b,"GB18030")) {detected="gb18030-inferred";return *out;}
+    throw std::invalid_argument("unknown or invalid log encoding; re-export as UTF-8 (no import saved)");
 }
 
 } // namespace acerciae::logstudio

@@ -9,8 +9,9 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <map>
 
-namespace acerciae { class Notifier; }
+namespace acerciae { class Notifier; class ServerSettingsService; }
 namespace acerciae::logstudio {
 class PresentationService;
 
@@ -18,7 +19,7 @@ class PresentationService;
 // retries, concurrency throttling and WebSocket progress. Audio bytes live in the object store.
 class TtsService {
 public:
-    TtsService(const Config& cfg, Db& db, ObjectStore& store, Notifier& n, PresentationService& pres);
+    TtsService(const Config& cfg, Db& db, ObjectStore& store, Notifier& n, PresentationService& pres, ServerSettingsService& settings);
     ~TtsService();
     void start(); void stop();
 
@@ -52,7 +53,11 @@ private:
     std::string synthesizeLine(const std::string& channelId, const LinePlan& l, const std::string& userId, std::string& error, bool& retryable);   // returns audio asset id
     void workerLoop(); void runJob(const std::string& jobId);
     const Config& cfg_; Db& db_; ObjectStore& store_; Notifier& notifier_; PresentationService& pres_;
-    std::unique_ptr<TtsProvider> provider_;
+    std::shared_ptr<TtsProvider> provider_;
+    ServerSettingsService& settings_;
+    std::mutex providersMu_;
+    std::map<std::string,std::shared_ptr<TtsProvider>> providers_;
+    std::shared_ptr<TtsProvider> providerFor(const std::string& channelId);
     std::atomic<bool> running_{false}; std::thread worker_; std::mutex mu_; std::condition_variable cv_;
     int concurrency_ = 2;
 };
