@@ -194,6 +194,16 @@
               "string",
               "null"
             ]
+          },
+          "subtitle": {
+            "type": "string",
+            "maxLength": 32,
+            "description": "Portrait subtitle a standee need is for (e.g. SAY)."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Background name a background need is for."
           }
         }
       }
@@ -216,6 +226,53 @@
       "type": "array",
       "items": {
         "type": "string"
+      }
+    },
+    "blocks": {
+      "type": "integer",
+      "description": "Time blocks the mock planner read (a block ends after an hour without lines)."
+    },
+    "generation": {
+      "type": "object",
+      "description": "Image jobs queued for the draft.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "backgrounds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "scene_key": {
+                "type": "string"
+              },
+              "job_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "portraits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "character_id": {
+                "type": "string"
+              },
+              "subtitle": {
+                "type": "string"
+              },
+              "job_id": {
+                "type": "string"
+              }
+            }
+          }
+        }
       }
     }
   }

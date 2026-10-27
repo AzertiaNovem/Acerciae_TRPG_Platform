@@ -98,6 +98,12 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   const voices = {};
   for (const [c, v] of [[ada, "mock-cherry"], [mo, "mock-ethan"]]) voices[c.id] = (await call(gm, "POST", root + "/voices", { name: c.name, character_id: c.id, voice_type: "preset", voice_id: v })).id;
   const narrator = (await call(gm, "POST", root + "/voices", { name: "Narrator", voice_type: "preset", voice_id: "mock-serena" })).id;
+  // Every member casts from the same voices: a player sees the narrator and other PCs' voices, and may add a narrator voice.
+  const shared = await call(p2, "GET", root + "/voices");
+  assert.ok([narrator, voices[ada.id], voices[mo.id]].every((id) => shared.some((v) => v.id === id)));
+  assert.equal(shared.find((v) => v.id === narrator).editable, false);
+  await rejects(call(p2, "PUT", root + `/voices/${narrator}`, { name: "mine now" }), 403);
+  const p2Narrator = await call(p2, "POST", root + "/voices", { name: "Mo's narrator", voice_type: "preset", voice_id: "mock-serena" });
   await rejects(call(gm, "POST", root + `/presentations/${done.presentation_id}/cast`, { cast: { narrator: "00000000-0000-0000-0000-000000000001" } }), 400);
   const castPres = await call(gm, "POST", root + `/presentations/${done.presentation_id}/cast`, { cast: { narrator, [ada.id]: voices[ada.id], [mo.id]: voices[mo.id] } });
   assert.equal(castPres.settings.cast.narrator, narrator);
@@ -129,7 +135,11 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   const pj = await call(p2, "POST", root + "/vn-scripts", { title: "Mo's night", scope: "character", scope_character_id: mo.id });
   const pd = await finished(p2, root, pj.id);
   assert.equal(pd.status, "completed", pd.error);
+  const pp0 = await call(p2, "GET", root + `/presentations/${pd.presentation_id}`);
+  assert.equal(pp0.can_edit, true);
+  await call(p2, "POST", root + `/presentations/${pd.presentation_id}/cast`, { cast: { narrator: p2Narrator.id, [mo.id]: voices[mo.id] } });
   const pp = await call(p2, "GET", root + `/presentations/${pd.presentation_id}`);
+  assert.ok(pp.events.filter((e) => !e.hidden).every((e) => e.voice_profile_id));
   assert.ok(!pp.events.some((e) => /archive|ledger|page/.test(e.display_text)));
   assert.ok(!JSON.stringify(pd.script).includes("Archive (private)"));
   assert.ok(pp.events.some((e) => e.display_text === "A lantern moves on the water."));

@@ -210,9 +210,12 @@ npm --prefix pdf-worker ci
 API_BASE=http://127.0.0.1:8080 PDF_WORKER_TOKEN="$PDF_WORKER_TOKEN" node pdf-worker/src/index.mjs
 ```
 
-On the Visual novel tab a GM can have the LLM read every chat window and organise the log into a visual-novel script,
-built as a draft presentation in one of four look templates (Classic ADV, Novel page, Case file, Cinematic). The model
-only arranges existing lines; it never rewrites them. See [visual novel guide](docs/VISUAL_NOVEL.md).
+On the Visual novel tab any member can make a visual novel in four steps: the LLM reads the campaign log in their scope
+as time blocks and writes the script (backgrounds and portrait subtitles, never new text), the image AI paints missing
+backgrounds and generated-mode portraits, the author casts a voice for every character and the narration (Qwen TTS),
+and a zip with a standalone HTML player, the images and the voice lines downloads for offline viewing. The server
+maintainer can turn the Log Studio off, and the Keeper can hide it per channel. See
+[visual novel guide](docs/VISUAL_NOVEL.md).
 
 See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.md), [media/generation](docs/ASSETS.md),
 [PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the

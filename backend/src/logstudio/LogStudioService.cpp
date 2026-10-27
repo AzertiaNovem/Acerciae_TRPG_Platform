@@ -229,7 +229,8 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
             if (actual["rolls"].size() == 1) { auto one=actual["rolls"][0]; if (one["total"].isInt()) d.total=one["total"].asInt(); else if (one["roll"].isInt()) d.total=one["roll"].asInt(); d.outcome=json::str(one,"level"); }
             e.dice=d;
         } else e.dice = parseDice(e.content); } else if (mk == "narration") e.eventType = "narration";
-        else e.eventType = gm ? "narration" : classifyMessage(e.content, false, false);
+        // The Keeper without a character narrates; the Keeper speaking as an NPC talks like anyone else.
+        else e.eventType = gm && e.speakerCharacterId.empty() ? "narration" : classifyMessage(e.content, false, false);
         if (vis == "gm_only") e.eventType = "secret";
         events.push_back(e);
     }

@@ -7,7 +7,7 @@ import { useUi } from '../../store/ui';
 import type { MediaAsset, Presentation, PresentationEvent, PresentationScene, CharacterPlacement } from '../../types';
 import VNPlayer from './vn/VNPlayer';
 import VnTemplatePanel from './VnTemplatePanel';
-import VnScriptGenerator from './VnScriptGenerator';
+import VnWizard from './VnWizard';
 import './vn/vn.css';
 
 const KINDS = ['dialogue', 'narration', 'action', 'ooc', 'dice', 'scene_change', 'system', 'media'];
@@ -17,7 +17,7 @@ const EFFECTS = ['none', 'shake', 'flash', 'zoom'];
 // Left: scenes/events · Centre: live preview · Right: inspector · Bottom: timeline + controls.
 export default function VisualNovelEditor() {
   const { channelId, channel, characters } = useNav();
-  const { project, snapshot, snapshots, presentationId, setPresentation, openSnapshot } = useStudio();
+  const { project, presentationId, setPresentation } = useStudio();
   const toast = useUi((s) => s.toast);
   const [list, setList] = useState<Presentation[]>([]);
   const [pres, setPres] = useState<Presentation | null>(null);
@@ -36,10 +36,6 @@ export default function VisualNovelEditor() {
   useEffect(() => { if (presentationId) loadPres(presentationId).catch(() => setPres(null)); else setPres(null); }, [presentationId, channelId]);
   useEffect(() => { if (channelId && presentationId && !playerMode) return; }, [playerMode]);
 
-  const create = async () => {
-    if (!channelId || !snapshot) { toast('Open a snapshot in the Library first', 'error'); return; }
-    try { const p = await api.createPresentation(channelId, snapshot.id, { title: `${snapshot.project_title ?? 'Log'} — VN v${snapshot.version}` }); setPresentation(p.id); loadList(); } catch (e: any) { toast(e.message, 'error'); }
-  };
   const patchEvent = async (e: PresentationEvent, body: Partial<PresentationEvent>) => { if (!channelId || !pres) return; try { await api.updatePEvent(channelId, e.id, body); await loadPres(pres.id); } catch (err: any) { toast(err.message, 'error'); } };
   const patchScene = async (s: PresentationScene, body: Partial<PresentationScene>) => { if (!channelId || !pres) return; try { await api.updatePScene(channelId, s.id, body); await loadPres(pres.id); } catch (err: any) { toast(err.message, 'error'); } };
   const setPlacement = async (e: PresentationEvent, charId: string, patch: Partial<CharacterPlacement> | null) => {
@@ -58,17 +54,14 @@ export default function VisualNovelEditor() {
   if (!pres) {
     return (
       <div>
-        <div className="card">
-          <h3>{tr("Visual novel presentations")}</h3>
-          <div className="tiny muted">{tr("A presentation is the performance layer over one snapshot: backgrounds, standees, positions, transitions, voices. The canonical log is never modified from here. ")}{snapshot ? `Current snapshot: v${snapshot.version} (${snapshot.scope}).` : tr("Open a snapshot in the Library to create one.")}</div>
-          <div className="row" style={{ marginTop: 8 }}>
-            {!snapshot && snapshots.length > 0 && <select onChange={(e) => channelId && e.target.value && openSnapshot(channelId, e.target.value)} defaultValue=""><option value="">{tr("choose a snapshot…")}</option>{snapshots.map((s) => <option key={s.id} value={s.id}>{tr("v")}{s.version} {s.title} ({s.scope})</option>)}</select>}
-            <button className="primary" onClick={create} disabled={!snapshot}>{tr("Create presentation from snapshot")}</button>
+        <VnWizard onOpenEditor={(id) => { setPresentation(id); loadList(); }} />
+        {list.length > 0 && (
+          <div className="card">
+            <h3>{tr("Drafts")}</h3>
+            <div className="tiny muted">{tr("Open a draft in the advanced editor to adjust scenes, staging, art and timing line by line. The campaign log itself is never modified from here.")}</div>
+            <table className="simple" style={{ marginTop: 8 }}><tbody>{list.map((p) => <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setPresentation(p.id)}><td><b>{p.title}</b><div className="tiny muted">{p.snapshot_scope} · {p.line_count}{tr(" lines · ")}{p.voiced_count}{tr(" voiced · v")}{p.version}</div></td><td><button className="small">{tr("open")}</button></td></tr>)}</tbody></table>
           </div>
-          <table className="simple" style={{ marginTop: 8 }}><tbody>{list.map((p) => <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setPresentation(p.id)}><td><b>{p.title}</b><div className="tiny muted">{tr("snapshot v")}{p.snapshot_version} · {p.snapshot_scope} · {p.line_count}{tr(" lines · ")}{p.voiced_count}{tr(" voiced · v")}{p.version}</div></td><td><button className="small">{tr("open")}</button></td></tr>)}</tbody></table>
-          {list.length === 0 && <div className="muted small" style={{ marginTop: 6 }}>{tr("No presentations yet.")}</div>}
-        </div>
-        {channel?.my_role === 'gm' && <VnScriptGenerator onOpen={(id) => { setPresentation(id); loadList(); }} />}
+        )}
       </div>
     );
   }
@@ -89,7 +82,8 @@ export default function VisualNovelEditor() {
         <label className="tiny">{tr("typewriter ")}<input type="number" min={5} max={120} value={pres.settings?.typewriter_cps ?? 28} onChange={(e) => setPres({ ...pres, settings: { ...pres.settings, typewriter_cps: +e.target.value } })} onBlur={() => channelId && api.updatePresentation(channelId, pres.id, { settings: { typewriter_cps: pres.settings?.typewriter_cps } })} style={{ width: 60 }} disabled={!canEdit} />{tr(" cps")}</label>
         <span className="grow" />
         <button className="primary small" onClick={() => setPlayerMode(true)}>{tr("▶ Play")}</button>
-        {channel?.my_role === 'gm' && <button className="ghost small" onClick={async () => { if (!channelId || !confirm('Delete this presentation?')) return; await api.deletePresentation(channelId, pres.id); setPresentation(null); loadList(); }}>{tr("delete")}</button>}
+        <a className="button small" href={api.bundleUrl(channelId!, pres.id)}>{tr("Download the visual novel (zip)")}</a>
+        {canEdit && <button className="ghost small" onClick={async () => { if (!channelId || !confirm('Delete this presentation?')) return; await api.deletePresentation(channelId, pres.id); setPresentation(null); loadList(); }}>{tr("delete")}</button>}
       </div>
       <div className="vn-editor">
         <div className="card list">

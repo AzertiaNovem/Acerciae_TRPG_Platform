@@ -811,7 +811,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
     snapshotId = logs_.createSnapshot(a, projectId, sb)["id"].asString();
   }
   auto events = logs_.snapshotEvents(a, snapshotId, &snap);
-  if (events.empty()) throw badRequest("the log has no lines in your scope yet");
+  if (events.empty()) throw badRequest(json::str(b, "scope") == "pl_public" ? "no line of the log is public to every player yet; choose a character's point of view" : "the log has no lines in your scope yet");
   if (events.size() > kMaxLines) throw badRequest("the log has more than " + std::to_string(kMaxLines) + " lines; snapshot a range or a set of scenes");
   bool mock = llm_.isMock(a.channelId);
   if (!mock) {

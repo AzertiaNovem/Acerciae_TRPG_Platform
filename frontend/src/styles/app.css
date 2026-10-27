@@ -250,3 +250,11 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .subtitle-grid .tile img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; }
 .subtitle-grid .tile .cap { font-size: 11px; padding: 4px; }
 @media (max-width: 800px) { .character-space .hero { grid-template-columns: 1fr; } .character-space .portrait { width: 160px; } }
+/* Visual-novel wizard */
+.wizard-steps {display:flex;gap:6px;list-style:none;padding:0;margin:10px 0;flex-wrap:wrap}
+.wizard-steps li button {border:1px solid var(--border);border-radius:999px}
+.wizard-steps li.current button {border-color:var(--accent);color:var(--accent);font-weight:600}
+.wizard-steps li.done button {opacity:.75}
+.wizard-art {display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-top:8px}
+.wizard-tile img,.wizard-tile .placeholder {width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--panel-2,rgba(127,127,127,.12));display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)}
+table.simple tr.selected td {background:rgba(127,127,127,.08)}

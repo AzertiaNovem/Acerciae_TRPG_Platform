@@ -15,10 +15,18 @@ const TABS: { id: StudioView; label: string; gm?: boolean }[] = [
 
 // The production workspace: one campaign log per channel, and what is made from it.
 export default function StudioWorkspace() {
-  const { channelId, channel, setStudioOpen } = useNav();
+  const { channelId, channel, serverSettings, setStudioOpen } = useNav();
   const { view, setView, loadLog, snapshot } = useStudio();
   const isGm = channel?.my_role === 'gm';
-  useEffect(() => { if (channelId) loadLog(channelId).catch(() => undefined); }, [channelId, loadLog]);
+  const allowed = channel?.studio_visible !== false && serverSettings?.features?.log_studio !== false;
+  useEffect(() => { if (channelId && allowed) loadLog(channelId).catch(() => undefined); }, [channelId, loadLog, allowed]);
+  if (!allowed) return (
+    <div className="workspace"><div className="content"><div className="card">
+      <h3>{tr("Log Studio")}</h3>
+      <div className="muted small">{serverSettings?.features?.log_studio === false ? tr("The server maintainer has turned the Log Studio off for this server.") : tr("The Keeper has hidden the Log Studio in this channel.")}</div>
+      <button style={{ marginTop: 8 }} onClick={() => setStudioOpen(false)}>{tr("← back to chat")}</button>
+    </div></div></div>
+  );
   return (
     <div className="workspace">
       <div className="tabs studio-tabs">

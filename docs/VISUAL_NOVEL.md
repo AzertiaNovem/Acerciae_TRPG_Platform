@@ -1,9 +1,9 @@
-# Visual novel: look templates and LLM scripts
+# Visual novel: look templates, LLM scripts and the standalone bundle
 
 A visual novel in Log Studio is a presentation over one frozen snapshot. Two features shape it:
 
 - **Look templates** decide how the player draws every line.
-- **Script jobs** have the LLM read the chat log of every window it is allowed to see and organise it into scenes and staging. The job then builds a draft presentation in a chosen template.
+- **Script jobs** have the LLM read the campaign log in the requester's scope and organise it into scenes, backgrounds and portraits. The job then builds a draft presentation in a chosen template, asks the image AI for missing art, and the author casts voices and downloads a standalone zip.
 
 Neither feature changes canonical text. A script references log events by id, and the player shows those events verbatim.
 
@@ -37,52 +37,109 @@ A presentation stores its template in `settings.template`: a base preset plus op
 
 A speaker's name colour comes from the line's own `dialogue_style.name_color`, then from `character_colors`, then from the character's visual profile colour, then from the accent. Text sizes scale with the stage through container query units, so the editor preview and fullscreen keep the same proportions. In the editor, the **Look template** panel under the preview shows the four presets and every override. Changes apply to the preview at once and save half a second after the last edit. Publications copy the presentation, so a published visual novel keeps the template it had when it was published.
 
-## Script jobs
+## Making a visual novel
 
-Only GMs run script jobs. The **Generate a visual novel from the chat log** panel on the Visual novel tab does it in one step:
+Any member can make a visual novel when the Log Studio is open (see [Who can use the Studio](#who-can-use-the-studio)).
+The **Make a visual novel** card on the Visual novel tab has four steps.
 
-1. It syncs every chat window into the "Campaign log" project, or into the project already open. Sync only adds events it has not seen.
-2. It freezes a snapshot. **All chat windows** takes `gm_full`, which includes private windows and GM-only lines, so the result is GM only. **Player-visible lines only** takes `pl_public`. The third choice uses the snapshot already open in the Library, which can be one character's point of view.
-3. It queues `POST /vn-scripts` with the template and an optional direction from the GM.
-4. A worker thread plans the script, validates it and builds a draft presentation. The panel follows progress through `studio.vnscript.progress` events, with polling as a fallback.
+![Dubbing cast step](screenshots/vn-wizard-cast.png)
 
-### What the model sees
+1. **Script.** Choose which lines the AI reads: everything (Keeper only; the result is Keeper only), lines public to every
+   player, or one character's point of view (a player's own characters only). The request freezes the campaign log in
+   that scope and queues `POST /vn-scripts`. A worker writes the script and builds a draft presentation.
+2. **Art.** Scenes without an approved background, and portraits the script asks for, are painted by the image AI and
+   land in the draft as they finish. Characters in uploaded mode use only the portraits their players uploaded.
+3. **Dubbing cast.** Pick a voice for every speaking character and for the narration (Keeper narration, dice and scene
+   titles), or create one from a provider preset. **Apply cast and voice every line** stores the cast on the draft
+   (`POST /presentations/{p}/cast`) and starts a TTS job (Qwen TTS, or the mock provider).
+4. **Export.** Preview the draft, open it in the advanced editor, or download a zip
+   (`GET /presentations/{p}/bundle.zip`) that holds `index.html`, `script.json`, every image under `assets/` and every
+   voice line under `audio/`. The page plays offline in any browser: click, space or arrow keys advance; `A` auto-plays
+   with the voices, `M` mutes, `F` goes fullscreen, and a menu jumps between scenes.
 
-- **Lines:** only the snapshot's lines. Each line goes out as `{ref, window, scene, who, speaker, type, text, roll}`, with text cut to 1,500 bytes for the prompt only. Logs are sent in parts of at most 90 lines or about 14,000 characters. Each part carries the last eight open scenes so a thread can continue across parts.
-- **Cast:** only characters who speak in the snapshot or whose full name already appears in it. An NPC the players have not met cannot be named in a player-facing title or summary.
-- **Assets:** approved backgrounds, music and standees. A snapshot that is not `gm_full` never sees GM-only images.
-- **GM direction:** at most 1,000 characters, labelled as data.
+![The standalone page from the zip](screenshots/vn-standalone.png)
 
-The system prompt forbids writing, rewriting, translating, shortening or merging dialogue, and forbids inventing facts.
+### The transcript the model reads
+
+The log is cut into **time blocks**: a block ends when no chat window carried a line for an hour. One model call reads one
+block (a long block is split into consecutive parts). Each call gets:
+
+```
+# Assets
+Era: 1920s New England
+Portraits:
+- C1 "Ada Quill" mode=generated subtitles=[IDLE] prompt="red-haired librarian in a grey coat"
+- C2 "Mo Reyes" mode=uploaded subtitles=[IDLE, FIGHT] (uploaded: only these subtitles may be used)
+Backgrounds:
+- "Harbour at night" (existing)
+- "Lighthouse" prompt="1920s lighthouse at night"      ← invented in an earlier block
+# Block (2026-10-27 21:02 – 2026-10-27 22:40)
+## Window: Main table
+[L1] KP(Narrative)(21:02): Fog rolls over the harbour.
+[L2] Mo Reyes(21:03): I keep watch on the pier.
+[L3] Mo Reyes(OOC)(21:04): brb, coffee
+[L4] KP(as Old Tom)(21:05): Storm's coming.
+## Window: Archive (private)
+[L5] Ada Quill(21:03): I pull the 1923 ledger.
+```
+
+The model answers:
+
+```json
+{"generate_backgrounds": [{"name": "Archive", "prompt": "1920s university archive, lamplight, no people"}],
+ "generate_portraits": [{"char": "C1", "subtitle": "SAY", "prompt": "…, speaking, full-body standee"}],
+ "script": [{"ref": "L1", "background": "Harbour at night"},
+            {"ref": "L2", "speaker": "C2", "background": "Harbour at night", "portrait": "IDLE"}]}
+```
+
+- **Cast.** Only characters who speak in the frozen lines, or whose full name appears in them, are listed, so a player's
+  script cannot name an NPC they have not met.
+- **Backgrounds.** Approved backgrounds the scope may show are listed as existing. A snapshot that is not `gm_full` never
+  sees GM-only images.
+- **Direction.** An optional direction of at most 1,000 characters goes in as data.
+
+The system prompt forbids writing, rewriting, translating, shortening or merging lines, and forbids inventing facts.
 
 ### What is accepted from the model
 
-`VnScriptService::normalize` keeps only:
+`VnScriptService::fromFlat` turns the answers into scenes, and `normalize` validates them:
 
-- **References:** line refs that exist, each placed once, plus cast and asset refs from the lists sent.
-- **Enumerations:** display kinds, positions, effects and environments from fixed sets.
-- **Text fields with length limits:** titles, locations, moods, summaries, briefs and delivery notes.
+- **Scenes.** A new scene opens whenever the background changes; its title is the background name. Parallel chat windows
+  therefore read as separate scenes when the model gives them different backgrounds.
+- **Lines.** Only refs that exist are placed, each once. An answer that copied a line's text instead of its ref is matched
+  back to that line. Out-of-character and system lines the model leaves out are hidden with a reason, never deleted.
+  Story lines it skips stay visible next to their neighbours.
+- **Portraits.** A speaker is staged with the subtitle given (at most two on stage). For a character in uploaded mode a
+  subtitle not in their list falls back to their default art. Portrait requests for uploaded-mode characters are dropped.
+- **Art requests.** New backgrounds and generated-mode portraits become image jobs (`asset_needs`, at most 24 per script).
+  Background jobs attach to their scene; portrait jobs attach to every placement of that character with that subtitle,
+  replacing a stand-in, and are added to the character space.
 
-Anything else is ignored, including any text the model returns for a line.
-
-- **Excluded lines.** Lines the model excludes with a reason are hidden in the draft, never deleted, and keep that reason.
-- **Skipped lines.** Lines the model skips stay visible. They go into the scene of a neighbouring line from the same window and canonical scene. Scene markers join the scene that follows them.
-- **Scene order.** Scenes are ordered by their first line. Lines inside a scene keep canonical order. Parallel chat windows therefore read as continuous threads instead of interleaving.
-- **Staging.** It carries forward until a line changes it. Standees are chosen by expression, then the character's default, then any approved standee of that character.
-
-`PresentationService::applyScript` writes the result over a fresh presentation. It re-checks each asset (approved, same channel, right type, visible to the presentation's audience) and freezes asset versions.
+`PresentationService::applyScript` writes the result over a fresh presentation. It re-checks each asset (approved, same
+channel, right type, visible to the presentation's audience) and freezes asset versions.
 
 ### Mock mode and cloud policy
 
-- **Mock mode.** Without an LLM API key, the job uses a deterministic planner. It groups lines by chat window and canonical scene, excludes out-of-character, system and unrecognised lines with reasons, and stages speakers. It also matches backgrounds by name. Its script carries a `MOCK` note and no summaries.
-- **Live model.** With a real model, the request needs `allow_cloud: true`, and the campaign's Log Studio cloud setting must be on. Both are checked again when the job runs. The requester must still be a GM at that time too.
-- **Retries.** Failed model calls retry once.
-- **Timeouts.** Large parts can take a while on slow models. Raise `LLM_TIMEOUT_MS` if parts time out.
+- **Mock mode.** Without an LLM API key, a deterministic planner gives each chat window and scenario its own background,
+  stages speakers with `SAY` for dialogue and `IDLE` for actions, and requests the missing portraits and backgrounds with
+  prompts built from the era and appearance prompt. Its script carries a `MOCK` note.
+- **Live model.** The request needs `allow_cloud: true`, and the campaign's Log Studio cloud setting must be on. Both are
+  checked again when the job runs. Failed model calls retry once; raise `LLM_TIMEOUT_MS` if parts time out.
+- **Images.** With `IMAGE_PROVIDER=mock` images are labelled diagnostic patterns; with no provider the Art step explains
+  how to upload art instead.
+
+### Who can use the Studio
+
+The server maintainer can turn the Log Studio off for the whole server (Server settings → Features → Log Studio), and the
+Keeper can hide it in one channel (GM workspace → Settings → Log Studio available in this channel). While both are on,
+every member reaches it equally, within what they can read: players see and cancel their own script jobs, edit and
+cast their own drafts, and share the channel's narrator and player-character voices. While either is off, every
+`/studio/*` route answers 403 (`studio_disabled` or `studio_hidden`) and the sidebar hides the item. Chat and media are
+unaffected.
 
 ### Limits
 
-- A job accepts at most 4,000 lines; snapshot a range or a set of scenes for longer campaigns.
-- The script does not generate art. Scenes without a fitting approved background carry a brief, and the job lists `asset_needs`; the GM can take those to the image generator or upload art.
-- The draft is a starting point. Review it in the editor before publishing.
+- A job accepts at most 4,000 lines.
+- The draft is a starting point. Review it in the advanced editor before publishing.
 
 The stored script format is in [VN_SCRIPT_SCHEMA.json](VN_SCRIPT_SCHEMA.json). The template keys are also in [PRESENTATION_SCHEMA.json](PRESENTATION_SCHEMA.json) under `settings.template`.

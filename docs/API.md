@@ -28,7 +28,7 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET/POST | `/servers/{id}/members` | add `{user_id | username, role: admin|member}` (maintainer; only the owner grants `admin` = maintainer) |
 | PUT | `/servers/{id}/members/{uid}` | `{role: admin|member}` (owner) |
 | DELETE | `/servers/{id}/members/{uid}` | maintainer removes a member (owner removes maintainers; anyone may leave); also drops their channel and chat-window memberships |
-| GET/PUT | `/servers/{id}/settings` | members get `{name, language, features{consistency,dice,inspiration}, llm_mode, is_maintainer}`; maintainers also get `llm{api_base, model, reasoning_effort, api_key_set, api_key_hint, default_*}` and `tts{api_base, model, voice, api_key_set, api_key_hint}`. PUT (maintainer) takes `{name?, language?, features?, llm?{api_base, api_key, clear_api_key, model, reasoning_effort}, tts?{…same}}` — keys are sealed (AES-256-GCM) and never returned |
+| GET/PUT | `/servers/{id}/settings` | members get `{name, language, features{consistency,dice,inspiration,log_studio}, llm_mode, is_maintainer}`; maintainers also get `llm{api_base, model, reasoning_effort, api_key_set, api_key_hint, default_*}` and `tts{api_base, model, voice, api_key_set, api_key_hint}`. PUT (maintainer) takes `{name?, language?, features?, llm?{api_base, api_key, clear_api_key, model, reasoning_effort}, tts?{…same}}` — keys are sealed (AES-256-GCM) and never returned |
 | GET/POST | `/servers/{id}/dice-texts` | dice reply text groups; create `{name, base: en|zh, texts:{key: template}}` (maintainer) |
 | PUT/DELETE | `/servers/{id}/dice-texts/{gid}` | (maintainer); deleting resets channels that used it |
 | GET | `/dice/texts` | built-in texts `{keys, en, zh}` (template placeholders such as `{name}`, `{attr}`, `{roll}`, `{target}`, `{level}`) |
@@ -203,10 +203,12 @@ Presentations can be authored by hand or built by a visual-novel script job (bel
 | POST | `/presentations/{p}/events/bulk` · `/merge` · `/reorder` | Existing edit operations; all event IDs must belong to the specified presentation. |
 | POST | `/pevents/{event}/split` · `/suggestion` | Split uses character ranges; suggestion decision uses `{accept:boolean}`. |
 | GET/POST | `/presentations/{p}/progress` | Per-user reading position. |
-| GET | `/vn-scripts/status` | `{mock, model, cloud_allowed, max_lines, note}`. |
-| GET · POST | `/vn-scripts` | GM only. POST `{snapshot_id, title?, template?, instructions?, allow_cloud?}` queues a script job over that snapshot; `allow_cloud:true` and the campaign cloud policy are required unless the LLM is in mock mode. Template values are validated (400 on bad values). |
-| GET | `/vn-scripts/{j}` | GM only. Job with `status`, `progress {chunks_total, chunks_done, lines}`, validated `script` ([VN_SCRIPT_SCHEMA.json](VN_SCRIPT_SCHEMA.json)) and the draft `presentation_id`. Progress also arrives as GM-only `studio.vnscript.progress` WebSocket events. |
-| POST | `/vn-scripts/{j}/cancel` | GM only; pending or running jobs. |
+| GET | `/vn-scripts/status` | `{mock, model, cloud_allowed, images, max_lines, note}`. |
+| GET · POST | `/vn-scripts` | Any member. GET lists the caller's jobs (all jobs for the Keeper). POST `{scope?: gm_full\|pl_public\|character, scope_character_id?, title?, template?, instructions?, allow_cloud?, generate_art?}` freezes the campaign log in that scope (players: `pl_public` or their own character) and queues a script job; `{snapshot_id}` plans an existing snapshot instead. `allow_cloud:true` and the campaign cloud policy are required unless the LLM is in mock mode. Template values are validated (400 on bad values). |
+| GET | `/vn-scripts/{j}` | The job's author or the Keeper. Job with `status`, `progress {chunks_total, chunks_done, lines}`, validated `script` ([VN_SCRIPT_SCHEMA.json](VN_SCRIPT_SCHEMA.json)) including `generation {backgrounds[], portraits[]}` (queued image jobs) and the draft `presentation_id`. Progress also arrives as `studio.vnscript.progress` WebSocket events. |
+| POST | `/vn-scripts/{j}/cancel` | The job's author or the Keeper; pending or running jobs. |
+| POST | `/presentations/{p}/cast` | Author or Keeper. `{cast: {narrator: voiceId, <character_id>: voiceId}}` sets the voice of narration/dice/system/scene lines and of each character's dialogue and actions; stored as `settings.cast`. Unknown voices are 400. |
+| GET | `/presentations/{p}/bundle.zip` | Anyone who can read the presentation. ZIP with `index.html` (offline player), `script.json`, `assets/*` and `audio/*`. |
 | GET/POST | `/styles` | Versioned campaign art direction (POST GM). |
 | PUT | `/styles/{id}` | GM edits/version bump. |
 | GET | `/character-visuals` | NPC profiles are GM-only. |

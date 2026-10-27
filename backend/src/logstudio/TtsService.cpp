@@ -47,7 +47,11 @@ Json::Value TtsService::availableVoices(const ChannelAccess& a) {
 
 // ---- voice profiles --------------------------------------------------------------------------------
 Json::Value TtsService::listVoices(const ChannelAccess& a) {
-    return db_.queryJson("SELECT v.*, c.name AS character_name, (SELECT count(*) FROM tts_audio_assets t WHERE t.voice_profile_id=v.id) AS cached_lines FROM voice_profiles v LEFT JOIN characters c ON c.id=v.character_id WHERE v.channel_id=$1"+std::string(a.isGm?"":" AND (v.created_by=$2 OR c.user_id=$2)")+" ORDER BY v.created_at", a.isGm?DbParams{a.channelId}:DbParams{a.channelId,a.userId});
+    // Every member casts from the same voices: narrator voices and player characters' voices are shared. A voice
+    // bound to an NPC stays with the Keeper (its name would reveal the NPC), and only the owner sees consent records.
+    auto rows = db_.queryJson("SELECT v.*, c.name AS character_name, (SELECT count(*) FROM tts_audio_assets t WHERE t.voice_profile_id=v.id) AS cached_lines FROM voice_profiles v LEFT JOIN characters c ON c.id=v.character_id WHERE v.channel_id=$1"+std::string(a.isGm?"":" AND (v.character_id IS NULL OR c.kind='pc' OR v.created_by=$2 OR c.user_id=$2)")+" ORDER BY v.created_at", a.isGm?DbParams{a.channelId}:DbParams{a.channelId,a.userId});
+    if (!a.isGm) for (auto& v : rows) if (v["created_by"].asString() != a.userId) { v["consent_metadata"] = Json::Value(); v["editable"] = false; } else v["editable"] = true;
+    return rows;
 }
 Json::Value TtsService::voiceRow(const std::string& channelId, const std::string& id) { auto v = db_.queryOne("SELECT * FROM voice_profiles WHERE id=$1 AND channel_id=$2", {id, channelId}); if (v.isNull()) throw notFound("voice profile not found"); return v; }
 Json::Value TtsService::createVoice(const ChannelAccess& a, const Json::Value& body, const std::string& refAudio, const std::string& /*refMime*/) {
@@ -55,7 +59,6 @@ Json::Value TtsService::createVoice(const ChannelAccess& a, const Json::Value& b
     auto type = json::str(body, "voice_type", "preset");
     if (type != "preset" && type != "design" && type != "clone") throw badRequest("voice_type must be preset|design|clone");
     auto charId = json::str(body, "character_id");
-    if (charId.empty() && !a.isGm) throw forbidden("only GM can create unassigned narrator voices");
     if (!charId.empty()) { auto c = db_.queryOne("SELECT user_id FROM characters WHERE id=$1 AND channel_id=$2", {charId, a.channelId}); if (c.isNull()) throw badRequest("character not in channel"); if (!a.isGm && (c["user_id"].isNull() || c["user_id"].asString() != a.userId)) throw forbidden("not your character"); }
     std::string voiceId = json::str(body, "voice_id"); Json::Value consent = body["consent_metadata"]; Json::Value meta;
     auto model = json::str(body, "model_id", provider->officialModel());
