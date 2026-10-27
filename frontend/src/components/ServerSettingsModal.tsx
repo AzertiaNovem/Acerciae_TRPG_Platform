@@ -14,6 +14,7 @@ const FEATURES: { key: Feature; label: string; help: string }[] = [
   { key: 'consistency', label: 'Consistency Check', help: 'Players and GMs can check a draft against what their character knows.' },
   { key: 'dice', label: 'Integrated Dice', help: 'Sealdice-style commands in chat: .r .ra .sc .st .en, with the gray attribute hint while typing.' },
   { key: 'inspiration', label: 'Inspiration', help: 'Drafts a possible in-character reply from the character’s knowledge (never sent automatically).' },
+  { key: 'log_studio', label: 'Log Studio', help: 'The campaign log, exports, PDF publication and visual novels. Keepers can still hide it per channel; when open, every member reaches it equally.' },
 ];
 
 interface Form {

@@ -4,7 +4,7 @@ export interface Server { id: string; name: string; owner_id: string; my_role: s
 export interface Channel {
   id: string; server_id: string; name: string; description: string; rule_system: string;
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
-  knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string;
+  knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean;
   ai_enabled: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }
@@ -107,14 +107,15 @@ export interface PresentationEvent {
 }
 export interface Presentation { id: string; project_id: string; snapshot_id: string; title: string; settings: Record<string, any>; style_profile_id: string | null; version: number; created_by: string; created_at: string; updated_at: string; snapshot_scope?: string; snapshot_version?: number; line_count?: number; voiced_count?: number; scenes?: PresentationScene[]; events?: PresentationEvent[]; can_edit?: boolean; character_visuals?: { character_id: string; name: string; default_asset_id: string | null; expressions: Record<string, string>; color: string }[] }
 
-export interface VnScriptJob { id: string; snapshot_id: string; project_id: string; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; provider: string; model: string; progress: { chunks_total?: number; chunks_done?: number; lines?: number }; presentation_id: string | null; error: string | null; created_at: string; updated_at: string; title?: string; snapshot_scope?: string; snapshot_version?: number; stats?: { scenes: number; shown: number; hidden: number } | null; script?: { scenes: { key: string; title: string; summary: string; background_brief: string; background_asset_id: string | null; lines: { event_id: string; hidden: boolean; exclusion_reason?: string }[] }[]; asset_needs: { kind: string; brief: string; scene_key: string; character_id: string | null }[]; notes: string[]; provider: string } | null }
+export interface VnScriptJob { id: string; snapshot_id: string; project_id: string; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; provider: string; model: string; progress: { chunks_total?: number; chunks_done?: number; lines?: number }; presentation_id: string | null; error: string | null; created_at: string; updated_at: string; title?: string; snapshot_scope?: string; snapshot_version?: number; stats?: { scenes: number; shown: number; hidden: number } | null; script?: { scenes: { key: string; title: string; summary: string; background_brief: string; background_asset_id: string | null; lines: { event_id: string; hidden: boolean; exclusion_reason?: string }[] }[]; asset_needs: { kind: string; brief: string; scene_key: string; character_id: string | null; subtitle?: string; name?: string }[]; notes: string[]; provider: string; blocks?: number; generation?: VnGeneration } | null; generation?: VnGeneration | null }
+export interface VnGeneration { enabled: boolean; backgrounds: { name: string; scene_key: string; job_id: string }[]; portraits: { character_id: string; subtitle: string; job_id: string }[] }
 export interface VoiceProfile { id: string; channel_id: string; character_id: string | null; character_name?: string | null; name: string; provider: string; model_id: string; voice_id: string; voice_type: 'preset' | 'design' | 'clone'; language: string; dialect: string; style_instruction: string; pronunciation_dictionary_id: string | null; synthesis_parameters: Record<string, any>; consent_metadata: Record<string, any> | null; design_prompt: string | null; version: number; created_at: string; cached_lines?: number }
 export interface PronunciationDictionary { id: string; name: string; entries: { term: string; reading: string; mode: 'replace' | 'phoneme'; language: string }[]; version: number }
 export interface TtsJob { id: string; presentation_id: string | null; kind: string; scope: Record<string, any>; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; total: number; done: number; failed: number; cached: number; estimated_chars: number; estimated_cost: number; provider: string; error: string | null; result: Record<string, any>; created_at: string; finished_at: string | null }
 export interface UserLite { id: string; username: string; display_name: string }
 export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member'; joined_at: string }
 export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
-export type Feature = 'consistency' | 'dice' | 'inspiration';
+export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio';
 export interface ServerSettings {
   server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; is_maintainer?: boolean;
   llm?: { api_base: string; model: string; reasoning_effort: string; api_key_set: boolean; api_key_hint: string; default_api_base: string; default_model: string; default_key_configured: boolean };

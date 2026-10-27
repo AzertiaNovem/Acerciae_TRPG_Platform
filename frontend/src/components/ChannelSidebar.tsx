@@ -26,6 +26,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   const f = (k: string) => form[k] ?? '';
   const set = (k: string, v: string) => setForm({ ...form, [k]: v });
   const isGm = nav.channel?.my_role === 'gm';
+  const studioOpen = nav.channel?.studio_visible !== false && nav.serverSettings?.features?.log_studio !== false;
   const myServerRole = nav.servers.find((s) => s.id === nav.serverId)?.my_role;
   const isMaintainer = myServerRole === 'owner' || myServerRole === 'admin';
   const characters = nav.channel ? nav.characters : [];
@@ -108,8 +109,12 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
                 <span className="name small">{c.name}</span><span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span>
               </div>
             ))}
-            <div className="section"><span>{tr("Production")}</span></div>
-            <div className={`item ${nav.studioOpen ? 'active' : ''}`} onClick={() => { nav.setStudioOpen(true); onClose(); }}><span>✎</span><span className="name">{tr("Log Studio")}</span></div>
+            {studioOpen && (
+              <>
+                <div className="section"><span>{tr("Production")}</span></div>
+                <div className={`item ${nav.studioOpen ? 'active' : ''}`} onClick={() => { nav.setStudioOpen(true); onClose(); }}><span>✎</span><span className="name">{tr("Log Studio")}</span></div>
+              </>
+            )}
             {isGm && (
               <>
                 <div className="section"><span>{tr("Game master")}</span></div>

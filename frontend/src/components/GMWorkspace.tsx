@@ -86,8 +86,8 @@ function ChannelSettings() {
   const toast = useUi((s) => s.toast);
   const [groups, setGroups] = useState<DiceTextGroup[]>([]);
   const [members, setMembers] = useState<ChannelMember[]>([]);
-  const [form, setForm] = useState({ name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, dice_text_group: '' });
-  useEffect(() => { if (channel) setForm({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, dice_text_group: channel.dice_text_group ?? '' }); }, [channel]);
+  const [form, setForm] = useState({ name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, dice_text_group: '', era: '', studio_visible: true });
+  useEffect(() => { if (channel) setForm({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false }); }, [channel]);
   useEffect(() => {
     if (serverId) api.diceTextGroups(serverId).then(setGroups).catch(() => undefined);
     if (channelId) api.channelMembers(channelId).then(setMembers).catch(() => undefined);
@@ -100,6 +100,7 @@ function ChannelSettings() {
   };
   const lang = serverSettings?.language ?? 'en';
   const diceOn = serverSettings?.features?.dice !== false;
+  const studioAllowed = serverSettings?.features?.log_studio;
   return (
     <div className="grid-2">
       <div className="card col">
@@ -119,6 +120,10 @@ function ChannelSettings() {
           </select>
         </label>
         <div className="tiny muted">{diceOn ? tr("Server maintainers add custom text groups in Server settings → Dice texts.") : tr("Integrated dice are turned off for this server.")}</div>
+        <label className="field"><span>{tr("Era")}</span><input value={form.era} maxLength={80} placeholder={tr("e.g. 1920s New England")} onChange={(e) => setForm({ ...form, era: e.target.value })} /></label>
+        <div className="tiny muted">{tr("The image AI uses the era for portraits and backgrounds.")}</div>
+        <label className="row small"><input type="checkbox" checked={form.studio_visible} onChange={(e) => setForm({ ...form, studio_visible: e.target.checked })} disabled={studioAllowed === false} />{tr("Log Studio available in this channel")}</label>
+        <div className="tiny muted">{studioAllowed === false ? tr("The server maintainer has turned the Log Studio off for this server.") : tr("When it is on, every member can read the campaign log in their own scope, export it, and make PDFs or visual novels from it.")}</div>
         <div className="row"><span className="grow" /><button className="primary" onClick={save}>{tr("Save")}</button></div>
       </div>
       <PlayerGroups />
