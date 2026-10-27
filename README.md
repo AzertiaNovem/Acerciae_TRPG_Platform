@@ -22,6 +22,8 @@ Screenshots (taken from the running app in mock mode):
 | GM workspace | Module knowledge graph | Revision history |
 |---|---|---|
 | ![](docs/screenshots/gm-workspace.png) | ![](docs/screenshots/gm-module.png) | ![](docs/screenshots/revision-history.png) |
+| Next per the script, pinned for the Keeper | The script knowledge and its reviewed changes | A reminder bubble opened: the quoted lines highlighted |
+| ![](docs/screenshots/kp-board.png) | ![](docs/screenshots/script-knowledge.png) | ![](docs/screenshots/reminder-viewer.png) |
 
 ## Quick start (Docker Compose)
 

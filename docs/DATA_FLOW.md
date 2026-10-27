@@ -23,13 +23,55 @@ every AI_OBSERVER_INTERVAL_MS (5 s)                         ObserverScheduler.ob
         ├─ highlights → HighlightService.create (scope = cited fact's own scope) → highlight.created
         ├─ module_hints → module_hints (GM) + Module Progress highlight; scene_update → scenes
         ├─ knowledge-sharing suggestions (Mode B) → document_proposals(needs_gm_review) → proposal.pending (GM)
+        ├─ ScenarioService.detectAndAdvance: time/place shift or marker in the Keeper's narration (≥ 6 events, no
+        │     manual move) → next scenario opened from the boundary line, closed one summarized → scene.changed
+        ├─ ScriptKnowledgeService.afterBatch (Keeper):
+        │     ├─ propose changes from the newest lines (kp_update) with verbatim quotes as evidence
+        │     ├─ review each (deterministic gate, then kp_review): verbatim? entry named? transition legal? not GM-edited?
+        │     ├─ apply approved ones (a later stage closes the running one), log all → script.changed (GM)
+        │     ├─ refresh the pinned board from the tables → kp.board (GM)
+        │     └─ ReminderService.afterBatchKp → reminder.created (GMs), with script_refs
         └─ ai_jobs.succeeded, cursor = last seq of the batch
+
+every tick, per player group (PlayerGroupObserver)
+   ├─ batch = readable events after the group's cursor (player_group_readable_messages)
+   ├─ prelude = the group's hidden knowledge index (relationships, clues, open threads, story index) as the first user turn
+   ├─ LLM → the group's own journals (DocumentService.commit with the batch as the only allowed sources)
+   ├─ ReminderService.afterBatch: scenario outlines refreshed; planner reads current log, previous tail, newest lines
+   │     (may call get_chat_log); every quote verified as a substring of a readable line; ≤ 3 stored → reminder.created
+   └─ cursor advanced
 
 frontend (context stream)
    ├─ document.updated → bubble pulses, change badge increments, open viewer refetches (composer untouched)
    ├─ highlight.created → highlight store only → HighlightedText fades the entry in (no document re-render)
-   └─ highlight.expired → removed from the store
+   ├─ highlight.expired → removed from the store
+   ├─ reminder.created → a bubble on the right (players: reminders only; the Keeper: under the two pinned cards)
+   └─ kp.board → the pinned cards refresh; script.changed → toast
 ```
+
+## Reminder bubbles
+
+A reminder is a short note anchored to the chat. `ReminderService::store` keeps a quote only when it is a verbatim
+substring of a line the reader can see (`resolveCitations`), drops reminders without a verified quote, dedupes on
+title keywords + first event, and expires the oldest beyond eight. Opening a bubble calls `get_chat_log
+{around_event_id}` under the reader's own access, so a stale reminder can never widen what they see; the cited lines
+carry `quotes[]` and the viewer marks them yellow-green. Players' reminders come from their group's readable chat only;
+the Keeper's see everything and may add `script_refs` to script knowledge entries.
+
+## Script knowledge (Keeper)
+
+`ModuleImporter::process` → structuring → `ScriptKnowledgeService::buildFromModule` (post-process hook): the model (or
+the deterministic builder) turns nodes, edges and pages into `script_knowledge` entries; page excerpts are verified
+against `module_pages` and entries without any module backing are dropped. Keeper-edited and play-origin entries survive
+a rebuild. The Keeper's prelude leads with the script (flow in order with each stage's status, relationships, clues,
+foreshadowing, background), followed by the Keeper's records and the scenario index.
+
+Change pipeline per batch: proposer (`kp_update`) → reviewer (`kp_review`; the deterministic gate always runs first) →
+`script_knowledge_changes` row with verdict and reason → status/body/addition applied only on approval. Players'
+knowledge changes never pass a reviewer. The board (`kp_board`) is recomputed from the tables after every batch and
+every Keeper edit: `next` = running stage, next pending stage with prerequisites and keeper actions, unrevealed clues and
+pending foreshadowing, a one-paragraph summary; `notes` = open threads, scenario timeline, stages played, latest
+reviewed changes.
 
 ## Proposal validation (DocumentService.commit)
 
@@ -73,6 +115,9 @@ compact snapshots of the six documents. Anything else is fetched on demand throu
 | `get_clue`, `get_open_threads` | typed shards |
 | `get_knowledge_scope` | what a character knows |
 | `get_module_excerpt` (GM) | module nodes + `ts_headline` page excerpts |
+| `list_scenarios` | the story's stages in order (Keeper: with summaries; players: neutral labels over readable chat) |
+| `get_chat_log` | verbatim chat lines by scenario, window, time range, after a seq, or around one event — the authoritative record |
+| `get_script_knowledge` (GM) | the Keeper's script knowledge by kind and query |
 | `get_shard` | `scene/…`, `entity/…`, `clue/…`, `relationship/…`, `thread/…`, `timeline/…`, `module/…`, `knowledge/…` |
 
 Shard ids are `<kind>/<uuid>`; every shard carries structured data, a Markdown projection (document entry), version,

@@ -1,3 +1,25 @@
+# Integration status — 27 October 2026 (evening)
+
+`main` now carries the scenario system, reminder bubbles with the players' hidden knowledge index, and the Keeper's
+script knowledge with reviewed automatic changes and the pinned board (commits `38a16d0`, `4121375`, `ea22991`, this
+one). Migrations 0016–0018 are additive. Verified on this build: 312 unit checks, 487 database checks, and the HTTP
+suites `scenarios` (10), `reminders`, `script-knowledge`, `knowledge-groups`, `vnscript`, `profile` all pass; the
+frontend typechecks and its catalog test passes; browser checks of the Keeper board, the Script tab and the reminder
+viewer are in `screenshots/kp-board.png`, `script-knowledge.png`, `keeper-reminder.png`, `reminder-viewer.png`,
+`scenarios.png`.
+
+Client contracts added (all documented in [API.md](API.md)):
+
+* Scenarios: `scenes` rows gained `auto_detected`, `summary_status`, `key_points`; `POST /scenarios/advance`,
+  `POST /scenes/{id}/summarize`, `PUT /scenario-settings`; `scene.changed` fires on automatic advances.
+* Reminders: `GET /reminders`, `POST /reminders/{id}/dismiss`, `GET /reminders/{id}/context`; `reminder.created` on
+  `/ws/context`. Players' docks show reminders only; their journals are no longer a page for them.
+* Keeper only: `GET/PUT /script-knowledge`, `POST /script-knowledge/rebuild`, `GET /script-knowledge/changes`,
+  `GET /kp/board`; `kp.board` and `script.changed` on `/ws/context`. A native client renders the two pinned cards
+  from `kp.board` and treats 403 as "not the Keeper".
+
+Earlier status follows.
+
 # Integration status — 27 October 2026
 
 Both Claude branches were merged into `main` and pushed as `25c1b53`. The additional Log Studio implementation is on `codex/log-studio-publication`. Automatic visual-novel template generation is deliberately deferred; the existing manually edited presentation/player is retained. No files under `mobile/` were edited or staged by this work.
