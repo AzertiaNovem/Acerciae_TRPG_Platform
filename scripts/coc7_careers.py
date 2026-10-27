@@ -19,16 +19,17 @@ def fam(n):  # group header rows like '格斗：' and numbered variants '格斗�
     return n, 'plain'
 careers=[]
 anomalies=[]
-listrows={}
+# The matrix columns mirror the list rows in order; names repeat (艺术家 #13 and #208), so match by position and
+# only use the name to confirm the alignment.
+listrows=[]
 for r in range(3, lst.max_row+1):
     b=lst.cell(r,2).value
     if not b: continue
-    name=str(b).strip()
-    listrows[name]={'n':lst.cell(r,1).value,'cr':str(lst.cell(r,4).value or '').strip(),'attr':str(lst.cell(r,5).value or '').strip(),'desc':str(lst.cell(r,7).value or '').strip().replace('\n',' ')}
+    listrows.append({'name':str(b).strip(),'n':lst.cell(r,1).value,'cr':str(lst.cell(r,4).value or '').strip(),'attr':str(lst.cell(r,5).value or '').strip(),'desc':str(lst.cell(r,7).value or '').strip().replace('\n',' ')})
 alias={'事务所侦探':'事务所侦探、保安','非熟练工人':'工人-非熟练工人','司法家':'司法科学家','赛车手/赛艇手':'赛车手/ 赛艇手'}
-for c,cname in cols:
-    info=listrows.get(cname) or listrows.get(alias.get(cname,''))
-    if not info: anomalies.append(('no list row',cname)); continue
+assert len(listrows)==len(cols), (len(listrows), len(cols))
+for (c,cname),info in zip(cols,listrows):
+    if alias.get(cname,cname)!=info['name']: anomalies.append(('misaligned',cname,info['name'])); continue
     fixed=[]; groups={}; freeN=0; spec=[]
     for r,n in skillrows:
         v=mat.cell(r,c).value
@@ -72,7 +73,7 @@ for c,cname in cols:
         if None in names: anomalies.append(('attrname',cname,part)); continue
         terms.append({'attrs':names,'mult':int(m.group(2))})
     cr=re.match(r'^(\d+)\s*-\s*(\d+)$', info['cr'])
-    careers.append({'id':int(info['n']) if info['n'] is not None else len(careers)+1,'name':info and (alias.get(cname,cname)),'credit':[int(cr.group(1)),int(cr.group(2))] if cr else None,
+    careers.append({'id':int(info['n']) if info['n'] is not None else len(careers)+1,'name':info['name'],'credit':[int(cr.group(1)),int(cr.group(2))] if cr else None,
                     'points':terms,'formula':info['attr'],'fixed':fixed,'choices':choice,'free':freeN,'description':info['desc']})
 # The sheet repeats eleven names for later-sourcebook variants (艺术家 #13 and #208 differ): make names unique.
 seen={}
