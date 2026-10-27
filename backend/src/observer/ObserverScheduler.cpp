@@ -151,9 +151,9 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         if (!outcome.ok) { finish("failed", outcome.error, summary, lastSeq, (int)batch.size(), outcome.llmCalls); ALOG_WARN << "observer job failed: " << outcome.error; summary["error"] = outcome.error; notifier_.aiJobFinished(channelId, summary); return summary; }
         summary["tool_calls"] = outcome.toolCalls;
         applyExtraction(sys, channelId, jobId, outcome.data, batch, summary);
-        // Has the story moved on? The Keeper's observer may open the next scenario for this window.
+        // Has the story moved on? If so the Keeper gets a "New scenario?" suggestion; only the Keeper opens one.
         int stageCalls = 0;
-        try { summary["scenario"] = scenarios_.detectAndAdvance(channelId, windowId, sceneId, batch, stageCalls); }
+        try { summary["scenario"] = scenarios_.detectAndSuggest(channelId, windowId, sceneId, batch, stageCalls); }
         catch (const std::exception& e) { ALOG_WARN << "scenario detection failed: " << e.what(); summary["scenario"]["error"] = e.what(); }
         llmCalls_ += stageCalls;
         // Script knowledge: proposed changes reviewed and applied, the pinned board refreshed, Keeper reminders raised.

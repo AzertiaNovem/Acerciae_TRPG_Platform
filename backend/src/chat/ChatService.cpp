@@ -268,10 +268,11 @@ Json::Value ChatService::createWindow(const ChannelAccess& a, const Json::Value&
             Db::exec(w, "INSERT INTO chat_window_members(chat_window_id, user_id, character_id) VALUES($1,$2,$3) ON CONFLICT (chat_window_id,user_id) DO UPDATE SET character_id=EXCLUDED.character_id",
                 {wid, uid, cid.empty() ? dbNull() : DbParam(cid)});
         }
-        auto sceneId = json::str(body, "scene_id");
-        if (!sceneId.empty()) {
-            Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE id=$1", {wid, sceneId});
-            Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {wid, sceneId});
+        // Scenarios are campaign-wide: a new window joins the channel's current scenario (a scene_id in the body is ignored).
+        auto cur = Db::queryOne(w, "SELECT current_scene_id FROM channels WHERE id=$1", {a.channelId});
+        if (!cur.isNull() && !cur["current_scene_id"].isNull()) {
+            Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE id=$1", {wid, cur["current_scene_id"].asString()});
+            Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {wid, cur["current_scene_id"].asString()});
         }
         return Db::queryOne(w, "SELECT * FROM chat_windows WHERE id=$1", {wid});
     });

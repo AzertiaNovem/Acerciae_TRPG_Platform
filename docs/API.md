@@ -45,21 +45,22 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | POST | `/channels/{id}/dice/preview` | `{content, chat_window_id, character_id?}` → `{hint, command}` — the composer's gray hint; never rolls |
 
 ## Chat windows & messages
-| GET/POST | `/channels/{id}/windows` | create `{name, kind: group|private, members:[{user_id, character_id?}], scene_id?}` (GM) |
+| GET/POST | `/channels/{id}/windows` | create `{name, kind: group|private, members:[{user_id, character_id?}]}` (GM); a new window joins the campaign's current scenario |
 | GET/POST | `/channels/{id}/windows/{w}/members` | add `{user_id, character_id?}` (GM) |
 | DELETE | `/channels/{id}/windows/{w}/members/{uid}` | (GM) |
 | GET | `/channels/{id}/windows/{w}/messages?limit&before_seq` | viewer-filtered |
 | POST | `/channels/{id}/windows/{w}/messages` | `{content, kind: ic|ooc|narration|roll, character_id?, visibility: window|gm_only|whisper, whisper_to?[], reference_ids?: UUID[0..5]}`. When dice are enabled, Sealdice commands are evaluated: `.r [N#]<expr> [reason]`, `.rh` (hidden), `.ra`/`.rc [N#] [hard|extreme|困难|极难] [b|p[n]] <skill> [value][±mod] [reason]`, `.rah`, `.sc <ok>/<fail> [SAN]`, `.st <name><value>…` / `.st <name>±<dice>` / `.st show|del|clr`, `.en <skill>`. The message keeps the command as `content`, gets `kind: roll` and `dice: {type, command, text, …}`; hidden rolls are whispered to the roller's character and the window gets a `hidden_notice`. Errors (no character, unknown attribute) return 400 `dice_error` |
-| POST | `/channels/{id}/windows/{w}/scene` | `{scene_id}` move window into scene (GM) |
+| POST | `/channels/{id}/windows/{w}/scene` | deprecated alias of `/scenarios/enter` (`{scene_id}`); scenarios are campaign-wide, the window is ignored |
 | GET | `/channels/{id}/messages?q=` | search |
 | GET | `/channels/{id}/messages/{mid}` | |
 
 ## Scenes & events
-| GET/POST | `/channels/{id}/scenes` | Scenarios (stages of the story). GM rows carry `summary`, `key_points`, `summary_status: none|pending|ready|gm_edited`, `auto_detected`, `stage_reason`, `boundary_event_id`; players get neutral `Scene N` labels. POST `{title, location?, narrative_time?, summary?}` (GM) |
+| GET/POST | `/channels/{id}/scenes` | Scenarios (stages of the story; a campaign-wide state, one current scenario for every window; POST prepares one without entering it). GM rows carry `summary`, `key_points`, `summary_status: none|pending|ready|gm_edited`, `auto_detected`, `stage_reason`, `boundary_event_id`; players get neutral `Scene N` labels. POST `{title, location?, narrative_time?, summary?}` (GM) |
 | GET/PUT | `/channels/{id}/scenes/{sid}` | PUT (GM): a changed `summary` is marked `gm_edited` and is never overwritten by the model |
 | POST | `/channels/{id}/scenes/{sid}/close` | |
 | POST | `/channels/{id}/scenes/{sid}/summarize` | (GM) write or rewrite the AI summary of a scenario from its chat log |
-| POST | `/channels/{id}/scenarios/advance` | (GM) `{chat_window_id, title?, location?, narrative_time?, boundary_event_id?}` opens the next scenario for a window; the window's lines from the boundary on move into it, the previous scenario closes once no window is left in it and gets summarized. The Keeper's observer does the same automatically (`channels.auto_scenarios`, `PUT /channels/{id}` or `/scenario-settings {auto_scenarios}`) when the Keeper's narration moves the story to a new place or time; it emits a `scene.entered` event with `payload.auto_detected` |
+| POST | `/channels/{id}/scenarios/advance` | (GM) `{title?, location?, narrative_time?}` opens the next scenario for the whole campaign: every window moves there, the current scenario closes and is summarized, and it can only be consulted from then on. Returns `{scene, previous, windows}`. |
+| POST | `/channels/{id}/scenarios/enter` | (GM) `{scene_id}` enters a prepared (never closed) scenario the same way; 409 for a closed one |
 | PUT | `/channels/{id}/scenario-settings` | (GM) `{auto_scenarios: bool}` |
 | GET | `/channels/{id}/scenes/{sid}/log?limit&after_seq` | viewer-filtered raw log |
 | GET | `/channels/{id}/events?q=&scene_id=` or `?ids=a,b,c` | search / fetch by ids (viewer-filtered) |

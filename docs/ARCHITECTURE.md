@@ -38,7 +38,7 @@
 | `knowledge/Visibility` | Builds the SQL predicates that restrict facts / messages / events / highlights to what a viewer may know | auth |
 | `events/EventStore` | Append-only event log with channel-wide `seq`; viewer-filtered search | core, Visibility |
 | `scenes/SceneManager` | Scenes, window↔scene links, channel current scene, scene logs | EventStore, Notifier |
-| `scenes/ScenarioService` | Scenes as scenarios: detects a stage change from the Keeper's observer batch (time or place shift, explicit marker), moves the boundary lines into the next scenario, summarizes the closed one (GM-edited summaries are never overwritten); manual advance/summarize; `auto_scenarios` per channel | SceneManager, EventStore, LlmGateway, Notifier |
+| `scenes/ScenarioService` | Scenes as scenarios, a campaign-wide state: the Keeper opens the next scenario or enters a prepared one for every window; the previous one closes, is summarized (GM-edited summaries are never overwritten) and becomes read-only; the observer's stage detection only raises a "New scenario?" suggestion bubble (`auto_scenarios`) | SceneManager, EventStore, LlmGateway, Notifier |
 | `reminders/ReminderService` | Reminder bubbles for a player group (after its observer batch) and for the Keeper: the planner quotes chat lines verbatim, every quote is re-verified against readable lines before storage, per-user dismissal, chat-log context around the quotes; maintains the players' per-scenario outlines (`player_scenario_outlines`) | Retrieval, LlmGateway, Notifier |
 | `script/ScriptKnowledgeService` | The Keeper's script knowledge built from a structured module (flow, relationships, clues, foreshadowing, background with page citations); per batch: a first model proposes changes with chat quotes, a second reviews, approved ones are applied and all are logged; the pinned board (next per the script, notes); Keeper edits are final | Retrieval, LlmGateway, ReminderService, Notifier |
 | `chat/ChatService` | Servers, channels, windows, characters, messages (each message ⇒ `message.posted` event with its witnessing audience) | Auth, EventStore, SceneManager, DocumentService (core docs on channel creation) |
@@ -128,7 +128,7 @@ derived from the cited events (see DATA_FLOW).
 
 | Loop | Default cadence | Work | Lock |
 |---|---|---|---|
-| observe | 5 s | per (channel, window, scene) group with `seq > cursor`: build context, LLM + tools, validate & commit, highlights, hints; then scenario detection (may open the next scenario and summarize the closed one), script knowledge propose → review → apply, board refresh, Keeper reminders; advance cursor | in-process set + `ai_jobs(channel, kind, group_key) WHERE status='running'` |
+| observe | 5 s | per (channel, window, scene) group with `seq > cursor`: build context, LLM + tools, validate & commit, highlights, hints; then stage detection (a suggestion bubble for the Keeper), script knowledge propose → review → apply, board refresh, Keeper reminders; advance cursor | in-process set + `ai_jobs(channel, kind, group_key) WHERE status='running'` |
 | observe (player groups) | same tick | per player group with readable events after its cursor: the group's journals from readable chat only, its scenario outlines, its reminder bubbles | `player:<group>:<version>` group key |
 | consolidate | 60 s | per channel when new events exist since its own cursor: thread resolution, duplicate relationships, timeline notes | same |
 | cleanup | 30 s | delete expired highlights, push `highlight.expired` | – |

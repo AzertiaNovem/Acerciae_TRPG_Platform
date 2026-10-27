@@ -23,8 +23,8 @@ every AI_OBSERVER_INTERVAL_MS (5 s)                         ObserverScheduler.ob
         ├─ highlights → HighlightService.create (scope = cited fact's own scope) → highlight.created
         ├─ module_hints → module_hints (GM) + Module Progress highlight; scene_update → scenes
         ├─ knowledge-sharing suggestions (Mode B) → document_proposals(needs_gm_review) → proposal.pending (GM)
-        ├─ ScenarioService.detectAndAdvance: time/place shift or marker in the Keeper's narration (≥ 6 events, no
-        │     manual move) → next scenario opened from the boundary line, closed one summarized → scene.changed
+        ├─ ScenarioService.detectAndSuggest: time/place shift or marker in the Keeper's narration (≥ 6 events, no
+        │     manual move) → a "New scenario?" reminder for the Keeper quoting the boundary line (never a scenario)
         ├─ ScriptKnowledgeService.afterBatch (Keeper):
         │     ├─ propose changes from the newest lines (kp_update) with verbatim quotes as evidence
         │     ├─ review each (deterministic gate, then kp_review): verbatim? entry named? transition legal? not GM-edited?
@@ -48,6 +48,15 @@ frontend (context stream)
    ├─ reminder.created → a bubble on the right (players: reminders only; the Keeper: under the two pinned cards)
    └─ kp.board → the pinned cards refresh; script.changed → toast
 ```
+
+## Scenarios
+
+One current scenario per channel (`channels.current_scene_id`); every chat window's `active_scene_id` mirrors it and a
+new message always lands in the current scenario (`SceneManager::resolveSceneForWindow` opens a fresh "Scenario N" when
+none is open). `POST /scenarios/advance` and `/scenarios/enter` run `SceneManager::moveChannel` in one transaction: the
+previous scenario is closed, every window moves, one `scene.entered` event per window is recorded for its witnesses,
+and the closed scenario is summarized (at once with the mock model, on a detached thread otherwise). A closed scenario
+is refused by `enter` (409) and never receives new lines; the GM may still edit its title and summary.
 
 ## Reminder bubbles
 

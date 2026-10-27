@@ -102,21 +102,21 @@ bool DemoSeed::run(Services& s, bool force) {
     // Scenes
     auto mkScene = [&](const std::string& title, const std::string& loc, const std::string& when) { Json::Value b; b["title"] = title; b["location"] = loc; b["narrative_time"] = when; return s.scenes->create(gm, b)["id"].asString(); };
     auto sceneOffice = mkScene("Session 1 — The Sheriff's Office", "Sheriff's Office", "Tuesday, 14 October 1925, morning");
-    auto sceneGazette = mkScene("Session 2 — Blackwater Gazette", "Blackwater Gazette Office", "Wednesday, 15 October 1925, afternoon");
-    auto sceneDocks = mkScene("Session 2 — The Docks", "Blackwater Docks", "Wednesday, 15 October 1925, night");
+    auto sceneSplit = mkScene("Session 2 — Split party: Gazette and Docks", "Blackwater Gazette Office; Blackwater Docks", "Wednesday, 15 October 1925, afternoon and night");
     auto sceneReunion = mkScene("Session 3 — Hale Boarding House", "Hale Boarding House", "Thursday, 16 October 1925, morning");
 
     // Windows
     auto windows = s.chat->listWindows(gm);
     std::string mainWin = windows[0]["id"].asString();
-    auto mkWin = [&](const std::string& name, const std::string& kind, std::initializer_list<std::pair<std::string, std::string>> members, const std::string& sceneId) {
-        Json::Value b; b["name"] = name; b["kind"] = kind; b["scene_id"] = sceneId; b["members"] = Json::Value(Json::arrayValue);
+    auto mkWin = [&](const std::string& name, const std::string& kind, std::initializer_list<std::pair<std::string, std::string>> members) {
+        Json::Value b; b["name"] = name; b["kind"] = kind; b["members"] = Json::Value(Json::arrayValue);
         for (auto& [u, c] : members) { Json::Value m; m["user_id"] = u; m["character_id"] = c; b["members"].append(m); }
         return s.chat->createWindow(gm, b)["id"].asString();
     };
-    auto winGazette = mkWin("Investigation: Gazette Office", "group", {{aliceId, harvey}, {bobId, nora}}, sceneGazette);
-    auto winDocks = mkWin("Solo: The Docks", "private", {{carolId, thomas}}, sceneDocks);
-    s.scenes->enterScene(gm, mainWin, sceneOffice);
+    auto winGazette = mkWin("Investigation: Gazette Office", "group", {{aliceId, harvey}, {bobId, nora}});
+    auto winDocks = mkWin("Solo: The Docks", "private", {{carolId, thomas}});
+    // Scenarios are campaign-wide: the Keeper opens each session for every window; the previous one closes.
+    s.scenes->enterScene(gm, sceneOffice);
 
     auto say = [&](const std::string& userId, const std::string& win, const std::string& content, const std::string& kind = "ic") {
         auto acc = s.auth->channelAccess(userId, channelId);
@@ -136,6 +136,7 @@ bool DemoSeed::run(Services& s, bool force) {
     observe();
 
     // --- Session 2: split party ---
+    s.scenes->enterScene(gm, sceneSplit);
     say(keeperId, winGazette, "The Blackwater Gazette office smells of ink and damp. The editor is out; the archive room is unlocked. Harvey, Nora — where do you start?", "narration");
     say(aliceId, winGazette, "I search the archive for anything about the shoals or the lighthouse. Library Use.");
     say(keeperId, winGazette, "Harvey succeeds. You find a 1911 clipping about a shipwreck at the shoals and a photograph of a brass lantern recovered from the wreck.", "narration");
@@ -149,7 +150,7 @@ bool DemoSeed::run(Services& s, bool force) {
     observe();
 
     // --- Session 3: reunion (main chat) — return of historical foreshadowing ---
-    s.scenes->enterScene(gm, mainWin, sceneReunion);
+    s.scenes->enterScene(gm, sceneReunion);
     say(keeperId, mainWin, "Thursday morning at the Hale Boarding House. Mrs. Agnes Hale sets down a pot of coffee. The three of you are together again for the first time since yesterday.", "narration");
     say(carolId, mainWin, "I put the tarnished badge on the table between us. \"A man named Jonah Pike dropped this at the docks last night. Lantern sigil.\"");
     say(aliceId, mainWin, "\"Then we have two of them,\" I say. \"And the Sheriff still has not brought us the key he promised.\"");

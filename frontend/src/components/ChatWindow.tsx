@@ -13,7 +13,7 @@ export default function ChatWindow() {
   const consistency = useUi((s) => s.consistency);
   const inspiration = useUi((s) => s.inspiration);
   if (!win || !channel) return null;
-  const scene = scenes.find((s) => s.id === win.active_scene_id);
+  const scene = scenes.find((s) => s.id === (channel.current_scene_id ?? win.active_scene_id));
   return (
     <>
       <div className="chat-header">

@@ -69,42 +69,58 @@ Json::Value SceneManager::close(const ChannelAccess& a, const std::string& scene
     notifier_.sceneChanged(a.channelId, s);
     return s;
 }
-Json::Value SceneManager::enterScene(const ChannelAccess& a, const std::string& chatWindowId, const std::string& sceneId) {
-    if (!a.isGm) throw forbidden("GM role required");
-    auto scene = get(a, sceneId);
-    auto win = db_.queryOne("SELECT * FROM chat_windows WHERE id=$1 AND channel_id=$2", {chatWindowId, a.channelId});
-    if (win.isNull()) throw notFound("chat window not found");
-    auto out = db_.tx([&](pqxx::work& w) {
-        Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE id=$1", {chatWindowId, sceneId});
-        Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {chatWindowId, sceneId});
-        Db::exec(w, "UPDATE channels SET current_scene_id=$2 WHERE id=$1", {a.channelId, sceneId});
-        // Audience: characters present in the window witness the scene change.
+std::string SceneManager::moveChannel(pqxx::work& w, const std::string& channelId, const std::string& sceneId, const std::string& actorUserId, const std::string& note) {
+    auto ch = Db::queryOne(w, "SELECT current_scene_id FROM channels WHERE id=$1 FOR UPDATE", {channelId});
+    std::string previous = ch.isNull() || ch["current_scene_id"].isNull() ? "" : ch["current_scene_id"].asString();
+    if (previous == sceneId) return previous;
+    auto scene = Db::queryOne(w, "SELECT * FROM scenes WHERE id=$1 AND channel_id=$2", {sceneId, channelId});
+    if (scene.isNull()) throw notFound("scene not found");
+    if (scene["status"].asString() == "closed") throw conflict("a closed scenario can only be consulted, not entered again");
+    if (!previous.empty()) Db::exec(w, "UPDATE scenes SET status='closed', closed_at=now() WHERE id=$1 AND status='active'", {previous});
+    Db::exec(w, "UPDATE channels SET current_scene_id=$2 WHERE id=$1", {channelId, sceneId});
+    Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE channel_id=$1", {channelId, sceneId});
+    Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) SELECT id, $2 FROM chat_windows WHERE channel_id=$1 ON CONFLICT DO NOTHING", {channelId, sceneId});
+    for (auto& win : Db::queryJson(w, "SELECT id FROM chat_windows WHERE channel_id=$1", {channelId})) {
+        auto wid = win["id"].asString();
         std::vector<std::string> audience;
-        for (auto& m : Db::queryJson(w, "SELECT character_id FROM chat_window_members WHERE chat_window_id=$1 AND character_id IS NOT NULL", {chatWindowId}))
-            audience.push_back(m["character_id"].asString());
-        NewEvent e; e.channelId = a.channelId; e.chatWindowId = chatWindowId; e.sceneId = sceneId; e.actorUserId = a.userId; e.actorRole = "gm";
+        for (auto& m : Db::queryJson(w, "SELECT character_id FROM chat_window_members WHERE chat_window_id=$1 AND character_id IS NOT NULL", {wid})) audience.push_back(m["character_id"].asString());
+        NewEvent e; e.channelId = channelId; e.chatWindowId = wid; e.sceneId = sceneId; e.actorUserId = actorUserId; e.actorRole = actorUserId.empty() ? "system" : "gm";
         e.kind = "scene.entered"; e.visibility = "window"; e.audience = audience;
-        e.payload["content"] = "The group enters scene: " + scene["title"].asString() + (scene["location"].asString().empty() ? "" : " at " + scene["location"].asString());
-        e.payload["scene_title"] = scene["title"]; e.payload["location"] = scene["location"];
+        e.payload["content"] = note + scene["title"].asString() + (scene["location"].asString().empty() ? "" : " at " + scene["location"].asString());
+        e.payload["scene_title"] = scene["title"]; e.payload["location"] = scene["location"]; e.payload["previous_scene_id"] = previous;
         events_.append(w, e);
-        return Db::queryOne(w, "SELECT * FROM chat_windows WHERE id=$1", {chatWindowId});
+    }
+    return previous;
+}
+Json::Value SceneManager::enterScene(const ChannelAccess& a, const std::string& sceneId) {
+    if (!a.isGm) throw forbidden("GM role required");
+    get(a, sceneId);
+    auto out = db_.tx([&](pqxx::work& w) {
+        auto previous = moveChannel(w, a.channelId, sceneId, a.userId, "The story enters: ");
+        Json::Value r; r["scene"] = Db::queryOne(w, "SELECT * FROM scenes WHERE id=$1", {sceneId});
+        r["previous"] = previous.empty() ? Json::Value() : Db::queryOne(w, "SELECT * FROM scenes WHERE id=$1", {previous});
+        r["windows"] = Db::queryJson(w, "SELECT * FROM chat_windows WHERE channel_id=$1", {a.channelId});
+        return r;
     });
-    notifier_.windowChanged(a.channelId, out);
-    notifier_.sceneChanged(a.channelId, scene);
+    if (!out["previous"].isNull()) notifier_.sceneChanged(a.channelId, out["previous"]);
+    notifier_.sceneChanged(a.channelId, out["scene"]);
+    for (auto& win : out["windows"]) notifier_.windowChanged(a.channelId, win);
     return out;
 }
 std::string SceneManager::resolveSceneForWindow(pqxx::work& w, const std::string& channelId, const std::string& chatWindowId) {
-    auto win = Db::queryOne(w, "SELECT active_scene_id FROM chat_windows WHERE id=$1", {chatWindowId});
-    if (!win.isNull() && !win["active_scene_id"].isNull()) return win["active_scene_id"].asString();
-    auto ch = Db::queryOne(w, "SELECT current_scene_id FROM channels WHERE id=$1", {channelId});
+    auto ch = Db::queryOne(w, "SELECT c.current_scene_id, s.status FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {channelId});
     std::string sceneId;
-    if (!ch.isNull() && !ch["current_scene_id"].isNull()) sceneId = ch["current_scene_id"].asString();
+    if (!ch.isNull() && !ch["current_scene_id"].isNull() && ch["status"].asString() == "active") sceneId = ch["current_scene_id"].asString();
     else {
-        auto row = Db::queryOne(w, "INSERT INTO scenes(channel_id, title, sequence) VALUES($1,'Opening scene',1) RETURNING id", {channelId});
+        // No open scenario (or the Keeper closed the current one without opening the next): start a fresh one.
+        auto row = Db::queryOne(w, "INSERT INTO scenes(channel_id, title, sequence) SELECT $1, CASE WHEN coalesce(max(sequence),0)=0 THEN 'Opening scene' ELSE 'Scenario ' || (max(sequence)+1)::text END, coalesce(max(sequence),0)+1 FROM scenes WHERE channel_id=$1 RETURNING id", {channelId});
         sceneId = row["id"].asString();
         Db::exec(w, "UPDATE channels SET current_scene_id=$2 WHERE id=$1", {channelId, sceneId});
+        Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE channel_id=$1", {channelId, sceneId});
+        Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) SELECT id, $2 FROM chat_windows WHERE channel_id=$1 ON CONFLICT DO NOTHING", {channelId, sceneId});
+        return sceneId;
     }
-    Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE id=$1", {chatWindowId, sceneId});
+    Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE id=$1 AND active_scene_id IS DISTINCT FROM $2", {chatWindowId, sceneId});
     Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {chatWindowId, sceneId});
     return sceneId;
 }

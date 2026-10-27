@@ -46,7 +46,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
       if (dialog === 'channel' && nav.serverId) { const c = await api.createChannel(nav.serverId, { name: f('name'), description: f('description'), knowledge_mode: f('mode') || 'isolated' }); await nav.selectServer(nav.serverId); await nav.selectChannel(c.id); }
       if (dialog === 'window' && nav.channelId) {
         if (!f('name').trim()) { toast('Give the window a name', 'error'); return; }
-        await api.createWindow(nav.channelId, { name: f('name'), kind: (f('kind') as any) || 'group', members: picked.map((user_id) => ({ user_id })), scene_id: f('scene') || undefined });
+        await api.createWindow(nav.channelId, { name: f('name'), kind: (f('kind') as any) || 'group', members: picked.map((user_id) => ({ user_id })) });
         await nav.refreshWindows();
       }
       if (dialog === 'character' && nav.channelId) { await api.createCharacter(nav.channelId, { name: f('name'), kind: (f('kind') as any) || 'pc', speaking_style: f('style'), description: f('description') }); await nav.refreshCharacters(); await nav.refreshWindows(); }
@@ -88,10 +88,10 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
                   : <span className="tiny muted">{(w.members ?? []).length}</span>}
               </div>
             ))}
-            <div className="section"><span>{tr("Scenarios")}</span>{isGm && nav.windowId && <button className="ghost small" title={tr("Open the next scenario for this window")} onClick={async () => { try { await api.advanceScenario(nav.channelId!, { chat_window_id: nav.windowId! }); nav.refreshWindows(); nav.refreshScenes(); } catch (e: any) { toast(e.message, 'error'); } }}>▶</button>}</div>
+            <div className="section"><span>{tr("Scenarios")}</span>{isGm && <button className="ghost small" title={tr("Open the next scenario for the whole campaign")} onClick={async () => { try { await api.advanceScenario(nav.channelId!, {}); nav.refreshWindows(); nav.refreshScenes(); } catch (e: any) { toast(e.message, 'error'); } }}>▶</button>}</div>
             {nav.scenes.length === 0 && <div className="item" style={{ cursor: 'default' }}><span className="name small muted">—</span></div>}
             {nav.scenes.slice(-8).map((s) => {
-              const current = s.id === (nav.windows.find((w) => w.id === nav.windowId)?.active_scene_id ?? nav.channel?.current_scene_id);
+              const current = s.id === nav.channel?.current_scene_id;
               const open = openScenario === s.id;
               return (
                 <div key={s.id}>
@@ -138,7 +138,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
               <UserPicker mode="select" selected={picked} onToggle={(c) => setPicked((p) => (p.includes(c.id) ? p.filter((x) => x !== c.id) : [...p, c.id]))}
                 candidates={channelMembers.filter((m) => m.id !== user?.id).map((m) => userCandidate(m, m.characters?.map((c) => c.name).join(', ') || m.role))}
                 emptyText={tr("No other channel members match.")} placeholder={tr("Search channel members…")} />
-              <select value={f('scene')} onChange={(e) => set('scene', e.target.value)}><option value="">{tr("Scene: (channel's current)")}</option>{nav.scenes.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></>)}
+              <div className="tiny muted">{tr("New windows join the campaign's current scenario.")}</div></>)}
             {dialog === 'member' && (<><h3>{tr("Invite to channel")}</h3>
               <select value={f('role') || 'player'} onChange={(e) => set('role', e.target.value)}><option value="player">{tr("as Player")}</option><option value="gm">{tr("as GM")}</option></select>
               <UserPicker mode="action" actionLabel={tr("Invite")} autoFocus

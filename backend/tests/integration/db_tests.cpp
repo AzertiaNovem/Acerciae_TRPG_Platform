@@ -207,10 +207,10 @@ int main() {
         CHECK(json::dump(S.knowledge->listFacts(p1,"","","",200)).find("pocket")!=std::string::npos);
     });
     test("P1: highlights are scoped to witnesses of the triggering event, not just readers of the fact", [&] {
-        // The split window moves to its own scene so the locket mention counts as a cross-scene callback.
+        // The campaign moves to a new scenario so the locket mention counts as a cross-scene callback.
         Json::Value sb; sb["title"] = "Split scene"; sb["location"] = "Back room";
         auto splitScene = S.scenes->create(gm, sb)["id"].asString();
-        S.scenes->enterScene(gm, splitWin, splitScene);
+        S.scenes->enterScene(gm, splitScene);
         say(p1User, splitWin, "I look at the silver locket again under the lamp.");
         S.observer->observeChannel(channelId, true);
         auto hl3 = S.highlights->listActive(p3, "");
@@ -240,41 +240,55 @@ int main() {
         CHECK(!leaked);
         CHECK(S.knowledge->listFacts(p1, "", "Crowley", "", 10).empty());
     });
-    test("scenario system: the observer opens the next scenario at a time skip, moves the boundary lines and summarizes the closed one", [&] {
+    test("scenario system: campaign-wide; the observer only suggests, the Keeper opens the next scenario for every window, the old one closes and is summarized", [&] {
         for (int i = 0; i < 6; ++i) say(gmUser, mainWin, "The office clock ticks on; Dunmore shuffles another stack of papers (" + std::to_string(i) + ").", "narration");
         S.observer->observeChannel(channelId, true);
-        auto before = S.db->queryOne("SELECT active_scene_id FROM chat_windows WHERE id=$1", {mainWin})["active_scene_id"].asString();
+        auto before = S.db->queryOne("SELECT current_scene_id FROM channels WHERE id=$1", {channelId})["current_scene_id"].asString();
+        CHECK(S.db->queryOne("SELECT active_scene_id FROM chat_windows WHERE id=$1", {splitWin})["active_scene_id"] == before);   // every window shares it
         auto boundary = say(gmUser, mainWin, "The next morning, you arrive at the Hale boarding house. Mrs. Hale opens the door.", "narration");
-        auto after1 = say(p1User, mainWin, "I tip my hat to Mrs. Hale.");
         S.observer->observeChannel(channelId, true);
-        auto newScene = S.db->queryOne("SELECT active_scene_id FROM chat_windows WHERE id=$1", {mainWin})["active_scene_id"].asString();
-        CHECK(newScene != before);
-        auto sc = S.db->queryOne("SELECT * FROM scenes WHERE id=$1", {newScene});
-        CHECK(sc["auto_detected"].asBool()); CHECK(sc["location"].asString().find("Hale boarding house") != std::string::npos); CHECK(sc["narrative_time"] == "The next morning");
-        auto bev = eventOf(boundary["id"].asString());
-        CHECK(S.db->queryOne("SELECT scene_id FROM events WHERE id=$1", {bev["id"].asString()})["scene_id"] == newScene);
-        CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {after1["id"].asString()})["scene_id"] == newScene);
-        CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {boundary["id"].asString()})["scene_id"] == newScene);
+        // The observer does not move the story: the scenario is unchanged and the Keeper got a suggestion anchored to the line.
+        CHECK(S.db->queryOne("SELECT current_scene_id FROM channels WHERE id=$1", {channelId})["current_scene_id"] == before);
+        bool suggested = false; for (auto& r : S.reminders->list(gm)) if (r["kind"] == "plan" && r["title"].asString().rfind("New scenario?", 0) == 0) { suggested = true; CHECK(r["citations"][0]["message_id"] == boundary["id"]); CHECK(r["title"].asString().find("Hale boarding house") != std::string::npos); }
+        CHECK(suggested);
+        // The Keeper opens the next scenario: all windows move, the previous one closes and is summarized.
+        Json::Value adv; adv["title"] = "Hale boarding house"; adv["location"] = "Hale boarding house"; adv["narrative_time"] = "The next morning";
+        auto res = S.scenarios->advance(gm, adv);
+        auto newScene = res["scene"]["id"].asString(); CHECK(newScene != before);
+        CHECK(S.db->queryOne("SELECT current_scene_id FROM channels WHERE id=$1", {channelId})["current_scene_id"] == newScene);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM chat_windows WHERE channel_id=$1 AND active_scene_id<>$2", {channelId, newScene})["n"].asInt() == 0);
         auto prev = S.db->queryOne("SELECT * FROM scenes WHERE id=$1", {before});
-        if (prev["status"] == "closed") { CHECK(prev["summary_status"] == "ready"); CHECK(!prev["summary"].asString().empty()); CHECK(prev["summary_source_event_ids"].size() > 0); }
-        // Lines moved into the new scenario were already extracted: the new group's cursor covers them.
-        auto aev = eventOf(after1["id"].asString());
-        auto cur = S.db->queryOne("SELECT last_seq FROM ai_processing_cursors WHERE channel_id=$1 AND kind='observe' AND group_key=$2", {channelId, mainWin + ":" + newScene});
-        CHECK(!cur.isNull() && cur["last_seq"].asInt64() >= S.db->queryOne("SELECT seq FROM events WHERE id=$1", {aev["id"].asString()})["seq"].asInt64());
+        CHECK(prev["status"] == "closed"); CHECK(prev["summary_status"] == "ready"); CHECK(!prev["summary"].asString().empty()); CHECK(prev["summary_source_event_ids"].size() > 0);
+        // The old scenario can only be consulted: new lines in any window land in the new one, and it cannot be entered again.
+        auto after1 = say(p1User, mainWin, "I tip my hat to Mrs. Hale.");
+        auto after2 = say(p1User, splitWin, "Alpha whispers to Bravo in the hallway.");
+        CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {after1["id"].asString()})["scene_id"] == newScene);
+        CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {after2["id"].asString()})["scene_id"] == newScene);
+        CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {boundary["id"].asString()})["scene_id"] == before);
+        bool refused = false; try { S.scenarios->enter(gm, before); } catch (const ApiError& e) { refused = e.status() == 409; } CHECK(refused);
         // The Keeper sees summaries; players only get neutral labels. Chat can be located by scenario and by time.
-        bool summarised = false; for (auto& s : S.scenes->list(gm)) if (s["id"] == before && !s["summary"].asString().empty()) summarised = true; CHECK(summarised || prev["status"] != "closed");
+        bool summarised = false; for (auto& s : S.scenes->list(gm)) if (s["id"] == before && !s["summary"].asString().empty()) summarised = true; CHECK(summarised);
         for (auto& s : S.scenes->list(p1)) CHECK(!s.isMember("summary"));
+        auto aev = eventOf(after1["id"].asString());
         Json::Value args; args["scene_id"] = newScene; auto log = S.retrieval->executeTool(p1, "get_chat_log", args);
-        CHECK(log["events"].size() >= 2); CHECK(log["events"][0]["event_id"] == bev["id"]);
+        CHECK(log["events"].size() >= 1); CHECK(log["events"][0]["event_id"] == aev["id"]);
         Json::Value around; around["around_event_id"] = aev["id"]; around["limit"] = 4; auto ctxLog = S.retrieval->executeTool(gm, "get_chat_log", around);
         bool anchored = false; for (auto& e : ctxLog["events"]) if (e["anchor"].asBool()) anchored = true; CHECK(anchored);
         CHECK(!S.retrieval->executeTool(p1, "list_scenarios", Json::Value(Json::objectValue)).empty());
-        // A GM-edited summary is never overwritten by the model.
+        // A GM-edited summary is never overwritten by the model; an explicit regeneration replaces it.
         Json::Value edit; edit["summary"] = "Keeper's own words."; S.scenes->update(gm, newScene, edit);
-        S.scenarios->summarize(gm, newScene);   // explicit regeneration is allowed and replaces it
+        S.scenarios->summarize(gm, newScene);
         Json::Value edit2; edit2["summary"] = "Keeper's final words."; S.scenes->update(gm, newScene, edit2);
-        Json::Value adv; adv["chat_window_id"] = mainWin; adv["title"] = "Manual stage"; S.scenarios->advance(gm, adv);
+        Json::Value adv2; adv2["title"] = "Manual stage"; adv2["location"] = "Lighthouse"; S.scenarios->advance(gm, adv2);
         CHECK(S.db->queryOne("SELECT summary, summary_status FROM scenes WHERE id=$1", {newScene})["summary"] == "Keeper's final words.");
+        // A prepared scenario can be entered; closing the current one without a successor opens a fresh one on the next line.
+        Json::Value prep; prep["title"] = "Prepared: the chapel"; auto prepared = S.scenes->create(gm, prep);
+        auto entered = S.scenarios->enter(gm, prepared["id"].asString());
+        CHECK(entered["scene"]["id"] == prepared["id"]); CHECK(entered["previous"]["status"] == "closed");
+        S.scenes->close(gm, prepared["id"].asString());
+        auto loose = say(gmUser, mainWin, "Rain again.", "narration");
+        auto looseScene = S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {loose["id"].asString()})["scene_id"].asString();
+        CHECK(looseScene != prepared["id"].asString()); CHECK(S.db->queryOne("SELECT status FROM scenes WHERE id=$1", {looseScene})["status"] == "active");
     });
     test("reminder bubbles quote only readable lines verbatim, stay inside the group, and open the surrounding chat log", [&] {
         say(gmUser, mainWin, "On the mantel you notice a tarnished badge; it bears a lantern sigil instead of the county seal.", "narration");
@@ -419,7 +433,7 @@ int main() {
         CHECK(one.playerGroupId!=two.playerGroupId && two.playerGroupId!=three.playerGroupId);
         auto write=[&](const ChannelAccess& ac,const std::string& win,const std::string& content,const std::string& vis="window") {Json::Value b;b["content"]=content;b["kind"]="narration";b["visibility"]=vis;return S.chat->postMessage(ac,win,b);};
         Json::Value scene;scene["title"]="KP_SCENE_CLASSIFIED_847";scene["summary"]="KP_SCENE_CLASSIFIED_847";scene["location"]="KP_SCENE_CLASSIFIED_847";
-        auto sid=S.scenes->create(keeper,scene)["id"].asString(); S.scenes->enterScene(keeper,main,sid); S.scenes->enterScene(keeper,privateWin,sid);
+        auto sid=S.scenes->create(keeper,scene)["id"].asString(); S.scenes->enterScene(keeper,sid);
         auto pub=write(keeper,main,"You find a brass lantern on the table.");
         auto priv=write(keeper,privateWin,"You find a violet key labelled GROUP_ONE_ONLY_592.");
         auto secret=write(keeper,main,"You find the KP_RAW_CLASSIFIED_347 crypt key.","gm_only");

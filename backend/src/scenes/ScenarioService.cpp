@@ -4,6 +4,7 @@
 #include "../core/Json.h"
 #include "../core/Log.h"
 #include "../core/Text.h"
+#include "../core/Crypto.h"
 #include "../events/EventStore.h"
 #include "../knowledge/Visibility.h"
 #include "../llm/LlmGateway.h"
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <regex>
 #include <set>
+#include <thread>
 
 namespace acerciae {
 
@@ -117,7 +119,7 @@ Json::Value ScenarioService::mockSummary(const Json::Value& ctx) {
     return out;
 }
 
-Json::Value ScenarioService::detectAndAdvance(const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, int& llmCalls) {
+Json::Value ScenarioService::detectAndSuggest(const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, int& llmCalls) {
     Json::Value decision; decision["advanced"] = false;
     if (windowId.empty() || sceneId.empty() || batch.empty()) return decision;
     auto ch = db_.queryOne("SELECT auto_scenarios FROM channels WHERE id=$1", {channelId});
@@ -129,15 +131,15 @@ Json::Value ScenarioService::detectAndAdvance(const std::string& channelId, cons
     if (!anyMessage) return decision;
     int64_t firstSeq = batch[0]["seq"].asInt64();
     Json::Value ctx; ctx["current"] = cur;
-    ctx["current"]["event_count"] = db_.queryOne("SELECT count(*) AS n FROM events e WHERE e.channel_id=$1 AND e.chat_window_id=$2 AND e.scene_id=$3 AND e.kind='message.posted'", {channelId, windowId, sceneId})["n"].asInt();
+    ctx["current"]["event_count"] = db_.queryOne("SELECT count(*) AS n FROM events e WHERE e.channel_id=$1 AND e.scene_id=$2 AND e.kind='message.posted'", {channelId, sceneId})["n"].asInt();
     ctx["current"]["manual_move"] = manualMove;
     ctx["recent_log"] = db_.queryJson("SELECT * FROM (SELECT e.id AS event_id, e.seq, e.kind, e.actor_role, c.name AS character_name, e.payload->>'content' AS content, e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id WHERE e.channel_id=$1 AND e.chat_window_id=$2 AND e.scene_id=$3 AND e.kind='message.posted' AND e.seq<$4 ORDER BY e.seq DESC LIMIT 20) x ORDER BY seq", {channelId, windowId, sceneId, firstSeq});
     ctx["new_events"] = Json::Value(Json::arrayValue);
-    std::set<std::string> batchIds;
+    std::map<std::string, Json::Value> batchById;
     for (const auto& e : batch) {
         Json::Value x; x["event_id"] = e["event_id"]; x["seq"] = e["seq"]; x["kind"] = e["kind"]; x["actor_role"] = e["actor_role"]; x["character_name"] = e["character_name"];
         x["content"] = e.isMember("payload") ? json::str(e["payload"], "content") : json::str(e, "content"); x["created_at"] = e["created_at"];
-        ctx["new_events"].append(x); batchIds.insert(e["event_id"].asString());
+        ctx["new_events"].append(x); batchById[e["event_id"].asString()] = x;
     }
     Json::Value verdict;
     if (llm_.isMock(channelId)) verdict = mockDetect(ctx);
@@ -151,54 +153,27 @@ Json::Value ScenarioService::detectAndAdvance(const std::string& channelId, cons
     }
     decision = verdict;
     auto boundary = json::str(verdict, "boundary_event_id");
-    if (!json::toBool(verdict, "advanced") || verdict["confidence"].asDouble() < 0.6 || !batchIds.count(boundary)) { decision["advanced"] = false; return decision; }
-    Stage st{clip(json::str(verdict, "title"), 80), clip(json::str(verdict, "location"), 80), clip(json::str(verdict, "narrative_time"), 60), clip(json::str(verdict, "reason"), 200)};
-    auto res = advanceInternal(channelId, windowId, sceneId, st, boundary, "", true, batch[batch.size() - 1]["seq"].asInt64());
-    decision["scene"] = res["scene"]; decision["previous"] = res["previous"];
-    if (res["previous"]["status"] == "closed") summarizeScene(channelId, sceneId, llmCalls);
+    if (!json::toBool(verdict, "advanced") || verdict["confidence"].asDouble() < 0.6 || !batchById.count(boundary)) { decision["advanced"] = false; return decision; }
+    // A suggestion for the Keeper, not a decision: the bubble quotes the boundary line and names the stage.
+    auto ev = db_.queryOne("SELECT e.id AS event_id, e.seq, e.scene_id, e.chat_window_id, e.message_id, e.payload->>'content' AS content FROM events e WHERE e.id=$1 AND e.channel_id=$2", {boundary, channelId});
+    if (ev.isNull()) { decision["advanced"] = false; return decision; }
+    auto content = json::str(ev, "content");
+    std::string quote = content; if (quote.size() > 160) { size_t cut = 160; while (cut > 0 && ((unsigned char)quote[cut] & 0xC0) == 0x80) --cut; quote = quote.substr(0, cut); }
+    std::string label = json::str(verdict, "title"); if (label.empty()) label = json::str(verdict, "location"); if (label.empty()) label = json::str(verdict, "narrative_time"); if (label.empty()) label = "the story moves on";
+    Json::Value cit; cit["event_id"] = ev["event_id"]; cit["message_id"] = ev["message_id"]; cit["chat_window_id"] = ev["chat_window_id"]; cit["scene_id"] = ev["scene_id"]; cit["seq"] = ev["seq"]; cit["quotes"] = Json::Value(Json::arrayValue); cit["quotes"].append(quote);
+    Json::Value cits(Json::arrayValue); cits.append(cit);
+    Json::Value refs(Json::arrayValue);
+    auto row = db_.queryOne("INSERT INTO reminders(channel_id, player_group_id, scene_id, kind, title, why, citations, source_event_ids, priority, dedupe_key, llm_mode, expires_at) VALUES($1,NULL,$2,'plan',$3,$4,$5::jsonb,$6::uuid[],3,$7,$8,now()+interval '1 day') ON CONFLICT DO NOTHING RETURNING *",
+        {channelId, sceneId, clip("New scenario? " + label, 160), clip(json::str(verdict, "reason") + " Open the next scenario when you agree.", 400), json::dump(cits), pgArrayLiteral({boundary}), crypto::sha256Hex("scenario-suggest|" + boundary).substr(0, 32), llm_.mode(channelId)});
+    decision["suggested"] = !row.isNull();
+    if (!row.isNull()) { notifier_.reminderCreated(channelId, row); decision["reminder_id"] = row["id"]; }
+    decision["advanced"] = false;
     return decision;
 }
-
-Json::Value ScenarioService::advanceInternal(const std::string& channelId, const std::string& windowId, const std::string& fromSceneId, const Stage& stage, const std::string& boundaryEventId, const std::string& actorUserId, bool autoDetected, int64_t processedThroughSeq) {
-    Json::Value out = db_.tx([&](pqxx::work& w) {
-        int64_t boundarySeq = 0;
-        if (!boundaryEventId.empty()) { auto be = Db::queryOne(w, "SELECT seq FROM events WHERE id=$1 AND channel_id=$2 AND chat_window_id=$3", {boundaryEventId, channelId, windowId}); if (!be.isNull()) boundarySeq = be["seq"].asInt64(); }
-        auto row = Db::queryOne(w,
-            "INSERT INTO scenes(channel_id, title, location, narrative_time, sequence, auto_detected, stage_reason, boundary_event_id) "
-            "SELECT $1, CASE WHEN $2='' THEN 'Scenario ' || (coalesce(max(sequence),0)+1)::text ELSE $2 END, $3, $4, coalesce(max(sequence),0)+1, $5, $6, $7::uuid FROM scenes WHERE channel_id=$1 RETURNING *",
-            {channelId, stage.title.empty() ? stage.location : stage.title, stage.location, stage.narrativeTime, autoDetected, stage.reason, boundaryEventId.empty() ? dbNull() : DbParam(boundaryEventId)});
-        auto newId = row["id"].asString();
-        Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE id=$1", {windowId, newId});
-        Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {windowId, newId});
-        Db::exec(w, "UPDATE channels SET current_scene_id=$2 WHERE id=$1", {channelId, newId});
-        if (boundarySeq > 0) {
-            // The new stage starts at the boundary line: move that window's events and messages from there on.
-            Db::exec(w, "UPDATE messages SET scene_id=$3 WHERE id IN (SELECT message_id FROM events WHERE channel_id=$1 AND chat_window_id=$2 AND seq>=$4 AND message_id IS NOT NULL)", {channelId, windowId, newId, boundarySeq});
-            Db::exec(w, "UPDATE events SET scene_id=$3 WHERE channel_id=$1 AND chat_window_id=$2 AND seq>=$4", {channelId, windowId, newId, boundarySeq});
-        }
-        // Events already extracted under the old scenario must not be extracted again under the new one.
-        // The caller's batch is recorded as processed only after this call returns, so take the larger of the two.
-        auto cur = Db::queryOne(w, "SELECT last_seq FROM ai_processing_cursors WHERE channel_id=$1 AND kind='observe' AND group_key=$2", {channelId, windowId + ":" + fromSceneId});
-        int64_t done = std::max<int64_t>(processedThroughSeq, cur.isNull() ? 0 : cur["last_seq"].asInt64());
-        if (done > 0) Db::exec(w, "INSERT INTO ai_processing_cursors(channel_id, kind, group_key, last_seq) VALUES($1,'observe',$2,$3) ON CONFLICT (channel_id, kind, group_key) DO UPDATE SET last_seq=GREATEST(ai_processing_cursors.last_seq, EXCLUDED.last_seq), updated_at=now()", {channelId, windowId + ":" + newId, done});
-        // The previous scenario closes once no window is left in it.
-        Db::exec(w, "UPDATE scenes SET status='closed', closed_at=now() WHERE id=$1 AND status='active' AND NOT EXISTS (SELECT 1 FROM chat_windows WHERE active_scene_id=$1)", {fromSceneId});
-        std::vector<std::string> audience;
-        for (auto& m : Db::queryJson(w, "SELECT character_id FROM chat_window_members WHERE chat_window_id=$1 AND character_id IS NOT NULL", {windowId})) audience.push_back(m["character_id"].asString());
-        NewEvent e; e.channelId = channelId; e.chatWindowId = windowId; e.sceneId = newId; e.actorUserId = actorUserId; e.actorRole = actorUserId.empty() ? "system" : "gm";
-        e.kind = "scene.entered"; e.visibility = "window"; e.audience = audience;
-        e.payload["content"] = std::string(autoDetected ? "The story moves on: " : "The group enters scene: ") + row["title"].asString() + (stage.location.empty() ? "" : " at " + stage.location);
-        e.payload["scene_title"] = row["title"]; e.payload["location"] = stage.location; e.payload["auto_detected"] = autoDetected; e.payload["reason"] = stage.reason;
-        events_.append(w, e);
-        Json::Value r; r["scene"] = row; r["previous"] = Db::queryOne(w, "SELECT * FROM scenes WHERE id=$1", {fromSceneId}); r["window"] = Db::queryOne(w, "SELECT * FROM chat_windows WHERE id=$1", {windowId});
-        return r;
-    });
-    notifier_.sceneChanged(channelId, out["previous"]);
-    notifier_.sceneChanged(channelId, out["scene"]);
-    notifier_.windowChanged(channelId, out["window"]);
-    return out;
+void ScenarioService::summarizeClosed(const std::string& channelId, const std::string& sceneId) {
+    if (llm_.isMock(channelId)) { int calls = 0; summarizeScene(channelId, sceneId, calls); return; }
+    std::thread([this, channelId, sceneId] { try { int calls = 0; summarizeScene(channelId, sceneId, calls); } catch (const std::exception& e) { ALOG_WARN << "scenario summary thread: " << e.what(); } }).detach();
 }
-
 void ScenarioService::summarizeScene(const std::string& channelId, const std::string& sceneId, int& llmCalls) {
     auto sc = db_.queryOne("SELECT id, title, location, narrative_time, summary_status FROM scenes WHERE id=$1 AND channel_id=$2", {sceneId, channelId});
     if (sc.isNull() || sc["summary_status"] == "gm_edited") return;
@@ -233,18 +208,29 @@ void ScenarioService::summarizeScene(const std::string& channelId, const std::st
 
 Json::Value ScenarioService::advance(const ChannelAccess& a, const Json::Value& body) {
     if (!a.isGm) throw forbidden("GM role required");
-    auto windowId = json::requireStr(body, "chat_window_id");
-    auto win = db_.queryOne("SELECT id, active_scene_id FROM chat_windows WHERE id=$1 AND channel_id=$2", {windowId, a.channelId});
-    if (win.isNull()) throw notFound("chat window not found");
-    std::string from = win["active_scene_id"].isNull() ? "" : win["active_scene_id"].asString();
-    if (from.empty()) from = db_.tx([&](pqxx::work& w) { return scenes_.resolveSceneForWindow(w, a.channelId, windowId); });
-    auto boundary = json::str(body, "boundary_event_id");
-    if (!boundary.empty() && db_.queryOne("SELECT 1 AS ok FROM events WHERE id=$1 AND channel_id=$2 AND chat_window_id=$3", {boundary, a.channelId, windowId}).isNull()) throw badRequest("boundary event is not in this window");
     Stage st{clip(json::str(body, "title"), 80), clip(json::str(body, "location"), 80), clip(json::str(body, "narrative_time"), 60), "opened by the Keeper"};
-    auto res = advanceInternal(a.channelId, windowId, from, st, boundary, a.userId, false, 0);
-    int calls = 0; if (res["previous"]["status"] == "closed") summarizeScene(a.channelId, from, calls);
-    res["previous"] = db_.queryOne("SELECT * FROM scenes WHERE id=$1", {from});
-    return res;
+    auto out = db_.tx([&](pqxx::work& w) {
+        auto row = Db::queryOne(w,
+            "INSERT INTO scenes(channel_id, title, location, narrative_time, sequence, stage_reason) "
+            "SELECT $1, CASE WHEN $2='' THEN 'Scenario ' || (coalesce(max(sequence),0)+1)::text ELSE $2 END, $3, $4, coalesce(max(sequence),0)+1, $5 FROM scenes WHERE channel_id=$1 RETURNING *",
+            {a.channelId, st.title.empty() ? st.location : st.title, st.location, st.narrativeTime, st.reason});
+        auto newId = row["id"].asString();
+        auto previous = scenes_.moveChannel(w, a.channelId, newId, a.userId, "The story moves on: ");
+        Json::Value r; r["scene"] = Db::queryOne(w, "SELECT * FROM scenes WHERE id=$1", {newId});
+        r["previous"] = previous.empty() ? Json::Value() : Db::queryOne(w, "SELECT * FROM scenes WHERE id=$1", {previous});
+        r["windows"] = Db::queryJson(w, "SELECT * FROM chat_windows WHERE channel_id=$1", {a.channelId});
+        return r;
+    });
+    if (!out["previous"].isNull()) notifier_.sceneChanged(a.channelId, out["previous"]);
+    notifier_.sceneChanged(a.channelId, out["scene"]);
+    for (auto& win : out["windows"]) notifier_.windowChanged(a.channelId, win);
+    if (!out["previous"].isNull()) { summarizeClosed(a.channelId, out["previous"]["id"].asString()); out["previous"] = db_.queryOne("SELECT * FROM scenes WHERE id=$1", {out["previous"]["id"].asString()}); }
+    return out;
+}
+Json::Value ScenarioService::enter(const ChannelAccess& a, const std::string& sceneId) {
+    auto out = scenes_.enterScene(a, sceneId);
+    if (!out["previous"].isNull()) { summarizeClosed(a.channelId, out["previous"]["id"].asString()); out["previous"] = db_.queryOne("SELECT * FROM scenes WHERE id=$1", {out["previous"]["id"].asString()}); }
+    return out;
 }
 Json::Value ScenarioService::summarize(const ChannelAccess& a, const std::string& sceneId) {
     if (!a.isGm) throw forbidden("GM role required");
