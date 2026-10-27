@@ -8,6 +8,7 @@
 #include "../core/Log.h"
 #include "../core/Text.h"
 #include <algorithm>
+#include <curl/curl.h>
 
 namespace acerciae {
 
@@ -23,7 +24,17 @@ static std::string keyHint(const std::string& key) {
 }
 static void checkUrl(const std::string& u) {
     if (u.empty()) return;
-    if (u.size() > 300 || (u.rfind("https://", 0) != 0 && u.rfind("http://", 0) != 0)) throw badRequest("API base must be an http(s) URL");
+    if (u.size() > 300 || u.find_first_of("\r\n\t ") != std::string::npos || (u.rfind("https://", 0) != 0 && u.rfind("http://", 0) != 0)) throw badRequest("API base must be an http(s) URL");
+    auto* parsed = curl_url();
+    if (!parsed) throw badRequest("invalid API base URL");
+    bool valid = curl_url_set(parsed, CURLUPART_URL, u.c_str(), 0) == CURLUE_OK;
+    for (auto part : {CURLUPART_USER, CURLUPART_PASSWORD, CURLUPART_QUERY, CURLUPART_FRAGMENT}) {
+        char* value = nullptr;
+        if (curl_url_get(parsed, part, &value, 0) == CURLUE_OK) valid = false;
+        curl_free(value);
+    }
+    curl_url_cleanup(parsed);
+    if (!valid) throw badRequest("API base must not contain credentials, query parameters or fragments");
 }
 static void checkLen(const std::string& v, std::size_t n, const char* what) {
     if (v.size() > n) throw badRequest(std::string(what) + " is too long");
@@ -57,6 +68,7 @@ Json::Value ServerSettingsService::get(const Principal& p, const std::string& se
     v["is_maintainer"] = maint;
     if (!maint) return v;
     Json::Value llm;
+    llm["provider"] = r["llm_provider"]; llm["default_provider"] = cfg_.llmProvider;
     llm["api_base"] = r["llm_api_base"]; llm["model"] = r["llm_model"]; llm["reasoning_effort"] = r["llm_reasoning_effort"];
     llm["api_key_set"] = !r["llm_api_key_sealed"].asString().empty(); llm["api_key_hint"] = r["llm_api_key_hint"];
     llm["default_api_base"] = cfg_.llmApiBase; llm["default_model"] = cfg_.llmModel; llm["default_key_configured"] = !cfg_.llmApiKey.empty();
@@ -65,6 +77,12 @@ Json::Value ServerSettingsService::get(const Principal& p, const std::string& se
     tts["api_base"] = r["tts_api_base"]; tts["model"] = r["tts_model"]; tts["voice"] = r["tts_voice"];
     tts["api_key_set"] = !r["tts_api_key_sealed"].asString().empty(); tts["api_key_hint"] = r["tts_api_key_hint"];
     v["tts"] = tts;
+    Json::Value image;
+    image["provider"] = r["image_provider"]; image["api_base"] = r["image_api_base"]; image["model"] = r["image_model"];
+    image["size"] = r["image_size"]; image["quality"] = r["image_quality"];
+    image["api_key_set"] = !r["image_api_key_sealed"].asString().empty(); image["api_key_hint"] = r["image_api_key_hint"];
+    image["default_provider"] = logstudio::imageConfigFromEnv().provider;
+    v["image"] = image;
     v["updated_at"] = r["updated_at"];
     Json::Value langs(Json::arrayValue); for (auto& l : languages()) langs.append(l);
     v["languages"] = langs;
@@ -75,13 +93,23 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     auth_.requireServerAdmin(p.userId, serverId);
     auto cur = row(serverId);
     auto str = [&](const Json::Value& obj, const char* k, const std::string& def) { return obj.isObject() && obj[k].isString() ? text::trim(obj[k].asString()) : def; };
-    const Json::Value& llm = b["llm"]; const Json::Value& tts = b["tts"];
+    const Json::Value& llm = b["llm"]; const Json::Value& tts = b["tts"]; const Json::Value& image = b["image"];
 
     auto name = str(b, "name", cur["server_name"].asString());
     if (name.empty() || name.size() > 80) throw badRequest("server name must be 1-80 chars");
     auto language = str(b, "language", cur["language"].asString());
     if (std::find(languages().begin(), languages().end(), language) == languages().end()) throw badRequest("unsupported language");
 
+    auto llmProvider = str(llm, "provider", cur["llm_provider"].asString());
+    if (llmProvider != "" && llmProvider != "openai_compatible" && llmProvider != "anthropic") throw badRequest("unsupported LLM provider");
+    auto imageProvider = str(image, "provider", cur["image_provider"].asString());
+    if (imageProvider != "inherit" && imageProvider != "disabled" && imageProvider != "mock" && imageProvider != "gpt_image") throw badRequest("unsupported image provider");
+    auto imageBase = str(image, "api_base", cur["image_api_base"].asString()); checkUrl(imageBase);
+    auto imageModel = str(image, "model", cur["image_model"].asString()); checkLen(imageModel, 120, "image model");
+    auto imageSize = str(image, "size", cur["image_size"].asString());
+    if (imageSize != "auto" && imageSize != "1024x1024" && imageSize != "1536x1024" && imageSize != "1024x1536") throw badRequest("unsupported image size");
+    auto imageQuality = str(image, "quality", cur["image_quality"].asString());
+    if (imageQuality != "auto" && imageQuality != "low" && imageQuality != "medium" && imageQuality != "high") throw badRequest("unsupported image quality");
     auto llmBase = str(llm, "api_base", cur["llm_api_base"].asString()); checkUrl(llmBase);
     auto llmModel = str(llm, "model", cur["llm_model"].asString()); checkLen(llmModel, 120, "model name");
     auto effort = str(llm, "reasoning_effort", cur["llm_reasoning_effort"].asString());
@@ -95,11 +123,15 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
         std::pair<std::string, std::string> out{cur[col].asString(), cur[hintCol].asString()};
         if (json::toBool(obj, "clear_api_key")) out = {"", ""};
         auto k = str(obj, "api_key", "");
+        if (k.find_first_of("\r\n") != std::string::npos) throw badRequest("invalid API key");
         if (!k.empty()) { checkLen(k, 500, "API key"); out = {crypto::sealSecret(cfg_.authSecret, k), keyHint(k)}; }
         return out;
     };
     auto [llmKey, llmHint] = sealed(llm, "llm_api_key_sealed", "llm_api_key_hint");
     auto [ttsKey, ttsHint] = sealed(tts, "tts_api_key_sealed", "tts_api_key_hint");
+    auto [imageKey, imageHint] = sealed(image, "image_api_key_sealed", "image_api_key_hint");
+    if (llmProvider == "anthropic" && !llmKey.empty() && llmModel.empty() && cfg_.llmProvider != "anthropic") throw badRequest("model is required for Anthropic");
+    if (imageProvider == "gpt_image" && imageModel.empty()) throw badRequest("image model is required for GPT Image");
 
     bool feat[4];
     for (int i = 0; i < 4; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
@@ -110,6 +142,8 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
                     "tts_api_base=$8, tts_api_key_sealed=$9, tts_api_key_hint=$10, tts_model=$11, tts_voice=$12, "
                     "feature_consistency=$13, feature_dice=$14, feature_inspiration=$15, feature_log_studio=$17, updated_by=$16, updated_at=now() WHERE server_id=$1",
             {serverId, language, llmBase, llmKey, llmHint, llmModel, effort, ttsBase, ttsKey, ttsHint, ttsModel, ttsVoice, feat[0], feat[1], feat[2], p.userId, feat[3]});
+        Db::exec(w, "UPDATE server_settings SET llm_provider=$2, image_provider=$3, image_api_base=$4, image_api_key_sealed=$5, image_api_key_hint=$6, image_model=$7, image_size=$8, image_quality=$9 WHERE server_id=$1",
+                 {serverId, llmProvider, imageProvider, imageBase, imageKey, imageHint, imageModel, imageSize, imageQuality});
     });
     auto fresh = row(serverId);
     notifier_.serverSettingsChanged(serverId, publicView(fresh, serverId));
@@ -133,18 +167,21 @@ std::optional<LlmProfile> ServerSettingsService::profileForChannel(const std::st
     auto& e = p.endpoint;
     // The server's API base is only honoured together with the server's own key: otherwise a maintainer could point
     // the process-wide key at a URL of their choosing and capture it.
-    e.apiBase = cfg_.llmApiBase;
+    e.provider = cfg_.llmProvider;
+    e.apiBase = cfg_.llmApiBase; e.apiKey = cfg_.llmApiKey;
     e.model = r["llm_model"].asString().empty() ? cfg_.llmModel : r["llm_model"].asString();
     e.reasoningEffort = r["llm_reasoning_effort"].asString();
     e.embeddingModel = cfg_.llmEmbeddingModel; e.timeoutMs = cfg_.llmTimeoutMs; e.maxTokens = cfg_.llmMaxTokens;
     auto sealed = r["llm_api_key_sealed"].asString();
-    if (sealed.empty()) e.apiKey = cfg_.llmApiKey;
-    else {
-        try {
-            e.apiKey = crypto::openSecret(cfg_.authSecret, sealed);
-            if (!r["llm_api_base"].asString().empty()) e.apiBase = r["llm_api_base"].asString();
-        } catch (const std::exception& ex) { ALOG_WARN << "cannot unseal LLM key for channel " << channelId << " (AUTH_SECRET changed?): " << ex.what(); e.apiKey = cfg_.llmApiKey; }
+    if (!sealed.empty()) {
+        // Do not fall back to a different credential on decryption failure.
+        e.apiKey = crypto::openSecret(cfg_.authSecret, sealed);
+        e.provider = r["llm_provider"].asString().empty() ? cfg_.llmProvider : r["llm_provider"].asString();
+        e.apiBase = r["llm_api_base"].asString();
+        if (e.apiBase.empty()) e.apiBase = e.provider == cfg_.llmProvider ? cfg_.llmApiBase :
+            (e.provider == "anthropic" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1");
     }
+    if (e.provider == "anthropic") { e.reasoningEffort.clear(); e.embeddingModel.clear(); }
     return p;
 }
 
@@ -156,6 +193,19 @@ ServerSettingsService::TtsConfig ServerSettingsService::ttsConfig(const std::str
     auto sealed = r["tts_api_key_sealed"].asString();
     if (!sealed.empty()) { try { t.apiKey = crypto::openSecret(cfg_.authSecret, sealed); } catch (const std::exception& e) { ALOG_WARN << "cannot unseal TTS key: " << e.what(); } }
     return t;
+}
+
+logstudio::ImageConfig ServerSettingsService::imageConfigForChannel(const std::string& channelId) {
+    auto r = db_.queryOne("SELECT ss.* FROM channels c JOIN server_settings ss ON ss.server_id=c.server_id WHERE c.id=$1", {channelId});
+    if (r.isNull() || r["image_provider"] == "inherit") return logstudio::imageConfigFromEnv();
+    logstudio::ImageConfig c;
+    c.provider = r["image_provider"].asString();
+    if (c.provider == "disabled" || c.provider == "mock") return c;
+    c.apiBase = r["image_api_base"].asString().empty() ? "https://api.openai.com/v1" : r["image_api_base"].asString();
+    c.model = r["image_model"].asString(); c.size = r["image_size"].asString(); c.quality = r["image_quality"].asString();
+    if (!r["image_api_key_sealed"].asString().empty()) c.apiKey = crypto::openSecret(cfg_.authSecret, r["image_api_key_sealed"].asString());
+    // Custom image endpoints never borrow the platform, text LLM or TTS credential.
+    return c;
 }
 
 // ---- dice text groups --------------------------------------------------------------------------------

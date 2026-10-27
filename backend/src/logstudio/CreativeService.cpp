@@ -4,6 +4,7 @@
 #include "../core/Json.h"
 #include "../core/Log.h"
 #include "../llm/LlmGateway.h"
+#include "../servers/ServerSettingsService.h"
 #include "../ws/Notifier.h"
 #include "LogStudioService.h"
 #include "MediaService.h"
@@ -17,7 +18,36 @@ namespace acerciae::logstudio {
 static DbParam opt(const std::string &s) {
   return s.empty() ? dbNull() : DbParam(s);
 }
-Json::Value CreativeService::status(const ChannelAccess &) {
+std::unique_ptr<ImageGenerationProvider> CreativeService::providerFor(const std::string& channelId) {
+  return makeImageProvider(settings_.imageConfigForChannel(channelId));
+}
+bool CreativeService::available(const std::string& channelId) { return bool(providerFor(channelId)); }
+void CreativeService::usePortraitReference(const ChannelAccess &a, const std::string &cid, Json::Value &params, const std::string &portraitJobId) {
+  if (!portraitJobId.empty()) {
+    auto parent = db_.queryOne("SELECT id FROM asset_generation_jobs WHERE id=$1 AND channel_id=$2 AND character_id=$3 AND params->'attach'->>'slot'='portrait'", {portraitJobId, a.channelId, cid});
+    if (parent.isNull()) throw badRequest("invalid main portrait job");
+    params["portrait_job_id"] = portraitJobId;
+    return;
+  }
+  auto c = db_.queryOne("SELECT portrait_asset_id FROM characters WHERE id=$1 AND channel_id=$2", {cid, a.channelId});
+  auto id = json::str(c, "portrait_asset_id");
+  if (id.empty()) throw badRequest("generate or upload the main portrait before generating poses");
+  auto m = media_.get(a, id);
+  if (m["approval_status"] != "approved") throw badRequest("approve the main portrait before generating poses");
+  std::string bytes, mime, name;
+  if (!media_.fetch(a, id, m["version"].asInt(), bytes, mime, name) ||
+      (mime != "image/png" && mime != "image/jpeg" && mime != "image/webp") || bytes.size() > 20*1024*1024)
+    throw badRequest("main portrait must be a PNG, JPEG or WebP image up to 20 MB");
+  Json::Value ref; ref["id"] = id; ref["version"] = m["version"];
+  ref["data_uri"] = "data:" + mime + ";base64," + drogon::utils::base64Encode(bytes);
+  params["request"]["reference_images"] = Json::Value(Json::arrayValue);
+  params["request"]["reference_images"].append(ref);
+  params["portrait_reference"]["asset_id"] = id;
+  params["portrait_reference"]["version"] = m["version"];
+  params["request"]["identity_instruction"] = "The attached main profile portrait is the identity reference. Preserve the face, hairstyle, clothing and art style. Change only the requested pose, expression and framing.";
+}
+Json::Value CreativeService::status(const ChannelAccess &a) {
+  auto provider_ = providerFor(a.channelId);
   Json::Value v;
   v["enabled"] = bool(provider_);
   v["provider"] = provider_ ? provider_->name() : "disabled";
@@ -45,8 +75,9 @@ Json::Value CreativeService::create(const ChannelAccess &a,
                                     const Json::Value &b) {
   if (!a.isGm)
     throw forbidden("GM role required");
+  auto provider_ = providerFor(a.channelId);
   if (!provider_)
-    throw badRequest("image generation disabled");
+    throw badRequest("image generation disabled or not configured by the server maintainer");
   if (provider_->name() != "mock" && !json::toBool(b, "allow_cloud"))
     throw badRequest("confirm cloud processing for these selected inputs");
   if (provider_->name() != "mock")
@@ -62,6 +93,7 @@ Json::Value CreativeService::create(const ChannelAccess &a,
   if (style.isNull())
     throw notFound("style not found");
   Json::Value params;
+  params["provider_configuration"] = provider_->configurationId();
   params["style"] = style;
   params["style_profile_version"] = style["version"];
   params["request"]["kind"] = kind;
@@ -124,6 +156,7 @@ Json::Value CreativeService::create(const ChannelAccess &a,
     params["request"]["source_events"] = source;
     params["snapshot_scope"] = s["scope"];
   }
+  if (kind == "standee") usePortraitReference(a, cid, params);
   params["cloud_authorized"] = json::toBool(b, "allow_cloud");
   params["visibility_scope"] =
       "gm"; // GM reviews generated details before exposing them to players.
@@ -148,12 +181,13 @@ Json::Value CreativeService::create(const ChannelAccess &a,
   return j;
 }
 Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Json::Value &character, const std::string &kind,
-                                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud) {
+                                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud, const std::string &portraitJobId) {
   bool owner = character["user_id"].isString() && character["user_id"].asString() == a.userId;
   if (!a.isGm && !owner)
     throw forbidden("only the Keeper or the character's actor may generate this character's images");
+  auto provider_ = providerFor(a.channelId);
   if (!provider_)
-    throw badRequest("image generation disabled");
+    throw badRequest("image generation disabled or not configured by the server maintainer");
   if (provider_->name() != "mock" && !allowCloud)
     throw badRequest("confirm cloud processing for the appearance prompt");
   if (provider_->name() != "mock")
@@ -161,6 +195,7 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   auto cid = character["id"].asString();
   auto style = db_.queryOne("SELECT * FROM visual_style_profiles WHERE channel_id=$1 ORDER BY is_default DESC, created_at LIMIT 1", {a.channelId});
   Json::Value params;
+  params["provider_configuration"] = provider_->configurationId();
   params["style"] = style.isNull() ? Json::Value(Json::objectValue) : style;
   if (!style.isNull()) params["style_profile_version"] = style["version"];
   params["request"]["kind"] = kind;
@@ -171,6 +206,7 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   params["attach"]["character_id"] = cid;
   params["attach"]["slot"] = slot;
   params["attach"]["subtitle"] = subtitle;
+  if (slot == "subtitle") usePortraitReference(a, cid, params, portraitJobId);
   params["cloud_authorized"] = allowCloud;
   params["visibility_scope"] = "channel";
   auto idem = crypto::sha256Hex(a.channelId + provider_->name() + provider_->model() + json::dump(params) + std::to_string(std::time(nullptr) / 60));
@@ -185,8 +221,9 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   return j;
 }
 Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud) {
+  auto provider_ = providerFor(a.channelId);
   if (!provider_)
-    throw badRequest("image generation disabled");
+    throw badRequest("image generation disabled or not configured by the server maintainer");
   if (kind != "background" && kind != "standee")
     throw badRequest("background or standee required");
   if (prompt.empty() || prompt.size() > 6000)
@@ -200,16 +237,24 @@ Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::
     throw badRequest("standee requires a character");
   auto style = db_.queryOne("SELECT * FROM visual_style_profiles WHERE channel_id=$1 ORDER BY is_default DESC, created_at LIMIT 1", {a.channelId});
   Json::Value params;
+  params["provider_configuration"] = provider_->configurationId();
   params["style"] = style.isNull() ? Json::Value(Json::objectValue) : style;
   if (!style.isNull()) params["style_profile_version"] = style["version"];
   params["request"]["kind"] = kind;
   params["request"]["style"] = params["style"];
   params["request"]["prompt"] = prompt;
   if (!cid.empty()) {
-    auto ch = db_.queryOne("SELECT name, appearance_prompt FROM characters WHERE id=$1 AND channel_id=$2", {cid, a.channelId});
+    auto ch = db_.queryOne("SELECT * FROM characters WHERE id=$1 AND channel_id=$2", {cid, a.channelId});
     if (ch.isNull()) throw notFound("character not found");
     params["request"]["character"]["name"] = ch["name"];
     params["request"]["character"]["description"] = ch["appearance_prompt"];
+    std::string parentJob;
+    if (json::str(ch, "portrait_asset_id").empty()) {
+      // Never invent a fresh identity for every pose. Only the actor/Keeper can establish a missing main portrait.
+      auto main = createForCharacter(a, ch, "portrait", "portrait", "", json::str(ch, "appearance_prompt") + ". Main profile portrait, neutral pose.", allowCloud);
+      parentJob = main["id"].asString();
+    }
+    usePortraitReference(a, cid, params, parentJob);
   }
   params["attach"] = attach;
   params["cloud_authorized"] = allowCloud;
@@ -251,7 +296,7 @@ void CreativeService::stop() {
 void CreativeService::loop() {
   while (running_) {
     try {
-      if (provider_) {
+      {
         db_.exec("UPDATE asset_generation_jobs SET status=CASE WHEN "
                  "attempts<max_attempts THEN 'pending' ELSE 'failed' "
                  "END,error='worker interrupted' WHERE status='running' AND "
@@ -259,7 +304,8 @@ void CreativeService::loop() {
         auto j = db_.queryOne(
             "UPDATE asset_generation_jobs SET "
             "status='running',attempts=attempts+1,updated_at=now() WHERE "
-            "id=(SELECT id FROM asset_generation_jobs WHERE status='pending' "
+            "id=(SELECT child.id FROM asset_generation_jobs child WHERE child.status='pending' "
+            "AND NOT EXISTS (SELECT 1 FROM asset_generation_jobs parent WHERE parent.id::text=child.params->>'portrait_job_id' AND parent.status IN ('pending','running')) "
             "ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");
         if (!j.isNull()) {
           run(j);
@@ -276,9 +322,37 @@ void CreativeService::loop() {
 void CreativeService::run(const Json::Value &j) {
   auto id = j["id"].asString();
   try {
-    if (provider_->name() != "mock")
+    auto provider_ = providerFor(j["channel_id"].asString());
+    if (!provider_) throw std::runtime_error("image generation disabled or not configured by the server maintainer");
+    const auto fingerprint = json::str(j["params"], "provider_configuration");
+    if ((!fingerprint.empty() && fingerprint != provider_->configurationId()) ||
+        (fingerprint.empty() && (j["provider"] != "mock" || provider_->name() != "mock")))
+      throw std::runtime_error("image configuration changed; submit a new generation request");
+    if (provider_->name() != "mock") {
+      if (!json::toBool(j["params"], "cloud_authorized")) throw std::runtime_error("cloud processing was not authorized");
       requireCloudPermission(db_, j["channel_id"].asString());
-    auto r = provider_->generate(j["params"]["request"]);
+    }
+    auto params = j["params"];
+    const auto parentId = json::str(params, "portrait_job_id");
+    if (!parentId.empty()) {
+      auto parent = db_.queryOne("SELECT status,result_asset_id FROM asset_generation_jobs WHERE id=$1 AND channel_id=$2 AND character_id=$3", {parentId, j["channel_id"].asString(), j["character_id"].asString()});
+      if (parent["status"] != "completed") throw std::runtime_error("main portrait generation failed or was cancelled; generate a portrait before retrying poses");
+      const auto a = auth_.channelAccess(j["created_by"].asString(), j["channel_id"].asString());
+      // Capture exactly the parent result, never a different portrait concurrently selected by the user.
+      auto asset = media_.get(a, parent["result_asset_id"].asString());
+      if (asset["approval_status"] != "approved") throw std::runtime_error("main portrait is not approved");
+      std::string bytes, mime, name;
+      if (!media_.fetch(a, asset["id"].asString(), asset["version"].asInt(), bytes, mime, name)) throw std::runtime_error("main portrait is unavailable");
+      Json::Value ref; ref["id"] = asset["id"]; ref["version"] = asset["version"];
+      ref["data_uri"] = "data:" + mime + ";base64," + drogon::utils::base64Encode(bytes);
+      params["request"]["reference_images"] = Json::Value(Json::arrayValue); params["request"]["reference_images"].append(ref);
+      params["portrait_reference"]["asset_id"] = asset["id"]; params["portrait_reference"]["version"] = asset["version"];
+      params["request"]["identity_instruction"] = "Preserve the attached main profile portrait's face, hairstyle, clothing and art style. Change only pose, expression and framing.";
+      // Freeze references before the external request so a retry uses the same image version.
+      params.removeMember("portrait_job_id");
+      db_.exec("UPDATE asset_generation_jobs SET params=$2::jsonb WHERE id=$1 AND status='running'", {id, json::dump(params)});
+    }
+    auto r = provider_->generate(params["request"]);
     if (!r.ok) {
       db_.exec("UPDATE asset_generation_jobs SET "
                "status=$2,error=$3,updated_at=now() WHERE id=$1 AND "
@@ -313,6 +387,7 @@ void CreativeService::run(const Json::Value &j) {
     m["style_profile_id"] = j["style_profile_id"];
     m["style_profile_version"] = j["params"]["style_profile_version"];
     m["source_reference"]["job_id"] = id;
+    if (params.isMember("portrait_reference")) m["source_reference"]["portrait_reference"] = params["portrait_reference"];
     m["source_reference"]["visual_identity_check"] = "manual review required";
     m["source_reference"]["character_profile"] =
         j["params"]["request"]["character"];

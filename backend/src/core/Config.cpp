@@ -1,6 +1,7 @@
 #include "Config.h"
 #include <cstdlib>
 #include <string>
+#include <stdexcept>
 
 namespace acerciae {
 
@@ -35,7 +36,8 @@ Config Config::fromEnv() {
     c.uploadDir = envStr("UPLOAD_DIR", c.uploadDir);
     c.maxUploadMb = (std::size_t)envInt("MAX_UPLOAD_MB", (int)c.maxUploadMb);
     c.llmProvider = envStr("LLM_PROVIDER", c.llmProvider);
-    c.llmApiBase = envStr("LLM_API_BASE", c.llmApiBase);
+    if (c.llmProvider != "openai_compatible" && c.llmProvider != "anthropic") throw std::runtime_error("Unsupported LLM_PROVIDER");
+    c.llmApiBase = envStr("LLM_API_BASE", c.llmProvider == "anthropic" ? "https://api.anthropic.com/v1" : c.llmApiBase);
     c.llmApiKey = envStr("LLM_API_KEY", "");
     c.llmModel = envStr("LLM_MODEL", c.llmModel);
     c.llmTimeoutMs = envInt("LLM_TIMEOUT_MS", c.llmTimeoutMs);

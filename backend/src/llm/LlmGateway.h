@@ -41,7 +41,7 @@ public:
     Json::Value status(const std::string& channelId = "") const;
     static std::string languageName(const std::string& code);   // "zh-CN" -> "Simplified Chinese"; "" for English
 private:
-    struct Resolved { std::shared_ptr<ILlmClient> client; std::string language; bool custom = false; };
+    struct Resolved { std::shared_ptr<ILlmClient> client; std::string language; std::string provider; bool custom = false; };
     Resolved clientFor(const std::string& channelId) const;
     static Json::Value extractJson(const std::string& content);
     const Config& cfg_;

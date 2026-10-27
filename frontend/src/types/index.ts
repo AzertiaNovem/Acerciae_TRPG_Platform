@@ -118,8 +118,9 @@ export interface ChannelMember extends UserLite { role: 'gm' | 'player'; charact
 export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio';
 export interface ServerSettings {
   server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; is_maintainer?: boolean;
-  llm?: { api_base: string; model: string; reasoning_effort: string; api_key_set: boolean; api_key_hint: string; default_api_base: string; default_model: string; default_key_configured: boolean };
+  llm?: { provider: '' | 'openai_compatible' | 'anthropic'; default_provider: string; api_base: string; model: string; reasoning_effort: string; api_key_set: boolean; api_key_hint: string; default_api_base: string; default_model: string; default_key_configured: boolean };
   tts?: { api_base: string; model: string; voice: string; api_key_set: boolean; api_key_hint: string };
+  image?: { provider: 'inherit' | 'disabled' | 'mock' | 'gpt_image'; api_base: string; model: string; size: string; quality: string; api_key_set: boolean; api_key_hint: string; default_provider: string };
   languages?: string[];
 }
 export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: Record<string, string>; updated_at: string; created_by_name?: string | null }

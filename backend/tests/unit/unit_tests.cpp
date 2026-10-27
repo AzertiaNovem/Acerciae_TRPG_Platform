@@ -6,6 +6,7 @@
 #include "llm/SchemaValidator.h"
 #include "llm/MockLlmClient.h"
 #include "llm/LlmGateway.h"
+#include "llm/AnthropicClient.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
 #include "logstudio/LogAdapters.h"
@@ -30,6 +31,26 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("Anthropic Messages preserves tool blocks, schema and parallel result turns", [] {
+        LlmEndpoint ep; ep.provider="anthropic"; ep.model="fixture-claude"; ep.reasoningEffort="high";
+        LlmRequest req; req.system="Only use authorized records"; req.responseSchema=json::parse(R"({"type":"object","required":["draft"]})");
+        req.messages.push_back({"user", "Find my clue"});
+        req.tools.push_back({"search_events", "Authorized chat", json::parse(R"({"type":"object"})")});
+        auto response=AnthropicClient::parseResponse(json::parse(R"({"type":"message","stop_reason":"tool_use","content":[{"type":"text","text":"Checking"},{"type":"tool_use","id":"t1","name":"search_events","input":{"query":"clue"}},{"type":"tool_use","id":"t2","name":"search_events","input":{}}],"usage":{"input_tokens":10,"output_tokens":20}})"));
+        CHECK(response.ok); CHECK(response.toolCalls.size()==2); CHECK(response.promptTokens==10); CHECK(response.completionTokens==20);
+        LlmMessage assistant; assistant.role="assistant"; assistant.content=response.content; assistant.toolCalls=response.toolCalls; assistant.providerContent=response.providerContent; req.messages.push_back(assistant);
+        for (const auto& id : {"t1", "t2"}) { LlmMessage m; m.role="tool"; m.toolCallId=id; m.content="[]"; req.messages.push_back(m); }
+        auto body=AnthropicClient::requestBody(req, ep);
+        CHECK(body["messages"].size()==3); CHECK(body["messages"][2]["role"]=="user"); CHECK(body["messages"][2]["content"].size()==2);
+        CHECK(body["messages"][2]["content"][1]["tool_use_id"]=="t2"); CHECK(body["messages"][1]["content"]==response.providerContent);
+        CHECK(body["tools"][0].isMember("input_schema")); CHECK(body["system"].asString().find("required")!=std::string::npos);
+        CHECK(!body.isMember("reasoning_effort")); CHECK(!body.isMember("response_format"));
+        CHECK(!AnthropicClient::parseResponse(json::parse(R"({"type":"error"})")).ok);
+        CHECK(!AnthropicClient::parseResponse(json::parse(R"({"content":[],"stop_reason":"max_tokens"})")).ok);
+        CHECK(!AnthropicClient::parseResponse(json::parse(R"({"content":[{"type":"tool_use","input":{}}]})")).ok);
+        auto final=AnthropicClient::parseResponse(json::parse(R"({"content":[{"type":"text","text":"{\"draft\":\"ok\"}"}],"usage":{}})"));
+        CHECK(final.ok); CHECK(final.content=="{\"draft\":\"ok\"}");
+    });
     test("text utilities", [] {
         auto kw = text::keywords("The Sheriff promised to bring the lighthouse key tomorrow.");
         CHECK(std::find(kw.begin(), kw.end(), "sheriff") != kw.end());

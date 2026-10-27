@@ -738,8 +738,8 @@ Json::Value VnScriptService::queueArt(const ChannelAccess &a, const Json::Value 
   Json::Value gen;
   gen["backgrounds"] = Json::Value(Json::arrayValue);
   gen["portraits"] = Json::Value(Json::arrayValue);
-  gen["enabled"] = creative_.available();
-  if (!creative_.available()) return gen;
+  gen["enabled"] = creative_.available(a.channelId);
+  if (!creative_.available(a.channelId)) return gen;
   int queued = 0;
   for (const auto &need : script["asset_needs"]) {
     if (queued >= 24) break;
@@ -771,7 +771,7 @@ Json::Value VnScriptService::status(const ChannelAccess &a) {
   auto row = db_.queryOne("SELECT studio_cloud_allowed FROM channels WHERE id=$1", {a.channelId});
   v["cloud_allowed"] = !row.isNull() && row["studio_cloud_allowed"].asBool();
   v["max_lines"] = (Json::UInt64)kMaxLines;
-  v["images"] = creative_.available();
+  v["images"] = creative_.available(a.channelId);
   v["note"] = v["mock"].asBool() ? "MOCK planner: one scene per chat window and scenario, portraits SAY/IDLE, no language model."
                                  : "The model reads the whole campaign log block by block. Review the draft before publishing.";
   return v;

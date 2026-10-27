@@ -89,7 +89,7 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
     auto ch = db_.queryOne("SELECT c.era, s.narrative_time FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
     out["era"] = ch["era"]; out["narrative_time"] = ch["narrative_time"];
     out["attrs"] = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
-    out["generation_available"] = creative_.available();
+    out["generation_available"] = creative_.available(a.channelId);
     return out;
 }
 
@@ -145,7 +145,7 @@ Json::Value CharacterSpaceService::uploadAsset(const ChannelAccess& a, const std
 Json::Value CharacterSpaceService::generate(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
     auto c = characterFor(a, characterId, true);
     if (c["asset_mode"].asString() != "generated") throw conflict("switch the character to generated mode first");
-    auto appearance = text::trim(c["appearance_prompt"].asString()); if (appearance.empty()) throw badRequest("write the appearance prompt first");
+    auto appearance = text::trim(c["appearance_prompt"].asString());
     auto ch = db_.queryOne("SELECT c.era, s.narrative_time FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
     std::vector<std::pair<std::string, std::string>> targets;   // slot, subtitle
     std::set<std::string> slots; for (auto& s : json::strArray(body["slots"])) slots.insert(text::lower(s));
@@ -153,10 +153,14 @@ Json::Value CharacterSpaceService::generate(const ChannelAccess& a, const std::s
     if (slots.count("avatar")) targets.push_back({"avatar", ""});
     std::set<std::string> seen; for (auto& s : json::strArray(body["subtitles"])) { auto n = normalizeSubtitle(s); if (!n.empty() && seen.insert(n).second && seen.size() <= 12) targets.push_back({"subtitle", n}); }
     if (targets.empty()) throw badRequest("choose at least one of portrait, avatar or a subtitle");
+    if (appearance.empty() && (slots.count("portrait") || slots.count("avatar"))) throw badRequest("write the appearance prompt first");
+    if (!seen.empty() && !slots.count("portrait") && json::str(c, "portrait_asset_id").empty()) throw badRequest("generate or upload the main portrait before generating poses");
+    std::string portraitJob;
     Json::Value out; out["jobs"] = Json::Value(Json::arrayValue);
     for (auto& [slot, sub] : targets) {
         auto prompt = buildPrompt(appearance, json::str(ch, "era"), json::str(ch, "narrative_time"), slot, sub);
-        auto job = creative_.createForCharacter(a, c, slot == "subtitle" ? "standee" : slot, slot, sub, prompt, json::toBool(body, "allow_cloud"));
+        auto job = creative_.createForCharacter(a, c, slot == "subtitle" ? "standee" : slot, slot, sub, prompt, json::toBool(body, "allow_cloud"), slot == "subtitle" ? portraitJob : "");
+        if (slot == "portrait") portraitJob = job["id"].asString();
         out["jobs"].append(job);
     }
     out["space"] = space(a, characterId);

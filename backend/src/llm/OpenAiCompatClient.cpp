@@ -10,7 +10,7 @@ static size_t writeCb(char* ptr, size_t size, size_t nmemb, void* ud) {
 }
 
 LlmEndpoint OpenAiCompatClient::endpointFrom(const Config& cfg) {
-    LlmEndpoint e; e.apiBase = cfg.llmApiBase; e.apiKey = cfg.llmApiKey; e.model = cfg.llmModel; e.embeddingModel = cfg.llmEmbeddingModel;
+    LlmEndpoint e; e.provider = cfg.llmProvider; e.apiBase = cfg.llmApiBase; e.apiKey = cfg.llmApiKey; e.model = cfg.llmModel; e.embeddingModel = cfg.llmEmbeddingModel;
     e.timeoutMs = cfg.llmTimeoutMs; e.maxTokens = cfg.llmMaxTokens;
     return e;
 }

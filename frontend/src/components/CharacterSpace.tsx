@@ -64,7 +64,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
         <div className="card hero">
           <div>
             <div className="portrait">{space.portrait ? <img src={url(space.portrait)} alt="" /> : <span className="small muted">{tr('No portrait yet')}</span>}</div>
-            {editable && <div className="row" style={{ marginTop: 6, flexWrap: 'wrap' }}>{look.asset_mode === 'uploaded' ? <button className="small" onClick={() => pickFile('portrait')}>{tr('Upload portrait')}</button> : <button className="small" onClick={() => generate(['portrait'], [])} disabled={!canGenerate || busy}>{tr('Generate portrait')}</button>}{space.portrait && <button className="ghost small" onClick={() => remove(space.portrait!.id)}>{tr('remove')}</button>}</div>}
+            {editable && <div className="row" style={{ marginTop: 6, flexWrap: 'wrap' }}><button className="small" onClick={() => pickFile('portrait')}>{tr('Upload portrait')}</button>{look.asset_mode === 'generated' && <button className="small" onClick={() => generate(['portrait'], [])} disabled={!canGenerate || busy}>{tr('Generate portrait')}</button>}{space.portrait && <button className="ghost small" onClick={() => remove(space.portrait!.id)}>{tr('remove')}</button>}</div>}
           </div>
           <div className="col">
             <div className="row">
@@ -143,8 +143,9 @@ export default function CharacterSpace({ characterId }: { characterId: string })
             )}
             {editable && look.asset_mode === 'generated' && (
               <div className="col" style={{ marginTop: 8 }}>
+                <div className="tiny muted">{tr('Pose images use the main portrait as their reference. Generate or upload it first; a batch creates the main portrait before its poses.')}</div>
                 <div className="row" style={{ flexWrap: 'wrap' }}>{DEFAULT_SUBTITLES.map((s) => <label key={s} className="tiny"><input type="checkbox" checked={genSubs.includes(s)} onChange={(e) => setGenSubs(e.target.checked ? [...genSubs, s] : genSubs.filter((x) => x !== s))} /> {s}</label>)}</div>
-                <div className="row"><button className="primary small" onClick={() => generate(['portrait', 'avatar'], genSubs)} disabled={!canGenerate || busy || !look.appearance_prompt.trim()}>{tr('Generate portrait, avatar and the chosen subtitles')}</button><button className="small" onClick={() => generate([], genSubs)} disabled={!canGenerate || busy || genSubs.length === 0}>{tr('Generate the chosen subtitles only')}</button></div>
+                <div className="row"><button className="primary small" onClick={() => generate(['portrait', 'avatar'], genSubs)} disabled={!canGenerate || busy || !look.appearance_prompt.trim()}>{tr('Generate portrait, avatar and the chosen subtitles')}</button><button className="small" onClick={() => generate([], genSubs)} disabled={!canGenerate || busy || genSubs.length === 0 || !space.portrait}>{tr('Generate the chosen subtitles only')}</button></div>
               </div>
             )}
             {space.jobs.length > 0 && (

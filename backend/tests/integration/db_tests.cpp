@@ -529,6 +529,26 @@ int main() {
         CHECK(prof && prof->endpoint.apiKey == "sk-test-1234567890abcd" && prof->endpoint.model == "my-model" && prof->endpoint.reasoningEffort == "high" && prof->endpoint.apiBase == "https://llm.example/v1" && prof->language == "zh-CN");
         CHECK(S.llm->mode(channelId) == "live"); CHECK(S.llm->status(channelId)["source"].asString() == "server");
         CHECK(S.settings->ttsConfig(sid).apiKey == "tts-secret-key-9999");
+        Json::Value imageSettings; imageSettings["llm"]["provider"]="anthropic";
+        imageSettings["image"]["provider"]="gpt_image"; imageSettings["image"]["api_base"]="https://images.example/v1";
+        imageSettings["image"]["api_key"]="independent-image-key"; imageSettings["image"]["model"]="fixture-image";
+        auto configured=S.settings->update(gmP,sid,imageSettings);
+        CHECK(configured["llm"]["provider"]=="anthropic"); CHECK(configured["image"]["api_key_set"].asBool());
+        CHECK(json::dump(configured).find("independent-image-key")==std::string::npos);
+        auto imageStored=S.db->queryOne("SELECT image_api_key_sealed FROM server_settings WHERE server_id=$1",{sid});
+        CHECK(imageStored["image_api_key_sealed"].asString().rfind("v1:",0)==0);
+        CHECK(imageStored["image_api_key_sealed"].asString().find("independent-image-key")==std::string::npos);
+        auto imageConfig=S.settings->imageConfigForChannel(channelId);
+        CHECK(imageConfig.apiKey=="independent-image-key"); CHECK(imageConfig.apiBase=="https://images.example/v1");
+        CHECK(S.settings->profileForChannel(channelId)->endpoint.apiKey=="sk-test-1234567890abcd");
+        CHECK(S.settings->profileForChannel(channelId)->endpoint.provider=="anthropic");
+        CHECK(S.settings->profileForChannel(channelId)->endpoint.reasoningEffort.empty());
+        CHECK(S.llm->status(channelId)["provider"]=="anthropic");
+        CHECK(!S.settings->get(p1P,sid).isMember("image"));
+        Json::Value clearImage; clearImage["image"]["clear_api_key"]=true;
+        S.settings->update(gmP,sid,clearImage);
+        CHECK(S.settings->imageConfigForChannel(channelId).apiKey.empty());
+
         bool off = false; try { S.settings->requireFeature(sid, "consistency"); } catch (const ApiError& e) { off = e.code() == "feature_disabled"; } CHECK(off);
         auto plain = say(p1User, splitWin, ".ra research");   // dice off: posted as an ordinary message
         CHECK(plain["kind"].asString() == "ic"); CHECK(plain["dice"].isNull());

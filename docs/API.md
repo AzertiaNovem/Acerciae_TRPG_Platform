@@ -4,6 +4,15 @@ Base URL `/api`. JSON in/out. Authentication: `Authorization: Bearer <token>` (t
 Errors: `{ "error": "<code>", "message": "..." }` with 400/401/403/404/409/500.
 
 ## Health & LLM
+
+Server settings now accept `llm.provider: "" | "openai_compatible" | "anthropic"` (empty inherits the platform protocol).
+Only a server-owned key activates a custom protocol/base URL. Anthropic uses non-streaming Messages with tool-use/result
+blocks and the existing structured-output validator; OpenAI reasoning-effort parameters are omitted in Anthropic mode.
+Maintainers also get/put `image: {provider: inherit|disabled|mock|gpt_image, api_base, model, size, quality, api_key?,
+clear_api_key?}`. Image GET returns `api_key_set`, `api_key_hint`, and `default_provider`, never `api_key`.
+Members receive neither credential configuration object. Empty keys preserve stored values; `clear_api_key:true` removes
+one. The image configuration is independent of `llm` and `tts`, including credential resolution. See
+[configuration guide](SERVER_AI_SETTINGS.zh-CN.md). Migration `0023_server_ai_providers.sql` adds these settings.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/health` | `{status, llm_mode: "mock"|"live", db, ws_connections}` |

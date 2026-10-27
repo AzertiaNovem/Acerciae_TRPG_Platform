@@ -12,6 +12,7 @@ struct LlmMessage {
     Json::Value toolCalls;      // assistant: [{id, name, arguments(json string)}]
     std::string toolCallId;     // tool: id of the call this answers
     std::string name;           // tool: tool name
+    Json::Value providerContent; // Anthropic blocks preserved when returning tool results
 };
 
 struct LlmToolSpec {
@@ -22,6 +23,7 @@ struct LlmToolSpec {
 
 // Where and how to reach a model. Built from the process config, optionally overridden per server.
 struct LlmEndpoint {
+    std::string provider = "openai_compatible";
     std::string apiBase;
     std::string apiKey;            // empty => mock mode
     std::string model;
@@ -48,6 +50,7 @@ struct LlmRequest {
 };
 
 struct LlmResponse {
+    Json::Value providerContent;
     bool ok = false;
     std::string error;
     std::string content;

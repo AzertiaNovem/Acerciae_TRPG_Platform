@@ -3,6 +3,7 @@
 #include "../core/Db.h"
 #include "../auth/AuthService.h"
 #include "../llm/Llm.h"
+#include "../logstudio/ImageProvider.h"
 #include <json/json.h>
 #include <optional>
 
@@ -31,6 +32,8 @@ public:
     // For the TTS integration: the server's TTS endpoint with the key unsealed. Empty fields = not configured.
     struct TtsConfig { std::string apiBase, apiKey, model, voice, language; };
     TtsConfig ttsConfig(const std::string& serverId);
+
+    logstudio::ImageConfig imageConfigForChannel(const std::string& channelId);
 
     // Dice reply text groups
     Json::Value listTextGroups(const Principal& p, const std::string& serverId);

@@ -1,5 +1,6 @@
 #include "LlmGateway.h"
 #include "OpenAiCompatClient.h"
+#include "AnthropicClient.h"
 #include "MockLlmClient.h"
 #include "SchemaValidator.h"
 #include "../core/Json.h"
@@ -9,24 +10,29 @@ namespace acerciae {
 
 LlmGateway::LlmGateway(const Config& cfg) : cfg_(cfg), mock_(std::make_shared<MockLlmClient>()) {
     if (cfg.mockLlm()) client_ = mock_;
+    else if (cfg.llmProvider == "anthropic") client_ = std::make_shared<AnthropicClient>(OpenAiCompatClient::endpointFrom(cfg));
     else client_ = std::make_shared<OpenAiCompatClient>(cfg);
     ALOG_INFO << "LLM gateway mode=" << client_->mode() << " model=" << client_->modelName();
 }
 LlmGateway::LlmGateway(const Config& cfg, std::unique_ptr<ILlmClient> client) : cfg_(cfg), client_(std::move(client)), mock_(std::make_shared<MockLlmClient>()) {}
 
 LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId) const {
-    Resolved r; r.client = client_;
+    Resolved r; r.client = client_; r.provider = cfg_.llmProvider;
     if (channelId.empty() || !resolver_) return r;
-    std::optional<LlmProfile> profile;
-    try { profile = resolver_(channelId); } catch (const std::exception& e) { ALOG_WARN << "LLM profile lookup failed for channel " << channelId << ": " << e.what(); }
+    // A broken server credential must not silently send private requests to the platform provider.
+    auto profile = resolver_(channelId);
     if (!profile) return r;
     r.language = profile->language;
     const auto& ep = profile->endpoint;
+    r.provider = ep.provider;
     if (ep.apiKey.empty()) { r.client = mock_; r.custom = true; return r; }
-    auto key = ep.apiBase + "\n" + ep.apiKey + "\n" + ep.model + "\n" + ep.reasoningEffort + "\n" + ep.embeddingModel;
+    auto key = ep.provider + "\n" + std::to_string(ep.timeoutMs) + "\n" + std::to_string(ep.maxTokens) + "\n" + ep.apiBase + "\n" + ep.apiKey + "\n" + ep.model + "\n" + ep.reasoningEffort + "\n" + ep.embeddingModel;
     std::lock_guard<std::mutex> lk(mu_);
     auto& c = clients_[key];
-    if (!c) c = std::make_shared<OpenAiCompatClient>(ep);
+    if (!c) {
+        if (ep.provider == "anthropic") c = std::make_shared<AnthropicClient>(ep);
+        else c = std::make_shared<OpenAiCompatClient>(ep);
+    }
     r.client = c; r.custom = true;
     return r;
 }
@@ -42,9 +48,9 @@ std::string LlmGateway::languageName(const std::string& code) {
 Json::Value LlmGateway::status(const std::string& channelId) const {
     auto r = clientFor(channelId);
     bool mock = r.client->mode() == "mock";
-    Json::Value s; s["mode"] = r.client->mode(); s["model"] = r.client->modelName(); s["provider"] = cfg_.llmProvider;
+    Json::Value s; s["mode"] = r.client->mode(); s["model"] = r.client->modelName(); s["provider"] = r.provider;
     s["source"] = r.custom ? "server" : "process";
-    s["api_base"] = mock || r.custom ? "" : cfg_.llmApiBase; s["embeddings"] = !cfg_.llmEmbeddingModel.empty();
+    s["api_base"] = mock || r.custom ? "" : cfg_.llmApiBase; s["embeddings"] = cfg_.llmProvider == "openai_compatible" && !cfg_.llmEmbeddingModel.empty();
     s["language"] = r.language.empty() ? "en" : r.language;
     s["note"] = mock ? "MOCK LLM MODE: no LLM API key configured. Rule-based extraction demonstrates the pipeline end to end." : "live";
     return s;
@@ -79,7 +85,7 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
         out.llmCalls++;
         if (!resp.ok) { out.error = resp.error; return out; }
         if (resp.toolCalls.isArray() && !resp.toolCalls.empty() && exec) {
-            LlmMessage assistant; assistant.role = "assistant"; assistant.content = resp.content; assistant.toolCalls = resp.toolCalls;
+            LlmMessage assistant; assistant.role = "assistant"; assistant.content = resp.content; assistant.toolCalls = resp.toolCalls; assistant.providerContent = resp.providerContent;
             req.messages.push_back(assistant);
             for (auto& tc : resp.toolCalls) {
                 Json::Value args;

@@ -19,12 +19,14 @@ const FEATURES: { key: Feature; label: string; help: string }[] = [
 
 interface Form {
   name: string; language: string; features: Record<Feature, boolean>;
-  llm: { api_base: string; model: string; reasoning_effort: string; api_key: string; clear_api_key: boolean };
+  llm: { provider: string; api_base: string; model: string; reasoning_effort: string; api_key: string; clear_api_key: boolean };
+  image: { provider: string; api_base: string; model: string; size: string; quality: string; api_key: string; clear_api_key: boolean };
   tts: { api_base: string; model: string; voice: string; api_key: string; clear_api_key: boolean };
 }
 const formFrom = (s: ServerSettings): Form => ({
   name: s.name, language: s.language, features: { ...s.features },
-  llm: { api_base: s.llm?.api_base ?? '', model: s.llm?.model ?? '', reasoning_effort: s.llm?.reasoning_effort ?? '', api_key: '', clear_api_key: false },
+  llm: { provider: s.llm?.provider ?? '', api_base: s.llm?.api_base ?? '', model: s.llm?.model ?? '', reasoning_effort: s.llm?.reasoning_effort ?? '', api_key: '', clear_api_key: false },
+  image: { provider: s.image?.provider ?? 'inherit', api_base: s.image?.api_base ?? '', model: s.image?.model ?? '', size: s.image?.size ?? 'auto', quality: s.image?.quality ?? 'auto', api_key: '', clear_api_key: false },
   tts: { api_base: s.tts?.api_base ?? '', model: s.tts?.model ?? '', voice: s.tts?.voice ?? '', api_key: '', clear_api_key: false },
 });
 
@@ -38,8 +40,9 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'feature
     try { const s = await api.updateServerSettings(settings.server_id, form); onSaved(s); toast('Server settings saved'); }
     catch (e: any) { toast(e.message, 'error'); } finally { setSaving(false); }
   };
-  const llm = settings.llm, tts = settings.tts;
-  const keyField = (part: 'llm' | 'tts', info?: { api_key_set: boolean; api_key_hint: string }, fallback?: string) => (
+  const llm = settings.llm, tts = settings.tts, image = settings.image;
+  const anthropic = (form.llm.provider || llm?.default_provider) === 'anthropic';
+  const keyField = (part: 'llm' | 'tts' | 'image', info?: { api_key_set: boolean; api_key_hint: string }, fallback?: string) => (
     <div className="col" style={{ gap: 4 }}>
       <label className="field"><span>{tr("API key")}</span>
         <input type="password" autoComplete="new-password" value={form[part].api_key} onChange={(e) => setForm({ ...form, [part]: { ...form[part], api_key: e.target.value, clear_api_key: false } })}
@@ -61,16 +64,45 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'feature
       </>)}
       {tab === 'ai' && (<>
         <div className="section-label">{tr("Language model")}</div>
-        <label className="field"><span>{tr("API base URL")}</span><input value={form.llm.api_base} onChange={(e) => setForm({ ...form, llm: { ...form.llm, api_base: e.target.value } })} placeholder={llm?.default_api_base ?? tr("https://api.openai.com/v1")} /></label>
+        <label className="field"><span>{tr("API protocol")}</span>
+          <select value={form.llm.provider} onChange={(e) => setForm({ ...form, llm: { ...form.llm, provider: e.target.value } })}>
+            <option value="">{tr("Use platform settings")}</option>
+            <option value="openai_compatible">{tr("OpenAI compatible")}</option>
+            <option value="anthropic">{tr("Anthropic compatible")}</option>
+          </select>
+        </label>
+        <label className="field"><span>{tr("API base URL")}</span><input value={form.llm.api_base} onChange={(e) => setForm({ ...form, llm: { ...form.llm, api_base: e.target.value } })} placeholder={anthropic ? "https://api.anthropic.com/v1" : llm?.default_api_base ?? "https://api.openai.com/v1"} /></label>
         {keyField('llm', llm, llm?.default_key_configured ? 'not set — uses the platform key' : 'not set — the platform has no key either (mock mode)')}
-        <div className="tiny muted">{tr("A custom base URL is only used together with this server’s own key. Any OpenAI-compatible chat-completions endpoint works.")}</div>
-        <label className="field"><span>{tr("Model")}</span><input value={form.llm.model} onChange={(e) => setForm({ ...form, llm: { ...form.llm, model: e.target.value } })} placeholder={llm?.default_model ?? tr("model name")} /></label>
-        <label className="field"><span>{tr("Thinking effort")}</span>
+        <div className="tiny muted">{tr("The selected protocol and custom URL require this server’s own key. Include /v1 in the base URL. Without a server key, platform settings apply.")}</div>
+        <label className="field"><span>{tr("Model")}</span><input value={form.llm.model} onChange={(e) => setForm({ ...form, llm: { ...form.llm, model: e.target.value } })} placeholder={anthropic && llm?.default_provider !== "anthropic" ? tr("model name") : llm?.default_model ?? tr("model name")} /></label>
+        {!anthropic && <><label className="field"><span>{tr("Thinking effort")}</span>
           <select value={form.llm.reasoning_effort} onChange={(e) => setForm({ ...form, llm: { ...form.llm, reasoning_effort: e.target.value } })}>
             <option value="">{tr("Off (non-reasoning model)")}</option><option value="minimal">{tr("Minimal")}</option><option value="low">{tr("Low")}</option><option value="medium">{tr("Medium")}</option><option value="high">{tr("High")}</option>
           </select>
         </label>
-        <div className="tiny muted">{tr("Sent as ")}<code>{tr("reasoning_effort")}</code>{tr("; only set it for reasoning models.")}</div>
+        <div className="tiny muted">{tr("Sent as ")}<code>{tr("reasoning_effort")}</code>{tr("; only set it for reasoning models.")}</div></>}
+        {anthropic && <div className="tiny muted">{tr("Anthropic uses the Messages API with tool support. OpenAI thinking effort is not sent.")}</div>}
+        <div className="section-label">{tr("Image generation")}</div>
+        <label className="field"><span>{tr("Provider")}</span>
+          <select value={form.image.provider} onChange={(e) => setForm({ ...form, image: { ...form.image, provider: e.target.value } })}>
+            <option value="inherit">{tr("Use platform settings")}</option>
+            <option value="disabled">{tr("Disabled")}</option>
+            <option value="mock">{tr("Mock test patterns")}</option>
+            <option value="gpt_image">{tr("GPT Image compatible")}</option>
+          </select>
+        </label>
+        <div className="tiny muted">{tr("Image generation has its own endpoint, model and key. It never uses the language model or speech key.")}</div>
+        {form.image.provider === 'inherit' && <div className="tiny muted">{tr("Platform image provider")}: {image?.default_provider ?? 'disabled'}</div>}
+        {form.image.provider === 'gpt_image' && <>
+          <label className="field"><span>{tr("API base URL")}</span><input value={form.image.api_base} onChange={(e) => setForm({ ...form, image: { ...form.image, api_base: e.target.value } })} placeholder="https://api.openai.com/v1" /></label>
+          {keyField('image', image)}
+          <label className="field"><span>{tr("Model")}</span><input value={form.image.model} onChange={(e) => setForm({ ...form, image: { ...form.image, model: e.target.value } })} placeholder={tr("Enter the image model ID from your provider")} /></label>
+          <div className="row">
+            <label className="field grow"><span>{tr("Image size")}</span><select value={form.image.size} onChange={(e) => setForm({ ...form, image: { ...form.image, size: e.target.value } })}>{['auto', '1024x1024', '1536x1024', '1024x1536'].map((v) => <option key={v} value={v}>{v === 'auto' ? tr('Provider default') : v}</option>)}</select></label>
+            <label className="field grow"><span>{tr("Image quality")}</span><select value={form.image.quality} onChange={(e) => setForm({ ...form, image: { ...form.image, quality: e.target.value } })}>{['auto', 'low', 'medium', 'high'].map((v) => <option key={v} value={v}>{v === 'auto' ? tr('Provider default') : tr(v === 'low' ? 'Low' : v === 'medium' ? 'Medium' : 'High')}</option>)}</select></label>
+          </div>
+          <div className="tiny muted">{tr("Supports image generation and reference-image edits. Cloud permission is still required for each campaign.")}</div>
+        </>}
         <div className="section-label">{tr("Text-to-speech")}</div>
         <label className="field"><span>{tr("API base URL")}</span><input value={form.tts.api_base} onChange={(e) => setForm({ ...form, tts: { ...form.tts, api_base: e.target.value } })} placeholder={tr("https://…")} /></label>
         {keyField('tts', tts)}
@@ -199,7 +231,7 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
   useEffect(() => { if (serverId) api.serverSettings(serverId).then(setSettings).catch(() => undefined); }, [serverId]);
   if (!serverId) return null;
   const onSaved = (s: ServerSettings) => { setSettings(s); loadServerSettings(); useNav.getState().loadServers(); };
-  const tabs: [Tab, string][] = [['general', 'General'], ['ai', 'AI & voice'], ['features', 'Features'], ['members', 'Members'], ['dice', 'Dice texts']];
+  const tabs: [Tab, string][] = [['general', 'General'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['dice', 'Dice texts']];
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide col" onClick={(e) => e.stopPropagation()}>

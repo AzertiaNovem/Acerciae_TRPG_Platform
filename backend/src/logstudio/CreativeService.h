@@ -8,6 +8,7 @@
 namespace acerciae {
 class LlmGateway;
 class Notifier;
+class ServerSettingsService;
 } // namespace acerciae
 namespace acerciae::logstudio {
 class MediaService;
@@ -16,9 +17,9 @@ class LogStudioService;
 class CreativeService {
 public:
   CreativeService(Db &db, MediaService &media, PresentationService &pres,
-                  LogStudioService &logs, LlmGateway &llm, Notifier &n)
+                  LogStudioService &logs, LlmGateway &llm, Notifier &n, ServerSettingsService &settings, AuthService &auth)
       : db_(db), media_(media), pres_(pres), logs_(logs), llm_(llm),
-        notifier_(n), provider_(makeImageProvider()) {}
+        notifier_(n), settings_(settings), auth_(auth) {}
   ~CreativeService() { stop(); }
   void start();
   void stop();
@@ -31,11 +32,11 @@ public:
   // A character's own portrait, avatar or subtitle standee. Allowed to the Keeper and the character's actor;
   // the result is approved on completion and attached to the character (params.attach).
   Json::Value createForCharacter(const ChannelAccess &a, const Json::Value &character, const std::string &kind,
-                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud);
+                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud, const std::string &portraitJobId = "");
   // Art a visual-novel script asked for: a scene background ({presentation_id, scene_key}) or a generated-mode
   // character's subtitle portrait ({presentation_id, character_id, slot:"subtitle", subtitle}). Attached on completion.
   Json::Value createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud);
-  bool available() const { return provider_ != nullptr; }
+  bool available(const std::string& channelId);
 
 private:
   void loop();
@@ -46,7 +47,10 @@ private:
   LogStudioService &logs_;
   LlmGateway &llm_;
   Notifier &notifier_;
-  std::unique_ptr<ImageGenerationProvider> provider_;
+  ServerSettingsService &settings_;
+  AuthService &auth_;
+  void usePortraitReference(const ChannelAccess &a, const std::string &characterId, Json::Value &params, const std::string &portraitJobId = "");
+  std::unique_ptr<ImageGenerationProvider> providerFor(const std::string& channelId);
   std::atomic<bool> running_{false};
   std::thread thread_;
   std::mutex mu_;
