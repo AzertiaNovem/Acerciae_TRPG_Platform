@@ -5,6 +5,7 @@
 #include "chat/ChatService.h"
 #include "scenes/SceneManager.h"
 #include "scenes/ScenarioService.h"
+#include "reminders/ReminderService.h"
 #include "documents/DocumentService.h"
 #include "knowledge/KnowledgeService.h"
 #include "highlights/HighlightService.h"
@@ -273,6 +274,42 @@ int main() {
         Json::Value adv; adv["chat_window_id"] = mainWin; adv["title"] = "Manual stage"; S.scenarios->advance(gm, adv);
         CHECK(S.db->queryOne("SELECT summary, summary_status FROM scenes WHERE id=$1", {newScene})["summary"] == "Keeper's final words.");
     });
+    test("reminder bubbles quote only readable lines verbatim, stay inside the group, and open the surrounding chat log", [&] {
+        say(gmUser, mainWin, "On the mantel you notice a tarnished badge; it bears a lantern sigil instead of the county seal.", "narration");
+        for (int i = 0; i < 9; ++i) say(gmUser, mainWin, "The fire crackles and the rain keeps falling (" + std::to_string(i) + ").", "narration");
+        S.observer->observeChannel(channelId, true);
+        Json::Value secret; secret["content"] = "KEEPER NOTE: the lantern sigil marks members of the Society."; secret["kind"] = "narration"; secret["visibility"] = "gm_only";
+        auto secretMsg = S.chat->postMessage(gm, mainWin, secret);
+        auto ask = say(p1User, mainWin, "Wait, that lantern sigil on the badge: does it match the one we saw at the docks?");
+        S.observer->observeChannel(channelId, true);
+        auto mine = S.reminders->list(p1);
+        CHECK(!mine.empty());
+        bool citesBadge = false;
+        for (auto& r : mine) {
+            CHECK(r["kind"] == "forgotten" || r["kind"] == "needed"); CHECK(!r["citations"].empty());
+            for (auto& c : r["citations"]) {
+                CHECK(c["event_id"] != eventOf(secretMsg["id"].asString())["id"]);            // GM-only lines are never quoted
+                auto m = S.chat->getMessage(p1, c["message_id"].asString());                    // readable by the group, and verbatim
+                for (auto& q : c["quotes"]) { CHECK(m["content"].asString().find(q.asString()) != std::string::npos); if (q.asString().find("lantern sigil") != std::string::npos || q.asString().find("badge") != std::string::npos) citesBadge = true; }
+            }
+        }
+        CHECK(citesBadge);
+        auto first = mine[0]["id"].asString();
+        auto ctx = S.reminders->context(p1, first, 20);
+        bool cited = false; for (auto& e : ctx["events"]) if (e["cited"].asBool()) { cited = true; CHECK(!e["quotes"].empty()); }
+        CHECK(cited); CHECK(json::dump(ctx).find("marks members of the Society") == std::string::npos);
+        // Another group neither lists nor opens it; the Keeper sees none of the players' bubbles in their own list.
+        for (auto& r : S.reminders->list(p3)) CHECK(r["id"] != first);
+        bool denied = false; try { S.reminders->context(p3, first, 20); } catch (const ApiError& e) { denied = e.status() == 404; } CHECK(denied);
+        for (auto& r : S.reminders->list(gm)) CHECK(r["player_group_id"].isNull());
+        // Dismissal is per user and the knowledge prelude carries the group's story index, never KP text.
+        S.reminders->dismiss(p1, first);
+        for (auto& r : S.reminders->list(p1)) CHECK(r["id"] != first);
+        auto prelude = S.retrieval->knowledgePrelude(p1);
+        CHECK(prelude.find("KP_SCENE_CLASSIFIED") == std::string::npos);
+        CHECK(!S.db->queryJson("SELECT 1 FROM player_scenario_outlines o JOIN player_group_members pm ON pm.group_id=o.group_id WHERE pm.user_id=$1", {p1User}).empty());
+        (void)ask;
+    });
     test("dice commands update the speaking character and render with the channel's text group", [&] {
         S.dice->setRng(std::make_unique<dice::SeqRng>(std::vector<int>{20, 50, 3}));
         auto st = say(p1User, splitWin, ".st research53 SAN60 侦查50");
@@ -340,14 +377,14 @@ int main() {
         auto entityId=S.knowledge->listEntities(keeper,"KP_ENTITY")[0]["id"].asString();
         auto recording=std::make_unique<RecordingMemoryClient>();auto* recorded=recording.get();recorded->secretEntityId=entityId;recorded->sceneId=sid;
         LlmGateway gateway(cfg,std::move(recording));
-        ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge,*S.scenarios);
+        ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge,*S.scenarios,*S.reminders);
         auto jobs=observer.observeChannel(ch,true); for(const auto& j:jobs) {if(j["status"]!="succeeded")std::cerr<<json::dump(j)<<"\n";CHECK(j["status"]=="succeeded");}
         int playerCalls=0,deniedToolResponses=0;
         for(const auto& req:recorded->requests) if(req.system.find("ONE player group")!=std::string::npos) {
             playerCalls++;
             for(const auto& tool:req.tools) CHECK(tool.name!="get_module_excerpt");
             std::string group;
-            for(const auto& m:req.messages) if(m.role=="user") {auto c=json::parse(m.content);if(c.isMember("memory_group_id"))group=c["memory_group_id"].asString();}
+            for(const auto& m:req.messages) if(m.role=="user" && !m.content.empty() && m.content[0]=='{') {auto c=json::parse(m.content);if(c.isMember("memory_group_id"))group=c["memory_group_id"].asString();}   // the knowledge index turn is plain text and is covered by the marker checks below
             for(const auto& m:req.messages) {
                 CHECK(m.content.find("KP_RAW_CLASSIFIED")==std::string::npos);CHECK(m.content.find("KP_FACT_CLASSIFIED")==std::string::npos);CHECK(m.content.find("KP_SCENE_CLASSIFIED")==std::string::npos);CHECK(m.content.find("KP_ENTITY_CLASSIFIED")==std::string::npos);
                 if(group==three.playerGroupId) {CHECK(m.content.find("GROUP_ONE_ONLY")==std::string::npos);CHECK(m.content.find("GROUP_TWO_ONLY")==std::string::npos);}

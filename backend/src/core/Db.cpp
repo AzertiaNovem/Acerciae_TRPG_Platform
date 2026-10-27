@@ -83,7 +83,9 @@ Json::Value Db::queryJson(pqxx::work& w, const std::string& sql, const DbParams&
     std::string wrapped = "WITH t AS (" + sql + ") SELECT coalesce(json_agg(row_to_json(t)), '[]'::json)::text AS j FROM t";
     auto r = w.exec_params(wrapped, toPqxx(params));
     if (r.empty()) return Json::Value(Json::arrayValue);
-    return json::parse(r[0][0].as<std::string>());
+    // Name the query when the result cannot be parsed: an empty or malformed payload is otherwise untraceable.
+    try { return json::parse(r[0][0].is_null() ? std::string("null") : r[0][0].as<std::string>()); }
+    catch (const std::exception& e) { throw std::runtime_error(std::string("queryJson: ") + e.what() + " | sql: " + sql.substr(0, 240)); }
 }
 
 Json::Value Db::queryOne(pqxx::work& w, const std::string& sql, const DbParams& params) {

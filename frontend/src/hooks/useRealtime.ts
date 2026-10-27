@@ -5,6 +5,7 @@ import { chatSocket, contextSocket } from '../api/ws';
 import { useChat } from '../store/chat';
 import { useDocuments } from '../store/documents';
 import { useHighlights } from '../store/highlights';
+import { useReminders } from '../store/reminders';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 
@@ -30,10 +31,11 @@ export function useRealtime() {
       const sceneId = activeWindow?.active_scene_id ?? undefined;
       if (m.type === 'document.updated') { useDocuments.getState().onUpdated(m, ch, sceneId); useUi.getState().setAiActivity(`${m.doc_type.replace('_', ' ')} updated (v${m.version})`); setTimeout(() => useUi.getState().setAiActivity(null), 4000); }
       else if (m.type === 'knowledge.reset') {
-        bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useUi.getState().reset();
+        bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useUi.getState().reset(); useReminders.getState().reset(); useReminders.getState().load(ch).catch(() => undefined);
         useDocuments.getState().loadList(ch).catch(()=>undefined); useHighlights.getState().load(ch).catch(()=>undefined); useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
         const win=useNav.getState().windowId; if(win) useChat.getState().load(ch,win).catch(()=>undefined);
       }
+      else if (m.type === 'reminder.created') useReminders.getState().add(m.reminder);
       else if (m.type === 'highlight.created') useHighlights.getState().add(m.highlight);
       else if (m.type === 'highlight.expired') useHighlights.getState().remove(m.highlight_ids);
       else if (m.type === 'proposal.pending') useUi.getState().toast('The AI filed a change that needs GM review.', 'ai');
@@ -47,6 +49,7 @@ export function useRealtime() {
     if (!channelId) return;
     useDocuments.getState().loadList(channelId);
     useHighlights.getState().load(channelId);
+    useReminders.getState().load(channelId).catch(() => undefined);
     // Reconcile revocations even after a missed/disconnected socket notification.
     let active=true; let groupVersion='';
     const poll=async()=>{

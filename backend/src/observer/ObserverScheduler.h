@@ -11,7 +11,7 @@
 #include <thread>
 
 namespace acerciae {
-class EventStore; class DocumentService; class HighlightService; class ContextRetrievalService; class LlmGateway; class Notifier; class KnowledgeService; class ScenarioService;
+class EventStore; class DocumentService; class HighlightService; class ContextRetrievalService; class LlmGateway; class Notifier; class KnowledgeService; class ScenarioService; class ReminderService;
 
 // Background AI observer. Three independent loops:
 //   observe      (default 5 s)  – high-frequency fact identification + localised document updates
@@ -23,7 +23,7 @@ class EventStore; class DocumentService; class HighlightService; class ContextRe
 class ObserverScheduler {
 public:
     ObserverScheduler(const Config& cfg, Db& db, EventStore& events, DocumentService& docs, HighlightService& highlights,
-                      ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios);
+                      ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios, ReminderService& reminders);
     ~ObserverScheduler();
     void start();
     void stop();
@@ -50,7 +50,7 @@ private:
     void unlock(const std::string& key);
 
     const Config& cfg_; Db& db_; EventStore& events_; DocumentService& docs_; HighlightService& highlights_;
-    ContextRetrievalService& retrieval_; LlmGateway& llm_; Notifier& notifier_; KnowledgeService& knowledge_; ScenarioService& scenarios_;
+    ContextRetrievalService& retrieval_; LlmGateway& llm_; Notifier& notifier_; KnowledgeService& knowledge_; ScenarioService& scenarios_; ReminderService& reminders_;
     std::atomic<bool> running_{false};
     std::thread observeThread_, consolidateThread_, cleanupThread_;
     std::mutex cvMu_; std::condition_variable cv_;

@@ -106,6 +106,13 @@ void Notifier::moduleUpdated(const std::string& channelId, const Json::Value& pa
     std::set<std::string> gms; for (auto& u : gmUsers(channelId)) gms.insert(u);
     WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(gms)));
 }
+void Notifier::reminderCreated(const std::string& channelId, const Json::Value& r) {
+    Json::Value msg; msg["type"] = "reminder.created"; msg["channel_id"] = channelId; msg["reminder"] = r;
+    std::set<std::string> allowed;
+    if (r["player_group_id"].isString()) for (const auto& m : db_.queryJson("SELECT user_id FROM player_group_members WHERE group_id=$1", {r["player_group_id"].asString()})) allowed.insert(m["user_id"].asString());
+    else for (const auto& u : gmUsers(channelId)) allowed.insert(u);
+    WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(allowed)));
+}
 void Notifier::aiJobFinished(const std::string& channelId, const Json::Value& job) {
     Json::Value msg; msg["type"] = "ai.job"; msg["channel_id"] = channelId; msg["job"] = job;
     std::set<std::string> gms; for (auto& u : gmUsers(channelId)) gms.insert(u);

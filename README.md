@@ -108,6 +108,14 @@ scenario from that line, the closed scenario gets an AI summary in the scenario 
 scenario or by time (`list_scenarios`, `get_chat_log`). The GM can open, summarize and edit scenarios by hand;
 GM-edited summaries are never overwritten. Players see neutral scenario labels only.
 
+**Reminder bubbles** — the players' dock no longer shows journals: their group's knowledge (relationships, clues,
+open threads, and a per-scenario story index) is a hidden prelude the model reads first, a shortcut for searching.
+After each batch the group's observer reads the current scenario and the end of the previous one and points out what the
+players most likely forgot or need, as bubbles on the right. Every bubble is anchored to verbatim quotes from lines the
+group can read (checked by `get_chat_log`; unverifiable quotes are dropped). Clicking a bubble opens the chat log around
+the quoted lines with the passages highlighted in yellow-green, with jump and quote-as-reference. The Keeper keeps the six
+documents.
+
 **Scheduled AI observer** — every 5 s (configurable) per (channel, window, scene) group: cursor-based event reading, DB-level
 task locks (`ai_jobs` partial unique index) plus in-process locks, batch analysis, tool-assisted retrieval, validated commit,
 WebSocket notification, cursor advance. Player groups use independent generation-bound cursors and commits.

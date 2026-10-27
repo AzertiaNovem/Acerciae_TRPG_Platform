@@ -25,6 +25,7 @@ public:
     void proposalPending(const std::string& channelId, const Json::Value& proposal);  // GM only
     void moduleUpdated(const std::string& channelId, const Json::Value& payload);     // GM only
     void aiJobFinished(const std::string& channelId, const Json::Value& job);         // GM only
+    void reminderCreated(const std::string& channelId, const Json::Value& reminder);  // the group it belongs to, or GMs
     void studioEvent(const std::string& channelId, const std::string& kind, const Json::Value& payload, bool gmOnly = false);   // Log Studio progress (TTS, assets, PDF, revisions)
 
     std::vector<std::string> gmUsers(const std::string& channelId);

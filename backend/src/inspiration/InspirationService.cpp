@@ -40,6 +40,7 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     LlmRequest req; req.channelId = a.channelId; req.task = "inspiration"; req.responseSchema = schema(); req.temperature = 0.8;
     req.system = R"(You draft ONE possible in-character response for a player who is unsure what to say next in a Call of Cthulhu / BRP game. Use only the information in known_facts, recent_messages and scene — the character's actual knowledge. Hard rules: do not invent world facts or NPC answers; do not decide whether actions succeed; do not fabricate character backstory; never use module secrets; you may propose an action, a question or a line of dialogue in the character's speaking_style. 2-4 sentences, first person, editable. Output JSON {"draft":"...","used_fact_ids":["..."],"notes":"..."})";
     req.tools = ContextRetrievalService::toolSpecs(false);
+    if (!a.isGm) { LlmMessage k; k.role = "user"; k.content = "KNOWLEDGE INDEX (what this character's group already knows; a shortcut for searching):\n" + retrieval_.knowledgePrelude(view); req.messages.push_back(k); }
     LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
     auto outcome = llm_.runStructured(req, [&](const std::string& n, const Json::Value& args) { return retrieval_.executeTool(view, n, args); }, 3);
     if (!outcome.ok) throw ApiError(502, "llm_error", "inspiration failed: " + outcome.error);

@@ -17,8 +17,8 @@
 namespace acerciae {
 
 ObserverScheduler::ObserverScheduler(const Config& cfg, Db& db, EventStore& events, DocumentService& docs, HighlightService& highlights,
-                                     ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios)
-    : cfg_(cfg), db_(db), events_(events), docs_(docs), highlights_(highlights), retrieval_(retrieval), llm_(llm), notifier_(notifier), knowledge_(knowledge), scenarios_(scenarios) {}
+                                     ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios, ReminderService& reminders)
+    : cfg_(cfg), db_(db), events_(events), docs_(docs), highlights_(highlights), retrieval_(retrieval), llm_(llm), notifier_(notifier), knowledge_(knowledge), scenarios_(scenarios), reminders_(reminders) {}
 ObserverScheduler::~ObserverScheduler() { stop(); }
 
 void ObserverScheduler::start() {

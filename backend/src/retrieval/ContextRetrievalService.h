@@ -26,6 +26,10 @@ public:
     Json::Value getKnowledgeScope(const ChannelAccess& a, const std::string& characterId);
     Json::Value getShard(const ChannelAccess& a, const std::string& shardId);
     Json::Value semanticSearch(const ChannelAccess& a, const std::string& query, int limit);   // pgvector, if enabled
+    // The hidden knowledge index of the caller's memory partition: relationships, clues, open threads and the
+    // story index (scenario outlines). Prepended to player-facing model requests; never shown to users.
+    Json::Value knowledgePreludeJson(const ChannelAccess& a);
+    std::string knowledgePrelude(const ChannelAccess& a);
     // The story's stages in order (Keeper: with summaries; players: neutral labels over readable chat).
     Json::Value listScenarios(const ChannelAccess& a);
     // Verbatim chat lines, the authoritative record: by scenario, window, time range, or around one event.

@@ -69,6 +69,36 @@ Json::Value ContextRetrievalService::searchSceneHistory(const ChannelAccess& a, 
 Json::Value ContextRetrievalService::searchEvents(const ChannelAccess& a, const std::string& query, const std::string& sceneId, int limit) {
     Json::Value out; out["query"] = query; out["events"] = events_.search(a, query, sceneId, std::max(1, std::min(limit, 50))); return out;
 }
+Json::Value ContextRetrievalService::knowledgePreludeJson(const ChannelAccess& a) {
+    Json::Value k;
+    auto pick = [&](const char* type, int limit) {
+        Json::Value arr(Json::arrayValue);
+        for (auto& e : documentSnapshot(a, type, "", limit)["entries"]) {
+            Json::Value x; x["fact_id"] = e["fact_id"]; x["summary"] = e["summary"]; x["status"] = e["status"];
+            if (e["data"].isObject() && e["data"].isMember("title")) x["title"] = e["data"]["title"];
+            if (e["data"].isObject() && e["data"].isMember("relation")) x["relation"] = e["data"]["relation"];
+            x["source_event_ids"] = e["source_event_ids"]; arr.append(x);
+        }
+        return arr;
+    };
+    k["relationships"] = pick("relationships", 40); k["clues"] = pick("clue_journal", 40); k["open_threads"] = pick("open_threads", 30);
+    k["index"] = Json::Value(Json::arrayValue);
+    if (a.isGm) {
+        for (auto& s : db_.queryJson("SELECT id, sequence, title, location, narrative_time, summary, key_points FROM scenes WHERE channel_id=$1 AND summary<>'' ORDER BY sequence", {a.channelId})) k["index"].append(s);
+    } else if (Visibility::isUuid(a.playerGroupId)) {
+        for (auto& o : db_.queryJson("SELECT o.scene_id AS id, s.sequence, 'Scenario '||s.sequence AS title, o.outline AS summary, o.key_points FROM player_scenario_outlines o JOIN scenes s ON s.id=o.scene_id WHERE o.group_id=$1 AND o.group_version=$2 ORDER BY s.sequence", {a.playerGroupId, (int64_t)a.playerGroupVersion})) k["index"].append(o);
+    }
+    return k;
+}
+std::string ContextRetrievalService::knowledgePrelude(const ChannelAccess& a) {
+    auto k = knowledgePreludeJson(a); std::string out;
+    auto section = [&](const char* name, const Json::Value& arr, auto fmt) { if (arr.empty()) return; out += std::string(name) + ":\n"; for (auto& x : arr) { if (out.size() > 9000) break; out += "- " + fmt(x) + "\n"; } };
+    section("Relationships", k["relationships"], [](const Json::Value& x) { return json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
+    section("Clues", k["clues"], [](const Json::Value& x) { auto t = json::str(x, "title"); return (t.empty() ? "" : t + ": ") + json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
+    section("Open threads", k["open_threads"], [](const Json::Value& x) { return json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
+    section("Index", k["index"], [](const Json::Value& x) { return json::str(x, "title") + ": " + json::str(x, "summary"); });
+    return out.empty() ? "(nothing recorded yet)" : out;
+}
 Json::Value ContextRetrievalService::listScenarios(const ChannelAccess& a) {
     if (!a.isGm) return db_.queryJson("SELECT s.id, s.sequence, 'Scenario '||s.sequence AS title, s.status, count(e.id) AS event_count, min(e.created_at) AS first_at, max(e.created_at) AS last_at FROM scenes s JOIN events e ON e.scene_id=s.id WHERE s.channel_id=$1 AND e.kind='message.posted' AND " + Visibility::eventFilter(a) + " GROUP BY s.id ORDER BY s.sequence", {a.channelId});
     return db_.queryJson("SELECT s.id, s.sequence, s.title, s.location, s.narrative_time, s.status, s.summary, s.key_points, s.auto_detected, s.created_at, s.closed_at, (SELECT count(*) FROM events e WHERE e.scene_id=s.id AND e.kind='message.posted') AS event_count, (SELECT min(e.created_at) FROM events e WHERE e.scene_id=s.id) AS first_at, (SELECT max(e.created_at) FROM events e WHERE e.scene_id=s.id) AS last_at FROM scenes s WHERE s.channel_id=$1 ORDER BY s.sequence, s.created_at", {a.channelId});

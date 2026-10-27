@@ -16,6 +16,7 @@
 #include "logstudio/PresentationService.h"
 #include "logstudio/VnScriptService.h"
 #include "scenes/ScenarioService.h"
+#include "reminders/ReminderService.h"
 #include "logstudio/ImageProvider.h"
 #include <iostream>
 #include <functional>
@@ -339,6 +340,27 @@ int main() {
         auto s = ScenarioService::mockSummary(sctx);
         CHECK(s["summary"].asString().find("Boarding house") != std::string::npos); CHECK(s["summary"].asString().find("Harvey Walters") != std::string::npos); CHECK(s["summary"].asString().find("Dice rolled: 1") != std::string::npos);
         CHECK(s["key_points"].size() >= 1); CHECK(s["title"] == "Hale opens the door and you");
+    });
+    test("reminders keep only verbatim quotes from readable lines and the mock planner links new lines to earlier ones", [] {
+        std::map<std::string, Json::Value> readable;
+        Json::Value e1; e1["event_id"] = "e1"; e1["message_id"] = "m1"; e1["chat_window_id"] = "w"; e1["scene_id"] = "s1"; e1["seq"] = 5; e1["content"] = "You find a tarnished badge. It bears a Lantern sigil."; readable["e1"] = e1;
+        auto quotes = json::parse(R"([{"event_id":"e1","text":"It bears a lantern sigil."},{"event_id":"e1","text":"bears a Lantern sigil"},{"event_id":"e1","text":"a golden badge"},{"event_id":"e9","text":"You find"},{"event_id":"e1","text":""}])");
+        auto c = ReminderService::resolveCitations(quotes, readable);
+        CHECK(c.size() == 1); CHECK(c[0]["quotes"].size() == 2); CHECK(c[0]["quotes"][0] == "It bears a Lantern sigil."); CHECK(c[0]["message_id"] == "m1");
+        CHECK(ReminderService::dedupeKey("Said earlier: badge", c) == ReminderService::dedupeKey("said earlier badge!", c));
+        Json::Value ctx;
+        auto line = [](const char* id, int seq, const char* role, const char* who, const char* content) { Json::Value e; e["event_id"] = id; e["seq"] = seq; e["actor_role"] = role; e["character_name"] = who; e["content"] = content; return e; };
+        ctx["previous_tail"].append(line("p1", 1, "gm", "", "Dunmore says: I promise I will bring the lighthouse key tomorrow."));
+        for (int i = 0; i < 10; ++i) ctx["current_log"].append(line(("c" + std::to_string(i)).c_str(), 10 + i, "gm", "", i == 0 ? "On the mantel you notice a tarnished badge; it bears a lantern sigil." : "The rain keeps falling on the roof."));
+        ctx["new_events"].append(line("n1", 30, "player", "Harvey", "That lantern sigil again. And did Dunmore ever bring the lighthouse key?"));
+        ctx["current_log"].append(ctx["new_events"][0]);
+        auto plan = ReminderService::mockPlan(ctx);
+        CHECK(plan["reminders"].size() == 2);
+        bool needed = false, forgotten = false;
+        for (auto& r : plan["reminders"]) { if (r["kind"] == "needed") { needed = true; CHECK(r["quotes"][0]["event_id"] == "p1"); } if (r["kind"] == "forgotten") { forgotten = true; CHECK(r["quotes"][0]["event_id"] == "c0"); } CHECK(r["title"].asString().size() <= 100); }
+        CHECK(needed && forgotten);
+        ctx["existing_titles"].append(plan["reminders"][0]["title"]);
+        CHECK(ReminderService::mockPlan(ctx)["reminders"].size() == 1);
     });
     test("mock speech produces measurable audio and dictionary never alters its source", [] {
         setenv("TTS_PROVIDER","mock",1);auto provider=logstudio::makeTtsProvider();logstudio::TtsSynthesisRequest req;req.text="调查员打开了门。";req.voiceId="mock-cherry";auto r=provider->synthesize(req);CHECK(r.ok&&r.mime=="audio/wav");CHECK(logstudio::wavDurationMs(r.audioBytes)==r.durationMs);CHECK(logstudio::wavDurationMs("RIFFtruncated")==0);

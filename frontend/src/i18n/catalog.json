@@ -9454,5 +9454,101 @@
     "Следующий сценарий",
     "Próximo cenário",
     "Scenario successivo"
+  ],
+  "still open": [
+    "仍未解决",
+    "仍未解決",
+    "未解決",
+    "아직 미해결",
+    "aún abierto",
+    "toujours en suspens",
+    "noch offen",
+    "ещё открыто",
+    "ainda em aberto",
+    "ancora aperto"
+  ],
+  "plan": [
+    "计划",
+    "計劃",
+    "予定",
+    "계획",
+    "plan",
+    "plan",
+    "Plan",
+    "план",
+    "plano",
+    "piano"
+  ],
+  "note": [
+    "笔记",
+    "筆記",
+    "メモ",
+    "메모",
+    "nota",
+    "note",
+    "Notiz",
+    "заметка",
+    "nota",
+    "nota"
+  ],
+  "you may have forgotten": [
+    "你可能忘了",
+    "你可能忘了",
+    "忘れているかも",
+    "잊었을지도 몰라요",
+    "quizá lo olvidaste",
+    "vous l’avez peut-être oublié",
+    "vielleicht vergessen",
+    "возможно, вы забыли",
+    "talvez você tenha esquecido",
+    "forse l'hai dimenticato"
+  ],
+  "Keeper": [
+    "守秘人",
+    "守秘人",
+    "キーパー",
+    "키퍼",
+    "Guardián",
+    "Gardien",
+    "Spielleiter",
+    "Ведущий",
+    "Guardião",
+    "Custode"
+  ],
+  "The highlighted passages are quoted verbatim from the chat; the note above is the AI reminder about them.": [
+    "高亮的段落是聊天记录的原文引用；上方的说明是 AI 对它们的提醒。",
+    "高亮的段落是聊天紀錄的原文引用；上方的說明是 AI 對它們的提醒。",
+    "ハイライト部分はチャットからの原文引用です。上の文はそれについての AI のリマインドです。",
+    "강조된 구절은 채팅에서 그대로 인용한 것이고, 위의 메모는 그에 대한 AI의 알림입니다.",
+    "Los pasajes resaltados se citan literalmente del chat; la nota de arriba es el recordatorio de la IA sobre ellos.",
+    "Les passages surlignés sont cités mot pour mot du chat ; la note ci-dessus est le rappel de l’IA à leur sujet.",
+    "Die markierten Stellen sind wörtlich aus dem Chat zitiert; die Notiz darüber ist die Erinnerung der KI dazu.",
+    "Выделенные отрывки процитированы дословно из чата; заметка выше — напоминание ИИ о них.",
+    "Os trechos destacados são citados literalmente do chat; a nota acima é o lembrete da IA sobre eles.",
+    "I passaggi evidenziati sono citati testualmente dalla chat; la nota sopra è il promemoria dell'IA su di essi."
+  ],
+  "Reminders appear here when the AI notices something you may have forgotten.": [
+    "当 AI 注意到你可能忘记的事情时，提醒会出现在这里。",
+    "當 AI 注意到你可能忘記的事情時，提醒會出現在這裡。",
+    "忘れているかもしれないことに AI が気づくと、ここにリマインドが表示されます。",
+    "AI가 당신이 잊었을지도 모를 것을 발견하면 여기에 알림이 나타납니다.",
+    "Los recordatorios aparecen aquí cuando la IA nota algo que quizá olvidaste.",
+    "Les rappels apparaissent ici quand l’IA remarque quelque chose que vous avez peut-être oublié.",
+    "Erinnerungen erscheinen hier, wenn die KI etwas bemerkt, das du vielleicht vergessen hast.",
+    "Напоминания появляются здесь, когда ИИ замечает то, что вы могли забыть.",
+    "Lembretes aparecem aqui quando a IA percebe algo que você pode ter esquecido.",
+    "I promemoria compaiono qui quando l'IA nota qualcosa che potresti aver dimenticato."
+  ],
+  "Nothing to remind you of yet.": [
+    "暂时没有需要提醒的内容。",
+    "暫時沒有需要提醒的內容。",
+    "今のところリマインドはありません。",
+    "아직 알려 드릴 것이 없습니다.",
+    "Nada que recordar por ahora.",
+    "Rien à rappeler pour l’instant.",
+    "Noch nichts zu erinnern.",
+    "Пока напоминать не о чем.",
+    "Nada para lembrar por enquanto.",
+    "Niente da ricordare per ora."
   ]
 }

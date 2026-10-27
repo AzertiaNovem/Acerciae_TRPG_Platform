@@ -206,3 +206,11 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .item.scenario { gap: 6px; }
 .item.scenario .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scenario-summary { padding: 2px 10px 6px 26px; line-height: 1.35; white-space: pre-wrap; }
+
+/* Reminder bubbles and the chat-log viewer behind them */
+.bubble.reminder { border-left: 3px solid #b5d84a; }
+.bubble.reminder.needed { border-left-color: var(--accent-2); }
+.bubble.quiet { cursor: default; opacity: .7; }
+.reminder-viewer .log-line { padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; }
+.reminder-viewer .log-line.cited { background: rgba(181,216,74,.08); border: 1px solid rgba(181,216,74,.35); }
+.hl-reminder { background: rgba(181,216,74,.55); color: inherit; border-radius: 3px; padding: 0 2px; box-decoration-break: clone; }

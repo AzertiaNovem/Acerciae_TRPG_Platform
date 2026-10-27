@@ -38,6 +38,10 @@ export interface Highlight {
   created_at: string; expires_at: string; doc_type?: DocType;
 }
 export interface Revision { id: string; version: number; actor: string; actor_name: string | null; summary: string; source_event_ids: string[]; created_at: string; op_count: number }
+export interface ReminderCitation { event_id: string; message_id: string | null; chat_window_id: string | null; scene_id: string | null; seq: number; quotes: string[] }
+// A reminder bubble: a short AI note anchored to verbatim quotes from chat lines the reader can see.
+export interface Reminder { id: string; kind: 'forgotten' | 'needed' | 'plan' | 'note'; title: string; why: string; citations: ReminderCitation[]; scene_id: string | null; priority: number; player_group_id: string | null; llm_mode: string; created_at: string; expires_at: string }
+export interface ReminderContextEvent { event_id: string; seq: number; scene_id: string | null; chat_window_id: string | null; window_name: string | null; message_id: string | null; actor_role: string; character_id: string | null; character_name: string | null; author_name: string | null; kind: string; content: string; created_at: string; anchor?: boolean; cited?: boolean; quotes?: string[] }
 export interface EventRow { id: string; kind: string; seq: number; scene_id: string | null; chat_window_id: string | null; message_id: string | null; character_id: string | null; character_name: string | null; scene_title: string | null; created_at: string; payload: { content?: string; [k: string]: unknown } }
 export interface ConsistencyConflict { description: string; severity?: string; evidence_fact_ids: string[]; quote?: string }
 export interface ConsistencyEvidence { fact_id: string; entry_id: string | null; document_id: string | null; document_type: DocType | null; summary: string; status: string; scene_title: string | null; source_event_ids: string[]; role: 'conflict' | 'support' | 'recommended' }

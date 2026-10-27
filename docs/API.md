@@ -76,6 +76,13 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET | `/channels/{id}/proposals?status=needs_gm_review` | (GM) |
 | POST | `/channels/{id}/proposals/{pid}/decide` | `{accept: bool}` (GM) — KP memory proposals only; legacy sharing is retired |
 
+## Reminder bubbles
+| GET | `/channels/{id}/reminders` | active reminders for the caller (players: their group's; GM: the Keeper's), minus the ones they dismissed. `{id, kind: forgotten|needed|plan|note, title, why, citations[{event_id, message_id, chat_window_id, scene_id, seq, quotes[]}], scene_id, priority, llm_mode, created_at, expires_at}`. Each quote is a verbatim substring of a line the group can read; a reminder is never stored without a verified quote. Pushed as `reminder.created` on `/ws/context` to the group (or GMs). |
+| POST | `/channels/{id}/reminders/{rid}/dismiss` | per-user dismissal |
+| GET | `/channels/{id}/reminders/{rid}/context?limit` | the chat log around the first quoted line, viewer-filtered on every call (`events[]` with `cited` and `quotes` on the quoted lines, `anchor_event_id`); 404 for another group |
+
+The group observer raises reminders after each batch of its chat: it reads the group's hidden knowledge index (relationships, clues, open threads, and the story index of per-scenario outlines in `player_scenario_outlines`), the current scenario, the end of the previous one and the newest lines, may fetch more with `get_chat_log`, and proposes at most three "forgotten" or "needed" reminders with quotes. The knowledge index is prepended to player-facing model requests (observer, reminders, consistency, inspiration) and is never shown to players.
+
 ## Highlights
 | GET | `/channels/{id}/highlights?document_id` | active, scope-filtered |
 | POST | `/channels/{id}/highlights/{hid}/dismiss` | |
