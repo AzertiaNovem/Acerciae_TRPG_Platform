@@ -29,6 +29,9 @@ public:
     Json::Value saveProgress(const ChannelAccess& a, const std::string& presentationId, const Json::Value& body);
     Json::Value getProgress(const ChannelAccess& a, const std::string& presentationId);
     Json::Value presentationRow(const ChannelAccess& a, const std::string& presentationId);
+    // The dubbing cast: {character_id | "narrator": voice_profile_id}. Sets the voice of every line by its speaker
+    // (narration, dice and system lines take the narrator) and remembers the table in settings.cast.
+    Json::Value applyCast(const ChannelAccess& a, const std::string& presentationId, const Json::Value& cast);
     // Visual-novel look template (settings.template): a base preset plus bounded overrides.
     // Keys that are absent fall back to the preset's defaults in the player. Unknown keys are dropped;
     // out-of-range or malformed values are rejected so nothing free-form reaches the player's CSS.
@@ -39,9 +42,10 @@ public:
     // regroups and reorders events into the script's scenes, applies staging, hiding and delivery.
     // Canonical text is untouched; every asset is re-checked against the presentation's scope.
     void applyScript(const ChannelAccess& a, const std::string& presentationId, const Json::Value& script);
+    // Bumps the version and tells viewers what changed (also used when generated art lands in a draft).
+    void touch(const std::string& presentationId, const std::string& channelId, const std::string& what);
 private:
     bool canEdit(const ChannelAccess& a, const Json::Value& pres);
-    void touch(const std::string& presentationId, const std::string& channelId, const std::string& what);
     const Config& cfg_; Db& db_; Notifier& notifier_; LogStudioService& studio_;
 };
 

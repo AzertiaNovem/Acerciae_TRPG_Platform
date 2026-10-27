@@ -38,6 +38,8 @@ public:
                               const std::string &asset, std::string &mime);
   std::string sharedFile(const std::string &token, const std::string &asset,
                          std::string &mime);
+  // A zip with a standalone HTML player, the backgrounds and standees it shows and the voice lines it plays.
+  std::string bundle(const ChannelAccess &a, const std::string &presentationId, std::string &fileName);
 
 private:
   std::string frozenFile(const Json::Value &row, const std::string &id,

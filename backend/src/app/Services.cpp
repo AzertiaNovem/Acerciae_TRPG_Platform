@@ -64,7 +64,7 @@ Services& Services::build(const Config& cfg) {
     s.tts = std::make_unique<logstudio::TtsService>(s.cfg, *s.db, *s.objectStore, *s.notifier, *s.presentations, *s.settings);
     s.publication = std::make_unique<logstudio::PublicationService>(*s.db,*s.objectStore,*s.notifier,*s.studio,*s.presentations,*s.media,*s.documents);
     s.creative = std::make_unique<logstudio::CreativeService>(*s.db,*s.media,*s.presentations,*s.studio,*s.llm,*s.notifier);
-    s.vnScripts = std::make_unique<logstudio::VnScriptService>(*s.db,*s.auth,*s.studio,*s.presentations,*s.llm,*s.notifier);
+    s.vnScripts = std::make_unique<logstudio::VnScriptService>(*s.db,*s.auth,*s.studio,*s.presentations,*s.creative,*s.llm,*s.notifier);
     s.characterSpace = std::make_unique<CharacterSpaceService>(*s.db, *s.media, *s.creative, *s.notifier);
     s.scenarios = std::make_unique<ScenarioService>(*s.db, *s.events, *s.scenes, *s.llm, *s.notifier);
     s.reminders = std::make_unique<ReminderService>(*s.db, *s.llm, *s.retrieval, *s.notifier);

@@ -16,7 +16,7 @@ const std::vector<std::string>& ServerSettingsService::languages() {
     return l;
 }
 
-static const char* FEATURES[] = {"consistency", "dice", "inspiration"};
+static const char* FEATURES[] = {"consistency", "dice", "inspiration", "log_studio"};
 
 static std::string keyHint(const std::string& key) {
     return key.size() > 8 ? "…" + key.substr(key.size() - 4) : "set";
@@ -101,15 +101,15 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     auto [llmKey, llmHint] = sealed(llm, "llm_api_key_sealed", "llm_api_key_hint");
     auto [ttsKey, ttsHint] = sealed(tts, "tts_api_key_sealed", "tts_api_key_hint");
 
-    bool feat[3];
-    for (int i = 0; i < 3; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
+    bool feat[4];
+    for (int i = 0; i < 4; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
 
     db_.tx([&](pqxx::work& w) {
         Db::exec(w, "UPDATE servers SET name=$2 WHERE id=$1", {serverId, name});
         Db::exec(w, "UPDATE server_settings SET language=$2, llm_api_base=$3, llm_api_key_sealed=$4, llm_api_key_hint=$5, llm_model=$6, llm_reasoning_effort=$7, "
                     "tts_api_base=$8, tts_api_key_sealed=$9, tts_api_key_hint=$10, tts_model=$11, tts_voice=$12, "
-                    "feature_consistency=$13, feature_dice=$14, feature_inspiration=$15, updated_by=$16, updated_at=now() WHERE server_id=$1",
-            {serverId, language, llmBase, llmKey, llmHint, llmModel, effort, ttsBase, ttsKey, ttsHint, ttsModel, ttsVoice, feat[0], feat[1], feat[2], p.userId});
+                    "feature_consistency=$13, feature_dice=$14, feature_inspiration=$15, feature_log_studio=$17, updated_by=$16, updated_at=now() WHERE server_id=$1",
+            {serverId, language, llmBase, llmKey, llmHint, llmModel, effort, ttsBase, ttsKey, ttsHint, ttsModel, ttsVoice, feat[0], feat[1], feat[2], p.userId, feat[3]});
     });
     auto fresh = row(serverId);
     notifier_.serverSettingsChanged(serverId, publicView(fresh, serverId));

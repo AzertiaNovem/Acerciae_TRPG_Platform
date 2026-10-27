@@ -244,6 +244,31 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
     });
     touch(id, a.channelId, "script");
 }
+Json::Value PresentationService::applyCast(const ChannelAccess& a, const std::string& id, const Json::Value& castIn) {
+    auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
+    if (!castIn.isObject()) throw badRequest("cast must be an object of character_id (or narrator) to voice_profile_id");
+    std::set<std::string> voices; for (auto& v : db_.queryJson("SELECT id FROM voice_profiles WHERE channel_id=$1", {a.channelId})) voices.insert(v["id"].asString());
+    Json::Value cast(Json::objectValue);
+    for (auto it = castIn.begin(); it != castIn.end(); ++it) {
+        auto key = it.name(); auto vid = it->isString() ? it->asString() : "";
+        if (key != "narrator" && !Visibility::isUuid(key)) throw badRequest("invalid cast key " + key);
+        if (!vid.empty() && !voices.count(vid)) throw badRequest("unknown voice profile for " + key);
+        cast[key] = vid;
+    }
+    db_.tx([&](pqxx::work& w) {
+        auto narrator = json::str(cast, "narrator");
+        Db::exec(w, "UPDATE presentation_events SET voice_profile_id=$2::uuid, updated_at=now() WHERE presentation_id=$1 AND display_kind IN ('narration','dice','system','scene_change')", {id, narrator.empty() ? dbNull() : DbParam(narrator)});
+        for (auto it = cast.begin(); it != cast.end(); ++it) {
+            if (it.name() == "narrator") continue;
+            auto vid = it->asString();
+            Db::exec(w, "UPDATE presentation_events SET voice_profile_id=$3::uuid, updated_at=now() WHERE presentation_id=$1 AND speaker_character_id=$2 AND display_kind IN ('dialogue','action')", {id, it.name(), vid.empty() ? dbNull() : DbParam(vid)});
+        }
+        Json::Value settings = p["settings"]; settings["cast"] = cast;
+        Db::exec(w, "UPDATE log_presentations SET settings=$2::jsonb WHERE id=$1", {id, json::dump(settings)});
+    });
+    touch(id, a.channelId, "cast");
+    return get(a, id);
+}
 Json::Value PresentationService::remove(const ChannelAccess& a, const std::string& id) {
     auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
     db_.exec("DELETE FROM log_presentations WHERE id=$1", {id}); Json::Value v; v["deleted"] = true; return v;

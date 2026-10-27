@@ -10,6 +10,7 @@
 #include "PresentationService.h"
 #include "StudioPolicy.h"
 #include <drogon/utils/Utilities.h>
+#include <algorithm>
 #include <set>
 #include <ctime>
 namespace acerciae::logstudio {
@@ -183,6 +184,48 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   cv_.notify_all();
   return j;
 }
+Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud) {
+  if (!provider_)
+    throw badRequest("image generation disabled");
+  if (kind != "background" && kind != "standee")
+    throw badRequest("background or standee required");
+  if (prompt.empty() || prompt.size() > 6000)
+    throw badRequest("prompt required");
+  if (provider_->name() != "mock" && !allowCloud)
+    throw badRequest("confirm cloud processing for the script's prompts");
+  if (provider_->name() != "mock")
+    requireCloudPermission(db_, a.channelId);
+  auto cid = json::str(attach, "character_id");
+  if (kind == "standee" && cid.empty())
+    throw badRequest("standee requires a character");
+  auto style = db_.queryOne("SELECT * FROM visual_style_profiles WHERE channel_id=$1 ORDER BY is_default DESC, created_at LIMIT 1", {a.channelId});
+  Json::Value params;
+  params["style"] = style.isNull() ? Json::Value(Json::objectValue) : style;
+  if (!style.isNull()) params["style_profile_version"] = style["version"];
+  params["request"]["kind"] = kind;
+  params["request"]["style"] = params["style"];
+  params["request"]["prompt"] = prompt;
+  if (!cid.empty()) {
+    auto ch = db_.queryOne("SELECT name, appearance_prompt FROM characters WHERE id=$1 AND channel_id=$2", {cid, a.channelId});
+    if (ch.isNull()) throw notFound("character not found");
+    params["request"]["character"]["name"] = ch["name"];
+    params["request"]["character"]["description"] = ch["appearance_prompt"];
+  }
+  params["attach"] = attach;
+  params["cloud_authorized"] = allowCloud;
+  params["visibility_scope"] = "channel";
+  auto idem = crypto::sha256Hex(a.channelId + provider_->name() + provider_->model() + json::dump(params));
+  auto old = db_.queryOne("SELECT id,status FROM asset_generation_jobs WHERE idempotency_key=$1", {idem});
+  if (!old.isNull())
+    return old;
+  auto j = db_.queryOne(
+      "INSERT INTO asset_generation_jobs(channel_id,kind,provider,prompt,params,style_profile_id,character_id,created_by,idempotency_key) "
+      "VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) RETURNING id,status,kind,params->'attach' AS attach",
+      {a.channelId, kind, provider_->name(), prompt, json::dump(params), style.isNull() ? dbNull() : DbParam(style["id"].asString()), opt(cid), a.userId, idem});
+  logs_.audit(a, "image.request", j);
+  cv_.notify_all();
+  return j;
+}
 Json::Value CreativeService::cancel(const ChannelAccess &a,
                                     const std::string &id) {
   if (!a.isGm)
@@ -252,13 +295,16 @@ void CreativeService::run(const Json::Value &j) {
       return;
     const Json::Value &attachTo = j["params"]["attach"];
     const bool forCharacter = attachTo.isObject() && attachTo.isMember("character_id");
+    const bool forScript = attachTo.isObject() && attachTo.isMember("presentation_id");
     Json::Value m;
     m["name"] =
         (provider_->name() == "mock" ? "MOCK test pattern: " : "Candidate: ") +
         j["kind"].asString();
     // A character's own art is the actor's to use at once; everything else waits for the Keeper's review.
-    m["approval_status"] = forCharacter ? "approved" : "candidate";
-    m["visibility_scope"] = forCharacter ? "channel" : "gm";
+    // Script art lands straight in the draft it was asked for; the author reviews it in the player.
+    m["approval_status"] = forCharacter || forScript ? "approved" : "candidate";
+    m["visibility_scope"] = forCharacter || forScript ? "channel" : "gm";
+    if (forScript && !forCharacter) m["name"] = "Background · " + json::str(attachTo, "scene_title", json::str(attachTo, "scene_key"));
     if (forCharacter) { m["name"] = json::str(j["params"]["request"]["character"], "name") + " · " + (json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot")); m["expression"] = json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot"); }
     m["generation_provider"] = provider_->name();
     m["generation_model"] = provider_->model();
@@ -291,11 +337,36 @@ void CreativeService::run(const Json::Value &j) {
       auto row = db_.queryOne("SELECT * FROM characters WHERE id=$1", {cid});
       if (!row.isNull()) notifier_.characterUpdated(j["channel_id"].asString(), row);
     }
+    if (forScript) {
+      auto pid = json::str(attachTo, "presentation_id"), aid = asset["id"].asString();
+      auto ver = (int64_t)json::toInt(asset, "version", 1);
+      if (j["kind"].asString() == "background") {
+        db_.exec("UPDATE presentation_scenes SET background_asset_id=$2, background_asset_version=$3 WHERE presentation_id=$1 AND canonical_scene_key=$4 AND background_asset_id IS NULL",
+                 {pid, aid, ver, json::str(attachTo, "scene_key")});
+      } else if (forCharacter) {
+        // Every placement of this character with this subtitle takes the new art (it may have shown a stand-in);
+        // placements without art take it as well.
+        auto cid = json::str(attachTo, "character_id"), subtitle = json::str(attachTo, "subtitle");
+        for (const auto &ev : db_.queryJson("SELECT id, character_asset_ids FROM presentation_events WHERE presentation_id=$1 AND character_asset_ids::text LIKE '%' || $2 || '%'", {pid, cid})) {
+          Json::Value stage = ev["character_asset_ids"]; bool changed = false;
+          for (auto &pl : stage) {
+            if (json::str(pl, "character_id") != cid) continue;
+            auto expr = json::str(pl, "expression");
+            std::transform(expr.begin(), expr.end(), expr.begin(), ::toupper);
+            if (expr != subtitle && pl["asset_id"].isString()) continue;
+            pl["asset_id"] = aid; pl["asset_version"] = (Json::Int64)ver; changed = true;
+          }
+          if (changed) db_.exec("UPDATE presentation_events SET character_asset_ids=$2::jsonb, updated_at=now() WHERE id=$1", {ev["id"].asString(), json::dump(stage)});
+        }
+      }
+      pres_.touch(pid, j["channel_id"].asString(), "art");
+    }
     Json::Value out;
     out["job_id"] = id;
     out["asset_id"] = asset["id"];
+    if (forScript) out["presentation_id"] = attachTo["presentation_id"];
     notifier_.studioEvent(j["channel_id"].asString(), "asset.generated", out,
-                          true);
+                          !(forCharacter || forScript));
   } catch (const std::exception &e) {
     db_.exec("UPDATE asset_generation_jobs SET "
              "status='failed',error=$2,updated_at=now() WHERE id=$1 AND "

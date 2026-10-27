@@ -1,4 +1,6 @@
 #include "PublicationService.h"
+#include "VnBundle.h"
+#include "../core/Zip.h"
 #include "../core/Crypto.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
@@ -464,5 +466,45 @@ std::string PublicationService::frozenFile(const Json::Value &r,
     throw notFound("file missing");
   mime = file["mime"].asString();
   return *bytes;
+}
+
+std::string PublicationService::bundle(const ChannelAccess &a, const std::string &presentationId, std::string &fileName) {
+  auto p = pres_.get(a, presentationId);   // viewer-filtered: a GM-only draft never reaches a player
+  std::vector<std::pair<std::string, std::string>> files;
+  std::map<std::string, std::string> assetPath;   // asset id → relative path inside the bundle
+  auto ext = [](const std::string &mime) { return mime == "image/png" ? "png" : mime == "image/jpeg" ? "jpg" : mime == "image/webp" ? "webp" : mime == "image/gif" ? "gif" : mime == "image/svg+xml" ? "svg" : mime == "audio/wav" ? "wav" : mime == "audio/mpeg" ? "mp3" : mime == "audio/ogg" ? "ogg" : "bin"; };
+  auto image = [&](const Json::Value &idv, int version) -> std::string {
+    if (!idv.isString() || idv.asString().empty()) return "";
+    auto id = idv.asString();
+    if (assetPath.count(id)) return assetPath[id];
+    std::string bytes, mime, name;
+    if (!media_.fetch(a, id, version, bytes, mime, name) || mime.rfind("image/", 0) != 0) return "";
+    auto path = "assets/" + id.substr(0, 8) + "." + ext(mime);
+    files.push_back({path, bytes}); assetPath[id] = path; return path;
+  };
+  Json::Value data; data["title"] = p["title"]; data["template"] = p["settings"]["template"].isObject() ? p["settings"]["template"] : Json::Value(Json::objectValue);
+  data["scenes"] = Json::Value(Json::arrayValue);
+  for (const auto &sc : p["scenes"]) { Json::Value x; x["id"] = sc["id"]; x["title"] = sc["title"]; auto bg = image(sc["background_asset_id"], json::toInt(sc, "background_asset_version", 0)); x["background"] = bg.empty() ? Json::Value() : Json::Value(bg); data["scenes"].append(x); }
+  std::map<std::string, std::string> names; for (const auto &c : db_.queryJson("SELECT id, name FROM characters WHERE channel_id=$1", {a.channelId})) names[c["id"].asString()] = c["name"].asString();
+  data["events"] = Json::Value(Json::arrayValue);
+  for (const auto &e : p["events"]) {
+    if (e["hidden"].asBool()) continue;
+    Json::Value x; x["id"] = e["id"]; x["scene_id"] = e["scene_id"]; x["kind"] = e["display_kind"]; x["text"] = e["display_text"];
+    x["speaker"] = e["speaker_name_override"].isString() ? e["speaker_name_override"] : e["character_name"].isString() ? e["character_name"] : e["speaker_display_name"];
+    x["stage"] = Json::Value(Json::arrayValue);
+    for (const auto &pl : e["character_asset_ids"]) { Json::Value c; auto cid = json::str(pl, "character_id"); c["name"] = names.count(cid) ? names[cid] : ""; c["position"] = pl["position"]; c["active"] = json::toBool(pl, "active") || cid == json::str(e, "speaker_character_id"); auto img = image(pl["asset_id"], json::toInt(pl, "asset_version", 0)); c["image"] = img.empty() ? Json::Value() : Json::Value(img); x["stage"].append(c); }
+    if (e["dice"].isObject() && !e["dice"]["total"].isNull()) { x["dice"]["total"] = e["dice"]["total"]; x["dice"]["outcome"] = e["dice"]["outcome"]; }
+    if (e["audio_asset_id"].isString()) {
+      auto au = db_.queryOne("SELECT object_key, mime FROM tts_audio_assets WHERE id=$1 AND channel_id=$2", {e["audio_asset_id"].asString(), a.channelId});
+      if (!au.isNull()) { auto bytes = store_.get(au["object_key"].asString()); if (bytes) { auto path = "audio/" + e["id"].asString().substr(0, 8) + "." + ext(au["mime"].asString()); files.push_back({path, *bytes}); x["audio"] = path; } }
+    }
+    data["events"].append(x);
+  }
+  files.insert(files.begin(), {"index.html", renderStandaloneVn(data)});
+  files.push_back({"script.json", json::dump(data, true)});
+  std::string base; for (unsigned char c : p["title"].asString()) base += (isalnum(c) || c >= 0x80) ? (char)c : '_';
+  fileName = (base.empty() ? "visual-novel" : base.substr(0, 40)) + ".zip";
+  logs_.audit(a, "presentation.bundle", Json::Value(presentationId));
+  return zip::build(files);
 }
 } // namespace acerciae::logstudio

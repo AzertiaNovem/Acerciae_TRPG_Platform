@@ -325,6 +325,55 @@ int main() {
         bool merged = false; for (auto& sc : zh["scenes"]) if (sc["key"] == "码头") merged = sc["lines"].size() >= 2;
         CHECK(merged);
     });
+    test("visual-novel transcript: time blocks, speaker labels, flat answers become scenes and art requests", [] {
+        using logstudio::VnScriptService; using logstudio::LogEvent;
+        logstudio::ScriptInputs in; in.era = "1920s Arkham";
+        auto ev = [&](std::string id, std::string win, std::string type, std::string who, std::string name, std::string role, std::string text, long long t) {
+            LogEvent e; e.eventId = id; e.chatWindowId = win; e.sceneKey = "s1"; e.sceneTitle = "Harbour"; e.eventType = type; e.speakerCharacterId = who; e.speakerDisplayName = name; e.speakerRole = role; e.content = text; e.occurredAtUnix = t; return e; };
+        const long long T = 1700000000;   // 2023-11-14 22:13 UTC
+        in.events = {ev("e1","wA","narration","","Keeper","gm","Fog rolls over the harbour.",T), ev("e2","wA","dialogue","c2","Mo","pc","I keep watch.",T+60),
+                     ev("e3","wA","ooc","c2","Mo","pc","brb",T+90), ev("e4","wA","dialogue","npc1","Old Tom","npc","Storm's coming.",T+120),
+                     ev("e5","wA","action","c1","Ada","pc","She lights the lamp.",T+4000), ev("e6","wA","dialogue","c1","Ada","pc","Who's there?",T+4100)};
+        in.windowNames = {{"wA","Main table"}};
+        in.cast = json::parse(R"([{"ref":"C1","character_id":"c1","name":"Ada","kind":"pc","default_asset_id":null,"asset_mode":"generated","subtitles":["IDLE"],"appearance_prompt":"red-haired librarian in a grey coat"},
+                                  {"ref":"C2","character_id":"c2","name":"Mo","kind":"pc","default_asset_id":"std-mo","asset_mode":"uploaded","subtitles":["IDLE"],"appearance_prompt":""},
+                                  {"ref":"C3","character_id":"npc1","name":"Old Tom","kind":"npc","default_asset_id":null,"asset_mode":"uploaded","subtitles":[],"appearance_prompt":""}])");
+        in.assets = json::parse(R"([{"ref":"S1","id":"std-ada-idle","type":"standee","name":"Ada · IDLE","tags":[],"character_id":"c1","expression":"IDLE"}])");
+        // A gap longer than an hour between e4 and e5 opens the second block.
+        auto blocks = VnScriptService::blocks(in.events); CHECK(blocks.size() == 2); CHECK(blocks[1].first == 4);
+        CHECK(VnScriptService::blocks(in.events, 10000).size() == 1);
+        CHECK(VnScriptService::speakerLabel(in.events[0]) == "KP(Narrative)"); CHECK(VnScriptService::speakerLabel(in.events[2]) == "Mo(OOC)");
+        CHECK(VnScriptService::speakerLabel(in.events[3]) == "KP(as Old Tom)"); CHECK(VnScriptService::speakerLabel(in.events[1]) == "Mo");
+        auto t = VnScriptService::transcript(in, 0, 4, Json::Value(Json::arrayValue));
+        CHECK(t.find("Era: 1920s Arkham") != std::string::npos); CHECK(t.find("C1 \"Ada\" mode=generated subtitles=[IDLE] prompt=\"red-haired") != std::string::npos);
+        CHECK(t.find("## Window: Main table") != std::string::npos); CHECK(t.find("[L1] KP(Narrative)(22:13): Fog rolls over the harbour.") != std::string::npos);
+        CHECK(t.find("[L3] Mo(OOC)(22:14): brb") != std::string::npos); CHECK(t.find("[L5]") == std::string::npos);
+        // Mock answer: SAY/IDLE portraits, a background to generate, OOC left out.
+        auto flat = VnScriptService::mockFlat(in, 0, in.events.size());
+        CHECK(flat["script"].size() == 5); CHECK(flat["generate_backgrounds"].size() == 1); CHECK(flat["generate_backgrounds"][0]["name"] == "Harbour");
+        CHECK(flat["generate_portraits"].size() == 1); CHECK(flat["generate_portraits"][0]["char"] == "C1"); CHECK(flat["generate_portraits"][0]["subtitle"] == "SAY");
+        CHECK(flat["generate_portraits"][0]["prompt"].asString().find("1920s Arkham") == 0);
+        CHECK(flat["script"][1]["portrait"] == "IDLE");   // Mo is uploaded-mode: SAY is not in the list, so the first listed subtitle is used
+        auto script = VnScriptService::normalize(in, {VnScriptService::fromFlat(in, {flat})}, "mock");
+        CHECK(script["scenes"].size() == 1); CHECK(script["scenes"][0]["title"] == "Harbour"); CHECK(script["scenes"][0]["background_asset_id"].isNull());
+        CHECK(script["scenes"][0]["lines"].size() == 6); CHECK(script["scenes"][0]["lines"][2]["hidden"].asBool());
+        CHECK(script["scenes"][0]["lines"][4]["stage"].size() == 2);   // Mo stays beside Ada
+        CHECK(script["scenes"][0]["lines"][4]["stage"][1]["asset_id"] == "std-ada-idle");   // Ada's IDLE art is already there
+        CHECK(script["scenes"][0]["lines"][5]["stage"][1]["expression"] == "SAY"); CHECK(script["scenes"][0]["lines"][5]["stage"][1]["asset_id"] == "std-ada-idle");   // stand-in until SAY art lands
+        CHECK(script["asset_needs"].size() == 2); CHECK(script["asset_needs"][0]["kind"] == "standee"); CHECK(script["asset_needs"][0]["subtitle"] == "SAY");
+        CHECK(script["asset_needs"][1]["kind"] == "background"); CHECK(script["asset_needs"][1]["name"] == "Harbour"); CHECK(script["asset_needs"][1]["scene_key"] == "harbour");
+        // A model answer: a background change opens a new scene; an uploaded-mode portrait request is refused; copied text resolves to its line.
+        auto llm = json::parse(R"({"generate_backgrounds":[{"name":"Lighthouse","prompt":"1920s lighthouse at night"}],
+                                   "generate_portraits":[{"char":"C2","subtitle":"FIGHT","prompt":"x"},{"char":"C1","subtitle":"FIGHT","prompt":"Ada ready to fight"}],
+                                   "script":[{"ref":"L1","background":"Harbour"},{"ref":"L2","speaker":"C2","background":"Harbour","portrait":"FIGHT"},
+                                             {"text":"She lights the lamp.","speaker":"C1","background":"Lighthouse","portrait":"FIGHT"},{"ref":"L6","speaker":"C1","portrait":"SAY"}]})");
+        auto plan = VnScriptService::fromFlat(in, {llm});
+        CHECK(plan["scenes"].size() == 2); CHECK(plan["scenes"][1]["title"] == "Lighthouse"); CHECK(plan["scenes"][1]["background"]["brief"] == "1920s lighthouse at night");
+        CHECK(plan["scenes"][1]["lines"].size() == 2); CHECK(plan["scenes"][1]["lines"][0]["ref"] == "L5");
+        CHECK(plan["scenes"][0]["lines"][1]["stage"][0]["expr"] == "default");   // FIGHT is not in Mo's uploaded list
+        CHECK(plan["asset_needs"].size() == 3);   // Ada's FIGHT portrait, the harbour and the lighthouse, not Mo's
+        CHECK(plan["excluded"].size() == 1); CHECK(plan["excluded"][0]["ref"] == "L3");
+    });
     test("scenario detection fires only on Keeper time or place shifts with enough history; summaries use only the log", [] {
         Json::Value ctx; ctx["current"]["event_count"] = 10; ctx["current"]["manual_move"] = false;
         auto ev = [](const char* id, const char* role, const char* content) { Json::Value e; e["event_id"] = id; e["kind"] = "message.posted"; e["actor_role"] = role; e["content"] = content; return e; };

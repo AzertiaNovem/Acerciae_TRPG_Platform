@@ -93,6 +93,14 @@ void route3(const std::string& path, std::vector<drogon::internal::HttpConstrain
     app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b, std::string c) { run(req, std::move(cb), {a, b, c}, fn, auth); }, m);
 }
 ChannelAccess access(const Principal& p, const std::string& channelId) { return services().auth->channelAccess(p.userId, channelId); }
+// The Log Studio opens for every member only when the server maintainer has not turned it off and the GM has not hidden it.
+ChannelAccess studioAccess(const Principal& p, const std::string& channelId) {
+    auto a = access(p, channelId);
+    if (!services().settings->featureEnabled(a.serverId, "log_studio")) throw ApiError(403, "studio_disabled", "The Log Studio is turned off by the server maintainer");
+    auto row = services().db->queryOne("SELECT studio_visible FROM channels WHERE id=$1", {a.channelId});
+    if (row.isNull() || !row["studio_visible"].asBool()) throw ApiError(403, "studio_hidden", "The Keeper has hidden the Log Studio in this channel");
+    return a;
+}
 Json::Value ok() { Json::Value v; v["ok"] = true; return v; }
 
 } // namespace
@@ -270,67 +278,67 @@ void registerRoutes() {
     route3("/api/channels/{1}/modules/{2}/pages/{3}", {Get}, [&](auto&, auto& p, auto& a) { return S.modules->page(access(p, a[0]), a[1], std::stoi(a[2])); });
     route1("/api/channels/{1}/gm/workspace", {Get}, [&](auto&, auto& p, auto& a) { return S.modules->gmWorkspace(access(p, a[0])); });
 
-    route1("/api/channels/{1}/studio/images/status", {Get}, [&](auto&, auto& p, auto& a) { return S.creative->status(access(p,a[0])); });
-    route1("/api/channels/{1}/studio/images/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.creative->jobs(access(p,a[0])); });
-    route1("/api/channels/{1}/studio/images/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->create(access(p,a[0]),body(req)); });
-    route2("/api/channels/{1}/studio/images/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.creative->cancel(access(p,a[0]),a[1]); });
-    route1("/api/channels/{1}/studio/vn-scripts/status", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->status(access(p,a[0])); });
-    route1("/api/channels/{1}/studio/vn-scripts", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->list(access(p,a[0])); });
-    route1("/api/channels/{1}/studio/vn-scripts", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->create(access(p,a[0]),body(req)); });
-    route2("/api/channels/{1}/studio/vn-scripts/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->get(access(p,a[0]),a[1]); });
-    route2("/api/channels/{1}/studio/vn-scripts/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.vnScripts->cancel(access(p,a[0]),a[1]); });
-    route2("/api/channels/{1}/studio/presentations/{2}/suggest", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->suggest(access(p,a[0]),a[1],body(req)); });
-    route1("/api/channels/{1}/studio/pdf/templates", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->templates(access(p,a[0])); });
-    route1("/api/channels/{1}/studio/pdf/templates", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->saveTemplate(access(p,a[0]),body(req)); });
-    route2("/api/channels/{1}/studio/snapshots/{2}/pdf", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->createPdf(access(p,a[0]),a[1],body(req)); });
-    route1("/api/channels/{1}/studio/pdf/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->pdfJobs(access(p,a[0])); });
-    route2("/api/channels/{1}/studio/pdf/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->pdfJob(access(p,a[0]),a[1]); });
-    route1("/api/channels/{1}/studio/publications", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->publications(access(p,a[0])); });
-    route1("/api/channels/{1}/studio/publications", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->publish(access(p,a[0]),body(req)); });
-    route2("/api/channels/{1}/studio/publications/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->publication(access(p,a[0]),a[1]); });
-    route2("/api/channels/{1}/studio/publications/{2}/revoke", {Post}, [&](auto&, auto& p, auto& a) { return S.publication->revoke(access(p,a[0]),a[1]); });
+    route1("/api/channels/{1}/studio/images/status", {Get}, [&](auto&, auto& p, auto& a) { return S.creative->status(studioAccess(p,a[0])); });
+    route1("/api/channels/{1}/studio/images/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.creative->jobs(studioAccess(p,a[0])); });
+    route1("/api/channels/{1}/studio/images/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->create(studioAccess(p,a[0]),body(req)); });
+    route2("/api/channels/{1}/studio/images/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.creative->cancel(studioAccess(p,a[0]),a[1]); });
+    route1("/api/channels/{1}/studio/vn-scripts/status", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->status(studioAccess(p,a[0])); });
+    route1("/api/channels/{1}/studio/vn-scripts", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->list(studioAccess(p,a[0])); });
+    route1("/api/channels/{1}/studio/vn-scripts", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->create(studioAccess(p,a[0]),body(req)); });
+    route2("/api/channels/{1}/studio/vn-scripts/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->get(studioAccess(p,a[0]),a[1]); });
+    route2("/api/channels/{1}/studio/vn-scripts/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.vnScripts->cancel(studioAccess(p,a[0]),a[1]); });
+    route2("/api/channels/{1}/studio/presentations/{2}/suggest", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->suggest(studioAccess(p,a[0]),a[1],body(req)); });
+    route1("/api/channels/{1}/studio/pdf/templates", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->templates(studioAccess(p,a[0])); });
+    route1("/api/channels/{1}/studio/pdf/templates", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->saveTemplate(studioAccess(p,a[0]),body(req)); });
+    route2("/api/channels/{1}/studio/snapshots/{2}/pdf", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->createPdf(studioAccess(p,a[0]),a[1],body(req)); });
+    route1("/api/channels/{1}/studio/pdf/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->pdfJobs(studioAccess(p,a[0])); });
+    route2("/api/channels/{1}/studio/pdf/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->pdfJob(studioAccess(p,a[0]),a[1]); });
+    route1("/api/channels/{1}/studio/publications", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->publications(studioAccess(p,a[0])); });
+    route1("/api/channels/{1}/studio/publications", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->publish(studioAccess(p,a[0]),body(req)); });
+    route2("/api/channels/{1}/studio/publications/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->publication(studioAccess(p,a[0]),a[1]); });
+    route2("/api/channels/{1}/studio/publications/{2}/revoke", {Post}, [&](auto&, auto& p, auto& a) { return S.publication->revoke(studioAccess(p,a[0]),a[1]); });
     route1("/api/published/{1}", {Get}, [&](auto&, auto&, auto& a) { return S.publication->shared(a[0]); },false);
     auto workerAuth=[](const HttpRequestPtr& req) { const char* key=std::getenv("PDF_WORKER_TOKEN"); if(!key||std::string(key).size()<32||req->getHeader("X-Worker-Token")!=key) throw forbidden("invalid worker credentials"); };
     route0("/api/internal/pdf/claim", {Post}, [&,workerAuth](auto& req, auto&, auto&) { workerAuth(req); return S.publication->claimPdf(); },false);
     route1("/api/internal/pdf/{1}/finish", {Post}, [&,workerAuth](auto& req, auto&, auto& a) { workerAuth(req); return S.publication->finishPdf(a[0],req->getHeader("X-Worker-Lease"),std::string(req->getBody()),req->getHeader("X-Worker-Error")); },false);
     app().registerHandler("/api/channels/{1}/studio/pdf/jobs/{2}/file", [&](const HttpRequestPtr& req,Cb&& cb,std::string ch,std::string id) {
-        try { auto p=S.auth->authenticate(bearer(req)); if(!p) throw ApiError(401,"unauthorized","authentication required"); auto data=S.publication->pdfBytes(access(*p,ch),id); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString("application/pdf"); r->addHeader("Cache-Control","private, no-store"); r->addHeader("Content-Disposition","inline; filename=log.pdf"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","PDF unavailable")); }
+        try { auto p=S.auth->authenticate(bearer(req)); if(!p) throw ApiError(401,"unauthorized","authentication required"); auto data=S.publication->pdfBytes(studioAccess(*p,ch),id); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString("application/pdf"); r->addHeader("Cache-Control","private, no-store"); r->addHeader("Content-Disposition","inline; filename=log.pdf"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","PDF unavailable")); }
     },{Get});
     app().registerHandler("/api/channels/{1}/studio/publications/{2}/files/{3}", [&](const HttpRequestPtr& req,Cb&& cb,std::string ch,std::string pub,std::string id) {
-        try { auto p=S.auth->authenticate(bearer(req)); if(!p)throw ApiError(401,"unauthorized","authentication required"); std::string mime; auto data=S.publication->publicationFile(access(*p,ch),pub,id,mime); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Cache-Control","no-store"); r->addHeader("X-Content-Type-Options","nosniff"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","file unavailable")); }
+        try { auto p=S.auth->authenticate(bearer(req)); if(!p)throw ApiError(401,"unauthorized","authentication required"); std::string mime; auto data=S.publication->publicationFile(studioAccess(*p,ch),pub,id,mime); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Cache-Control","no-store"); r->addHeader("X-Content-Type-Options","nosniff"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","file unavailable")); }
     },{Get});
     app().registerHandler("/api/published/{1}/files/{2}", [&](const HttpRequestPtr&,Cb&& cb,std::string token,std::string id) {
         try { std::string mime; auto data=S.publication->sharedFile(token,id,mime); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Cache-Control","no-store"); r->addHeader("X-Content-Type-Options","nosniff"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","file unavailable")); }
     },{Get});
 
-    route1("/api/channels/{1}/studio/settings", {Get}, [&](auto&,auto& p,auto& a){return S.studio->settings(access(p,a[0]));});
-    route1("/api/channels/{1}/studio/settings", {Put}, [&](auto& req,auto& p,auto& a){return S.studio->saveSettings(access(p,a[0]),body(req));});
+    route1("/api/channels/{1}/studio/settings", {Get}, [&](auto&,auto& p,auto& a){return S.studio->settings(studioAccess(p,a[0]));});
+    route1("/api/channels/{1}/studio/settings", {Put}, [&](auto& req,auto& p,auto& a){return S.studio->saveSettings(studioAccess(p,a[0]),body(req));});
 
     // ---- Log Studio: the campaign log, snapshots, exports ----
-    route1("/api/channels/{1}/studio/log", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->campaignLog(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/log", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->campaignLog(studioAccess(p, a[0])); });
     app().registerHandler("/api/channels/{1}/studio/log/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch) {
         try {
             auto pr = S.auth->authenticate(bearer(req)); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
-            std::string mime, name; auto data = S.studio->exportLog(access(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name);
+            std::string mime, name; auto data = S.studio->exportLog(studioAccess(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name);
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
     }, {Get});
-    route1("/api/channels/{1}/studio/projects", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listProjects(access(p, a[0])); });
-    route1("/api/channels/{1}/studio/projects", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createProject(access(p, a[0]), body(req)); });
-    route2("/api/channels/{1}/studio/projects/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->getProject(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/projects/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.studio->updateProject(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/projects/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.studio->deleteProject(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/projects/{2}/events", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->listEvents(access(p, a[0]), a[1], qint(req, "limit", 500), qint(req, "after_seq", 0), req->getParameter("scene_key")); });
-    route3("/api/channels/{1}/studio/projects/{2}/events/{3}", {Put}, [&](auto& req, auto& p, auto& a) { return S.studio->updateEvent(access(p, a[0]), a[1], a[2], body(req)); });
-    route2("/api/channels/{1}/studio/projects/{2}/scenes", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->sceneSummary(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/projects/{2}/sync", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->syncFromChannel(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/projects/{2}/snapshots", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listSnapshots(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/projects/{2}/snapshots", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createSnapshot(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/snapshots/{2}", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->getSnapshot(access(p, a[0]), a[1], req->getParameter("events") != "false"); });
+    route1("/api/channels/{1}/studio/projects", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listProjects(studioAccess(p, a[0])); });
+    route1("/api/channels/{1}/studio/projects", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createProject(studioAccess(p, a[0]), body(req)); });
+    route2("/api/channels/{1}/studio/projects/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->getProject(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.studio->updateProject(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/projects/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.studio->deleteProject(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/events", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->listEvents(studioAccess(p, a[0]), a[1], qint(req, "limit", 500), qint(req, "after_seq", 0), req->getParameter("scene_key")); });
+    route3("/api/channels/{1}/studio/projects/{2}/events/{3}", {Put}, [&](auto& req, auto& p, auto& a) { return S.studio->updateEvent(studioAccess(p, a[0]), a[1], a[2], body(req)); });
+    route2("/api/channels/{1}/studio/projects/{2}/scenes", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->sceneSummary(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/sync", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->syncFromChannel(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/projects/{2}/snapshots", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listSnapshots(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/projects/{2}/snapshots", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createSnapshot(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/snapshots/{2}", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->getSnapshot(studioAccess(p, a[0]), a[1], req->getParameter("events") != "false"); });
     app().registerHandler("/api/channels/{1}/studio/snapshots/{2}/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string snap) {
         try {
             auto pr = S.auth->authenticate(bearer(req)); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
-            std::string mime, name; auto data = S.studio->exportSnapshot(access(*pr, ch), snap, req->getParameter("format").empty() ? "json" : req->getParameter("format"), mime, name);
+            std::string mime, name; auto data = S.studio->exportSnapshot(studioAccess(*pr, ch), snap, req->getParameter("format").empty() ? "json" : req->getParameter("format"), mime, name);
             auto r = HttpResponse::newHttpResponse(); r->setBody(data); r->setContentTypeString(mime);
             if (req->getParameter("download") == "1") r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
             cb(r);
@@ -364,53 +372,63 @@ void registerRoutes() {
     }, {Get});
 
     // ---- Log Studio: presentations (performance timeline) ----
-    route1("/api/channels/{1}/studio/presentations", {Get}, [&](auto& req, auto& p, auto& a) { return S.presentations->list(access(p, a[0]), req->getParameter("project_id")); });
-    route2("/api/channels/{1}/studio/snapshots/{2}/presentations", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->create(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/presentations/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.presentations->get(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/presentations/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->update(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/presentations/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.presentations->remove(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/presentations/{2}/events/bulk", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->bulkUpdateEvents(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/presentations/{2}/merge", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->mergeEvents(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/presentations/{2}/reorder", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->reorder(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/presentations/{2}/progress", {Get}, [&](auto&, auto& p, auto& a) { return S.presentations->getProgress(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/presentations/{2}/progress", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->saveProgress(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/pscenes/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->updateScene(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/pevents/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->updateEvent(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/pevents/{2}/split", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->splitEvent(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/pevents/{2}/suggestion", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->acceptSuggestion(access(p, a[0]), a[1], json::toBool(body(req), "accept", false)); });
+    route1("/api/channels/{1}/studio/presentations", {Get}, [&](auto& req, auto& p, auto& a) { return S.presentations->list(studioAccess(p, a[0]), req->getParameter("project_id")); });
+    route2("/api/channels/{1}/studio/snapshots/{2}/presentations", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->create(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.presentations->get(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/presentations/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->update(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.presentations->remove(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/presentations/{2}/events/bulk", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->bulkUpdateEvents(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/merge", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->mergeEvents(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/reorder", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->reorder(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/progress", {Get}, [&](auto&, auto& p, auto& a) { return S.presentations->getProgress(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/presentations/{2}/progress", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->saveProgress(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/pscenes/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->updateScene(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/pevents/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->updateEvent(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/pevents/{2}/split", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->splitEvent(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/pevents/{2}/suggestion", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->acceptSuggestion(studioAccess(p, a[0]), a[1], json::toBool(body(req), "accept", false)); });
 
     // ---- Log Studio: visual styles / character visuals ----
-    route1("/api/channels/{1}/studio/styles", {Get}, [&](auto&, auto& p, auto& a) { return S.styles->listStyles(access(p, a[0])); });
-    route1("/api/channels/{1}/studio/styles", {Post}, [&](auto& req, auto& p, auto& a) { return S.styles->createStyle(access(p, a[0]), body(req)); });
-    route2("/api/channels/{1}/studio/styles/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.styles->updateStyle(access(p, a[0]), a[1], body(req)); });
-    route1("/api/channels/{1}/studio/character-visuals", {Get}, [&](auto&, auto& p, auto& a) { return S.styles->listCharacterVisuals(access(p, a[0])); });
-    route2("/api/channels/{1}/studio/character-visuals/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.styles->upsertCharacterVisual(access(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/studio/styles", {Get}, [&](auto&, auto& p, auto& a) { return S.styles->listStyles(studioAccess(p, a[0])); });
+    route1("/api/channels/{1}/studio/styles", {Post}, [&](auto& req, auto& p, auto& a) { return S.styles->createStyle(studioAccess(p, a[0]), body(req)); });
+    route2("/api/channels/{1}/studio/styles/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.styles->updateStyle(studioAccess(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/studio/character-visuals", {Get}, [&](auto&, auto& p, auto& a) { return S.styles->listCharacterVisuals(studioAccess(p, a[0])); });
+    route2("/api/channels/{1}/studio/character-visuals/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.styles->upsertCharacterVisual(studioAccess(p, a[0]), a[1], body(req)); });
 
     // ---- Log Studio: TTS ----
-    route1("/api/channels/{1}/studio/tts/status", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->status(access(p, a[0])); });
-    route1("/api/channels/{1}/studio/tts/available-voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->availableVoices(access(p, a[0])); });
-    route1("/api/channels/{1}/studio/tts/usage", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->usage(access(p, a[0])); });
-    route1("/api/channels/{1}/studio/voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listVoices(access(p, a[0])); });
+    route1("/api/channels/{1}/studio/tts/status", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->status(studioAccess(p, a[0])); });
+    route1("/api/channels/{1}/studio/tts/available-voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->availableVoices(studioAccess(p, a[0])); });
+    route1("/api/channels/{1}/studio/tts/usage", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->usage(studioAccess(p, a[0])); });
+    route1("/api/channels/{1}/studio/voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listVoices(studioAccess(p, a[0])); });
     route1("/api/channels/{1}/studio/voices", {Post}, [&](auto& req, auto& p, auto& a) {
-        auto ac = access(p, a[0]); MultiPartParser mp;
+        auto ac = studioAccess(p, a[0]); MultiPartParser mp;
         if (mp.parse(req) == 0 && !mp.getParameters().empty()) { Json::Value b(Json::objectValue); for (auto& [k, v] : mp.getParameters()) { if (k == "consent_metadata" || k == "synthesis_parameters") { try { b[k] = json::parse(v); } catch (...) { b[k] = v; } } else b[k] = v; } std::string audio, mime; if (!mp.getFiles().empty()) { audio = std::string(mp.getFiles()[0].fileContent()); mime = "audio/wav"; } return S.tts->createVoice(ac, b, audio, mime); }
         return S.tts->createVoice(ac, body(req), "", "");
     });
-    route2("/api/channels/{1}/studio/voices/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.tts->updateVoice(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/voices/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.tts->deleteVoice(access(p, a[0]), a[1]); });
-    route1("/api/channels/{1}/studio/dictionaries", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listDictionaries(access(p, a[0])); });
-    route1("/api/channels/{1}/studio/dictionaries", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->saveDictionary(access(p, a[0]), "", body(req)); });
-    route2("/api/channels/{1}/studio/dictionaries/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.tts->saveDictionary(access(p, a[0]), a[1], body(req)); });
-    route1("/api/channels/{1}/studio/tts/preview", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->preview(access(p, a[0]), body(req)); });
-    route2("/api/channels/{1}/studio/presentations/{2}/tts/estimate", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->estimate(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->createJob(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listJobs(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/tts/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->getJob(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/tts/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.tts->cancelJob(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/voices/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.tts->updateVoice(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/voices/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.tts->deleteVoice(studioAccess(p, a[0]), a[1]); });
+    route1("/api/channels/{1}/studio/dictionaries", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listDictionaries(studioAccess(p, a[0])); });
+    route1("/api/channels/{1}/studio/dictionaries", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->saveDictionary(studioAccess(p, a[0]), "", body(req)); });
+    route2("/api/channels/{1}/studio/dictionaries/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.tts->saveDictionary(studioAccess(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/studio/tts/preview", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->preview(studioAccess(p, a[0]), body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/tts/estimate", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->estimate(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->createJob(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listJobs(studioAccess(p, a[0]), a[1]); });
+    // Dubbing cast: which voice reads each character and the narration.
+    route2("/api/channels/{1}/studio/presentations/{2}/cast", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->applyCast(studioAccess(p, a[0]), a[1], body(req)["cast"]); });
+    // Standalone visual novel: index.html plus every image and voice line, as one ZIP.
+    app().registerHandler("/api/channels/{1}/studio/presentations/{2}/bundle.zip", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string pid) {
+        try {
+            auto pr = S.auth->authenticate(bearer(req)); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
+            std::string name; auto data = S.publication->bundle(studioAccess(*pr, ch), pid, name);
+            auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+    }, {Get});
+    route2("/api/channels/{1}/studio/tts/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->getJob(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/tts/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.tts->cancelJob(studioAccess(p, a[0]), a[1]); });
     app().registerHandler("/api/channels/{1}/studio/tts/audio/{2}", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string id) {
         try {
             auto pr = S.auth->authenticate(bearer(req)); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
-            std::string bytes, mime; if (!S.tts->fetchAudio(access(*pr, ch), id, bytes, mime)) { cb(errResp(404, "not_found", "audio not found")); return; }
+            std::string bytes, mime; if (!S.tts->fetchAudio(studioAccess(*pr, ch), id, bytes, mime)) { cb(errResp(404, "not_found", "audio not found")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=86400"); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
     }, {Get});
