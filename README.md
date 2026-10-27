@@ -217,6 +217,12 @@ and a zip with a standalone HTML player, the images and the voice lines download
 maintainer can turn the Log Studio off, and the Keeper can hide it per channel. See
 [visual novel guide](docs/VISUAL_NOVEL.md).
 
+A server maintainer can switch on **COC7 point-buy** (Server settings → Features): role cards then show the
+characteristic total, take a career from the built-in list of 230 (credit-rating range, points formula, career skills,
+option groups and free specialties, generated from the community COC7 sheet), and split skill investment into career
+points (career skills only) and hobby points (INT×2, any skill) with the limits enforced on save. See
+[COC7 point-buy](docs/COC7_POINT_BUY.md).
+
 See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.md), [media/generation](docs/ASSETS.md),
 [PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the
 shared mobile-facing contracts; `mobile/` development is maintained independently.

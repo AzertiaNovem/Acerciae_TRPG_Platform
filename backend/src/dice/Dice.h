@@ -43,6 +43,10 @@ bool isExpression(const std::string& s);                                        
 // ---- attributes ------------------------------------------------------------------------------------
 std::string normKey(const std::string& raw);          // lowercase, spaces/_/-/()/ removed
 std::string canonicalName(const std::string& raw);    // "侦查" / "spot" / "spothidden" -> "Spot Hidden"; unknown -> trimmed raw
+// The skill table: canonical name and base code (>= 0 fixed value, -2 half DEX, -3 EDU).
+struct SkillDef { std::string name; int base; };
+std::vector<SkillDef> skillDefs();
+std::optional<int> baseCode(const std::string& raw);   // base code of a known skill, nullopt for characteristics and unknown names
 struct AttrValue { bool found = false; int value = 0; std::string name; bool isBase = false; };
 // Looks a name up in an attrs object (case/alias-insensitive). Falls back to CoC7 base values (Dodge = DEX/2,
 // Language (Own) = EDU, Spot Hidden 25, ...) with isBase = true.

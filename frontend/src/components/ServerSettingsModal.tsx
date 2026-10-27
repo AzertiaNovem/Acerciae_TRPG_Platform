@@ -14,6 +14,7 @@ const FEATURES: { key: Feature; label: string; help: string }[] = [
   { key: 'consistency', label: 'Consistency Check', help: 'Players and GMs can check a draft against what their character knows.' },
   { key: 'dice', label: 'Integrated Dice', help: 'Sealdice-style commands in chat: .r .ra .sc .st .en, with the gray attribute hint while typing.' },
   { key: 'inspiration', label: 'Inspiration', help: 'Drafts a possible in-character reply from the character’s knowledge (never sent automatically).' },
+  { key: 'coc7_points', label: 'COC7 point-buy', help: 'Role cards spend career points (from a career in the built-in list) and hobby points (INT×2) within their limits, and show the characteristic total.' },
   { key: 'log_studio', label: 'Log Studio', help: 'The campaign log, exports, PDF publication and visual novels. Keepers can still hide it per channel; when open, every member reaches it equally.' },
 ];
 

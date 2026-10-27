@@ -58,6 +58,7 @@ export const api = {
   removeChannelMember: (id: string, user_id: string) => del<T.ChannelMember[]>(`/api/channels/${id}/members/${user_id}`),
   characters: (ch: string) => get<T.Character[]>(`/api/channels/${ch}/characters`),
   createCharacter: (ch: string, body: Partial<T.Character> & { name: string; description?: string; user_id?: string }) => post<T.Character>(`/api/channels/${ch}/characters`, body),
+  coc7Rules: () => get<T.Coc7Rules>('/api/coc7/rules'),
   characterSpace: (ch: string, id: string) => get<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/space`),
   updateCharacterCard: (ch: string, id: string, body: { name?: string; speaking_style?: string; bio?: string; role_card?: T.RoleCard }) => put<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/card`, body),
   updateCharacterAppearance: (ch: string, id: string, body: { asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string }) => put<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/appearance`, body),

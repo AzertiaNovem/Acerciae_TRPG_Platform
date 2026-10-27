@@ -3,7 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
-import type { CharacterSpace as Space, RoleCard } from '../types';
+import type { CharacterSpace as Space, Coc7Rules, RoleCard } from '../types';
+import PointBuy from './PointBuy';
+
+let rulesPromise: Promise<Coc7Rules> | null = null;
+const loadRules = () => (rulesPromise ??= api.coc7Rules());
 
 const CHARS: (keyof RoleCard['characteristics'])[] = ['STR', 'CON', 'SIZ', 'DEX', 'APP', 'INT', 'POW', 'EDU', 'LUK'];
 const BACKGROUND: (keyof RoleCard['background'])[] = ['personal_description', 'ideology', 'significant_people', 'meaningful_locations', 'treasured_possessions', 'traits', 'injuries', 'phobias', 'arcane', 'encounters'];
@@ -29,11 +33,14 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const [subtitleName, setSubtitleName] = useState('IDLE');
   const [genSubs, setGenSubs] = useState<string[]>(['IDLE', 'SAY']);
   const [busy, setBusy] = useState(false);
+  const [rules, setRules] = useState<Coc7Rules | null>(null);
   const fileFor = useRef<{ slot: 'avatar' | 'portrait' | 'subtitle'; subtitle?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const apply = (s: Space) => { setSpace(s); setCard(s.character.role_card); setHead({ name: s.character.name, speaking_style: s.character.speaking_style, bio: s.character.bio ?? '' }); setLook({ asset_mode: s.character.asset_mode ?? 'uploaded', appearance_prompt: s.character.appearance_prompt ?? '' }); setDirty(false); };
   const load = async () => { if (!channelId) return; try { apply(await api.characterSpace(channelId, characterId)); } catch (e: any) { toast(e.message, 'error'); } };
   useEffect(() => { load(); }, [channelId, characterId]);
+  const pointsOn = !!space?.points?.enabled;
+  useEffect(() => { if (pointsOn && !rules) loadRules().then(setRules).catch((e) => toast(e.message, 'error')); }, [pointsOn]);
   // Live updates (generation finished, another editor saved) arrive as character.updated → characters refresh.
   const version = characters.find((c) => c.id === characterId);
   useEffect(() => { if (space && !dirty) load(); }, [version?.avatar_asset_id, version?.portrait_asset_id, version?.asset_mode]);
@@ -89,7 +96,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
 
         {tab === 'card' && (
           <div className="card role-card">
-            <h4>{tr('Characteristics')}</h4>
+            <div className="row"><h4 style={{ margin: '10px 0 6px' }}>{tr('Characteristics')}</h4><span className="grow" />{pointsOn && <span className="pill" title={tr('STR+CON+SIZ+DEX+APP+INT+POW+EDU; Luck apart')}>{tr('Total')} {CHARS.filter((k) => k !== 'LUK').reduce((a, k) => a + (card.characteristics[k] ?? 0), 0)} · LUK {card.characteristics.LUK ?? 0}</span>}</div>
             <div className="char-grid">
               {CHARS.map((k) => <div key={k} className="cell"><b>{k}</b>{editable ? <input inputMode="numeric" value={card.characteristics[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete x.characteristics[k]; else if (Number.isFinite(v)) x.characteristics[k] = Math.round(v); })} /> : <span className="v">{card.characteristics[k] ?? '—'}</span>}<span className="halves">{half(card.characteristics[k])}</span></div>)}
             </div>
@@ -98,7 +105,9 @@ export default function CharacterSpace({ characterId }: { characterId: string })
               {([['hp', 'HP'], ['hp_max', 'HP max'], ['mp', 'MP'], ['mp_max', 'MP max'], ['san', 'SAN'], ['san_max', 'SAN max'], ['mov', 'MOV'], ['build', 'Build']] as const).map(([k, label]) => <div key={k} className="cell"><b>{label}</b>{editable ? <input inputMode="numeric" value={card.derived[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete (x.derived as any)[k]; else if (Number.isFinite(v)) (x.derived as any)[k] = Math.round(v); })} /> : <span className="v">{card.derived[k] ?? '—'}</span>}</div>)}
               <div className="cell"><b>DB</b>{editable ? <input value={card.derived.db} onChange={(e) => setCardField((x) => { x.derived.db = e.target.value; })} /> : <span className="v">{card.derived.db || '—'}</span>}</div>
             </div>
-            <h4>{tr('Skills')}</h4>
+            {pointsOn && rules && <PointBuy card={card} rules={rules} editable={!!editable} report={space.points} setCard={setCardField} />}
+            {pointsOn && !rules && <div className="tiny muted">{tr('Loading…')}</div>}
+            {!pointsOn && <><h4>{tr('Skills')}</h4>
             <div className="skills">
               {Object.keys(card.skills).sort().map((k) => <div key={k} className="skill"><span>{k}</span><span className="grow" />{editable ? <input inputMode="numeric" value={card.skills[k]} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (Number.isFinite(v)) x.skills[k] = Math.round(v); })} /> : <b>{card.skills[k]}</b>}<span className="tiny muted">{half(card.skills[k])}</span>{editable && <button className="ghost small" onClick={() => setCardField((x) => { delete x.skills[k]; })}>×</button>}</div>)}
             </div>
@@ -109,7 +118,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
                 <button className="small" onClick={() => { if (newSkill.trim()) { setCardField((x) => { x.skills[newSkill.trim()] = x.skills[newSkill.trim()] ?? 0; }); setNewSkill(''); } }}>{tr('Add')}</button>
                 <span className="tiny muted">{tr('Characteristics, HP/MP/SAN and skills are what .ra, .sc and .st read in chat.')}</span>
               </div>
-            )}
+            )}</>}
             <h4>{tr('Wealth')}</h4>
             <div className="char-grid">
               {(['cash', 'assets', 'spending_level'] as const).map((k) => <div key={k} className="cell"><b>{tr(k === 'cash' ? 'Cash' : k === 'assets' ? 'Assets' : 'Spending level')}</b>{editable ? <input style={{ fontSize: 13, fontWeight: 500 }} value={card.wealth[k]} onChange={(e) => setCardField((x) => { x.wealth[k] = e.target.value; })} /> : <span className="v" style={{ fontSize: 13, fontWeight: 500 }}>{card.wealth[k] || '—'}</span>}</div>)}

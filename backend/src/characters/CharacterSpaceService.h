@@ -6,6 +6,7 @@
 
 namespace acerciae {
 class Notifier;
+class ServerSettingsService;
 namespace logstudio { class MediaService; class CreativeService; }
 
 // The character space page: avatar, main portrait, per-subtitle portraits, the COC7-styled role card, background
@@ -14,9 +15,12 @@ namespace logstudio { class MediaService; class CreativeService; }
 // campaign's era; a character is in one of the two modes at a time.
 class CharacterSpaceService {
 public:
-    CharacterSpaceService(Db& db, logstudio::MediaService& media, logstudio::CreativeService& creative, Notifier& n) : db_(db), media_(media), creative_(creative), notifier_(n) {}
+    CharacterSpaceService(Db& db, logstudio::MediaService& media, logstudio::CreativeService& creative, ServerSettingsService& settings, Notifier& n) : db_(db), media_(media), creative_(creative), settings_(settings), notifier_(n) {}
 
     Json::Value space(const ChannelAccess& a, const std::string& characterId);
+    // Point-buy mode is a server feature; the report carries budgets, spending and rule violations for a card.
+    bool pointsMode(const ChannelAccess& a);
+    Json::Value pointsReport(const ChannelAccess& a, const Json::Value& card);
     Json::Value updateCard(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);        // name, speaking_style, bio, role_card
     Json::Value updateAppearance(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);  // asset_mode, appearance_prompt
     // slot: avatar | portrait | subtitle (with `subtitle` = IDLE, SAY, FIGHT, …). The file becomes an approved asset of the character.
@@ -35,6 +39,7 @@ public:
 private:
     Json::Value characterFor(const ChannelAccess& a, const std::string& characterId, bool write);
     void attach(const std::string& channelId, const std::string& characterId, const std::string& slot, const std::string& subtitle, const std::string& assetId);
-    Db& db_; logstudio::MediaService& media_; logstudio::CreativeService& creative_; Notifier& notifier_;
+    Db& db_; logstudio::MediaService& media_; logstudio::CreativeService& creative_;
+    ServerSettingsService& settings_; Notifier& notifier_;
 };
 }

@@ -1,4 +1,6 @@
 #include "CharacterSpaceService.h"
+#include "Coc7Rules.h"
+#include "../servers/ServerSettingsService.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
@@ -35,6 +37,27 @@ Json::Value CharacterSpaceService::normalizeRoleCard(const Json::Value& in) {
     Json::Value skills(Json::objectValue); int n = 0;
     if (src["skills"].isObject()) for (auto& k : src["skills"].getMemberNames()) { if (n++ >= 200) break; auto name = clip(text::trim(k), 60); if (name.empty()) continue; skills[name] = num(src["skills"][k], 0, 999); }
     card["skills"] = skills;
+    // Point-buy mode (server feature coc7_points): the chosen career with its option picks and specialties, and
+    // per-skill career/hobby/growth points. Totals are recomputed from these on save.
+    if (src["career"].isObject()) {
+        Json::Value cr; cr["name"] = str(src["career"], "name", 80);
+        cr["choices"] = Json::Value(Json::arrayValue);
+        for (const auto& g : src["career"]["choices"]) { if (cr["choices"].size() >= 8) break; Json::Value picks(Json::arrayValue); for (const auto& x : g) if (x.isString() && picks.size() < 8) { auto v = clip(text::trim(x.asString()), 60); if (!v.empty()) picks.append(v); } cr["choices"].append(picks); }
+        cr["specialties"] = Json::Value(Json::arrayValue);
+        for (const auto& x : src["career"]["specialties"]) if (x.isString() && cr["specialties"].size() < 12) { auto v = clip(text::trim(x.asString()), 60); if (!v.empty()) cr["specialties"].append(v); }
+        card["career"] = cr;
+    }
+    if (src["skill_points"].isObject()) {
+        Json::Value sp(Json::objectValue); int m = 0;
+        for (auto& k : src["skill_points"].getMemberNames()) {
+            if (m++ >= 200) break; auto name = clip(text::trim(k), 60); if (name.empty()) continue;
+            const Json::Value& v = src["skill_points"][k]; Json::Value e;
+            for (auto f : {"career", "hobby", "growth"}) e[f] = v.isObject() && v[f].isNumeric() ? num(v[f], 0, 999) : 0;
+            if (v.isObject() && v["base"].isNumeric()) e["base"] = num(v["base"], 0, 99);
+            sp[name] = e;
+        }
+        card["skill_points"] = sp;
+    }
     Json::Value bg(Json::objectValue); for (auto k : kBackground) bg[k] = str(src["background"], k, 2000); card["background"] = bg;
     Json::Value items(Json::arrayValue);
     for (const auto& it : src["items"]) { if (items.size() >= 60) break; Json::Value x; x["name"] = it.isString() ? clip(text::trim(it.asString()), 80) : str(it, "name", 80); if (x["name"].asString().empty()) continue; x["note"] = it.isObject() ? str(it, "note", 300) : ""; x["qty"] = it.isObject() && it["qty"].isNumeric() ? num(it["qty"], 0, 9999) : 1; items.append(x); }
@@ -76,6 +99,15 @@ Json::Value CharacterSpaceService::characterFor(const ChannelAccess& a, const st
     return c;
 }
 
+bool CharacterSpaceService::pointsMode(const ChannelAccess& a) { return settings_.featureEnabled(a.serverId, "coc7_points"); }
+Json::Value CharacterSpaceService::pointsReport(const ChannelAccess& a, const Json::Value& card) {
+    Json::Value rep; rep["enabled"] = pointsMode(a);
+    if (!rep["enabled"].asBool()) return rep;
+    Json::Value copy = card; auto r = coc7::apply(copy);
+    for (auto& k : r.getMemberNames()) rep[k] = r[k];
+    return rep;
+}
+
 Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::string& characterId) {
     auto c = characterFor(a, characterId, false);
     Json::Value out; out["character"] = c;
@@ -90,12 +122,20 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
     out["era"] = ch["era"]; out["narrative_time"] = ch["narrative_time"];
     out["attrs"] = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
     out["generation_available"] = creative_.available(a.channelId);
+    out["points"] = pointsReport(a, out["character"]["role_card"]);
     return out;
 }
 
 Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
     auto c = characterFor(a, characterId, true);
     auto card = body.isMember("role_card") ? normalizeRoleCard(body["role_card"]) : normalizeRoleCard(c["role_card"]);
+    if (pointsMode(a)) {
+        auto rep = coc7::apply(card);
+        if (!rep["violations"].empty()) {
+            std::string msg; for (const auto& v : rep["violations"]) msg += (msg.empty() ? "" : "; ") + v["message"].asString();
+            throw ApiError(400, "points_rule", msg);
+        }
+    }
     Json::Value sheet = c["sheet"].isObject() ? c["sheet"] : Json::Value(Json::objectValue);
     sheet["attrs"] = mirrorAttrs(sheet["attrs"], card);
     auto name = clip(text::trim(json::str(body, "name", c["name"].asString())), 80); if (name.empty()) throw badRequest("name required");

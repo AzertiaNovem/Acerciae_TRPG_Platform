@@ -1,4 +1,5 @@
 // Core unit tests: no database required.
+#include "characters/Coc7Rules.h"
 #include "core/Text.h"
 #include "core/Json.h"
 #include "core/Crypto.h"
@@ -479,6 +480,44 @@ int main() {
         Json::Value n2; n2["event_id"] = "e3"; n2["actor_role"] = "gm"; n2["character_name"] = ""; n2["content"] = "Dust covers a desk. Something like a diary lies under a loose board."; rem["new_events"].append(n2);
         auto plan = ReminderService::mockPlanKp(rem);
         CHECK(!plan["reminders"].empty()); CHECK(plan["reminders"][0]["kind"] == "needed"); CHECK(plan["reminders"][0]["title"].asString().find("Diary") != std::string::npos); CHECK(plan["reminders"][0]["script_refs"].size() == 1); CHECK(plan["reminders"][0]["quotes"][0]["event_id"] == "e3");
+    });
+    test("coc7 point-buy: budgets, allowed skills and limits follow the career list", [] {
+        using namespace coc7;
+        CHECK(careers().size() == 230);
+        auto* acc = findCareer("会计师"); CHECK(acc && acc->creditMin == 30 && acc->creditMax == 70 && acc->free == 2 && acc->fixed.size() == 6);
+        CHECK(findCareer("自定义职业")->free == 8); CHECK(findCareer("nobody") == nullptr);
+        Json::Value chars; chars["STR"] = 50; chars["CON"] = 60; chars["SIZ"] = 50; chars["DEX"] = 70; chars["APP"] = 60; chars["INT"] = 80; chars["POW"] = 60; chars["EDU"] = 75; chars["LUK"] = 45;
+        CHECK(careerBudget(*acc, chars) == 300); CHECK(hobbyBudget(chars) == 160);
+        auto* hunter = findCareer("猎人"); CHECK(hunter); CHECK(careerBudget(*hunter, chars) == 75 * 2 + 70 * 2);   // 教育×2＋力量或敏捷×2: the better of the two
+        CHECK(skillBase("Dodge", chars) == 35); CHECK(skillBase("Language (Own)", chars) == 75); CHECK(skillBase("侦查", chars) == 25);
+        CHECK(skillBase("Science (Biology)", chars) == 1); CHECK(skillBase("Fighting (Sword)", chars) == 20); CHECK(skillBase("Fighting (Brawl)", chars) == 25);
+        CHECK(skillBase("Art/Craft (Photography)", chars) == 5); CHECK(skillBase("Survival (Sea)", chars) == 10); CHECK(skillBase("Basket weaving", chars, 7) == 7);
+        CHECK(family("Science (Biology)") == "Science"); CHECK(family("格斗") == "Fighting"); CHECK(family("Firearms (Rifle/Shotgun)") == "Firearms"); CHECK(family("Listen") == "Listen");
+        CHECK(rules()["careers"].size() == 230); CHECK(rules()["skills"].size() > 50);
+        // An accountant spends career points on career skills and one free specialty; hobby points go anywhere.
+        Json::Value card; card["characteristics"] = chars; card["career"]["name"] = "会计师"; card["career"]["specialties"].append("Fighting (Brawl)");
+        card["skill_points"]["Spot Hidden"]["career"] = 40; card["skill_points"]["Fighting (Brawl)"]["career"] = 20; card["skill_points"]["Dodge"]["hobby"] = 30; card["skill_points"]["Credit Rating"]["career"] = 40;
+        auto rep = apply(card);
+        CHECK(rep["violations"].empty()); CHECK(rep["warnings"].empty());
+        CHECK(card["skills"]["Spot Hidden"] == 65); CHECK(card["skills"]["Fighting (Brawl)"] == 45); CHECK(card["skills"]["Dodge"] == 65); CHECK(card["skills"]["Credit Rating"] == 40);
+        CHECK(rep["career_spent"] == 100); CHECK(rep["hobby_spent"] == 30); CHECK(rep["career_budget"] == 300); CHECK(rep["characteristics_total"] == 505); CHECK(rep["luck"] == 45);
+        auto codes = [](const Json::Value& r) { std::vector<std::string> c; for (auto& v : r["violations"]) c.push_back(v["code"].asString()); return c; };
+        card["skill_points"]["Stealth"]["career"] = 10; CHECK((codes(apply(card)) == std::vector<std::string>{"career_points_not_allowed"}));
+        card["skill_points"]["Stealth"]["career"] = 0; card["skill_points"]["Stealth"]["hobby"] = 10; CHECK(apply(card)["violations"].empty());
+        card["skill_points"]["Spot Hidden"]["career"] = 300; { auto c = codes(apply(card)); CHECK(std::count(c.begin(), c.end(), "over_99") == 1 && std::count(c.begin(), c.end(), "career_over") == 1); }
+        card["skill_points"]["Spot Hidden"]["career"] = 40; card["career"]["specialties"].append("Swim"); card["career"]["specialties"].append("Climb");
+        CHECK((codes(apply(card)) == std::vector<std::string>{"too_many_specialties"}));
+        card["career"]["specialties"].resize(1); card["skill_points"]["Cthulhu Mythos"]["hobby"] = 5; CHECK((codes(apply(card)) == std::vector<std::string>{"mythos"}));
+        card["skill_points"].removeMember("Cthulhu Mythos"); card["skill_points"]["Credit Rating"]["career"] = 10; { auto r = apply(card); CHECK(r["violations"].empty()); CHECK(r["warnings"].size() == 1 && r["warnings"][0]["code"] == "credit_rating"); }
+        card["career"]["name"] = "星际海盗"; CHECK((codes(apply(card)) == std::vector<std::string>{"unknown_career", "career_points_not_allowed", "career_points_not_allowed", "career_points_not_allowed", "career_over"}));   // no career: budget 0
+        // A hunter picks from option groups ("外语或生存", "聆听或侦查"); 射击 is fixed for any firearm.
+        Json::Value h; h["characteristics"] = chars; h["career"]["name"] = "猎人";
+        Json::Value g0(Json::arrayValue); g0.append("Survival (Sea)"); Json::Value g1(Json::arrayValue); g1.append("Listen");
+        h["career"]["choices"].append(g0); h["career"]["choices"].append(g1);
+        h["skill_points"]["Survival (Sea)"]["career"] = 20; h["skill_points"]["Listen"]["career"] = 10; h["skill_points"]["Firearms (Rifle/Shotgun)"]["career"] = 30;
+        auto hr = apply(h); CHECK(hr["violations"].empty()); CHECK(h["skills"]["Survival (Sea)"] == 30); CHECK(h["skills"]["Firearms (Rifle/Shotgun)"] == 55);
+        h["career"]["choices"][0].append("Language (Other)"); CHECK((codes(apply(h)) == std::vector<std::string>{"invalid_choice"}));
+        h["career"]["choices"][0].resize(1); h["career"]["choices"][1][0] = "Swim"; { auto c = codes(apply(h)); CHECK(c.size() == 2 && c[0] == "invalid_choice" && c[1] == "career_points_not_allowed"); }
     });
     test("character space: the COC7 role card is bounded, mirrored into dice attributes, and image prompts carry era, moment and framing", [] {
         auto card = CharacterSpaceService::normalizeRoleCard(json::parse(R"({"basic":{"occupation":"Journalist","age":"34","junk":1},"characteristics":{"STR":55,"DEX":70,"POW":"x","LUK":1200},"derived":{"hp":11,"san":60,"db":"0"},"skills":{"Spot Hidden":65,"Library Use":70,"":9},"background":{"ideology":"Truth above all","unknown":"dropped"},"items":[{"name":"Notebook","note":"dog-eared","qty":1},"Revolver",{"name":""}],"wealth":{"cash":"$40"}})"));

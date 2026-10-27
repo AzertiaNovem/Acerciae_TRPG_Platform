@@ -9,6 +9,7 @@
 #include "../reminders/ReminderService.h"
 #include "../script/ScriptKnowledgeService.h"
 #include "../characters/CharacterSpaceService.h"
+#include "../characters/Coc7Rules.h"
 #include "../knowledge/KnowledgeService.h"
 #include "../documents/DocumentService.h"
 #include "../highlights/HighlightService.h"
@@ -164,6 +165,8 @@ void registerRoutes() {
     route2("/api/channels/{1}/characters/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->updateCharacter(access(p, a[0]), a[1], body(req)); });
     // ---- character space ----
     route2("/api/channels/{1}/characters/{2}/space", {Get}, [&](auto&, auto& p, auto& a) { return S.characterSpace->space(access(p, a[0]), a[1]); });
+    // COC7 point-buy reference: skills with bases, specialisation families, the 230 careers of the community sheet.
+    route0("/api/coc7/rules", {Get}, [&](auto&, auto&, auto&) { return coc7::rules(); });
     route2("/api/channels/{1}/characters/{2}/card", {Put}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->updateCard(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/characters/{2}/appearance", {Put}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->updateAppearance(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/characters/{2}/assets", {Post}, [&](auto& req, auto& p, auto& a) {

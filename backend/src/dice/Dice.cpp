@@ -125,7 +125,7 @@ const std::vector<AttrDef>& attrDefs() {
         {"SAN", -1, {"sanity", "理智", "理智值", "san值"}}, {"HP", -1, {"hitpoints", "生命", "生命值", "体力"}},
         {"MP", -1, {"magicpoints", "魔法", "魔法值"}}, {"MOV", -1, {"move", "移动", "移动力"}},
         {"Accounting", 5, {"会计"}}, {"Anthropology", 1, {"人类学"}}, {"Appraise", 5, {"估价"}}, {"Archaeology", 1, {"考古学", "考古"}},
-        {"Art/Craft", 5, {"art", "craft", "技艺", "艺术"}}, {"Charm", 15, {"魅惑"}}, {"Climb", 20, {"攀爬"}},
+        {"Art/Craft", 5, {"art", "craft", "技艺", "艺术", "手艺"}}, {"Charm", 15, {"魅惑", "取悦"}}, {"Climb", 20, {"攀爬"}},
         {"Credit Rating", 0, {"credit", "cr", "信用", "信用评级", "信誉"}}, {"Cthulhu Mythos", 0, {"mythos", "cm", "克苏鲁神话", "克苏鲁"}},
         {"Disguise", 5, {"乔装"}}, {"Dodge", -2, {"闪避"}}, {"Drive Auto", 20, {"drive", "汽车驾驶", "汽车"}},
         {"Electrical Repair", 10, {"电气维修", "电器维修"}}, {"Fast Talk", 5, {"话术", "快速交谈"}},
@@ -139,6 +139,10 @@ const std::vector<AttrDef>& attrDefs() {
         {"Pilot", 1, {"驾驶"}}, {"Psychology", 10, {"心理学"}}, {"Psychoanalysis", 1, {"精神分析"}}, {"Ride", 5, {"骑术", "骑乘"}},
         {"Science", 1, {"科学"}}, {"Sleight of Hand", 10, {"sleight", "妙手"}}, {"Spot Hidden", 25, {"spot", "侦查", "侦察"}},
         {"Stealth", 20, {"潜行"}}, {"Survival", 10, {"生存"}}, {"Swim", 20, {"游泳"}}, {"Throw", 20, {"投掷"}}, {"Track", 10, {"追踪"}},
+        // Skills the community COC7 sheet lists beyond the core table.
+        {"Language (Other)", 1, {"otherlanguage", "外语", "其他语言"}}, {"Computer Use", 5, {"computer", "计算机", "计算机使用", "电脑"}},
+        {"Electronics", 1, {"电子学"}}, {"Animal Handling", 5, {"动物驯养", "驯兽", "驯养"}}, {"Diving", 1, {"潜水"}},
+        {"Demolitions", 1, {"爆破"}}, {"Hypnosis", 1, {"催眠"}}, {"Lip Reading", 1, {"读唇"}}, {"Artillery", 1, {"炮术"}}, {"Lore", 1, {"学识"}},
     };
     return defs;
 }
@@ -165,6 +169,16 @@ std::string normKey(const std::string& raw) {
         o += isNonAscii(c) ? c : (char)std::tolower((unsigned char)c);
     }
     return o;
+}
+std::vector<SkillDef> skillDefs() {
+    std::vector<SkillDef> out;
+    for (auto& d : attrDefs()) if (d.base != -1) out.push_back({d.name, d.base});
+    return out;
+}
+std::optional<int> baseCode(const std::string& raw) {
+    auto* d = defFor(raw);
+    if (!d || d->base == -1) return std::nullopt;
+    return d->base;
 }
 std::string canonicalName(const std::string& raw) {
     auto* d = defFor(raw);
