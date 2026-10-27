@@ -28,7 +28,7 @@ const wait = async (fn) => {
   }
   throw Error("job timeout");
 };
-test("Log Studio A–I: imports, immutable snapshots, structured dice, TTS invalidation, privacy, three PDFs and revocable publication", async () => {
+test("Log Studio A–I: the campaign log and its exports, immutable snapshots, structured dice, TTS invalidation, privacy, three PDFs and revocable publication", async () => {
   const suffix = Math.random().toString(36).slice(2);
   const u = {};
   for (const role of ["gm", "p1", "p2"])
@@ -76,32 +76,24 @@ test("Log Studio A–I: imports, immutable snapshots, structured dice, TTS inval
   });
   const roll = await say(pl, ".ra 侦查 55", { character_id: c1.id });
   await say(pl, ".rh 1d100", { character_id: c1.id });
-  const imported = await call(gm, "POST", root + "/projects", {
-    title: "SealDice sample",
-    source_kind: "import",
-  });
-  const source =
-    "前言：无法识别但必须保留。\n守秘人(10001) 2023/05/06 20:11:12\n门后有声音。\n继续上一行。\n\n调查员(20002) 2023/05/06 20:11:40\n我推开门。\n\n新昵称(20002) 2023/05/06 20:12:01\n（OOC：暂停一下。）\n";
-  const imp = await call(
-    gm,
-    "POST",
-    root + `/projects/${imported.id}/imports`,
-    { text: source, adapter: "sealdice_text" },
-  );
-  await call(
-    gm,
-    "POST",
-    root + `/projects/${imported.id}/imports/${imp.id}/commit`,
-    { speaker_map: {} },
-  );
-  const importedEvents = await call(
-    gm,
-    "GET",
-    root + `/projects/${imported.id}/events`,
-  );
-  assert.ok(importedEvents.some((e) => e.content.includes("无法识别")));
-  assert.ok(importedEvents.some((e) => e.content.includes("继续上一行")));
-  assert.ok(importedEvents.some((e) => e.event_type === "ooc"));
+  // The campaign log: one per channel, synced from the chat, exported by anyone within their own view.
+  const log = await call(gm, "GET", root + "/log");
+  assert.equal(log.project.source_kind, "channel");
+  assert.ok(log.windows.some((x) => x.id === w && x.line_count >= 5));
+  assert.equal((await call(gm, "GET", root + "/log")).project.id, log.project.id, "one log per channel");
+  const dl = async (token, fmt, win) => { const r = await fetch(base + root + `/log/export?format=${fmt}${win ? `&chat_window_id=${win}` : ""}`, { headers: { Authorization: `Bearer ${token}` } }); assert.ok(r.ok, `${fmt}: ${r.status}`); return r; };
+  const full = await (await dl(gm, "json")).json();
+  assert.equal(full.schemaVersion, "1.0"); assert.ok(full.events.some((e) => e.content.includes("幕后主使"))); assert.ok(full.meta.windows.length >= 1);
+  const plJson = await (await dl(pl, "json")).json();
+  assert.ok(!JSON.stringify(plJson).includes("幕后主使"), "players export only what they can read");
+  assert.ok(plJson.events.some((e) => e.content.startsWith(".rh")), "the roller keeps their own hidden roll");
+  const otherJson = await (await dl(other, "json")).json();
+  assert.ok(!otherJson.events.some((e) => e.content.startsWith(".rh")), "nobody else gets the hidden roll");
+  const sd = await (await dl(pl, "sealdice", w)).json();
+  assert.equal(sd.version, 105); assert.ok(sd.items.some((i) => i.message === "我去检查那扇门。" && i.nickname === "林调查员")); assert.ok(sd.items.some((i) => i.isDice && i.message === ".ra 侦查 55"));
+  await assert.rejects(dl(pl, "sealdice"), /400/);
+  const zipBytes = Buffer.from(await (await dl(gm, "zip")).arrayBuffer());
+  assert.equal(zipBytes.subarray(0, 4).toString("latin1"), "PK\x03\x04"); assert.ok(zipBytes.includes(Buffer.from("sealdice/")));
   const project = await call(gm, "POST", root + "/projects", {
     title: "码头记录",
   });

@@ -11,7 +11,9 @@ import {
 } from "./publicationApi";
 export default function PdfTemplateEditor() {
   const { channelId: ch, channel } = useNav();
-  const { snapshot } = useStudio();
+  const { snapshot, freezeLog } = useStudio();
+  const isGm = channel?.my_role === 'gm';
+  const [scope, setScope] = useState<'gm_full' | 'pl_public'>(isGm ? 'gm_full' : 'pl_public');
   const [documents, setDocuments] = useState<
       { id: string; title: string; gm_only: boolean }[]
     >([]),
@@ -55,11 +57,12 @@ export default function PdfTemplateEditor() {
   if (!ch || !config) return <p>{error || tr("Loading PDF templates…")}</p>;
   const patch = (p: Partial<PdfConfig>) => setConfig({ ...config, ...p });
   const submit = async () => {
-    if (!snapshot) return;
     setBusy(true);
     setError("");
     try {
-      await api.createPdf(ch, snapshot.id, config, appendices);
+      // The PDF is made from the whole campaign log: freeze its current state first.
+      const snap = await freezeLog(ch, scope);
+      await api.createPdf(ch, snap.id, config, appendices);
       setJobs(await api.jobs(ch));
     } catch (e) {
       setError((e as Error).message);
@@ -71,7 +74,8 @@ export default function PdfTemplateEditor() {
     <div className="studio-publishing">
       <div className="card">
         <h2>{tr("PDF publication")}</h2>
-        <p>{tr("Choose a snapshot in the library. Preview and download use the same frozen text and visibility scope.")}</p>
+        <p>{tr("The PDF is typeset from the whole campaign log as it stands now; the text is frozen at that moment.")}</p>
+        {isGm && <label>{tr("Audience")}<select value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}><option value="gm_full">{tr("Everything (Keeper's copy)")}</option><option value="pl_public">{tr("Player-visible lines only")}</option></select></label>}
         {error && (
           <p role="alert" className="error">
             {error}
@@ -177,9 +181,9 @@ export default function PdfTemplateEditor() {
         </details>
         <fieldset>
           <legend>{tr("Optional document appendices")}</legend>
-          <p className="tiny muted">{tr("Only confirmed or resolved entries visible to this snapshot's audience are included, with source references.")}</p>
+          <p className="tiny muted">{tr("Only confirmed or resolved entries visible to the chosen audience are included, with source references.")}</p>
           {documents
-            .filter((d) => snapshot?.scope === "gm_full" || !d.gm_only)
+            .filter((d) => scope === "gm_full" || !d.gm_only)
             .map((d) => (
               <label key={d.id}>
                 <input
@@ -198,7 +202,7 @@ export default function PdfTemplateEditor() {
             ))}
         </fieldset>
         <div className="row">
-          <button disabled={!snapshot || busy} onClick={submit}>
+          <button disabled={busy} onClick={submit}>
             {busy ? tr("Submitting…") : tr("Render PDF")}
           </button>
           {channel?.my_role === "gm" && (
@@ -216,9 +220,6 @@ export default function PdfTemplateEditor() {
             >{tr("Save template")}</button>
           )}
         </div>
-        {!snapshot && (
-          <p className="muted">{tr("Select a snapshot in Library first.")}</p>
-        )}
       </div>
       <div className="card">
         <h3>{tr("Render jobs")}</h3>

@@ -106,6 +106,11 @@ are available in GM Workshop, with sections, source citations, revisions and cor
 Group or window-access changes invalidate and rebuild the affected player summaries. Existing KP records remain intact.
 See [knowledge architecture and migration](docs/KNOWLEDGE_GROUPS.md).
 
+**One campaign log** — a channel keeps a single log of the entire campaign across every chat window, pulled from the
+chat itself (nothing is imported). Everyone downloads what they may read: the lossless Acerciae JSON, a
+SealDice-compatible JSON per chat window, text, HTML or a zip of all of them. PDFs and visual novels are made from this
+one log.
+
 **Character space** — every character has a page: the avatar shown in chat, the main portrait, basic information,
 the COC7-styled role card (characteristics, derived values, skills, wealth), background and carried items. The Keeper and
 the character's actor edit it; everyone at the table reads a PC's page. Images come from uploads or, in generated mode,

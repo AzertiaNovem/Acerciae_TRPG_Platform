@@ -9,6 +9,7 @@
 #include <set>
 #include <algorithm>
 #include <regex>
+#include "../core/Zip.h"
 
 namespace acerciae::logstudio {
 
@@ -34,7 +35,8 @@ static Json::Value snapshotMap(const std::vector<LogEvent>& events, const Json::
 }
 
 void LogStudioService::audit(const ChannelAccess& a, const std::string& action, const Json::Value& target) {
-    db_.exec("INSERT INTO studio_audit_log(channel_id, user_id, action, target) VALUES($1,$2,$3,$4::jsonb)", {a.channelId, a.userId, action, json::dump(target)});
+    // The system identity (campaign log sync) has no user row; its actions are logged without one.
+    db_.exec("INSERT INTO studio_audit_log(channel_id, user_id, action, target) VALUES($1,$2,$3,$4::jsonb)", {a.channelId, a.userId.empty() || a.userId == "00000000-0000-0000-0000-000000000000" ? dbNull() : DbParam(a.userId), action, json::dump(target)});
 }
 
 bool LogStudioService::eventVisibleTo(const ChannelAccess& a, const std::string& vis, const std::vector<std::string>& audience) {
@@ -95,7 +97,6 @@ Json::Value LogStudioService::getProject(const ChannelAccess& a, const std::stri
     auto p = projectRow(a, projectId);
     p["event_count"] = db_.queryOne("SELECT count(*) AS n FROM log_events WHERE project_id=$1"+eventScope(a), {projectId})["n"];
     p["snapshots"] = listSnapshots(a, projectId);
-    p["imports"] = a.isGm ? listImports(a, projectId) : Json::Value(Json::arrayValue);
     p["speakers"] = db_.queryJson("SELECT speaker_key, max(speaker_display_name) AS display_name, max(speaker_role) AS role, max(speaker_character_id::text) AS character_id, count(*) AS n FROM log_events WHERE project_id=$1"+eventScope(a)+" GROUP BY speaker_key ORDER BY n DESC", {projectId});
     p["scenes"] = sceneSummary(a, projectId);
     return p;
@@ -171,51 +172,6 @@ Json::Value LogStudioService::sceneSummary(const ChannelAccess& a, const std::st
     return db_.queryJson("SELECT scene_key, max(scene_title) AS scene_title, max(scene_id::text) AS scene_id, min(sequence_number) AS from_seq, max(sequence_number) AS to_seq, count(*) AS n FROM log_events WHERE project_id=$1"+eventScope(a)+" GROUP BY scene_key ORDER BY min(sequence_number)", {projectId});
 }
 
-Json::Value LogStudioService::splitScene(const ChannelAccess& a, const std::string& projectId, long long fromSeq, const std::string& title) {
-    if (!a.isGm) throw forbidden("GM role required");
-    projectRow(a, projectId);
-    auto at = db_.queryOne("SELECT scene_key FROM log_events WHERE project_id=$1 AND sequence_number=$2", {projectId, fromSeq});
-    if (at.isNull()) throw notFound("no event at that sequence number");
-    auto oldKey = at["scene_key"].asString();
-    auto newKey = "scene:" + crypto::uuid4().substr(0, 8);
-    // Events of the old scene from this point until the next scene boundary move into the new scene.
-    auto next = db_.queryOne("SELECT min(sequence_number) AS s FROM log_events WHERE project_id=$1 AND sequence_number > $2 AND scene_key <> $3", {projectId, fromSeq, oldKey});
-    long long upto = next.isNull() || next["s"].isNull() ? (1LL << 40) : next["s"].asInt64() - 1;
-    db_.exec("UPDATE log_events SET scene_key=$4, scene_title=$5 WHERE project_id=$1 AND sequence_number >= $2 AND sequence_number <= $3 AND scene_key=$6", {projectId, fromSeq, upto, newKey, title, oldKey});
-    Json::Value out; out["scene_key"] = newKey; out["from_seq"] = (Json::Int64)fromSeq; out["to_seq"] = (Json::Int64)upto; out["title"] = title; return out;
-}
-Json::Value LogStudioService::mergeScene(const ChannelAccess& a, const std::string& projectId, const std::string& sceneKey, const std::string& intoKey) {
-    if (!a.isGm) throw forbidden("GM role required");
-    projectRow(a, projectId);
-    auto into = db_.queryOne("SELECT max(scene_title) AS t FROM log_events WHERE project_id=$1 AND scene_key=$2", {projectId, intoKey});
-    db_.exec("UPDATE log_events SET scene_key=$3, scene_title=$4 WHERE project_id=$1 AND scene_key=$2", {projectId, sceneKey, intoKey, into.isNull() || into["t"].isNull() ? "" : into["t"].asString()});
-    Json::Value out; out["merged_into"] = intoKey; return out;
-}
-Json::Value LogStudioService::renameScene(const ChannelAccess& a, const std::string& projectId, const std::string& sceneKey, const std::string& title) {
-    if (!a.isGm) throw forbidden("GM role required");
-    projectRow(a, projectId);
-    db_.exec("UPDATE log_events SET scene_title=$3 WHERE project_id=$1 AND scene_key=$2", {projectId, sceneKey, title});
-    Json::Value out; out["scene_key"] = sceneKey; out["title"] = title; return out;
-}
-// Scene split suggestions: the AI-maintained channel scenes give boundaries for channel-sourced events; for
-// imports, long time gaps (> 45 min) and scene_change-like lines are proposed. Nothing is applied automatically.
-Json::Value LogStudioService::suggestScenes(const ChannelAccess& a, const std::string& projectId) {
-    projectRow(a, projectId);
-    Json::Value out(Json::arrayValue);
-    auto rows = db_.queryJson("SELECT sequence_number, scene_key, scene_id, extract(epoch from occurred_at)::bigint AS ts, content, event_type FROM log_events WHERE project_id=$1"+eventScope(a)+" ORDER BY sequence_number", {projectId});
-    long long prevTs = 0; std::string prevSceneId;
-    for (auto& r : rows) {
-        long long ts = r["ts"].isNull() ? 0 : r["ts"].asInt64();
-        std::string sid = r["scene_id"].isNull() ? "" : r["scene_id"].asString();
-        Json::Value s; s["from_seq"] = r["sequence_number"];
-        if (!sid.empty() && sid != prevSceneId && !prevSceneId.empty()) { auto sc = db_.queryOne("SELECT title, location FROM scenes WHERE id=$1", {sid}); s["reason"] = "AI scene memory boundary"; s["title"] = sc.isNull() ? "" : sc["title"]; s["location"] = sc.isNull() ? "" : sc["location"]; out.append(s); }
-        else if (prevTs && ts && ts - prevTs > 45 * 60) { s["reason"] = "time gap of " + std::to_string((ts - prevTs) / 60) + " minutes"; s["title"] = ""; out.append(s); }
-        else if (r["event_type"] == "scene_change") { s["reason"] = "scene change line"; s["title"] = r["content"]; out.append(s); }
-        if (ts) prevTs = ts; if (!sid.empty()) prevSceneId = sid;
-    }
-    return out;
-}
-
 void LogStudioService::insertEvents(pqxx::work& w, const std::string& projectId, const std::string& channelId, std::vector<LogEvent>& events, const std::string& importId) {
     auto base = Db::queryOne(w, "SELECT coalesce(max(sequence_number),0) AS m FROM log_events WHERE project_id=$1", {projectId})["m"].asInt64();
     long long seq = base;
@@ -281,91 +237,6 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
     Json::Value out; out["added"] = (int)events.size(); out["selection"] = sel; out["project_id"] = projectId;
     audit(a, "project.sync", out);
     return out;
-}
-
-// ---- imports ---------------------------------------------------------------------------------------
-Json::Value LogStudioService::adapters() const {
-    Json::Value v(Json::arrayValue);
-    for (auto* ad : registry_.all()) { Json::Value j; j["name"] = ad->name(); j["supported"] = ad->supportedVersions(); v.append(j); }
-    return v;
-}
-Json::Value LogStudioService::previewImport(const ChannelAccess& a, const std::string& projectId, const std::string& fileName, const std::string& bytes, const std::string& adapterName) {
-    if (!a.isGm) throw forbidden("GM role required");
-    projectRow(a, projectId);
-    if (bytes.empty()) throw badRequest("empty file");
-    if (bytes.size() > 50 * 1024 * 1024) throw badRequest("file too large (50 MB max)");
-    std::string encoding,text; try { text=normaliseEncoding(bytes,encoding); } catch(const std::invalid_argument& e) {throw badRequest(e.what());}
-    const LogAdapter* ad = adapterName.empty() || adapterName == "auto" ? registry_.detect(text) : registry_.byName(adapterName);
-    if (!ad) throw badRequest("could not detect log format; choose an adapter explicitly or convert the file to UTF-8");
-    auto parsed = ad->parse(text);
-    if (encoding == "gb18030-inferred") { ImportIssue is; is.lineNo = 0; is.raw = ""; is.reason = "GB18030/GBK encoding was inferred and converted to UTF-8. Verify Chinese text in the preview before committing."; is.severity = "warning"; parsed.issues.insert(parsed.issues.begin(), is); }
-    // Suggest speaker→character mapping by name similarity to the channel's characters.
-    auto chars = db_.queryJson("SELECT id, name, kind, user_id FROM characters WHERE channel_id=$1", {a.channelId});
-    Json::Value speakerMap(Json::objectValue);
-    for (auto& sp : parsed.speakers) {
-        Json::Value m; m["display_name"] = sp.displayName; m["role"] = sp.role; m["im_user_id"] = sp.imUserId; m["message_count"] = sp.messageCount; m["character_id"] = Json::Value();
-        for (auto& c : chars) { auto cn = text::lower(c["name"].asString()), sn = text::lower(sp.displayName); if (cn == sn || cn.find(sn) != std::string::npos || sn.find(cn) != std::string::npos) { m["character_id"] = c["id"]; m["suggested"] = true; if (c["kind"].asString() == "npc") m["role"] = "npc"; break; } }
-        speakerMap[sp.key] = m;
-    }
-    Json::Value stats = parsed.stats(); stats["encoding"] = encoding; stats["file_name"] = fileName;
-    // Keep the parsed events in the import row (JSON) so commit does not need the file again.
-    Json::Value evs(Json::arrayValue); for (auto& e : parsed.events) evs.append(e.toJson());
-    stats["parsed"] = evs;
-    auto row = db_.tx([&](pqxx::work& w) {
-        auto imp = Db::queryOne(w, "INSERT INTO log_imports(project_id, channel_id, adapter, file_name, encoding, status, stats, speaker_map, created_by) VALUES($1,$2,$3,$4,$5,'previewed',$6::jsonb,$7::jsonb,$8) RETURNING id, adapter, file_name, encoding, status, speaker_map, created_at",
-            {projectId, a.channelId, ad->name(), fileName.substr(0, 200), encoding, json::dump(stats), json::dump(speakerMap), a.userId});
-        for (auto& is : parsed.issues) Db::exec(w, "INSERT INTO log_import_errors(import_id, line_no, raw, reason, severity) VALUES($1,$2,$3,$4,$5)", {imp["id"].asString(), (int64_t)is.lineNo, is.raw, is.reason, is.severity});
-        return imp;
-    });
-    Json::Value out = row; stats.removeMember("parsed"); out["stats"] = stats; out["speakers"] = speakerMap;
-    out["preview"] = Json::Value(Json::arrayValue); for (size_t i = 0; i < parsed.events.size() && i < 60; ++i) out["preview"].append(parsed.events[i].toJson());
-    out["issues"] = Json::Value(Json::arrayValue); for (auto& is : parsed.issues) { Json::Value j; j["line_no"] = is.lineNo; j["raw"] = is.raw; j["reason"] = is.reason; j["severity"] = is.severity; out["issues"].append(j); }
-    out["start_text"] = parsed.startText;
-    return out;
-}
-Json::Value LogStudioService::commitImport(const ChannelAccess& a, const std::string& projectId, const std::string& importId, const Json::Value& speakerMapIn) {
-    if (!a.isGm) throw forbidden("GM role required");
-    projectRow(a, projectId);
-    auto imp = db_.queryOne("SELECT * FROM log_imports WHERE id=$1 AND project_id=$2", {importId, projectId});
-    if (imp.isNull()) throw notFound("import not found");
-    if (imp["status"].asString() == "committed") throw conflict("import already committed");
-    Json::Value speakerMap = speakerMapIn.isObject() && !speakerMapIn.empty() ? speakerMapIn : imp["speaker_map"];
-    std::vector<LogEvent> events;
-    for (auto& ev : imp["stats"]["parsed"]) {
-        auto e = LogEvent::fromJson(ev); e.sourceKind = "import"; e.eventId.clear();
-        if (speakerMap.isMember(e.speakerKey)) {
-            auto& m = speakerMap[e.speakerKey];
-            if (!json::str(m, "character_id").empty()) e.speakerCharacterId = json::str(m, "character_id");
-            if (!json::str(m, "display_name").empty()) e.speakerDisplayName = json::str(m, "display_name");
-            if (!json::str(m, "role").empty()) { e.speakerRole = json::str(m, "role"); if (e.speakerRole == "gm" && e.eventType == "dialogue") e.eventType = "narration"; if (e.speakerRole == "hidden" && e.eventType != "ooc") { e.eventType = "secret"; e.visibilityScope = "gm"; } }
-            if (json::toBool(m, "drop")) continue;
-        }
-        if (e.eventType == "secret") e.visibilityScope = "gm";
-        if (e.sceneKey.empty()) e.sceneKey = "import:" + importId.substr(0, 8);
-        events.push_back(e);
-    }
-    db_.tx([&](pqxx::work& w) {
-        insertEvents(w, projectId, a.channelId, events, importId);
-        Json::Value stats = imp["stats"]; stats.removeMember("parsed"); stats["committed_events"] = (int)events.size();
-        Db::exec(w, "UPDATE log_imports SET status='committed', speaker_map=$2::jsonb, stats=$3::jsonb, committed_at=now() WHERE id=$1", {importId, json::dump(speakerMap), json::dump(stats)});
-        // Persist chosen mapping on the project so later imports suggest the same identities.
-        auto proj = Db::queryOne(w, "SELECT character_map FROM log_projects WHERE id=$1", {projectId});
-        Json::Value cmap = proj["character_map"].isObject() ? proj["character_map"] : Json::Value(Json::objectValue);
-        for (auto it = speakerMap.begin(); it != speakerMap.end(); ++it) { Json::Value m; m["character_id"] = (*it)["character_id"]; m["display_name"] = (*it)["display_name"]; m["role"] = (*it)["role"]; cmap[it.name()] = m; }
-        Db::exec(w, "UPDATE log_projects SET character_map=$2::jsonb, source_kind=CASE WHEN source_kind='channel' THEN 'mixed' ELSE source_kind END, version=version+1, updated_at=now() WHERE id=$1", {projectId, json::dump(cmap)});
-    });
-    Json::Value out; out["import_id"] = importId; out["committed_events"] = (int)events.size();
-    audit(a, "import.commit", out);
-    return out;
-}
-Json::Value LogStudioService::listImports(const ChannelAccess& a, const std::string& projectId) {
-    projectRow(a, projectId);
-    if (!a.isGm) throw forbidden("GM role required");
-    return db_.queryJson("SELECT id, adapter, file_name, encoding, status, (stats - 'parsed') AS stats, created_at, committed_at, (SELECT count(*) FROM log_import_errors e WHERE e.import_id=i.id) AS issue_count FROM log_imports i WHERE project_id=$1 ORDER BY created_at DESC", {projectId});
-}
-Json::Value LogStudioService::importErrors(const ChannelAccess& a, const std::string& importId) {
-    if (!a.isGm) throw forbidden("GM role required");
-    return db_.queryJson("SELECT e.* FROM log_import_errors e JOIN log_imports i ON i.id=e.import_id WHERE e.import_id=$1 AND i.channel_id=$2 ORDER BY e.line_no", {importId, a.channelId});
 }
 
 // ---- snapshots -------------------------------------------------------------------------------------
@@ -463,6 +334,90 @@ std::string LogStudioService::renderStyledHtml(const Json::Value& snap, const st
     html += "<p style=\"color:#555;font-size:11px;margin-top:40px\">Generated by Acerciae Log Studio · snapshot v" + std::to_string(json::toInt(snap, "version", 0)) + " · scope " + htmlEscape(json::str(snap, "scope")) + "</p></body></html>";
     return html;
 }
+// ---- the campaign log ---------------------------------------------------------------------------------
+std::string LogStudioService::campaignProjectId(const std::string& channelId) {
+    auto p = db_.queryOne("SELECT id FROM log_projects WHERE channel_id=$1 AND source_kind='channel' ORDER BY created_at LIMIT 1", {channelId});
+    if (!p.isNull()) return p["id"].asString();
+    auto ch = db_.queryOne("SELECT name FROM channels WHERE id=$1", {channelId});
+    return db_.queryOne("INSERT INTO log_projects(channel_id, title, description, source_kind) VALUES($1,$2,'The campaign log: every chat window, the whole campaign.','channel') RETURNING id", {channelId, ch.isNull() ? "Campaign log" : ch["name"].asString()})["id"].asString();
+}
+int LogStudioService::syncCampaign(const std::string& channelId, const std::string& projectId) {
+    ChannelAccess sys; sys.channelId = channelId; sys.isGm = true; sys.userId = "00000000-0000-0000-0000-000000000000";
+    auto mode = db_.queryOne("SELECT knowledge_mode FROM channels WHERE id=$1", {channelId}); sys.knowledgeMode = mode.isNull() ? "isolated" : mode["knowledge_mode"].asString();
+    Json::Value sel; sel["mode"] = "campaign";
+    return syncFromChannel(sys, projectId, sel)["added"].asInt();
+}
+Json::Value LogStudioService::campaignLog(const ChannelAccess& a) {
+    auto pid = campaignProjectId(a.channelId);
+    int added = syncCampaign(a.channelId, pid);
+    Json::Value out; out["project"] = getProject(a, pid); out["synced_added"] = added;
+    out["windows"] = db_.queryJson("SELECT w.id, w.name, w.kind, (SELECT count(*) FROM log_events le WHERE le.project_id=$2 AND le.chat_window_id=w.id AND le.event_type<>'scene_change'" + eventScope(a) + ") AS line_count, (SELECT max(le.occurred_at) FROM log_events le WHERE le.project_id=$2 AND le.chat_window_id=w.id) AS last_at FROM chat_windows w WHERE w.channel_id=$1" + std::string(a.isGm ? "" : " AND EXISTS (SELECT 1 FROM chat_window_members wm WHERE wm.chat_window_id=w.id AND wm.user_id=$3)") + " ORDER BY w.created_at", a.isGm ? DbParams{a.channelId, pid} : DbParams{a.channelId, pid, a.userId});
+    out["scenarios"] = db_.queryJson("SELECT s.id, s.sequence, " + std::string(a.isGm ? "s.title" : "'Scenario '||s.sequence") + " AS title, s.status, " + std::string(a.isGm ? "s.summary" : "''") + " AS summary, (SELECT count(*) FROM log_events le WHERE le.project_id=$2 AND le.scene_id=s.id AND le.event_type<>'scene_change'" + eventScope(a) + ") AS line_count FROM scenes s WHERE s.channel_id=$1 ORDER BY s.sequence", {a.channelId, pid});
+    out["last_event_at"] = db_.queryOne("SELECT max(occurred_at) AS last_at FROM log_events WHERE project_id=$1" + eventScope(a), {pid})["last_at"];
+    return out;
+}
+std::vector<LogEvent> LogStudioService::campaignEvents(const ChannelAccess& a, const std::string& projectId, const std::string& chatWindowId) {
+    std::string sql = "SELECT " + EVENT_COLS + " FROM log_events WHERE project_id=$1" + eventScope(a);
+    DbParams p{projectId};
+    if (!chatWindowId.empty()) { if (!Visibility::isUuid(chatWindowId)) throw badRequest("invalid chat_window_id"); p.push_back(chatWindowId); sql += " AND chat_window_id=$2"; }
+    sql += " ORDER BY sequence_number";
+    std::vector<LogEvent> out; for (auto& r : db_.queryJson(sql, p)) out.push_back(LogEvent::fromJson(r));
+    return out;
+}
+// SealDice log JSON as story-painter reads it: {version, items:[{nickname, IMUserId, time, message, isDice, commandId?, commandInfo?}]}.
+Json::Value LogStudioService::toSealDiceJson(const std::vector<LogEvent>& events) {
+    Json::Value j; j["version"] = 105; j["items"] = Json::Value(Json::arrayValue);
+    for (const auto& e : events) {
+        if (e.eventType == "scene_change") continue;
+        Json::Value it; it["nickname"] = e.speakerDisplayName; it["IMUserId"] = e.speakerCharacterId.empty() ? e.speakerKey : e.speakerCharacterId;
+        it["time"] = e.occurredAtUnix ? Json::Value((Json::Int64)*e.occurredAtUnix) : Json::Value(0);
+        it["message"] = e.content; it["isDice"] = e.eventType == "dice_roll"; it["isRaw"] = false; it["color"] = "";
+        it["role"] = e.speakerRole == "gm" ? "gm" : e.speakerRole == "npc" ? "npc" : "pc";
+        if (e.eventType == "ooc") it["isOoc"] = true;
+        if (e.metadata.isMember("dice_result")) { it["commandId"] = 0; it["commandInfo"] = e.metadata["dice_result"]; }
+        if (!e.chatWindowId.empty()) it["channelId"] = e.chatWindowId;
+        j["items"].append(it);
+    }
+    return j;
+}
+std::string LogStudioService::exportLog(const ChannelAccess& a, const std::string& format, const std::string& chatWindowId, std::string& mime, std::string& fileName) {
+    auto pid = campaignProjectId(a.channelId); syncCampaign(a.channelId, pid);
+    auto proj = db_.queryOne("SELECT title, character_map FROM log_projects WHERE id=$1", {pid});
+    auto ch = db_.queryOne("SELECT name, era FROM channels WHERE id=$1", {a.channelId});
+    auto windows = db_.queryJson("SELECT id, name, kind FROM chat_windows WHERE channel_id=$1 ORDER BY created_at", {a.channelId});
+    std::map<std::string, std::string> windowName; for (auto& w : windows) windowName[w["id"].asString()] = w["name"].asString();
+    auto slug = [](std::string s) { std::string o; for (unsigned char c : s) o += (isalnum(c) || c >= 0x80) ? (char)c : '_'; return o.substr(0, 40); };
+    std::string base = slug(ch.isNull() ? "campaign" : ch["name"].asString());
+    Json::Value target; target["format"] = format; target["chat_window_id"] = chatWindowId; audit(a, "log.export", target);
+    auto meta = [&](const std::vector<LogEvent>& events) {
+        Json::Value m; m["campaign"] = ch.isNull() ? Json::Value("") : ch["name"]; m["era"] = ch.isNull() ? Json::Value("") : ch["era"]; m["channel_id"] = a.channelId; m["viewer"] = a.isGm ? "gm" : "player";
+        m["windows"] = windows; m["character_map"] = snapshotMap(events, proj["character_map"]);
+        m["scenarios"] = db_.queryJson("SELECT id, sequence, " + std::string(a.isGm ? "title, location, narrative_time, summary" : "'Scenario '||sequence AS title") + ", status FROM scenes WHERE channel_id=$1 ORDER BY sequence", {a.channelId});
+        m["characters"] = db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1" + std::string(a.isGm ? "" : " AND kind='pc'") + " ORDER BY created_at", {a.channelId});
+        m["exported_at"] = text::nowIso(); return m;
+    };
+    if (format == "json") { auto events = campaignEvents(a, pid, chatWindowId); mime = "application/json; charset=utf-8"; fileName = base + (chatWindowId.empty() ? "" : "-" + slug(windowName[chatWindowId])) + ".acerciae-log.json"; return json::dump(toNativeJson(events, meta(events)), true); }
+    if (format == "txt") { auto events = campaignEvents(a, pid, chatWindowId); mime = "text/plain; charset=utf-8"; fileName = base + ".txt"; return toPlainText(events); }
+    if (format == "html") { auto events = campaignEvents(a, pid, chatWindowId); mime = "text/html; charset=utf-8"; fileName = base + ".html"; Json::Value snap; snap["project_title"] = proj["title"]; snap["title"] = proj["title"]; snap["version"] = 0; snap["scope"] = a.isGm ? "gm_full" : "player"; return renderStyledHtml(snap, events, Json::Value(Json::objectValue), snapshotMap(events, proj["character_map"])); }
+    if (format == "sealdice") {
+        if (chatWindowId.empty()) throw badRequest("sealdice exports are per chat window: pass chat_window_id, or use format=zip for all windows");
+        auto events = campaignEvents(a, pid, chatWindowId); mime = "application/json; charset=utf-8"; fileName = base + "-" + slug(windowName[chatWindowId]) + ".sealdice.json"; return json::dump(toSealDiceJson(events), true);
+    }
+    if (format == "zip") {
+        auto all = campaignEvents(a, pid, "");
+        std::vector<std::pair<std::string, std::string>> files;
+        files.push_back({base + ".acerciae-log.json", json::dump(toNativeJson(all, meta(all)), true)});
+        files.push_back({base + ".txt", toPlainText(all)});
+        for (auto& w : windows) {
+            std::vector<LogEvent> part; for (auto& e : all) if (e.chatWindowId == w["id"].asString()) part.push_back(e);
+            if (part.empty()) continue;
+            files.push_back({"sealdice/" + slug(w["name"].asString()) + ".json", json::dump(toSealDiceJson(part), true)});
+        }
+        mime = "application/zip"; fileName = base + "-log.zip"; return zip::build(files);
+    }
+    throw badRequest("unknown export format (json|txt|html|sealdice|zip)");
+}
+
 std::string LogStudioService::exportSnapshot(const ChannelAccess& a, const std::string& snapshotId, const std::string& format, std::string& mime, std::string& fileName) {
     Json::Value snap; auto events = snapshotEvents(a, snapshotId, &snap);
     auto proj = db_.queryOne("SELECT title, character_map FROM log_projects WHERE id=$1", {snap["project_id"].asString()});
@@ -471,7 +426,8 @@ std::string LogStudioService::exportSnapshot(const ChannelAccess& a, const std::
     Json::Value target; target["snapshot_id"] = snapshotId; target["format"] = format; audit(a, "snapshot.export", target);
     if (format == "json") { mime = "application/json; charset=utf-8"; fileName = base + ".json"; Json::Value meta; meta["project"] = snap["frozen_metadata"]["project_title"]; meta["snapshot_version"] = snap["version"]; meta["scope"] = snap["scope"]; meta["character_map"] = snapshotMap(events,snap["frozen_metadata"]["character_map"]); return json::dump(toNativeJson(events, meta), true); }
     if (format == "txt") { mime = "text/plain; charset=utf-8"; fileName = base + ".txt"; return toPlainText(events); }
-    if (format == "sealdice_txt") { mime = "text/plain; charset=utf-8"; fileName = base + ".sealdice.txt"; return registry_.byName("sealdice_text")->exportText(events); }
+    if (format == "sealdice_txt") { mime = "text/plain; charset=utf-8"; fileName = base + ".sealdice.txt"; return makeSealDiceTextAdapter()->exportText(events); }
+    if (format == "sealdice") { mime = "application/json; charset=utf-8"; fileName = base + ".sealdice.json"; return json::dump(toSealDiceJson(events), true); }
     if (format == "html") { mime = "text/html; charset=utf-8"; fileName = base + ".html"; return renderStyledHtml(snap, events, Json::Value(Json::objectValue), snapshotMap(events,snap["frozen_metadata"]["character_map"])); }
     throw badRequest("unknown export format (json|txt|sealdice_txt|html)");
 }

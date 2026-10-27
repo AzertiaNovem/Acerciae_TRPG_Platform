@@ -306,8 +306,15 @@ void registerRoutes() {
     route1("/api/channels/{1}/studio/settings", {Get}, [&](auto&,auto& p,auto& a){return S.studio->settings(access(p,a[0]));});
     route1("/api/channels/{1}/studio/settings", {Put}, [&](auto& req,auto& p,auto& a){return S.studio->saveSettings(access(p,a[0]),body(req));});
 
-    // ---- Log Studio: projects / canonical events / imports / snapshots / exports ----
-    route1("/api/channels/{1}/studio/adapters", {Get}, [&](auto&, auto& p, auto& a) { access(p, a[0]); return S.studio->adapters(); });
+    // ---- Log Studio: the campaign log, snapshots, exports ----
+    route1("/api/channels/{1}/studio/log", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->campaignLog(access(p, a[0])); });
+    app().registerHandler("/api/channels/{1}/studio/log/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch) {
+        try {
+            auto pr = S.auth->authenticate(bearer(req)); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
+            std::string mime, name; auto data = S.studio->exportLog(access(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name);
+            auto r = HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+    }, {Get});
     route1("/api/channels/{1}/studio/projects", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listProjects(access(p, a[0])); });
     route1("/api/channels/{1}/studio/projects", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createProject(access(p, a[0]), body(req)); });
     route2("/api/channels/{1}/studio/projects/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->getProject(access(p, a[0]), a[1]); });
@@ -316,20 +323,7 @@ void registerRoutes() {
     route2("/api/channels/{1}/studio/projects/{2}/events", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->listEvents(access(p, a[0]), a[1], qint(req, "limit", 500), qint(req, "after_seq", 0), req->getParameter("scene_key")); });
     route3("/api/channels/{1}/studio/projects/{2}/events/{3}", {Put}, [&](auto& req, auto& p, auto& a) { return S.studio->updateEvent(access(p, a[0]), a[1], a[2], body(req)); });
     route2("/api/channels/{1}/studio/projects/{2}/scenes", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->sceneSummary(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/projects/{2}/scenes/split", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.studio->splitScene(access(p, a[0]), a[1], json::toInt(b, "from_seq", 0), json::str(b, "title", "New scene")); });
-    route2("/api/channels/{1}/studio/projects/{2}/scenes/merge", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.studio->mergeScene(access(p, a[0]), a[1], json::requireStr(b, "scene_key"), json::requireStr(b, "into_key")); });
-    route2("/api/channels/{1}/studio/projects/{2}/scenes/rename", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.studio->renameScene(access(p, a[0]), a[1], json::requireStr(b, "scene_key"), json::str(b, "title")); });
-    route2("/api/channels/{1}/studio/projects/{2}/scenes/suggest", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->suggestScenes(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/studio/projects/{2}/sync", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->syncFromChannel(access(p, a[0]), a[1], body(req)); });
-    route2("/api/channels/{1}/studio/projects/{2}/imports", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listImports(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/studio/projects/{2}/imports", {Post}, [&](auto& req, auto& p, auto& a) {
-        auto ac = access(p, a[0]);
-        MultiPartParser mp; std::string adapter = "auto";
-        if (mp.parse(req) == 0 && !mp.getFiles().empty()) { auto& f = mp.getFiles()[0]; auto& ps = mp.getParameters(); if (ps.count("adapter")) adapter = ps.at("adapter"); return S.studio->previewImport(ac, a[1], f.getFileName(), std::string(f.fileContent()), adapter); }
-        auto b = body(req); return S.studio->previewImport(ac, a[1], json::str(b, "file_name", "pasted.txt"), json::str(b, "text"), json::str(b, "adapter", "auto"));
-    });
-    route3("/api/channels/{1}/studio/projects/{2}/imports/{3}/commit", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.studio->commitImport(access(p, a[0]), a[1], a[2], b["speaker_map"]); });
-    route2("/api/channels/{1}/studio/imports/{2}/errors", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->importErrors(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/studio/projects/{2}/snapshots", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listSnapshots(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/studio/projects/{2}/snapshots", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createSnapshot(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/snapshots/{2}", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->getSnapshot(access(p, a[0]), a[1], req->getParameter("events") != "false"); });

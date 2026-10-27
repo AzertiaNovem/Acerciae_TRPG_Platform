@@ -4,15 +4,18 @@ Log Studio extends the existing campaign channel, identity and permission system
 
 Migrations `0007_logstudio.sql`, `0008_tts_audit.sql`, `0009_studio_publication.sql`, `0010_snapshot_metadata.sql`, `0011_studio_cloud_policy.sql`, `0012_user_preferences.sql` and `0013_vn_scripts.sql` are additive. The two historical `0007_*` files belong to separate Claude branches; the migration ledger keys full filenames, so both run once. Do not renumber an already applied migration. Backfilling old snapshots can freeze only their state at migration time; it cannot reconstruct earlier metadata that was never stored.
 
-## Import compatibility
+## The campaign log
 
-Native JSON supports `schemaVersion:"1.0"`, with extension data in `metadata`, `source_reference` and original `raw_text`. See `LOG_SCHEMA.json`. Known native version mismatch is rejected. Import previews are stored before commit; uncertain lines/items remain events with issues rather than disappearing. Role/alias mapping is a user decision; identical IM IDs under different nicknames are offered as separate keys for manual mapping.
+One channel keeps one log: every chat window, the whole campaign. `GET /studio/log` creates the project on first
+use and pulls every new channel event under a system identity, so each line carries its own visibility and
+readers are filtered when they read or export. Nothing is imported from outside any more: the import adapters,
+their preview/commit endpoints and the log editor's scene surgery were removed (the parsing helpers stay in
+`LogAdapters.cpp` for classification and for the SealDice text export).
 
-SealDice compatibility was checked against [story-painter](https://github.com/sealdice/story-painter/tree/fad63caf6ce3690d7e629cc747e4044210f04acc/src/logManager/importers), specifically SealDiceLogImporter, EditLogImporter and RenderedLogImporter at commit `fad63caf6ce3690d7e629cc747e4044210f04acc`. Supported JSON is `{version,items:[{nickname,IMUserId,time,message,isDice,commandId?,commandInfo?,...}]}`; the repository fixture uses version 105. The top-level version is recorded, but this is not blanket certification of all SealDice releases. JSON export is the native schema, not a fabricated universal SealDice JSON.
-
-Text compatibility covers `nickname(IMUserId) YYYY/MM/DD HH:MM:SS` followed by multiline message content (optional date and `#n` suffix), rendered text `[date ]HH:MM:SS<nickname(QQ)>:message`, and QQ export `YYYY-MM-DD HH:MM:SS nickname(QQ)`. Arbitrary rendered HTML import is not supported. UTF-8/BOM, BOM-tagged UTF-16 and inferred GB18030/GBK are converted losslessly to UTF-8; inferred encoding is reported for preview review. Invalid byte sequences are rejected with an actionable encoding error before saving an import.
-
-Message whitespace, CQ codes, original JSON items and unrecognized content are retained. CQ media extraction adds structured metadata and optional display text; it does not fetch arbitrary remote media. Source log timestamps without a timezone are interpreted as UTC, with original textual timestamps retained when a complete date is absent. Native imports/exports preserve nullable fields instead of inventing missing dice results. Sample text/JSON are authored fixtures following the verified format, not real player records.
+Exports need no snapshot and are available to every member within their own view: the lossless native JSON
+(`LOG_SCHEMA.json`, now with `meta.windows`, `meta.scenarios`, `meta.characters`), plain text, HTML, a
+SealDice-compatible JSON per chat window (`{version:105, items[]}` as story-painter reads it, with the structured
+dice result under `commandInfo`), and a zip of all of them.
 
 ## Snapshots, privacy and publication
 

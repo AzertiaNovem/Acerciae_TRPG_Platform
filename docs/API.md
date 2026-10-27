@@ -158,6 +158,13 @@ Context stream: `document.updated {document_id, doc_type, version, change_count,
 Both streams answer `{"type":"ping"}` with `pong`. The upgrade must be the first request on its TCP connection (browsers
 always do this).
 
+## The campaign log (Log Studio)
+| GET | `/channels/{id}/studio/log` | the channel's one campaign log, synced from the chat on every call: `{project (event_count, speakers, snapshots, scenes), synced_added, windows[{id, name, kind, line_count, last_at}], scenarios[], last_event_at}`. Viewer-filtered. Nothing is ever imported. |
+| GET | `/channels/{id}/studio/log/export?format=json|txt|html|sealdice|zip&chat_window_id=` | viewer-filtered download of the whole campaign (or one window). `json` is the lossless Acerciae format (`schemaVersion 1.0`, `meta {campaign, era, windows, scenarios, characters, character_map}`, every event with its dice, media, metadata and source references). `sealdice` needs `chat_window_id` and returns story-painter's `{version: 105, items[{nickname, IMUserId, time, message, isDice, commandId?, commandInfo?, role}]}` for that window. `zip` bundles the JSON, the text and one SealDice JSON per window. |
+
+Snapshots (`POST /projects/{p}/snapshots` with `selection.mode=campaign`) still freeze the log for PDFs and visual
+novels; the UI creates them implicitly. The import, adapter and scene-surgery endpoints are gone.
+
 ## Log Studio contracts
 
 All paths in this section start with `/api/channels/{channel_id}/studio` unless stated otherwise. The channel is the campaign. Existing chat, document and mobile contracts are retained. IDs are UUIDs from responses; JSON timestamps in Canonical events are Unix seconds, while database task timestamps are ISO strings. Unknown optional fields must be tolerated by clients.
