@@ -11,6 +11,7 @@
 #include "StudioPolicy.h"
 #include <drogon/utils/Utilities.h>
 #include <set>
+#include <ctime>
 namespace acerciae::logstudio {
 static DbParam opt(const std::string &s) {
   return s.empty() ? dbNull() : DbParam(s);
@@ -145,6 +146,43 @@ Json::Value CreativeService::create(const ChannelAccess &a,
   cv_.notify_all();
   return j;
 }
+Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Json::Value &character, const std::string &kind,
+                                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud) {
+  bool owner = character["user_id"].isString() && character["user_id"].asString() == a.userId;
+  if (!a.isGm && !owner)
+    throw forbidden("only the Keeper or the character's actor may generate this character's images");
+  if (!provider_)
+    throw badRequest("image generation disabled");
+  if (provider_->name() != "mock" && !allowCloud)
+    throw badRequest("confirm cloud processing for the appearance prompt");
+  if (provider_->name() != "mock")
+    requireCloudPermission(db_, a.channelId);
+  auto cid = character["id"].asString();
+  auto style = db_.queryOne("SELECT * FROM visual_style_profiles WHERE channel_id=$1 ORDER BY is_default DESC, created_at LIMIT 1", {a.channelId});
+  Json::Value params;
+  params["style"] = style.isNull() ? Json::Value(Json::objectValue) : style;
+  if (!style.isNull()) params["style_profile_version"] = style["version"];
+  params["request"]["kind"] = kind;
+  params["request"]["style"] = params["style"];
+  params["request"]["prompt"] = prompt;
+  params["request"]["character"]["name"] = character["name"];
+  params["request"]["character"]["description"] = character["appearance_prompt"];
+  params["attach"]["character_id"] = cid;
+  params["attach"]["slot"] = slot;
+  params["attach"]["subtitle"] = subtitle;
+  params["cloud_authorized"] = allowCloud;
+  params["visibility_scope"] = "channel";
+  auto idem = crypto::sha256Hex(a.channelId + provider_->name() + provider_->model() + json::dump(params) + std::to_string(std::time(nullptr) / 60));
+  auto old = db_.queryOne("SELECT id,status FROM asset_generation_jobs WHERE idempotency_key=$1", {idem});
+  if (!old.isNull())
+    return old;
+  auto j = db_.queryOne(
+      "INSERT INTO asset_generation_jobs(channel_id,kind,provider,prompt,params,style_profile_id,character_id,created_by,idempotency_key) "
+      "VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) RETURNING id,status,kind,params->'attach' AS attach",
+      {a.channelId, kind, provider_->name(), prompt, json::dump(params), style.isNull() ? dbNull() : DbParam(style["id"].asString()), cid, a.userId, idem});
+  cv_.notify_all();
+  return j;
+}
 Json::Value CreativeService::cancel(const ChannelAccess &a,
                                     const std::string &id) {
   if (!a.isGm)
@@ -212,12 +250,16 @@ void CreativeService::run(const Json::Value &j) {
     if (db_.queryOne("SELECT status FROM asset_generation_jobs WHERE id=$1",
                      {id})["status"] != "running")
       return;
+    const Json::Value &attachTo = j["params"]["attach"];
+    const bool forCharacter = attachTo.isObject() && attachTo.isMember("character_id");
     Json::Value m;
     m["name"] =
         (provider_->name() == "mock" ? "MOCK test pattern: " : "Candidate: ") +
         j["kind"].asString();
-    m["approval_status"] = "candidate";
-    m["visibility_scope"] = "gm";
+    // A character's own art is the actor's to use at once; everything else waits for the Keeper's review.
+    m["approval_status"] = forCharacter ? "approved" : "candidate";
+    m["visibility_scope"] = forCharacter ? "channel" : "gm";
+    if (forCharacter) { m["name"] = json::str(j["params"]["request"]["character"], "name") + " · " + (json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot")); m["expression"] = json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot"); }
     m["generation_provider"] = provider_->name();
     m["generation_model"] = provider_->model();
     m["prompt"] = j["prompt"];
@@ -228,13 +270,27 @@ void CreativeService::run(const Json::Value &j) {
     m["source_reference"]["visual_identity_check"] = "manual review required";
     m["source_reference"]["character_profile"] =
         j["params"]["request"]["character"];
+    // An avatar is stored as a portrait asset; "avatar" is only the job's framing.
     auto asset = media_.storeInternal(
-        j["channel_id"].asString(), j["kind"].asString(),
+        j["channel_id"].asString(), j["kind"].asString() == "avatar" ? std::string("portrait") : j["kind"].asString(),
         provider_->name() == "mock" ? "mock" : "generated", r.bytes, r.mime, m);
     db_.exec("UPDATE asset_generation_jobs SET "
              "status='completed',result_asset_id=$2,finished_at=now(),updated_"
              "at=now() WHERE id=$1 AND status='running'",
              {id, asset["id"].asString()});
+    if (forCharacter) {
+      auto cid = json::str(attachTo, "character_id"), slot = json::str(attachTo, "slot"), subtitle = json::str(attachTo, "subtitle"), aid = asset["id"].asString();
+      if (slot == "avatar") db_.exec("UPDATE characters SET avatar_asset_id=$2, updated_at=now() WHERE id=$1", {cid, aid});
+      else if (slot == "portrait") {
+        db_.exec("UPDATE characters SET portrait_asset_id=$2, updated_at=now() WHERE id=$1", {cid, aid});
+        db_.exec("INSERT INTO character_visual_profiles(character_id, channel_id, default_asset_id) VALUES($1,$2,$3) ON CONFLICT (character_id) DO UPDATE SET default_asset_id=$3, version=character_visual_profiles.version+1, updated_at=now()", {cid, j["channel_id"].asString(), aid});
+      } else {
+        Json::Value e(Json::objectValue); e[subtitle] = aid;
+        db_.exec("INSERT INTO character_visual_profiles(character_id, channel_id, expressions) VALUES($1,$2,$3::jsonb) ON CONFLICT (character_id) DO UPDATE SET expressions=character_visual_profiles.expressions || $3::jsonb, version=character_visual_profiles.version+1, updated_at=now()", {cid, j["channel_id"].asString(), json::dump(e)});
+      }
+      auto row = db_.queryOne("SELECT * FROM characters WHERE id=$1", {cid});
+      if (!row.isNull()) notifier_.characterUpdated(j["channel_id"].asString(), row);
+    }
     Json::Value out;
     out["job_id"] = id;
     out["asset_id"] = asset["id"];

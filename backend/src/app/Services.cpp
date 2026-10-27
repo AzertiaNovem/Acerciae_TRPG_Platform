@@ -6,6 +6,7 @@
 #include "../scenes/ScenarioService.h"
 #include "../reminders/ReminderService.h"
 #include "../script/ScriptKnowledgeService.h"
+#include "../characters/CharacterSpaceService.h"
 #include "../knowledge/KnowledgeService.h"
 #include "../documents/DocumentService.h"
 #include "../highlights/HighlightService.h"
@@ -64,6 +65,7 @@ Services& Services::build(const Config& cfg) {
     s.publication = std::make_unique<logstudio::PublicationService>(*s.db,*s.objectStore,*s.notifier,*s.studio,*s.presentations,*s.media,*s.documents);
     s.creative = std::make_unique<logstudio::CreativeService>(*s.db,*s.media,*s.presentations,*s.studio,*s.llm,*s.notifier);
     s.vnScripts = std::make_unique<logstudio::VnScriptService>(*s.db,*s.auth,*s.studio,*s.presentations,*s.llm,*s.notifier);
+    s.characterSpace = std::make_unique<CharacterSpaceService>(*s.db, *s.media, *s.creative, *s.notifier);
     s.scenarios = std::make_unique<ScenarioService>(*s.db, *s.events, *s.scenes, *s.llm, *s.notifier);
     s.reminders = std::make_unique<ReminderService>(*s.db, *s.llm, *s.retrieval, *s.notifier);
     s.script = std::make_unique<ScriptKnowledgeService>(*s.db, *s.llm, *s.retrieval, *s.reminders, *s.notifier);

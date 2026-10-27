@@ -4,7 +4,7 @@ export interface Server { id: string; name: string; owner_id: string; my_role: s
 export interface Channel {
   id: string; server_id: string; name: string; description: string; rule_system: string;
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
-  knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null;
+  knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string;
   ai_enabled: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }
@@ -13,12 +13,24 @@ export interface ChatWindow {
   id: string; channel_id: string; name: string; kind: 'main' | 'group' | 'private'; active_scene_id: string | null;
   scene_title?: string | null; members: WindowMember[] | null; last_seq: number | null;
 }
-export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null }
+export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean }
+// The COC7-styled role card. Numbers are mirrored into sheet.attrs for the dice.
+export interface RoleCard {
+  basic: { player: string; occupation: string; age: string; sex: string; residence: string; birthplace: string };
+  characteristics: Partial<Record<'STR' | 'CON' | 'SIZ' | 'DEX' | 'APP' | 'INT' | 'POW' | 'EDU' | 'LUK', number>>;
+  derived: { hp?: number; hp_max?: number; mp?: number; mp_max?: number; san?: number; san_max?: number; mov?: number; build?: number; db: string };
+  skills: Record<string, number>;
+  background: Record<'personal_description' | 'ideology' | 'significant_people' | 'meaningful_locations' | 'treasured_possessions' | 'traits' | 'injuries' | 'phobias' | 'arcane' | 'encounters', string>;
+  items: { name: string; note: string; qty: number }[];
+  wealth: { cash: string; assets: string; spending_level: string };
+}
+export interface CharacterAssetRef { id: string; version: number; mime: string; width: number | null; height: number | null; source_type: string; approval_status: string; subtitle?: string }
+export interface CharacterSpace { character: Character & { role_card: RoleCard; editable: boolean }; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[]; jobs: { id: string; kind: string; status: string; error: string | null; attach: { slot: string; subtitle: string } | null; created_at: string; finished_at: string | null }[]; era: string; narrative_time: string | null; attrs: Record<string, number>; generation_available: boolean }
 export interface PlayerGroup { id: string; channel_id: string; name: string; version: number; members: {user_id: string; display_name: string}[] }
 export interface Message {
   reference_ids?: string[];
   id: string; channel_id: string; chat_window_id: string; scene_id: string | null; author_id: string; author_role: 'gm' | 'player';
-  character_id: string | null; character_name: string | null; author_name: string; author_avatar_version?: number; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
+  character_id: string | null; character_name: string | null; character_avatar_asset_id?: string | null; character_avatar_version?: number | null; author_name: string; author_avatar_version?: number; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
   content: string; visibility: 'window' | 'gm_only' | 'whisper'; whisper_to: string[]; seq: number; created_at: string;
   dice?: DiceResult | null;
 }

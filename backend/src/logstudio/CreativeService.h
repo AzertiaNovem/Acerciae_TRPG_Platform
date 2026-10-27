@@ -28,6 +28,11 @@ public:
   Json::Value cancel(const ChannelAccess &a, const std::string &id);
   Json::Value suggest(const ChannelAccess &a, const std::string &presentation,
                       const Json::Value &body);
+  // A character's own portrait, avatar or subtitle standee. Allowed to the Keeper and the character's actor;
+  // the result is approved on completion and attached to the character (params.attach).
+  Json::Value createForCharacter(const ChannelAccess &a, const Json::Value &character, const std::string &kind,
+                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud);
+  bool available() const { return provider_ != nullptr; }
 
 private:
   void loop();

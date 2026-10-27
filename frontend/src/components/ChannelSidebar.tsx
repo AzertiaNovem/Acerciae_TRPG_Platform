@@ -6,7 +6,6 @@ import { api } from '../api/client';
 import { useUi } from '../store/ui';
 import UserPicker, { userCandidate } from './UserPicker';
 import WindowMembersModal from './WindowMembersModal';
-import CharacterSheetModal from './CharacterSheetModal';
 import UserSettingsModal from './UserSettingsModal';
 import ServerSettingsModal from './ServerSettingsModal';
 import type { ChannelMember, ServerMember } from '../types';
@@ -22,7 +21,6 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([]);
   const [serverMembers, setServerMembers] = useState<ServerMember[]>([]);
   const [manageWindow, setManageWindow] = useState<string | null>(null);
-  const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [userSettingsOpen, setUserSettingsOpen] = useState(false);
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false);
   const f = (k: string) => form[k] ?? '';
@@ -105,7 +103,8 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             })}
             <div className="section"><span>{tr("Characters")}</span><button className="ghost small" title={tr("New character")} onClick={() => setDialog('character')}>+</button></div>
             {characters.map((c) => (
-              <div key={c.id} className="item" onClick={() => setSheetFor(c.id)} title={tr("Open character sheet")}>
+              <div key={c.id} className={`item ${nav.characterSpaceId === c.id ? 'active' : ''}`} onClick={() => { nav.openCharacter(c.id); onClose(); }} title={tr("Open character space")}>
+                {c.avatar_asset_id && nav.channelId ? <img className="mini-avatar" src={api.mediaUrl(nav.channelId, c.avatar_asset_id)} alt="" /> : <span className="mini-avatar text">{c.name.slice(0, 1)}</span>}
                 <span className="name small">{c.name}</span><span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span>
               </div>
             ))}
@@ -156,7 +155,6 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
         </div>
       )}
       {manageWindow && <WindowMembersModal windowId={manageWindow} onClose={() => setManageWindow(null)} />}
-      {sheetFor && <CharacterSheetModal characterId={sheetFor} onClose={() => setSheetFor(null)} />}
       {userSettingsOpen && <UserSettingsModal onClose={() => setUserSettingsOpen(false)} />}
       {serverSettingsOpen && <ServerSettingsModal onClose={() => setServerSettingsOpen(false)} />}
     </div>

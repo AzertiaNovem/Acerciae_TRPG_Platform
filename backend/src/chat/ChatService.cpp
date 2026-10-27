@@ -13,8 +13,8 @@
 namespace acerciae {
 
 static const std::string MSG_SELECT =
-    "SELECT m.*, c.name AS character_name, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' THEN u.avatar_version ELSE 0 END AS author_avatar_version FROM messages m "
-    "LEFT JOIN characters c ON c.id=m.character_id LEFT JOIN users u ON u.id=m.author_id ";
+    "SELECT m.*, c.name AS character_name, c.avatar_asset_id AS character_avatar_asset_id, ca.version AS character_avatar_version, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' THEN u.avatar_version ELSE 0 END AS author_avatar_version FROM messages m "
+    "LEFT JOIN characters c ON c.id=m.character_id LEFT JOIN media_assets ca ON ca.id=c.avatar_asset_id LEFT JOIN users u ON u.id=m.author_id ";
 
 // ---- servers ---------------------------------------------------------------------------------
 Json::Value ChatService::listServers(const Principal& p) {
@@ -152,8 +152,8 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
         if (!Visibility::isUuid(group) || db_.queryOne("SELECT 1 AS ok FROM dice_text_groups WHERE id=$1 AND server_id=$2", {group, a.serverId}).isNull())
             throw badRequest("unknown dice text group");
     }
-    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7 WHERE id=$1",
-        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool()), group, json::toBool(body, "auto_scenarios", cur["auto_scenarios"].asBool())});
+    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8 WHERE id=$1",
+        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool()), group, json::toBool(body, "auto_scenarios", cur["auto_scenarios"].asBool()), json::str(body, "era", cur["era"].asString()).substr(0, 80)});
     return getChannel(a);
 }
 Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::string& user, const std::string& role) {

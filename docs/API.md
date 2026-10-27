@@ -44,6 +44,16 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET/PUT | `/channels/{id}/characters/{cid}/attributes` | `{attrs, editable}`; PUT `{set?: {name: number}, remove?: [name]}` (owner or GM; NPCs: GM). Names are canonicalised (`侦查`, `spot` → `Spot Hidden`) |
 | POST | `/channels/{id}/dice/preview` | `{content, chat_window_id, character_id?}` → `{hint, command}` — the composer's gray hint; never rolls |
 
+## Character space
+| GET | `/channels/{id}/characters/{cid}/space` | `{character (with role_card, bio, asset_mode, appearance_prompt, editable), avatar, portrait, subtitles[{subtitle, id, version, …}], jobs[], era, narrative_time, attrs, generation_available}`. Players read any PC's space; NPC spaces are 404 for players. |
+| PUT | `/channels/{id}/characters/{cid}/card` | `{name?, speaking_style?, bio?, role_card?}` (Keeper or the character's actor). The COC7 card: `basic {player, occupation, age, sex, residence, birthplace}`, `characteristics {STR…LUK}`, `derived {hp, hp_max, mp, mp_max, san, san_max, mov, build, db}`, `skills {name: value}`, `background {personal_description, ideology, significant_people, meaningful_locations, treasured_possessions, traits, injuries, phobias, arcane, encounters}`, `items [{name, note, qty}]`, `wealth {cash, assets, spending_level}`. Characteristics, HP/MP/SAN/MOV and skills are mirrored into `sheet.attrs`, which the dice read. |
+| PUT | `/channels/{id}/characters/{cid}/appearance` | `{asset_mode: uploaded|generated, appearance_prompt}` |
+| POST | `/channels/{id}/characters/{cid}/assets` | multipart `slot` (`avatar`, `portrait`, `subtitle`) + `subtitle` (IDLE, SAY, FIGHT, …) + `file`: an approved image asset of the character, attached to the slot |
+| POST | `/channels/{id}/characters/{cid}/assets/generate` | generated mode only: `{slots: [portrait, avatar], subtitles: [...], allow_cloud}` queues one image job per target; the prompt is the appearance prompt plus the channel's `era`, the current scenario's moment and the slot's framing; results are approved and attached when the job completes |
+| DELETE | `/channels/{id}/characters/{cid}/assets/{aid}` | detaches and deletes the image |
+
+Chat messages carry `character_avatar_asset_id` and `character_avatar_version`; `PUT /channels/{id}` accepts `era`.
+
 ## Chat windows & messages
 | GET/POST | `/channels/{id}/windows` | create `{name, kind: group|private, members:[{user_id, character_id?}]}` (GM); a new window joins the campaign's current scenario |
 | GET/POST | `/channels/{id}/windows/{w}/members` | add `{user_id, character_id?}` (GM) |

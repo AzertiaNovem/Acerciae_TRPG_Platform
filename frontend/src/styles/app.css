@@ -226,3 +226,27 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .script-panel .entry { border-bottom: 1px solid var(--bg-4); padding: 8px 0; }
 .script-panel .entry.active { border-left: 3px solid var(--accent); padding-left: 8px; }
 .script-panel .entry.done { opacity: .7; }
+
+/* Character space */
+.mini-avatar { width: 18px; height: 18px; border-radius: 6px; object-fit: cover; background: var(--bg-3); display: inline-grid; place-items: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+.character-space .hero { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: start; }
+.character-space .portrait { width: 220px; aspect-ratio: 3 / 4; border-radius: 12px; background: var(--bg-3); object-fit: cover; display: grid; place-items: center; color: var(--fg-2); overflow: hidden; }
+.character-space .portrait img { width: 100%; height: 100%; object-fit: cover; }
+.character-space .big-avatar { width: 64px; height: 64px; border-radius: 16px; background: var(--bg-3); object-fit: cover; display: grid; place-items: center; font-weight: 700; font-size: 22px; overflow: hidden; }
+.character-space .big-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.role-card { border: 1px solid var(--bg-4); border-radius: 12px; padding: 12px 14px; background: linear-gradient(180deg, var(--bg-2), var(--bg-3)); }
+.role-card h4 { margin: 10px 0 6px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-2); }
+.role-card .char-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.role-card .char-grid .cell { background: var(--bg-2); border: 1px solid var(--bg-4); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.role-card .char-grid .cell b { font-size: 11px; color: var(--fg-2); }
+.role-card .char-grid .cell input, .role-card .char-grid .cell span.v { font-size: 18px; font-weight: 700; width: 100%; background: transparent; border: none; color: var(--fg-1); padding: 0; }
+.role-card .char-grid .cell .halves { font-size: 10px; color: var(--fg-2); }
+.role-card .skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 4px 12px; }
+.role-card .skills .skill { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.role-card .skills .skill input { width: 48px; text-align: right; }
+.role-card .skills .skill .grow { border-bottom: 1px dotted var(--bg-4); }
+.subtitle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.subtitle-grid .tile { background: var(--bg-3); border-radius: 10px; overflow: hidden; text-align: center; }
+.subtitle-grid .tile img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; }
+.subtitle-grid .tile .cap { font-size: 11px; padding: 4px; }
+@media (max-width: 800px) { .character-space .hero { grid-template-columns: 1fr; } .character-space .portrait { width: 160px; } }

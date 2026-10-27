@@ -40,6 +40,7 @@
 | `scenes/SceneManager` | Scenes, window↔scene links, channel current scene, scene logs | EventStore, Notifier |
 | `scenes/ScenarioService` | Scenes as scenarios, a campaign-wide state: the Keeper opens the next scenario or enters a prepared one for every window; the previous one closes, is summarized (GM-edited summaries are never overwritten) and becomes read-only; the observer's stage detection only raises a "New scenario?" suggestion bubble (`auto_scenarios`) | SceneManager, EventStore, LlmGateway, Notifier |
 | `reminders/ReminderService` | Reminder bubbles for a player group (after its observer batch) and for the Keeper: the planner quotes chat lines verbatim, every quote is re-verified against readable lines before storage, per-user dismissal, chat-log context around the quotes; maintains the players' per-scenario outlines (`player_scenario_outlines`) | Retrieval, LlmGateway, Notifier |
+| `characters/CharacterSpaceService` | The character space: COC7 role card (bounded, mirrored into `sheet.attrs`), bio, asset mode, uploads and generated images attached to avatar / portrait / subtitle slots; Keeper or actor edits | MediaService, CreativeService, Notifier |
 | `script/ScriptKnowledgeService` | The Keeper's script knowledge built from a structured module (flow, relationships, clues, foreshadowing, background with page citations); per batch: a first model proposes changes with chat quotes, a second reviews, approved ones are applied and all are logged; the pinned board (next per the script, notes); Keeper edits are final | Retrieval, LlmGateway, ReminderService, Notifier |
 | `chat/ChatService` | Servers, channels, windows, characters, messages (each message ⇒ `message.posted` event with its witnessing audience) | Auth, EventStore, SceneManager, DocumentService (core docs on channel creation) |
 | `knowledge/KnowledgeService` | Fact–Knower scope derivation (`deriveScope`), entity/relation upsert, viewer queries | Visibility |
@@ -82,6 +83,7 @@ Migrations live in `backend/migrations/` and are applied in order at startup.
 * **AI bookkeeping**: `ai_jobs` (lock + audit), `ai_processing_cursors` (per channel/kind/group), `consistency_checks`,
   `inspiration_drafts`.
 * **Module layer**: `modules`, `module_pages` (FTS), `module_nodes` (type, citations, progress), `module_edges`, `module_hints`.
+* **Characters**: `characters` carry `avatar_asset_id`, `portrait_asset_id`, `asset_mode`, `appearance_prompt`, `bio`, `role_card`; `channels.era`; per-subtitle images in `character_visual_profiles.expressions`.
 * **Scenarios**: `scenes` carry `auto_detected`, `stage_reason`, `boundary_event_id`, `summary_status` (`none|pending|ready|gm_edited`),
   `key_points`, `summary_source_event_ids`; `channels.auto_scenarios`.
 * **Reminders**: `reminders` (group or Keeper, kind, title, why, `citations[{event_id, …, quotes[]}]`, `script_refs`, dedupe key,

@@ -13,10 +13,11 @@ import GMWorkspace from './components/GMWorkspace';
 import StudioWorkspace from './components/studio/StudioWorkspace';
 import SharedPublication from './components/studio/PublicationViewer';
 import EvidenceModal from './components/EvidenceModal';
+import CharacterSpace from './components/CharacterSpace';
 
 function Shell() {
   useRealtime();
-  const { channelId, windowId, gmWorkspaceOpen, studioOpen, channel, loadServers } = useNav();
+  const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers } = useNav();
   const toasts = useUi((s) => s.toasts);
   const aiActivity = useUi((s) => s.aiActivity);
   const platformMode = useAuth((s) => s.llmMode);
@@ -31,7 +32,7 @@ function Shell() {
       <div className="main">
         {llmMode === 'mock' && <div className="mode-banner">{tr("MOCK LLM MODE — no LLM API key for this server or the platform; the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.")}</div>}
         {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
-        {channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
+        {channelId && characterSpaceId ? <CharacterSpace key={characterSpaceId} characterId={characterSpaceId} /> : channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
           <div style={{ padding: 40 }} className="muted">{tr("Pick a server and channel, or create one from the left.")}</div>
         )}
       </div>

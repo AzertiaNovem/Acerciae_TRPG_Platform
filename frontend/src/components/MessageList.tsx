@@ -24,7 +24,8 @@ function MessageRow({ m, jumped }: { m: Message; jumped: boolean }) {
   const references = useChat(s=>s.references);
   const addReference = useChat(s=>s.addReference);
   const own = user?.id === m.author_id;
-  const avatar = own ? user.avatar_data : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
+  // The character's avatar first; the user's own avatar when the character has none.
+  const avatar = m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? user.avatar_data : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
   const [failedAvatar, setFailedAvatar] = useState('');
   const author = own ? user.display_name : m.author_name;
   const name = m.character_name ?? (m.author_role === 'gm' ? `${author} (GM)` : author);

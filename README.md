@@ -24,6 +24,8 @@ Screenshots (taken from the running app in mock mode):
 | ![](docs/screenshots/gm-workspace.png) | ![](docs/screenshots/gm-module.png) | ![](docs/screenshots/revision-history.png) |
 | Next per the script, pinned for the Keeper | The script knowledge and its reviewed changes | A reminder bubble opened: the quoted lines highlighted |
 | ![](docs/screenshots/kp-board.png) | ![](docs/screenshots/script-knowledge.png) | ![](docs/screenshots/reminder-viewer.png) |
+| The character space: COC7 role card | Appearance mode, generated portrait and subtitles | The Scenarios manager |
+| ![](docs/screenshots/character-space.png) | ![](docs/screenshots/character-look.png) | ![](docs/screenshots/scenarios.png) |
 
 ## Quick start (Docker Compose)
 
@@ -103,6 +105,12 @@ five journals only from that chat and its own earlier summaries; it cannot retri
 are available in GM Workshop, with sections, source citations, revisions and correction controls.
 Group or window-access changes invalidate and rebuild the affected player summaries. Existing KP records remain intact.
 See [knowledge architecture and migration](docs/KNOWLEDGE_GROUPS.md).
+
+**Character space** — every character has a page: the avatar shown in chat, the main portrait, basic information,
+the COC7-styled role card (characteristics, derived values, skills, wealth), background and carried items. The Keeper and
+the character's actor edit it; everyone at the table reads a PC's page. Images come from uploads or, in generated mode,
+from an appearance prompt that the image AI combines with the campaign's era and the current moment of the story; one
+image per subtitle (IDLE, SAY, FIGHT, …) feeds the visual novel.
 
 **Scenarios** — the story's stages, and a campaign-wide state: every chat window is in the channel's current
 scenario. Only the Keeper opens the next one (or enters a prepared one); at that moment the previous scenario closes,

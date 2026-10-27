@@ -18,6 +18,7 @@
 #include "scenes/ScenarioService.h"
 #include "reminders/ReminderService.h"
 #include "script/ScriptKnowledgeService.h"
+#include "characters/CharacterSpaceService.h"
 #include "logstudio/ImageProvider.h"
 #include <iostream>
 #include <functional>
@@ -408,6 +409,19 @@ int main() {
         Json::Value n2; n2["event_id"] = "e3"; n2["actor_role"] = "gm"; n2["character_name"] = ""; n2["content"] = "Dust covers a desk. Something like a diary lies under a loose board."; rem["new_events"].append(n2);
         auto plan = ReminderService::mockPlanKp(rem);
         CHECK(!plan["reminders"].empty()); CHECK(plan["reminders"][0]["kind"] == "needed"); CHECK(plan["reminders"][0]["title"].asString().find("Diary") != std::string::npos); CHECK(plan["reminders"][0]["script_refs"].size() == 1); CHECK(plan["reminders"][0]["quotes"][0]["event_id"] == "e3");
+    });
+    test("character space: the COC7 role card is bounded, mirrored into dice attributes, and image prompts carry era, moment and framing", [] {
+        auto card = CharacterSpaceService::normalizeRoleCard(json::parse(R"({"basic":{"occupation":"Journalist","age":"34","junk":1},"characteristics":{"STR":55,"DEX":70,"POW":"x","LUK":1200},"derived":{"hp":11,"san":60,"db":"0"},"skills":{"Spot Hidden":65,"Library Use":70,"":9},"background":{"ideology":"Truth above all","unknown":"dropped"},"items":[{"name":"Notebook","note":"dog-eared","qty":1},"Revolver",{"name":""}],"wealth":{"cash":"$40"}})"));
+        CHECK(card["basic"]["occupation"] == "Journalist"); CHECK(!card["basic"].isMember("junk")); CHECK(card["characteristics"]["STR"] == 55); CHECK(card["characteristics"]["LUK"] == 999); CHECK(card["characteristics"]["POW"] == 0);
+        CHECK(card["skills"].size() == 2); CHECK(card["items"].size() == 2); CHECK(card["items"][1]["name"] == "Revolver"); CHECK(card["items"][1]["qty"] == 1); CHECK(!card["background"].isMember("unknown")); CHECK(card["wealth"]["cash"] == "$40");
+        Json::Value attrs; attrs["luck"] = 30;   // an attribute the dice already stored under their own key
+        auto mirrored = CharacterSpaceService::mirrorAttrs(attrs, card);
+        CHECK(mirrored["STR"] == 55 || mirrored["str"] == 55); CHECK(mirrored["Spot Hidden"] == 65); CHECK(mirrored.isMember("luck") || mirrored.isMember("LUK") || mirrored.isMember("Luck"));
+        bool hp = false; for (auto& k : mirrored.getMemberNames()) if (text::lower(k) == "hp" && mirrored[k] == 11) hp = true; CHECK(hp);
+        CHECK(CharacterSpaceService::normalizeSubtitle(" say loud ") == "SAY_LOUD"); CHECK(CharacterSpaceService::normalizeSubtitle("fight!") == "FIGHT");
+        auto p = CharacterSpaceService::buildPrompt("A gaunt woman in a grey coat", "1920s", "Thursday night", "subtitle", "FIGHT");
+        CHECK(p.find("grey coat") != std::string::npos && p.find("1920s") != std::string::npos && p.find("Thursday night") != std::string::npos && p.find("FIGHT") != std::string::npos && p.find("standee") != std::string::npos);
+        CHECK(CharacterSpaceService::buildPrompt("x", "", "", "avatar", "").find("head-and-shoulders") != std::string::npos);
     });
     test("mock speech produces measurable audio and dictionary never alters its source", [] {
         setenv("TTS_PROVIDER","mock",1);auto provider=logstudio::makeTtsProvider();logstudio::TtsSynthesisRequest req;req.text="调查员打开了门。";req.voiceId="mock-cherry";auto r=provider->synthesize(req);CHECK(r.ok&&r.mime=="audio/wav");CHECK(logstudio::wavDurationMs(r.audioBytes)==r.durationMs);CHECK(logstudio::wavDurationMs("RIFFtruncated")==0);
