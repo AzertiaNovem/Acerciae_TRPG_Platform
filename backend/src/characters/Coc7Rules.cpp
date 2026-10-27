@@ -80,8 +80,9 @@ static std::string specOf(const std::string& key) {
     if (p == std::string::npos) { p = t.find("（"); open = 3; }
     if (p == std::string::npos) return "";
     auto s = t.substr(p + open);
-    while (!s.empty() && (s.back() == ')' || (unsigned char)s.back() >= 0x80 && s.size() >= 3 && s.compare(s.size() - 3, 3, "）") == 0)) { if (s.back() == ')') s.pop_back(); else s.erase(s.size() - 3); }
-    return s;
+    auto fullWidthClose = [&] { return s.size() >= 3 && s.compare(s.size() - 3, 3, "）") == 0; };
+    while (!s.empty() && (s.back() == ')' || fullWidthClose())) { if (s.back() == ')') s.pop_back(); else s.erase(s.size() - 3); }
+    return text::trim(s);
 }
 int skillBase(const std::string& key, const Json::Value& c, int customBase) {
     auto canon = dice::canonicalName(key);

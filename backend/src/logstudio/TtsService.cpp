@@ -50,7 +50,7 @@ Json::Value TtsService::listVoices(const ChannelAccess& a) {
     // Every member casts from the same voices: narrator voices and player characters' voices are shared. A voice
     // bound to an NPC stays with the Keeper (its name would reveal the NPC), and only the owner sees consent records.
     auto rows = db_.queryJson("SELECT v.*, c.name AS character_name, (SELECT count(*) FROM tts_audio_assets t WHERE t.voice_profile_id=v.id) AS cached_lines FROM voice_profiles v LEFT JOIN characters c ON c.id=v.character_id WHERE v.channel_id=$1"+std::string(a.isGm?"":" AND (v.character_id IS NULL OR c.kind='pc' OR v.created_by=$2 OR c.user_id=$2)")+" ORDER BY v.created_at", a.isGm?DbParams{a.channelId}:DbParams{a.channelId,a.userId});
-    if (!a.isGm) for (auto& v : rows) if (v["created_by"].asString() != a.userId) { v["consent_metadata"] = Json::Value(); v["editable"] = false; } else v["editable"] = true;
+    if (!a.isGm) for (auto& v : rows) { if (v["created_by"].asString() != a.userId) { v["consent_metadata"] = Json::Value(); v["editable"] = false; } else v["editable"] = true; }
     return rows;
 }
 Json::Value TtsService::voiceRow(const std::string& channelId, const std::string& id) { auto v = db_.queryOne("SELECT * FROM voice_profiles WHERE id=$1 AND channel_id=$2", {id, channelId}); if (v.isNull()) throw notFound("voice profile not found"); return v; }
