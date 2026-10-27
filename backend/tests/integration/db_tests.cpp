@@ -6,6 +6,8 @@
 #include "scenes/SceneManager.h"
 #include "scenes/ScenarioService.h"
 #include "reminders/ReminderService.h"
+#include "script/ScriptKnowledgeService.h"
+#include "modules/ModuleImporter.h"
 #include "documents/DocumentService.h"
 #include "knowledge/KnowledgeService.h"
 #include "highlights/HighlightService.h"
@@ -310,6 +312,59 @@ int main() {
         CHECK(!S.db->queryJson("SELECT 1 FROM player_scenario_outlines o JOIN player_group_members pm ON pm.group_id=o.group_id WHERE pm.user_id=$1", {p1User}).empty());
         (void)ask;
     });
+    test("script knowledge: built from the module, moved only by reviewed changes, pinned on the Keeper's board, Keeper-only", [&] {
+        std::vector<std::string> pages = {
+            "THE LANTERN SOCIETY\nA scenario for Call of Cthulhu set in Arkham, 1925.\n\nChapter 1: The Sheriff's Office\nThe investigators meet Sheriff Dunmore, who holds the only key to the lighthouse. He stalls them politely.\nNPC: Sheriff Dunmore\nA tired lawman who secretly belongs to the Lantern Society.\nItem: The Lighthouse Key\nAn iron key stamped with a lantern sigil.\nIf the investigators obtain the key they may enter the lighthouse at night.",
+            "Chapter 2: The Lighthouse\nLocation: The Lighthouse\nA ruined tower on the cliffs north of town.\nHandout 1: The Keeper's Diary\nThe diary names the Society's members.\nTwist: The Sheriff's Betrayal\nSheriff Dunmore locks the investigators inside once they find the diary.\nSecret: What Really Happened\nThe Society drowned the lighthouse keeper in 1919.",
+            "Ending: Dawn\nIf the investigators escape, the Society scatters."};
+        auto mod = S.modules->importText(gm, "The Lantern Society", pages);
+        CHECK(mod["status"] == "ready");
+        auto all = S.script->list(gm, "");
+        std::map<std::string, int> byKind; for (auto& e : all) { byKind[e["kind"].asString()]++; CHECK(e["status"] == "pending"); CHECK(e["origin"] == "script"); CHECK(!e["citations"].empty() || !e["node_ids"].empty()); }
+        CHECK(byKind["flow"] >= 3 && byKind["clue"] >= 2 && byKind["foreshadowing"] >= 1 && byKind["background"] >= 1 && byKind["relationship"] >= 1);
+        // Keeper-only: players get 403, their tools and prelude never carry it; the Keeper's prelude leads with it.
+        bool denied = false; try { S.script->list(p1, ""); } catch (const ApiError& e) { denied = e.status() == 403; } CHECK(denied);
+        for (auto& t : ContextRetrievalService::toolSpecs(false)) CHECK(t.name != "get_script_knowledge");
+        CHECK(S.retrieval->knowledgePrelude(p1).find("Script flow") == std::string::npos);
+        auto prelude = S.retrieval->knowledgePrelude(gm); CHECK(prelude.rfind("Script flow", 0) == 0); CHECK(prelude.find("The Lighthouse [pending]") != std::string::npos);
+        auto tool = S.retrieval->executeTool(gm, "get_script_knowledge", json::parse(R"({"kind":"flow"})")); CHECK(tool["entries"].size() == byKind["flow"]);
+        auto b0 = S.script->board(gm); CHECK(b0["next"]["has_script"].asBool()); CHECK(b0["next"]["current"].empty()); CHECK(!json::str(b0["next"]["next"], "title").empty());
+        // Play. The Keeper narrates the first stage; a player's speculation about the lighthouse moves nothing.
+        say(gmUser, mainWin, "You step into the Sheriff's Office. Sheriff Dunmore looks up from his desk and stalls you politely.", "narration");
+        say(p1User, mainWin, "I bet the Lighthouse is where the Society meets. Let's ask about the key.");
+        S.observer->observeChannel(channelId, true);
+        bool officeActive = false;
+        for (auto& e : S.script->list(gm, "flow")) { if (e["title"].asString().find("Sheriff") != std::string::npos) officeActive = e["status"] == "active"; if (e["title"] == "The Lighthouse") CHECK(e["status"] == "pending"); }
+        CHECK(officeActive);
+        auto changes = S.script->changes(gm, 50); CHECK(!changes.empty());
+        for (auto& c : changes) { CHECK(c["verdict"] == "approved" || c["verdict"] == "rejected"); if (c["applied"].asBool()) CHECK(c["verdict"] == "approved"); CHECK(!c["evidence"].empty()); CHECK(!c["reviewer_reason"].asString().empty()); }
+        auto b1 = S.script->board(gm);
+        CHECK(json::str(b1["next"]["current"], "title").find("Sheriff") != std::string::npos); CHECK(b1["next"]["next"]["title"] == "The Lighthouse");
+        CHECK(b1["next"]["summary"].asString().find("Next per the script: The Lighthouse") != std::string::npos); CHECK(b1["notes"].isMember("timeline") && b1["notes"].isMember("open_threads"));
+        // A Keeper edit is final and logged.
+        std::string keyId; for (auto& e : S.script->list(gm, "clue")) if (e["title"] == "The Lighthouse Key") keyId = e["id"].asString();
+        CHECK(!keyId.empty());
+        Json::Value edit; edit["status"] = "done"; edit["body"] = "Handed over by Dunmore after the bribe.";
+        auto upd = S.script->update(gm, keyId, edit); CHECK(upd["gm_edited"].asBool() && upd["status"] == "done");
+        CHECK(S.script->changes(gm, 1)[0]["reviewer_reason"] == "Keeper edit");
+        // The party reaches the lighthouse: stage two active, stage one done. A player asks about the diary: the
+        // Keeper gets a reminder pointing at the unrevealed handout; the players' dock shows nothing of it.
+        say(gmUser, mainWin, "Night. You climb the cliff path to the Lighthouse; the ruined tower groans in the wind.", "narration");
+        say(p1User, mainWin, "Is there a diary anywhere in here? I search the desk.");
+        S.observer->observeChannel(channelId, true);
+        bool lhActive = false, officeDone = false;
+        for (auto& e : S.script->list(gm, "flow")) { if (e["title"] == "The Lighthouse") lhActive = e["status"] == "active"; if (e["title"].asString().find("Sheriff") != std::string::npos) officeDone = e["status"] == "done"; }
+        CHECK(lhActive && officeDone);
+        bool diary = false;
+        for (auto& r : S.reminders->list(gm)) { CHECK(r["player_group_id"].isNull()); if (r["title"].asString().find("Diary") != std::string::npos) { diary = true; CHECK(r["script_refs"].size() == 1); CHECK(r["script_refs"][0]["kind"] == "clue"); CHECK(!r["citations"].empty()); } }
+        CHECK(diary);
+        for (auto& r : S.reminders->list(p1)) { CHECK(r["title"].asString().find("Diary") == std::string::npos); CHECK(r["script_refs"].empty()); }
+        auto b2 = S.script->board(gm); CHECK(b2["next"]["current"]["title"] == "The Lighthouse"); CHECK(b2["next"]["next"]["title"] == "Dawn"); CHECK(b2["notes"]["stages_done"].size() == 1);
+        // Rebuilding from the module keeps the Keeper's edit and the play history.
+        S.script->rebuild(gm, "");
+        bool kept = false; for (auto& e : S.script->list(gm, "clue")) if (e["id"].asString() == keyId) kept = e["gm_edited"].asBool() && e["status"] == "done";
+        CHECK(kept);
+    });
     test("dice commands update the speaking character and render with the channel's text group", [&] {
         S.dice->setRng(std::make_unique<dice::SeqRng>(std::vector<int>{20, 50, 3}));
         auto st = say(p1User, splitWin, ".st research53 SAN60 侦查50");
@@ -377,7 +432,7 @@ int main() {
         auto entityId=S.knowledge->listEntities(keeper,"KP_ENTITY")[0]["id"].asString();
         auto recording=std::make_unique<RecordingMemoryClient>();auto* recorded=recording.get();recorded->secretEntityId=entityId;recorded->sceneId=sid;
         LlmGateway gateway(cfg,std::move(recording));
-        ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge,*S.scenarios,*S.reminders);
+        ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge,*S.scenarios,*S.reminders,*S.script);
         auto jobs=observer.observeChannel(ch,true); for(const auto& j:jobs) {if(j["status"]!="succeeded")std::cerr<<json::dump(j)<<"\n";CHECK(j["status"]=="succeeded");}
         int playerCalls=0,deniedToolResponses=0;
         for(const auto& req:recorded->requests) if(req.system.find("ONE player group")!=std::string::npos) {

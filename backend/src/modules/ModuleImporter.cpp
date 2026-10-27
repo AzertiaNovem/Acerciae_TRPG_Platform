@@ -84,6 +84,7 @@ void ModuleImporter::process(const std::string& moduleId) {
         db_.exec("UPDATE modules SET status='structuring', updated_at=now() WHERE id=$1", {moduleId});
         auto pages = db_.queryJson("SELECT page_number AS page, text FROM module_pages WHERE module_id=$1 ORDER BY page_number", {moduleId});
         structurePages(moduleId, channelId, pages);
+        if (postProcess_) { try { postProcess_(channelId, moduleId); } catch (const std::exception& e) { ALOG_WARN << "module post-process failed: " << e.what(); } }
         db_.exec("UPDATE modules SET status='ready', error=NULL, updated_at=now() WHERE id=$1", {moduleId});
         Json::Value p; p["module_id"] = moduleId; p["status"] = "ready"; notifier_.moduleUpdated(channelId, p);
     } catch (const std::exception& e) {

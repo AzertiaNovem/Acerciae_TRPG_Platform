@@ -5,12 +5,13 @@ import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 import ModuleImportPanel from './ModuleImportPanel';
 import SceneManager from './SceneManager';
+import ScriptKnowledgePanel from './ScriptKnowledgePanel';
 import KnowledgeWorkspace, { PlayerGroups } from './KnowledgeWorkspace';
 import type { Proposal, ModuleHint, AiJob, ChannelMember, DiceTextGroup } from '../types';
 import { useAuth } from '../store/auth';
 import { LANGUAGE_LABELS } from './ServerSettingsModal';
 
-type Tab = 'overview' | 'module' | 'scenes' | 'knowledge' | 'settings';
+type Tab = 'overview' | 'module' | 'script' | 'scenes' | 'knowledge' | 'settings';
 
 function Overview() {
   const { channelId } = useNav();
@@ -142,12 +143,13 @@ export default function GMWorkspace() {
   return (
     <div className="workspace">
       <div className="tabs">
-        {(['overview', 'module', 'scenes', 'knowledge', 'settings'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t === 'scenes' ? 'Scenarios' : t[0].toUpperCase() + t.slice(1))}</button>)}
+        {(['overview', 'module', 'script', 'scenes', 'knowledge', 'settings'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t === 'scenes' ? 'Scenarios' : t === 'script' ? 'Script' : t[0].toUpperCase() + t.slice(1))}</button>)}
         <span className="grow" /><button className="ghost" onClick={() => setOpen(false)}>{tr("← back to chat")}</button>
       </div>
       <div className="content">
         {tab === 'overview' && <Overview />}
         {tab === 'module' && <ModuleImportPanel />}
+        {tab === 'script' && <ScriptKnowledgePanel />}
         {tab === 'scenes' && <SceneManager />}
         {tab === 'knowledge' && <KnowledgeWorkspace />}
         {tab === 'settings' && <ChannelSettings />}

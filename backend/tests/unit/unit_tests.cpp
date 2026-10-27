@@ -17,6 +17,7 @@
 #include "logstudio/VnScriptService.h"
 #include "scenes/ScenarioService.h"
 #include "reminders/ReminderService.h"
+#include "script/ScriptKnowledgeService.h"
 #include "logstudio/ImageProvider.h"
 #include <iostream>
 #include <functional>
@@ -361,6 +362,52 @@ int main() {
         CHECK(needed && forgotten);
         ctx["existing_titles"].append(plan["reminders"][0]["title"]);
         CHECK(ReminderService::mockPlan(ctx)["reminders"].size() == 1);
+    });
+    test("script knowledge: the mock builds flow, relationships, clues, foreshadowing and background from the module graph; proposals are reviewed", [] {
+        Json::Value ctx; Json::Value pg1, pg2, pg3;
+        pg1["page"] = 1; pg1["text"] = "THE LANTERN SOCIETY\nA scenario for Call of Cthulhu set in Arkham, 1925.\n\nChapter 1: The Sheriff's Office\nThe investigators meet Sheriff Dunmore, who holds the only key to the lighthouse. He stalls them politely.\nNPC: Sheriff Dunmore\nA tired lawman who secretly belongs to the Lantern Society.\nItem: The Lighthouse Key\nAn iron key stamped with a lantern sigil.\nIf the investigators obtain the key they may enter the lighthouse at night.";
+        pg2["page"] = 2; pg2["text"] = "Chapter 2: The Lighthouse\nLocation: The Lighthouse\nA ruined tower on the cliffs north of town.\nHandout 1: The Keeper's Diary\nThe diary names the Society's members.\nTwist: The Sheriff's Betrayal\nSheriff Dunmore locks the investigators inside once they find the diary.\nSecret: What Really Happened\nThe Society drowned the lighthouse keeper in 1919.";
+        pg3["page"] = 3; pg3["text"] = "Ending: Dawn\nIf the investigators escape, the Society scatters.";
+        ctx["pages"].append(pg1); ctx["pages"].append(pg2); ctx["pages"].append(pg3);
+        auto graph = MockLlmClient::moduleStructure(ctx);
+        // Give nodes ids as the database would, and resolve edges to them.
+        std::map<std::string, std::string> keyToId; int i = 0;
+        for (auto& n : graph["nodes"]) { n["id"] = "n" + std::to_string(i++); keyToId[n["key"].asString()] = n["id"].asString(); }
+        Json::Value edges(Json::arrayValue); for (auto& e : graph["edges"]) { Json::Value x; x["from_node_id"] = keyToId[e["from_key"].asString()]; x["to_node_id"] = keyToId[e["to_key"].asString()]; x["relation"] = e["relation"]; edges.append(x); }
+        graph["edges"] = edges;
+        auto built = ScriptKnowledgeService::mockBuild(graph);
+        std::map<std::string, int> byKind; std::vector<std::string> flow;
+        for (auto& e : built["entries"]) { byKind[e["kind"].asString()]++; if (e["kind"] == "flow") flow.push_back(e["title"].asString()); CHECK(!e["citations"].empty() || !e["node_keys"].empty()); }
+        CHECK(byKind["flow"] >= 3); CHECK(byKind["clue"] >= 2); CHECK(byKind["foreshadowing"] >= 2); CHECK(byKind["background"] >= 2); CHECK(byKind["relationship"] >= 1);
+        CHECK(flow.size() >= 3 && flow.back() == "Dawn");                                   // endings close the flow
+        int sheriff = -1, lighthouse = -1; for (int k = 0; k < (int)flow.size(); ++k) { if (flow[k].find("Sheriff") != std::string::npos) sheriff = k; if (flow[k] == "The Lighthouse") lighthouse = k; }
+        CHECK(sheriff >= 0 && lighthouse > sheriff);                                        // script order is kept
+        auto terms = ScriptKnowledgeService::titleTerms("Chapter 2: The Lighthouse"); CHECK(terms.size() == 1 && terms[0] == "lighthouse");
+        // Play: the Keeper's narration reaches the lighthouse; a player's guess moves nothing.
+        Json::Value k(Json::arrayValue); int id = 0;
+        for (auto& e : built["entries"]) { Json::Value x; x["id"] = "k" + std::to_string(id++); x["kind"] = e["kind"]; x["title"] = e["title"]; x["status"] = "pending"; x["position"] = e.isMember("position") ? e["position"] : Json::Value(0); k.append(x); }
+        Json::Value pctx; pctx["knowledge"] = k;
+        Json::Value guess; guess["event_id"] = "e1"; guess["actor_role"] = "player"; guess["content"] = "I bet the Lighthouse is where the Society meets."; pctx["new_events"].append(guess);
+        CHECK(ScriptKnowledgeService::mockPropose(pctx)["changes"].empty());
+        Json::Value narr; narr["event_id"] = "e2"; narr["actor_role"] = "gm"; narr["content"] = "You climb the cliff path. The Lighthouse rises ahead, a ruined tower groaning in the wind."; pctx["new_events"].append(narr);
+        auto changes = ScriptKnowledgeService::mockPropose(pctx)["changes"];
+        CHECK(!changes.empty());
+        Json::Value flowChange; for (auto& c : changes) { CHECK(c["op"] == "status"); CHECK(c["evidence"][0]["event_id"] == "e2"); for (auto& e : k) if (e["id"] == c["knowledge_id"] && e["kind"] == "flow") flowChange = c; }
+        CHECK(!flowChange.isNull() && flowChange["status"] == "active");
+        CHECK(narr["content"].asString().find(flowChange["evidence"][0]["text"].asString()) != std::string::npos);   // evidence is verbatim
+        // The reviewer: approves the verified change, rejects a misquote, an illegal transition and a Keeper-edited update.
+        Json::Value entry; for (auto& e : k) if (e["id"] == flowChange["knowledge_id"]) entry = e;
+        Json::Value rctx; rctx["change"] = flowChange; rctx["entry"] = entry; Json::Value line; line["event_id"] = "e2"; line["content"] = narr["content"]; rctx["evidence_lines"].append(line);
+        CHECK(ScriptKnowledgeService::mockReview(rctx)["verdict"] == "approved");
+        Json::Value bad = rctx; bad["change"]["evidence"][0]["text"] = "The Lighthouse rises ahead, a GOLDEN tower"; CHECK(ScriptKnowledgeService::mockReview(bad)["verdict"] == "rejected");
+        Json::Value done = rctx; done["entry"]["status"] = "done"; CHECK(ScriptKnowledgeService::mockReview(done)["verdict"] == "rejected");
+        Json::Value upd = rctx; upd["change"]["op"] = "update"; upd["change"]["body"] = "x"; upd["entry"]["gm_edited"] = true; CHECK(ScriptKnowledgeService::mockReview(upd)["reason"].asString().find("Keeper-edited") != std::string::npos);
+        Json::Value unrelated = rctx; unrelated["entry"]["title"] = "The Quarry"; CHECK(ScriptKnowledgeService::mockReview(unrelated)["verdict"] == "rejected");
+        // Keeper reminders: a pending clue the newest narration touches is "needed", with a script reference.
+        Json::Value rem; rem["knowledge"] = k; rem["existing_titles"] = Json::Value(Json::arrayValue); rem["current_log"] = Json::Value(Json::arrayValue); rem["previous_tail"] = Json::Value(Json::arrayValue);
+        Json::Value n2; n2["event_id"] = "e3"; n2["actor_role"] = "gm"; n2["character_name"] = ""; n2["content"] = "Dust covers a desk. Something like a diary lies under a loose board."; rem["new_events"].append(n2);
+        auto plan = ReminderService::mockPlanKp(rem);
+        CHECK(!plan["reminders"].empty()); CHECK(plan["reminders"][0]["kind"] == "needed"); CHECK(plan["reminders"][0]["title"].asString().find("Diary") != std::string::npos); CHECK(plan["reminders"][0]["script_refs"].size() == 1); CHECK(plan["reminders"][0]["quotes"][0]["event_id"] == "e3");
     });
     test("mock speech produces measurable audio and dictionary never alters its source", [] {
         setenv("TTS_PROVIDER","mock",1);auto provider=logstudio::makeTtsProvider();logstudio::TtsSynthesisRequest req;req.text="调查员打开了门。";req.voiceId="mock-cherry";auto r=provider->synthesize(req);CHECK(r.ok&&r.mime=="audio/wav");CHECK(logstudio::wavDurationMs(r.audioBytes)==r.durationMs);CHECK(logstudio::wavDurationMs("RIFFtruncated")==0);

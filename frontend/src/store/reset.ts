@@ -5,6 +5,7 @@ import { useHighlights } from './highlights';
 import { useUi } from './ui';
 import { useStudio } from './studio';
 import { useReminders } from './reminders';
+import { useKp } from './kp';
 
 // Clears everything that belongs to a user session. Called on login, register and logout.
 export function resetUserStores() {
@@ -15,6 +16,7 @@ export function resetUserStores() {
   useUi.getState().reset();
   useStudio.getState().reset();
   useReminders.getState().reset();
+  useKp.getState().reset();
 }
 // Clears everything that belongs to one channel's context. Called when switching channels.
 export function resetChannelStores() {
@@ -24,4 +26,5 @@ export function resetChannelStores() {
   useChat.getState().clearJump();
   useStudio.getState().reset();
   useReminders.getState().reset();
+  useKp.getState().reset();
 }

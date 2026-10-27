@@ -113,6 +113,16 @@ void Notifier::reminderCreated(const std::string& channelId, const Json::Value& 
     else for (const auto& u : gmUsers(channelId)) allowed.insert(u);
     WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(allowed)));
 }
+void Notifier::kpBoardUpdated(const std::string& channelId, const Json::Value& board) {
+    Json::Value msg; msg["type"] = "kp.board"; msg["channel_id"] = channelId; msg["board"] = board;
+    std::set<std::string> allowed; for (const auto& u : gmUsers(channelId)) allowed.insert(u);
+    WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(allowed)));
+}
+void Notifier::scriptKnowledgeChanged(const std::string& channelId, const Json::Value& payload) {
+    Json::Value msg; msg["type"] = "script.changed"; msg["channel_id"] = channelId; msg["payload"] = payload;
+    std::set<std::string> allowed; for (const auto& u : gmUsers(channelId)) allowed.insert(u);
+    WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(allowed)));
+}
 void Notifier::aiJobFinished(const std::string& channelId, const Json::Value& job) {
     Json::Value msg; msg["type"] = "ai.job"; msg["channel_id"] = channelId; msg["job"] = job;
     std::set<std::string> gms; for (auto& u : gmUsers(channelId)) gms.insert(u);

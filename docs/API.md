@@ -83,6 +83,23 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 
 The group observer raises reminders after each batch of its chat: it reads the group's hidden knowledge index (relationships, clues, open threads, and the story index of per-scenario outlines in `player_scenario_outlines`), the current scenario, the end of the previous one and the newest lines, may fetch more with `get_chat_log`, and proposes at most three "forgotten" or "needed" reminders with quotes. The knowledge index is prepended to player-facing model requests (observer, reminders, consistency, inspiration) and is never shown to players.
 
+## Keeper script knowledge and the pinned board (GM only)
+| GET | `/channels/{id}/script-knowledge?kind` | the Keeper's knowledge built from the module: `{id, module_id, kind: flow|relationship|clue|foreshadowing|background, title, body, data, citations[{page, excerpt}], node_ids[], position, status: pending|active|done|skipped, status_event_ids[], origin: script|play|gm, gm_edited, llm_mode}`. `flow` entries are the script's stages in order (`data.location, prerequisites[], keeper_actions[], leads_to[], twists[]`). |
+| PUT | `/channels/{id}/script-knowledge/{kid}` | `{title?, body?, status?}` Keeper edit: marks `gm_edited`; the entry is never changed automatically again |
+| POST | `/channels/{id}/script-knowledge/rebuild` | `{module_id?}` rebuilds the script-origin entries of a module (Keeper-edited and play-origin entries survive) |
+| GET | `/channels/{id}/script-knowledge/changes?limit` | every automatic change proposed from play with the reviewer's verdict: `{op: add|update|status, proposal, evidence[{event_id, text}], verdict: approved|rejected, reviewer_reason, applied, title, kind, status}` |
+| GET | `/channels/{id}/kp/board` | the two pinned cards: `next {has_script, current, next, pending_clues[], pending_foreshadowing[], stages_done, stages_total, summary}` and `notes {open_threads[], timeline[], recent_changes[], stages_done[]}`. Pushed as `kp.board` on `/ws/context` to GMs. |
+
+The script knowledge is built when a module finishes structuring (and on rebuild): the flow of the script, NPC and
+investigator relationships, clues, foreshadowing and background, each citing module pages. It is prepended to every
+Keeper-facing model request before anything else (`KEEPER KNOWLEDGE INDEX`), and the Keeper's tools include
+`get_script_knowledge {kind, query}`. After each processed batch of the Keeper's observer a first model proposes
+changes from the newest lines (a stage reached, a clue revealed, a twist paid off, a fact the narration established)
+with verbatim chat quotes as evidence; a second model reviews each proposal against the quoted lines and the module
+citations, and only approved changes are applied. Reaching a later stage closes the running one. Players' knowledge
+never passes a reviewer. Keeper reminders may carry `script_refs[{knowledge_id, kind, title, page, excerpt}]` next to
+their chat citations; nothing of this is reachable by a player group (403).
+
 ## Highlights
 | GET | `/channels/{id}/highlights?document_id` | active, scope-filtered |
 | POST | `/channels/{id}/highlights/{hid}/dismiss` | |
@@ -124,7 +141,8 @@ Chat stream: `message.posted {message}` (only to users allowed to read it), `win
 
 Context stream: `document.updated {document_id, doc_type, version, change_count, entry_ids, gm_only, actor, summary}`,
 `highlight.created {highlight}` (scope-filtered), `highlight.expired {highlight_ids}`, `proposal.pending` (GM),
-`module.updated` (GM), `ai.job {job}` (GM), `scene.changed`.
+`module.updated` (GM), `ai.job {job}` (GM), `scene.changed`, `reminder.created {reminder}` (its group, or GMs),
+`kp.board {board}` (GM), `script.changed {payload}` (GM).
 
 Both streams answer `{"type":"ping"}` with `pong`. The upgrade must be the first request on its TCP connection (browsers
 always do this).

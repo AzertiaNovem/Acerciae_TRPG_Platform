@@ -34,6 +34,8 @@ public:
     Json::Value listScenarios(const ChannelAccess& a);
     // Verbatim chat lines, the authoritative record: by scenario, window, time range, or around one event.
     Json::Value getChatLog(const ChannelAccess& a, const Json::Value& args);
+    // Keeper only: the script knowledge built from the module (flow, relationships, clues, foreshadowing, background).
+    Json::Value getScriptKnowledge(const ChannelAccess& a, const std::string& kind, const std::string& query, int limit);
 
     // Dispatcher used by the LLM tool loop.
     Json::Value executeTool(const ChannelAccess& a, const std::string& name, const Json::Value& args);

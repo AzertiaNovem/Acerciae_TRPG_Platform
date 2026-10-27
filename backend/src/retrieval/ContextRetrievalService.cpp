@@ -85,6 +85,15 @@ Json::Value ContextRetrievalService::knowledgePreludeJson(const ChannelAccess& a
     k["index"] = Json::Value(Json::arrayValue);
     if (a.isGm) {
         for (auto& s : db_.queryJson("SELECT id, sequence, title, location, narrative_time, summary, key_points FROM scenes WHERE channel_id=$1 AND summary<>'' ORDER BY sequence", {a.channelId})) k["index"].append(s);
+        // The script comes first for the Keeper: what the module says, with each stage's status in play.
+        Json::Value script(Json::objectValue);
+        for (const char* kind : {"flow", "relationship", "clue", "foreshadowing", "background"}) script[kind] = Json::Value(Json::arrayValue);
+        for (auto& e : db_.queryJson("SELECT id, kind, title, left(body, 240) AS body, status, position, data FROM script_knowledge WHERE channel_id=$1 ORDER BY array_position(ARRAY['flow','relationship','clue','foreshadowing','background'], kind), position, created_at LIMIT 160", {a.channelId})) {
+            Json::Value x; x["id"] = e["id"]; x["title"] = e["title"]; x["status"] = e["status"]; x["body"] = e["body"];
+            if (e["kind"].asString() == "flow") { x["position"] = e["position"]; x["prerequisites"] = e["data"]["prerequisites"]; }
+            script[e["kind"].asString()].append(x);
+        }
+        k["script"] = script;
     } else if (Visibility::isUuid(a.playerGroupId)) {
         for (auto& o : db_.queryJson("SELECT o.scene_id AS id, s.sequence, 'Scenario '||s.sequence AS title, o.outline AS summary, o.key_points FROM player_scenario_outlines o JOIN scenes s ON s.id=o.scene_id WHERE o.group_id=$1 AND o.group_version=$2 ORDER BY s.sequence", {a.playerGroupId, (int64_t)a.playerGroupVersion})) k["index"].append(o);
     }
@@ -93,6 +102,14 @@ Json::Value ContextRetrievalService::knowledgePreludeJson(const ChannelAccess& a
 std::string ContextRetrievalService::knowledgePrelude(const ChannelAccess& a) {
     auto k = knowledgePreludeJson(a); std::string out;
     auto section = [&](const char* name, const Json::Value& arr, auto fmt) { if (arr.empty()) return; out += std::string(name) + ":\n"; for (auto& x : arr) { if (out.size() > 9000) break; out += "- " + fmt(x) + "\n"; } };
+    if (k.isMember("script")) {
+        auto st = [](const Json::Value& x) { auto b = json::str(x, "body"); return json::str(x, "title") + " [" + json::str(x, "status") + "]" + (b.empty() ? "" : ": " + b); };
+        section("Script flow (in order)", k["script"]["flow"], st);
+        section("Script relationships", k["script"]["relationship"], st);
+        section("Script clues", k["script"]["clue"], st);
+        section("Script foreshadowing", k["script"]["foreshadowing"], st);
+        section("Script background", k["script"]["background"], st);
+    }
     section("Relationships", k["relationships"], [](const Json::Value& x) { return json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
     section("Clues", k["clues"], [](const Json::Value& x) { auto t = json::str(x, "title"); return (t.empty() ? "" : t + ": ") + json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
     section("Open threads", k["open_threads"], [](const Json::Value& x) { return json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
@@ -138,6 +155,15 @@ Json::Value ContextRetrievalService::getChatLog(const ChannelAccess& a, const Js
     if (!sceneId.empty()) { auto sc = db_.queryOne("SELECT id, sequence, status FROM scenes WHERE id=$1 AND channel_id=$2", {sceneId, a.channelId}); if (!sc.isNull()) out["scene"] = sc; }
     out["count"] = out["events"].size();
     return out;
+}
+Json::Value ContextRetrievalService::getScriptKnowledge(const ChannelAccess& a, const std::string& kind, const std::string& query, int limit) {
+    if (!a.isGm) throw forbidden("GM role required");
+    std::string sql = "SELECT id, kind, title, body, data, citations, status, position, origin, gm_edited FROM script_knowledge WHERE channel_id=$1";
+    DbParams p{a.channelId};
+    if (!kind.empty()) { p.push_back(kind); sql += " AND kind=$" + std::to_string(p.size()); }
+    if (!query.empty()) { p.push_back(query); auto n = std::to_string(p.size()); sql += " AND (search @@ plainto_tsquery('english', $" + n + ") OR title ILIKE '%' || $" + n + " || '%' OR body ILIKE '%' || $" + n + " || '%')"; }
+    sql += " ORDER BY array_position(ARRAY['flow','relationship','clue','foreshadowing','background'], kind), position, created_at LIMIT " + std::to_string(std::max(1, std::min(limit, 100)));
+    Json::Value out; out["entries"] = db_.queryJson(sql, p); return out;
 }
 Json::Value ContextRetrievalService::getEntity(const ChannelAccess& a, const std::string& idOrName) {
     if (Visibility::isUuid(idOrName)) return knowledge_.getEntity(a, idOrName);
@@ -249,6 +275,7 @@ Json::Value ContextRetrievalService::executeTool(const ChannelAccess& a, const s
     if (name == "get_clue") return getClue(a, json::requireStr(args, "clue"));
     if (name == "get_open_threads") return getOpenThreads(a);
     if (name == "get_module_excerpt") return getModuleExcerpt(a, json::str(args, "query"), json::str(args, "node_id"));
+    if (name == "get_script_knowledge") return getScriptKnowledge(a, json::str(args, "kind"), json::str(args, "query"), limit);
     if (name == "get_knowledge_scope") return getKnowledgeScope(a, json::requireStr(args, "character_id"));
     if (name == "get_shard") return getShard(a, json::requireStr(args, "shard_id"));
     Json::Value err; err["error"] = "unknown tool: " + name; return err;
@@ -276,6 +303,7 @@ std::vector<LlmToolSpec> ContextRetrievalService::toolSpecs(bool gm) {
         tool("get_shard", "Fetch a memory shard by id (scene/<id>, entity/<id>, clue/<id>, relationship/<id>, thread/<id>, timeline/<id>, module/<id>, knowledge/<character id>).", {{"shard_id", "shard id"}}, {"shard_id"}),
     };
     if (gm) v.push_back(tool("get_module_excerpt", "GM-only: search the imported module's nodes and pages.", {{"query", "keywords"}, {"node_id", "module node id"}}));
+    if (gm) v.push_back(tool("get_script_knowledge", "GM-only: the Keeper's script knowledge built from the module: flow (stages in order with status), relationship, clue, foreshadowing, background.", {{"kind", "flow|relationship|clue|foreshadowing|background"}, {"query", "keywords"}, {"limit", "max entries"}}));
     return v;
 }
 

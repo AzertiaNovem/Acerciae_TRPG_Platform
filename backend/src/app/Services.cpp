@@ -5,6 +5,7 @@
 #include "../scenes/SceneManager.h"
 #include "../scenes/ScenarioService.h"
 #include "../reminders/ReminderService.h"
+#include "../script/ScriptKnowledgeService.h"
 #include "../knowledge/KnowledgeService.h"
 #include "../documents/DocumentService.h"
 #include "../highlights/HighlightService.h"
@@ -65,7 +66,9 @@ Services& Services::build(const Config& cfg) {
     s.vnScripts = std::make_unique<logstudio::VnScriptService>(*s.db,*s.auth,*s.studio,*s.presentations,*s.llm,*s.notifier);
     s.scenarios = std::make_unique<ScenarioService>(*s.db, *s.events, *s.scenes, *s.llm, *s.notifier);
     s.reminders = std::make_unique<ReminderService>(*s.db, *s.llm, *s.retrieval, *s.notifier);
-    s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge, *s.scenarios, *s.reminders);
+    s.script = std::make_unique<ScriptKnowledgeService>(*s.db, *s.llm, *s.retrieval, *s.reminders, *s.notifier);
+    s.modules->setPostProcess([&s](const std::string& channelId, const std::string& moduleId) { int calls = 0; s.script->buildFromModule(channelId, moduleId, calls); });
+    s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge, *s.scenarios, *s.reminders, *s.script);
     return s;
 }
 

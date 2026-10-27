@@ -7,6 +7,7 @@
 #include "../scenes/SceneManager.h"
 #include "../scenes/ScenarioService.h"
 #include "../reminders/ReminderService.h"
+#include "../script/ScriptKnowledgeService.h"
 #include "../knowledge/KnowledgeService.h"
 #include "../documents/DocumentService.h"
 #include "../highlights/HighlightService.h"
@@ -197,6 +198,12 @@ void registerRoutes() {
     route1("/api/channels/{1}/reminders", {Get}, [&](auto&, auto& p, auto& a) { return S.reminders->list(access(p, a[0])); });
     route2("/api/channels/{1}/reminders/{2}/dismiss", {Post}, [&](auto&, auto& p, auto& a) { return S.reminders->dismiss(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/reminders/{2}/context", {Get}, [&](auto& req, auto& p, auto& a) { return S.reminders->context(access(p, a[0]), a[1], qint(req, "limit", 30)); });
+    // ---- Keeper script knowledge and the pinned board ----
+    route1("/api/channels/{1}/script-knowledge", {Get}, [&](auto& req, auto& p, auto& a) { return S.script->list(access(p, a[0]), req->getParameter("kind")); });
+    route1("/api/channels/{1}/script-knowledge/rebuild", {Post}, [&](auto& req, auto& p, auto& a) { return S.script->rebuild(access(p, a[0]), json::str(body(req), "module_id")); });
+    route1("/api/channels/{1}/script-knowledge/changes", {Get}, [&](auto& req, auto& p, auto& a) { return S.script->changes(access(p, a[0]), qint(req, "limit", 50)); });
+    route2("/api/channels/{1}/script-knowledge/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.script->update(access(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/kp/board", {Get}, [&](auto&, auto& p, auto& a) { return S.script->board(access(p, a[0])); });
     // ---- highlights ----
     route1("/api/channels/{1}/highlights", {Get}, [&](auto& req, auto& p, auto& a) { return S.highlights->listActive(access(p, a[0]), req->getParameter("document_id")); });
     route2("/api/channels/{1}/highlights/{2}/dismiss", {Post}, [&](auto&, auto& p, auto& a) { return S.highlights->dismiss(access(p, a[0]), a[1]); });

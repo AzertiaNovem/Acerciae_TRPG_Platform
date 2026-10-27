@@ -108,6 +108,15 @@ scenario from that line, the closed scenario gets an AI summary in the scenario 
 scenario or by time (`list_scenarios`, `get_chat_log`). The GM can open, summarize and edit scenarios by hand;
 GM-edited summaries are never overwritten. Players see neutral scenario labels only.
 
+**Keeper script knowledge** — when a module is imported, the model reads its structured graph and pages and writes the
+Keeper's working knowledge: the flow of the script (its stages in order, what each needs, what the Keeper does there),
+NPC and investigator relationships, clues, foreshadowing and background, each citing pages. The model reads this first
+whenever it works for the Keeper. During play it proposes changes (a stage reached, a clue revealed, a twist paid off);
+a second model reviews every proposal against the quoted chat lines before it is applied, and the Keeper's own edits are
+final. Two cards stay pinned at the top of the Keeper's dock: what the script plans next, and the Keeper's notes (open
+threads, timeline, latest reviewed changes). Keeper reminders can point at the script as well as at the chat. Nothing of
+this is reachable by a player group.
+
 **Reminder bubbles** — the players' dock no longer shows journals: their group's knowledge (relationships, clues,
 open threads, and a per-scenario story index) is a hidden prelude the model reads first, a shortcut for searching.
 After each batch the group's observer reads the current scenario and the end of the previous one and points out what the

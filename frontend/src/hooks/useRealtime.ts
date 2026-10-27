@@ -6,6 +6,7 @@ import { useChat } from '../store/chat';
 import { useDocuments } from '../store/documents';
 import { useHighlights } from '../store/highlights';
 import { useReminders } from '../store/reminders';
+import { useKp } from '../store/kp';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 
@@ -36,6 +37,8 @@ export function useRealtime() {
         const win=useNav.getState().windowId; if(win) useChat.getState().load(ch,win).catch(()=>undefined);
       }
       else if (m.type === 'reminder.created') useReminders.getState().add(m.reminder);
+      else if (m.type === 'kp.board') useKp.getState().set(m.board);
+      else if (m.type === 'script.changed') { if (m.payload?.rebuilt) useUi.getState().toast('Script knowledge rebuilt from the module.', 'ai'); else if (m.payload?.applied) useUi.getState().toast(`Script knowledge: ${m.payload.applied} reviewed change(s) applied.`, 'ai'); }
       else if (m.type === 'highlight.created') useHighlights.getState().add(m.highlight);
       else if (m.type === 'highlight.expired') useHighlights.getState().remove(m.highlight_ids);
       else if (m.type === 'proposal.pending') useUi.getState().toast('The AI filed a change that needs GM review.', 'ai');
@@ -50,6 +53,7 @@ export function useRealtime() {
     useDocuments.getState().loadList(channelId);
     useHighlights.getState().load(channelId);
     useReminders.getState().load(channelId).catch(() => undefined);
+    if (useNav.getState().channel?.my_role === 'gm') useKp.getState().load(channelId);
     // Reconcile revocations even after a missed/disconnected socket notification.
     let active=true; let groupVersion='';
     const poll=async()=>{

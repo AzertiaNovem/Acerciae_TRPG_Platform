@@ -8,6 +8,7 @@
 #include "../llm/LlmGateway.h"
 #include "../ws/Notifier.h"
 #include "../scenes/ScenarioService.h"
+#include "../script/ScriptKnowledgeService.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
 #include "../core/Log.h"
@@ -17,8 +18,8 @@
 namespace acerciae {
 
 ObserverScheduler::ObserverScheduler(const Config& cfg, Db& db, EventStore& events, DocumentService& docs, HighlightService& highlights,
-                                     ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios, ReminderService& reminders)
-    : cfg_(cfg), db_(db), events_(events), docs_(docs), highlights_(highlights), retrieval_(retrieval), llm_(llm), notifier_(notifier), knowledge_(knowledge), scenarios_(scenarios), reminders_(reminders) {}
+                                     ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios, ReminderService& reminders, ScriptKnowledgeService& script)
+    : cfg_(cfg), db_(db), events_(events), docs_(docs), highlights_(highlights), retrieval_(retrieval), llm_(llm), notifier_(notifier), knowledge_(knowledge), scenarios_(scenarios), reminders_(reminders), script_(script) {}
 ObserverScheduler::~ObserverScheduler() { stop(); }
 
 void ObserverScheduler::start() {
@@ -142,6 +143,8 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
 
         LlmRequest req; req.channelId = channelId; req.task = "observer_extract"; req.system = observerSystemPrompt(); req.responseSchema = observerSchema();
         req.tools = ContextRetrievalService::toolSpecs(true); req.temperature = cfg_.llmTemperature; req.maxTokens = cfg_.llmMaxTokens;
+        // The Keeper's knowledge index comes first: script knowledge, then the Keeper's own records.
+        if (!llm_.isMock(channelId)) { LlmMessage k; k.role = "user"; k.content = "KEEPER KNOWLEDGE INDEX (a shortcut for searching, not a source to cite):\n" + retrieval_.knowledgePrelude(sys); req.messages.push_back(k); }
         LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
         auto outcome = llm_.runStructured(req, [&](const std::string& name, const Json::Value& args) { return retrieval_.executeTool(sys, name, args); }, 4);
         llmCalls_ += outcome.llmCalls;
@@ -153,8 +156,13 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         try { summary["scenario"] = scenarios_.detectAndAdvance(channelId, windowId, sceneId, batch, stageCalls); }
         catch (const std::exception& e) { ALOG_WARN << "scenario detection failed: " << e.what(); summary["scenario"]["error"] = e.what(); }
         llmCalls_ += stageCalls;
+        // Script knowledge: proposed changes reviewed and applied, the pinned board refreshed, Keeper reminders raised.
+        int scriptCalls = 0;
+        try { summary["script"] = script_.afterBatch(sys, batch, jobId, scriptCalls); }
+        catch (const std::exception& e) { ALOG_WARN << "script knowledge failed: " << e.what(); summary["script"]["error"] = e.what(); }
+        llmCalls_ += scriptCalls;
 
-        finish("succeeded", "", summary, toSeq, (int)batch.size(), outcome.llmCalls + stageCalls);
+        finish("succeeded", "", summary, toSeq, (int)batch.size(), outcome.llmCalls + stageCalls + scriptCalls);
         groupsProcessed_++;
         summary["status"] = "succeeded";
         notifier_.aiJobFinished(channelId, summary);

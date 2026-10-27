@@ -19,6 +19,9 @@ public:
 
     // Observer hook for one player group batch. Maintains the group's scenario outlines and proposes reminders.
     Json::Value afterBatch(const ChannelAccess& view, const Json::Value& batch, const std::string& aiJobId, int& llmCalls);
+    // Keeper observer hook. `knowledge` is the compact script knowledge (id, kind, title, status, citations); Keeper
+    // reminders may add script_refs that point at it, but every reminder still quotes the chat verbatim.
+    Json::Value afterBatchKp(const ChannelAccess& sys, const Json::Value& batch, const std::string& aiJobId, int& llmCalls, const Json::Value& knowledge);
 
     Json::Value list(const ChannelAccess& a);                                        // active reminders for the caller, minus dismissed
     Json::Value dismiss(const ChannelAccess& a, const std::string& id);              // per user
@@ -27,10 +30,17 @@ public:
     static Json::Value schema();
     // Deterministic planner used without a model. ctx: {current_log, previous_tail, new_events, existing_titles}
     static Json::Value mockPlan(const Json::Value& ctx);
+    // Keeper planner: mockPlan over the Keeper's view plus script-driven reminders (an unrevealed clue or twist the
+    // newest lines touch). ctx adds knowledge: [{id, kind, title, status, citations}].
+    static Json::Value mockPlanKp(const Json::Value& ctx);
+    // The sentence of `content` that contains `needle` (case-insensitive), as an exact substring of content.
+    static std::string sentenceWith(const std::string& content, const std::string& needle);
     // Keeps only quotes that are verbatim substrings of readable lines; groups them per event.
     static Json::Value resolveCitations(const Json::Value& quotes, const std::map<std::string, Json::Value>& readable);
     static std::string dedupeKey(const std::string& title, const Json::Value& citations);
 private:
+    Json::Value buildContext(const ChannelAccess& view, const std::string& currentScene, const Json::Value& batch, const std::string& groupFilter);
+    int store(const ChannelAccess& view, const Json::Value& plan, const std::string& currentScene, const std::string& aiJobId, int maxNew);
     void updateOutlines(const ChannelAccess& view, const std::string& currentScene, const Json::Value& batch, int& llmCalls);
     Json::Value readableLines(const ChannelAccess& view, const std::string& sceneId, int limit, bool tail);
     Db& db_; LlmGateway& llm_; ContextRetrievalService& retrieval_; Notifier& notifier_;

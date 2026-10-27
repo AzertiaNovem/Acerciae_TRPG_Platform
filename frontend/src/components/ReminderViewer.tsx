@@ -46,6 +46,12 @@ export default function ReminderViewer({ id, onClose }: { id: string; onClose: (
       </header>
       <div className="body">
         {reminder?.why && <div className="small muted" style={{ marginBottom: 8 }}>{reminder.why}{reminder.llm_mode === 'mock' ? ` (${tr('mock LLM')})` : ''}</div>}
+        {(reminder?.script_refs ?? []).length > 0 && (
+          <div className="script-refs">
+            <span className="tiny muted">{tr('From the script')}</span>
+            {reminder!.script_refs!.map((sr) => <div key={sr.knowledge_id} className="small"><span className="pill gm">{tr(sr.kind)}</span> <b>{sr.title}</b>{sr.page ? <span className="tiny muted"> · {tr('p.')}{sr.page}</span> : null}{sr.excerpt && <div className="cit">“{sr.excerpt.slice(0, 200)}”</div>}</div>)}
+          </div>
+        )}
         {error && <div className="small" style={{ color: 'var(--danger)' }}>{error}</div>}
         {!error && events.length === 0 && <div className="muted small">{tr('Loading…')}</div>}
         {events.map((e) => (
