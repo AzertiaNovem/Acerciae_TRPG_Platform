@@ -88,9 +88,9 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 ## AI auxiliary features (user-triggered)
 Both return 403 `feature_disabled` when a server maintainer turned the feature off. Requests use the server's LLM profile (model, reasoning effort, output language).
 
-| POST | `/channels/{id}/recall` | `{chat_window_id, character_id?, mode: hint|draft, query?}` → what the chat log and the journal already say. `mode: draft` looks up the things named in the message being written (feature flag `consistency`); `mode: hint` answers a question, or with an empty `query` the window's current topic (flag `inspiration`). Response: `{mode, query, query_source: hint|draft|recent_chat, terms[], topics[{label, items[]}], selected, candidates{messages, records}, message_ids[], fact_ids[], highlights[], llm_mode, notes[]}`. An item is a verbatim chat message `{type:"message", id, chat_window_id, window_name, seq, created_at, kind, content, character_name, author_name, dice}` or an existing journal record `{type:"record", fact_id, entry_id, document_id, document_type, summary, status, scene_title, source_event_ids, data}`. Every item is viewer-filtered and returned from the database; the model only chooses and groups. A topic label is a phrase quoted from the query or from one of its items, or empty. There is no score, verdict or drafted text. |
-| GET | `/channels/{id}/recall/history` | my recalls (ids only; refetch items under the current token) |
-| POST | `/channels/{id}/consistency` · `/inspiration` | Former endpoints, kept: `{draft}` / `{hint}` run a `draft` / `hint` recall and return the recall shape above. `GET /consistency/history` is the recall history. |
+| POST | `/channels/{id}/consistency` | `{chat_window_id, character_id?, draft}` → `{score|null, score_label, insufficient_evidence, rationale, conflicts[], evidence[], highlights[], llm_mode}` |
+| GET | `/channels/{id}/consistency/history` | my checks |
+| POST | `/channels/{id}/inspiration` | `{chat_window_id, character_id?, hint?, variant?}` → `{draft, used_fact_ids, editable: true, auto_sent: false}` |
 
 ## AI observer admin
 | GET | `/channels/{id}/ai/status` | scheduler status, LLM status, cursors |

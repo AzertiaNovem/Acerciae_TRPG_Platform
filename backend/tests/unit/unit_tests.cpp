@@ -15,7 +15,6 @@
 #include "logstudio/PublicationService.h"
 #include "logstudio/PresentationService.h"
 #include "logstudio/VnScriptService.h"
-#include "recall/RecallService.h"
 #include "logstudio/ImageProvider.h"
 #include <iostream>
 #include <functional>
@@ -96,6 +95,25 @@ int main() {
         bool appended = false; for (auto& pr : out["proposals"]) if (pr["document_type"] == "clue_journal") for (auto& op : pr["ops"]) if (op["op"] == "append_text" && op["fact_id"] == "f-badge") appended = true;
         CHECK(appended);
     });
+    test("mock consistency flags promised-but-not-delivered item", [] {
+        Json::Value ctx; ctx["draft"] = "I take out the key that the Sheriff gave me last week and unlock the basement.";
+        ctx["character"]["name"] = "Harvey Walters"; ctx["scene"]["location"] = "Hale Boarding House"; ctx["rule_system"] = "coc7e";
+        Json::Value f; f["fact_id"] = "f1"; f["kind"] = "relationship"; f["summary"] = "Sheriff Amos Dunmore promises Harvey Walters: \"I promise I'll look for it and bring you the key\""; f["status"] = "npc_claim"; f["data"]["relation"] = "promised"; ctx["known_facts"].append(f);
+        auto out = MockLlmClient::consistency(ctx);
+        CHECK(!out["insufficient_evidence"].asBool()); CHECK(out["score"].asInt() < 70); CHECK(out["conflicts"].size() >= 1);
+        CHECK(out["conflicts"][0]["evidence_fact_ids"][0] == "f1");
+        Json::Value ctx2 = ctx; ctx2["known_facts"] = Json::Value(Json::arrayValue); ctx2["draft"] = "I whistle a tune.";
+        auto out2 = MockLlmClient::consistency(ctx2);
+        CHECK(out2["insufficient_evidence"].asBool()); CHECK(out2["score"].isNull());
+    });
+    test("mock inspiration uses only known facts and never auto-sends", [] {
+        Json::Value ctx; ctx["character"]["name"] = "Nora Blake"; ctx["character"]["speaking_style"] = "blunt"; ctx["scene"]["location"] = "Gazette Office";
+        Json::Value m; m["actor_role"] = "gm"; m["content"] = "Dunmore says, \"Nobody goes out there now.\""; ctx["recent_messages"].append(m);
+        Json::Value f; f["fact_id"] = "f-clue"; f["kind"] = "clue"; f["summary"] = "secret documents"; f["data"]["title"] = "secret documents"; ctx["known_facts"].append(f);
+        auto out = MockLlmClient::inspiration(ctx);
+        CHECK(!out["draft"].asString().empty()); CHECK(out["used_fact_ids"].size() >= 1);
+        ctx["variant"] = 1; auto out2 = MockLlmClient::inspiration(ctx); CHECK(out2["draft"] != out["draft"]);
+    });
     test("mock module structuring produces cited nodes and edges", [] {
         Json::Value ctx; Json::Value pg; pg["page"] = 2; pg["text"] = "Chapter One: Arrival\n\nScene: The Sheriff's Office\nSheriff Amos Dunmore receives the investigators. A tarnished badge lies on the desk.\n\nNPC: Sheriff Amos Dunmore\nSTR 70 CON 65. Skills: Persuade 60%.\n\nItem: The Lighthouse Key\nAn iron key held by the Sheriff.\nIf the investigators obtain the key they may enter the lighthouse.\n"; ctx["pages"].append(pg);
         auto out = MockLlmClient::moduleStructure(ctx);
@@ -105,11 +123,9 @@ int main() {
     });
     test("gateway validates mock output against schema", [] {
         Config cfg; LlmGateway gw(cfg, std::make_unique<MockLlmClient>());
-        LlmRequest req; req.task = "module_structure"; req.responseSchema = json::parse(R"({"type":"object","required":["nodes","edges"]})");
-        LlmMessage u; u.role = "user"; Json::Value ctx; ctx["pages"] = Json::Value(Json::arrayValue); u.content = json::dump(ctx); req.messages.push_back(u);
-        auto o = gw.runStructured(req); CHECK(o.ok); CHECK(o.data.isMember("nodes")); CHECK(gw.isMock());
-        LlmRequest bad = req; bad.responseSchema = json::parse(R"({"type":"object","required":["rationale"]})");
-        auto ob = gw.runStructured(bad); CHECK(!ob.ok);
+        LlmRequest req; req.task = "consistency"; req.responseSchema = json::parse(R"({"type":"object","required":["rationale","conflicts"]})");
+        LlmMessage u; u.role = "user"; Json::Value ctx; ctx["draft"] = "hello"; ctx["known_facts"] = Json::Value(Json::arrayValue); u.content = json::dump(ctx); req.messages.push_back(u);
+        auto o = gw.runStructured(req); CHECK(o.ok); CHECK(o.data.isMember("conflicts")); CHECK(gw.isMock());
     });
     test("document entry rendering", [] {
         Json::Value f; f["summary"] = "A brass key"; f["status"] = "confirmed"; f["data"]["title"] = "Brass key"; f["data"]["source"] = "found at the docks";
@@ -304,25 +320,6 @@ int main() {
         auto zh = VnScriptService::normalize(in, {zh1, zh2}, "llm");
         bool merged = false; for (auto& sc : zh["scenes"]) if (sc["key"] == "码头") merged = sc["lines"].size() >= 2;
         CHECK(merged);
-    });
-    test("recall only quotes existing items and labels must be quoted phrases", [] {
-        auto ts = RecallService::terms("I should ask Sheriff Dunmore about the lighthouse key 灯塔的钥匙");
-        auto has = [&](const std::string& t) { return std::find(ts.begin(), ts.end(), t) != ts.end(); };
-        CHECK(has("Sheriff Dunmore")); CHECK(has("lighthouse")); CHECK(has("灯塔")); CHECK(has("钥匙")); CHECK(!has("the")); CHECK(!has("灯塔的钥匙"));
-        RecallService::Pools pools;
-        auto msg = [&](const char* ref, const char* content, int seq) { Json::Value m; m["ref"] = ref; m["type"] = "message"; m["id"] = std::string("id-") + ref; m["content"] = content; m["seq"] = seq; pools.messages.append(m); };
-        msg("M1", "The Sheriff said he would bring the lighthouse key tomorrow.", 2); msg("M2", "Dunmore nods slowly.", 1); msg("M3", "Rain again.", 3);
-        Json::Value k; k["ref"] = "K1"; k["type"] = "record"; k["fact_id"] = "f1"; k["summary"] = "Sheriff Dunmore promised the lighthouse key"; k["data"]["title"] = "Lighthouse key"; pools.records.append(k);
-        auto plan = RecallService::mockPlan("I should ask Sheriff Dunmore about the lighthouse key", pools, 0);
-        CHECK(plan["topics"].size() >= 1); CHECK(plan["topics"][0]["label"] == "Sheriff Dunmore"); CHECK(plan["topics"][0]["refs"][0] == "K1");
-        Json::Value bad = json::parse(R"({"topics":[{"label":"He is lying to you","refs":["M1","K1","M9","M1"]},{"label":"lighthouse key","refs":["M3"]},{"label":"x","refs":["M7"]}]})");
-        auto out = RecallService::normalize("about the lighthouse key", pools, bad, "llm");
-        CHECK(out["topics"].size() == 2);
-        CHECK(out["topics"][0]["label"] == "");                                   // a conclusion, not a quotation: dropped
-        CHECK(out["topics"][0]["items"].size() == 2); CHECK(out["topics"][0]["items"][0]["type"] == "record"); CHECK(out["topics"][0]["items"][1]["id"] == "id-M1");
-        CHECK(out["topics"][1]["label"] == "lighthouse key");                     // quoted from the query
-        CHECK(out["selected"] == 3);
-        CHECK(RecallService::normalize("q", pools, Json::Value("nonsense"), "llm")["topics"].empty());
     });
     test("mock speech produces measurable audio and dictionary never alters its source", [] {
         setenv("TTS_PROVIDER","mock",1);auto provider=logstudio::makeTtsProvider();logstudio::TtsSynthesisRequest req;req.text="调查员打开了门。";req.voiceId="mock-cherry";auto r=provider->synthesize(req);CHECK(r.ok&&r.mime=="audio/wav");CHECK(logstudio::wavDurationMs(r.audioBytes)==r.durationMs);CHECK(logstudio::wavDurationMs("RIFFtruncated")==0);

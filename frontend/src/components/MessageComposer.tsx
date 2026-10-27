@@ -5,7 +5,8 @@ import { useNav } from '../store/nav';
 import { useAuth } from '../store/auth';
 import { useChat } from '../store/chat';
 import { useUi } from '../store/ui';
-import RecallButton from './RecallButton';
+import ConsistencyButton from './ConsistencyButton';
+import InspirationButton from './InspirationButton';
 
 const DICE_PREFIX = /^\s*[.。．](r|ra|rc|rh|rah|rch|sc|st|en)/i;
 
@@ -91,8 +92,8 @@ export default function MessageComposer() {
           <select value={whisperTo} onChange={(e) => setWhisperTo(e.target.value)}><option value="">{tr("choose character…")}</option>{characters.filter((c) => c.kind === 'pc').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         )}
         <span className="spacer" />
-        {features?.consistency !== false && <RecallButton mode="draft" draft={text} characterId={activeCharacter} />}
-        {features?.inspiration !== false && <RecallButton mode="hint" characterId={activeCharacter} />}
+        {features?.consistency !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
+        {features?.inspiration !== false && <InspirationButton characterId={activeCharacter} />}
         <button className="primary" onClick={send} disabled={!canPost || !text.trim() || sending}>{tr("Send")}</button>
       </div>
     </div>

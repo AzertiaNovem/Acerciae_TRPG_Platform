@@ -78,19 +78,21 @@ compact snapshots of the six documents. Anything else is fetched on demand throu
 Shard ids are `<kind>/<uuid>`; every shard carries structured data, a Markdown projection (document entry), version,
 source event ids, knowledge scope, timestamps and links (entities, related facts).
 
-## Recall ("Already said")
+## Consistency check
 
-`POST /recall {chat_window_id, character_id?, mode, query?}` →
-1. Query: the draft (`mode: draft`), a question, or with no question the last readable lines of the window. Terms = proper
-   nouns, keywords and adjacent-character pairs for CJK text.
-2. Candidates, both viewer-filtered in SQL: messages whose content contains a term (or matches full-text search) from every
-   window the caller may read, plus the last lines of the current window; journal records (`knowledge_facts` with their
-   document entries) from the caller's memory partition that mention a term.
-3. Selection: the model (or the mock planner, by shared words) returns `{topics:[{label, refs}]}` over the candidate refs
-   only. `normalize` drops unknown or repeated refs, blanks any label that is not quoted from the query or a chosen item,
-   caps 6 topics / 16 items, and returns the items from the candidate rows, never from model text.
-4. Result persisted as ids (`chat_recalls`); user-scoped 5-minute highlights point at the journal entries involved. No
-   score, verdict or drafted text is produced; the draft is returned unchanged.
+`POST /consistency {draft, chat_window_id, character_id}` →
+1. Rule layer: keywords of the draft → FTS/trigram over facts visible to *that character* (+ all their clues/relationships);
+   recent visible scene log; scene metadata; rule hints.
+2. LLM (or mock rules): possession/promise, unknown-name, location, outcome-declaration checks → `{score|null,
+   insufficient_evidence, rationale, conflicts[{description, severity, evidence_fact_ids}], supporting/recommended ids}`.
+3. Post-filter: any cited id not in the visible evidence set is dropped (defence against leaks); evidence is resolved to
+   entry/document/scene/source events; result persisted (`consistency_checks`); user-scoped 5-minute highlights created on
+   the cited entries. The draft is returned unchanged and can still be sent.
+
+## Inspiration
+
+`POST /inspiration` builds {character (style, sheet), scene, recent visible messages, up to 30 facts the character knows}
+→ LLM/mock → `{draft, used_fact_ids}`; used ids are filtered to visible facts; persisted; `editable: true, auto_sent: false`.
 
 ## Module import
 

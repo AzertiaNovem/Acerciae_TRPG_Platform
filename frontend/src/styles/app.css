@@ -201,13 +201,3 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .chat-reference blockquote { margin:4px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .chat-reference-drafts { max-height:180px; overflow:auto; }
 @media(max-width:800px) { .knowledge-categories { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-
-/* Recall panel: verbatim quotes from the chat log and existing journal records */
-.panel-float.recall { max-height: 60vh; overflow: auto; }
-.recall-topic { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--bg-3); }
-.recall-label { font-weight: 600; color: var(--accent-2); margin-bottom: 2px; }
-.recall-item { padding: 6px 8px; border-radius: 6px; margin-top: 4px; background: var(--bg-1); }
-.recall-item.record { cursor: pointer; border-left: 3px solid var(--warn); }
-.recall-item.record:hover { background: var(--bg-2); }
-.recall-item blockquote { margin: 4px 0 0; padding-left: 8px; border-left: 3px solid var(--accent); white-space: pre-wrap; word-break: break-word; font-size: 13px; }
-.recall-item mark { background: rgba(240,179,91,.35); color: inherit; border-radius: 2px; padding: 0 1px; }

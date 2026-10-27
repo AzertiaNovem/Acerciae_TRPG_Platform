@@ -8,7 +8,8 @@
 #include "knowledge/KnowledgeService.h"
 #include "highlights/HighlightService.h"
 #include "observer/ObserverScheduler.h"
-#include "recall/RecallService.h"
+#include "consistency/ConsistencyService.h"
+#include "inspiration/InspirationService.h"
 #include "servers/ServerSettingsService.h"
 #include "dice/DiceService.h"
 #include "llm/LlmGateway.h"
@@ -174,23 +175,19 @@ int main() {
         CHECK(removed >= 1);
         CHECK(S.highlights->listActive(gm, clueDocId).empty() || true);
     });
-    test("recall quotes only readable chat and records and never leaks GM-only facts", [&] {
+    test("consistency check cites only accessible evidence and never leaks GM-only facts", [&] {
         Json::Value secret; secret["content"] = "SECRET: the key opens the crypt under the chapel."; secret["kind"] = "narration"; secret["visibility"] = "gm_only";
         auto sm = S.chat->postMessage(gm, mainWin, secret);
         auto sev = eventOf(sm["id"].asString());
         Proposal p; p.channelId = channelId; p.documentType = "clue_journal"; p.actor = "ai";
         Json::Value op; op["op"] = "add_entry"; op["fact"]["summary"] = "The key opens the crypt under the chapel"; op["fact"]["status"] = "gm_secret"; op["fact"]["source_event_ids"].append(sev["id"]); p.ops.append(op);
         CHECK(S.documents->commit(p).applied == 1);
-        auto r3 = S.recall->recall(p3, mainWin, c3, "I use the key to open the crypt under the chapel.", "draft", 0);
-        CHECK(!r3.isMember("score")); CHECK(r3["mode"] == "draft");
-        for (auto& t : r3["topics"]) for (auto& it : t["items"]) CHECK(json::dump(it).find("crypt") == std::string::npos);
-        auto r1 = S.recall->recall(p1, splitWin, c1, "I take out the brass key.", "draft", 0);
-        // Every quoted line is a readable message, returned verbatim.
-        for (auto& t : r1["topics"]) for (auto& it : t["items"]) if (it["type"] == "message") { bool readable = true; try { CHECK(S.chat->getMessage(p1, it["id"].asString())["content"] == it["content"]); } catch (...) { readable = false; } CHECK(readable); }
-        auto gr = S.recall->recall(gm, mainWin, "", "the key", "hint", 0);
-        bool ownSecret = false; for (auto& t : gr["topics"]) for (auto& it : t["items"]) if (it["type"] == "message" && it["id"] == sm["id"]) ownSecret = true;
-        CHECK(ownSecret);   // the GM may recall their own secret line
-        CHECK(!S.recall->history(gm, 5).empty());
+        auto r3 = S.consistency->check(p3, mainWin, c3, "I use the key to open the crypt under the chapel.");
+        std::string dump = json::dump(r3);
+        CHECK(dump.find("crypt under the chapel") == std::string::npos || r3["evidence"].empty());
+        for (auto& e : r3["evidence"]) CHECK(e["summary"].asString().find("crypt") == std::string::npos);
+        auto r1 = S.consistency->check(p1, splitWin, c1, "I take out the brass key.");
+        CHECK(!r1["evidence"].empty() || r1["insufficient_evidence"].asBool());
     });
     test("Private conversations update only the relevant independent player memory", [&] {
         auto gmMsg=say(gmUser,mainWin,"On the mantelpiece you all notice a silver locket engraved with a lantern.","narration");
@@ -230,12 +227,12 @@ int main() {
         CHECK(S.knowledge->listFacts(p1, "clue", "sea cave", "", 10).empty());
         auto scope = S.db->tx([&](pqxx::work& w) { return S.knowledge->getScope(w, factId); }); CHECK(scope.scope == "gm");
     });
-    test("P1: recall never reveals an NPC's undisclosed full name", [&] {
+    test("P1: inspiration never reveals an NPC's undisclosed full name", [&] {
         Json::Value npc; npc["name"] = "Arthur Crowley"; npc["kind"] = "npc"; S.chat->createCharacter(gm, npc);
         say(gmUser, mainWin, "A thin man introduces himself only as Arthur and offers you tea.", "narration");
         S.observer->observeChannel(channelId, true);
         bool leaked = false;
-        for (int v = 0; v < 5; ++v) { auto d = S.recall->recall(p1, mainWin, c1, v % 2 ? "Arthur" : "", "hint", v); if (json::dump(d).find("Crowley") != std::string::npos) leaked = true; }
+        for (int v = 0; v < 5; ++v) { auto d = S.inspiration->draft(p1, mainWin, c1, "", v); if (d["draft"].asString().find("Crowley") != std::string::npos) leaked = true; }
         CHECK(!leaked);
         CHECK(S.knowledge->listFacts(p1, "", "Crowley", "", 10).empty());
     });

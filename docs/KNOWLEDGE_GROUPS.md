@@ -19,7 +19,7 @@ no KP module graph, scene description, character sheet, journal text or entity r
 readable source chat from the authorized batch; a summary cannot import a KP fact ID or another group's fact. Source status
 is still distinguished: a player's claim does not become a confirmed fact merely by being summarized.
 
-The server scopes HTTP reads, source viewers, tool calls, recall, revision history and WebSocket delivery.
+The server scopes HTTP reads, source viewers, tool calls, consistency/inspiration, revision history and WebSocket delivery.
 PostgreSQL constraints reject cross-partition document/entity/relation links. Every group has a generation number; commits
 lock and check it so an in-flight AI response cannot restore knowledge after a membership change.
 

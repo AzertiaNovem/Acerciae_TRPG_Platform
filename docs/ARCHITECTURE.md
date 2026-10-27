@@ -3,7 +3,7 @@
 ```
 ┌───────────────────────────── React + TS (Vite) ─────────────────────────────┐
 │ ServerSidebar │ ChannelSidebar │ ChatWindow (MessageList, MessageComposer,    │
-│               │                │ RecallPanel, RecallButton)                    │
+│               │                │ ConsistencyResultPanel, InspirationDraftPanel)│
 │               │                │ ContextBubbleDock → ContextDocumentViewer    │
 │               │                │ GMWorkspace (ModuleImportPanel, SceneManager)│
 │  stores: auth · nav · chat · documents · highlights · ui   (zustand)          │
@@ -19,7 +19,7 @@
 │  highlights/HighlightService   retrieval/ContextRetrievalService (Tool API)  │
 │  llm/LlmGateway ─ OpenAiCompatClient | MockLlmClient ─ SchemaValidator       │
 │  observer/ObserverScheduler (observe · consolidate · cleanup loops)         │
-│  recall/RecallService (chat log + journal lookup; the model only selects)   │
+│  consistency/ConsistencyService   inspiration/InspirationService            │
 │  modules/ModuleImporter (poppler → structuring → graph)   seed/DemoSeed     │
 └────────────────────────────────┬────────────────────────────────────────────┘
                                  │ libpqxx pool
@@ -42,7 +42,7 @@
 | `retrieval/ContextRetrievalService` | The Tool API (shards, searches, module excerpts), rule-based related-history retrieval, prompt snapshots, embeddings | KnowledgeService, EventStore, LlmGateway |
 | `llm/` | `ILlmClient` abstraction, OpenAI-compatible client (libcurl), deterministic mock, JSON-schema validator, tool-call loop with repair round | core |
 | `observer/ObserverScheduler` | The three schedulers, group cursors, task locks, context building, applying extraction output (proposals, highlights, module hints, knowledge suggestions) | everything above |
-| `recall/` | User-triggered recall of what the chat log and the journal already say; runs under the requesting character's scope; the model only chooses and groups existing items | LlmGateway, Highlights |
+| `consistency/`, `inspiration/` | User-triggered features; both run under the requesting character's scope | Retrieval, LlmGateway, Highlights |
 | `modules/ModuleImporter` | PDF/text → pages → chunked structuring → nodes/edges with citations; GM workspace aggregate | LlmGateway, Notifier |
 | `ws/` | Two WebSocket endpoints, subscription registry, audience-aware `Notifier` | Auth |
 | `api/` | Route table; each handler: parse → authorise → service → JSON | all services |
@@ -73,8 +73,8 @@ Migrations live in `backend/migrations/` and are applied in order at startup.
   `content_md`, created/updated version, soft `removed`), `document_revisions` (ops + full snapshot per version),
   `document_proposals` (every proposal with its decision: committed / rejected / needs_gm_review).
 * **Attention**: `highlights` (document, entry, optional text range, reason, kind, sources, priority, scope, expiry).
-* **AI bookkeeping**: `ai_jobs` (lock + audit), `ai_processing_cursors` (per channel/kind/group), `chat_recalls`
-  (ids only); `consistency_checks` and `inspiration_drafts` remain for history and are no longer written.
+* **AI bookkeeping**: `ai_jobs` (lock + audit), `ai_processing_cursors` (per channel/kind/group), `consistency_checks`,
+  `inspiration_drafts`.
 * **Module layer**: `modules`, `module_pages` (FTS), `module_nodes` (type, citations, progress), `module_edges`, `module_hints`.
 
 Foreign keys cascade from channel downwards, so server/channel isolation holds at the storage level; every query is also
