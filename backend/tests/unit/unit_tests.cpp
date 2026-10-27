@@ -493,6 +493,8 @@ int main() {
         CHECK(skillBase("Science (Biology)", chars) == 1); CHECK(skillBase("Fighting (Sword)", chars) == 20); CHECK(skillBase("Fighting (Brawl)", chars) == 25);
         CHECK(skillBase("Art/Craft (Photography)", chars) == 5); CHECK(skillBase("Survival (Sea)", chars) == 10); CHECK(skillBase("Basket weaving", chars, 7) == 7);
         CHECK(family("Science (Biology)") == "Science"); CHECK(family("格斗") == "Fighting"); CHECK(family("Firearms (Rifle/Shotgun)") == "Firearms"); CHECK(family("Listen") == "Listen");
+        CHECK(family("科学（生物学）") == "Science"); CHECK(family("格斗（鞭）") == "Fighting");
+        CHECK(skillBase("格斗（鞭）", chars) == 5); CHECK(skillBase("射击（弓）", chars) == 15);
         CHECK(rules()["careers"].size() == 230); CHECK(rules()["skills"].size() > 50);
         // An accountant spends career points on career skills and one free specialty; hobby points go anywhere.
         Json::Value card; card["characteristics"] = chars; card["career"]["name"] = "会计师"; card["career"]["specialties"].append("Fighting (Brawl)");

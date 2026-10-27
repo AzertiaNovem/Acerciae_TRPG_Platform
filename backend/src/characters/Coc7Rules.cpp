@@ -69,7 +69,7 @@ std::string family(const std::string& key) {
     if (dice::baseCode(canon)) return familyOfCanonical(canon);
     auto t = text::trim(key);
     auto p = t.find(" (");
-    if (p == std::string::npos) p = t.find('（');
+    if (p == std::string::npos) p = t.find("（");
     if (p == std::string::npos) return canon;
     auto fam = familyOfCanonical(dice::canonicalName(t.substr(0, p)));
     return fam;
@@ -77,7 +77,7 @@ std::string family(const std::string& key) {
 static std::string specOf(const std::string& key) {
     auto t = text::trim(key);
     auto p = t.find(" ("); size_t open = 2;
-    if (p == std::string::npos) { p = t.find('（'); open = 3; }
+    if (p == std::string::npos) { p = t.find("（"); open = 3; }
     if (p == std::string::npos) return "";
     auto s = t.substr(p + open);
     while (!s.empty() && (s.back() == ')' || (unsigned char)s.back() >= 0x80 && s.size() >= 3 && s.compare(s.size() - 3, 3, "）") == 0)) { if (s.back() == ')') s.pop_back(); else s.erase(s.size() - 3); }
