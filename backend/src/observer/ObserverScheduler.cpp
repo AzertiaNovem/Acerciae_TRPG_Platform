@@ -7,6 +7,7 @@
 #include "../knowledge/Visibility.h"
 #include "../llm/LlmGateway.h"
 #include "../ws/Notifier.h"
+#include "../scenes/ScenarioService.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
 #include "../core/Log.h"
@@ -16,8 +17,8 @@
 namespace acerciae {
 
 ObserverScheduler::ObserverScheduler(const Config& cfg, Db& db, EventStore& events, DocumentService& docs, HighlightService& highlights,
-                                     ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge)
-    : cfg_(cfg), db_(db), events_(events), docs_(docs), highlights_(highlights), retrieval_(retrieval), llm_(llm), notifier_(notifier), knowledge_(knowledge) {}
+                                     ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios)
+    : cfg_(cfg), db_(db), events_(events), docs_(docs), highlights_(highlights), retrieval_(retrieval), llm_(llm), notifier_(notifier), knowledge_(knowledge), scenarios_(scenarios) {}
 ObserverScheduler::~ObserverScheduler() { stop(); }
 
 void ObserverScheduler::start() {
@@ -147,8 +148,13 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         if (!outcome.ok) { finish("failed", outcome.error, summary, lastSeq, (int)batch.size(), outcome.llmCalls); ALOG_WARN << "observer job failed: " << outcome.error; summary["error"] = outcome.error; notifier_.aiJobFinished(channelId, summary); return summary; }
         summary["tool_calls"] = outcome.toolCalls;
         applyExtraction(sys, channelId, jobId, outcome.data, batch, summary);
+        // Has the story moved on? The Keeper's observer may open the next scenario for this window.
+        int stageCalls = 0;
+        try { summary["scenario"] = scenarios_.detectAndAdvance(channelId, windowId, sceneId, batch, stageCalls); }
+        catch (const std::exception& e) { ALOG_WARN << "scenario detection failed: " << e.what(); summary["scenario"]["error"] = e.what(); }
+        llmCalls_ += stageCalls;
 
-        finish("succeeded", "", summary, toSeq, (int)batch.size(), outcome.llmCalls);
+        finish("succeeded", "", summary, toSeq, (int)batch.size(), outcome.llmCalls + stageCalls);
         groupsProcessed_++;
         summary["status"] = "succeeded";
         notifier_.aiJobFinished(channelId, summary);

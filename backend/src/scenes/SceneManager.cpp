@@ -43,7 +43,7 @@ Json::Value SceneManager::update(const ChannelAccess& a, const std::string& scen
     auto cur = get(a, sceneId);
     auto s = db_.tx([&](pqxx::work& w) {
         auto row = Db::queryOne(w,
-            "UPDATE scenes SET title=$3, location=$4, narrative_time=$5, summary=$6, off_module=$7 WHERE id=$1 AND channel_id=$2 RETURNING *",
+            "UPDATE scenes SET title=$3, location=$4, narrative_time=$5, summary=$6, off_module=$7, summary_status=CASE WHEN $6<>summary THEN 'gm_edited' ELSE summary_status END WHERE id=$1 AND channel_id=$2 RETURNING *",
             {sceneId, a.channelId, json::str(body, "title", cur["title"].asString()), json::str(body, "location", cur["location"].asString()),
              json::str(body, "narrative_time", cur["narrative_time"].asString()), json::str(body, "summary", cur["summary"].asString()),
              json::toBool(body, "off_module", cur["off_module"].asBool())});

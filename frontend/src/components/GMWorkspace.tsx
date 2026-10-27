@@ -142,7 +142,7 @@ export default function GMWorkspace() {
   return (
     <div className="workspace">
       <div className="tabs">
-        {(['overview', 'module', 'scenes', 'knowledge', 'settings'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t[0].toUpperCase() + t.slice(1))}</button>)}
+        {(['overview', 'module', 'scenes', 'knowledge', 'settings'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t === 'scenes' ? 'Scenarios' : t[0].toUpperCase() + t.slice(1))}</button>)}
         <span className="grow" /><button className="ghost" onClick={() => setOpen(false)}>{tr("← back to chat")}</button>
       </div>
       <div className="content">

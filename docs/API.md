@@ -55,9 +55,12 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET | `/channels/{id}/messages/{mid}` | |
 
 ## Scenes & events
-| GET/POST | `/channels/{id}/scenes` | create `{title, location?, narrative_time?, summary?}` (GM) |
-| GET/PUT | `/channels/{id}/scenes/{sid}` | |
+| GET/POST | `/channels/{id}/scenes` | Scenarios (stages of the story). GM rows carry `summary`, `key_points`, `summary_status: none|pending|ready|gm_edited`, `auto_detected`, `stage_reason`, `boundary_event_id`; players get neutral `Scene N` labels. POST `{title, location?, narrative_time?, summary?}` (GM) |
+| GET/PUT | `/channels/{id}/scenes/{sid}` | PUT (GM): a changed `summary` is marked `gm_edited` and is never overwritten by the model |
 | POST | `/channels/{id}/scenes/{sid}/close` | |
+| POST | `/channels/{id}/scenes/{sid}/summarize` | (GM) write or rewrite the AI summary of a scenario from its chat log |
+| POST | `/channels/{id}/scenarios/advance` | (GM) `{chat_window_id, title?, location?, narrative_time?, boundary_event_id?}` opens the next scenario for a window; the window's lines from the boundary on move into it, the previous scenario closes once no window is left in it and gets summarized. The Keeper's observer does the same automatically (`channels.auto_scenarios`, `PUT /channels/{id}` or `/scenario-settings {auto_scenarios}`) when the Keeper's narration moves the story to a new place or time; it emits a `scene.entered` event with `payload.auto_detected` |
+| PUT | `/channels/{id}/scenario-settings` | (GM) `{auto_scenarios: bool}` |
 | GET | `/channels/{id}/scenes/{sid}/log?limit&after_seq` | viewer-filtered raw log |
 | GET | `/channels/{id}/events?q=&scene_id=` or `?ids=a,b,c` | search / fetch by ids (viewer-filtered) |
 | GET | `/channels/{id}/events/{eid}` | |
@@ -82,7 +85,7 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET/PUT | `/channels/{id}/facts/{fid}/visibility` | GET returns `scope: gm|player_group` and group identity; PUT returns 409 (direct KP sharing retired) |
 | GET | `/channels/{id}/entities?q` · `/entities/{eid}` | entity graph |
 | GET | `/channels/{id}/knowledge/{cid}` | facts a character knows (own character or GM) |
-| POST | `/channels/{id}/tools/{tool}` | execute a Tool API call under the caller's identity (`search_scene_history`, `get_entity`, …) |
+| POST | `/channels/{id}/tools/{tool}` | execute a Tool API call under the caller's identity (`search_scene_history`, `get_entity`, `list_scenarios`, `get_chat_log {scene_id?, chat_window_id?, from?, to?, after_seq?, around_event_id?, limit?}` for verbatim lines by scenario, time or around one event, …) |
 | GET | `/channels/{id}/shards?id=clue/<uuid>` | shard fetch |
 
 ## AI auxiliary features (user-triggered)

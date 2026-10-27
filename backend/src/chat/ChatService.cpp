@@ -152,8 +152,8 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
         if (!Visibility::isUuid(group) || db_.queryOne("SELECT 1 AS ok FROM dice_text_groups WHERE id=$1 AND server_id=$2", {group, a.serverId}).isNull())
             throw badRequest("unknown dice text group");
     }
-    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6 WHERE id=$1",
-        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool()), group});
+    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7 WHERE id=$1",
+        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool()), group, json::toBool(body, "auto_scenarios", cur["auto_scenarios"].asBool())});
     return getChannel(a);
 }
 Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::string& user, const std::string& role) {

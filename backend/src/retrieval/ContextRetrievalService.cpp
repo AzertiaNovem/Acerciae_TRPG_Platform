@@ -69,6 +69,46 @@ Json::Value ContextRetrievalService::searchSceneHistory(const ChannelAccess& a, 
 Json::Value ContextRetrievalService::searchEvents(const ChannelAccess& a, const std::string& query, const std::string& sceneId, int limit) {
     Json::Value out; out["query"] = query; out["events"] = events_.search(a, query, sceneId, std::max(1, std::min(limit, 50))); return out;
 }
+Json::Value ContextRetrievalService::listScenarios(const ChannelAccess& a) {
+    if (!a.isGm) return db_.queryJson("SELECT s.id, s.sequence, 'Scenario '||s.sequence AS title, s.status, count(e.id) AS event_count, min(e.created_at) AS first_at, max(e.created_at) AS last_at FROM scenes s JOIN events e ON e.scene_id=s.id WHERE s.channel_id=$1 AND e.kind='message.posted' AND " + Visibility::eventFilter(a) + " GROUP BY s.id ORDER BY s.sequence", {a.channelId});
+    return db_.queryJson("SELECT s.id, s.sequence, s.title, s.location, s.narrative_time, s.status, s.summary, s.key_points, s.auto_detected, s.created_at, s.closed_at, (SELECT count(*) FROM events e WHERE e.scene_id=s.id AND e.kind='message.posted') AS event_count, (SELECT min(e.created_at) FROM events e WHERE e.scene_id=s.id) AS first_at, (SELECT max(e.created_at) FROM events e WHERE e.scene_id=s.id) AS last_at FROM scenes s WHERE s.channel_id=$1 ORDER BY s.sequence, s.created_at", {a.channelId});
+}
+Json::Value ContextRetrievalService::getChatLog(const ChannelAccess& a, const Json::Value& args) {
+    int limit = std::max(1, std::min(json::toInt(args, "limit", 60), 200));
+    static const std::string cols = "SELECT e.id AS event_id, e.seq, e.scene_id, e.chat_window_id, w.name AS window_name, e.message_id, e.actor_role, e.character_id, c.name AS character_name, u.display_name AS author_name, coalesce(m.kind,'ic') AS kind, e.payload->>'content' AS content, e.created_at "
+        "FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN users u ON u.id=e.actor_user_id LEFT JOIN chat_windows w ON w.id=e.chat_window_id LEFT JOIN messages m ON m.id=e.message_id ";
+    std::string where = "WHERE e.channel_id=$1 AND e.kind='message.posted' AND " + Visibility::eventFilter(a);
+    DbParams p{a.channelId}; bool ranged = false;
+    auto sceneId = json::str(args, "scene_id"), windowId = json::str(args, "chat_window_id"), from = json::str(args, "from"), to = json::str(args, "to"), around = json::str(args, "around_event_id");
+    if (!sceneId.empty()) { if (!Visibility::isUuid(sceneId)) throw badRequest("invalid scene_id"); p.push_back(sceneId); where += " AND e.scene_id=$" + std::to_string(p.size()); ranged = true; }
+    if (!windowId.empty()) { if (!Visibility::isUuid(windowId)) throw badRequest("invalid chat_window_id"); p.push_back(windowId); where += " AND e.chat_window_id=$" + std::to_string(p.size()); }
+    if (!from.empty()) { p.push_back(from); where += " AND e.created_at >= $" + std::to_string(p.size()) + "::timestamptz"; ranged = true; }
+    if (!to.empty()) { p.push_back(to); where += " AND e.created_at <= $" + std::to_string(p.size()) + "::timestamptz"; ranged = true; }
+    int64_t afterSeq = (int64_t)json::toInt(args, "after_seq", 0);
+    if (afterSeq > 0) { p.push_back(afterSeq); where += " AND e.seq > $" + std::to_string(p.size()); ranged = true; }
+    Json::Value out; out["events"] = Json::Value(Json::arrayValue);
+    if (!around.empty()) {
+        if (!Visibility::isUuid(around)) throw badRequest("invalid around_event_id");
+        auto anchor = db_.queryOne("SELECT seq, chat_window_id FROM events e WHERE e.id=$1 AND e.channel_id=$2 AND " + Visibility::eventFilter(a), {around, a.channelId});
+        if (anchor.isNull()) throw notFound("event not readable");
+        auto seq = anchor["seq"].asInt64(); int half = std::max(1, limit / 2);
+        DbParams pb = p; pb.push_back(seq); auto before = db_.queryJson(cols + where + " AND e.seq < $" + std::to_string(pb.size()) + " ORDER BY e.seq DESC LIMIT " + std::to_string(half), pb);
+        DbParams pa = p; pa.push_back(seq); auto after = db_.queryJson(cols + where + " AND e.seq >= $" + std::to_string(pa.size()) + " ORDER BY e.seq LIMIT " + std::to_string(half + 1), pa);
+        for (int i = (int)before.size() - 1; i >= 0; --i) out["events"].append(before[i]);
+        for (auto& e : after) { if (e["event_id"] == around) e["anchor"] = true; out["events"].append(e); }
+        out["anchor_event_id"] = around;
+    } else if (ranged) {
+        auto rows = db_.queryJson(cols + where + " ORDER BY e.seq LIMIT " + std::to_string(limit + 1), p);
+        out["has_more"] = (int)rows.size() > limit;
+        for (int i = 0; i < std::min((int)rows.size(), limit); ++i) out["events"].append(rows[i]);
+    } else {
+        auto rows = db_.queryJson(cols + where + " ORDER BY e.seq DESC LIMIT " + std::to_string(limit), p);
+        for (int i = (int)rows.size() - 1; i >= 0; --i) out["events"].append(rows[i]);
+    }
+    if (!sceneId.empty()) { auto sc = db_.queryOne("SELECT id, sequence, status FROM scenes WHERE id=$1 AND channel_id=$2", {sceneId, a.channelId}); if (!sc.isNull()) out["scene"] = sc; }
+    out["count"] = out["events"].size();
+    return out;
+}
 Json::Value ContextRetrievalService::getEntity(const ChannelAccess& a, const std::string& idOrName) {
     if (Visibility::isUuid(idOrName)) return knowledge_.getEntity(a, idOrName);
     auto e = db_.tx([&](pqxx::work& w) { return knowledge_.findEntity(w, a.channelId, idOrName, a.playerGroupId); });
@@ -172,6 +212,8 @@ Json::Value ContextRetrievalService::executeTool(const ChannelAccess& a, const s
     if (name == "get_scene_by_id") return getSceneById(a, json::requireStr(args, "scene_id"), json::toInt(args, "log_limit", 80));
     if (name == "search_scene_history") return searchSceneHistory(a, json::str(args, "query"), json::str(args, "scene_id"), json::str(args, "exclude_scene_id"), limit);
     if (name == "search_events") return searchEvents(a, json::requireStr(args, "query"), json::str(args, "scene_id"), limit);
+    if (name == "list_scenarios") return listScenarios(a);
+    if (name == "get_chat_log") return getChatLog(a, args);
     if (name == "get_entity") return getEntity(a, json::requireStr(args, "entity"));
     if (name == "get_relationships") return getRelationships(a, json::requireStr(args, "entity"));
     if (name == "get_clue") return getClue(a, json::requireStr(args, "clue"));
@@ -194,6 +236,8 @@ std::vector<LlmToolSpec> ContextRetrievalService::toolSpecs(bool gm) {
         tool("get_scene_by_id", "Log and facts of a specific past scene.", {{"scene_id", "scene id"}, {"log_limit", "max events"}}, {"scene_id"}),
         tool("search_scene_history", "Full-text search over recorded facts (clues, relationships, threads, timeline) across scenes. Use to check whether something was mentioned before.", {{"query", "keywords"}, {"scene_id", "restrict to scene"}, {"exclude_scene_id", "exclude a scene"}, {"limit", "max results"}}, {"query"}),
         tool("search_events", "Full-text search over raw chat events.", {{"query", "keywords"}, {"scene_id", "restrict to scene"}, {"limit", "max results"}}, {"query"}),
+        tool("list_scenarios", "The story's stages (scenarios) in order, with summaries where available; use it to find where and when something happened.", {}),
+        tool("get_chat_log", "Verbatim chat lines, the authoritative record. Locate them by scenario (scene_id), window (chat_window_id), time range (from/to, ISO 8601), paging (after_seq), or around one event (around_event_id). Returns event ids you may cite.", {{"scene_id", "scenario id"}, {"chat_window_id", "window id"}, {"from", "ISO 8601 start"}, {"to", "ISO 8601 end"}, {"after_seq", "page after this seq"}, {"around_event_id", "centre on this event"}, {"limit", "max lines (200)"}}),
         tool("get_entity", "Details, facts and relations of an NPC, location, item or organisation by name or id.", {{"entity", "name or id"}}, {"entity"}),
         tool("get_relationships", "Relations of an entity.", {{"entity", "name or id"}}, {"entity"}),
         tool("get_clue", "A clue by id, or search clues by keywords.", {{"clue", "id or query"}}, {"clue"}),

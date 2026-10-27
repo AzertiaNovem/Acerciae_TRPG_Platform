@@ -15,6 +15,7 @@
 #include "logstudio/PublicationService.h"
 #include "logstudio/PresentationService.h"
 #include "logstudio/VnScriptService.h"
+#include "scenes/ScenarioService.h"
 #include "logstudio/ImageProvider.h"
 #include <iostream>
 #include <functional>
@@ -320,6 +321,24 @@ int main() {
         auto zh = VnScriptService::normalize(in, {zh1, zh2}, "llm");
         bool merged = false; for (auto& sc : zh["scenes"]) if (sc["key"] == "码头") merged = sc["lines"].size() >= 2;
         CHECK(merged);
+    });
+    test("scenario detection fires only on Keeper time or place shifts with enough history; summaries use only the log", [] {
+        Json::Value ctx; ctx["current"]["event_count"] = 10; ctx["current"]["manual_move"] = false;
+        auto ev = [](const char* id, const char* role, const char* content) { Json::Value e; e["event_id"] = id; e["kind"] = "message.posted"; e["actor_role"] = role; e["content"] = content; return e; };
+        ctx["new_events"].append(ev("e1", "player", "Later we should check the docks.")); ctx["new_events"].append(ev("e2", "gm", "Dunmore keeps talking about the ledger."));
+        CHECK(!ScenarioService::mockDetect(ctx)["advanced"].asBool());
+        ctx["new_events"].append(ev("e3", "gm", "The next morning, you arrive at the Hale boarding house. Mrs. Hale opens the door."));
+        auto d = ScenarioService::mockDetect(ctx); CHECK(d["advanced"].asBool()); CHECK(d["boundary_event_id"] == "e3"); CHECK(d["location"] == "Hale boarding house"); CHECK(d["narrative_time"] == "The next morning");
+        ctx["current"]["event_count"] = 3; CHECK(!ScenarioService::mockDetect(ctx)["advanced"].asBool());
+        ctx["current"]["event_count"] = 9; ctx["current"]["manual_move"] = true; CHECK(!ScenarioService::mockDetect(ctx)["advanced"].asBool());
+        Json::Value zh; zh["current"]["event_count"] = 8; zh["new_events"].append(ev("z1", "gm", "【场景 灯塔】你们在雨中抵达灯塔。"));
+        auto dz = ScenarioService::mockDetect(zh); CHECK(dz["advanced"].asBool()); CHECK(dz["title"] == "灯塔"); CHECK(dz["confidence"].asDouble() > 0.9);
+        Json::Value sctx; sctx["scene"]["title"] = "Scenario 2"; sctx["scene"]["location"] = "Boarding house";
+        auto line = [](int seq, const char* role, const char* who, const char* content, const char* kind = "ic") { Json::Value e; e["seq"] = seq; e["actor_role"] = role; e["character_name"] = who; e["content"] = content; e["kind"] = kind; return e; };
+        sctx["log"].append(line(1, "gm", "", "Hale opens the door and you notice a letter on the hall table.", "narration")); sctx["log"].append(line(2, "player", "Harvey Walters", "I pick up the letter.")); sctx["log"].append(line(3, "player", "Nora Blake", ".ra spot hidden", "roll")); sctx["log"].append(line(4, "gm", "", "The letter is from Elias.", "narration"));
+        auto s = ScenarioService::mockSummary(sctx);
+        CHECK(s["summary"].asString().find("Boarding house") != std::string::npos); CHECK(s["summary"].asString().find("Harvey Walters") != std::string::npos); CHECK(s["summary"].asString().find("Dice rolled: 1") != std::string::npos);
+        CHECK(s["key_points"].size() >= 1); CHECK(s["title"] == "Hale opens the door and you");
     });
     test("mock speech produces measurable audio and dictionary never alters its source", [] {
         setenv("TTS_PROVIDER","mock",1);auto provider=logstudio::makeTtsProvider();logstudio::TtsSynthesisRequest req;req.text="调查员打开了门。";req.voiceId="mock-cherry";auto r=provider->synthesize(req);CHECK(r.ok&&r.mime=="audio/wav");CHECK(logstudio::wavDurationMs(r.audioBytes)==r.durationMs);CHECK(logstudio::wavDurationMs("RIFFtruncated")==0);

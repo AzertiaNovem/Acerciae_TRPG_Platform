@@ -4,6 +4,7 @@
 #include "auth/AuthService.h"
 #include "chat/ChatService.h"
 #include "scenes/SceneManager.h"
+#include "scenes/ScenarioService.h"
 #include "documents/DocumentService.h"
 #include "knowledge/KnowledgeService.h"
 #include "highlights/HighlightService.h"
@@ -236,6 +237,42 @@ int main() {
         CHECK(!leaked);
         CHECK(S.knowledge->listFacts(p1, "", "Crowley", "", 10).empty());
     });
+    test("scenario system: the observer opens the next scenario at a time skip, moves the boundary lines and summarizes the closed one", [&] {
+        for (int i = 0; i < 6; ++i) say(gmUser, mainWin, "The office clock ticks on; Dunmore shuffles another stack of papers (" + std::to_string(i) + ").", "narration");
+        S.observer->observeChannel(channelId, true);
+        auto before = S.db->queryOne("SELECT active_scene_id FROM chat_windows WHERE id=$1", {mainWin})["active_scene_id"].asString();
+        auto boundary = say(gmUser, mainWin, "The next morning, you arrive at the Hale boarding house. Mrs. Hale opens the door.", "narration");
+        auto after1 = say(p1User, mainWin, "I tip my hat to Mrs. Hale.");
+        S.observer->observeChannel(channelId, true);
+        auto newScene = S.db->queryOne("SELECT active_scene_id FROM chat_windows WHERE id=$1", {mainWin})["active_scene_id"].asString();
+        CHECK(newScene != before);
+        auto sc = S.db->queryOne("SELECT * FROM scenes WHERE id=$1", {newScene});
+        CHECK(sc["auto_detected"].asBool()); CHECK(sc["location"].asString().find("Hale boarding house") != std::string::npos); CHECK(sc["narrative_time"] == "The next morning");
+        auto bev = eventOf(boundary["id"].asString());
+        CHECK(S.db->queryOne("SELECT scene_id FROM events WHERE id=$1", {bev["id"].asString()})["scene_id"] == newScene);
+        CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {after1["id"].asString()})["scene_id"] == newScene);
+        CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {boundary["id"].asString()})["scene_id"] == newScene);
+        auto prev = S.db->queryOne("SELECT * FROM scenes WHERE id=$1", {before});
+        if (prev["status"] == "closed") { CHECK(prev["summary_status"] == "ready"); CHECK(!prev["summary"].asString().empty()); CHECK(prev["summary_source_event_ids"].size() > 0); }
+        // Lines moved into the new scenario were already extracted: the new group's cursor covers them.
+        auto aev = eventOf(after1["id"].asString());
+        auto cur = S.db->queryOne("SELECT last_seq FROM ai_processing_cursors WHERE channel_id=$1 AND kind='observe' AND group_key=$2", {channelId, mainWin + ":" + newScene});
+        CHECK(!cur.isNull() && cur["last_seq"].asInt64() >= S.db->queryOne("SELECT seq FROM events WHERE id=$1", {aev["id"].asString()})["seq"].asInt64());
+        // The Keeper sees summaries; players only get neutral labels. Chat can be located by scenario and by time.
+        bool summarised = false; for (auto& s : S.scenes->list(gm)) if (s["id"] == before && !s["summary"].asString().empty()) summarised = true; CHECK(summarised || prev["status"] != "closed");
+        for (auto& s : S.scenes->list(p1)) CHECK(!s.isMember("summary"));
+        Json::Value args; args["scene_id"] = newScene; auto log = S.retrieval->executeTool(p1, "get_chat_log", args);
+        CHECK(log["events"].size() >= 2); CHECK(log["events"][0]["event_id"] == bev["id"]);
+        Json::Value around; around["around_event_id"] = aev["id"]; around["limit"] = 4; auto ctxLog = S.retrieval->executeTool(gm, "get_chat_log", around);
+        bool anchored = false; for (auto& e : ctxLog["events"]) if (e["anchor"].asBool()) anchored = true; CHECK(anchored);
+        CHECK(!S.retrieval->executeTool(p1, "list_scenarios", Json::Value(Json::objectValue)).empty());
+        // A GM-edited summary is never overwritten by the model.
+        Json::Value edit; edit["summary"] = "Keeper's own words."; S.scenes->update(gm, newScene, edit);
+        S.scenarios->summarize(gm, newScene);   // explicit regeneration is allowed and replaces it
+        Json::Value edit2; edit2["summary"] = "Keeper's final words."; S.scenes->update(gm, newScene, edit2);
+        Json::Value adv; adv["chat_window_id"] = mainWin; adv["title"] = "Manual stage"; S.scenarios->advance(gm, adv);
+        CHECK(S.db->queryOne("SELECT summary, summary_status FROM scenes WHERE id=$1", {newScene})["summary"] == "Keeper's final words.");
+    });
     test("dice commands update the speaking character and render with the channel's text group", [&] {
         S.dice->setRng(std::make_unique<dice::SeqRng>(std::vector<int>{20, 50, 3}));
         auto st = say(p1User, splitWin, ".st research53 SAN60 侦查50");
@@ -303,7 +340,7 @@ int main() {
         auto entityId=S.knowledge->listEntities(keeper,"KP_ENTITY")[0]["id"].asString();
         auto recording=std::make_unique<RecordingMemoryClient>();auto* recorded=recording.get();recorded->secretEntityId=entityId;recorded->sceneId=sid;
         LlmGateway gateway(cfg,std::move(recording));
-        ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge);
+        ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge,*S.scenarios);
         auto jobs=observer.observeChannel(ch,true); for(const auto& j:jobs) {if(j["status"]!="succeeded")std::cerr<<json::dump(j)<<"\n";CHECK(j["status"]=="succeeded");}
         int playerCalls=0,deniedToolResponses=0;
         for(const auto& req:recorded->requests) if(req.system.find("ONE player group")!=std::string::npos) {

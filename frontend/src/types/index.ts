@@ -5,7 +5,7 @@ export interface Channel {
   id: string; server_id: string; name: string; description: string; rule_system: string;
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null;
-  ai_enabled: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
+  ai_enabled: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }
 export interface WindowMember { user_id: string; character_id: string | null; display_name: string; character_name: string | null }
@@ -23,7 +23,7 @@ export interface Message {
   dice?: DiceResult | null;
 }
 export interface DiceResult { type: string; command: string; text: string; hidden?: boolean; [k: string]: unknown }
-export interface Scene { id: string; title: string; location: string; narrative_time: string; status: 'active' | 'closed'; summary: string; off_module: boolean; sequence: number; event_count?: number; windows?: { chat_window_id: string; name: string }[] | null }
+export interface Scene { id: string; title: string; location: string; narrative_time: string; status: 'active' | 'closed'; summary: string; off_module: boolean; sequence: number; event_count?: number; windows?: { chat_window_id: string; name: string }[] | null; auto_detected?: boolean; stage_reason?: string; summary_status?: 'none' | 'pending' | 'ready' | 'gm_edited'; summary_llm_mode?: string; key_points?: string[]; created_at?: string; closed_at?: string | null }
 export type DocType = 'current_scene' | 'clue_journal' | 'relationships' | 'open_threads' | 'timeline' | 'module_progress';
 export interface DocumentSummary { id: string; doc_type: DocType; title: string; version: number; gm_only: boolean; updated_at: string; entry_count: number; recent_changes: number; preview: string | null }
 export interface DocEntry {

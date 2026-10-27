@@ -7,7 +7,7 @@ namespace acerciae {
 
 class AuthService; class EventStore; class ChatService; class SceneManager; class KnowledgeService;
 class DocumentService; class HighlightService; class ContextRetrievalService; class LlmGateway;
-class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
+class ScenarioService; class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
 class Notifier;
 namespace logstudio { class LogStudioService; class ObjectStore; class MediaService; class PresentationService; class StyleService; class TtsService; class PublicationService; class CreativeService; class VnScriptService; }
 class ServerSettingsService; class DiceService;
@@ -20,6 +20,7 @@ struct Services {
     std::unique_ptr<EventStore> events;
     std::unique_ptr<Notifier> notifier;
     std::unique_ptr<SceneManager> scenes;
+    std::unique_ptr<ScenarioService> scenarios;
     std::unique_ptr<KnowledgeService> knowledge;
     std::unique_ptr<DocumentService> documents;
     std::unique_ptr<HighlightService> highlights;

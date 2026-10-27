@@ -5,6 +5,7 @@
 #include "../chat/ChatService.h"
 #include "../events/EventStore.h"
 #include "../scenes/SceneManager.h"
+#include "../scenes/ScenarioService.h"
 #include "../knowledge/KnowledgeService.h"
 #include "../documents/DocumentService.h"
 #include "../highlights/HighlightService.h"
@@ -172,6 +173,9 @@ void registerRoutes() {
     route2("/api/channels/{1}/scenes/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.scenes->get(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/scenes/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.scenes->update(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/scenes/{2}/close", {Post}, [&](auto&, auto& p, auto& a) { return S.scenes->close(access(p, a[0]), a[1]); });
+    route1("/api/channels/{1}/scenarios/advance", {Post}, [&](auto& req, auto& p, auto& a) { return S.scenarios->advance(access(p, a[0]), body(req)); });
+    route2("/api/channels/{1}/scenes/{2}/summarize", {Post}, [&](auto&, auto& p, auto& a) { return S.scenarios->summarize(access(p, a[0]), a[1]); });
+    route1("/api/channels/{1}/scenario-settings", {Put}, [&](auto& req, auto& p, auto& a) { return S.scenarios->setAuto(access(p, a[0]), json::toBool(body(req), "auto_scenarios", true)); });
     route2("/api/channels/{1}/scenes/{2}/log", {Get}, [&](auto& req, auto& p, auto& a) { return S.scenes->sceneLog(access(p, a[0]), a[1], qint(req, "limit", 200), qint(req, "after_seq", 0)); });
     route1("/api/channels/{1}/events", {Get}, [&](auto& req, auto& p, auto& a) { auto ac = access(p, a[0]); auto ids = req->getParameter("ids"); if (!ids.empty()) { std::vector<std::string> v; std::string cur; for (char c : ids) { if (c == ',') { if (!cur.empty()) v.push_back(cur); cur.clear(); } else cur += c; } if (!cur.empty()) v.push_back(cur); return S.events->listByIds(ac, v); } return S.events->search(ac, req->getParameter("q"), req->getParameter("scene_id"), qint(req, "limit", 30)); });
     route2("/api/channels/{1}/events/{2}", {Get}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); auto r = S.events->listByIds(ac, {a[1]}); if (r.empty()) throw notFound("event not found"); return r[0]; });

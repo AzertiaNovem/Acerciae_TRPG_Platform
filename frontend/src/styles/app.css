@@ -201,3 +201,8 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .chat-reference blockquote { margin:4px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .chat-reference-drafts { max-height:180px; overflow:auto; }
 @media(max-width:800px) { .knowledge-categories { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* Scenario list in the channel sidebar */
+.item.scenario { gap: 6px; }
+.item.scenario .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-summary { padding: 2px 10px 6px 26px; line-height: 1.35; white-space: pre-wrap; }

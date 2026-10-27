@@ -102,6 +102,12 @@ are available in GM Workshop, with sections, source citations, revisions and cor
 Group or window-access changes invalidate and rebuild the affected player summaries. Existing KP records remain intact.
 See [knowledge architecture and migration](docs/KNOWLEDGE_GROUPS.md).
 
+**Scenarios** — the story's stages. After each processed batch the Keeper's observer asks whether the narration has
+moved the story to a new place or time (or carries an explicit scene marker); if so the window moves into the next
+scenario from that line, the closed scenario gets an AI summary in the scenario list, and chat can be located by
+scenario or by time (`list_scenarios`, `get_chat_log`). The GM can open, summarize and edit scenarios by hand;
+GM-edited summaries are never overwritten. Players see neutral scenario labels only.
+
 **Scheduled AI observer** — every 5 s (configurable) per (channel, window, scene) group: cursor-based event reading, DB-level
 task locks (`ai_jobs` partial unique index) plus in-process locks, batch analysis, tool-assisted retrieval, validated commit,
 WebSocket notification, cursor advance. Player groups use independent generation-bound cursors and commits.

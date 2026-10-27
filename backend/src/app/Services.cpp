@@ -3,6 +3,7 @@
 #include "../events/EventStore.h"
 #include "../chat/ChatService.h"
 #include "../scenes/SceneManager.h"
+#include "../scenes/ScenarioService.h"
 #include "../knowledge/KnowledgeService.h"
 #include "../documents/DocumentService.h"
 #include "../highlights/HighlightService.h"
@@ -61,7 +62,8 @@ Services& Services::build(const Config& cfg) {
     s.publication = std::make_unique<logstudio::PublicationService>(*s.db,*s.objectStore,*s.notifier,*s.studio,*s.presentations,*s.media,*s.documents);
     s.creative = std::make_unique<logstudio::CreativeService>(*s.db,*s.media,*s.presentations,*s.studio,*s.llm,*s.notifier);
     s.vnScripts = std::make_unique<logstudio::VnScriptService>(*s.db,*s.auth,*s.studio,*s.presentations,*s.llm,*s.notifier);
-    s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge);
+    s.scenarios = std::make_unique<ScenarioService>(*s.db, *s.events, *s.scenes, *s.llm, *s.notifier);
+    s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge, *s.scenarios);
     return s;
 }
 

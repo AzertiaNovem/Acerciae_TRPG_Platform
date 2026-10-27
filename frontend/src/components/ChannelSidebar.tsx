@@ -15,6 +15,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   const nav = useNav();
   const { user, logout } = useAuth();
   const toast = useUi((s) => s.toast);
+  const [openScenario, setOpenScenario] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | 'channel' | 'window' | 'member' | 'character'>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [picked, setPicked] = useState<string[]>([]);
@@ -87,10 +88,21 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
                   : <span className="tiny muted">{(w.members ?? []).length}</span>}
               </div>
             ))}
-            <div className="section"><span>{tr("Scene")}</span></div>
-            <div className="item" style={{ cursor: 'default' }}>
-              <span className="name small">{nav.windows.find((w) => w.id === nav.windowId)?.scene_title ?? nav.channel?.current_scene_title ?? '—'}</span>
-            </div>
+            <div className="section"><span>{tr("Scenarios")}</span>{isGm && nav.windowId && <button className="ghost small" title={tr("Open the next scenario for this window")} onClick={async () => { try { await api.advanceScenario(nav.channelId!, { chat_window_id: nav.windowId! }); nav.refreshWindows(); nav.refreshScenes(); } catch (e: any) { toast(e.message, 'error'); } }}>▶</button>}</div>
+            {nav.scenes.length === 0 && <div className="item" style={{ cursor: 'default' }}><span className="name small muted">—</span></div>}
+            {nav.scenes.slice(-8).map((s) => {
+              const current = s.id === (nav.windows.find((w) => w.id === nav.windowId)?.active_scene_id ?? nav.channel?.current_scene_id);
+              const open = openScenario === s.id;
+              return (
+                <div key={s.id}>
+                  <div className={`item scenario ${current ? 'active' : ''}`} title={isGm && s.summary ? s.summary : undefined} onClick={() => setOpenScenario(open ? null : s.id)}>
+                    <span className="muted tiny">{s.sequence}</span><span className="name small">{isGm ? s.title : `${tr("Scenario")} ${s.sequence}`}</span>
+                    {s.auto_detected && <span className="tiny muted" title={tr("opened by the AI")}>✦</span>}{s.status === 'closed' && <span className="tiny muted">·</span>}
+                  </div>
+                  {open && isGm && (s.summary || s.location || s.narrative_time) && <div className="scenario-summary tiny muted">{[s.location, s.narrative_time].filter(Boolean).join(' · ')}{s.summary ? (s.location || s.narrative_time ? ' — ' : '') + s.summary : ''}</div>}
+                </div>
+              );
+            })}
             <div className="section"><span>{tr("Characters")}</span><button className="ghost small" title={tr("New character")} onClick={() => setDialog('character')}>+</button></div>
             {characters.map((c) => (
               <div key={c.id} className="item" onClick={() => setSheetFor(c.id)} title={tr("Open character sheet")}>
