@@ -55,6 +55,8 @@
 | `api/` | Route table; each handler: parse → authorise → service → JSON | all services |
 | `app/Services` | Composition root; swapping the LLM, rule system or storage happens here | – |
 
+Planned (design only, not implemented): AI players and an AI Keeper as real channel members — see [AI_AGENTS_DESIGN.md](AI_AGENTS_DESIGN.md).
+
 Replacing the model: implement `ILlmClient` and construct it in `Services::build` (or extend `LlmGateway`'s constructor
 to switch on `LLM_PROVIDER`). Prompts, schemas and tools are untouched.
 
