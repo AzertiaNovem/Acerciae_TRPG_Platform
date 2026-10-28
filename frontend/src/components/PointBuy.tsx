@@ -1,7 +1,7 @@
 import { t as tr } from '../i18n';
 import { useMemo, useState } from 'react';
 import type { Coc7Career, Coc7Rules, PointsReport, RoleCard, SkillPoints } from '../types';
-import { skillKey, skillLabel } from './skillNames';
+import { careerDescription, careerKey, careerLabel, formulaLabel, skillKey, skillLabel } from './skillNames';
 
 // Point-buy mode of the role card (server feature coc7_points). The player picks a career from the built-in list,
 // resolves its option groups and free specialties, then spends career points on those skills and hobby points on
@@ -86,13 +86,13 @@ export default function PointBuy({ card, rules, editable, isKeeper, report, setC
       <h4>{tr('Career')}</h4>
       <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div className="col" style={{ minWidth: 260 }}>
-          {editable ? <><input list="coc7-careers" value={card.career?.name ?? ''} placeholder={tr('Choose a career from the list')} onChange={(e) => setCareer(e.target.value)} /><datalist id="coc7-careers">{rules.careers.map((c) => <option key={c.id} value={c.name}>{c.credit ? `${tr('Credit Rating')} ${c.credit[0]}–${c.credit[1]} · ${c.formula}` : c.formula}</option>)}</datalist></> : <b>{card.career?.name || '—'}</b>}
+          {editable ? <><input list="coc7-careers" value={career ? careerLabel(career, lang) : card.career?.name ?? ''} placeholder={tr('Choose a career from the list')} onChange={(e) => setCareer(careerKey(e.target.value, rules, lang))} /><datalist id="coc7-careers">{rules.careers.map((c) => <option key={c.id} value={careerLabel(c, lang)}>{c.credit ? `${tr('Credit Rating')} ${c.credit[0]}–${c.credit[1]} · ${formulaLabel(c, rules, lang)}` : formulaLabel(c, rules, lang)}</option>)}</datalist></> : <b>{career ? careerLabel(career, lang) : card.career?.name || '—'}</b>}
           {card.career?.name && !career && <div className="tiny" style={{ color: 'var(--danger)' }}>{tr('Not in the career list; career points stay locked until a listed career is chosen.')}</div>}
         </div>
         {career && (
           <div className="col grow tiny">
-            <div><span className="pill">{tr('Credit Rating')} {career.credit ? `${career.credit[0]}–${career.credit[1]}` : tr('set with your Keeper')}</span> <span className="pill">{tr('Career points')} {career.formula} = {budget}</span> <span className="pill">{tr('Hobby points')} INT×2 = {hobbyBudget}</span></div>
-            <div className="muted">{career.description}</div>
+            <div><span className="pill">{tr('Credit Rating')} {career.credit ? `${career.credit[0]}–${career.credit[1]}` : tr('set with your Keeper')}</span> <span className="pill">{tr('Career points')} {formulaLabel(career, rules, lang)} = {budget}</span> <span className="pill">{tr('Hobby points')} INT×2 = {hobbyBudget}</span></div>
+            <div className="muted">{careerDescription(career, lang)}</div>
           </div>
         )}
       </div>

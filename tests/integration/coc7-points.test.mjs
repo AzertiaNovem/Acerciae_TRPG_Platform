@@ -106,6 +106,12 @@ test("COC7 skill names follow the server language: the sheet gets the names, .ra
   assert.equal(rules.families.find((f) => f.name === "Fighting").names.ja, "近接戦闘");
   const space = await call(gm, "PUT", `/api/channels/${ch}/characters/${npc.id}/card`, { role_card: { characteristics: { DEX: 60, EDU: 70, INT: 70 }, skill_points: { "Spot Hidden": { hobby: 35 } } } });
   assert.equal(space.points.language, "ja");
+  // Careers too: names and descriptions in every server language; a card naming one in any of them stores the sheet's.
+  const accountant = rules.careers.find((c) => c.name === "会计师");
+  assert.equal(accountant.names["zh-CN"], "会计师"); assert.ok(accountant.names.en && accountant.descriptions.en && accountant.names["zh-TW"]);
+  assert.equal(rules.characteristics.find((c) => c.name === "DEX").names.ja, "敏捷性");
+  const careerCard = await call(gm, "PUT", `/api/channels/${ch}/characters/${npc.id}/card`, { role_card: { characteristics: { DEX: 60, EDU: 70, INT: 70 }, career: { name: accountant.names.en }, skill_points: { "Spot Hidden": { hobby: 35 } } } });
+  assert.equal(careerCard.character.role_card.career.name, "会计师"); assert.equal(careerCard.points.career, "会计师"); assert.equal(careerCard.points.career_budget, 280);
 
   const roll = async (content) => (await call(gm, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content, kind: "ic", character_id: npc.id })).dice;
   const ja = await roll(".ra 目星");

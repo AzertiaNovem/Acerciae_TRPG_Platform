@@ -1,0 +1,922 @@
+{
+ "1": {
+  "name": "Custom Occupation",
+  "description": "No more than 8 occupation skills. Enter the value of the second occupation characteristic in the occupation attributes on the right (if left blank, EDU is used) and set the starting Credit Rating yourself. Consult your Keeper before using a custom occupation."
+ },
+ "2": {
+  "name": "Accountant",
+  "description": "Accounting, Law, Library Use, Listen, Persuade, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "3": {
+  "name": "Acrobat",
+  "description": "Climb, Dodge, Jump, Throw, Spot Hidden, Swim, any two other skills as personal or era specialties."
+ },
+ "4": {
+  "name": "Actor – Stage Actor",
+  "description": "Art/Craft (Acting), Disguise, Fighting, History, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill as a personal or era specialty."
+ },
+ "5": {
+  "name": "Actor – Film Actor",
+  "description": "Art/Craft (Acting), Disguise, Drive Auto, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, any two other skills as personal or era specialties (e.g. Ride or Fighting)."
+ },
+ "6": {
+  "name": "Agency Detective, Security Guard",
+  "description": "one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Fighting (Brawl), Firearms, Law, Library Use, Psychology, Stealth, Track."
+ },
+ "7": {
+  "name": "Alienist (Classic)",
+  "description": "Law, Listen, Medicine, Language (Other), Psychoanalysis, Psychology, Science (Biology, Chemistry)."
+ },
+ "8": {
+  "name": "Animal Trainer",
+  "description": "Jump, Listen, Natural World, Psychology, Science (Zoology), Stealth, Track, any one other skill as a personal or era specialty."
+ },
+ "9": {
+  "name": "Antiquarian (Lovecraftian)",
+  "description": "Appraise, Art/Craft (any), History, Library Use, Language (Other), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "10": {
+  "name": "Antique Dealer",
+  "description": "Accounting, Appraise, Drive Auto, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), History, Library Use, Navigate."
+ },
+ "11": {
+  "name": "Archaeologist (Lovecraftian)",
+  "description": "Appraise, Archaeology, History, Language (Other), Library Use, Spot Hidden, Mechanical Repair, Navigate or Science (any, e.g. Chemistry, Physics, Geography)."
+ },
+ "12": {
+  "name": "Architect",
+  "description": "Accounting, Art/Craft (Technical Drawing), Law, Language (Own), Computer Use or Library Use, Persuade, Psychology, Science (Mathematics)."
+ },
+ "13": {
+  "name": "Artist",
+  "description": "Art/Craft (any), History or Natural World, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Language (Other), Psychology, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "14": {
+  "name": "Asylum Attendant",
+  "description": "Dodge, Fighting (Brawl), First Aid, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, Stealth."
+ },
+ "15": {
+  "name": "Athlete",
+  "description": "Climb, Jump, Fighting (Brawl), Ride, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Swim, Throw, any one other skill as a personal or era specialty."
+ },
+ "16": {
+  "name": "Author (Lovecraftian)",
+  "description": "Art/Craft (Literature), History, Library Use, Natural World or Occult, Language (Other), Language (Own), Psychology, any one other skill as a personal or era specialty."
+ },
+ "17": {
+  "name": "Bartender",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Fighting (Brawl), Listen, Psychology, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "18": {
+  "name": "Big Game Hunter",
+  "description": "Firearms, Listen or Spot Hidden, Natural World, Navigate, Language (Other) or Survival (any), Science (Biology or Botany), Stealth, Track."
+ },
+ "19": {
+  "name": "Book Dealer",
+  "description": "Accounting, Appraise, Drive Auto, History, Library Use, Language (Own), Language (Other), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade)."
+ },
+ "20": {
+  "name": "Bounty Hunter",
+  "description": "Drive Auto, Electronics or Electrical Repair, Fighting or Firearms, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Law, Psychology, Track, Stealth."
+ },
+ "21": {
+  "name": "Boxer, Wrestler",
+  "description": "Dodge, Fighting (Brawl), Intimidate, Jump, Psychology, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "22": {
+  "name": "Butler, Valet, Maid",
+  "description": "Accounting or Appraise, Art/Craft (any, e.g. Cooking, Tailoring, Barbering), First Aid, Listen, Language (Other), Psychology, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "23": {
+  "name": "Clergy",
+  "description": "Accounting, History, Library Use, Listen, Language (Other), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill."
+ },
+ "24": {
+  "name": "Computer Programmer, Electronic Engineer (Modern)",
+  "description": "Computer Use, Electrical Repair, Electronics, Library Use, Science (Mathematics), Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "25": {
+  "name": "Hacker/Cracker (Modern)",
+  "description": "Computer Use, Electrical Repair, Electronics, Library Use, Spot Hidden, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), any two other skills."
+ },
+ "26": {
+  "name": "Cowboy",
+  "description": "Dodge, Fighting or Firearms, First Aid or Natural World, Jump, Ride, Survival (any), Throw, Track."
+ },
+ "27": {
+  "name": "Craftsperson",
+  "description": "Accounting, Art/Craft (any two), Mechanical Repair, Natural World, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "28": {
+  "name": "Criminal – Assassin",
+  "description": "Disguise, Electrical Repair, Fighting, Firearms, Locksmith, Mechanical Repair, Stealth, Psychology."
+ },
+ "29": {
+  "name": "Criminal – Bank Robber",
+  "description": "Drive Auto, Electrical Repair or Mechanical Repair, Fighting, Firearms, Intimidate, Locksmith, Operate Heavy Machinery, any one other skill as a personal or era specialty."
+ },
+ "30": {
+  "name": "Criminal – Enforcer, Thug",
+  "description": "Drive Auto, Fighting, Firearms, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, Stealth, Spot Hidden."
+ },
+ "31": {
+  "name": "Criminal – Burglar",
+  "description": "Appraise, Climb, Electrical Repair or Mechanical Repair, Listen, Locksmith, Sleight of Hand, Stealth, Spot Hidden."
+ },
+ "32": {
+  "name": "Criminal – Conman",
+  "description": "Appraise, Art/Craft (Acting), Law or Language (Other), Listen, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, Sleight of Hand."
+ },
+ "33": {
+  "name": "Criminal – Freelance Criminal",
+  "description": "Art/Craft (Acting) or Disguise, Appraise, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Fighting or Firearms, Locksmith or Mechanical Repair, Stealth, Psychology, Spot Hidden."
+ },
+ "34": {
+  "name": "Criminal – Gun Moll (Classic)",
+  "description": "Art/Craft (any), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Fighting (Brawl) or Firearms (Handgun), Drive Auto, Listen, Stealth, any one other skill as a personal or era specialty."
+ },
+ "35": {
+  "name": "Criminal – Fence",
+  "description": "Accounting, Appraise, Art/Craft (Forgery), History, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Library Use, Spot Hidden, any one other skill."
+ },
+ "36": {
+  "name": "Criminal – Forger",
+  "description": "Accounting, Appraise, Art/Craft (Forgery), History, Library Use, Spot Hidden, Sleight of Hand, any one other skill as a personal or era specialty (e.g. Computer Use)."
+ },
+ "37": {
+  "name": "Criminal – Smuggler",
+  "description": "Firearms, Listen, Navigate, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Drive Auto or Pilot (Aircraft or Boat), Psychology, Sleight of Hand, Spot Hidden."
+ },
+ "38": {
+  "name": "Criminal – Street Punk",
+  "description": "Climb, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Fighting, Firearms, Jump, Sleight of Hand, Stealth, Throw."
+ },
+ "39": {
+  "name": "Cult Leader",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Occult, Psychology, Spot Hidden, any two other skills as personal specialties."
+ },
+ "40": {
+  "name": "Deprogrammer (Modern)",
+  "description": "two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Drive Auto, Fighting (Brawl) or Firearms, History, Occult, Psychology, Stealth. ※ With the Keeper's permission, Hypnosis may replace one of these."
+ },
+ "41": {
+  "name": "Designer",
+  "description": "Accounting, Art/Craft (Photography), Art/Craft (any), Computer Use or Library Use, Mechanical Repair, Psychology, Spot Hidden, any one other skill as a personal specialty."
+ },
+ "42": {
+  "name": "Dilettante (Lovecraftian)",
+  "description": "Art/Craft (any), Firearms, Language (Other), Ride, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), any three other skills as personal or era specialties."
+ },
+ "43": {
+  "name": "Diver",
+  "description": "Diving, First Aid, Mechanical Repair, Pilot (Boat), Science (Biology), Spot Hidden, Swim, any one other skill as a personal or era specialty."
+ },
+ "44": {
+  "name": "Doctor of Medicine (Lovecraftian)",
+  "description": "First Aid, Medicine, Language (Other: Latin), Psychology, Science (Biology, Pharmacy), any two other academic or personal specialties."
+ },
+ "45": {
+  "name": "Drifter",
+  "description": "Climb, Jump, Listen, Navigate, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Stealth, any two other skills as personal or era specialties."
+ },
+ "46": {
+  "name": "Driver – Chauffeur",
+  "description": "Drive Auto, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Mechanical Repair, Navigate, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "47": {
+  "name": "Driver – Driver",
+  "description": "Accounting, Drive Auto, Listen, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Mechanical Repair, Navigate, Psychology, any one other skill as a personal or era specialty."
+ },
+ "48": {
+  "name": "Driver – Taxi Driver",
+  "description": "Accounting, Drive Auto, Electrical Repair, Fast Talk, Mechanical Repair, Navigate, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "49": {
+  "name": "Editor",
+  "description": "Accounting, History, Language (Own), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "50": {
+  "name": "Elected Official",
+  "description": "Charm, History, Intimidate, Fast Talk, Listen, Language (Own), Persuade, Psychology."
+ },
+ "51": {
+  "name": "Engineer",
+  "description": "Art/Craft (Technical Drawing), Electrical Repair, Library Use, Mechanical Repair, Operate Heavy Machinery, Science (Engineering, Physics), any one other skill as a personal or era specialty."
+ },
+ "52": {
+  "name": "Entertainer",
+  "description": "Art/Craft (a performing art, e.g. Acting, Singing, Comedy), Disguise, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, any two other skills as personal or era specialties."
+ },
+ "53": {
+  "name": "Explorer (Classic)",
+  "description": "Climb or Swim, Firearms, History, Jump, Natural World, Navigate, Language (Other), Survival."
+ },
+ "54": {
+  "name": "Farmer",
+  "description": "Art/Craft (Farming), Drive Auto (or Wagon), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Mechanical Repair, Natural World, Operate Heavy Machinery, Track, any one other skill as a personal or era specialty."
+ },
+ "55": {
+  "name": "Federal Agent",
+  "description": "Drive Auto, Fighting (Brawl), Firearms, Law, Persuade, Stealth, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "56": {
+  "name": "Firefighter",
+  "description": "Climb, Dodge, Drive Auto, First Aid, Jump, Mechanical Repair, Operate Heavy Machinery, Throw."
+ },
+ "57": {
+  "name": "Foreign Correspondent",
+  "description": "History, Language (Other), Language (Own), Listen, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill as a personal or era specialty."
+ },
+ "58": {
+  "name": "Forensic Surgeon",
+  "description": "Language (Other: Latin), Library Use, Medicine, Persuade, Science (Biology, Pharmacy, Forensics), Spot Hidden."
+ },
+ "59": {
+  "name": "Gambler",
+  "description": "Accounting, Art/Craft (Acting), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, Sleight of Hand, Spot Hidden."
+ },
+ "60": {
+  "name": "Gangster – Boss",
+  "description": "Fighting, Firearms, Law, Listen, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden."
+ },
+ "61": {
+  "name": "Gangster – Underling",
+  "description": "Drive Auto, Fighting, Firearms, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, any two other skills as personal or era specialties."
+ },
+ "62": {
+  "name": "Gentleman, Lady",
+  "description": "Art/Craft (any), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Firearms (Rifle/Shotgun), History, Language (Other: any), Navigate, Ride."
+ },
+ "63": {
+  "name": "Hobo",
+  "description": "Art/Craft (any), Climb, Jump, Listen, Locksmith or Sleight of Hand, Navigate, Stealth, any one other skill as a personal or era specialty."
+ },
+ "64": {
+  "name": "Hospital Orderly",
+  "description": "Electrical Repair, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Fighting (Brawl), First Aid, Listen, Mechanical Repair, Psychology, Stealth."
+ },
+ "65": {
+  "name": "Journalist (Lovecraftian) – Investigative Journalist",
+  "description": "Art/Craft (Art or Photography), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), History, Library Use, Language (Own), Psychology, any two other skills as personal or era specialties."
+ },
+ "66": {
+  "name": "Journalist (Lovecraftian) – Reporter",
+  "description": "Art/Craft (Acting), History, Listen, Language (Own), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Stealth, Spot Hidden."
+ },
+ "67": {
+  "name": "Judge",
+  "description": "History, Intimidate, Law, Library Use, Listen, Language (Own), Persuade, Psychology."
+ },
+ "68": {
+  "name": "Laboratory Assistant",
+  "description": "Computer Use or Library Use, Electrical Repair, Language (Other), Science (Chemistry and any two others), Spot Hidden, any one other skill as a personal specialty."
+ },
+ "69": {
+  "name": "Laborer – Unskilled Laborer",
+  "description": "Drive Auto, Electrical Repair, Fighting, First Aid, Mechanical Repair, Operate Heavy Machinery, Throw, any one other skill as a personal or era specialty."
+ },
+ "70": {
+  "name": "Laborer – Lumberjack",
+  "description": "Climb, Dodge, Fighting (Chainsaw), First Aid, Jump, Mechanical Repair, Natural World or Science (Biology or Botany), Throw."
+ },
+ "71": {
+  "name": "Laborer – Miner",
+  "description": "Climb, Science (Geology), Jump, Mechanical Repair, Operate Heavy Machinery, Stealth, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "72": {
+  "name": "Lawyer",
+  "description": "Accounting, Law, Library Use, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, two other skills."
+ },
+ "73": {
+  "name": "Librarian (Lovecraftian)",
+  "description": "Accounting, Library Use, Language (Other), Language (Own), any four other skills as personal specialties or specialist book subjects."
+ },
+ "74": {
+  "name": "Mechanic",
+  "description": "Art/Craft (Carpentry, Welding, Plumbing, etc.), Climb, Drive Auto, Electrical Repair, Mechanical Repair, Operate Heavy Machinery, any two other personal, era or technical specialties."
+ },
+ "75": {
+  "name": "Military Officer",
+  "description": "Accounting, Firearms, Navigate, First Aid, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill as a personal or era specialty."
+ },
+ "76": {
+  "name": "Missionary",
+  "description": "Art/Craft (any), First Aid, Mechanical Repair, Medicine, Natural World, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), any two other skills as personal or era specialties."
+ },
+ "77": {
+  "name": "Mountain Climber",
+  "description": "Climb, First Aid, Jump, Listen, Navigate, Language (Other), Survival (Alpine or similar), Track."
+ },
+ "78": {
+  "name": "Museum Curator",
+  "description": "Accounting, Appraise, Archaeology, History, Library Use, Occult, Language (Other), Spot Hidden."
+ },
+ "79": {
+  "name": "Musician",
+  "description": "Art/Craft (Instrument), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, four other skills."
+ },
+ "80": {
+  "name": "Nurse",
+  "description": "First Aid, Listen, Medicine, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Science (Biology, Chemistry), Spot Hidden."
+ },
+ "81": {
+  "name": "Occultist",
+  "description": "Anthropology, History, Library Use, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Occult, Language (Other), Science (Astronomy), any one other skill as a personal or era specialty. ※ With the Keeper's permission, this may include Cthulhu Mythos."
+ },
+ "82": {
+  "name": "Outdoorsman",
+  "description": "Firearms, First Aid, Listen, Natural World, Navigate, Spot Hidden, Survival (any), Track."
+ },
+ "83": {
+  "name": "Parapsychologist",
+  "description": "Anthropology, Art/Craft (Photography), History, Library Use, Occult, Language (Other), Psychology, any one other skill as a personal or era specialty."
+ },
+ "84": {
+  "name": "Pharmacist",
+  "description": "Accounting, First Aid, Language (Other: Latin), Library Use, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Science (Pharmacy, Chemistry)."
+ },
+ "85": {
+  "name": "Photographer – Photographer",
+  "description": "Art/Craft (Photography), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Science (Chemistry), Stealth, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "86": {
+  "name": "Photographer – Photojournalist",
+  "description": "Art/Craft (Photography), Climb, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Language (Other), Psychology, Science (Chemistry), any two other skills as personal or era specialties."
+ },
+ "87": {
+  "name": "Pilot – Pilot",
+  "description": "Electrical Repair, Mechanical Repair, Navigate, Operate Heavy Machinery, Pilot (Aircraft), Science (Astronomy), any two other skills as personal or era specialties."
+ },
+ "88": {
+  "name": "Pilot – Stunt Pilot (Classic)",
+  "description": "Accounting, Electrical Repair, Listen, Mechanical Repair, Navigate, Pilot (Aircraft), Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "89": {
+  "name": "Police (Lovecraftian) – Police Detective",
+  "description": "Art/Craft (Acting) or Disguise, Firearms, Law, Listen, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden, one other skill."
+ },
+ "90": {
+  "name": "Police (Lovecraftian) – Uniformed Police Officer",
+  "description": "Fighting (Brawl), Firearms, First Aid, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Law, Psychology, Spot Hidden, and one of the following as a personal specialty: Drive Auto or Ride."
+ },
+ "91": {
+  "name": "Private Investigator",
+  "description": "Art/Craft (Photography), Disguise, Law, Library Use, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden, one other skill as a personal or era specialty (e.g. Computer Use, Locksmith, Fighting, Firearms)."
+ },
+ "92": {
+  "name": "Professor (Lovecraftian)",
+  "description": "Library Use, Language (Other), Language (Own), Psychology, any four other academic, era or personal specialties."
+ },
+ "93": {
+  "name": "Prospector",
+  "description": "Climb, First Aid, History, Mechanical Repair, Navigate, Science (Geology), Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "94": {
+  "name": "Sex Worker",
+  "description": "Art/Craft (any), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Dodge, Psychology, Sleight of Hand, Stealth, any one other skill as a personal or era specialty."
+ },
+ "95": {
+  "name": "Psychiatrist",
+  "description": "Language (Other), Listen, Medicine, Persuade, Psychoanalysis, Psychology, Science (Biology, Chemistry)."
+ },
+ "96": {
+  "name": "Psychologist, Psychoanalyst",
+  "description": "Accounting, Library Use, Listen, Persuade, Psychoanalysis, Psychology, any two other academic, personal or era specialties."
+ },
+ "97": {
+  "name": "Researcher",
+  "description": "History, Library Use, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Language (Other), Spot Hidden, any three other fields of academic study."
+ },
+ "98": {
+  "name": "Sailor – Naval",
+  "description": "Electrical Repair or Mechanical Repair, Fighting, Firearms, First Aid, Navigate, Pilot (Boat), Survival (Sea), Swim."
+ },
+ "99": {
+  "name": "Sailor – Commercial",
+  "description": "First Aid, Mechanical Repair, Natural World, Navigate, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Pilot (Boat), Spot Hidden, Swim."
+ },
+ "100": {
+  "name": "Salesperson",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Drive Auto, Listen, Psychology, Stealth or Sleight of Hand, one other skill."
+ },
+ "101": {
+  "name": "Scientist",
+  "description": "Science (any three specialties), Computer Use or Library Use, Language (Other), Language (Own), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Spot Hidden."
+ },
+ "102": {
+  "name": "Secretary",
+  "description": "Accounting, Art/Craft (Typing or Shorthand), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Language (Own), Library Use or Computer Use, Psychology, any one other skill as a personal or era specialty."
+ },
+ "103": {
+  "name": "Shopkeeper",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Electrical Repair, Listen, Mechanical Repair, Psychology, Spot Hidden."
+ },
+ "104": {
+  "name": "Soldier, Marine",
+  "description": "Climb or Swim, Dodge, Fighting, Firearms, Stealth, Survival, any two of the following: First Aid, Mechanical Repair, Language (Other)."
+ },
+ "105": {
+  "name": "Spy",
+  "description": "Art/Craft (Acting) or Disguise, Firearms, Listen, Language (Other), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Sleight of Hand, Stealth."
+ },
+ "106": {
+  "name": "Student, Intern",
+  "description": "Language (Own or Other), Library Use, Listen, three fields of study, any two other skills as personal or era specialties."
+ },
+ "107": {
+  "name": "Stuntman",
+  "description": "Climb, Dodge, Electrical Repair or Mechanical Repair, Fighting, First Aid, Jump, Swim, one of the following: Diving, Drive Auto, Pilot (any), Ride."
+ },
+ "108": {
+  "name": "Tribe Member",
+  "description": "Climb, Fighting or Throw, Listen, Natural World, Occult, Spot Hidden, Swim, Survival (any)."
+ },
+ "109": {
+  "name": "Undertaker",
+  "description": "Accounting, Drive Auto, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), History, Occult, Psychology, Science (Biology, Chemistry)."
+ },
+ "110": {
+  "name": "Union Activist",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Fighting (Brawl), Law, Listen, Operate Heavy Machinery, Psychology."
+ },
+ "111": {
+  "name": "Waiter",
+  "description": "Accounting, Art/Craft (any), Dodge, Listen, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill as a personal or era specialty."
+ },
+ "112": {
+  "name": "White-Collar Worker – Clerk, Executive",
+  "description": "Accounting, Language, Law, Library Use or Computer Use, Listen, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), any two other skills as personal or era specialties."
+ },
+ "113": {
+  "name": "White-Collar Worker – Middle/Senior Manager",
+  "description": "Accounting, Language (Other), Law, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, any two other skills as personal or era specialties."
+ },
+ "114": {
+  "name": "Zealot",
+  "description": "History, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, Stealth, any three other skills as personal or era specialties."
+ },
+ "115": {
+  "name": "Zookeeper",
+  "description": "Animal Handling, Accounting, Dodge, First Aid, Natural World, Medicine, Science (Pharmacy, Zoology)."
+ },
+ "116": {
+  "name": "Ambassador",
+  "description": "Charm, History, Intimidate, Fast Talk, Listen, Language (Own), Persuade, Psychology. (Replace the preceding two skills with one or two Language (Other) skills.)"
+ },
+ "117": {
+  "name": "Athlete (Swimming/Diving)",
+  "description": "Climb, Jump, Fighting (Brawl), Language (Other), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Swim, Throw, any one other skill as a personal or era specialty."
+ },
+ "118": {
+  "name": "Athlete (Golf)",
+  "description": "Climb, Jump, Fighting (Brawl), Ride, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Swim, Throw, any one other skill as a personal or era specialty."
+ },
+ "119": {
+  "name": "Athlete (Tennis)",
+  "description": "Jump, Fighting (Brawl), Dodge, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden, Throw, any one other skill as a personal or era specialty."
+ },
+ "120": {
+  "name": "Athlete (Track and Field)",
+  "description": "Climb, Jump, Fighting (Brawl), Language (Other), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Dodge, Throw, any one other skill as a personal or era specialty."
+ },
+ "121": {
+  "name": "Spokesperson",
+  "description": "Disguise, Dodge, three interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, Language (Other), any one other skill as a personal or era specialty."
+ },
+ "122": {
+  "name": "Bail Bondsman",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Law, Library Use, Psychology, any two other skills as personal or era specialties."
+ },
+ "123": {
+  "name": "Clergy (Catholic Priest)",
+  "description": "Accounting, Language (Own), Language (Other: Latin), Library Use, Occult, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill."
+ },
+ "124": {
+  "name": "Clergy (Protestant Minister)",
+  "description": "Accounting, History, Library Use, Listen, Language (Other), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill."
+ },
+ "125": {
+  "name": "Clergy (Rabbi)",
+  "description": "Language (Own), Language (Other: Hebrew), History, Library Use, Occult, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill."
+ },
+ "126": {
+  "name": "Columnist",
+  "description": "Disguise, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), History or Library Use, Language (Own), Language (Other), Psychology, Stealth."
+ },
+ "127": {
+  "name": "Socialist/Radical",
+  "description": "Fighting (Brawl), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Firearms (Handgun), Language (Other), Psychology, any two other skills as personal or era specialties."
+ },
+ "128": {
+  "name": "Copywriter",
+  "description": "Language (Own), Art/Craft (Literature), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), History, Library Use, Listen, Psychology."
+ },
+ "129": {
+  "name": "Criminal (Bookie)",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden, Sleight of Hand, any one other skill as a personal or era specialty."
+ },
+ "130": {
+  "name": "Criminal (Loan Shark)",
+  "description": "Accounting, Appraise, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "131": {
+  "name": "Criminal (Pickpocket)",
+  "description": "Disguise, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Stealth, Listen, Psychology, Spot Hidden, Sleight of Hand, any one other skill as a personal or era specialty."
+ },
+ "132": {
+  "name": "Criminal (Underground Banker)",
+  "description": "Accounting, Law, Library Use, Listen, Persuade, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "133": {
+  "name": "Criminal (Crooked Lawyer)",
+  "description": "Accounting, Law, Library Use, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, two other skills."
+ },
+ "134": {
+  "name": "Dentist",
+  "description": "First Aid, Medicine, Language (Other: Latin), Psychology, Science (Biology, Pharmacy), any two other academic or personal specialties."
+ },
+ "135": {
+  "name": "Surgeon/Physician",
+  "description": "First Aid, Medicine, Language (Other: Latin), Psychology, Science (Biology, Pharmacy), any two other academic or personal specialties."
+ },
+ "136": {
+  "name": "Plastic Surgeon",
+  "description": "First Aid, Medicine, Language (Other: Latin), Psychology, Science (Biology, Pharmacy), any two other academic or personal specialties."
+ },
+ "137": {
+  "name": "Driver – Bus Driver",
+  "description": "Accounting, Drive Auto, Electrical Repair, Mechanical Repair, Navigate, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill as a personal or era specialty."
+ },
+ "138": {
+  "name": "Field Researcher",
+  "description": "Accounting, Climb or Jump, First Aid, Library Use, Language (Other), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), two skills related to the field of research."
+ },
+ "139": {
+  "name": "Film Crew Member",
+  "description": "Art/Craft (any, e.g. Photography), Climb, Drive Auto, Electrical Repair, Mechanical Repair, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), any two other skills as personal or era specialties."
+ },
+ "140": {
+  "name": "Forensic Scientist",
+  "description": "Art/Craft (Photography), Medicine, Law, Science (Chemistry, Forensics, Pharmacy), Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "141": {
+  "name": "Sports Manager",
+  "description": "Accounting, Fighting (Brawl), Dodge, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), First Aid, Psychology, any one other skill as a personal or era specialty."
+ },
+ "142": {
+  "name": "Merchant Marine",
+  "description": "Anthropology, Climb, Electrical Repair or Mechanical Repair, Jump, Operate Heavy Machinery, Language (Other), Survival (Sea), any one other skill as a personal or era specialty."
+ },
+ "143": {
+  "name": "Classical Musician",
+  "description": "Accounting, Art/Craft (Instrument), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, three other skills."
+ },
+ "144": {
+  "name": "Racing Driver/Boat Racer",
+  "description": "Drive Auto, Electrical Repair, Mechanical Repair, Pilot (Boat), Psychology, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "145": {
+  "name": "Radio Announcer",
+  "description": "Art/Craft (Acting), Language (Own), Charm, Fast Talk, Persuade, Psychology, any two other skills as personal or era specialties."
+ },
+ "146": {
+  "name": "Salesperson (Bible Salesman)",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Drive Auto, Listen, Psychology, Stealth or Sleight of Hand, one other skill."
+ },
+ "147": {
+  "name": "Salesperson (Traveling Salesman)",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Drive Auto, Navigate, Listen, Psychology, one other skill."
+ },
+ "148": {
+  "name": "Small Business Owner",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, four skills related to running the business."
+ },
+ "149": {
+  "name": "Stagehand",
+  "description": "Art/Craft (any), Language (Own), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Disguise, Psychology, any two other skills as personal or era specialties."
+ },
+ "150": {
+  "name": "Stockbroker",
+  "description": "Accounting, Appraise, Language (Own), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Psychology, any two other skills as personal or era specialties."
+ },
+ "151": {
+  "name": "Surveyor",
+  "description": "Accounting, Art/Craft (Photography), Library Use, Natural World, Navigate, Survival (any), Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "152": {
+  "name": "Telephone Operator",
+  "description": "Language (Own), Language (Other), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, any two other skills as personal or era specialties."
+ },
+ "153": {
+  "name": "Talent Scout",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Law, Psychology, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "154": {
+  "name": "Medical Technician",
+  "description": "Art/Craft (Photography), Electrical Repair, Library Use, Mechanical Repair, Medicine, Science (Biology, Chemistry, Pharmacy)."
+ },
+ "155": {
+  "name": "Team Doctor",
+  "description": "two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), First Aid, Medicine, Science (Pharmacy), Psychology, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "156": {
+  "name": "Treasure Hunter",
+  "description": "Appraise, Climb, Drive Auto or Pilot (Aircraft or Boat), Electrical Repair or Mechanical Repair, History, Jump, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Spot Hidden."
+ },
+ "157": {
+  "name": "Western Sheriff",
+  "description": "Drive Auto, Firearms (any), Fighting (Brawl, Whip), Law, Persuade or Psychology, Ride, Track."
+ },
+ "158": {
+  "name": "Bōsōzoku Biker",
+  "description": "Fighting (Brawl), Drive Auto, Mechanical Repair, Fast Talk, Intimidate, any three other skills as personal or era specialties."
+ },
+ "159": {
+  "name": "Clergy (Buddhist Monk, Nun)",
+  "description": "Art/Craft (Calligraphy), History or Library Use, Language (Other: Chinese or Sanskrit), Lore (Buddhism), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Listen, any one other skill as a personal or era specialty."
+ },
+ "160": {
+  "name": "Clergy (Shinto Priest, Shrine Maiden)",
+  "description": "Art/Craft (Calligraphy, plus any one), Library Use, Occult, Lore (Shinto), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, any one other skill as a personal or era specialty."
+ },
+ "161": {
+  "name": "Feng Shui Master",
+  "description": "Art/Craft (any), Library Use, Occult, Lore (Taoism), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Science (Astronomy, Geology), any one other skill as a personal or era specialty."
+ },
+ "162": {
+  "name": "Hereditary Demon Hunter",
+  "description": "Fighting (Brawl), Natural World, Occult, Lore (Buddhism or Shinto), Psychology, Stealth, any two other skills as personal or era specialties."
+ },
+ "163": {
+  "name": "High School Student (EDU below 60)",
+  "description": "Climb, Stealth, Jump, Library Use, Fighting (any), Language (Own), Science (any) or History, Language (Other: English or other)."
+ },
+ "164": {
+  "name": "Ichiko (Blind Medium)",
+  "description": "Art/Craft (Acting), Listen, Lore (Shinto), Occult, History, Fast Talk or Persuade, Psychology, any one specialty. ※ With the Keeper's consent, the Medium skill may replace one skill of your choice."
+ },
+ "165": {
+  "name": "Kotodama Master/Onmyōji",
+  "description": "Art/Craft (Calligraphy, plus any one), History or Library Use, Language (Own), Lore (Onmyōdō), Science (Astronomy), Occult, any one other skill as a personal or era specialty."
+ },
+ "166": {
+  "name": "Taoist Alchemist",
+  "description": "Library Use, Medicine, Occult, Science (Chemistry), Natural World, Lore (Taoism), Language (Other: Chinese), First Aid or Psychoanalysis."
+ },
+ "167": {
+  "name": "Foreign Language Teacher",
+  "description": "History, Listen, Language (Own), Psychology, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), any two other skills as personal or era specialties."
+ },
+ "168": {
+  "name": "Illegal Immigrant",
+  "description": "Disguise, Fast Talk, Listen, Spot Hidden, Stealth, Sleight of Hand, Psychology, any one other skill as a personal or era specialty."
+ },
+ "169": {
+  "name": "Sumo Wrestler (SIZ>80, STR>70)",
+  "description": "Dodge, Fighting (Brawl), Intimidate, Jump, Psychology, Spot Hidden, any two other skills as personal or era specialties. (Your SIZ may exceed 99.)"
+ },
+ "170": {
+  "name": "Fisherman",
+  "description": "Mechanical Repair, Operate Heavy Machinery, Swim, Pilot (Boat), Science (Astronomy), Navigate, Natural World, Spot Hidden."
+ },
+ "171": {
+  "name": "Psychotherapist",
+  "description": "Art/Craft (any), two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Law, Language (Other), Psychology, Psychoanalysis, any one other skill as a personal or era specialty."
+ },
+ "172": {
+  "name": "Schoolgirl",
+  "description": "one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Drive (Bicycle), First Aid, Listen, Art/Craft (any), Library Use, Fighting (Spear) or Firearms (Bow), Language (Other: any)."
+ },
+ "173": {
+  "name": "Homestay Student",
+  "description": "First Aid, Accounting, Art/Craft (Carpentry), Persuade, Library Use, Language (Other: any), any two other skills as personal or era specialties."
+ },
+ "174": {
+  "name": "Animal-Assisted Therapist",
+  "description": "Listen, Psychology, Psychoanalysis, Science (Zoology), Jump, Track, Natural World, any one other skill as a personal or era specialty. Jump, Track, Natural World, any one other skill as a personal or era specialty."
+ },
+ "175": {
+  "name": "Emergency Physician/Rescue Worker",
+  "description": "Medicine, First Aid, Science (Chemistry), Locksmith, Mechanical Repair, Electrical Repair, Climb, Jump."
+ },
+ "176": {
+  "name": "Unlicensed Doctor",
+  "description": "Medicine, First Aid, Accounting, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Law, Science (Pharmacy), Language (Other), any one other skill as a personal or era specialty."
+ },
+ "177": {
+  "name": "Forensic Science Investigator",
+  "description": "Art/Craft (Photography), Medicine, Law, Science (Chemistry, Forensics, Pharmacy), Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "178": {
+  "name": "Mountain Rescue Team Member",
+  "description": "First Aid, Listen, Jump, Track, Climb, Navigate, Survival (Mountains), Language (Other)."
+ },
+ "179": {
+  "name": "Dancer",
+  "description": "Art/Craft (a performing art, e.g. Acting, Singing, Comedy), Disguise, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, any two other skills as personal or era specialties."
+ },
+ "180": {
+  "name": "Fashion Designer",
+  "description": "Accounting, Art/Craft (Photography), Art/Craft (any), Computer Use or Library Use, Disguise, Psychology, Spot Hidden, any one other skill as a personal specialty. ※ With a successful Spot Hidden roll, you can judge a person's status, income, etc. from their clothing."
+ },
+ "181": {
+  "name": "Maritime Self-Defense Force Member",
+  "description": "Electrical Repair or Mechanical Repair, Fighting, Firearms, First Aid, Navigate, Pilot (Boat), Survival (Sea), Swim."
+ },
+ "182": {
+  "name": "Coast Guard",
+  "description": "First Aid, Mechanical Repair, Natural World, Navigate, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Pilot (Boat), Spot Hidden, Swim."
+ },
+ "183": {
+  "name": "Ground Self-Defense Force Member",
+  "description": "Climb or Swim, Dodge, Fighting, Firearms, Stealth, Survival, any two of the following: First Aid, Mechanical Repair, Language (Other)."
+ },
+ "184": {
+  "name": "Private Military Contractor",
+  "description": "Climb or Swim, Dodge, Fighting, Firearms, Stealth, Survival, any two of the following: First Aid, Mechanical Repair, Language (Other)."
+ },
+ "185": {
+  "name": "Adventurer Professor",
+  "description": "Climb or Swim, Firearms, History, Jump, Natural World, Navigate, Language (Other), Survival."
+ },
+ "186": {
+  "name": "Critic",
+  "description": "Disguise, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), History or Library Use, Language (Own), Language (Other), Psychology, Stealth."
+ },
+ "187": {
+  "name": "Idol",
+  "description": "Art/Craft (Acting, Singing, Dance), Disguise, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, any two other skills as personal or era specialties."
+ },
+ "188": {
+  "name": "Singer",
+  "description": "Art/Craft (Singing, Dance, Instrument), Disguise, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, any two other skills as personal or era specialties."
+ },
+ "189": {
+  "name": "Comedian",
+  "description": "Art/Craft (Acting, Acrobatics, Comedy), Disguise, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, any two other skills as personal or era specialties."
+ },
+ "190": {
+  "name": "Athlete Celebrity",
+  "description": "Climb, Dodge, Jump, Throw, Spot Hidden, Swim, any two other skills as personal or era specialties."
+ },
+ "191": {
+  "name": "Announcer",
+  "description": "Art/Craft (Acting), Language (Own), Charm, Fast Talk, Persuade, Psychology, any two other skills as personal or era specialties."
+ },
+ "192": {
+  "name": "Host/Presenter",
+  "description": "Art/Craft (Acting), Language (Own), Charm, Fast Talk, Persuade, Psychology, any two other skills as personal or era specialties."
+ },
+ "193": {
+  "name": "TV Commentator",
+  "description": "Art/Craft (Acting), Language (Own), Charm, Fast Talk, Persuade, Psychology, any two other skills as personal or era specialties."
+ },
+ "194": {
+  "name": "Internet Celebrity",
+  "description": "Art/Craft (Acting, Singing, Comedy), Disguise, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Psychology, Computer Use, Electrical Repair."
+ },
+ "195": {
+  "name": "Talent Manager",
+  "description": "Drive Auto, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Stealth, Listen, Law, any two other skills as personal or era specialties."
+ },
+ "196": {
+  "name": "Ghost Hunter",
+  "description": "Occult, Science (Physics, Chemistry, Biology), Mechanical Repair, Art/Craft (Photography), Electrical Repair, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade)."
+ },
+ "197": {
+  "name": "Fortune Teller, Medium",
+  "description": "Art/Craft (Acting), History, Library Use, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Occult, Psychology, any one other skill as a personal or era specialty."
+ },
+ "198": {
+  "name": "Machinist",
+  "description": "Art/Craft (Carpentry, Welding, Plumbing, etc.), Climb, Drive Auto, Electrical Repair, Mechanical Repair, Operate Heavy Machinery, any two other personal, era or technical specialties."
+ },
+ "199": {
+  "name": "Chef",
+  "description": "Art/Craft (Cooking), Science (Biology, Chemistry), Fighting (Brawl), Natural World, Spot Hidden, Language (Other), any one other skill as a personal or era specialty."
+ },
+ "200": {
+  "name": "Cybercriminal",
+  "description": "Computer Use, Electrical Repair, Electronics, Library Use, Spot Hidden, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), any two other skills."
+ },
+ "201": {
+  "name": "Mercenary",
+  "description": "Climb or Swim, Dodge, Fighting, Firearms, Stealth, Survival, any two of the following: First Aid, Mechanical Repair, Language (Other)."
+ },
+ "202": {
+  "name": "Home Security Guard (NEET)",
+  "description": "Computer Use, Listen, Stealth, Library Use, Language (Own), any three specialties that fit the NEET image."
+ },
+ "203": {
+  "name": "Muscle Bodyguard",
+  "description": "Fighting (Brawl), Firearms, First Aid, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Law, Psychology, Spot Hidden, and one of the following as a personal specialty: Drive Auto or Ride."
+ },
+ "204": {
+  "name": "Game Tester",
+  "description": "Art/Craft (Games), Computer Use, Electrical Repair, Electronics, Listen, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), any two other skills as personal or era specialties."
+ },
+ "205": {
+  "name": "Courtesan",
+  "description": "Art/Craft (any), Appraise, Stealth, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), First Aid, Language (Other: European), Psychology, Ride, one of (Disguise, Locksmith), any one other skill as a personal or era specialty."
+ },
+ "206": {
+  "name": "Archaeologist",
+  "description": "Accounting, Art/Craft (any), Appraise, History, Library Use, Language (Other: European), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "207": {
+  "name": "Aristocrat",
+  "description": "Language (Other: Latin), Law, Language (Other: European), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Ride, Firearms (Shotgun), any three other skills as personal or era specialties."
+ },
+ "208": {
+  "name": "Artist (II)",
+  "description": "Art/Craft (any number), Appraise, History, Library Use, Language (Other: European), Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "209": {
+  "name": "Author",
+  "description": "Art/Craft (Writing), History, Library Use, Language (Other: European), Language (Own), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, any two other skills as personal or era specialties."
+ },
+ "210": {
+  "name": "Coachman",
+  "description": "Dodge, Drive Carriage, Jump, Listen, Mechanical Repair, Natural World, Navigate, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Spot Hidden, Fighting (Whip), any one other skill as a personal or era specialty."
+ },
+ "211": {
+  "name": "Clergyman",
+  "description": "History, Language (Other: Latin), Library Use, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, any two other skills as personal or era specialties."
+ },
+ "212": {
+  "name": "Consulting Detective",
+  "description": "Anthropology, Appraise, Science (Chemistry), First Aid, History, Law, Library Use, Listen, Psychology, Language (Other: any), Spot Hidden, Track, any two other skills as personal or era specialties."
+ },
+ "213": {
+  "name": "Craftsperson (II)",
+  "description": "Accounting, Appraise, Art/Craft (any number), Mechanical Repair, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "214": {
+  "name": "Criminal",
+  "description": "Appraise, Disguise, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Stealth, Locksmith, Fighting (any two), any one other skill as a personal or era specialty."
+ },
+ "215": {
+  "name": "Dilettante",
+  "description": "Any six skills as personal or era specialties."
+ },
+ "216": {
+  "name": "Entertainer (II)",
+  "description": "Art/Craft (any number), Disguise, Dodge, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Listen, Language (Own), Psychology, any three other skills as personal or era specialties."
+ },
+ "217": {
+  "name": "Retired Officer",
+  "description": "Stealth, First Aid, Firearms (Handgun, Rifle), Navigate, Language (Other: any), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Ride, Fighting (Sword), Spot Hidden, one of (Climb, Swim)."
+ },
+ "218": {
+  "name": "Explorer",
+  "description": "Anthropology, Archaeology, Appraise, Science (Biology), Climb, First Aid, Firearms (Handgun, Rifle), Fighting (Brawl), Natural World, Navigate, Language (Other: any), Pilot (Small Boat, Ship, Hot-Air Balloon), Ride, Stealth, Spot Hidden, Swim, Track."
+ },
+ "219": {
+  "name": "Private Investigator (II)",
+  "description": "Accounting, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Law, Library Use, Listen, Locksmith, Art/Craft (Photography), Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "220": {
+  "name": "Journalist",
+  "description": "Appraise, Dodge, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Library Use, Listen, Language (Other: European), Language (Own), Art/Craft (Photography), Psychology, Spot Hidden."
+ },
+ "221": {
+  "name": "Laborer",
+  "description": "Appraise, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Dodge, First Aid, Mechanical Repair, Operate Heavy Machinery, any one other skill as a personal or era specialty, plus any two of the following: (Climb, Fighting (Brawl), Art/Craft (any), Drive Carriage, Pilot (Boat))."
+ },
+ "222": {
+  "name": "Lawyer (II)",
+  "description": "Accounting, Appraise, two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), History, Language (Other: Latin), Law, Library Use, Listen, Psychology, any two other skills as personal or era specialties."
+ },
+ "223": {
+  "name": "Doctor",
+  "description": "Science (Biology, Pharmacy), First Aid, Language (Other: Latin), Library Use, Medicine, Psychology, any two other skills as personal or era specialties."
+ },
+ "224": {
+  "name": "Police Officer",
+  "description": "Fighting (Brawl), Dodge, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), First Aid, Firearms (Handgun), Law, Listen, Psychology, Stealth, Spot Hidden."
+ },
+ "225": {
+  "name": "Professor/Scholar",
+  "description": "Library Use, Language (Other: European), one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, up to six additional knowledge skills as personal specialties."
+ },
+ "226": {
+  "name": "Scientist (II)",
+  "description": "Art/Craft (any), History, Library Use, Mechanical Repair, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Spot Hidden, up to six other knowledge skills as personal specialties."
+ },
+ "227": {
+  "name": "Servant",
+  "description": "Art/Craft (any), Dodge, Listen, Stealth, any one other skill as a personal or era specialty, plus up to three of the following: (Accounting, Appraise, Drive Carriage, Etiquette, First Aid, Language (Other: European), Persuade)."
+ },
+ "228": {
+  "name": "Store Owner",
+  "description": "Accounting, Appraise, Art/Craft (any), Listen, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Psychology, Spot Hidden, any one other skill as a personal or era specialty."
+ },
+ "229": {
+  "name": "Soldier",
+  "description": "Dodge, First Aid, Stealth, Listen, Mechanical Repair, Firearms (Rifle), Stealth, Spot Hidden, any two other skills as personal or era specialties."
+ },
+ "230": {
+  "name": "Secret Agent",
+  "description": "Disguise, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Stealth, History, Library Use, Listen, Locksmith, Navigate, Language (Other: European), Psychology, Spot Hidden, Fighting (any)."
+ }
+}

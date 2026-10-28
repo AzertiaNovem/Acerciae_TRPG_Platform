@@ -6,7 +6,8 @@
 // COC7 point-buy rules (server feature `coc7_points`): the career list from the community character sheet, the
 // career and hobby skill-point budgets, and the validation of a role card that spends them.
 namespace acerciae::coc7 {
-extern const char* kCareersJson;   // generated: scripts/coc7_careers.py
+extern const char* kCareersJson;       // generated: scripts/coc7_careers.py
+extern const char* kCareersI18nJson;   // generated: scripts/coc7_career_translations.py ({id: {lang: {name, description}}})
 
 struct Career {
     int id = 0;
@@ -18,12 +19,13 @@ struct Career {
     Json::Value choices;              // [{pick, from:[{skill, any?, spec?}]}]
     int free = 0;                     // 任意特长: skills of the player's choice that take career points
     std::string description;
+    Json::Value names, descriptions;  // {lang: text} in every server language, zh-CN being the sheet's own
 };
 
 const std::vector<Career>& careers();
-const Career* findCareer(const std::string& name);
+const Career* findCareer(const std::string& name);   // by the sheet's name or its name in any server language
 // What the client needs to build a card: skills with bases and their names in each server language ({lang: name}),
-// specialisation families and every career.
+// specialisation families, the characteristics' names and every career with its names and descriptions.
 const Json::Value& rules();
 
 // "Science (Biology)" → "Science"; a plain skill → its canonical name.

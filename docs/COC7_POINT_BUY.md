@@ -57,7 +57,13 @@ The skill table (every core skill, the specialisation families and the character
 language, so the sheet shows "目星" on a Japanese server and "Trouver objet caché" on a French one; `/api/coc7/rules`
 returns them as `names {lang: name}`. What a player types in the sheet, in English or the server language, is stored
 under the English key ("目星" → `Spot Hidden`); a specialisation keeps its own words ("科学(生物学)" →
-`Science (生物学)`). Skills outside the table and career names stay as written.
+`Science (生物学)`). Skills outside the table stay as written.
+
+Careers are shown the same way: each carries `names` and `descriptions` in every server language (the sheet's own
+Chinese under `zh-CN`), and the points formula names the characteristics in that language (`rules.characteristics`).
+A card stores the sheet's name; one that names a career in any server language is saved under the sheet's name. The
+translations live in `scripts/coc7_careers_i18n/<lang>.json`; `python3 scripts/coc7_career_translations.py` rebuilds
+`backend/src/characters/Coc7CareersI18nData.cpp` from them.
 
 Dice commands accept the same names: `.ra 目星` and `.ra spot hidden` both roll Spot Hidden on a Japanese server, and
 the reply names the skill in the server language. Names of other languages are not recognised there, apart from the

@@ -38,6 +38,7 @@ int ch(const Json::Value& c, const char* k) { return c[k].isNumeric() ? c[k].asI
 std::vector<Career> load() {
     std::vector<Career> out;
     auto doc = json::parse(kCareersJson);
+    auto i18n = json::parse(kCareersI18nJson);
     auto canon = [](Json::Value& e) {
         auto raw = e["skill"].asString();
         auto c = dice::canonicalName(raw);
@@ -52,6 +53,9 @@ std::vector<Career> load() {
         c.fixed = j["fixed"]; for (auto& e : c.fixed) canon(e);
         c.choices = j["choices"]; for (auto& g : c.choices) for (auto& e : g["from"]) canon(e);
         c.free = j["free"].asInt();
+        c.names["zh-CN"] = c.name; c.descriptions["zh-CN"] = c.description;
+        const Json::Value& tr = i18n[std::to_string(c.id)];
+        for (const auto& lang : tr.getMemberNames()) { c.names[lang] = tr[lang]["name"]; c.descriptions[lang] = tr[lang]["description"]; }
         if (c.id == 1) c.free = 8;   // 自定义职业: up to eight skills of the player's choice, with the Keeper's blessing
         out.push_back(std::move(c));
     }
@@ -63,6 +67,8 @@ const std::vector<Career>& careers() { static const std::vector<Career> v = load
 const Career* findCareer(const std::string& name) {
     auto n = text::trim(name);
     for (auto& c : careers()) if (c.name == n) return &c;
+    // A name in another server language (the card then stores the sheet's own).
+    for (auto& c : careers()) for (const auto& lang : c.names.getMemberNames()) if (c.names[lang].asString() == n) return &c;
     return nullptr;
 }
 // Where the specialisation starts: the LAST "(" or "（", so "Language (Other) (Latin)" splits after "Language (Other)".
@@ -143,7 +149,12 @@ const Json::Value& rules() {
             Json::Value j; j["id"] = c.id; j["name"] = c.name;
             if (c.creditMin >= 0) { j["credit"].append(c.creditMin); j["credit"].append(c.creditMax); } else j["credit"] = Json::Value();
             j["points"] = c.points; j["formula"] = c.formula; j["fixed"] = c.fixed; j["choices"] = c.choices; j["free"] = c.free; j["description"] = c.description;
+            j["names"] = c.names; j["descriptions"] = c.descriptions;
             r["careers"].append(j);
+        }
+        r["characteristics"] = Json::Value(Json::arrayValue);
+        for (auto k : {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK"}) {
+            Json::Value x; x["name"] = k; x["names"] = dice::localNames(std::string(k) == "LUK" ? "Luck" : k); r["characteristics"].append(x);
         }
         r["hobby_formula"] = "INT×2";
         return r;
@@ -163,6 +174,7 @@ Json::Value apply(Json::Value& card) {
     const Career* career = nullptr;
     auto careerName = json::str(card["career"], "name");
     if (!careerName.empty()) { career = findCareer(careerName); if (!career) violate("unknown_career", "choose a career from the list: " + careerName); }
+    if (career && careerName != career->name) card["career"]["name"] = career->name;
     rep["career"] = career ? Json::Value(career->name) : Json::Value();
     rep["career_budget"] = career ? careerBudget(*career, chars) : 0;
     rep["hobby_budget"] = hobbyBudget(chars);

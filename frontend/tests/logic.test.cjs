@@ -66,3 +66,17 @@ test('point-buy skill names: shown in the server language, typed in either langu
   assert.equal(skillKey('Science (Biology)', rules, 'en'), 'Science (Biology)');
   assert.equal(skillKey('research', rules, 'ja'), 'research');
 });
+
+test('careers: named and described in the server language, picked by any of its names, formula in local words', () => {
+  const { careerLabel, careerDescription, careerKey, formulaLabel } = load('components/skillNames.ts');
+  const acrobat = { id: 3, name: '杂技演员', formula: '教育×2＋敏捷×2', description: '攀爬，闪避……', points: [{ attrs: ['EDU'], mult: 2 }, { attrs: ['STR', 'DEX'], mult: 2 }],
+    names: { 'zh-CN': '杂技演员', en: 'Acrobat', ja: '曲芸師' }, descriptions: { 'zh-CN': '攀爬，闪避……', en: 'Climb, Dodge…' } };
+  const rules = { skills: [], families: [], careers: [acrobat], characteristics: [{ name: 'EDU', names: { ja: '教育' } }, { name: 'STR', names: { ja: '筋力' } }, { name: 'DEX', names: { ja: '敏捷性' } }], hobby_formula: 'INT×2' };
+  assert.equal(careerLabel(acrobat, 'ja'), '曲芸師'); assert.equal(careerLabel(acrobat, 'ko'), '杂技演员');
+  assert.equal(careerDescription(acrobat, 'en'), 'Climb, Dodge…'); assert.equal(careerDescription(acrobat, 'fr'), '攀爬，闪避……');
+  assert.equal(careerKey('曲芸師', rules, 'ja'), '杂技演员'); assert.equal(careerKey(' acrobat ', rules, 'ja'), '杂技演员'); assert.equal(careerKey('杂技演员', rules, 'en'), '杂技演员');
+  assert.equal(careerKey('曲芸', rules, 'ja'), '曲芸');
+  assert.equal(formulaLabel(acrobat, rules, 'en'), 'EDU×2 + STR/DEX×2');
+  assert.equal(formulaLabel(acrobat, rules, 'ja'), '教育×2 + 筋力/敏捷性×2');
+  assert.equal(formulaLabel(acrobat, rules, 'zh-CN'), '教育×2＋敏捷×2');
+});
