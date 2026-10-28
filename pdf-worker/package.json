@@ -1,6 +1,7 @@
 {
   "name": "acerciae-pdf-worker",
-  "private": true, "license": "BSD-3-Clause",
+  "private": true,
+  "license": "BSD-3-Clause",
   "version": "0.1.0",
   "type": "module",
   "scripts": { "start": "node src/index.mjs", "test": "node --test test/*.test.mjs" },
