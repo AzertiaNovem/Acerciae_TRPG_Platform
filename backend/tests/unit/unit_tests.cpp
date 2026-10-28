@@ -473,6 +473,18 @@ int main() {
         ctx["existing_titles"].append(plan["reminders"][0]["title"]);
         CHECK(ReminderService::mockPlan(ctx)["reminders"].size() == 1);
     });
+    test("mock reminder maintenance is explicit, preserves IDs and never treats silence as resolution", [] {
+        auto ctx = json::parse(R"({"managed_reminders":[{"id":"r1","title":"Return compass","status":"active","version":2}],"new_events":[{"event_id":"e1","content":"Maybe the compass has already been returned?"}]})");
+        CHECK(ReminderService::mockPlan(ctx)["changes"].empty());
+        ctx["new_events"][0]["content"] = "Set aside: Return compass";
+        auto c = ReminderService::mockPlan(ctx)["changes"]; CHECK(c.size() == 1); CHECK(c[0]["action"] == "defer"); CHECK(c[0]["expected_version"] == 2); CHECK(c[0]["quotes"][0]["event_id"] == "e1");
+        ctx["managed_reminders"][0]["status"] = "deferred"; ctx["new_events"][0]["content"] = "Return to: Return compass";
+        CHECK(ReminderService::mockPlanKp(ctx)["changes"][0]["action"] == "reactivate");
+        ctx["new_events"][0]["content"] = "已解决：Return compass";
+        CHECK(ReminderService::mockChanges(ctx)[0]["action"] == "resolve");
+        ctx["managed_reminders"][0]["status"] = "resolved";
+        CHECK(ReminderService::mockChanges(ctx).empty());
+    });
     test("script knowledge: the mock builds flow, relationships, clues, foreshadowing and background from the module graph; proposals are reviewed", [] {
         Json::Value ctx; Json::Value pg1, pg2, pg3;
         pg1["page"] = 1; pg1["text"] = "THE LANTERN SOCIETY\nA scenario for Call of Cthulhu set in Arkham, 1925.\n\nChapter 1: The Sheriff's Office\nThe investigators meet Sheriff Dunmore, who holds the only key to the lighthouse. He stalls them politely.\nNPC: Sheriff Dunmore\nA tired lawman who secretly belongs to the Lantern Society.\nItem: The Lighthouse Key\nAn iron key stamped with a lantern sigil.\nIf the investigators obtain the key they may enter the lighthouse at night.";

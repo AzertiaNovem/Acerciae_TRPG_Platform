@@ -21,13 +21,15 @@ export default function ReminderViewer({ id, onClose }: { id: string; onClose: (
   const { channelId, selectWindow } = useNav();
   const { toast } = useUi();
   const dismiss = useReminders((s) => s.dismiss);
+  const version = useReminders((s) => s.list.find((r) => r.id === id)?.version);
   const [reminder, setReminder] = useState<Reminder | null>(null);
   const [events, setEvents] = useState<ReminderContextEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (!channelId) return; const epoch = sessionEpoch(); setEvents([]); setError(null);
-    api.reminderContext(channelId, id, 30).then((r) => { if (isStale(epoch)) return; setReminder(r.reminder); setEvents(r.events); }).catch((e) => { if (!isStale(epoch)) setError(e.message); });
-  }, [channelId, id]);
+    if (!channelId) return; let cancelled = false; const epoch = sessionEpoch(); setEvents([]); setError(null);
+    api.reminderContext(channelId, id, 30).then((r) => { if (cancelled || isStale(epoch)) return; setReminder(r.reminder); setEvents(r.events); }).catch((e) => { if (!cancelled && !isStale(epoch)) setError(e.message); });
+    return () => { cancelled = true; };
+  }, [channelId, id, version]);
   useEffect(() => { const el = document.querySelector('.reminder-viewer .cited'); el?.scrollIntoView({ block: 'center' }); }, [events.length]);
   const openMessage = async (e: ReminderContextEvent, quote = false) => {
     if (!e.message_id || !e.chat_window_id || !channelId) return;
@@ -41,7 +43,7 @@ export default function ReminderViewer({ id, onClose }: { id: string; onClose: (
       <header>
         <span className={`pill ${reminder?.kind === 'needed' ? 'ai' : ''}`}>{reminder ? kindLabel(reminder.kind) : '…'}</span>
         <h3>{reminder?.title ?? '…'}</h3>
-        <button className="ghost small" onClick={() => channelId && reminder && dismiss(channelId, reminder.id).then(onClose)}>{tr('Dismiss')}</button>
+        <button className="ghost small" onClick={() => channelId && reminder && dismiss(channelId, reminder.id).then(onClose).catch((e) => toast(e.message, 'error'))}>{tr('Dismiss')}</button>
         <button className="ghost small" onClick={onClose}>✕</button>
       </header>
       <div className="body">

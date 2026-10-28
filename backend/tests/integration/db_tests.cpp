@@ -53,6 +53,23 @@ public:
     }
 };
 
+// A controllable real-gateway fixture: tests inspect the exact combined prompt and return one plan.
+class ReminderPlanClient : public ILlmClient {
+public:
+    Json::Value plan, context;
+    int calls = 0;
+    std::function<void()> beforeReturn;
+    std::string mode() const override { return "live"; }
+    std::string modelName() const override { return "reminder-lifecycle-test"; }
+    LlmResponse complete(const LlmRequest& req) override {
+        LlmResponse r; r.ok = true;
+        if (req.task == "scenario_outline") { r.content = R"({"outline":"Fixture outline","key_points":[]})"; return r; }
+        ++calls; context = json::parse(req.messages.back().content);
+        if (beforeReturn) beforeReturn();
+        r.content = json::dump(plan); return r;
+    }
+};
+
 int main() {
     const char* url = std::getenv("TEST_DATABASE_URL");
     Config cfg; cfg.databaseUrl = url ? url : "postgresql://postgres@localhost:5432/acerciae_test"; cfg.migrationsDir = "./migrations"; cfg.seedDemo = false;
@@ -326,6 +343,86 @@ int main() {
         CHECK(prelude.find("KP_SCENE_CLASSIFIED") == std::string::npos);
         CHECK(!S.db->queryJson("SELECT 1 FROM player_scenario_outlines o JOIN player_group_members pm ON pm.group_id=o.group_id WHERE pm.user_id=$1", {p1User}).empty());
         (void)ask;
+    });
+    test("one reminder plan maintains old entries and creates new ones, with evidence, scope and version guards", [&] {
+        auto client = std::make_unique<ReminderPlanClient>(); auto* fixture = client.get();
+        LlmGateway gateway(cfg, std::move(client));
+        ReminderService service(*S.db, gateway, *S.retrieval, *S.notifier);
+        p1 = S.auth->channelAccess(p1User, channelId);
+        auto event = [&](const std::string& text, bool secret = false) {
+            Json::Value b; b["content"] = text; b["kind"] = "narration"; if (secret) b["visibility"] = "gm_only";
+            auto m = S.chat->postMessage(gm, mainWin, b);
+            return S.db->queryOne("SELECT id AS event_id,seq,scene_id,kind,actor_role,payload,payload->>'content' AS content FROM events WHERE message_id=$1", {m["id"].asString()});
+        };
+        auto original = event("Bring the amber compass back to the archivist.");
+        auto insert = [&](const std::string& title, const ChannelAccess& view) {
+            Json::Value q; q["event_id"] = original["event_id"]; q["text"] = original["content"];
+            Json::Value qs(Json::arrayValue); qs.append(q);
+            auto citations = ReminderService::resolveCitations(qs, {{original["event_id"].asString(), original}});
+            return S.db->queryOne("INSERT INTO reminders(channel_id,player_group_id,scene_id,kind,title,why,citations,source_event_ids,dedupe_key,player_group_version) VALUES($1,$2::uuid,$3,'needed',$4,'Return it',$5::jsonb,$6::uuid[],$7,$8) RETURNING *", {channelId, view.isGm ? dbNull() : DbParam(view.playerGroupId), original["scene_id"].asString(), title, json::dump(citations), pgArrayLiteral({original["event_id"].asString()}), title, view.isGm ? dbNull() : DbParam((int64_t)view.playerGroupVersion)});
+        };
+        auto old = insert("Return amber compass", p1);
+        auto kp = insert("Keeper classified compass", gm);
+        auto other = insert("Other group compass", S.auth->channelAccess(p3User, channelId));
+        auto row = [&](const Json::Value& r) { return S.db->queryOne("SELECT * FROM reminders WHERE id=$1", {r["id"].asString()}); };
+        auto change = [&](const Json::Value& r, const std::string& action, const Json::Value& e) {
+            Json::Value c; c["reminder_id"] = r["id"]; c["expected_version"] = r["version"]; c["action"] = action; c["reason"] = "New conversation evidence.";
+            Json::Value q; q["event_id"] = e["event_id"]; q["text"] = e["content"]; c["quotes"].append(q); return c;
+        };
+        auto run = [&](const Json::Value& e, bool keeper = false) {
+            Json::Value batch(Json::arrayValue); batch.append(e); int calls = 0;
+            return keeper ? service.afterBatchKp(gm, batch, "", calls, Json::Value(Json::arrayValue)) : service.afterBatch(p1, batch, "", calls);
+        };
+        auto reset = [&] { fixture->plan = json::parse(R"({"changes":[],"reminders":[]})"); };
+        auto resolved = event("The archivist accepts the amber compass. Now bring the blue ledger to the dock.");
+        reset(); fixture->plan["changes"].append(change(old, "resolve", resolved));
+        auto newReminder = change(old, "update", resolved); newReminder["title"] = "Deliver the blue ledger"; newReminder["kind"] = "needed";
+        fixture->plan["reminders"].append(newReminder);
+        // Attempts to target another partition never enter the planner's managed set.
+        fixture->plan["changes"].append(change(kp, "resolve", resolved)); fixture->plan["changes"].append(change(other, "resolve", resolved));
+        int beforeCalls = fixture->calls; auto result = run(resolved);
+        CHECK(result["created"].asInt() == 1); CHECK(result["changed"].asInt() == 1); CHECK(fixture->calls == beforeCalls + 1);
+        CHECK(row(old)["status"] == "resolved"); CHECK(row(old)["citations"] == old["citations"]); CHECK(row(old)["source_event_ids"] == old["source_event_ids"]);
+        CHECK(row(kp)["status"] == "active"); CHECK(row(other)["status"] == "active");
+        for (const auto& r : fixture->context["managed_reminders"]) { CHECK(r["player_group_id"] == p1.playerGroupId); CHECK(r["id"] != kp["id"]); }
+        auto ledger = S.db->queryOne("SELECT * FROM reminders WHERE channel_id=$1 AND player_group_id=$2 AND title='Deliver the blue ledger'", {channelId, p1.playerGroupId});
+        CHECK(!ledger.isNull());
+        // No duplicate create or stale re-application on retry of the same batch.
+        result = run(resolved); CHECK(result["created"].asInt() == 0); CHECK(result["changed"].asInt() == 0);
+        auto away = event("We leave the docks and spend the night investigating the chapel.");
+        reset(); fixture->plan["changes"].append(change(ledger, "defer", away)); result = run(away);
+        CHECK(row(ledger)["status"] == "deferred"); CHECK(result["changed"].asInt() == 1);
+        for (const auto& r : service.list(p1)) CHECK(r["id"] != ledger["id"]);
+        // A per-user dismissal survives automatic reactivation.
+        S.db->exec("INSERT INTO reminder_dismissals(reminder_id,user_id) VALUES($1,$2)", {ledger["id"].asString(), p1User});
+        auto back = event("We return to the docks with the blue ledger.");
+        reset(); fixture->plan["changes"].append(change(row(ledger), "reactivate", back)); result = run(back);
+        CHECK(row(ledger)["status"] == "active"); CHECK(result["changed"].asInt() == 1);
+        for (const auto& r : service.list(p1)) CHECK(r["id"] != ledger["id"]);
+        // A valid update preserves original source material and records separate review evidence.
+        auto update = event("The dock clerk requests the blue ledger at the east pier.");
+        reset(); auto revised = change(row(ledger), "update", update); revised["title"] = "Deliver ledger at east pier"; fixture->plan["changes"].append(revised); run(update);
+        CHECK(row(ledger)["title"] == "Deliver ledger at east pier"); CHECK(row(ledger)["citations"] == ledger["citations"]);
+        CHECK(row(ledger)["review_citations"][0]["event_id"] == update["event_id"]);
+        // Forged quotes, historical evidence, stale versions and a model's guessed IDs cannot retire it.
+        auto next = event("The party discusses a different route.");
+        auto stable = row(ledger);
+        reset(); auto bad = change(stable, "resolve", next); bad["quotes"][0]["text"] = "The ledger was delivered."; fixture->plan["changes"].append(bad); run(next); CHECK(row(ledger) == stable);
+        reset(); fixture->plan["changes"].append(change(stable, "resolve", original)); run(next); CHECK(row(ledger) == stable);
+        reset(); bad = change(stable, "resolve", next); bad["expected_version"] = 1; fixture->plan["changes"].append(bad); run(next); CHECK(row(ledger) == stable);
+        auto secret = event("The blue ledger conceals the Keeper's private solution.", true);
+        reset(); fixture->plan["changes"].append(change(stable, "resolve", secret)); run(next); CHECK(row(ledger) == stable);
+        // Simulate a concurrent edit between model input and commit.
+        reset(); fixture->plan["changes"].append(change(stable, "resolve", next));
+        fixture->beforeReturn = [&] { S.db->exec("UPDATE reminders SET version=version+1 WHERE id=$1", {ledger["id"].asString()}); };
+        run(next); fixture->beforeReturn = nullptr; CHECK(row(ledger)["status"] == "active");
+        reset(); fixture->plan["changes"].append(change(row(old), "reactivate", next)); run(next); CHECK(row(old)["status"] == "resolved");
+        // The Keeper has the same lifecycle but never receives player reminder state.
+        reset(); fixture->plan["changes"].append(change(kp, "resolve", next)); result = run(next, true);
+        CHECK(result["changed"].asInt() == 1); CHECK(row(kp)["status"] == "resolved");
+        for (const auto& r : fixture->context["managed_reminders"]) CHECK(r["player_group_id"].isNull());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM reminder_revisions WHERE reminder_id=$1", {ledger["id"].asString()})["n"].asInt() == 3);
+        CHECK(S.db->queryOne("SELECT payload->>'content' AS content FROM events WHERE id=$1", {original["event_id"].asString()})["content"] == original["content"]);
     });
     test("script knowledge: built from the module, moved only by reviewed changes, pinned on the Keeper's board, Keeper-only", [&] {
         std::vector<std::string> pages = {

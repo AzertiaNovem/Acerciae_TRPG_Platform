@@ -151,6 +151,13 @@ void Notifier::kpBoardUpdated(const std::string& channelId, const Json::Value& b
     std::set<std::string> allowed; for (const auto& u : gmUsers(channelId)) allowed.insert(u);
     WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(allowed)));
 }
+void Notifier::remindersChanged(const std::string& channelId, const std::string& groupId) {
+    Json::Value msg; msg["type"] = "reminders.changed"; msg["channel_id"] = channelId;
+    std::set<std::string> allowed;
+    if (!groupId.empty()) for (const auto& m : db_.queryJson("SELECT user_id FROM player_group_members WHERE group_id=$1", {groupId})) allowed.insert(m["user_id"].asString());
+    else for (const auto& u : gmUsers(channelId)) allowed.insert(u);
+    WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(allowed)));
+}
 void Notifier::scriptKnowledgeChanged(const std::string& channelId, const Json::Value& payload) {
     Json::Value msg; msg["type"] = "script.changed"; msg["channel_id"] = channelId; msg["payload"] = payload;
     std::set<std::string> allowed; for (const auto& u : gmUsers(channelId)) allowed.insert(u);

@@ -49,7 +49,7 @@ export function useRealtime() {
         useDocuments.getState().loadList(ch).catch(()=>undefined); useHighlights.getState().load(ch).catch(()=>undefined); useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
         const win=useNav.getState().windowId; if(win) useChat.getState().load(ch,win).catch(()=>undefined);
       }
-      else if (m.type === 'reminder.created') useReminders.getState().add(m.reminder);
+      else if (m.type === 'reminder.created' || m.type === 'reminders.changed' || m.type === '_open') useReminders.getState().load(ch).catch(() => undefined);
       else if (m.type === 'kp.board') useKp.getState().set(m.board);
       else if (m.type === 'script.changed') { if (m.payload?.rebuilt) useUi.getState().toast('Script knowledge rebuilt from the module.', 'ai'); else if (m.payload?.applied) useUi.getState().toast(`Script knowledge: ${m.payload.applied} reviewed change(s) applied.`, 'ai'); }
       else if (m.type === 'highlight.created') useHighlights.getState().add(m.highlight);
@@ -58,7 +58,7 @@ export function useRealtime() {
       else if (m.type === 'module.updated') useUi.getState().toast('Module workspace updated.', 'ai');
       else if (m.type === 'ai.job' && m.job?.status === 'failed') useUi.getState().toast(`AI observer error: ${m.job.error}`, 'error');
     });
-    const prune = setInterval(() => useHighlights.getState().prune(), 15000);
+    const prune = setInterval(() => { useHighlights.getState().prune(); useReminders.getState().prune(); }, 15000);
     return () => { offChat(); offCtx(); clearInterval(prune); };
   }, []);
   useEffect(() => {
@@ -76,15 +76,16 @@ export function useRealtime() {
         if(!active) return;
         const next=groups.map(g=>`${g.id}:${g.version}`).join(',');
         if(groupVersion && groupVersion!==next) {
-          bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useUi.getState().reset();
+          bumpEpoch(); useReminders.getState().reset(); useReminders.getState().load(channelId).catch(() => undefined); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useUi.getState().reset();
           useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
           const win=useNav.getState().windowId; if(win) useChat.getState().load(channelId,win).catch(()=>undefined);
         }
         groupVersion=next; await useDocuments.getState().loadList(channelId);
       } catch { /* socket reconnect or next poll will retry */ }
     };
+    const remindersTimer = setInterval(() => useReminders.getState().load(channelId).catch(() => undefined), 30000);
     poll(); const timer=setInterval(poll,10000);
-    return ()=>{active=false;clearInterval(timer);};
+    return ()=>{active=false;clearInterval(timer);clearInterval(remindersTimer);};
   }, [channelId]);
   useEffect(() => {
     if (!channelId || !windowId) return;
