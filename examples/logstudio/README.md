@@ -1,6 +1,6 @@
 # Log Studio fixtures
 
-These are authored test examples, not real player records or canned production outputs. Import `canonical.json`, `sealdice-105.json`, `sealdice.txt` or `rendered.txt` through Import, inspect the preview, map nicknames and commit. The SealDice JSON shape was checked against the pinned upstream source described in `docs/LOG_STUDIO.md`; version 105 is the tested fixture version.
+These are authored test examples, not real player records or canned production outputs. The campaign log is no longer imported: it is synced from the channel's own chat. `canonical.json`, `sealdice-105.json`, `sealdice.txt` and `rendered.txt` show the shapes the exports produce (native JSON, SealDice JSON per chat window, SealDice text, plain text); the SealDice JSON shape was checked against the pinned upstream source described in `docs/LOG_STUDIO.md`, version 105.
 
 Select a public-player snapshot and use `pdf-classic.json`, `pdf-dossier.json` or `pdf-novel.json` as the config in a PDF request. They contain no external images. Upload and approve your own cover/illustrations, then fill in their returned IDs. The actual PDF is rendered by the worker from snapshot data.
 

@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            pdf-worker/package-lock.json
+            tests/integration/package-lock.json
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          # libmariadb-dev only because Ubuntu's Drogon package was built with MySQL support (see README).
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libdrogon-dev libtrantor-dev libpqxx-dev libpq-dev libjsoncpp-dev libpoppler-cpp-dev \
+            libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libbrotli-dev libhiredis-dev libyaml-cpp-dev \
+            libsqlite3-dev libmariadb-dev libmariadb-dev-compat postgresql-client fonts-noto-cjk
+
+      - name: Build backend
+        run: |
+          cmake -S backend -B backend/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build backend/build
+
+      - name: Test (unit, database, HTTP/WebSocket, PDF worker, frontend)
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: scripts/test.sh postgresql://postgres:postgres@localhost:5432/postgres
+
+      - name: Server logs
+        if: failure()
+        run: |
+          tail -n 200 /tmp/acerciae-e2e.log || true
+          tail -n 100 /tmp/acerciae-pdf-worker.log || true

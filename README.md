@@ -209,15 +209,17 @@ page styles and permission-filtered document appendices. Published styled logs, 
 content/resources and support revocable sharing. Style/character profiles, uploaded assets, candidate image generation and
 reviewed delivery suggestions reuse the same campaign context without modifying historical facts.
 
-Automatic visual-novel template generation is intentionally deferred. Real Qwen and image HTTP adapters are implemented,
+Real Qwen speech and GPT-Image-compatible image adapters are implemented and exercised against local protocol fixtures,
 but paid-service credentials were not available for live verification. Mock TTS produces labelled tone WAVs; Mock images are
-labelled procedural test patterns. They do not pretend to be real voices/artwork. The image HTTP adapter requires a gateway
-matching the documented contract. Local Qwen3 inference, video/FFmpeg export and pixel-perfect generated identity are not
-implemented. Docker/MinIO deployment has not been executed here; the local C++/PostgreSQL/Node path was tested.
+labelled procedural test patterns. They do not pretend to be real voices/artwork. Local Qwen3 inference, video/FFmpeg export
+and pixel-perfect generated identity are not implemented. Docker/MinIO deployment has not been executed here; the local
+C++/PostgreSQL/Node path was tested.
 
-Open Log Studio → Library to create/import a project and select a snapshot. The GM can set the character budget and enable
-cloud processing under Campaign production settings (disabled by default). Configure provider credentials/region in server
-settings or the backend environment. A separate PDF worker must be running for PDF jobs to leave pending state:
+Open Log Studio: the campaign log is there for every member within their own view, and snapshots of it feed PDFs and
+visual novels. The Keeper decides whether the Studio is shown and whether players may open it before the story ends; ending
+the story opens it to everyone with the whole story. The GM sets the speech budget and enables cloud processing for Studio
+work under Campaign production settings (disabled by default); providers and keys come from Server settings → AI. A
+separate PDF worker must be running for PDF jobs to leave pending state:
 
 ```bash
 npm --prefix pdf-worker ci
@@ -229,7 +231,8 @@ On the Visual novel tab any member can make a visual novel in four steps: the LL
 as time blocks and writes the script (backgrounds and portrait subtitles, never new text), the image AI paints missing
 backgrounds and generated-mode portraits, the author casts a voice for every character and the narration (Qwen TTS),
 and a zip with a standalone HTML player, the images and the voice lines downloads for offline viewing. The server
-maintainer can turn the Log Studio off, and the Keeper can hide it per channel. See
+maintainer can turn the Log Studio off, and the Keeper can hide it per channel or keep it from players until the story
+ends. See
 [visual novel guide](docs/VISUAL_NOVEL.md).
 
 A server maintainer can switch on **COC7 point-buy** (Server settings → Features): role cards then show the
@@ -245,13 +248,15 @@ shared mobile-facing contracts; `mobile/` development is maintained independentl
 ## Tests
 
 ```bash
-scripts/test.sh                      # unit + DB + end-to-end + typecheck against a local PostgreSQL
+scripts/test.sh                      # everything below, against a local PostgreSQL (CI runs the same script)
 # or individually
 backend/build/unit_tests             # no DB needed
 (cd backend && TEST_DATABASE_URL=postgresql://postgres@localhost:5432/acerciae_test ./build/db_tests)
-API_BASE=http://localhost:8080 node --test tests/integration/scenarios.test.mjs
+# every HTTP suite against a running backend (start it with ACERCIAE_STRICT_DB=1 to fail on nested transactions,
+# AUTH_REGISTER_PER_HOUR high enough for the suites' registrations, and a PDF worker for logstudio.test.mjs)
+API_BASE=http://localhost:8080 node --test --test-concurrency=1 tests/integration/*.test.mjs
 npm --prefix pdf-worker test
-API_BASE=http://localhost:18081 node --test tests/integration/logstudio.test.mjs  # isolated mock server + real PDF worker
+npm --prefix frontend test && npm --prefix frontend run build
 ```
 
 See [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) for how each mandated scenario is exercised and how to
@@ -263,6 +268,8 @@ reproduce it by hand with the demo campaign.
 * [docs/DATA_FLOW.md](docs/DATA_FLOW.md) — the vertical flow from message to highlighted document, proposal validation
 * [docs/API.md](docs/API.md) — HTTP and WebSocket reference
 * [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) — the seven scenarios
+* [docs/OPERATIONS.md](docs/OPERATIONS.md) — deployment checklist, TLS, backups and restore, upgrades, housekeeping
+* [docs/SERVER_AI_SETTINGS.zh-CN.md](docs/SERVER_AI_SETTINGS.zh-CN.md) — server AI providers and AI policy
 
 ## Known limitations (explicitly out of the MVP)
 

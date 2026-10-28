@@ -22,7 +22,7 @@ Earlier status follows.
 
 # Integration status — 27 October 2026
 
-Both Claude branches were merged into `main` and pushed as `25c1b53`. The additional Log Studio implementation is on `codex/log-studio-publication`. Automatic visual-novel template generation is deliberately deferred; the existing manually edited presentation/player is retained. No files under `mobile/` were edited or staged by this work.
+Both Claude branches were merged into `main` and pushed as `25c1b53`. The additional Log Studio implementation is on `codex/log-studio-publication`. (Historical note: visual-novel generation has since shipped; see `docs/VISUAL_NOVEL.md`.) No files under `mobile/` were edited or staged by this work.
 
 ## Local services
 
