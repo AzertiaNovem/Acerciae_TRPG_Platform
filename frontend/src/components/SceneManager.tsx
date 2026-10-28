@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 import type { Scene } from '../types';
+import ScenarioConfirm from './ScenarioConfirm';
 
 // Scenarios are the stages of the story and a campaign-wide state: every chat window is in the current one.
 // Only the Keeper opens the next scenario; the previous one closes at that moment, is summarized, and can then
@@ -15,6 +16,7 @@ export default function SceneManager() {
   const [form, setForm] = useState<Partial<Scene>>({ title: '', location: '', narrative_time: '' });
   const [edit, setEdit] = useState<Scene | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{ next: Partial<Scene>; go: () => Promise<void> } | null>(null);
   const refresh = () => { refreshScenes(); refreshWindows(); };
   const advance = async () => { if (!channelId) return; setBusy('advance'); try { await api.advanceScenario(channelId, form as any); setForm({ title: '', location: '', narrative_time: '' }); toast(tr('Next scenario opened; the previous one is being summarized.')); refresh(); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(null); } };
   const prepare = async () => { if (!channelId || !form.title) return; try { await api.createScene(channelId, form as any); setForm({ title: '', location: '', narrative_time: '' }); toast(tr('Scenario prepared. Enter it when the story gets there.')); refreshScenes(); } catch (e: any) { toast(e.message, 'error'); } };
@@ -36,7 +38,7 @@ export default function SceneManager() {
           <input placeholder={tr("Title")} value={form.title ?? ''} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <input placeholder={tr("Location")} value={form.location ?? ''} onChange={(e) => setForm({ ...form, location: e.target.value })} />
           <input placeholder={tr("Narrative time")} value={form.narrative_time ?? ''} onChange={(e) => setForm({ ...form, narrative_time: e.target.value })} />
-          <button className="primary" onClick={advance} disabled={busy === 'advance'}>{tr("Open now")}</button>
+          <button className="primary" onClick={() => setConfirming({ next: form, go: advance })} disabled={busy === 'advance'}>{tr("Open now")}</button>
           <button onClick={prepare} disabled={!form.title}>{tr("Prepare for later")}</button>
         </div>
         <div className="tiny muted" style={{ marginTop: 4 }}>{tr("Open now closes the current scenario at once. A prepared scenario waits in the list until you enter it.")}</div>
@@ -63,11 +65,12 @@ export default function SceneManager() {
                   </>
                 )}
               </td>
-              <td className="row" style={{ flexWrap: 'wrap' }}>{edit?.id === s.id ? <><button className="primary small" onClick={save}>{tr("Save")}</button><button className="ghost small" onClick={() => setEdit(null)}>{tr("Cancel")}</button></> : <><button className="ghost small" onClick={() => setEdit(s)}>{tr("edit")}</button>{s.status === 'closed' && <button className="ghost small" onClick={() => summarize(s)} disabled={busy === s.id}>{tr("Summarize")}</button>}{s.status === 'active' && s.id !== currentId && <button className="small" onClick={() => enter(s)} disabled={busy === s.id}>{tr("Enter")}</button>}</>}</td>
+              <td className="row" style={{ flexWrap: 'wrap' }}>{edit?.id === s.id ? <><button className="primary small" onClick={save}>{tr("Save")}</button><button className="ghost small" onClick={() => setEdit(null)}>{tr("Cancel")}</button></> : <><button className="ghost small" onClick={() => setEdit(s)}>{tr("edit")}</button>{s.status === 'closed' && <button className="ghost small" onClick={() => summarize(s)} disabled={busy === s.id}>{tr("Summarize")}</button>}{s.status === 'active' && s.id !== currentId && <button className="small" onClick={() => setConfirming({ next: s, go: () => enter(s) })} disabled={busy === s.id}>{tr("Enter")}</button>}</>}</td>
             </tr>
           ))}
         </tbody></table>
       </div>
+      {confirming && <ScenarioConfirm current={current} next={confirming.next} onCancel={() => setConfirming(null)} onConfirm={async () => { await confirming.go(); setConfirming(null); }} />}
     </div>
   );
 }

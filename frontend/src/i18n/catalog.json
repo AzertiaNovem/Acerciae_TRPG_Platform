@@ -13774,5 +13774,89 @@
     "Рост даёт проверка развития; его записывает Хранитель.",
     "A evolução vem dos testes de evolução; o Guardião a registra.",
     "La crescita deriva dai tiri di miglioramento; la registra il Custode."
+  ],
+  "Enter a new scenario?": [
+    "进入新的阶段？",
+    "進入新的階段？",
+    "新しいシナリオに入りますか？",
+    "새 시나리오로 들어갈까요?",
+    "¿Entrar en un nuevo escenario?",
+    "Entrer dans un nouveau scénario ?",
+    "Ein neues Szenario betreten?",
+    "Перейти к новому сценарию?",
+    "Entrar em um novo cenário?",
+    "Entrare in un nuovo scenario?"
+  ],
+  "Current scenario": [
+    "当前阶段",
+    "目前階段",
+    "現在のシナリオ",
+    "현재 시나리오",
+    "Escenario actual",
+    "Scénario actuel",
+    "Aktuelles Szenario",
+    "Текущий сценарий",
+    "Cenário atual",
+    "Scenario attuale"
+  ],
+  "Untitled scenario": [
+    "未命名阶段",
+    "未命名階段",
+    "無題のシナリオ",
+    "제목 없는 시나리오",
+    "Escenario sin título",
+    "Scénario sans titre",
+    "Unbenanntes Szenario",
+    "Сценарий без названия",
+    "Cenário sem título",
+    "Scenario senza titolo"
+  ],
+  "Every chat window moves to the new scenario.": [
+    "所有聊天窗口都会进入新阶段。",
+    "所有聊天視窗都會進入新階段。",
+    "すべてのチャットウィンドウが新しいシナリオに移ります。",
+    "모든 채팅 창이 새 시나리오로 이동합니다.",
+    "Todas las ventanas de chat pasan al nuevo escenario.",
+    "Toutes les fenêtres de discussion passent au nouveau scénario.",
+    "Alle Chatfenster wechseln in das neue Szenario.",
+    "Все окна чата переходят в новый сценарий.",
+    "Todas as janelas de chat passam para o novo cenário.",
+    "Tutte le finestre di chat passano al nuovo scenario."
+  ],
+  "The current scenario closes and is summarized; from then on it can only be consulted.": [
+    "当前阶段将关闭并生成总结，此后只能查阅。",
+    "目前階段將關閉並產生總結，此後只能查閱。",
+    "現在のシナリオは閉じられて要約され、以後は閲覧のみになります。",
+    "현재 시나리오는 닫히고 요약되며, 이후에는 열람만 할 수 있습니다.",
+    "El escenario actual se cierra y se resume; a partir de entonces solo se puede consultar.",
+    "Le scénario actuel est clos et résumé ; il ne peut ensuite qu’être consulté.",
+    "Das aktuelle Szenario wird geschlossen und zusammengefasst; danach kann es nur noch eingesehen werden.",
+    "Текущий сценарий закрывается и получает сводку; после этого его можно только просматривать.",
+    "O cenário atual é encerrado e resumido; a partir daí só pode ser consultado.",
+    "Lo scenario attuale viene chiuso e riassunto; da quel momento si può solo consultare."
+  ],
+  "This cannot be undone.": [
+    "此操作无法撤销。",
+    "此操作無法復原。",
+    "この操作は取り消せません。",
+    "이 작업은 되돌릴 수 없습니다.",
+    "Esto no se puede deshacer.",
+    "Cette action est irréversible.",
+    "Dies kann nicht rückgängig gemacht werden.",
+    "Это действие нельзя отменить.",
+    "Isso não pode ser desfeito.",
+    "Questa azione non può essere annullata."
+  ],
+  "Enter scenario": [
+    "进入阶段",
+    "進入階段",
+    "シナリオに入る",
+    "시나리오 시작",
+    "Entrar en el escenario",
+    "Entrer dans le scénario",
+    "Szenario betreten",
+    "Перейти к сценарию",
+    "Entrar no cenário",
+    "Entra nello scenario"
   ]
 }

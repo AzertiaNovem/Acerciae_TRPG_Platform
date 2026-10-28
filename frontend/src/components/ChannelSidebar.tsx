@@ -8,6 +8,7 @@ import { api } from '../api/client';
 import { useUi } from '../store/ui';
 import UserPicker, { userCandidate } from './UserPicker';
 import WindowMembersModal from './WindowMembersModal';
+import ScenarioConfirm from './ScenarioConfirm';
 import UserSettingsModal from './UserSettingsModal';
 import ServerSettingsModal from './ServerSettingsModal';
 import type { ChannelMember, ServerMember } from '../types';
@@ -18,6 +19,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   const { user, logout } = useAuth();
   const toast = useUi((s) => s.toast);
   const [openScenario, setOpenScenario] = useState<string | null>(null);
+  const [confirmScenario, setConfirmScenario] = useState(false);
   const [dialog, setDialog] = useState<null | 'channel' | 'window' | 'member' | 'character'>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [picked, setPicked] = useState<string[]>([]);
@@ -105,7 +107,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
                   : <span className="tiny muted">{(w.members ?? []).length}</span>}
               </div>
             ))}
-            <div className="section"><span>{tr("Scenarios")}</span>{isGm && <button className="ghost small" title={tr("Open the next scenario for the whole campaign")} onClick={async () => { try { await api.advanceScenario(nav.channelId!, {}); nav.refreshWindows(); nav.refreshScenes(); } catch (e: any) { toast(e.message, 'error'); } }}>▶</button>}</div>
+            <div className="section"><span>{tr("Scenarios")}</span>{isGm && <button className="ghost small" title={tr("Open the next scenario for the whole campaign")} onClick={() => setConfirmScenario(true)}>▶</button>}</div>
             {nav.scenes.length === 0 && <div className="item" style={{ cursor: 'default' }}><span className="name small muted">—</span></div>}
             {nav.scenes.slice(-8).map((s) => {
               const current = s.id === nav.channel?.current_scene_id;
@@ -178,6 +180,8 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
         </div>
       )}
       {manageWindow && <WindowMembersModal windowId={manageWindow} onClose={() => setManageWindow(null)} />}
+      {confirmScenario && <ScenarioConfirm current={nav.scenes.find((s) => s.id === nav.channel?.current_scene_id)} next={{}} onCancel={() => setConfirmScenario(false)}
+        onConfirm={async () => { try { await api.advanceScenario(nav.channelId!, {}); nav.refreshWindows(); nav.refreshScenes(); } catch (e: any) { toast(e.message, 'error'); } setConfirmScenario(false); }} />}
       {userSettingsOpen && <UserSettingsModal onClose={() => setUserSettingsOpen(false)} />}
       {serverSettingsOpen && <ServerSettingsModal onClose={() => setServerSettingsOpen(false)} />}
     </div>

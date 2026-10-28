@@ -127,7 +127,8 @@ from an appearance prompt that the image AI combines with the campaign's era and
 image per subtitle (IDLE, SAY, FIGHT, …) feeds the visual novel.
 
 **Scenarios** — the story's stages, and a campaign-wide state: every chat window is in the channel's current
-scenario. Only the Keeper opens the next one (or enters a prepared one); at that moment the previous scenario closes,
+scenario. Only the Keeper opens the next one (or enters a prepared one), after a confirmation window that names the
+current and the new scenario; at that moment the previous scenario closes,
 gets an AI summary in the scenario list, and can only be consulted from then on. The Keeper's observer still watches the
 narration: when it sees a shift of time or place it raises a "New scenario?" bubble in the Keeper's dock, anchored to the
 line, but never opens one itself. Chat can be located by scenario or by time (`list_scenarios`, `get_chat_log`).
