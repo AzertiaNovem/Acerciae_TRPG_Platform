@@ -15,7 +15,7 @@ export default function DocumentRevisionViewer({ documentId, isGm, onRolledBack 
   useEffect(load, [channelId, documentId]);
   const view = async (v: number) => { if (!channelId) return; if (open === v) { setOpen(null); return; } setOpen(v); setSnapshot(await api.revision(channelId, documentId, v)); };
   const rollback = async (v: number) => {
-    if (!channelId || !confirm(`Roll back to version ${v}? A new revision will be recorded; nothing is deleted.`)) return;
+    if (!channelId || !confirm(tr('Roll back to version {v}? A new revision will be recorded; nothing is deleted.', { v }))) return;
     try { await api.rollback(channelId, documentId, v); toast(`Rolled back to v${v}`); load(); onRolledBack(); } catch (e: any) { toast(e.message, 'error'); }
   };
   return (

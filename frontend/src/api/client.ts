@@ -1,9 +1,10 @@
 import type * as T from '../types';
+import { readStorage, writeStorage } from '../lib/storage';
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '';
-let token: string | null = localStorage.getItem('acerciae.token');
+let token: string | null = readStorage('acerciae.token');
 
-export function setToken(t: string | null) { token = t; fileTok = null; if (t) localStorage.setItem('acerciae.token', t); else localStorage.removeItem('acerciae.token'); }
+export function setToken(t: string | null) { token = t; fileTok = null; writeStorage('acerciae.token', t); }
 export function getToken() { return token; }
 
 // URLs a browser loads by itself (images, audio, downloads, the WebSocket) carry a short-lived file token, never the

@@ -44,7 +44,7 @@ export default function VisualNovelEditor() {
     else { const i = list.findIndex((p) => p.character_id === charId); if (i >= 0) list[i] = { ...list[i], ...patch }; else list.push({ character_id: charId, position: 'center', ...patch }); }
     await patchEvent(e, { character_asset_ids: list });
   };
-  const split = async (e: PresentationEvent) => { const text = e.display_text; const at = prompt(`Split after how many characters? (1–${[...text].length - 1})`, String(Math.floor([...text].length / 2))); if (!at) return; const n = +at; const bytes = new TextEncoder().encode([...text].slice(0, n).join('')).length; if (!channelId || !pres) return; try { await api.splitPEvent(channelId, e.id, [bytes]); await loadPres(pres.id); } catch (err: any) { toast(err.message, 'error'); } };
+  const split = async (e: PresentationEvent) => { const text = e.display_text; const at = prompt(tr('Split after how many characters? (1–{max})', { max: [...text].length - 1 }), String(Math.floor([...text].length / 2))); if (!at) return; const n = +at; const bytes = new TextEncoder().encode([...text].slice(0, n).join('')).length; if (!channelId || !pres) return; try { await api.splitPEvent(channelId, e.id, [bytes]); await loadPres(pres.id); } catch (err: any) { toast(err.message, 'error'); } };
   const merge = async () => { if (!channelId || !pres || selected.length < 2) return; try { await api.mergePEvents(channelId, pres.id, selected); setSelected([]); await loadPres(pres.id); } catch (err: any) { toast(err.message, 'error'); } };
   const scene = cur?.scene_id ? pres?.scenes?.find((s) => s.id === cur.scene_id) : undefined;
   const bgAssets = assets.filter((a) => a.asset_type === 'background' && a.approval_status === 'approved');
@@ -83,7 +83,7 @@ export default function VisualNovelEditor() {
         <span className="grow" />
         <button className="primary small" onClick={() => setPlayerMode(true)}>{tr("▶ Play")}</button>
         <a className="button small" href={api.bundleUrl(channelId!, pres.id)}>{tr("Download the visual novel (zip)")}</a>
-        {canEdit && <button className="ghost small" onClick={async () => { if (!channelId || !confirm('Delete this presentation?')) return; await api.deletePresentation(channelId, pres.id); setPresentation(null); loadList(); }}>{tr("delete")}</button>}
+        {canEdit && <button className="ghost small" onClick={async () => { if (!channelId || !confirm(tr('Delete this presentation?'))) return; await api.deletePresentation(channelId, pres.id); setPresentation(null); loadList(); }}>{tr("delete")}</button>}
       </div>
       <div className="vn-editor">
         <div className="card list">

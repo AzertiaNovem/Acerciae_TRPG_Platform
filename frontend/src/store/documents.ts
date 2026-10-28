@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { readJson, writeStorage } from '../lib/storage';
 import { api } from '../api/client';
 import type { DocumentSummary, DocumentFull, DocType } from '../types';
 import { sessionEpoch, isStale } from './session';
@@ -24,7 +25,7 @@ interface DocState {
   reset: () => void;
 }
 export const useDocuments = create<DocState>((set, get) => ({
-  list: [], full: {}, seenVersion: JSON.parse(localStorage.getItem('acerciae.seen') || '{}'), pulse: {}, expandedId: null, dockCollapsed: false, focusEntryId: null,
+  list: [], full: {}, seenVersion: readJson<Record<string, number>>('acerciae.seen', {}), pulse: {}, expandedId: null, dockCollapsed: false, focusEntryId: null,
   loadList: async (ch) => { const e = sessionEpoch(); const list = await api.documents(ch); if (isStale(e)) return; set(s=>({list, full:Object.fromEntries(Object.entries(s.full).filter(([id])=>list.some(d=>d.id===id))), expandedId:list.some(d=>d.id===s.expandedId)?s.expandedId:null})); },
   loadDocument: async (ch, id, sceneId) => {
     const since = get().seenVersion[id] ?? -1;
@@ -43,7 +44,7 @@ export const useDocuments = create<DocState>((set, get) => ({
   markSeen: (id) => set((s) => {
     const v = s.full[id]?.version ?? s.list.find((d) => d.id === id)?.version ?? 0;
     const seen = { ...s.seenVersion, [id]: v };
-    localStorage.setItem('acerciae.seen', JSON.stringify(seen));
+    writeStorage('acerciae.seen', JSON.stringify(seen));
     return { seenVersion: seen };
   }),
   onUpdated: (p, ch, sceneId) => {

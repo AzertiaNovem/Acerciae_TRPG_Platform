@@ -1,4 +1,6 @@
 import { t as tr } from '../i18n';
+import { activate } from '../lib/a11y';
+import { useEscape } from '../hooks/useEscape';
 import { useEffect, useState } from 'react';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
@@ -66,17 +68,23 @@ export default function ServerSidebar({ onPick }: { onPick: () => void }) {
     setInviteCode(code); setDialog('join');
     const url = new URL(location.href); url.searchParams.delete('invite'); history.replaceState(null, '', url.toString());
   }, []);
-  const create = async () => { if (!name.trim()) return; const s = await api.createServer(name.trim()); setName(''); setDialog(null); await loadServers(); await selectServer(s.id); };
+  const toast = useUi((s) => s.toast);
+  const create = async () => {
+    if (!name.trim()) return;
+    try { const s = await api.createServer(name.trim()); setName(''); setDialog(null); await loadServers(); await selectServer(s.id); }
+    catch (e: any) { toast(e.message, 'error'); }
+  };
+  useEscape(dialog ? () => setDialog(null) : null);
   const joined = async (id: string) => { setDialog(null); setInviteCode(''); await loadServers(); await selectServer(id); onPick(); };
   return (
     <div className="server-sidebar">
       {servers.map((s) => (
-        <div key={s.id} className={`server-icon ${s.id === serverId ? 'active' : ''}`} title={s.my_role === 'guest' ? `${s.name} (${tr("guest")})` : s.name} onClick={() => { selectServer(s.id); onPick(); }}>{s.name.slice(0, 2).toUpperCase()}</div>
+        <div key={s.id} className={`server-icon ${s.id === serverId ? 'active' : ''}`} title={s.my_role === 'guest' ? `${s.name} (${tr("guest")})` : s.name} aria-label={s.name} {...activate(() => { selectServer(s.id); onPick(); })}>{s.name.slice(0, 2).toUpperCase()}</div>
       ))}
-      <div className="server-icon add" title={tr("Create or join a server")} onClick={() => setDialog('create')}>+</div>
+      <div className="server-icon add" title={tr("Create or join a server")} aria-label={tr("Create or join a server")} {...activate(() => setDialog('create'))}>+</div>
       {dialog && (
         <div className="modal-backdrop" onClick={() => setDialog(null)}>
-          <div className="modal col" onClick={(e) => e.stopPropagation()}>
+          <div className="modal col" role="dialog" aria-modal="true" aria-label={tr("Create or join a server")} onClick={(e) => e.stopPropagation()}>
             <div className="tabs inline">
               <button className={dialog === 'create' ? 'active' : ''} onClick={() => setDialog('create')}>{tr("New server")}</button>
               <button className={dialog === 'join' ? 'active' : ''} onClick={() => setDialog('join')}>{tr("Join a server")}</button>

@@ -208,7 +208,7 @@ export default function PdfTemplateEditor() {
           {channel?.my_role === "gm" && (
             <button
               onClick={async () => {
-                const name = window.prompt("Template name");
+                const name = window.prompt(tr("Template name"));
                 if (name)
                   try {
                     await api.saveTemplate(ch, name, config);

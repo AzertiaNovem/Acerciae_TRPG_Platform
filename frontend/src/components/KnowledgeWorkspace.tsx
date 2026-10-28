@@ -57,11 +57,16 @@ export default function KnowledgeWorkspace() {
     load(); const timer=setInterval(load,10000);
     return ()=>{live=false;clearInterval(timer);};
   },[channelId,toast]);
+  // Refetch the open document only when another one is chosen or its version moves; the 10 s list poll must not
+  // unmount the entries (that would throw away a correction being typed).
+  const selectedVersion=docs.find(d=>d.id===selected)?.version;
+  const shownId=doc?.id;
   useEffect(()=>{
-    let live=true; setDoc(null);
+    let live=true; if(shownId!==selected) setDoc(null);
     if(channelId && selected) api.document(channelId,selected,'all').then(d=>{if(live)setDoc(d);}).catch(e=>toast(e.message,'error'));
     return ()=>{live=false;};
-  },[channelId,selected,docs,toast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[channelId,selected,selectedVersion,toast]);
   const reload=()=>{if(channelId && selected)api.document(channelId,selected,'all').then(setDoc).catch(e=>toast(e.message,'error'));};
   const entries=(doc?.entries??[]).filter(e=>(!status || e.status===status) && (!query || `${e.summary} ${e.content_md} ${e.scene_title??''} ${e.section}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())));
   const sections=[...new Set(entries.map(e=>e.section||e.status))];

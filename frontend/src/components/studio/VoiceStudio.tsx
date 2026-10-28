@@ -68,7 +68,7 @@ export default function VoiceStudio() {
                 <td><select value={v.character_id ?? ''} onChange={(e) => channelId && api.updateVoice(channelId, v.id, { character_id: e.target.value || null }).then(load)}><option value="">{tr("narrator / unassigned")}</option>{characters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></td>
                 <td><span className="pill">{v.voice_type}</span>{v.voice_type === 'clone' && <div className="tiny muted">{tr("consent: ")}{v.consent_metadata?.rights_holder}</div>}</td>
                 <td><input value={v.style_instruction} onChange={(e) => setVoices(voices.map((x) => (x.id === v.id ? { ...x, style_instruction: e.target.value } : x)))} onBlur={(e) => channelId && api.updateVoice(channelId, v.id, { style_instruction: e.target.value }).then(load)} style={{ width: 160 }} /></td>
-                <td className="row"><button className="small" onClick={() => audition(v)}>{tr("▶ audition")}</button><button className="ghost small" onClick={() => channelId && api.deleteVoice(channelId, v.id).then(load)}>✕</button></td></tr>
+                <td className="row"><button className="small" onClick={() => audition(v)}>{tr("▶ audition")}</button><button className="ghost small" aria-label={tr("Delete voice")} title={tr("Delete voice")} onClick={() => channelId && confirm(tr('Delete this voice? Lines already voiced with it keep their audio.')) && api.deleteVoice(channelId, v.id).then(load).catch((e) => toast(e.message, 'error'))}>✕</button></td></tr>
             ))}
           </tbody></table>
           <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>

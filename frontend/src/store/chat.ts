@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useUi } from './ui';
 import { api } from '../api/client';
 import type { Message } from '../types';
 import { sessionEpoch, isStale } from './session';
@@ -25,6 +26,7 @@ interface ChatState {
   clearJump: () => void;
   reset: () => void;
 }
+const olderInFlight = new Set<string>();
 export const useChat = create<ChatState>((set, get) => ({
   byWindow: {}, loading: {}, jumpTo: null, references: [],
   addReference: (m) => set(s=>({references:s.references.some(r=>r.id===m.id)?s.references:[...s.references,m].slice(0,5)})),
@@ -38,15 +40,20 @@ export const useChat = create<ChatState>((set, get) => ({
       if (isStale(e)) return;
       // Merge: messages that arrived over the WebSocket while the request was in flight are kept.
       set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], msgs) } }));
-    } finally { if (!isStale(e)) set((s) => ({ loading: { ...s.loading, [w]: false } })); }
+    } catch (err: any) { if (!isStale(e)) useUi.getState().toast(err.message, 'error'); }
+    finally { if (!isStale(e)) set((s) => ({ loading: { ...s.loading, [w]: false } })); }
   },
   loadOlder: async (ch, w) => {
     const cur = get().byWindow[w] ?? [];
-    if (!cur.length) return;
+    if (!cur.length || olderInFlight.has(w)) return;   // scrolling fires this many times; one request at a time
+    olderInFlight.add(w);
     const e = sessionEpoch();
-    const older = await api.messages(ch, w, cur[0].seq);
-    if (isStale(e) || !older.length) return;
-    set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], older) } }));
+    try {
+      const older = await api.messages(ch, w, cur[0].seq);
+      if (isStale(e) || !older.length) return;
+      set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], older) } }));
+    } catch (err: any) { useUi.getState().toast(err.message, 'error'); }
+    finally { olderInFlight.delete(w); }
   },
   push: (m) => set((s) => {
     const list = s.byWindow[m.chat_window_id] ?? [];

@@ -111,7 +111,7 @@ function ChannelSettings() {
   };
   const reopenStory = async () => { try { await api.reopenStory(channelId); await refreshChannel(); toast('The story is open again'); } catch (e: any) { toast(e.message, 'error'); } };
   const remove = async (m: ChannelMember) => {
-    if (!confirm(`Remove ${m.display_name} from this channel? They leave every chat window here; their characters stay.`)) return;
+    if (!confirm(tr('Remove {name} from this channel? They leave every chat window here; their characters stay.', { name: m.display_name }))) return;
     try { setMembers(await api.removeChannelMember(channelId, m.id)); await refreshWindows(); } catch (e: any) { toast(e.message, 'error'); }
   };
   const lang = serverSettings?.language ?? 'en';

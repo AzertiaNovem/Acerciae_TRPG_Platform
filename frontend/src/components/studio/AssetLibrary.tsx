@@ -27,7 +27,7 @@ export default function AssetLibrary() {
     try { await api.mediaUpload(channelId, file, { asset_type: form.asset_type, name: form.name || file.name, character_id: form.character_id, expression: form.expression, tags: form.tags, license_metadata: JSON.stringify({ note: form.license }) }); toast('Asset uploaded'); setFile(null); setForm({ ...form, name: '' }); load(); }
     catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
-  const setApproval = async (a: MediaAsset, approval_status: MediaAsset['approval_status']) => { if (!channelId) return; await api.mediaUpdate(channelId, a.id, { approval_status }); load(); };
+  const setApproval = async (a: MediaAsset, approval_status: MediaAsset['approval_status']) => { if (!channelId) return; try { await api.mediaUpdate(channelId, a.id, { approval_status }); } catch (e: any) { toast(e.message, 'error'); } load(); };
   const isImage = (a: MediaAsset) => a.mime.startsWith('image/');
   return (
     <div>
@@ -65,9 +65,9 @@ export default function AssetLibrary() {
                 {a.visibility_scope === 'gm' && <span className="pill gm">{tr("GM")}</span>}
               </div>
               {isGm && a.approval_status !== 'approved' && <div className="row"><button className="small primary" onClick={() => setApproval(a, 'approved')}>{tr("approve")}</button><button className="small" onClick={() => setApproval(a, 'rejected')}>{tr("reject")}</button></div>}
-              {isGm && a.approval_status === 'approved' && a.visibility_scope === 'gm' && <button onClick={async()=>{await api.mediaUpdate(channelId!,a.id,{visibility_scope:'channel'});load();}}>{tr("Share approved asset with players")}</button>}
+              {isGm && a.approval_status === 'approved' && a.visibility_scope === 'gm' && <button onClick={async()=>{try{await api.mediaUpdate(channelId!,a.id,{visibility_scope:'channel'});}catch(e:any){toast(e.message,'error');}load();}}>{tr("Share approved asset with players")}</button>}
               {isGm && <span className="tiny muted">{tr("ID: ")}{a.id}</span>}
-              {isGm && <button className="ghost small" onClick={async () => { if (!channelId || !confirm('Delete this asset?')) return; try { await api.mediaDelete(channelId, a.id); load(); } catch (e: any) { toast(e.message, 'error'); } }}>{tr("delete")}</button>}
+              {isGm && <button className="ghost small" onClick={async () => { if (!channelId || !confirm(tr('Delete this asset?'))) return; try { await api.mediaDelete(channelId, a.id); load(); } catch (e: any) { toast(e.message, 'error'); } }}>{tr("delete")}</button>}
             </div>
           ))}
           {assets.length === 0 && <div className="muted small">{tr("No assets yet.")}</div>}

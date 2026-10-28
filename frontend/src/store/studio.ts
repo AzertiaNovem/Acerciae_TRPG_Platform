@@ -33,7 +33,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   setView: (v) => set({ view: v }),
   loadProjects: async (ch) => { const e = sessionEpoch(); const projects = await api.studioProjects(ch); if (isStale(e)) return; set({ projects }); },
   loadLog: async (ch) => { const e = sessionEpoch(); const log = await api.campaignLog(ch); if (isStale(e)) return log; set({ log, project: log.project, snapshots: log.project.snapshots ?? [], scenes: log.project.scenes ?? [] }); return log; },
-  freezeLog: async (ch, scope, title, scopeCharacterId) => { const log = get().log ?? await get().loadLog(ch); const snap = await api.studioCreateSnapshot(ch, log.project.id, { title: title ?? `${log.project.title} · ${new Date().toLocaleDateString()}`, scope, scope_character_id: scopeCharacterId, selection: { mode: 'campaign' } }); const full = await api.studioSnapshot(ch, snap.id, true); set({ snapshot: full, snapshots: [full, ...get().snapshots] }); return full; },
+  freezeLog: async (ch, scope, title, scopeCharacterId) => { const log = get().log ?? await get().loadLog(ch); const snap = await api.studioCreateSnapshot(ch, log.project.id, { title: title ?? `${log.project.title} · ${new Date().toLocaleDateString()}`, scope, scope_character_id: scopeCharacterId, selection: { mode: 'campaign' } }); const e = sessionEpoch(); const full = await api.studioSnapshot(ch, snap.id, true); if (!isStale(e)) set({ snapshot: full, snapshots: [full, ...get().snapshots] }); return full; },
   openProject: async (ch, id) => {
     if (!id) { set({ project: null, events: [], scenes: [], snapshots: [], snapshot: null, presentationId: null }); return; }
     const e = sessionEpoch(); set({ busy: true });

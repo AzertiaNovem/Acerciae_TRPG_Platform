@@ -1,4 +1,5 @@
 import { t as tr } from '../i18n';
+import { useEscape } from '../hooks/useEscape';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
@@ -256,7 +257,7 @@ function Members({ serverId, myRole }: { serverId: string; myRole: string }) {
               </select>
             ) : <span className="pill">{m.role === 'admin' ? tr("maintainer") : tr("member")}</span>}
             {m.role !== 'owner' && m.id !== me?.id && (isOwner || m.role === 'member' || m.role === 'guest') && (
-              <button className="small" onClick={() => confirm(`Remove ${m.display_name} from this server? They also leave all of its channels and chat windows.`) && run(() => api.removeServerMember(serverId, m.id))}>{tr("Remove")}</button>
+              <button className="small" onClick={() => confirm(tr('Remove {name} from this server? They also leave all of its channels and chat windows.', { name: m.display_name })) && run(() => api.removeServerMember(serverId, m.id))}>{tr("Remove")}</button>
             )}
           </div>
         ))}
@@ -289,7 +290,7 @@ function DiceTexts({ serverId }: { serverId: string }) {
     catch (e: any) { toast(e.message, 'error'); }
   };
   const remove = async (g: DiceTextGroup) => {
-    if (!confirm(`Delete text group “${g.name}”? Channels using it fall back to the server language.`)) return;
+    if (!confirm(tr('Delete text group “{name}”? Channels using it fall back to the server language.', { name: g.name }))) return;
     try { await api.deleteDiceTextGroup(serverId, g.id); load(); } catch (e: any) { toast(e.message, 'error'); }
   };
 
@@ -337,19 +338,21 @@ function DiceTexts({ serverId }: { serverId: string }) {
 
 export default function ServerSettingsModal({ onClose }: { onClose: () => void }) {
   const { serverId, servers, loadServerSettings } = useNav();
+  useEscape(onClose);
   const [tab, setTab] = useState<Tab>('general');
   const [settings, setSettings] = useState<ServerSettings | null>(null);
   const myRole = servers.find((s) => s.id === serverId)?.my_role ?? 'member';
-  useEffect(() => { if (serverId) api.serverSettings(serverId).then(setSettings).catch(() => undefined); }, [serverId]);
+  const [loadError, setLoadError] = useState('');
+  useEffect(() => { if (serverId) api.serverSettings(serverId).then(setSettings).catch((e) => setLoadError(e.message)); }, [serverId]);
   if (!serverId) return null;
   const onSaved = (s: ServerSettings) => { setSettings(s); loadServerSettings(); useNav.getState().loadServers(); };
   const tabs: [Tab, string][] = [['general', 'General'], ['access', 'Access'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['dice', 'Dice texts']];
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide col" onClick={(e) => e.stopPropagation()}>
+      <div className="modal wide col" role="dialog" aria-modal="true" aria-label={tr("Server settings")} onClick={(e) => e.stopPropagation()}>
         <div className="row"><h3 className="grow" style={{ margin: 0 }}>{tr("Server settings")}</h3><span className="pill">{myRole === 'owner' ? tr("owner") : tr("maintainer")}</span></div>
         <div className="tabs inline">{tabs.map(([t, label]) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(label)}</button>)}</div>
-        {!settings ? <div className="muted">{tr("Loading…")}</div> : !settings.is_maintainer ? <div className="muted">{tr("Only server maintainers can change these settings.")}</div> : (
+        {loadError ? <div className="muted">{loadError}</div> : !settings ? <div className="muted">{tr("Loading…")}</div> : !settings.is_maintainer ? <div className="muted">{tr("Only server maintainers can change these settings.")}</div> : (
           <>
             {(tab === 'general' || tab === 'access' || tab === 'ai' || tab === 'features') && <Settings tab={tab} settings={settings} onSaved={onSaved} />}
             {tab === 'access' && <Invites serverId={serverId} joinPolicy={settings.policy?.join_policy ?? 'invite'} />}

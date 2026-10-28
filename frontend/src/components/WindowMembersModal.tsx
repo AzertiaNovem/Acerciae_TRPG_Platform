@@ -1,4 +1,5 @@
 import { t as tr } from '../i18n';
+import { useEscape } from '../hooks/useEscape';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
@@ -10,6 +11,7 @@ import type { ChannelMember } from '../types';
 // GM: invite channel members into an existing chat window or remove them from it.
 export default function WindowMembersModal({ windowId, onClose }: { windowId: string; onClose: () => void }) {
   const { channelId, windows, refreshWindows } = useNav();
+  useEscape(onClose);
   const me = useAuth((s) => s.user);
   const toast = useUi((s) => s.toast);
   const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([]);
@@ -23,7 +25,7 @@ export default function WindowMembersModal({ windowId, onClose }: { windowId: st
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal col" onClick={(e) => e.stopPropagation()}>
+      <div className="modal col" role="dialog" aria-modal="true" aria-label={tr("Members")} onClick={(e) => e.stopPropagation()}>
         <h3>{tr("Members of “")}{win.name}”</h3>
         <div className="col" style={{ gap: 4 }}>
           {members.length === 0 && <div className="muted small">{tr("Nobody yet.")}</div>}

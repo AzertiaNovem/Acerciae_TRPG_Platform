@@ -1,4 +1,6 @@
 import { t as tr } from '../i18n';
+import { activate } from '../lib/a11y';
+import { useEscape } from '../hooks/useEscape';
 import { useCallback, useEffect, useState } from 'react';
 import { useNav } from '../store/nav';
 import { useAuth } from '../store/auth';
@@ -46,6 +48,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   const searchAll = useCallback(async (q: string) => (await api.searchUsers(q)).map((u) => userCandidate(u, isMaintainer ? tr('not on this server') : tr('joins as a guest'))), [isMaintainer]);
 
   const close = () => { setDialog(null); setForm({}); setPicked([]); };
+  useEscape(dialog ? close : null);
   const submit = async () => {
     try {
       if (dialog === 'channel' && nav.serverId) { const c = await api.createChannel(nav.serverId, { name: f('name'), description: f('description'), knowledge_mode: f('mode') || 'isolated' }); await nav.selectServer(nav.serverId); await nav.selectChannel(c.id); }
@@ -79,7 +82,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
       </div>
       <div className="sidebar-scroll">
         {nav.channels.map((c) => (
-          <div key={c.id} className={`item ${c.id === nav.channelId && !nav.spectateChannelId ? 'active' : ''}`} onClick={() => { nav.selectChannel(c.id); onClose(); }}>
+          <div key={c.id} className={`item ${c.id === nav.channelId && !nav.spectateChannelId ? 'active' : ''}`} {...activate(() => { nav.selectChannel(c.id); onClose(); })}>
             <span className="muted">#</span><span className="name">{c.name}</span>{c.my_role === 'gm' && <span className="pill gm">{tr("GM")}</span>}
           </div>
         ))}
@@ -87,7 +90,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
         {nav.spectatable.length > 0 && (<>
           <div className="section"><span>{tr("Other channels (read-only)")}</span></div>
           {nav.spectatable.map((c) => (
-            <div key={c.id} className={`item ${c.id === nav.spectateChannelId ? 'active' : ''}`} title={c.description || tr("Read its Main Chat")} onClick={() => { nav.openSpectate(c.id); onClose(); }}>
+            <div key={c.id} className={`item ${c.id === nav.spectateChannelId ? 'active' : ''}`} title={c.description || tr("Read its Main Chat")} {...activate(() => { nav.openSpectate(c.id); onClose(); })}>
               <span className="muted">👁</span><span className="name">{c.name}</span>
             </div>
           ))}
@@ -96,7 +99,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
           <>
             <div className="section"><span>{tr("Chat windows")}</span>{isGm && <button className="ghost small" title={tr("New chat window")} onClick={() => setDialog('window')}>+</button>}</div>
             {nav.windows.map((w) => (
-              <div key={w.id} className={`item ${w.id === nav.windowId && !nav.gmWorkspaceOpen && !nav.studioOpen ? 'active' : ''}`} onClick={() => { nav.selectWindow(w.id); onClose(); }} title={(w.members ?? []).map((m) => m.character_name ?? m.display_name).join(', ')}>
+              <div key={w.id} className={`item ${w.id === nav.windowId && !nav.gmWorkspaceOpen && !nav.studioOpen ? 'active' : ''}`} {...activate(() => { nav.selectWindow(w.id); onClose(); })} title={(w.members ?? []).map((m) => m.character_name ?? m.display_name).join(', ')}>
                 <span className="muted">{w.kind === 'main' ? '◎' : w.kind === 'private' ? '◌' : '○'}</span><span className="name">{w.name}</span>
                 {isGm ? <button className="ghost small member-count" title={tr("Invite or remove members")} onClick={(e) => { e.stopPropagation(); setManageWindow(w.id); }}>{(w.members ?? []).length} ⚇</button>
                   : <span className="tiny muted">{(w.members ?? []).length}</span>}
@@ -119,7 +122,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             })}
             <div className="section"><span>{tr("Characters")}</span><button className="ghost small" title={tr("New character")} onClick={() => setDialog('character')}>+</button></div>
             {characters.map((c) => (
-              <div key={c.id} className={`item ${nav.characterSpaceId === c.id ? 'active' : ''}`} onClick={() => { nav.openCharacter(c.id); onClose(); }} title={tr("Open character space")}>
+              <div key={c.id} className={`item ${nav.characterSpaceId === c.id ? 'active' : ''}`} {...activate(() => { nav.openCharacter(c.id); onClose(); })} title={tr("Open character space")}>
                 {c.avatar_asset_id && nav.channelId ? <img className="mini-avatar" src={api.mediaUrl(nav.channelId, c.avatar_asset_id)} alt="" /> : <span className="mini-avatar text">{c.name.slice(0, 1)}</span>}
                 <span className="name small">{c.name}</span><span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span>
               </div>
@@ -127,14 +130,14 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             {studioOpen && (
               <>
                 <div className="section"><span>{tr("Production")}</span></div>
-                <div className={`item ${nav.studioOpen ? 'active' : ''}`} onClick={() => { nav.setStudioOpen(true); onClose(); }}><span>✎</span><span className="name">{tr("Log Studio")}</span></div>
+                <div className={`item ${nav.studioOpen ? 'active' : ''}`} {...activate(() => { nav.setStudioOpen(true); onClose(); })}><span>✎</span><span className="name">{tr("Log Studio")}</span></div>
               </>
             )}
             {isGm && (
               <>
                 <div className="section"><span>{tr("Game master")}</span></div>
-                <div className={`item ${nav.gmWorkspaceOpen ? 'active' : ''}`} onClick={() => { nav.setGmWorkspaceOpen(true); onClose(); }}><span>⚙</span><span className="name">{tr("GM workspace")}</span></div>
-                <div className="item" onClick={() => setDialog('member')}><span>＋</span><span className="name">{tr("Invite player")}</span></div>
+                <div className={`item ${nav.gmWorkspaceOpen ? 'active' : ''}`} {...activate(() => { nav.setGmWorkspaceOpen(true); onClose(); })}><span>⚙</span><span className="name">{tr("GM workspace")}</span></div>
+                <div className="item" {...activate(() => setDialog('member'))}><span>＋</span><span className="name">{tr("Invite player")}</span></div>
               </>
             )}
           </>
@@ -148,7 +151,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
       </div>
       {dialog && (
         <div className="modal-backdrop" onClick={close}>
-          <div className="modal col" onClick={(e) => e.stopPropagation()}>
+          <div className="modal col" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             {dialog === 'channel' && (<><h3>{tr("New campaign channel")}</h3><input placeholder={tr("Name")} value={f('name')} onChange={(e) => set('name', e.target.value)} autoFocus /><input placeholder={tr("Description")} value={f('description')} onChange={(e) => set('description', e.target.value)} />
               <select value={f('mode') || 'isolated'} onChange={(e) => set('mode', e.target.value)}><option value="isolated">{tr("New players: separate groups")}</option><option value="public">{tr("New players: shared group")}</option></select></>)}
             {dialog === 'window' && (<><h3>{tr("New chat window")}</h3><input placeholder={tr("Name (e.g. Solo investigation)")} value={f('name')} onChange={(e) => set('name', e.target.value)} autoFocus />

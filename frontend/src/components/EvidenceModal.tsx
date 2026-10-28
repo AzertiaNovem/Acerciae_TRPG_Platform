@@ -1,4 +1,5 @@
 import { t as tr } from '../i18n';
+import { useEscape } from '../hooks/useEscape';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
@@ -12,6 +13,7 @@ import type { EventRow } from '../types';
 export default function EvidenceModal() {
   const { evidenceEventIds, showEvidence } = useUi();
   const { channelId, windows, selectWindow } = useNav();
+  useEscape(evidenceEventIds ? () => showEvidence(null) : null);
   const [events, setEvents] = useState<EventRow[]>([]);
   useEffect(() => {
     if (!evidenceEventIds || !channelId) { setEvents([]); return; }
@@ -33,7 +35,7 @@ export default function EvidenceModal() {
   };
   return (
     <div className="modal-backdrop" onClick={() => showEvidence(null)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={tr("Original events")} onClick={(e) => e.stopPropagation()}>
         <h3>{tr("Original events")}</h3>
         {events.length === 0 && <div className="muted small">{tr("No events visible to you for this entry.")}</div>}
         {events.map((e) => (

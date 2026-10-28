@@ -1,5 +1,5 @@
 import { t as tr } from '../../i18n';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { contextSocket } from '../../api/ws';
 import { useNav } from '../../store/nav';
@@ -38,7 +38,10 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   // Cast step
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [presets, setPresets] = useState<{ id: string; name: string; language: string; gender: string }[]>([]);
-  const [cast, setCast] = useState<Record<string, string>>({});
+  const [cast, setCastState] = useState<Record<string, string>>({});
+  // The cast the author is choosing stays theirs: polls refresh it from the server only until they touch it.
+  const castTouched = useRef<string | null>(null);
+  const setCast = (next: Record<string, string> | ((c: Record<string, string>) => Record<string, string>)) => { castTouched.current = pres?.id ?? null; setCastState(next); };
   const [tts, setTts] = useState<TtsJob | null>(null);
   const [index, setIndex] = useState(0);
 
@@ -46,7 +49,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   const loadJob = async (id: string) => {
     if (!channelId) return;
     const j = await api.vnScript(channelId, id); setJob(j);
-    if (j.presentation_id) { const p = await api.presentation(channelId, j.presentation_id); setPres(p); setCast((p.settings?.cast as Record<string, string>) ?? {}); }
+    if (j.presentation_id) { const p = await api.presentation(channelId, j.presentation_id); setPres(p); if (castTouched.current !== p.id) setCastState((p.settings?.cast as Record<string, string>) ?? {}); }
   };
   useEffect(() => { if (!channelId) return; api.vnScriptStatus(channelId).then(setStatus).catch(() => undefined); loadJobs(); }, [channelId]);
   useEffect(() => { if (jobId) loadJob(jobId).catch((e) => toast(e.message, 'error')); else { setJob(null); setPres(null); } }, [jobId, channelId]);

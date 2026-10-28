@@ -7,7 +7,8 @@ import type { CharacterSpace as Space, Coc7Rules, RoleCard } from '../types';
 import PointBuy from './PointBuy';
 
 let rulesPromise: Promise<Coc7Rules> | null = null;
-const loadRules = () => (rulesPromise ??= api.coc7Rules());
+// A failed load is not cached: the next visit tries again.
+const loadRules = () => (rulesPromise ??= api.coc7Rules().catch((e) => { rulesPromise = null; throw e; }));
 
 const CHARS: (keyof RoleCard['characteristics'])[] = ['STR', 'CON', 'SIZ', 'DEX', 'APP', 'INT', 'POW', 'EDU', 'LUK'];
 const BACKGROUND: (keyof RoleCard['background'])[] = ['personal_description', 'ideology', 'significant_people', 'meaningful_locations', 'treasured_possessions', 'traits', 'injuries', 'phobias', 'arcane', 'encounters'];
@@ -38,13 +39,20 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const fileInput = useRef<HTMLInputElement>(null);
   const apply = (s: Space) => { setSpace(s); setCard(s.character.role_card); setHead({ name: s.character.name, speaking_style: s.character.speaking_style, bio: s.character.bio ?? '' }); setLook({ asset_mode: s.character.asset_mode ?? 'uploaded', appearance_prompt: s.character.appearance_prompt ?? '' }); setDirty(false); };
   const load = async () => { if (!channelId) return; try { apply(await api.characterSpace(channelId, characterId)); } catch (e: any) { toast(e.message, 'error'); } };
+  // Background refreshes (a generation finished, another editor saved) never overwrite unsaved edits: while the
+  // card is dirty only the images and jobs are refreshed.
+  const dirtyRef = useRef(false); dirtyRef.current = dirty;
+  const refresh = async () => {
+    if (!channelId) return;
+    try { const s = await api.characterSpace(channelId, characterId); if (dirtyRef.current) setSpace(s); else apply(s); } catch { /* the next poll or event retries */ }
+  };
   useEffect(() => { load(); }, [channelId, characterId]);
   const pointsOn = !!space?.points?.enabled;
   useEffect(() => { if (pointsOn && !rules) loadRules().then(setRules).catch((e) => toast(e.message, 'error')); }, [pointsOn]);
   // Live updates (generation finished, another editor saved) arrive as character.updated → characters refresh.
   const version = characters.find((c) => c.id === characterId);
-  useEffect(() => { if (space && !dirty) load(); }, [version?.avatar_asset_id, version?.portrait_asset_id, version?.asset_mode]);
-  useEffect(() => { if (!space || !space.jobs.some((j) => j.status === 'pending' || j.status === 'running')) return; const t = setTimeout(load, 2500); return () => clearTimeout(t); }, [space]);
+  useEffect(() => { if (space) refresh(); }, [version?.avatar_asset_id, version?.portrait_asset_id, version?.asset_mode]);
+  useEffect(() => { if (!space || !space.jobs.some((j) => j.status === 'pending' || j.status === 'running')) return; const t = setTimeout(refresh, 2500); return () => clearTimeout(t); }, [space]);
   if (!channelId || !space || !card) return <div className="workspace"><div className="content muted">{tr("Loading…")}</div></div>;
   const c = space.character; const editable = c.editable;
   const url = (a: { id: string; version: number } | null) => (a ? api.mediaUrl(channelId, a.id, a.version) : '');
