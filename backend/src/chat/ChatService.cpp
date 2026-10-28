@@ -524,6 +524,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     // Sealdice-style commands (.r .ra .sc .st .en ...) are evaluated by the dice service and stored as roll messages.
     auto diceCmd = dice_.recognise(a, content);
     if (diceCmd) kind = "roll";
+    else if (kind == "roll") throw badRequest("roll messages come from dice commands: start the message with a dot command such as .ra or .r");
 
     DiceService::Result diceResult;
     Json::Value notice;

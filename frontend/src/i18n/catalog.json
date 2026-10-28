@@ -947,18 +947,6 @@
     "Narração",
     "Narrazione"
   ],
-  "Dice / roll": [
-    "骰点",
-    "擲骰",
-    "ダイス",
-    "주사위",
-    "Dados / tirada",
-    "Dés / jet",
-    "Würfel / Wurf",
-    "Бросок кубиков",
-    "Dados / rolagem",
-    "Dadi / tiro"
-  ],
   "Message kind": [
     "消息类型",
     "訊息類型",
@@ -13858,5 +13846,17 @@
     "Перейти к сценарию",
     "Entrar no cenário",
     "Entra nello scenario"
+  ],
+  "Dot commands are rolled automatically": [
+    "点命令会自动掷骰",
+    "點命令會自動擲骰",
+    "ドットコマンドは自動でロールされます",
+    "점 명령은 자동으로 굴립니다",
+    "Los comandos con punto se tiran automáticamente",
+    "Les commandes à point sont lancées automatiquement",
+    "Punktbefehle werden automatisch gewürfelt",
+    "Команды с точкой бросаются автоматически",
+    "Comandos com ponto são rolados automaticamente",
+    "I comandi con il punto vengono tirati automaticamente"
   ]
 }

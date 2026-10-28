@@ -16,7 +16,7 @@ export default function MessageComposer() {
   const { composerInsert, toast } = useUi();
   const { references, removeReference, clearReferences } = useChat();
   const [text, setText] = useState('');
-  const [kind, setKind] = useState<'ic' | 'ooc' | 'narration' | 'roll'>('ic');
+  const [kind, setKind] = useState<'ic' | 'ooc' | 'narration'>('ic');
   const [visibility, setVisibility] = useState<'window' | 'gm_only' | 'whisper'>('window');
   const [whisperTo, setWhisperTo] = useState<string>('');
   const [characterId, setCharacterId] = useState<string>('');
@@ -74,8 +74,9 @@ export default function MessageComposer() {
         )}
       </div>
       <div className="toolbar">
-        <select value={kind} onChange={(e) => setKind(e.target.value as any)} title={tr("Message kind")}>
-          <option value="ic">{tr("In character")}</option><option value="narration">{tr("Narration")}</option><option value="ooc">{tr("Out of character")}</option><option value="roll">{tr("Dice / roll")}</option>
+        {/* A message starting with a dot command (.r .ra .sc .st .en …) is rolled by the server; there is no manual roll kind. */}
+        <select value={kind} onChange={(e) => setKind(e.target.value as any)} disabled={isDice} title={isDice ? tr("Dot commands are rolled automatically") : tr("Message kind")}>
+          <option value="ic">{tr("In character")}</option><option value="narration">{tr("Narration")}</option><option value="ooc">{tr("Out of character")}</option>
         </select>
         {(isGm ? characters : myCharacters).length > 0 && (
           <select value={activeCharacter} onChange={(e) => setCharacterId(e.target.value)} title={tr("Speak as")}>

@@ -285,6 +285,9 @@ test('Dice, character attributes and server maintainer settings over HTTP', asyn
   // .st sets attributes on the speaking character; the preview is the composer's gray hint; .ra rolls against them.
   const st = await say(U.pl1, ids.winArchive, '.st research53 侦查60 SAN55');
   assert.equal(st.kind, 'roll'); assert.ok(st.dice.text.includes('research 53'));
+  // Any kind turns into a roll for a dot command; a roll without one is refused (there is no manual roll kind).
+  assert.equal((await api('POST', `/api/channels/${ch}/windows/${ids.winArchive}/messages`, { content: '.r 1d6', kind: 'ooc' }, U.pl1)).kind, 'roll');
+  await assert.rejects(api('POST', `/api/channels/${ch}/windows/${ids.winArchive}/messages`, { content: 'I roll the dice', kind: 'roll' }, U.pl1), (e) => e.status === 400);
   const attrs = await api('GET', `/api/channels/${ch}/characters/${ids.c1}/attributes`, undefined, U.pl1);
   assert.equal(attrs.attrs.research, 53); assert.equal(attrs.attrs['Spot Hidden'], 60); assert.equal(attrs.editable, true);
   const preview = await api('POST', `/api/channels/${ch}/dice/preview`, { content: '.ra research', chat_window_id: ids.winArchive }, U.pl1);

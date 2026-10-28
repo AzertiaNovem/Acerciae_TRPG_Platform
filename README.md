@@ -172,7 +172,8 @@ see why and jump to the original event, dismissable, swept by an independent cle
 or blocks the draft and never leaks GM-only facts. Inspiration returns an editable draft grounded only in the character's
 knowledge, never auto-sent (insert / regenerate / discard).
 
-**Integrated dice (Sealdice-compatible)** — `.r` `.rh` `.ra`/`.rc` `.rah` `.sc` `.st` `.en` typed into chat, evaluated against the
+**Integrated dice (Sealdice-compatible)** — any message that starts with a dot command (`.r` `.rh` `.ra`/`.rc` `.rah` `.sc` `.st`
+`.en`; there is no separate roll option) is rolled automatically, evaluated against the
 speaking character's attributes (`characters.sheet.attrs`, CoC 7e base values, English and 中文 aliases): hard/extreme
 difficulty, bonus/penalty dice, sanity loss written back to SAN, hidden rolls whispered to the roller and the GM. While typing,
 a gray hint follows the command (`.ra research —— Alice's research is 53`). Reply wording comes from built-in English/中文 texts
