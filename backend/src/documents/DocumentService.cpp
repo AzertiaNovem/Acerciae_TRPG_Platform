@@ -146,6 +146,13 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         res.pendingReview++; res.log.append(log);
     };
     const bool isAi = ctx.actor == "ai";
+    // The Keeper's chronicler: every op, removals and links included, cites lines of the batch it was given.
+    if (ctx.access.isGm && isAi && !ctx.allowedSources.empty()) {
+        const auto sources = mergeSources(op, ctx.defaultSources);
+        if (sources.empty()) return reject("AI changes must cite the chat lines they come from");
+        for (const auto& id : sources)
+            if (std::find(ctx.allowedSources.begin(), ctx.allowedSources.end(), id) == ctx.allowedSources.end()) return reject("Source is outside the batch the AI was given");
+    }
     if (!ctx.access.isGm) {
         const auto sources = mergeSources(op,ctx.defaultSources);
         if (sources.empty()) return reject("Player memory requires chat evidence");
@@ -534,12 +541,17 @@ Json::Value DocumentService::listProposals(const ChannelAccess& a, const std::st
 }
 Json::Value DocumentService::decideProposal(const ChannelAccess& a, const std::string& proposalId, bool accept) {
     if (!a.isGm) throw forbidden("GM role required");
+    if (!Visibility::isUuid(proposalId)) throw notFound("proposal not found");
     auto pr = db_.queryOne("SELECT p.* FROM document_proposals p WHERE id=$1 AND channel_id=$2 AND (p.document_id IS NULL OR EXISTS(SELECT 1 FROM documents d WHERE d.id=p.document_id AND d.player_group_id IS NULL))", {proposalId, a.channelId});
     if (pr.isNull()) throw notFound("proposal not found");
-    if (pr["status"].asString() != "needs_gm_review") throw conflict("proposal already decided");
     if (!accept) {
-        return db_.queryOne("UPDATE document_proposals SET status='rejected', decided_at=now() WHERE id=$1 RETURNING *", {proposalId});
+        auto r = db_.queryOne("UPDATE document_proposals SET status='rejected', decided_at=now() WHERE id=$1 AND status='needs_gm_review' RETURNING *", {proposalId});
+        if (r.isNull()) throw conflict("proposal already decided");
+        return r;
     }
+    // Claim the proposal before applying it: of two simultaneous accepts, only one applies the operations.
+    if (db_.queryOne("UPDATE document_proposals SET status='applying' WHERE id=$1 AND status='needs_gm_review' RETURNING id", {proposalId}).isNull())
+        throw conflict("proposal already decided");
     // Knowledge-sharing suggestions are not document ops: accepting them widens who knows the fact.
     if (pr["ops"].isArray() && !pr["ops"].empty() && json::str(pr["ops"][0], "op") == "share_knowledge") {
         throw conflict("Direct knowledge sharing has been retired; use chat");
@@ -547,7 +559,9 @@ Json::Value DocumentService::decideProposal(const ChannelAccess& a, const std::s
     Proposal p; p.channelId = a.channelId; p.documentId = pr["document_id"].asString(); p.actor = "gm"; p.actorUserId = a.userId;
     p.ops = pr["ops"]; p.sourceEventIds = json::strArray(pr["source_event_ids"]); p.summary = "GM accepted AI proposal";
     for (auto& op : p.ops) { op.removeMember("previous"); op.removeMember("previous_status"); }
-    auto res = commit(p);
+    CommitResult res;
+    try { res = commit(p); }
+    catch (...) { db_.exec("UPDATE document_proposals SET status='needs_gm_review' WHERE id=$1 AND status='applying'", {proposalId}); throw; }
     auto out = db_.queryOne("UPDATE document_proposals SET status='committed', committed_version=$2, decided_at=now() WHERE id=$1 RETURNING *", {proposalId, (int64_t)res.version});
     out["log"] = res.log;
     return out;

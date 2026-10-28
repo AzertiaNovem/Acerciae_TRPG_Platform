@@ -5,6 +5,9 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <atomic>
+#include <cstdlib>
+#include <chrono>
 
 namespace acerciae {
 
@@ -27,7 +30,14 @@ Db::Db(std::string url, std::size_t poolSize) : url_(std::move(url)), poolSize_(
 Db::~Db() = default;
 
 std::shared_ptr<pqxx::connection> Db::acquire() {
+    if (depth() > 0) {
+        static std::atomic<int> reported{0};
+        if (reported++ < 20) ALOG_WARN << "nested database transaction: a thread already inside a transaction took another connection";
+        static const bool strict = [] { const char* v = std::getenv("ACERCIAE_STRICT_DB"); return v && std::string(v) == "1"; }();
+        if (strict) throw std::logic_error("nested database transaction");
+    }
     std::unique_lock<std::mutex> lk(mu_);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     for (;;) {
         if (!idle_.empty()) {
             auto c = idle_.back();
@@ -41,7 +51,8 @@ std::shared_ptr<pqxx::connection> Db::acquire() {
             lk.unlock();
             try {
                 auto c = std::make_shared<pqxx::connection>(url_);
-                { pqxx::nontransaction nt(*c); nt.exec("SET TimeZone TO 'UTC'"); }
+                // A runaway statement or a transaction left open cannot hold a pooled connection forever.
+                { pqxx::nontransaction nt(*c); nt.exec("SET TimeZone TO 'UTC'"); nt.exec("SET statement_timeout = '120s'"); nt.exec("SET idle_in_transaction_session_timeout = '10min'"); }
                 return c;
             } catch (...) {
                 lk.lock();
@@ -49,7 +60,8 @@ std::shared_ptr<pqxx::connection> Db::acquire() {
                 throw;
             }
         }
-        cv_.wait(lk);
+        if (cv_.wait_until(lk, deadline) == std::cv_status::timeout && idle_.empty() && created_ >= poolSize_)
+            throw std::runtime_error("database connection pool exhausted (waited 30 s)");
     }
 }
 

@@ -38,6 +38,8 @@ public:
     Json::Value updateAttributes(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);
 
     dice::TextSet textsForChannel(const std::string& channelId);
+
+    dice::TextSet textsForChannel(pqxx::work& w, const std::string& channelId);
     void setRng(std::unique_ptr<dice::Rng> rng) { rng_ = std::move(rng); }   // tests
 private:
     Json::Value characterFor(const ChannelAccess& a, const std::string& characterId, bool forWrite);

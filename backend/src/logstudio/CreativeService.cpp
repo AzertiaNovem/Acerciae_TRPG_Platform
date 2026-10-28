@@ -310,7 +310,7 @@ void CreativeService::loop() {
             "UPDATE asset_generation_jobs SET "
             "status='running',attempts=attempts+1,updated_at=now() WHERE "
             "id=(SELECT child.id FROM asset_generation_jobs child WHERE child.status='pending' "
-            "AND NOT EXISTS (SELECT 1 FROM asset_generation_jobs parent WHERE parent.id::text=child.params->>'portrait_job_id' AND parent.status IN ('pending','running')) "
+            "AND NOT EXISTS (SELECT 1 FROM asset_generation_jobs parent WHERE parent.id=nullif(child.params->>'portrait_job_id','')::uuid AND parent.status IN ('pending','running')) "
             "ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");
         if (!j.isNull()) {
           run(j);
@@ -390,8 +390,16 @@ void CreativeService::run(const Json::Value &j) {
                      {id})["status"] != "running")
       return;
     const Json::Value &attachTo = j["params"]["attach"];
-    const bool forCharacter = attachTo.isObject() && attachTo.isMember("character_id");
     const bool forScript = attachTo.isObject() && attachTo.isMember("presentation_id");
+    // Art a visual-novel script asked for changes a character's own profile only when the Keeper or that
+    // character's actor asked; anyone else's script gets it in their draft only.
+    const bool forCharacter = attachTo.isObject() && attachTo.isMember("character_id");
+    bool updatesProfile = forCharacter;
+    if (forCharacter && forScript) {
+      auto who = db_.queryOne("SELECT (c.user_id IS NOT NULL AND c.user_id=$3::uuid) OR EXISTS (SELECT 1 FROM channel_members m WHERE m.channel_id=$2 AND m.user_id=$3::uuid AND m.role='gm') AS ok "
+                              "FROM characters c WHERE c.id=$1 AND c.channel_id=$2", {json::str(attachTo, "character_id"), j["channel_id"].asString(), j["created_by"].asString()});
+      updatesProfile = !who.isNull() && who["ok"].asBool();
+    }
     Json::Value m;
     m["name"] =
         (provider_->name() == "mock" ? "MOCK test pattern: " : "Candidate: ") +
@@ -417,11 +425,16 @@ void CreativeService::run(const Json::Value &j) {
     auto asset = media_.storeInternal(
         j["channel_id"].asString(), j["kind"].asString() == "avatar" ? std::string("portrait") : j["kind"].asString(),
         provider_->name() == "mock" ? "mock" : "generated", r.bytes, r.mime, m);
-    db_.exec("UPDATE asset_generation_jobs SET "
+    // Completed only if still running: a job cancelled while the image was being stored keeps nothing.
+    if (db_.queryOne("UPDATE asset_generation_jobs SET "
              "status='completed',result_asset_id=$2,finished_at=now(),updated_"
-             "at=now() WHERE id=$1 AND status='running'",
-             {id, asset["id"].asString()});
-    if (forCharacter) {
+             "at=now() WHERE id=$1 AND status='running' RETURNING id",
+             {id, asset["id"].asString()}).isNull()) {
+      ChannelAccess sys; sys.channelId = j["channel_id"].asString(); sys.isGm = true;
+      try { media_.remove(sys, asset["id"].asString()); } catch (const std::exception &e) { ALOG_WARN << "could not drop the art of a cancelled job: " << e.what(); }
+      return;
+    }
+    if (updatesProfile) {
       auto cid = json::str(attachTo, "character_id"), slot = json::str(attachTo, "slot"), subtitle = json::str(attachTo, "subtitle"), aid = asset["id"].asString();
       if (slot == "avatar") db_.exec("UPDATE characters SET avatar_asset_id=$2, updated_at=now() WHERE id=$1", {cid, aid});
       else if (slot == "portrait") {

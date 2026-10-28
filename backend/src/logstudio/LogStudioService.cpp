@@ -228,8 +228,12 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
     else if (mode == "session") { auto from = json::str(sel, "from"), to = json::str(sel, "to"); if (!from.empty()) { p.push_back(from); sql += " AND e.created_at >= $" + std::to_string(p.size()) + "::timestamptz"; } if (!to.empty()) { p.push_back(to); sql += " AND e.created_at <= $" + std::to_string(p.size()) + "::timestamptz"; } }
     auto wins = json::strArray(sel["chat_window_ids"]); if (!wins.empty()) sql += " AND e.chat_window_id = ANY(" + Visibility::uuidArray(wins) + ")";
     sql += " ORDER BY e.seq";
-    auto rows = db_.queryJson(sql, p);
+    // One transaction with the project row locked: two members opening the log at once must not both insert the
+    // same new events.
     std::vector<LogEvent> events;
+    db_.tx([&](pqxx::work& w) {
+    Db::exec(w, "SELECT id FROM log_projects WHERE id=$1 FOR UPDATE", {projectId});
+    auto rows = Db::queryJson(w, sql, p);
     for (auto& r : rows) {
         LogEvent e; e.sourceKind = "channel_event"; e.sourceEventId = r["id"].asString(); e.sourceMessageId = r["message_id"].isNull() ? "" : r["message_id"].asString();
         e.chatWindowId = r["chat_window_id"].isNull() ? "" : r["chat_window_id"].asString(); e.sceneId = r["scene_id"].isNull() ? "" : r["scene_id"].asString();
@@ -261,7 +265,8 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
         if (vis == "gm_only") e.eventType = "secret";
         events.push_back(e);
     }
-    db_.tx([&](pqxx::work& w) { insertEvents(w, projectId, a.channelId, events, ""); Db::exec(w, "UPDATE log_projects SET version=version+1, updated_at=now() WHERE id=$1", {projectId}); });
+    if (!events.empty()) { insertEvents(w, projectId, a.channelId, events, ""); Db::exec(w, "UPDATE log_projects SET version=version+1, updated_at=now() WHERE id=$1", {projectId}); }
+    });
     Json::Value out; out["added"] = (int)events.size(); out["selection"] = sel; out["project_id"] = projectId;
     audit(a, "project.sync", out);
     return out;
@@ -374,8 +379,14 @@ std::string LogStudioService::renderStyledHtml(const Json::Value& snap, const st
 std::string LogStudioService::campaignProjectId(const std::string& channelId) {
     auto p = db_.queryOne("SELECT id FROM log_projects WHERE channel_id=$1 AND source_kind='channel' ORDER BY created_at LIMIT 1", {channelId});
     if (!p.isNull()) return p["id"].asString();
-    auto ch = db_.queryOne("SELECT name FROM channels WHERE id=$1", {channelId});
-    return db_.queryOne("INSERT INTO log_projects(channel_id, title, description, source_kind) VALUES($1,$2,'The campaign log: every chat window, the whole campaign.','channel') RETURNING id", {channelId, ch.isNull() ? "Campaign log" : ch["name"].asString()})["id"].asString();
+    // Created once even when two members open the Studio at the same moment.
+    return db_.tx([&](pqxx::work& w) {
+        Db::exec(w, "SELECT pg_advisory_xact_lock(hashtext('acerciae.campaignlog.' || $1))", {channelId});
+        auto again = Db::queryOne(w, "SELECT id FROM log_projects WHERE channel_id=$1 AND source_kind='channel' ORDER BY created_at LIMIT 1", {channelId});
+        if (!again.isNull()) return again["id"].asString();
+        auto ch = Db::queryOne(w, "SELECT name FROM channels WHERE id=$1", {channelId});
+        return Db::queryOne(w, "INSERT INTO log_projects(channel_id, title, description, source_kind) VALUES($1,$2,'The campaign log: every chat window, the whole campaign.','channel') RETURNING id", {channelId, ch.isNull() ? "Campaign log" : ch["name"].asString()})["id"].asString();
+    });
 }
 int LogStudioService::syncCampaign(const std::string& channelId, const std::string& projectId) {
     ChannelAccess sys; sys.channelId = channelId; sys.isGm = true; sys.userId = "00000000-0000-0000-0000-000000000000";

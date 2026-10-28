@@ -39,10 +39,18 @@ public:
     static Json::Value consolidateSchema();
     static std::string observerSystemPrompt();
 private:
-    Json::Value processPlayerGroup(const std::string& channelId, const Json::Value& group, bool wait);
+    Json::Value processPlayerGroup(const std::string& channelId, const Json::Value& group, bool wait, int64_t safeSeq);
     void observeLoop(); void consolidateLoop(); void cleanupLoop();
     void observeTick();
-    Json::Value processGroup(const std::string& channelId, const std::string& windowId, const std::string& sceneId, int64_t fromSeq, bool waitForInflight);
+    Json::Value processGroup(const std::string& channelId, const std::string& windowId, const std::string& sceneId, int64_t safeSeq, bool waitForInflight);
+    // The highest event seq below which every event of the channel has committed: event writers hold a shared
+    // advisory lock until commit, so taking it exclusively waits out every write in flight.
+    int64_t safeSeq(const std::string& channelId);
+    // Failure bookkeeping per cursor group: exponential backoff, and after kMaxAttempts the batch is skipped
+    // (dead-lettered) so a batch that always fails is not paid for forever. Returns true when it was skipped.
+    bool recordFailure(const std::string& channelId, const std::string& kind, const std::string& key, int64_t skipTo, const std::string& jobId, const std::string& error);
+    bool backingOff(const std::string& channelId, const std::string& kind, const std::string& key);
+    static constexpr int kMaxAttempts = 5;
     Json::Value buildGroupContext(const ChannelAccess& sys, const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, std::vector<std::string>& terms);
     void applyExtraction(const ChannelAccess& sys, const std::string& channelId, const std::string& jobId, const Json::Value& data, const Json::Value& batch, Json::Value& summary);
     ChannelAccess systemAccess(const std::string& channelId);

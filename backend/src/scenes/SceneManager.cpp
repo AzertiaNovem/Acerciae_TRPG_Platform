@@ -24,6 +24,7 @@ Json::Value SceneManager::create(const ChannelAccess& a, const Json::Value& body
     if (!a.isGm) throw forbidden("GM role required");
     auto title = json::requireStr(body, "title");
     auto s = db_.tx([&](pqxx::work& w) {
+        Db::exec(w, "SELECT 1 FROM channels WHERE id=$1 FOR UPDATE", {a.channelId});   // serialises sequence numbers
         auto row = Db::queryOne(w,
             "INSERT INTO scenes(channel_id, title, location, narrative_time, summary, sequence) "
             "VALUES($1,$2,$3,$4,$5,(SELECT coalesce(max(sequence),0)+1 FROM scenes WHERE channel_id=$1)) RETURNING *",
@@ -108,7 +109,9 @@ Json::Value SceneManager::enterScene(const ChannelAccess& a, const std::string& 
     return out;
 }
 std::string SceneManager::resolveSceneForWindow(pqxx::work& w, const std::string& channelId, const std::string& chatWindowId) {
-    auto ch = Db::queryOne(w, "SELECT c.current_scene_id, s.status FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {channelId});
+    // Locked so that a message racing the Keeper's "next scenario" lands in one scenario or the other, never in a
+    // just-closed one, and two first messages do not each open a scenario.
+    auto ch = Db::queryOne(w, "SELECT c.current_scene_id, s.status FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1 FOR NO KEY UPDATE OF c", {channelId});
     std::string sceneId;
     if (!ch.isNull() && !ch["current_scene_id"].isNull() && ch["status"].asString() == "active") sceneId = ch["current_scene_id"].asString();
     else {
@@ -129,7 +132,7 @@ Json::Value SceneManager::sceneLog(const ChannelAccess& a, const std::string& sc
     return db_.queryJson(
         "SELECT e.id, e.kind, e.seq, e.chat_window_id, e.message_id, e.character_id, e.actor_role, e.created_at, e.payload, c.name AS character_name "
         "FROM events e LEFT JOIN characters c ON c.id=e.character_id WHERE e.channel_id=$1 AND e.scene_id=$2 AND e.seq > $3 AND " + Visibility::eventFilter(a) +
-        " ORDER BY e.seq LIMIT $4", {a.channelId, sceneId, afterSeq, (int64_t)limit});
+        " ORDER BY e.seq LIMIT $4", {a.channelId, sceneId, afterSeq, (int64_t)std::max(1, std::min(limit, 500))});
 }
 
 } // namespace acerciae

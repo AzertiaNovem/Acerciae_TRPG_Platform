@@ -19,7 +19,8 @@ namespace acerciae {
 namespace {
 std::string clip(const std::string& s, size_t n) {
     if (s.size() <= n) return s;
-    size_t end = n; while (end > 0 && ((unsigned char)s[end] & 0xC0) == 0x80) --end;
+    // The ellipsis is part of the budget: the result never exceeds n bytes (columns check their length).
+    size_t end = n >= 3 ? n - 3 : 0; while (end > 0 && ((unsigned char)s[end] & 0xC0) == 0x80) --end;
     return s.substr(0, end) + "…";
 }
 // Leading decoration a GM may type before a narration: quotes, asterisks, brackets, whitespace.
@@ -172,7 +173,8 @@ Json::Value ScenarioService::detectAndSuggest(const std::string& channelId, cons
 }
 void ScenarioService::summarizeClosed(const std::string& channelId, const std::string& sceneId) {
     if (llm_.isMock(channelId)) { int calls = 0; summarizeScene(channelId, sceneId, calls); return; }
-    std::thread([this, channelId, sceneId] { try { int calls = 0; summarizeScene(channelId, sceneId, calls); } catch (const std::exception& e) { ALOG_WARN << "scenario summary thread: " << e.what(); } }).detach();
+    auto job = [this, channelId, sceneId] { try { int calls = 0; summarizeScene(channelId, sceneId, calls); } catch (const std::exception& e) { ALOG_WARN << "scenario summary: " << e.what(); } };
+    if (!executor_ || !executor_(job)) ALOG_WARN << "scenario summary skipped (background queue full): " << sceneId;
 }
 void ScenarioService::summarizeScene(const std::string& channelId, const std::string& sceneId, int& llmCalls) {
     auto sc = db_.queryOne("SELECT id, title, location, narrative_time, summary_status FROM scenes WHERE id=$1 AND channel_id=$2", {sceneId, channelId});
@@ -210,6 +212,8 @@ Json::Value ScenarioService::advance(const ChannelAccess& a, const Json::Value& 
     if (!a.isGm) throw forbidden("GM role required");
     Stage st{clip(json::str(body, "title"), 80), clip(json::str(body, "location"), 80), clip(json::str(body, "narrative_time"), 60), "opened by the Keeper"};
     auto out = db_.tx([&](pqxx::work& w) {
+        // The channel row orders scenario changes: sequence numbers and the current scenario move together.
+        Db::exec(w, "SELECT 1 FROM channels WHERE id=$1 FOR UPDATE", {a.channelId});
         auto row = Db::queryOne(w,
             "INSERT INTO scenes(channel_id, title, location, narrative_time, sequence, stage_reason) "
             "SELECT $1, CASE WHEN $2='' THEN 'Scenario ' || (coalesce(max(sequence),0)+1)::text ELSE $2 END, $3, $4, coalesce(max(sequence),0)+1, $5 FROM scenes WHERE channel_id=$1 RETURNING *",

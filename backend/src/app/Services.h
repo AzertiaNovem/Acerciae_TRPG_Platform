@@ -48,6 +48,7 @@ struct Services {
     std::unique_ptr<logstudio::VnScriptService> vnScripts;
     std::unique_ptr<WorkPool> aiRequests;   // user-triggered model calls, off the HTTP threads
     std::unique_ptr<Maintenance> maintenance;
+    std::unique_ptr<WorkPool> background;   // module imports, scenario summaries
 
     static Services& build(const Config& cfg);   // constructs the singleton
     static void shutdown();

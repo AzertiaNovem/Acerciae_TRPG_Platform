@@ -28,10 +28,14 @@ public:
     ~Db();
 
     // Runs fn inside a transaction. Commits on success, rolls back on exception.
+    // Never start a second transaction (db_.exec/queryOne/queryJson/tx) on a thread that is inside one: it takes a
+    // second pooled connection while holding the first, and enough such threads exhaust the pool. Nested use is
+    // logged; acquiring waits at most 30 s and then fails instead of hanging the process.
     template <typename F>
     auto tx(F&& fn) -> decltype(fn(std::declval<pqxx::work&>())) {
         auto conn = acquire();
-        struct Release { Db* db; std::shared_ptr<pqxx::connection> c; ~Release() { db->release(c); } } rel{this, conn};
+        struct Release { Db* db; std::shared_ptr<pqxx::connection> c; ~Release() { --depth(); db->release(c); } } rel{this, conn};
+        ++depth();
         pqxx::work w(*conn);
         if constexpr (std::is_void_v<decltype(fn(w))>) {
             fn(w);
@@ -58,6 +62,7 @@ public:
     void runMigrations(const std::string& dir);
     const std::string& url() const { return url_; }
 
+    static int& depth() { thread_local int d = 0; return d; }   // transactions this thread holds open
 private:
     std::shared_ptr<pqxx::connection> acquire();
     void release(std::shared_ptr<pqxx::connection> c);

@@ -51,7 +51,11 @@ Json::Value ModuleImporter::importPdf(const ChannelAccess& a, const std::string&
     auto row = db_.queryOne("INSERT INTO modules(channel_id, title, file_name, file_path, status, llm_mode, uploaded_by) VALUES($1,$2,$3,$4,'uploaded',$5,$6) RETURNING *",
         {a.channelId, title.empty() ? fileName : title, fileName.substr(0, 200), path, llm_.mode(a.channelId), a.userId});
     auto id = row["id"].asString();
-    std::thread([this, id] { try { process(id); } catch (const std::exception& e) { ALOG_ERROR << "module import failed: " << e.what(); } }).detach();
+    auto job = [this, id] { try { process(id); } catch (const std::exception& e) { ALOG_ERROR << "module import failed: " << e.what(); } };
+    if (!executor_ || !executor_(job)) {
+        db_.exec("UPDATE modules SET status='failed', error='the server is busy; upload the module again shortly', updated_at=now() WHERE id=$1", {id});
+        throw ApiError(503, "busy", "The server is busy importing other modules; try again shortly.");
+    }
     return row;
 }
 

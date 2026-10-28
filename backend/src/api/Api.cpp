@@ -72,10 +72,11 @@ std::optional<Principal> fileAuth(const HttpRequestPtr& req) {
 }
 // Unexpected failures are logged with their detail and answered with a generic message: SQL text, file paths and
 // provider responses never reach the client.
-HttpResponsePtr internalErr(const std::exception& e) {
+HttpResponsePtr internalErr(const std::exception& e, const HttpRequestPtr& req = nullptr) {
     auto id = crypto::randomHex(6);
-    if (auto* sql = dynamic_cast<const pqxx::sql_error*>(&e)) ALOG_ERROR << "[" << id << "] sql error: " << sql->what() << " :: " << sql->query();
-    else ALOG_ERROR << "[" << id << "] unhandled: " << e.what();
+    std::string where = req ? std::string(req->methodString()) + " " + req->path() + " " : "";
+    if (auto* sql = dynamic_cast<const pqxx::sql_error*>(&e)) ALOG_ERROR << "[" << id << "] " << where << "sql error: " << sql->what() << " :: " << sql->query();
+    else ALOG_ERROR << "[" << id << "] " << where << "unhandled: " << e.what();
     return errResp(500, "internal", "internal error (reference " + id + ")");
 }
 std::string clientIp(const HttpRequestPtr& req) {
@@ -89,12 +90,19 @@ std::string clientIp(const HttpRequestPtr& req) {
     }
     return req->peerAddr().toIp();
 }
+// Every JSON body is an object; anything else is the client's mistake.
 Json::Value body(const HttpRequestPtr& req) {
     auto j = req->getJsonObject();
-    if (j) return *j;
-    auto b = req->getBody();
-    if (b.empty()) return Json::Value(Json::objectValue);
-    return json::parse(std::string(b));
+    Json::Value v;
+    if (j) v = *j;
+    else {
+        auto b = req->getBody();
+        if (b.empty()) return Json::Value(Json::objectValue);
+        v = json::parse(std::string(b));
+    }
+    if (v.isNull()) return Json::Value(Json::objectValue);
+    if (!v.isObject()) throw badRequest("the request body must be a JSON object");
+    return v;
 }
 int qint(const HttpRequestPtr& req, const char* k, int def) { auto s = req->getParameter(k); if (s.empty()) return def; try { return std::stoi(s); } catch (...) { return def; } }
 
@@ -108,7 +116,15 @@ void run(const HttpRequestPtr& req, Cb&& cb, const Params& params, const Fn& fn,
         }
         cb(jsonResp(fn(req, p, params)));
     } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
-    catch (const std::exception& e) { cb(internalErr(e)); }
+    // Values the database or the JSON layer reject are the client's mistake, not a server failure.
+    catch (const pqxx::unique_violation&) { cb(errResp(409, "conflict", "that already exists or was just changed by someone else")); }
+    catch (const pqxx::check_violation&) { cb(errResp(400, "bad_request", "a value is outside its allowed range")); }
+    catch (const pqxx::foreign_key_violation&) { cb(errResp(400, "bad_request", "a referenced item does not exist")); }
+    catch (const pqxx::data_exception&) { cb(errResp(400, "bad_request", "a value has the wrong form or is out of range")); }
+    catch (const Json::Exception&) { cb(errResp(400, "bad_request", "a value has the wrong type or is out of range")); }
+    catch (const std::invalid_argument&) { cb(errResp(400, "bad_request", "a number in the request is malformed")); }
+    catch (const std::out_of_range&) { cb(errResp(400, "bad_request", "a number in the request is out of range")); }
+    catch (const std::exception& e) { cb(internalErr(e, req)); }
 }
 void route0(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn, bool auth = true) {
     app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb) { run(req, std::move(cb), {}, fn, auth); }, m);
@@ -406,7 +422,7 @@ void registerRoutes() {
             auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
             std::string mime, name; auto data = S.studio->exportLog(studioAccess(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name);
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
     route1("/api/channels/{1}/studio/projects", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listProjects(studioAccess(p, a[0])); });
     route1("/api/channels/{1}/studio/projects", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createProject(studioAccess(p, a[0]), body(req)); });
@@ -427,7 +443,7 @@ void registerRoutes() {
             auto r = HttpResponse::newHttpResponse(); r->setBody(data); r->setContentTypeString(mime);
             if (req->getParameter("download") == "1") r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
             cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 
     // ---- Log Studio: media assets ----
@@ -453,7 +469,7 @@ void registerRoutes() {
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=3600"); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
             if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
             cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 
     // ---- Log Studio: presentations (performance timeline) ----
@@ -506,7 +522,7 @@ void registerRoutes() {
             auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
             std::string name; auto data = S.publication->bundle(studioAccess(*pr, ch), pid, name);
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
     route2("/api/channels/{1}/studio/tts/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->getJob(studioAccess(p, a[0]), a[1]); });
     route2("/api/channels/{1}/studio/tts/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.tts->cancelJob(studioAccess(p, a[0]), a[1]); });
@@ -515,7 +531,7 @@ void registerRoutes() {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             std::string bytes, mime; if (!S.tts->fetchAudio(studioAccess(*pr, ch), id, bytes, mime)) { cb(errResp(404, "not_found", "audio not found")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=86400"); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 
     // CORS only for the origins listed in CORS_ORIGINS (the bundled frontend is same-origin and needs none).

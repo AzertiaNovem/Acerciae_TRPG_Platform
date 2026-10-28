@@ -19,7 +19,10 @@ std::optional<dice::Command> DiceService::recognise(const ChannelAccess& a, cons
 }
 
 dice::TextSet DiceService::textsForChannel(const std::string& channelId) {
-    auto r = db_.queryOne(
+    return db_.tx([&](pqxx::work& w) { return textsForChannel(w, channelId); });
+}
+dice::TextSet DiceService::textsForChannel(pqxx::work& w, const std::string& channelId) {
+    auto r = Db::queryOne(w, 
         "SELECT c.dice_text_group, coalesce(ss.language, 'en') AS language, g.base, g.texts FROM channels c "
         "LEFT JOIN server_settings ss ON ss.server_id=c.server_id "
         "LEFT JOIN dice_text_groups g ON g.id::text=c.dice_text_group AND g.server_id=c.server_id WHERE c.id=$1", {channelId});
@@ -47,7 +50,7 @@ Json::Value DiceService::characterFor(const ChannelAccess& a, const std::string&
 }
 
 DiceService::Result DiceService::execute(pqxx::work& w, const ChannelAccess& a, const std::string& characterId, const dice::Command& cmd) {
-    auto texts = textsForChannel(a.channelId);
+    auto texts = textsForChannel(w, a.channelId);   // inside the caller's transaction: no second connection
     dice::Context ctx;
     std::string sheetKind;
     if (!characterId.empty()) {
@@ -55,7 +58,7 @@ DiceService::Result DiceService::execute(pqxx::work& w, const ChannelAccess& a, 
         if (c.isNull()) throw badRequest("character not in this channel");
         ctx.name = c["name"].asString(); ctx.hasCharacter = true; sheetKind = c["kind"].asString();
         ctx.attrs = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
-    } else ctx.name = displayName(a.userId);
+    } else { auto u = Db::queryOne(w, "SELECT display_name FROM users WHERE id=$1", {a.userId}); ctx.name = u.isNull() ? "?" : u["display_name"].asString(); }
 
     dice::Outcome o;
     try { o = dice::execute(cmd, ctx, texts, *rng_); }

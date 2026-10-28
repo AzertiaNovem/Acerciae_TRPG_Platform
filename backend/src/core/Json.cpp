@@ -35,7 +35,8 @@ std::string str(const Json::Value& v, const char* key, const std::string& def) {
 int toInt(const Json::Value& v, const char* key, int def) {
     if (!v.isObject() || !v.isMember(key)) return def;
     const auto& x = v[key];
-    if (x.isNumeric()) return x.asInt();
+    // Out-of-range numbers clamp instead of throwing (a client sending 1e12 gets a bounded value, not a 500).
+    if (x.isNumeric()) { double d = x.asDouble(); if (d != d) return def; if (d >= 2147483647.0) return 2147483647; if (d <= -2147483648.0) return -2147483647 - 1; return (int)d; }
     if (x.isString()) { try { return std::stoi(x.asString()); } catch (...) {} }
     return def;
 }

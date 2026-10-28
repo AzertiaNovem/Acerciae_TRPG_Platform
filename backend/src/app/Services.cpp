@@ -80,6 +80,11 @@ Services& Services::build(const Config& cfg) {
     s.modules->setPostProcess([&s](const std::string& channelId, const std::string& moduleId) { int calls = 0; s.script->buildFromModule(channelId, moduleId, calls); });
     s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge, *s.scenarios, *s.reminders, *s.script);
     s.maintenance = std::make_unique<Maintenance>(s);
+    // Background work that used to run on detached threads: bounded, and drained at shutdown.
+    s.background = std::make_unique<WorkPool>("background", 2, 256);
+    auto submit = [&s](std::function<void()> f) { return s.background->submit(std::move(f)); };
+    s.modules->setExecutor(submit);
+    s.scenarios->setExecutor(submit);
     return s;
 }
 
@@ -87,6 +92,7 @@ void Services::shutdown() {
     if (!g_services) return;
     if (g_services->maintenance) g_services->maintenance->stop();
     if (g_services->aiRequests) g_services->aiRequests->stop();
+    if (g_services->background) g_services->background->stop();
     if (g_services->observer) g_services->observer->stop();
     if (g_services->creative) g_services->creative->stop();
     if (g_services->vnScripts) g_services->vnScripts->stop();

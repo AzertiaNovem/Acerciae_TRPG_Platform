@@ -7,6 +7,8 @@ namespace acerciae {
 static DbParam opt(const std::string& s) { return s.empty() ? dbNull() : DbParam(s); }
 
 Json::Value EventStore::append(pqxx::work& w, const NewEvent& e) {
+    // Held until this transaction commits; the observer takes it exclusively to find the committed prefix.
+    Db::exec(w, "SELECT pg_advisory_xact_lock_shared(hashtext('acerciae.events.' || $1))", {e.channelId});
     return Db::queryOne(w,
         "INSERT INTO events(channel_id, chat_window_id, scene_id, message_id, actor_user_id, actor_role, character_id, kind, payload, visibility, audience) "
         "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::uuid[]) RETURNING *",

@@ -263,9 +263,11 @@ Json::Value ContextRetrievalService::documentSnapshot(const ChannelAccess& a, co
 }
 
 Json::Value ContextRetrievalService::executeTool(const ChannelAccess& a, const std::string& name, const Json::Value& args) {
-    int limit = json::toInt(args, "limit", 10);
-    if (name == "get_current_scene") return getCurrentScene(a, json::str(args, "chat_window_id"), json::toInt(args, "log_limit", 40));
-    if (name == "get_scene_by_id") return getSceneById(a, json::requireStr(args, "scene_id"), json::toInt(args, "log_limit", 80));
+    // Sizes come from the model: bounded, so a tool result cannot blow up the context or the database.
+    auto bounded = [&](const char* key, int def, int hi) { return std::max(1, std::min(json::toInt(args, key, def), hi)); };
+    int limit = bounded("limit", 10, 50);
+    if (name == "get_current_scene") return getCurrentScene(a, json::str(args, "chat_window_id"), bounded("log_limit", 40, 150));
+    if (name == "get_scene_by_id") return getSceneById(a, json::requireStr(args, "scene_id"), bounded("log_limit", 80, 150));
     if (name == "search_scene_history") return searchSceneHistory(a, json::str(args, "query"), json::str(args, "scene_id"), json::str(args, "exclude_scene_id"), limit);
     if (name == "search_events") return searchEvents(a, json::requireStr(args, "query"), json::str(args, "scene_id"), limit);
     if (name == "list_scenarios") return listScenarios(a);

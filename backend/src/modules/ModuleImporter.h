@@ -21,6 +21,8 @@ public:
     void process(const std::string& moduleId);          // extracting → structuring → ready
     // Runs after structuring succeeds (the script knowledge build); failures there never fail the import.
     void setPostProcess(std::function<void(const std::string& channelId, const std::string& moduleId)> f) { postProcess_ = std::move(f); }
+    // Where imports run: a bounded pool that shutdown waits for (false = queue full).
+    void setExecutor(std::function<bool(std::function<void()>)> f) { executor_ = std::move(f); }
 
     Json::Value list(const ChannelAccess& a);
     Json::Value get(const ChannelAccess& a, const std::string& moduleId);
@@ -36,5 +38,6 @@ private:
     void structurePages(const std::string& moduleId, const std::string& channelId, const Json::Value& pages);
     const Config& cfg_; Db& db_; LlmGateway& llm_; Notifier& notifier_;
     std::function<void(const std::string&, const std::string&)> postProcess_;
+    std::function<bool(std::function<void()>)> executor_;
 };
 }

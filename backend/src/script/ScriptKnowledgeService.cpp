@@ -227,6 +227,7 @@ Json::Value ScriptKnowledgeService::buildFromModule(const std::string& channelId
         plan = res.data;
     }
     int n = 0; std::map<std::string, int> byKind; int flowPos = 0;
+    const auto llmMode = llm_.mode(channelId);   // resolved before the transaction: it reads server settings
     db_.tx([&](pqxx::work& w) {
         Db::exec(w, "DELETE FROM script_knowledge WHERE channel_id=$1 AND module_id=$2 AND origin='script' AND NOT gm_edited", {channelId, moduleId});
         for (const auto& e : plan["entries"]) {
@@ -238,7 +239,7 @@ Json::Value ScriptKnowledgeService::buildFromModule(const std::string& channelId
             if (cits.empty() && ids.empty()) continue;   // nothing in the module backs it
             int pos = kind == "flow" ? (e.isMember("position") ? json::toInt(e, "position", flowPos) : flowPos) : 0; if (kind == "flow") flowPos = pos + 1;
             Db::exec(w, "INSERT INTO script_knowledge(channel_id, module_id, kind, title, body, data, citations, node_ids, position, llm_mode) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::uuid[],$9,$10)",
-                {channelId, moduleId, kind, title, clip(json::str(e, "body"), 2000), json::dump(e["data"].isObject() ? e["data"] : Json::Value(Json::objectValue)), json::dump(cits), pgArrayLiteral(ids), (int64_t)pos, llm_.mode(channelId)});
+                {channelId, moduleId, kind, title, clip(json::str(e, "body"), 2000), json::dump(e["data"].isObject() ? e["data"] : Json::Value(Json::objectValue)), json::dump(cits), pgArrayLiteral(ids), (int64_t)pos, llmMode});
             ++n; byKind[kind]++;
         }
     });
@@ -306,6 +307,7 @@ Json::Value ScriptKnowledgeService::afterBatch(const ChannelAccess& sys, const J
             std::string appliedId = entry.isNull() ? "" : entry["id"].asString();
             if (approved) {
                 try {
+                    const auto llmMode = llm_.mode(sys.channelId);   // resolved before the transaction: it reads server settings
                     db_.tx([&](pqxx::work& w) {
                         if (op == "status") {
                             auto st = json::str(ch, "status");
@@ -317,7 +319,7 @@ Json::Value ScriptKnowledgeService::afterBatch(const ChannelAccess& sys, const J
                             Db::exec(w, "UPDATE script_knowledge SET body=$2, title=$3, updated_at=now() WHERE id=$1 AND NOT gm_edited", {appliedId, clip(json::str(ch, "body", entry["body"].asString()), 2000), clip(json::str(ch, "title", entry["title"].asString()), 200)});
                         } else {
                             auto row = Db::queryOne(w, "INSERT INTO script_knowledge(channel_id, module_id, kind, title, body, data, status, status_event_ids, origin, llm_mode) SELECT $1, (SELECT id FROM modules WHERE channel_id=$1 AND status='ready' ORDER BY created_at DESC LIMIT 1), $2, $3, $4, '{}'::jsonb, 'active', $5::uuid[], 'play', $6 RETURNING id",
-                                {sys.channelId, json::str(ch, "kind"), clip(json::str(ch, "title"), 200), clip(json::str(ch, "body"), 2000), pgArrayLiteral(src), llm_.mode(sys.channelId)});
+                                {sys.channelId, json::str(ch, "kind"), clip(json::str(ch, "title"), 200), clip(json::str(ch, "body"), 2000), pgArrayLiteral(src), llmMode});
                             appliedId = row["id"].asString();
                         }
                     });
@@ -386,10 +388,11 @@ void ScriptKnowledgeService::refreshBoard(const ChannelAccess& sys, const std::s
     notes["timeline"] = db_.queryJson("SELECT id, sequence, title, location, narrative_time, status FROM scenes WHERE channel_id=$1 ORDER BY sequence DESC, created_at DESC LIMIT 8", {sys.channelId});
     notes["recent_changes"] = db_.queryJson("SELECT c.id, c.op, c.verdict, c.reviewer_reason, c.applied, c.created_at, k.title, k.kind, k.status FROM script_knowledge_changes c LEFT JOIN script_knowledge k ON k.id=c.knowledge_id WHERE c.channel_id=$1 ORDER BY c.created_at DESC LIMIT 5", {sys.channelId});
     notes["stages_done"] = Json::Value(Json::arrayValue); for (const auto& f : flow) if (f["status"].asString() == "done") { Json::Value x; x["id"] = f["id"]; x["title"] = f["title"]; notes["stages_done"].append(x); }
+    const auto llmMode = llm_.mode(sys.channelId);   // resolved before the transaction: it reads server settings
     db_.tx([&](pqxx::work& w) {
         for (auto& [slot, content] : std::vector<std::pair<std::string, Json::Value>>{{"next", nextCard}, {"notes", notes}})
             Db::exec(w, "INSERT INTO kp_board(channel_id, slot, content, source_event_ids, ai_job_id, llm_mode, updated_at) VALUES($1,$2,$3::jsonb,$4::uuid[],$5::uuid,$6,now()) ON CONFLICT (channel_id, slot) DO UPDATE SET content=EXCLUDED.content, source_event_ids=EXCLUDED.source_event_ids, ai_job_id=EXCLUDED.ai_job_id, llm_mode=EXCLUDED.llm_mode, updated_at=now()",
-                {sys.channelId, slot, json::dump(content), pgArrayLiteral(eventIds), aiJobId.empty() ? dbNull() : DbParam(aiJobId), llm_.mode(sys.channelId)});
+                {sys.channelId, slot, json::dump(content), pgArrayLiteral(eventIds), aiJobId.empty() ? dbNull() : DbParam(aiJobId), llmMode});
     });
     notifier_.kpBoardUpdated(sys.channelId, board(sys));
 }

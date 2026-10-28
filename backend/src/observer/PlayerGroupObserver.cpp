@@ -6,20 +6,22 @@
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
+#include "../core/Log.h"
 #include "../highlights/HighlightService.h"
 #include "../ws/Notifier.h"
 #include "../reminders/ReminderService.h"
 
 namespace acerciae {
-Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,const Json::Value& group,bool wait) {
+Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,const Json::Value& group,bool wait,int64_t safe) {
     ChannelAccess view; view.channelId=channelId; view.playerGroupId=group["id"].asString(); view.playerGroupVersion=group["version"].asInt();
     view.userId="00000000-0000-0000-0000-000000000000";
     const auto key="player:"+view.playerGroupId+":"+std::to_string(view.playerGroupVersion);
+    if(!wait && backingOff(channelId,"observe",key)) return Json::Value();
     if(!tryLock(key,wait)) return Json::Value();
     struct Unlock { ObserverScheduler* s; std::string k; ~Unlock(){s->unlock(k);} } unlocker{this,key};
     auto cursor=db_.queryOne("SELECT last_seq FROM ai_processing_cursors WHERE channel_id=$1 AND kind='observe' AND group_key=$2",{channelId,key});
     int64_t last=cursor.isNull()?0:cursor["last_seq"].asInt64();
-    auto batch=db_.queryJson("SELECT e.id AS event_id,e.seq,e.scene_id,e.actor_role,e.character_id,c.name AS character_name,e.kind,e.payload->>'content' AS content,e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id WHERE e.channel_id=$1 AND e.seq>$2 AND "+Visibility::eventFilter(view)+" ORDER BY e.seq LIMIT $3",{channelId,last,(int64_t)cfg_.observerMaxBatch});
+    auto batch=db_.queryJson("SELECT e.id AS event_id,e.seq,e.scene_id,e.actor_role,e.character_id,c.name AS character_name,e.kind,e.payload->>'content' AS content,e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id WHERE e.channel_id=$1 AND e.seq>$2 AND e.seq<=$4 AND "+Visibility::eventFilter(view)+" ORDER BY e.seq LIMIT $3",{channelId,last,(int64_t)cfg_.observerMaxBatch,safe});
     if(batch.empty()) return Json::Value();
     auto to=batch[batch.size()-1]["seq"].asInt64();
     Json::Value job;
@@ -27,6 +29,7 @@ Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,c
     catch(const pqxx::unique_violation&) {return Json::Value();}
     auto jobId=job["id"].asString();
     Json::Value result; result["job_id"]=jobId; result["group_key"]=key; result["documents"]=Json::Value(Json::arrayValue);
+    bool committed=false;   // once results are written, a failure moves on instead of retrying (retrying would apply them twice)
     try {
         Json::Value ctx; ctx["new_events"]=batch; ctx["memory_group_id"]=view.playerGroupId;
         ctx["documents"]=Json::Value(Json::objectValue);
@@ -59,6 +62,7 @@ Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,c
         auto outcome=llm_.runStructured(req,[&](const std::string& name,const Json::Value& args){return retrieval_.executeTool(view,name,args);},3);
         llmCalls_+=outcome.llmCalls;
         if(!outcome.ok) throw std::runtime_error(outcome.error);
+        committed=true;
         for(const auto& proposal : outcome.data["proposals"]) {
             Proposal p; p.channelId=channelId; p.playerGroupId=view.playerGroupId; p.playerGroupVersion=view.playerGroupVersion;
             p.allowedSourceEventIds=sources; p.documentType=json::str(proposal,"document_type"); p.ops=proposal["ops"]; p.sourceEventIds=json::strArray(proposal["source_event_ids"]); p.aiJobId=jobId; p.summary="Player group chat summary";
@@ -81,12 +85,17 @@ Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,c
         db_.tx([&](pqxx::work& w) {
             auto g=Db::queryOne(w,"SELECT version FROM player_groups WHERE id=$1 FOR UPDATE",{view.playerGroupId});
             if(g.isNull() || g["version"].asInt()!=view.playerGroupVersion) throw conflict("Group changed during generation");
-            Db::exec(w,"INSERT INTO ai_processing_cursors(channel_id,kind,group_key,last_seq) VALUES($1,'observe',$2,$3) ON CONFLICT(channel_id,kind,group_key) DO UPDATE SET last_seq=EXCLUDED.last_seq,updated_at=now()",{channelId,key,to});
+            Db::exec(w,"INSERT INTO ai_processing_cursors(channel_id,kind,group_key,last_seq) VALUES($1,'observe',$2,$3) ON CONFLICT(channel_id,kind,group_key) DO UPDATE SET last_seq=EXCLUDED.last_seq,failures=0,retry_after=NULL,last_error=NULL,updated_at=now()",{channelId,key,to});
             Db::exec(w,"UPDATE ai_jobs SET status='succeeded',llm_calls=$2,result=$3::jsonb,finished_at=now() WHERE id=$1",{jobId,(int64_t)outcome.llmCalls,json::dump(result)});
         });
         result["status"]="succeeded"; groupsProcessed_++;
     } catch(const std::exception& e) {
-        db_.exec("UPDATE ai_jobs SET status='failed',error=$2,finished_at=now() WHERE id=$1",{jobId,std::string(e.what())}); result["status"]="failed"; result["error"]=e.what();
+        try {
+            db_.exec("UPDATE ai_jobs SET status='failed',error=$2,finished_at=now() WHERE id=$1",{jobId,std::string(e.what())});
+            if(committed) db_.exec("INSERT INTO ai_processing_cursors(channel_id,kind,group_key,last_seq) VALUES($1,'observe',$2,$3) ON CONFLICT(channel_id,kind,group_key) DO UPDATE SET last_seq=GREATEST(ai_processing_cursors.last_seq,EXCLUDED.last_seq),failures=0,retry_after=NULL,updated_at=now()",{channelId,key,to});
+            else result["skipped"]=recordFailure(channelId,"observe",key,to,jobId,e.what());
+        } catch(const std::exception& e2) { ALOG_ERROR << "player group bookkeeping failed: " << e2.what(); }
+        result["status"]="failed"; result["error"]=e.what();
     }
     notifier_.aiJobFinished(channelId,result);
     return result;

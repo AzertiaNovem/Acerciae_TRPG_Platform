@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include "../core/Db.h"
 #include "../auth/AuthService.h"
 #include <json/json.h>
@@ -16,6 +17,8 @@ class EventStore; class SceneManager; class LlmGateway; class Notifier;
 class ScenarioService {
 public:
     ScenarioService(Db& db, EventStore& events, SceneManager& scenes, LlmGateway& llm, Notifier& n) : db_(db), events_(events), scenes_(scenes), llm_(llm), notifier_(n) {}
+    // Where background summaries run: a bounded pool that shutdown waits for (false = queue full).
+    void setExecutor(std::function<bool(std::function<void()>)> f) { executor_ = std::move(f); }
 
     // Observer hook for one (window, scenario) batch that was just processed. When the Keeper's narration moved
     // the story, a "New scenario?" reminder is raised for the Keeper, anchored to the boundary line.
@@ -39,6 +42,7 @@ private:
     // Writes the summary of a closed scenario: at once with the mock model, on a detached thread otherwise.
     void summarizeClosed(const std::string& channelId, const std::string& sceneId);
     void summarizeScene(const std::string& channelId, const std::string& sceneId, int& llmCalls);
+    std::function<bool(std::function<void()>)> executor_;
     Db& db_; EventStore& events_; SceneManager& scenes_; LlmGateway& llm_; Notifier& notifier_;
 };
 }
