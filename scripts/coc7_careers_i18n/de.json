@@ -1,0 +1,922 @@
+{
+ "1": {
+  "name": "Eigener Beruf",
+  "description": "Höchstens 8 Berufsfertigkeiten. Gib rechts bei den Berufsattributen den Wert der zweiten Berufseigenschaft ein (leer gelassen gilt Bildung) und lege die anfängliche Finanzkraft selbst fest. Sprich vor der Verwendung eines eigenen Berufs mit deinem Spielleiter."
+ },
+ "2": {
+  "name": "Buchhalter",
+  "description": "Buchführung, Rechtswesen, Bibliotheksnutzung, Horchen, Überzeugen, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "3": {
+  "name": "Akrobat",
+  "description": "Klettern, Ausweichen, Springen, Werfen, Verborgenes erkennen, Schwimmen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "4": {
+  "name": "Schauspieler – Bühnenschauspieler",
+  "description": "Kunst/Handwerk (Schauspielern), Verkleiden, Nahkampf, Geschichtswissen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "5": {
+  "name": "Schauspieler – Filmschauspieler",
+  "description": "Kunst/Handwerk (Schauspielern), Verkleiden, Autofahren, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten (z. B. Reiten oder Nahkampf)."
+ },
+ "6": {
+  "name": "Detektiv einer Agentur, Wachmann",
+  "description": "Eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Nahkampf (Handgemenge), Schusswaffen, Rechtswesen, Bibliotheksnutzung, Psychologie, Heimlichkeit, Spurensuche."
+ },
+ "7": {
+  "name": "Irrenarzt (1920er)",
+  "description": "Rechtswesen, Horchen, Medizin, Fremdsprache, Psychoanalyse, Psychologie, Naturwissenschaft (Biologie, Chemie)."
+ },
+ "8": {
+  "name": "Tiertrainer",
+  "description": "Springen, Horchen, Naturkunde, Psychologie, Naturwissenschaft (Zoologie), Heimlichkeit, Spurensuche, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "9": {
+  "name": "Antiquar (Lovecraft)",
+  "description": "Schätzen, Kunst/Handwerk (beliebig), Geschichtswissen, Bibliotheksnutzung, Fremdsprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "10": {
+  "name": "Antiquitätenhändler",
+  "description": "Buchführung, Schätzen, Autofahren, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Geschichtswissen, Bibliotheksnutzung, Orientierung."
+ },
+ "11": {
+  "name": "Archäologe (Lovecraft)",
+  "description": "Schätzen, Archäologie, Geschichtswissen, Fremdsprache, Bibliotheksnutzung, Verborgenes erkennen, Mechanische Reparaturen, Orientierung oder Naturwissenschaft (beliebig: z. B. Chemie, Physik, Geographie usw.)."
+ },
+ "12": {
+  "name": "Architekt",
+  "description": "Buchführung, Kunst/Handwerk (Technisches Zeichnen), Rechtswesen, Muttersprache, Computernutzung oder Bibliotheksnutzung, Überzeugen, Psychologie, Naturwissenschaft (Mathematik)."
+ },
+ "13": {
+  "name": "Künstler",
+  "description": "Kunst/Handwerk (beliebig), Geschichtswissen oder Naturkunde, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Fremdsprache, Psychologie, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "14": {
+  "name": "Anstaltspfleger",
+  "description": "Ausweichen, Nahkampf (Handgemenge), Erste Hilfe, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, Heimlichkeit."
+ },
+ "15": {
+  "name": "Athlet",
+  "description": "Klettern, Springen, Nahkampf (Handgemenge), Reiten, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Schwimmen, Werfen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "16": {
+  "name": "Schriftsteller (Lovecraft)",
+  "description": "Kunst/Handwerk (Literatur), Geschichtswissen, Bibliotheksnutzung, Naturkunde oder Okkultismus, Fremdsprache, Muttersprache, Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "17": {
+  "name": "Barkeeper",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Nahkampf (Handgemenge), Horchen, Psychologie, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "18": {
+  "name": "Jäger",
+  "description": "Schusswaffen, Horchen oder Verborgenes erkennen, Naturkunde, Orientierung, Fremdsprache oder Überleben (beliebig), Naturwissenschaft (Biologie oder Botanik), Heimlichkeit, Spurensuche."
+ },
+ "19": {
+  "name": "Buchhändler",
+  "description": "Buchführung, Schätzen, Autofahren, Geschichtswissen, Bibliotheksnutzung, Muttersprache, Fremdsprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen)."
+ },
+ "20": {
+  "name": "Kopfgeldjäger",
+  "description": "Autofahren, Elektronik oder Elektrische Reparaturen, Nahkampf oder Schusswaffen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Rechtswesen, Psychologie, Spurensuche, Heimlichkeit."
+ },
+ "21": {
+  "name": "Boxer, Ringer",
+  "description": "Ausweichen, Nahkampf (Handgemenge), Einschüchtern, Springen, Psychologie, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "22": {
+  "name": "Butler, Diener, Dienstmädchen",
+  "description": "Buchführung oder Schätzen, Kunst/Handwerk (beliebig: z. B. Kochen, Schneidern, Friseurhandwerk), Erste Hilfe, Horchen, Fremdsprache, Psychologie, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "23": {
+  "name": "Geistlicher",
+  "description": "Buchführung, Geschichtswissen, Bibliotheksnutzung, Horchen, Fremdsprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit."
+ },
+ "24": {
+  "name": "Programmierer, Elektronikingenieur (Gegenwart)",
+  "description": "Computernutzung, Elektrische Reparaturen, Elektronik, Bibliotheksnutzung, Naturwissenschaft (Mathematik), Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "25": {
+  "name": "Hacker/Cracker (Gegenwart)",
+  "description": "Computernutzung, Elektrische Reparaturen, Elektronik, Bibliotheksnutzung, Verborgenes erkennen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), zwei beliebige weitere Fertigkeiten."
+ },
+ "26": {
+  "name": "Cowboy",
+  "description": "Ausweichen, Nahkampf oder Schusswaffen, Erste Hilfe oder Naturkunde, Springen, Reiten, Überleben (beliebig), Werfen, Spurensuche."
+ },
+ "27": {
+  "name": "Handwerker",
+  "description": "Buchführung, Kunst/Handwerk (zwei beliebige), Mechanische Reparaturen, Naturkunde, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "28": {
+  "name": "Krimineller – Auftragsmörder",
+  "description": "Verkleiden, Elektrische Reparaturen, Nahkampf, Schusswaffen, Schlosserarbeit, Mechanische Reparaturen, Heimlichkeit, Psychologie."
+ },
+ "29": {
+  "name": "Krimineller – Bankräuber",
+  "description": "Autofahren, Elektrische Reparaturen oder Mechanische Reparaturen, Nahkampf, Schusswaffen, Einschüchtern, Schlosserarbeit, Schwere Maschinen bedienen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "30": {
+  "name": "Krimineller – Schläger, Gangster",
+  "description": "Autofahren, Nahkampf, Schusswaffen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Heimlichkeit, Verborgenes erkennen."
+ },
+ "31": {
+  "name": "Krimineller – Einbrecher",
+  "description": "Schätzen, Klettern, Elektrische Reparaturen oder Mechanische Reparaturen, Horchen, Schlosserarbeit, Fingerfertigkeit, Heimlichkeit, Verborgenes erkennen."
+ },
+ "32": {
+  "name": "Krimineller – Hochstapler",
+  "description": "Schätzen, Kunst/Handwerk (Schauspielern), Rechtswesen oder Fremdsprache, Horchen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Fingerfertigkeit."
+ },
+ "33": {
+  "name": "Krimineller – Unabhängiger Krimineller",
+  "description": "Kunst/Handwerk (Schauspielern) oder Verkleiden, Schätzen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Nahkampf oder Schusswaffen, Schlosserarbeit oder Mechanische Reparaturen, Heimlichkeit, Psychologie, Verborgenes erkennen."
+ },
+ "34": {
+  "name": "Krimineller – Gangsterbraut (1920er)",
+  "description": "Kunst/Handwerk (beliebig), zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Nahkampf (Handgemenge) oder Schusswaffen (Faustfeuerwaffe), Autofahren, Horchen, Heimlichkeit, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "35": {
+  "name": "Krimineller – Hehler",
+  "description": "Buchführung, Schätzen, Kunst/Handwerk (Fälschen), Geschichtswissen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Bibliotheksnutzung, Verborgenes erkennen, eine beliebige weitere Fertigkeit."
+ },
+ "36": {
+  "name": "Krimineller – Fälscher",
+  "description": "Buchführung, Schätzen, Kunst/Handwerk (Fälschen), Geschichtswissen, Bibliotheksnutzung, Verborgenes erkennen, Fingerfertigkeit, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität (z. B. Computernutzung)."
+ },
+ "37": {
+  "name": "Krimineller – Schmuggler",
+  "description": "Schusswaffen, Horchen, Orientierung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Autofahren oder Steuern (Flugzeug oder Boot), Psychologie, Fingerfertigkeit, Verborgenes erkennen."
+ },
+ "38": {
+  "name": "Krimineller – Straßenganove",
+  "description": "Klettern, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Nahkampf, Schusswaffen, Springen, Fingerfertigkeit, Heimlichkeit, Werfen."
+ },
+ "39": {
+  "name": "Sektenführer",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Okkultismus, Psychologie, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche Spezialitäten."
+ },
+ "40": {
+  "name": "Deprogrammierer (Gegenwart)",
+  "description": "Zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Autofahren, Nahkampf (Handgemenge) oder Schusswaffen, Geschichtswissen, Okkultismus, Psychologie, Heimlichkeit. ※ Mit Erlaubnis des Spielleiters kann Hypnose eine dieser Fertigkeiten ersetzen."
+ },
+ "41": {
+  "name": "Designer",
+  "description": "Buchführung, Kunst/Handwerk (Fotografie), Kunst/Handwerk (beliebig), Computernutzung oder Bibliotheksnutzung, Mechanische Reparaturen, Psychologie, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche Spezialität."
+ },
+ "42": {
+  "name": "Dilettant (Lovecraft)",
+  "description": "Kunst/Handwerk (beliebig), Schusswaffen, Fremdsprache, Reiten, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), drei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "43": {
+  "name": "Taucher",
+  "description": "Tauchen, Erste Hilfe, Mechanische Reparaturen, Steuern (Boot), Naturwissenschaft (Biologie), Verborgenes erkennen, Schwimmen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "44": {
+  "name": "Arzt (Lovecraft)",
+  "description": "Erste Hilfe, Medizin, Fremdsprache (Latein), Psychologie, Naturwissenschaft (Biologie, Pharmazie), zwei beliebige weitere akademische oder persönliche Spezialitäten."
+ },
+ "45": {
+  "name": "Herumtreiber",
+  "description": "Klettern, Springen, Horchen, Orientierung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Heimlichkeit, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "46": {
+  "name": "Fahrer – Chauffeur",
+  "description": "Autofahren, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Mechanische Reparaturen, Orientierung, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "47": {
+  "name": "Fahrer – Fahrer",
+  "description": "Buchführung, Autofahren, Horchen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Mechanische Reparaturen, Orientierung, Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "48": {
+  "name": "Fahrer – Taxifahrer",
+  "description": "Buchführung, Autofahren, Elektrische Reparaturen, Überreden, Mechanische Reparaturen, Orientierung, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "49": {
+  "name": "Redakteur",
+  "description": "Buchführung, Geschichtswissen, Muttersprache, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "50": {
+  "name": "Regierungsbeamter",
+  "description": "Charme, Geschichtswissen, Einschüchtern, Überreden, Horchen, Muttersprache, Überzeugen, Psychologie."
+ },
+ "51": {
+  "name": "Ingenieur",
+  "description": "Kunst/Handwerk (Technisches Zeichnen), Elektrische Reparaturen, Bibliotheksnutzung, Mechanische Reparaturen, Schwere Maschinen bedienen, Naturwissenschaft (Ingenieurwesen, Physik), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "52": {
+  "name": "Unterhaltungskünstler",
+  "description": "Kunst/Handwerk (darstellende Kunst, z. B. Schauspielern, Gesang, Komik usw.), Verkleiden, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "53": {
+  "name": "Forschungsreisender (1920er)",
+  "description": "Klettern oder Schwimmen, Schusswaffen, Geschichtswissen, Springen, Naturkunde, Orientierung, Fremdsprache, Überleben."
+ },
+ "54": {
+  "name": "Farmer",
+  "description": "Kunst/Handwerk (Ackerbau), Autofahren (oder Fuhrwerk), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Mechanische Reparaturen, Naturkunde, Schwere Maschinen bedienen, Spurensuche, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "55": {
+  "name": "Bundesagent",
+  "description": "Autofahren, Nahkampf (Handgemenge), Schusswaffen, Rechtswesen, Überzeugen, Heimlichkeit, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "56": {
+  "name": "Feuerwehrmann",
+  "description": "Klettern, Ausweichen, Autofahren, Erste Hilfe, Springen, Mechanische Reparaturen, Schwere Maschinen bedienen, Werfen."
+ },
+ "57": {
+  "name": "Auslandskorrespondent",
+  "description": "Geschichtswissen, Fremdsprache, Muttersprache, Horchen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "58": {
+  "name": "Rechtsmediziner",
+  "description": "Fremdsprache (Latein), Bibliotheksnutzung, Medizin, Überzeugen, Naturwissenschaft (Biologie, Pharmazie, Forensik), Verborgenes erkennen."
+ },
+ "59": {
+  "name": "Glücksspieler",
+  "description": "Buchführung, Kunst/Handwerk (Schauspielern), zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, Fingerfertigkeit, Verborgenes erkennen."
+ },
+ "60": {
+  "name": "Gangster – Boss",
+  "description": "Nahkampf, Schusswaffen, Rechtswesen, Horchen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen."
+ },
+ "61": {
+  "name": "Gangster – Handlanger",
+  "description": "Autofahren, Nahkampf, Schusswaffen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "62": {
+  "name": "Gentleman, Lady",
+  "description": "Kunst/Handwerk (beliebig), zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Schusswaffen (Gewehr/Schrotflinte), Geschichtswissen, Fremdsprache (beliebig), Orientierung, Reiten."
+ },
+ "63": {
+  "name": "Landstreicher",
+  "description": "Kunst/Handwerk (beliebig), Klettern, Springen, Horchen, Schlosserarbeit oder Fingerfertigkeit, Orientierung, Heimlichkeit, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "64": {
+  "name": "Krankenhaushelfer",
+  "description": "Elektrische Reparaturen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Nahkampf (Handgemenge), Erste Hilfe, Horchen, Mechanische Reparaturen, Psychologie, Heimlichkeit."
+ },
+ "65": {
+  "name": "Journalist (Lovecraft) – Investigativer Journalist",
+  "description": "Kunst/Handwerk (Kunst oder Fotografie), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Geschichtswissen, Bibliotheksnutzung, Muttersprache, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "66": {
+  "name": "Journalist (Lovecraft) – Reporter",
+  "description": "Kunst/Handwerk (Schauspielern), Geschichtswissen, Horchen, Muttersprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Heimlichkeit, Verborgenes erkennen."
+ },
+ "67": {
+  "name": "Richter",
+  "description": "Geschichtswissen, Einschüchtern, Rechtswesen, Bibliotheksnutzung, Horchen, Muttersprache, Überzeugen, Psychologie."
+ },
+ "68": {
+  "name": "Laborassistent",
+  "description": "Computernutzung oder Bibliotheksnutzung, Elektrische Reparaturen, Fremdsprache, Naturwissenschaft (Chemie und zwei beliebige weitere), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche Spezialität."
+ },
+ "69": {
+  "name": "Arbeiter – Ungelernter Arbeiter",
+  "description": "Autofahren, Elektrische Reparaturen, Nahkampf, Erste Hilfe, Mechanische Reparaturen, Schwere Maschinen bedienen, Werfen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "70": {
+  "name": "Arbeiter – Holzfäller",
+  "description": "Klettern, Ausweichen, Nahkampf (Kettensäge), Erste Hilfe, Springen, Mechanische Reparaturen, Naturkunde oder Naturwissenschaft (Biologie oder Botanik), Werfen."
+ },
+ "71": {
+  "name": "Arbeiter – Bergarbeiter",
+  "description": "Klettern, Naturwissenschaft (Geologie), Springen, Mechanische Reparaturen, Schwere Maschinen bedienen, Heimlichkeit, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "72": {
+  "name": "Anwalt",
+  "description": "Buchführung, Rechtswesen, Bibliotheksnutzung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, zwei weitere Fertigkeiten."
+ },
+ "73": {
+  "name": "Bibliothekar (Lovecraft)",
+  "description": "Buchführung, Bibliotheksnutzung, Fremdsprache, Muttersprache, vier beliebige weitere Fertigkeiten als persönliche Spezialitäten oder Themengebiete der Fachliteratur."
+ },
+ "74": {
+  "name": "Techniker",
+  "description": "Kunst/Handwerk (Tischlerei, Schweißen, Klempnerei usw.), Klettern, Autofahren, Elektrische Reparaturen, Mechanische Reparaturen, Schwere Maschinen bedienen, zwei beliebige weitere Fertigkeiten als persönliche, zeittypische oder technische Spezialitäten."
+ },
+ "75": {
+  "name": "Offizier",
+  "description": "Buchführung, Schusswaffen, Orientierung, Erste Hilfe, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "76": {
+  "name": "Missionar",
+  "description": "Kunst/Handwerk (beliebig), Erste Hilfe, Mechanische Reparaturen, Medizin, Naturkunde, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "77": {
+  "name": "Bergsteiger",
+  "description": "Klettern, Erste Hilfe, Springen, Horchen, Orientierung, Fremdsprache, Überleben (Alpin oder Ähnliches), Spurensuche."
+ },
+ "78": {
+  "name": "Museumskurator",
+  "description": "Buchführung, Schätzen, Archäologie, Geschichtswissen, Bibliotheksnutzung, Okkultismus, Fremdsprache, Verborgenes erkennen."
+ },
+ "79": {
+  "name": "Musiker",
+  "description": "Kunst/Handwerk (Instrument), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, vier weitere Fertigkeiten."
+ },
+ "80": {
+  "name": "Krankenpfleger",
+  "description": "Erste Hilfe, Horchen, Medizin, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Naturwissenschaft (Biologie, Chemie), Verborgenes erkennen."
+ },
+ "81": {
+  "name": "Okkultist",
+  "description": "Anthropologie, Geschichtswissen, Bibliotheksnutzung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Okkultismus, Fremdsprache, Naturwissenschaft (Astronomie), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität. ※ Mit Erlaubnis des Spielleiters kann dies Cthulhu-Mythos einschließen."
+ },
+ "82": {
+  "name": "Weltenbummler",
+  "description": "Schusswaffen, Erste Hilfe, Horchen, Naturkunde, Orientierung, Verborgenes erkennen, Überleben (beliebig), Spurensuche."
+ },
+ "83": {
+  "name": "Parapsychologe",
+  "description": "Anthropologie, Kunst/Handwerk (Fotografie), Geschichtswissen, Bibliotheksnutzung, Okkultismus, Fremdsprache, Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "84": {
+  "name": "Apotheker",
+  "description": "Buchführung, Erste Hilfe, Fremdsprache (Latein), Bibliotheksnutzung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Naturwissenschaft (Pharmazie, Chemie)."
+ },
+ "85": {
+  "name": "Fotograf – Fotograf",
+  "description": "Kunst/Handwerk (Fotografie), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Naturwissenschaft (Chemie), Heimlichkeit, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "86": {
+  "name": "Fotograf – Fotojournalist",
+  "description": "Kunst/Handwerk (Fotografie), Klettern, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Fremdsprache, Psychologie, Naturwissenschaft (Chemie), zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "87": {
+  "name": "Pilot – Pilot",
+  "description": "Elektrische Reparaturen, Mechanische Reparaturen, Orientierung, Schwere Maschinen bedienen, Steuern (Flugzeug), Naturwissenschaft (Astronomie), zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "88": {
+  "name": "Pilot – Kunstflieger (1920er)",
+  "description": "Buchführung, Elektrische Reparaturen, Horchen, Mechanische Reparaturen, Orientierung, Steuern (Flugzeug), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "89": {
+  "name": "Polizei (Lovecraft) – Kriminalbeamter",
+  "description": "Kunst/Handwerk (Schauspielern) oder Verkleiden, Schusswaffen, Rechtswesen, Horchen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen, eine weitere Fertigkeit."
+ },
+ "90": {
+  "name": "Polizei (Lovecraft) – Streifenpolizist",
+  "description": "Nahkampf (Handgemenge), Schusswaffen, Erste Hilfe, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Rechtswesen, Psychologie, Verborgenes erkennen sowie eine der folgenden persönlichen Spezialitäten: Autofahren oder Reiten."
+ },
+ "91": {
+  "name": "Privatdetektiv",
+  "description": "Kunst/Handwerk (Fotografie), Verkleiden, Rechtswesen, Bibliotheksnutzung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen, eine weitere Fertigkeit als persönliche oder zeittypische Spezialität (z. B. Computernutzung, Schlosserarbeit, Nahkampf, Schusswaffen)."
+ },
+ "92": {
+  "name": "Professor (Lovecraft)",
+  "description": "Bibliotheksnutzung, Fremdsprache, Muttersprache, Psychologie, vier beliebige weitere akademische, zeittypische oder persönliche Spezialitäten."
+ },
+ "93": {
+  "name": "Goldsucher",
+  "description": "Klettern, Erste Hilfe, Geschichtswissen, Mechanische Reparaturen, Orientierung, Naturwissenschaft (Geologie), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "94": {
+  "name": "Sexarbeiter/-in",
+  "description": "Kunst/Handwerk (beliebig), zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Ausweichen, Psychologie, Fingerfertigkeit, Heimlichkeit, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "95": {
+  "name": "Psychiater",
+  "description": "Fremdsprache, Horchen, Medizin, Überzeugen, Psychoanalyse, Psychologie, Naturwissenschaft (Biologie, Chemie)."
+ },
+ "96": {
+  "name": "Psychologe, Psychoanalytiker",
+  "description": "Buchführung, Bibliotheksnutzung, Horchen, Überzeugen, Psychoanalyse, Psychologie, zwei beliebige weitere akademische, persönliche oder zeittypische Spezialitäten."
+ },
+ "97": {
+  "name": "Forscher",
+  "description": "Geschichtswissen, Bibliotheksnutzung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Fremdsprache, Verborgenes erkennen, drei beliebige weitere akademische Fachgebiete."
+ },
+ "98": {
+  "name": "Seemann – Marinesoldat",
+  "description": "Elektrische Reparaturen oder Mechanische Reparaturen, Nahkampf, Schusswaffen, Erste Hilfe, Orientierung, Steuern (Boot), Überleben (See), Schwimmen."
+ },
+ "99": {
+  "name": "Seemann – Handelsmatrose",
+  "description": "Erste Hilfe, Mechanische Reparaturen, Naturkunde, Orientierung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Steuern (Boot), Verborgenes erkennen, Schwimmen."
+ },
+ "100": {
+  "name": "Vertreter",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Autofahren, Horchen, Psychologie, Heimlichkeit oder Fingerfertigkeit, eine weitere Fertigkeit."
+ },
+ "101": {
+  "name": "Wissenschaftler",
+  "description": "Naturwissenschaft (drei beliebige Fachgebiete), Computernutzung oder Bibliotheksnutzung, Fremdsprache, Muttersprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Verborgenes erkennen."
+ },
+ "102": {
+  "name": "Sekretär",
+  "description": "Buchführung, Kunst/Handwerk (Maschinenschreiben oder Stenografie), zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Muttersprache, Bibliotheksnutzung oder Computernutzung, Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "103": {
+  "name": "Ladenbesitzer",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Elektrische Reparaturen, Horchen, Mechanische Reparaturen, Psychologie, Verborgenes erkennen."
+ },
+ "104": {
+  "name": "Soldat, Marineinfanterist",
+  "description": "Klettern oder Schwimmen, Ausweichen, Nahkampf, Schusswaffen, Heimlichkeit, Überleben, zwei der folgenden: Erste Hilfe, Mechanische Reparaturen, Fremdsprache."
+ },
+ "105": {
+  "name": "Spion",
+  "description": "Kunst/Handwerk (Schauspielern) oder Verkleiden, Schusswaffen, Horchen, Fremdsprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Fingerfertigkeit, Heimlichkeit."
+ },
+ "106": {
+  "name": "Student, Praktikant",
+  "description": "Sprache (Muttersprache oder Fremdsprache), Bibliotheksnutzung, Horchen, drei Studienfächer, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "107": {
+  "name": "Stuntman",
+  "description": "Klettern, Ausweichen, Elektrische Reparaturen oder Mechanische Reparaturen, Nahkampf, Erste Hilfe, Springen, Schwimmen, eine der folgenden: Tauchen, Autofahren, Steuern (beliebig), Reiten."
+ },
+ "108": {
+  "name": "Stammesangehöriger",
+  "description": "Klettern, Nahkampf oder Werfen, Horchen, Naturkunde, Okkultismus, Verborgenes erkennen, Schwimmen, Überleben (beliebig)."
+ },
+ "109": {
+  "name": "Bestatter",
+  "description": "Buchführung, Autofahren, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Geschichtswissen, Okkultismus, Psychologie, Naturwissenschaft (Biologie, Chemie)."
+ },
+ "110": {
+  "name": "Gewerkschaftsaktivist",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Nahkampf (Handgemenge), Rechtswesen, Horchen, Schwere Maschinen bedienen, Psychologie."
+ },
+ "111": {
+  "name": "Kellner",
+  "description": "Buchführung, Kunst/Handwerk (beliebig), Ausweichen, Horchen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "112": {
+  "name": "Angestellter – Sachbearbeiter, Vorgesetzter",
+  "description": "Buchführung, Sprache, Rechtswesen, Bibliotheksnutzung oder Computernutzung, Horchen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "113": {
+  "name": "Angestellter – Mittleres und oberes Management",
+  "description": "Buchführung, Fremdsprache, Rechtswesen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "114": {
+  "name": "Eiferer",
+  "description": "Geschichtswissen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Heimlichkeit, drei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "115": {
+  "name": "Zoowärter",
+  "description": "Tierdressur, Buchführung, Ausweichen, Erste Hilfe, Naturkunde, Medizin, Naturwissenschaft (Pharmazie, Zoologie)."
+ },
+ "116": {
+  "name": "Botschafter",
+  "description": "Charme, Geschichtswissen, Einschüchtern, Überreden, Horchen, Muttersprache, Überzeugen, Psychologie. (Ein bis zwei Fremdsprachen ersetzen zwei der vorgenannten Fertigkeiten.)"
+ },
+ "117": {
+  "name": "Athlet (Schwimmen/Tauchen)",
+  "description": "Klettern, Springen, Nahkampf (Handgemenge), Fremdsprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Schwimmen, Werfen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "118": {
+  "name": "Athlet (Golf)",
+  "description": "Klettern, Springen, Nahkampf (Handgemenge), Reiten, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Schwimmen, Werfen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "119": {
+  "name": "Athlet (Tennis)",
+  "description": "Springen, Nahkampf (Handgemenge), Ausweichen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen, Werfen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "120": {
+  "name": "Athlet (Leichtathletik)",
+  "description": "Klettern, Springen, Nahkampf (Handgemenge), Fremdsprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Ausweichen, Werfen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "121": {
+  "name": "Pressesprecher",
+  "description": "Verkleiden, Ausweichen, drei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Fremdsprache, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "122": {
+  "name": "Kautionsbürge",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Rechtswesen, Bibliotheksnutzung, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "123": {
+  "name": "Geistlicher (katholischer Priester)",
+  "description": "Buchführung, Muttersprache, Fremdsprache (Latein), Bibliotheksnutzung, Okkultismus, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit."
+ },
+ "124": {
+  "name": "Geistlicher (evangelischer Pastor)",
+  "description": "Buchführung, Geschichtswissen, Bibliotheksnutzung, Horchen, Fremdsprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit."
+ },
+ "125": {
+  "name": "Geistlicher (Rabbiner)",
+  "description": "Muttersprache, Fremdsprache (Hebräisch), Geschichtswissen, Bibliotheksnutzung, Okkultismus, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit."
+ },
+ "126": {
+  "name": "Kolumnist",
+  "description": "Verkleiden, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Geschichtswissen oder Bibliotheksnutzung, Muttersprache, Fremdsprache, Psychologie, Heimlichkeit."
+ },
+ "127": {
+  "name": "Sozialist/Radikaler",
+  "description": "Nahkampf (Handgemenge), zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Schusswaffen (Faustfeuerwaffe), Fremdsprache, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "128": {
+  "name": "Texter",
+  "description": "Muttersprache, Kunst/Handwerk (Literatur), zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Geschichtswissen, Bibliotheksnutzung, Horchen, Psychologie."
+ },
+ "129": {
+  "name": "Krimineller (Buchmacher)",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen, Fingerfertigkeit, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "130": {
+  "name": "Krimineller (Kredithai)",
+  "description": "Buchführung, Schätzen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "131": {
+  "name": "Krimineller (Taschendieb)",
+  "description": "Verkleiden, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Heimlichkeit, Horchen, Psychologie, Verborgenes erkennen, Fingerfertigkeit, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "132": {
+  "name": "Krimineller (Untergrundbankier)",
+  "description": "Buchführung, Rechtswesen, Bibliotheksnutzung, Horchen, Überzeugen, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "133": {
+  "name": "Krimineller (Winkeladvokat)",
+  "description": "Buchführung, Rechtswesen, Bibliotheksnutzung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, zwei weitere Fertigkeiten."
+ },
+ "134": {
+  "name": "Zahnarzt",
+  "description": "Erste Hilfe, Medizin, Fremdsprache (Latein), Psychologie, Naturwissenschaft (Biologie, Pharmazie), zwei beliebige weitere akademische oder persönliche Spezialitäten."
+ },
+ "135": {
+  "name": "Chirurg/Internist",
+  "description": "Erste Hilfe, Medizin, Fremdsprache (Latein), Psychologie, Naturwissenschaft (Biologie, Pharmazie), zwei beliebige weitere akademische oder persönliche Spezialitäten."
+ },
+ "136": {
+  "name": "Schönheitschirurg",
+  "description": "Erste Hilfe, Medizin, Fremdsprache (Latein), Psychologie, Naturwissenschaft (Biologie, Pharmazie), zwei beliebige weitere akademische oder persönliche Spezialitäten."
+ },
+ "137": {
+  "name": "Fahrer – Busfahrer",
+  "description": "Buchführung, Autofahren, Elektrische Reparaturen, Mechanische Reparaturen, Orientierung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "138": {
+  "name": "Feldforscher",
+  "description": "Buchführung, Klettern oder Springen, Erste Hilfe, Bibliotheksnutzung, Fremdsprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), zwei Fertigkeiten mit Bezug zum Forschungsgebiet."
+ },
+ "139": {
+  "name": "Filmcrew-Mitglied",
+  "description": "Kunst/Handwerk (beliebig, z. B. Fotografie), Klettern, Autofahren, Elektrische Reparaturen, Mechanische Reparaturen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "140": {
+  "name": "Forensiker",
+  "description": "Kunst/Handwerk (Fotografie), Medizin, Rechtswesen, Naturwissenschaft (Chemie, Forensik, Pharmazie), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "141": {
+  "name": "Sportmanager",
+  "description": "Buchführung, Nahkampf (Handgemenge), Ausweichen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Erste Hilfe, Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "142": {
+  "name": "Handelsmarine-Seemann",
+  "description": "Anthropologie, Klettern, Elektrische Reparaturen oder Mechanische Reparaturen, Springen, Schwere Maschinen bedienen, Fremdsprache, Überleben (See), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "143": {
+  "name": "Klassischer Musiker",
+  "description": "Buchführung, Kunst/Handwerk (Instrument), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, drei weitere Fertigkeiten."
+ },
+ "144": {
+  "name": "Rennfahrer/Bootsrennfahrer",
+  "description": "Autofahren, Elektrische Reparaturen, Mechanische Reparaturen, Steuern (Boot), Psychologie, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "145": {
+  "name": "Radiosprecher",
+  "description": "Kunst/Handwerk (Schauspielern), Muttersprache, Charme, Überreden, Überzeugen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "146": {
+  "name": "Vertreter (Bibelverkäufer)",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Autofahren, Horchen, Psychologie, Heimlichkeit oder Fingerfertigkeit, eine weitere Fertigkeit."
+ },
+ "147": {
+  "name": "Vertreter (Handlungsreisender)",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Autofahren, Orientierung, Horchen, Psychologie, eine weitere Fertigkeit."
+ },
+ "148": {
+  "name": "Kleinunternehmer",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, vier Fertigkeiten mit Bezug zum Geschäftsbetrieb."
+ },
+ "149": {
+  "name": "Bühnenarbeiter",
+  "description": "Kunst/Handwerk (beliebig), Muttersprache, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Verkleiden, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "150": {
+  "name": "Börsenmakler",
+  "description": "Buchführung, Schätzen, Muttersprache, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "151": {
+  "name": "Landvermesser",
+  "description": "Buchführung, Kunst/Handwerk (Fotografie), Bibliotheksnutzung, Naturkunde, Orientierung, Überleben (beliebig), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "152": {
+  "name": "Telefonist",
+  "description": "Muttersprache, Fremdsprache, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "153": {
+  "name": "Talentsucher",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Rechtswesen, Psychologie, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "154": {
+  "name": "Medizintechniker",
+  "description": "Kunst/Handwerk (Fotografie), Elektrische Reparaturen, Bibliotheksnutzung, Mechanische Reparaturen, Medizin, Naturwissenschaft (Biologie, Chemie, Pharmazie)."
+ },
+ "155": {
+  "name": "Mannschaftsarzt",
+  "description": "Zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Erste Hilfe, Medizin, Naturwissenschaft (Pharmazie), Psychologie, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "156": {
+  "name": "Schatzsucher",
+  "description": "Schätzen, Klettern, Autofahren oder Steuern (Flugzeug oder Boot), Elektrische Reparaturen oder Mechanische Reparaturen, Geschichtswissen, Springen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Verborgenes erkennen."
+ },
+ "157": {
+  "name": "Marshal im Wilden Westen",
+  "description": "Autofahren, Schusswaffen (beliebig), Nahkampf (Handgemenge, Peitsche), Rechtswesen, Überzeugen oder Psychologie, Reiten, Spurensuche."
+ },
+ "158": {
+  "name": "Bōsōzoku (Motorradgang)",
+  "description": "Nahkampf (Handgemenge), Autofahren, Mechanische Reparaturen, Überreden, Einschüchtern, drei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "159": {
+  "name": "Geistlicher (Mönch, Nonne)",
+  "description": "Kunst/Handwerk (Kalligrafie), Geschichtswissen oder Bibliotheksnutzung, Fremdsprache (Chinesisch oder Sanskrit), Überlieferung (Buddhismus), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Horchen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "160": {
+  "name": "Geistlicher (Shintō-Priester, Miko)",
+  "description": "Kunst/Handwerk (Kalligrafie und eine beliebige weitere), Bibliotheksnutzung, Okkultismus, Überlieferung (Shintō), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "161": {
+  "name": "Feng-Shui-Meister",
+  "description": "Kunst/Handwerk (beliebig), Bibliotheksnutzung, Okkultismus, Überlieferung (Daoismus), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Naturwissenschaft (Astronomie, Geologie), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "162": {
+  "name": "Dämonenjäger in Familientradition",
+  "description": "Nahkampf (Handgemenge), Naturkunde, Okkultismus, Überlieferung (Buddhismus oder Shintō), Psychologie, Heimlichkeit, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "163": {
+  "name": "Oberschüler (Bildung unter 60)",
+  "description": "Klettern, Heimlichkeit, Springen, Bibliotheksnutzung, Nahkampf (beliebig), Muttersprache, Naturwissenschaft (beliebig) oder Geschichtswissen, Fremdsprache (Englisch oder andere)."
+ },
+ "164": {
+  "name": "Ichiko (blind)",
+  "description": "Kunst/Handwerk (Schauspielern), Horchen, Überlieferung (Shintō), Okkultismus, Geschichtswissen, Überreden oder Überzeugen, Psychologie, eine beliebige Spezialität. ※ Mit Zustimmung des Spielleiters kann die Fertigkeit „Medium“ eine frei gewählte Fertigkeit ersetzen."
+ },
+ "165": {
+  "name": "Kotodama-Meister/Onmyōji",
+  "description": "Kunst/Handwerk (Kalligrafie und eine beliebige weitere), Geschichtswissen oder Bibliotheksnutzung, Muttersprache, Überlieferung (Onmyōdō), Naturwissenschaft (Astronomie), Okkultismus, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "166": {
+  "name": "Daoistischer Alchemist",
+  "description": "Bibliotheksnutzung, Medizin, Okkultismus, Naturwissenschaft (Chemie), Naturkunde, Überlieferung (Daoismus), Fremdsprache (Chinesisch), Erste Hilfe oder Psychoanalyse."
+ },
+ "167": {
+  "name": "Fremdsprachenlehrer",
+  "description": "Geschichtswissen, Horchen, Muttersprache, Psychologie, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "168": {
+  "name": "Illegaler Einwanderer",
+  "description": "Verkleiden, Überreden, Horchen, Verborgenes erkennen, Heimlichkeit, Fingerfertigkeit, Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "169": {
+  "name": "Sumōringer (Größe > 80, Stärke > 70)",
+  "description": "Ausweichen, Nahkampf (Handgemenge), Einschüchtern, Springen, Psychologie, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten. (Deine Größe darf 99 übersteigen.)"
+ },
+ "170": {
+  "name": "Fischer",
+  "description": "Mechanische Reparaturen, Schwere Maschinen bedienen, Schwimmen, Steuern (Boot), Naturwissenschaft (Astronomie), Orientierung, Naturkunde, Verborgenes erkennen."
+ },
+ "171": {
+  "name": "Psychotherapeut",
+  "description": "Kunst/Handwerk (beliebig), zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Rechtswesen, Fremdsprache, Psychologie, Psychoanalyse, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "172": {
+  "name": "Schülerin",
+  "description": "Eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Radfahren, Erste Hilfe, Horchen, Kunst/Handwerk (beliebig), Bibliotheksnutzung, Nahkampf (Speer) oder Schusswaffen (Bogenschießen), Fremdsprache (beliebig)."
+ },
+ "173": {
+  "name": "Shosei (Hausstudent)",
+  "description": "Erste Hilfe, Buchführung, Kunst/Handwerk (Tischlerei), Überzeugen, Bibliotheksnutzung, Fremdsprache (beliebig), zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "174": {
+  "name": "Tiergestützter Therapeut",
+  "description": "Horchen, Psychologie, Psychoanalyse, Naturwissenschaft (Zoologie), Springen, Spurensuche, Naturkunde, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität. Springen, Spurensuche, Naturkunde, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "175": {
+  "name": "Notarzt/Rettungskraft",
+  "description": "Medizin, Erste Hilfe, Naturwissenschaft (Chemie), Schlosserarbeit, Mechanische Reparaturen, Elektrische Reparaturen, Klettern, Springen."
+ },
+ "176": {
+  "name": "Untergrundarzt",
+  "description": "Medizin, Erste Hilfe, Buchführung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Rechtswesen, Naturwissenschaft (Pharmazie), Fremdsprache, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "177": {
+  "name": "Kriminaltechniker",
+  "description": "Kunst/Handwerk (Fotografie), Medizin, Rechtswesen, Naturwissenschaft (Chemie, Forensik, Pharmazie), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "178": {
+  "name": "Bergretter",
+  "description": "Erste Hilfe, Horchen, Springen, Spurensuche, Klettern, Orientierung, Überleben (Gebirge), Fremdsprache."
+ },
+ "179": {
+  "name": "Tänzer",
+  "description": "Kunst/Handwerk (darstellende Kunst, z. B. Schauspielern, Gesang, Komik usw.), Verkleiden, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "180": {
+  "name": "Modedesigner",
+  "description": "Buchführung, Kunst/Handwerk (Fotografie), Kunst/Handwerk (beliebig), Computernutzung oder Bibliotheksnutzung, Verkleiden, Psychologie, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche Spezialität. ※ Mit einer erfolgreichen Probe auf „Verborgenes erkennen“ lassen sich an der Kleidung einer Person deren Status, Einkommen usw. ablesen."
+ },
+ "181": {
+  "name": "Angehöriger der Maritimen Selbstverteidigungsstreitkräfte",
+  "description": "Elektrische Reparaturen oder Mechanische Reparaturen, Nahkampf, Schusswaffen, Erste Hilfe, Orientierung, Steuern (Boot), Überleben (See), Schwimmen."
+ },
+ "182": {
+  "name": "Küstenwache",
+  "description": "Erste Hilfe, Mechanische Reparaturen, Naturkunde, Orientierung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Steuern (Boot), Verborgenes erkennen, Schwimmen."
+ },
+ "183": {
+  "name": "Angehöriger der Heeres-Selbstverteidigungsstreitkräfte",
+  "description": "Klettern oder Schwimmen, Ausweichen, Nahkampf, Schusswaffen, Heimlichkeit, Überleben, zwei der folgenden: Erste Hilfe, Mechanische Reparaturen, Fremdsprache."
+ },
+ "184": {
+  "name": "Mitarbeiter eines privaten Militärunternehmens",
+  "description": "Klettern oder Schwimmen, Ausweichen, Nahkampf, Schusswaffen, Heimlichkeit, Überleben, zwei der folgenden: Erste Hilfe, Mechanische Reparaturen, Fremdsprache."
+ },
+ "185": {
+  "name": "Abenteurer-Professor",
+  "description": "Klettern oder Schwimmen, Schusswaffen, Geschichtswissen, Springen, Naturkunde, Orientierung, Fremdsprache, Überleben."
+ },
+ "186": {
+  "name": "Kritiker",
+  "description": "Verkleiden, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Geschichtswissen oder Bibliotheksnutzung, Muttersprache, Fremdsprache, Psychologie, Heimlichkeit."
+ },
+ "187": {
+  "name": "Idol",
+  "description": "Kunst/Handwerk (Schauspielern, Gesang, Tanz), Verkleiden, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "188": {
+  "name": "Sänger",
+  "description": "Kunst/Handwerk (Gesang, Tanz, Instrument), Verkleiden, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "189": {
+  "name": "Komiker",
+  "description": "Kunst/Handwerk (Schauspielern, Akrobatik, Komik), Verkleiden, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "190": {
+  "name": "Sport-Entertainer",
+  "description": "Klettern, Ausweichen, Springen, Werfen, Verborgenes erkennen, Schwimmen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "191": {
+  "name": "Ansager",
+  "description": "Kunst/Handwerk (Schauspielern), Muttersprache, Charme, Überreden, Überzeugen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "192": {
+  "name": "Moderator",
+  "description": "Kunst/Handwerk (Schauspielern), Muttersprache, Charme, Überreden, Überzeugen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "193": {
+  "name": "Fernsehkommentator",
+  "description": "Kunst/Handwerk (Schauspielern), Muttersprache, Charme, Überreden, Überzeugen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "194": {
+  "name": "Internetstar",
+  "description": "Kunst/Handwerk (Schauspielern, Gesang, Komik), Verkleiden, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Psychologie, Computernutzung, Elektrische Reparaturen."
+ },
+ "195": {
+  "name": "Künstleragent",
+  "description": "Autofahren, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Heimlichkeit, Horchen, Rechtswesen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "196": {
+  "name": "Geisterjäger",
+  "description": "Okkultismus, Naturwissenschaft (Physik, Chemie, Biologie), Mechanische Reparaturen, Kunst/Handwerk (Fotografie), Elektrische Reparaturen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen)."
+ },
+ "197": {
+  "name": "Wahrsager, Medium",
+  "description": "Kunst/Handwerk (Schauspielern), Geschichtswissen, Bibliotheksnutzung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Okkultismus, Psychologie, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "198": {
+  "name": "Mechaniker",
+  "description": "Kunst/Handwerk (Tischlerei, Schweißen, Klempnerei usw.), Klettern, Autofahren, Elektrische Reparaturen, Mechanische Reparaturen, Schwere Maschinen bedienen, zwei beliebige weitere Fertigkeiten als persönliche, zeittypische oder technische Spezialitäten."
+ },
+ "199": {
+  "name": "Koch",
+  "description": "Kunst/Handwerk (Kochen), Naturwissenschaft (Biologie, Chemie), Nahkampf (Handgemenge), Naturkunde, Verborgenes erkennen, Fremdsprache, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "200": {
+  "name": "Cyberkrimineller",
+  "description": "Computernutzung, Elektrische Reparaturen, Elektronik, Bibliotheksnutzung, Verborgenes erkennen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), zwei beliebige weitere Fertigkeiten."
+ },
+ "201": {
+  "name": "Söldner",
+  "description": "Klettern oder Schwimmen, Ausweichen, Nahkampf, Schusswaffen, Heimlichkeit, Überleben, zwei der folgenden: Erste Hilfe, Mechanische Reparaturen, Fremdsprache."
+ },
+ "202": {
+  "name": "Hikikomori (NEET)",
+  "description": "Computernutzung, Horchen, Heimlichkeit, Bibliotheksnutzung, Muttersprache, drei beliebige Fertigkeiten, die zum Bild eines NEET passen."
+ },
+ "203": {
+  "name": "Bodyguard",
+  "description": "Nahkampf (Handgemenge), Schusswaffen, Erste Hilfe, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Rechtswesen, Psychologie, Verborgenes erkennen sowie eine der folgenden persönlichen Spezialitäten: Autofahren oder Reiten."
+ },
+ "204": {
+  "name": "Spieletester",
+  "description": "Kunst/Handwerk (Spiele), Computernutzung, Elektrische Reparaturen, Elektronik, Horchen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "205": {
+  "name": "Kurtisane",
+  "description": "Kunst/Handwerk (beliebig), Schätzen, Heimlichkeit, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Erste Hilfe, Fremdsprache (europäisch), Psychologie, Reiten, eine der folgenden: (Verkleiden, Schlosserarbeit), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "206": {
+  "name": "Archäologe",
+  "description": "Buchführung, Kunst/Handwerk (beliebig), Schätzen, Geschichtswissen, Bibliotheksnutzung, Fremdsprache (europäisch), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "207": {
+  "name": "Adliger",
+  "description": "Fremdsprache (Latein), Rechtswesen, Fremdsprache (europäisch), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Reiten, Schusswaffen (Schrotflinte), drei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "208": {
+  "name": "Künstler (II)",
+  "description": "Kunst/Handwerk (beliebig viele), Schätzen, Geschichtswissen, Bibliotheksnutzung, Fremdsprache (europäisch), Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "209": {
+  "name": "Schriftsteller",
+  "description": "Kunst/Handwerk (Schreiben), Geschichtswissen, Bibliotheksnutzung, Fremdsprache (europäisch), Muttersprache, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "210": {
+  "name": "Kutscher",
+  "description": "Ausweichen, Kutsche fahren, Springen, Horchen, Mechanische Reparaturen, Naturkunde, Orientierung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Verborgenes erkennen, Nahkampf (Peitsche), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "211": {
+  "name": "Pfarrer",
+  "description": "Geschichtswissen, Fremdsprache (Latein), Bibliotheksnutzung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "212": {
+  "name": "Beratender Detektiv",
+  "description": "Anthropologie, Schätzen, Naturwissenschaft (Chemie), Erste Hilfe, Geschichtswissen, Rechtswesen, Bibliotheksnutzung, Horchen, Psychologie, Fremdsprache (beliebig), Verborgenes erkennen, Spurensuche, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "213": {
+  "name": "Handwerker (II)",
+  "description": "Buchführung, Schätzen, Kunst/Handwerk (beliebig viele), Mechanische Reparaturen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "214": {
+  "name": "Krimineller",
+  "description": "Schätzen, Verkleiden, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Heimlichkeit, Schlosserarbeit, Nahkampf (zwei beliebige), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "215": {
+  "name": "Dilettant",
+  "description": "Sechs beliebige Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "216": {
+  "name": "Unterhaltungskünstler (II)",
+  "description": "Kunst/Handwerk (beliebig viele), Verkleiden, Ausweichen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Horchen, Muttersprache, Psychologie, drei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "217": {
+  "name": "Offizier a. D.",
+  "description": "Heimlichkeit, Erste Hilfe, Schusswaffen (Faustfeuerwaffe, Gewehr), Orientierung, Fremdsprache (beliebig), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Reiten, Nahkampf (Schwert), Verborgenes erkennen, eine der folgenden: (Klettern, Schwimmen)."
+ },
+ "218": {
+  "name": "Forschungsreisender",
+  "description": "Anthropologie, Archäologie, Schätzen, Naturwissenschaft (Biologie), Klettern, Erste Hilfe, Schusswaffen (Faustfeuerwaffe, Gewehr), Nahkampf (Handgemenge), Naturkunde, Orientierung, Fremdsprache (beliebig), Steuern (Beiboot, Schiff, Heißluftballon), Reiten, Heimlichkeit, Verborgenes erkennen, Schwimmen, Spurensuche."
+ },
+ "219": {
+  "name": "Privatdetektiv (II)",
+  "description": "Buchführung, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Rechtswesen, Bibliotheksnutzung, Horchen, Schlosserarbeit, Kunst/Handwerk (Fotografie), Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "220": {
+  "name": "Journalist",
+  "description": "Schätzen, Ausweichen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Bibliotheksnutzung, Horchen, Fremdsprache (europäisch), Muttersprache, Kunst/Handwerk (Fotografie), Psychologie, Verborgenes erkennen."
+ },
+ "221": {
+  "name": "Arbeiter",
+  "description": "Schätzen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Ausweichen, Erste Hilfe, Mechanische Reparaturen, Schwere Maschinen bedienen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität sowie zwei beliebige der folgenden: (Klettern, Nahkampf (Handgemenge), Kunst/Handwerk (beliebig), Kutsche fahren, Steuern (Boot))."
+ },
+ "222": {
+  "name": "Anwalt (II)",
+  "description": "Buchführung, Schätzen, zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Geschichtswissen, Fremdsprache (Latein), Rechtswesen, Bibliotheksnutzung, Horchen, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "223": {
+  "name": "Arzt",
+  "description": "Naturwissenschaft (Biologie, Pharmazie), Erste Hilfe, Fremdsprache (Latein), Bibliotheksnutzung, Medizin, Psychologie, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "224": {
+  "name": "Polizist",
+  "description": "Nahkampf (Handgemenge), Ausweichen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Erste Hilfe, Schusswaffen (Faustfeuerwaffe), Rechtswesen, Horchen, Psychologie, Heimlichkeit, Verborgenes erkennen."
+ },
+ "225": {
+  "name": "Professor/Gelehrter",
+  "description": "Bibliotheksnutzung, Fremdsprache (europäisch), eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, bis zu sechs weitere Wissensfertigkeiten als persönliche Spezialitäten."
+ },
+ "226": {
+  "name": "Wissenschaftler (II)",
+  "description": "Kunst/Handwerk (beliebig), Geschichtswissen, Bibliotheksnutzung, Mechanische Reparaturen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Verborgenes erkennen, bis zu sechs weitere Wissensfertigkeiten als persönliche Spezialitäten."
+ },
+ "227": {
+  "name": "Dienstbote",
+  "description": "Kunst/Handwerk (beliebig), Ausweichen, Horchen, Heimlichkeit, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität sowie bis zu drei der folgenden: (Buchführung, Schätzen, Kutsche fahren, Etikette, Erste Hilfe, Fremdsprache (europäisch), Überzeugen)."
+ },
+ "228": {
+  "name": "Ladeninhaber",
+  "description": "Buchführung, Schätzen, Kunst/Handwerk (beliebig), Horchen, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Psychologie, Verborgenes erkennen, eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität."
+ },
+ "229": {
+  "name": "Soldat",
+  "description": "Ausweichen, Erste Hilfe, Heimlichkeit, Horchen, Mechanische Reparaturen, Schusswaffen (Gewehr), Heimlichkeit, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten."
+ },
+ "230": {
+  "name": "Geheimagent",
+  "description": "Verkleiden, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Heimlichkeit, Geschichtswissen, Bibliotheksnutzung, Horchen, Schlosserarbeit, Orientierung, Fremdsprache (europäisch), Psychologie, Verborgenes erkennen, Nahkampf (beliebig)."
+ }
+}

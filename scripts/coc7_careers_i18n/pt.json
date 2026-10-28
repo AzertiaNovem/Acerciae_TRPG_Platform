@@ -1,0 +1,922 @@
+{
+ "1": {
+  "name": "Ocupação Personalizada",
+  "description": "No máximo 8 perícias de ocupação. Nos atributos de ocupação à direita, insira o valor da segunda característica da ocupação (se ficar em branco, será usada Educação) e defina você mesmo o Nível de Crédito inicial. Antes de usar uma ocupação personalizada, consulte o seu Guardião."
+ },
+ "2": {
+  "name": "Contador",
+  "description": "Contabilidade, Direito, Usar Bibliotecas, Escutar, Persuasão, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "3": {
+  "name": "Acrobata",
+  "description": "Escalar, Esquivar, Saltar, Arremessar, Encontrar, Nadar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "4": {
+  "name": "Ator – Ator de Teatro",
+  "description": "Arte/Ofício (Atuação), Disfarce, Lutar, História, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "5": {
+  "name": "Ator – Ator de Cinema",
+  "description": "Arte/Ofício (Atuação), Disfarce, Dirigir Automóveis, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época (p. ex., Cavalgar ou Lutar)."
+ },
+ "6": {
+  "name": "Detetive de Agência, Segurança",
+  "description": "Uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Lutar (Briga), Armas de Fogo, Direito, Usar Bibliotecas, Psicologia, Furtividade, Rastrear."
+ },
+ "7": {
+  "name": "Alienista (Clássico)",
+  "description": "Direito, Escutar, Medicina, Outras Línguas, Psicanálise, Psicologia, Ciência (Biologia, Química)."
+ },
+ "8": {
+  "name": "Domador de Animais",
+  "description": "Saltar, Escutar, Mundo Natural, Psicologia, Ciência (Zoologia), Furtividade, Rastrear, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "9": {
+  "name": "Antiquário (Lovecraftiano)",
+  "description": "Avaliação, Arte/Ofício (qualquer), História, Usar Bibliotecas, Outras Línguas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "10": {
+  "name": "Negociante de Antiguidades",
+  "description": "Contabilidade, Avaliação, Dirigir Automóveis, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), História, Usar Bibliotecas, Navegação."
+ },
+ "11": {
+  "name": "Arqueólogo (Lovecraftiano)",
+  "description": "Avaliação, Arqueologia, História, Outras Línguas, Usar Bibliotecas, Encontrar, Consertos Mecânicos, Navegação ou Ciência (qualquer: p. ex., Química, Física, Geografia etc.)."
+ },
+ "12": {
+  "name": "Arquiteto",
+  "description": "Contabilidade, Arte/Ofício (Desenho Técnico), Direito, Língua Nativa, Usar Computadores ou Usar Bibliotecas, Persuasão, Psicologia, Ciência (Matemática)."
+ },
+ "13": {
+  "name": "Artista",
+  "description": "Arte/Ofício (qualquer), História ou Mundo Natural, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Outras Línguas, Psicologia, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "14": {
+  "name": "Atendente de Manicômio",
+  "description": "Esquivar, Lutar (Briga), Primeiros Socorros, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, Furtividade."
+ },
+ "15": {
+  "name": "Atleta",
+  "description": "Escalar, Saltar, Lutar (Briga), Cavalgar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Nadar, Arremessar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "16": {
+  "name": "Escritor (Lovecraftiano)",
+  "description": "Arte/Ofício (Literatura), História, Usar Bibliotecas, Mundo Natural ou Ocultismo, Outras Línguas, Língua Nativa, Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "17": {
+  "name": "Barman",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Lutar (Briga), Escutar, Psicologia, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "18": {
+  "name": "Caçador",
+  "description": "Armas de Fogo, Escutar ou Encontrar, Mundo Natural, Navegação, Outras Línguas ou Sobrevivência (qualquer), Ciência (Biologia ou Botânica), Furtividade, Rastrear."
+ },
+ "19": {
+  "name": "Livreiro",
+  "description": "Contabilidade, Avaliação, Dirigir Automóveis, História, Usar Bibliotecas, Língua Nativa, Outras Línguas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão)."
+ },
+ "20": {
+  "name": "Caçador de Recompensas",
+  "description": "Dirigir Automóveis, Eletrônica ou Consertos Elétricos, Lutar ou Armas de Fogo, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Direito, Psicologia, Rastrear, Furtividade."
+ },
+ "21": {
+  "name": "Boxeador, Lutador de Luta Livre",
+  "description": "Esquivar, Lutar (Briga), Intimidação, Saltar, Psicologia, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "22": {
+  "name": "Mordomo, Valete, Criada",
+  "description": "Contabilidade ou Avaliação, Arte/Ofício (qualquer: p. ex., Culinária, Costura, Barbearia), Primeiros Socorros, Escutar, Outras Línguas, Psicologia, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "23": {
+  "name": "Clérigo",
+  "description": "Contabilidade, História, Usar Bibliotecas, Escutar, Outras Línguas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer."
+ },
+ "24": {
+  "name": "Programador, Engenheiro Eletrônico (Moderno)",
+  "description": "Usar Computadores, Consertos Elétricos, Eletrônica, Usar Bibliotecas, Ciência (Matemática), Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "25": {
+  "name": "Hacker/Cracker (Moderno)",
+  "description": "Usar Computadores, Consertos Elétricos, Eletrônica, Usar Bibliotecas, Encontrar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), outras duas perícias quaisquer."
+ },
+ "26": {
+  "name": "Caubói",
+  "description": "Esquivar, Lutar ou Armas de Fogo, Primeiros Socorros ou Mundo Natural, Saltar, Cavalgar, Sobrevivência (qualquer), Arremessar, Rastrear."
+ },
+ "27": {
+  "name": "Artesão",
+  "description": "Contabilidade, Arte/Ofício (duas quaisquer), Consertos Mecânicos, Mundo Natural, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "28": {
+  "name": "Criminoso – Assassino",
+  "description": "Disfarce, Consertos Elétricos, Lutar, Armas de Fogo, Chaveiro, Consertos Mecânicos, Furtividade, Psicologia."
+ },
+ "29": {
+  "name": "Criminoso – Assaltante de Bancos",
+  "description": "Dirigir Automóveis, Consertos Elétricos ou Consertos Mecânicos, Lutar, Armas de Fogo, Intimidação, Chaveiro, Operar Maquinário Pesado, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "30": {
+  "name": "Criminoso – Brutamontes, Capanga",
+  "description": "Dirigir Automóveis, Lutar, Armas de Fogo, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Furtividade, Encontrar."
+ },
+ "31": {
+  "name": "Criminoso – Arrombador",
+  "description": "Avaliação, Escalar, Consertos Elétricos ou Consertos Mecânicos, Escutar, Chaveiro, Prestidigitação, Furtividade, Encontrar."
+ },
+ "32": {
+  "name": "Criminoso – Vigarista",
+  "description": "Avaliação, Arte/Ofício (Atuação), Direito ou Outras Línguas, Escutar, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Prestidigitação."
+ },
+ "33": {
+  "name": "Criminoso – Criminoso Solitário",
+  "description": "Arte/Ofício (Atuação) ou Disfarce, Avaliação, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Lutar ou Armas de Fogo, Chaveiro ou Consertos Mecânicos, Furtividade, Psicologia, Encontrar."
+ },
+ "34": {
+  "name": "Criminoso – Femme Fatale (Clássico)",
+  "description": "Arte/Ofício (qualquer), duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Lutar (Briga) ou Armas de Fogo (Pistola), Dirigir Automóveis, Escutar, Furtividade, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "35": {
+  "name": "Criminoso – Receptador",
+  "description": "Contabilidade, Avaliação, Arte/Ofício (Falsificação), História, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Usar Bibliotecas, Encontrar, outra perícia qualquer."
+ },
+ "36": {
+  "name": "Criminoso – Falsificador",
+  "description": "Contabilidade, Avaliação, Arte/Ofício (Falsificação), História, Usar Bibliotecas, Encontrar, Prestidigitação, outra perícia qualquer como especialidade pessoal ou da época (p. ex., Usar Computadores)."
+ },
+ "37": {
+  "name": "Criminoso – Contrabandista",
+  "description": "Armas de Fogo, Escutar, Navegação, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Dirigir Automóveis ou Pilotar (Aeronave ou Barco), Psicologia, Prestidigitação, Encontrar."
+ },
+ "38": {
+  "name": "Criminoso – Delinquente",
+  "description": "Escalar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Lutar, Armas de Fogo, Saltar, Prestidigitação, Furtividade, Arremessar."
+ },
+ "39": {
+  "name": "Líder de Culto",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Ocultismo, Psicologia, Encontrar, outras duas perícias quaisquer como especialidades pessoais."
+ },
+ "40": {
+  "name": "Desprogramador (Moderno)",
+  "description": "Duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Dirigir Automóveis, Lutar (Briga) ou Armas de Fogo, História, Ocultismo, Psicologia, Furtividade. ※ Com permissão do Guardião, Hipnose pode substituir uma delas."
+ },
+ "41": {
+  "name": "Designer",
+  "description": "Contabilidade, Arte/Ofício (Fotografia), Arte/Ofício (qualquer), Usar Computadores ou Usar Bibliotecas, Consertos Mecânicos, Psicologia, Encontrar, outra perícia qualquer como especialidade pessoal."
+ },
+ "42": {
+  "name": "Diletante (Lovecraftiano)",
+  "description": "Arte/Ofício (qualquer), Armas de Fogo, Outras Línguas, Cavalgar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), outras três perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "43": {
+  "name": "Mergulhador",
+  "description": "Mergulho, Primeiros Socorros, Consertos Mecânicos, Pilotar (Barco), Ciência (Biologia), Encontrar, Nadar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "44": {
+  "name": "Médico (Lovecraftiano)",
+  "description": "Primeiros Socorros, Medicina, Outras Línguas (Latim), Psicologia, Ciência (Biologia, Farmácia), outras duas especialidades acadêmicas ou pessoais quaisquer."
+ },
+ "45": {
+  "name": "Andarilho",
+  "description": "Escalar, Saltar, Escutar, Navegação, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Furtividade, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "46": {
+  "name": "Motorista – Chofer Particular",
+  "description": "Dirigir Automóveis, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Consertos Mecânicos, Navegação, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "47": {
+  "name": "Motorista – Motorista",
+  "description": "Contabilidade, Dirigir Automóveis, Escutar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Consertos Mecânicos, Navegação, Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "48": {
+  "name": "Motorista – Taxista",
+  "description": "Contabilidade, Dirigir Automóveis, Consertos Elétricos, Lábia, Consertos Mecânicos, Navegação, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "49": {
+  "name": "Editor",
+  "description": "Contabilidade, História, Língua Nativa, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "50": {
+  "name": "Funcionário do Governo",
+  "description": "Charme, História, Intimidação, Lábia, Escutar, Língua Nativa, Persuasão, Psicologia."
+ },
+ "51": {
+  "name": "Engenheiro",
+  "description": "Arte/Ofício (Desenho Técnico), Consertos Elétricos, Usar Bibliotecas, Consertos Mecânicos, Operar Maquinário Pesado, Ciência (Engenharia, Física), outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "52": {
+  "name": "Artista de Entretenimento",
+  "description": "Arte/Ofício (de performance, p. ex., Atuação, Canto, Comédia etc.), Disfarce, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "53": {
+  "name": "Explorador (Clássico)",
+  "description": "Escalar ou Nadar, Armas de Fogo, História, Saltar, Mundo Natural, Navegação, Outras Línguas, Sobrevivência."
+ },
+ "54": {
+  "name": "Fazendeiro",
+  "description": "Arte/Ofício (Agricultura), Dirigir Automóveis (ou Carroça), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Consertos Mecânicos, Mundo Natural, Operar Maquinário Pesado, Rastrear, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "55": {
+  "name": "Agente Federal",
+  "description": "Dirigir Automóveis, Lutar (Briga), Armas de Fogo, Direito, Persuasão, Furtividade, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "56": {
+  "name": "Bombeiro",
+  "description": "Escalar, Esquivar, Dirigir Automóveis, Primeiros Socorros, Saltar, Consertos Mecânicos, Operar Maquinário Pesado, Arremessar."
+ },
+ "57": {
+  "name": "Correspondente Estrangeiro",
+  "description": "História, Outras Línguas, Língua Nativa, Escutar, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "58": {
+  "name": "Perito Legista",
+  "description": "Outras Línguas (Latim), Usar Bibliotecas, Medicina, Persuasão, Ciência (Biologia, Farmácia, Ciência Forense), Encontrar."
+ },
+ "59": {
+  "name": "Apostador",
+  "description": "Contabilidade, Arte/Ofício (Atuação), duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, Prestidigitação, Encontrar."
+ },
+ "60": {
+  "name": "Gângster – Chefão",
+  "description": "Lutar, Armas de Fogo, Direito, Escutar, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar."
+ },
+ "61": {
+  "name": "Gângster – Capanga",
+  "description": "Dirigir Automóveis, Lutar, Armas de Fogo, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "62": {
+  "name": "Cavalheiro, Dama",
+  "description": "Arte/Ofício (qualquer), duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Armas de Fogo (Rifle/Espingarda), História, Outras Línguas (qualquer), Navegação, Cavalgar."
+ },
+ "63": {
+  "name": "Vagabundo",
+  "description": "Arte/Ofício (qualquer), Escalar, Saltar, Escutar, Chaveiro ou Prestidigitação, Navegação, Furtividade, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "64": {
+  "name": "Auxiliar Hospitalar",
+  "description": "Consertos Elétricos, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Lutar (Briga), Primeiros Socorros, Escutar, Consertos Mecânicos, Psicologia, Furtividade."
+ },
+ "65": {
+  "name": "Jornalista (Lovecraftiano) – Repórter Investigativo",
+  "description": "Arte/Ofício (Arte ou Fotografia), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), História, Usar Bibliotecas, Língua Nativa, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "66": {
+  "name": "Jornalista (Lovecraftiano) – Correspondente",
+  "description": "Arte/Ofício (Atuação), História, Escutar, Língua Nativa, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Furtividade, Encontrar."
+ },
+ "67": {
+  "name": "Juiz",
+  "description": "História, Intimidação, Direito, Usar Bibliotecas, Escutar, Língua Nativa, Persuasão, Psicologia."
+ },
+ "68": {
+  "name": "Assistente de Laboratório",
+  "description": "Usar Computadores ou Usar Bibliotecas, Consertos Elétricos, Outras Línguas, Ciência (Química e outras duas quaisquer), Encontrar, outra perícia qualquer como especialidade pessoal."
+ },
+ "69": {
+  "name": "Trabalhador – Trabalhador Braçal",
+  "description": "Dirigir Automóveis, Consertos Elétricos, Lutar, Primeiros Socorros, Consertos Mecânicos, Operar Maquinário Pesado, Arremessar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "70": {
+  "name": "Trabalhador – Lenhador",
+  "description": "Escalar, Esquivar, Lutar (Motosserra), Primeiros Socorros, Saltar, Consertos Mecânicos, Mundo Natural ou Ciência (Biologia ou Botânica), Arremessar."
+ },
+ "71": {
+  "name": "Trabalhador – Mineiro",
+  "description": "Escalar, Ciência (Geologia), Saltar, Consertos Mecânicos, Operar Maquinário Pesado, Furtividade, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "72": {
+  "name": "Advogado",
+  "description": "Contabilidade, Direito, Usar Bibliotecas, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outras duas perícias."
+ },
+ "73": {
+  "name": "Bibliotecário (Lovecraftiano)",
+  "description": "Contabilidade, Usar Bibliotecas, Outras Línguas, Língua Nativa, outras quatro perícias quaisquer como especialidades pessoais ou temas de livros especializados."
+ },
+ "74": {
+  "name": "Mecânico",
+  "description": "Arte/Ofício (Carpintaria, Soldagem, Encanamento etc.), Escalar, Dirigir Automóveis, Consertos Elétricos, Consertos Mecânicos, Operar Maquinário Pesado, outras duas perícias quaisquer como especialidades pessoais, da época ou técnicas."
+ },
+ "75": {
+  "name": "Oficial Militar",
+  "description": "Contabilidade, Armas de Fogo, Navegação, Primeiros Socorros, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "76": {
+  "name": "Missionário",
+  "description": "Arte/Ofício (qualquer), Primeiros Socorros, Consertos Mecânicos, Medicina, Mundo Natural, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "77": {
+  "name": "Alpinista",
+  "description": "Escalar, Primeiros Socorros, Saltar, Escutar, Navegação, Outras Línguas, Sobrevivência (Alpina ou similar), Rastrear."
+ },
+ "78": {
+  "name": "Curador de Museu",
+  "description": "Contabilidade, Avaliação, Arqueologia, História, Usar Bibliotecas, Ocultismo, Outras Línguas, Encontrar."
+ },
+ "79": {
+  "name": "Músico",
+  "description": "Arte/Ofício (Instrumento), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, outras quatro perícias quaisquer."
+ },
+ "80": {
+  "name": "Enfermeiro",
+  "description": "Primeiros Socorros, Escutar, Medicina, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Ciência (Biologia, Química), Encontrar."
+ },
+ "81": {
+  "name": "Ocultista",
+  "description": "Antropologia, História, Usar Bibliotecas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Ocultismo, Outras Línguas, Ciência (Astronomia), outra perícia qualquer como especialidade pessoal ou da época. ※ Com permissão do Guardião, pode incluir Mitos de Cthulhu."
+ },
+ "82": {
+  "name": "Viajante",
+  "description": "Armas de Fogo, Primeiros Socorros, Escutar, Mundo Natural, Navegação, Encontrar, Sobrevivência (qualquer), Rastrear."
+ },
+ "83": {
+  "name": "Parapsicólogo",
+  "description": "Antropologia, Arte/Ofício (Fotografia), História, Usar Bibliotecas, Ocultismo, Outras Línguas, Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "84": {
+  "name": "Farmacêutico",
+  "description": "Contabilidade, Primeiros Socorros, Outras Línguas (Latim), Usar Bibliotecas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Ciência (Farmácia, Química)."
+ },
+ "85": {
+  "name": "Fotógrafo – Fotógrafo",
+  "description": "Arte/Ofício (Fotografia), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Ciência (Química), Furtividade, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "86": {
+  "name": "Fotógrafo – Fotojornalista",
+  "description": "Arte/Ofício (Fotografia), Escalar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Outras Línguas, Psicologia, Ciência (Química), outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "87": {
+  "name": "Piloto – Piloto",
+  "description": "Consertos Elétricos, Consertos Mecânicos, Navegação, Operar Maquinário Pesado, Pilotar (Aeronave), Ciência (Astronomia), outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "88": {
+  "name": "Piloto – Piloto Acrobático (Clássico)",
+  "description": "Contabilidade, Consertos Elétricos, Escutar, Consertos Mecânicos, Navegação, Pilotar (Aeronave), Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "89": {
+  "name": "Polícia (Lovecraftiano) – Detetive de Polícia",
+  "description": "Arte/Ofício (Atuação) ou Disfarce, Armas de Fogo, Direito, Escutar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar, outra perícia."
+ },
+ "90": {
+  "name": "Polícia (Lovecraftiano) – Policial de Ronda",
+  "description": "Lutar (Briga), Armas de Fogo, Primeiros Socorros, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Direito, Psicologia, Encontrar e uma das seguintes especialidades pessoais: Dirigir Automóveis ou Cavalgar."
+ },
+ "91": {
+  "name": "Investigador Particular",
+  "description": "Arte/Ofício (Fotografia), Disfarce, Direito, Usar Bibliotecas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar, outra perícia como especialidade pessoal ou da época (p. ex., Usar Computadores, Chaveiro, Lutar, Armas de Fogo)."
+ },
+ "92": {
+  "name": "Professor (Lovecraftiano)",
+  "description": "Usar Bibliotecas, Outras Línguas, Língua Nativa, Psicologia, outras quatro especialidades acadêmicas, da época ou pessoais quaisquer."
+ },
+ "93": {
+  "name": "Garimpeiro",
+  "description": "Escalar, Primeiros Socorros, História, Consertos Mecânicos, Navegação, Ciência (Geologia), Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "94": {
+  "name": "Profissional do Sexo",
+  "description": "Arte/Ofício (qualquer), duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Esquivar, Psicologia, Prestidigitação, Furtividade, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "95": {
+  "name": "Psiquiatra",
+  "description": "Outras Línguas, Escutar, Medicina, Persuasão, Psicanálise, Psicologia, Ciência (Biologia, Química)."
+ },
+ "96": {
+  "name": "Psicólogo, Psicanalista",
+  "description": "Contabilidade, Usar Bibliotecas, Escutar, Persuasão, Psicanálise, Psicologia, outras duas especialidades acadêmicas, pessoais ou da época quaisquer."
+ },
+ "97": {
+  "name": "Pesquisador",
+  "description": "História, Usar Bibliotecas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Outras Línguas, Encontrar, outros três campos acadêmicos quaisquer."
+ },
+ "98": {
+  "name": "Marinheiro – Marinheiro Naval",
+  "description": "Consertos Elétricos ou Consertos Mecânicos, Lutar, Armas de Fogo, Primeiros Socorros, Navegação, Pilotar (Barco), Sobrevivência (Mar), Nadar."
+ },
+ "99": {
+  "name": "Marinheiro – Marinheiro Civil",
+  "description": "Primeiros Socorros, Consertos Mecânicos, Mundo Natural, Navegação, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Pilotar (Barco), Encontrar, Nadar."
+ },
+ "100": {
+  "name": "Vendedor",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Dirigir Automóveis, Escutar, Psicologia, Furtividade ou Prestidigitação, outra perícia."
+ },
+ "101": {
+  "name": "Cientista",
+  "description": "Três especialidades de Ciência quaisquer, Usar Computadores ou Usar Bibliotecas, Outras Línguas, Língua Nativa, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Encontrar."
+ },
+ "102": {
+  "name": "Secretário",
+  "description": "Contabilidade, Arte/Ofício (Datilografia ou Estenografia), duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Língua Nativa, Usar Bibliotecas ou Usar Computadores, Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "103": {
+  "name": "Lojista",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Consertos Elétricos, Escutar, Consertos Mecânicos, Psicologia, Encontrar."
+ },
+ "104": {
+  "name": "Soldado, Fuzileiro Naval",
+  "description": "Escalar ou Nadar, Esquivar, Lutar, Armas de Fogo, Furtividade, Sobrevivência, duas das seguintes: Primeiros Socorros, Consertos Mecânicos, Outras Línguas."
+ },
+ "105": {
+  "name": "Espião",
+  "description": "Arte/Ofício (Atuação) ou Disfarce, Armas de Fogo, Escutar, Outras Línguas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Prestidigitação, Furtividade."
+ },
+ "106": {
+  "name": "Estudante, Estagiário",
+  "description": "Língua (Nativa ou Outra), Usar Bibliotecas, Escutar, três campos de estudo, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "107": {
+  "name": "Dublê",
+  "description": "Escalar, Esquivar, Consertos Elétricos ou Consertos Mecânicos, Lutar, Primeiros Socorros, Saltar, Nadar, uma das seguintes: Mergulho, Dirigir Automóveis, Pilotar (qualquer), Cavalgar."
+ },
+ "108": {
+  "name": "Membro de Tribo",
+  "description": "Escalar, Lutar ou Arremessar, Escutar, Mundo Natural, Ocultismo, Encontrar, Nadar, Sobrevivência (qualquer)."
+ },
+ "109": {
+  "name": "Agente Funerário",
+  "description": "Contabilidade, Dirigir Automóveis, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), História, Ocultismo, Psicologia, Ciência (Biologia, Química)."
+ },
+ "110": {
+  "name": "Sindicalista",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Lutar (Briga), Direito, Escutar, Operar Maquinário Pesado, Psicologia."
+ },
+ "111": {
+  "name": "Garçom",
+  "description": "Contabilidade, Arte/Ofício (qualquer), Esquivar, Escutar, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "112": {
+  "name": "Trabalhador de Escritório – Funcionário, Supervisor",
+  "description": "Contabilidade, Língua, Direito, Usar Bibliotecas ou Usar Computadores, Escutar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "113": {
+  "name": "Trabalhador de Escritório – Gerente de Nível Médio/Sênior",
+  "description": "Contabilidade, Outras Línguas, Direito, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "114": {
+  "name": "Fanático",
+  "description": "História, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Furtividade, outras três perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "115": {
+  "name": "Tratador de Zoológico",
+  "description": "Lidar com Animais, Contabilidade, Esquivar, Primeiros Socorros, Mundo Natural, Medicina, Ciência (Farmácia, Zoologia)."
+ },
+ "116": {
+  "name": "Embaixador",
+  "description": "Charme, História, Intimidação, Lábia, Escutar, Língua Nativa, Persuasão, Psicologia. (Substitua duas das perícias anteriores por uma ou duas Outras Línguas.)"
+ },
+ "117": {
+  "name": "Atleta (Natação/Mergulho)",
+  "description": "Escalar, Saltar, Lutar (Briga), Outras Línguas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Nadar, Arremessar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "118": {
+  "name": "Atleta (Golfe)",
+  "description": "Escalar, Saltar, Lutar (Briga), Cavalgar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Nadar, Arremessar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "119": {
+  "name": "Atleta (Tênis)",
+  "description": "Saltar, Lutar (Briga), Esquivar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar, Arremessar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "120": {
+  "name": "Atleta (Atletismo)",
+  "description": "Escalar, Saltar, Lutar (Briga), Outras Línguas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Esquivar, Arremessar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "121": {
+  "name": "Porta-Voz",
+  "description": "Disfarce, Esquivar, três perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Outras Línguas, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "122": {
+  "name": "Agente de Fiança",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Direito, Usar Bibliotecas, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "123": {
+  "name": "Clérigo (Padre Católico)",
+  "description": "Contabilidade, Língua Nativa, Outras Línguas (Latim), Usar Bibliotecas, Ocultismo, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer."
+ },
+ "124": {
+  "name": "Clérigo (Pastor Protestante)",
+  "description": "Contabilidade, História, Usar Bibliotecas, Escutar, Outras Línguas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer."
+ },
+ "125": {
+  "name": "Clérigo (Rabino)",
+  "description": "Língua Nativa, Outras Línguas (Hebraico), História, Usar Bibliotecas, Ocultismo, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer."
+ },
+ "126": {
+  "name": "Colunista",
+  "description": "Disfarce, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), História ou Usar Bibliotecas, Língua Nativa, Outras Línguas, Psicologia, Furtividade."
+ },
+ "127": {
+  "name": "Socialista/Ativista Radical",
+  "description": "Lutar (Briga), duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Armas de Fogo (Pistola), Outras Línguas, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "128": {
+  "name": "Redator",
+  "description": "Língua Nativa, Arte/Ofício (Literatura), duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), História, Usar Bibliotecas, Escutar, Psicologia."
+ },
+ "129": {
+  "name": "Criminoso (Agenciador de Apostas)",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar, Prestidigitação, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "130": {
+  "name": "Criminoso (Agiota)",
+  "description": "Contabilidade, Avaliação, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "131": {
+  "name": "Criminoso (Batedor de Carteiras)",
+  "description": "Disfarce, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Furtividade, Escutar, Psicologia, Encontrar, Prestidigitação, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "132": {
+  "name": "Criminoso (Banqueiro Clandestino)",
+  "description": "Contabilidade, Direito, Usar Bibliotecas, Escutar, Persuasão, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "133": {
+  "name": "Criminoso (Advogado Corrupto)",
+  "description": "Contabilidade, Direito, Usar Bibliotecas, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outras duas perícias."
+ },
+ "134": {
+  "name": "Dentista",
+  "description": "Primeiros Socorros, Medicina, Outras Línguas (Latim), Psicologia, Ciência (Biologia, Farmácia), outras duas especialidades acadêmicas ou pessoais quaisquer."
+ },
+ "135": {
+  "name": "Cirurgião/Clínico Geral",
+  "description": "Primeiros Socorros, Medicina, Outras Línguas (Latim), Psicologia, Ciência (Biologia, Farmácia), outras duas especialidades acadêmicas ou pessoais quaisquer."
+ },
+ "136": {
+  "name": "Cirurgião Plástico",
+  "description": "Primeiros Socorros, Medicina, Outras Línguas (Latim), Psicologia, Ciência (Biologia, Farmácia), outras duas especialidades acadêmicas ou pessoais quaisquer."
+ },
+ "137": {
+  "name": "Motorista – Motorista de Ônibus",
+  "description": "Contabilidade, Dirigir Automóveis, Consertos Elétricos, Consertos Mecânicos, Navegação, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "138": {
+  "name": "Pesquisador de Campo",
+  "description": "Contabilidade, Escalar ou Saltar, Primeiros Socorros, Usar Bibliotecas, Outras Línguas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), duas perícias relacionadas à área de pesquisa."
+ },
+ "139": {
+  "name": "Membro de Equipe de Filmagem",
+  "description": "Arte/Ofício (qualquer, p. ex., Fotografia), Escalar, Dirigir Automóveis, Consertos Elétricos, Consertos Mecânicos, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "140": {
+  "name": "Cientista Forense",
+  "description": "Arte/Ofício (Fotografia), Medicina, Direito, Ciência (Química, Ciência Forense, Farmácia), Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "141": {
+  "name": "Empresário Esportivo",
+  "description": "Contabilidade, Lutar (Briga), Esquivar, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Primeiros Socorros, Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "142": {
+  "name": "Tripulante da Marinha Mercante",
+  "description": "Antropologia, Escalar, Consertos Elétricos ou Consertos Mecânicos, Saltar, Operar Maquinário Pesado, Outras Línguas, Sobrevivência (Mar), outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "143": {
+  "name": "Músico Clássico",
+  "description": "Contabilidade, Arte/Ofício (Instrumento), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, outras três perícias quaisquer."
+ },
+ "144": {
+  "name": "Piloto de Corrida/Piloto de Lancha",
+  "description": "Dirigir Automóveis, Consertos Elétricos, Consertos Mecânicos, Pilotar (Barco), Psicologia, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "145": {
+  "name": "Locutor de Rádio",
+  "description": "Arte/Ofício (Atuação), Língua Nativa, Charme, Lábia, Persuasão, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "146": {
+  "name": "Vendedor (de Bíblias)",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Dirigir Automóveis, Escutar, Psicologia, Furtividade ou Prestidigitação, outra perícia."
+ },
+ "147": {
+  "name": "Vendedor (Caixeiro-Viajante)",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Dirigir Automóveis, Navegação, Escutar, Psicologia, outra perícia."
+ },
+ "148": {
+  "name": "Pequeno Empresário",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, quatro perícias relacionadas à gestão do negócio."
+ },
+ "149": {
+  "name": "Técnico de Palco",
+  "description": "Arte/Ofício (qualquer), Língua Nativa, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Disfarce, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "150": {
+  "name": "Corretor de Ações",
+  "description": "Contabilidade, Avaliação, Língua Nativa, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "151": {
+  "name": "Agrimensor",
+  "description": "Contabilidade, Arte/Ofício (Fotografia), Usar Bibliotecas, Mundo Natural, Navegação, Sobrevivência (qualquer), Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "152": {
+  "name": "Telefonista",
+  "description": "Língua Nativa, Outras Línguas, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "153": {
+  "name": "Caça-Talentos",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Direito, Psicologia, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "154": {
+  "name": "Técnico de Saúde",
+  "description": "Arte/Ofício (Fotografia), Consertos Elétricos, Usar Bibliotecas, Consertos Mecânicos, Medicina, Ciência (Biologia, Química, Farmácia)."
+ },
+ "155": {
+  "name": "Médico de Equipe Esportiva",
+  "description": "Duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Primeiros Socorros, Medicina, Ciência (Farmácia), Psicologia, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "156": {
+  "name": "Caçador de Tesouros",
+  "description": "Avaliação, Escalar, Dirigir Automóveis ou Pilotar (Aeronave ou Barco), Consertos Elétricos ou Consertos Mecânicos, História, Saltar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Encontrar."
+ },
+ "157": {
+  "name": "Xerife do Velho Oeste",
+  "description": "Dirigir Automóveis, Armas de Fogo (qualquer), Lutar (Briga, Chicote), Direito, Persuasão ou Psicologia, Cavalgar, Rastrear."
+ },
+ "158": {
+  "name": "Bōsōzoku (Gangue de Motoqueiros)",
+  "description": "Lutar (Briga), Dirigir Automóveis, Consertos Mecânicos, Lábia, Intimidação, outras três perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "159": {
+  "name": "Clérigo (Monge, Monja Budista)",
+  "description": "Arte/Ofício (Caligrafia), História ou Usar Bibliotecas, Outras Línguas (Chinês ou Sânscrito), Saber (Budismo), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Escutar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "160": {
+  "name": "Clérigo (Sacerdote Xintoísta, Miko)",
+  "description": "Arte/Ofício (Caligrafia e mais uma qualquer), Usar Bibliotecas, Ocultismo, Saber (Xintoísmo), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "161": {
+  "name": "Mestre de Feng Shui",
+  "description": "Arte/Ofício (qualquer), Usar Bibliotecas, Ocultismo, Saber (Taoísmo), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Ciência (Astronomia, Geologia), outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "162": {
+  "name": "Exorcista de Tradição Familiar",
+  "description": "Lutar (Briga), Mundo Natural, Ocultismo, Saber (Budismo ou Xintoísmo), Psicologia, Furtividade, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "163": {
+  "name": "Estudante do Ensino Médio (Educação abaixo de 60)",
+  "description": "Escalar, Furtividade, Saltar, Usar Bibliotecas, Lutar (qualquer), Língua Nativa, Ciência (qualquer) ou História, Outras Línguas (Inglês ou outra)."
+ },
+ "164": {
+  "name": "Ichiko (Médium Cega)",
+  "description": "Arte/Ofício (Atuação), Escutar, Saber (Xintoísmo), Ocultismo, História, Lábia ou Persuasão, Psicologia, outra especialidade qualquer. ※ Com o consentimento do Guardião, a perícia “Médium” pode substituir uma perícia de livre escolha."
+ },
+ "165": {
+  "name": "Mestre de Kotodama/Onmyōji",
+  "description": "Arte/Ofício (Caligrafia e mais uma qualquer), História ou Usar Bibliotecas, Língua Nativa, Saber (Onmyōdō), Ciência (Astronomia), Ocultismo, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "166": {
+  "name": "Alquimista Taoísta",
+  "description": "Usar Bibliotecas, Medicina, Ocultismo, Ciência (Química), Mundo Natural, Saber (Taoísmo), Outras Línguas (Chinês), Primeiros Socorros ou Psicanálise."
+ },
+ "167": {
+  "name": "Professor de Línguas Estrangeiras",
+  "description": "História, Escutar, Língua Nativa, Psicologia, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "168": {
+  "name": "Imigrante Ilegal",
+  "description": "Disfarce, Lábia, Escutar, Encontrar, Furtividade, Prestidigitação, Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "169": {
+  "name": "Lutador de Sumô (TAM > 80, FOR > 70)",
+  "description": "Esquivar, Lutar (Briga), Intimidação, Saltar, Psicologia, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época. (Seu Tamanho pode ultrapassar 99.)"
+ },
+ "170": {
+  "name": "Pescador",
+  "description": "Consertos Mecânicos, Operar Maquinário Pesado, Nadar, Pilotar (Barco), Ciência (Astronomia), Navegação, Mundo Natural, Encontrar."
+ },
+ "171": {
+  "name": "Psicoterapeuta",
+  "description": "Arte/Ofício (qualquer), duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Direito, Outras Línguas, Psicologia, Psicanálise, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "172": {
+  "name": "Colegial",
+  "description": "Uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Conduzir (Bicicleta), Primeiros Socorros, Escutar, Arte/Ofício (qualquer), Usar Bibliotecas, Lutar (Lança) ou Armas de Fogo (Arco), Outras Línguas (qualquer)."
+ },
+ "173": {
+  "name": "Estudante Hospedado",
+  "description": "Primeiros Socorros, Contabilidade, Arte/Ofício (Carpintaria), Persuasão, Usar Bibliotecas, Outras Línguas (qualquer), outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "174": {
+  "name": "Terapeuta Assistido por Animais",
+  "description": "Escutar, Psicologia, Psicanálise, Ciência (Zoologia), Saltar, Rastrear, Mundo Natural, outra perícia qualquer como especialidade pessoal ou da época. Saltar, Rastrear, Mundo Natural, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "175": {
+  "name": "Médico de Emergência/Socorrista",
+  "description": "Medicina, Primeiros Socorros, Ciência (Química), Chaveiro, Consertos Mecânicos, Consertos Elétricos, Escalar, Saltar."
+ },
+ "176": {
+  "name": "Médico Clandestino",
+  "description": "Medicina, Primeiros Socorros, Contabilidade, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Direito, Ciência (Farmácia), Outras Línguas, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "177": {
+  "name": "Pesquisador de Perícia Científica",
+  "description": "Arte/Ofício (Fotografia), Medicina, Direito, Ciência (Química, Ciência Forense, Farmácia), Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "178": {
+  "name": "Socorrista de Montanha",
+  "description": "Primeiros Socorros, Escutar, Saltar, Rastrear, Escalar, Navegação, Sobrevivência (Montanha), Outras Línguas."
+ },
+ "179": {
+  "name": "Dançarino",
+  "description": "Arte/Ofício (de performance, p. ex., Atuação, Canto, Comédia etc.), Disfarce, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "180": {
+  "name": "Estilista",
+  "description": "Contabilidade, Arte/Ofício (Fotografia), Arte/Ofício (qualquer), Usar Computadores ou Usar Bibliotecas, Disfarce, Psicologia, Encontrar, outra perícia qualquer como especialidade pessoal. ※ Com um teste bem-sucedido de “Encontrar”, é possível deduzir pela roupa de alguém o seu status, a sua renda etc."
+ },
+ "181": {
+  "name": "Membro da Força Marítima de Autodefesa",
+  "description": "Consertos Elétricos ou Consertos Mecânicos, Lutar, Armas de Fogo, Primeiros Socorros, Navegação, Pilotar (Barco), Sobrevivência (Mar), Nadar."
+ },
+ "182": {
+  "name": "Guarda Costeiro",
+  "description": "Primeiros Socorros, Consertos Mecânicos, Mundo Natural, Navegação, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Pilotar (Barco), Encontrar, Nadar."
+ },
+ "183": {
+  "name": "Membro da Força Terrestre de Autodefesa",
+  "description": "Escalar ou Nadar, Esquivar, Lutar, Armas de Fogo, Furtividade, Sobrevivência, duas das seguintes: Primeiros Socorros, Consertos Mecânicos, Outras Línguas."
+ },
+ "184": {
+  "name": "Membro de Empresa Militar Privada",
+  "description": "Escalar ou Nadar, Esquivar, Lutar, Armas de Fogo, Furtividade, Sobrevivência, duas das seguintes: Primeiros Socorros, Consertos Mecânicos, Outras Línguas."
+ },
+ "185": {
+  "name": "Professor Aventureiro",
+  "description": "Escalar ou Nadar, Armas de Fogo, História, Saltar, Mundo Natural, Navegação, Outras Línguas, Sobrevivência."
+ },
+ "186": {
+  "name": "Crítico",
+  "description": "Disfarce, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), História ou Usar Bibliotecas, Língua Nativa, Outras Línguas, Psicologia, Furtividade."
+ },
+ "187": {
+  "name": "Ídolo",
+  "description": "Arte/Ofício (Atuação, Canto, Dança), Disfarce, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "188": {
+  "name": "Cantor",
+  "description": "Arte/Ofício (Canto, Dança, Instrumento), Disfarce, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "189": {
+  "name": "Comediante",
+  "description": "Arte/Ofício (Atuação, Acrobacia, Comédia), Disfarce, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "190": {
+  "name": "Atleta Celebridade",
+  "description": "Escalar, Esquivar, Saltar, Arremessar, Encontrar, Nadar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "191": {
+  "name": "Locutor",
+  "description": "Arte/Ofício (Atuação), Língua Nativa, Charme, Lábia, Persuasão, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "192": {
+  "name": "Apresentador",
+  "description": "Arte/Ofício (Atuação), Língua Nativa, Charme, Lábia, Persuasão, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "193": {
+  "name": "Comentarista de TV",
+  "description": "Arte/Ofício (Atuação), Língua Nativa, Charme, Lábia, Persuasão, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "194": {
+  "name": "Celebridade da Internet",
+  "description": "Arte/Ofício (Atuação, Canto, Comédia), Disfarce, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Psicologia, Usar Computadores, Consertos Elétricos."
+ },
+ "195": {
+  "name": "Agente Artístico",
+  "description": "Dirigir Automóveis, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Furtividade, Escutar, Direito, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "196": {
+  "name": "Caça-Fantasmas",
+  "description": "Ocultismo, Ciência (Física, Química, Biologia), Consertos Mecânicos, Arte/Ofício (Fotografia), Consertos Elétricos, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão)."
+ },
+ "197": {
+  "name": "Vidente, Médium",
+  "description": "Arte/Ofício (Atuação), História, Usar Bibliotecas, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Ocultismo, Psicologia, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "198": {
+  "name": "Mecânico de Máquinas",
+  "description": "Arte/Ofício (Carpintaria, Soldagem, Encanamento etc.), Escalar, Dirigir Automóveis, Consertos Elétricos, Consertos Mecânicos, Operar Maquinário Pesado, outras duas perícias quaisquer como especialidades pessoais, da época ou técnicas."
+ },
+ "199": {
+  "name": "Cozinheiro",
+  "description": "Arte/Ofício (Culinária), Ciência (Biologia, Química), Lutar (Briga), Mundo Natural, Encontrar, Outras Línguas, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "200": {
+  "name": "Cibercriminoso",
+  "description": "Usar Computadores, Consertos Elétricos, Eletrônica, Usar Bibliotecas, Encontrar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), outras duas perícias quaisquer."
+ },
+ "201": {
+  "name": "Mercenário",
+  "description": "Escalar ou Nadar, Esquivar, Lutar, Armas de Fogo, Furtividade, Sobrevivência, duas das seguintes: Primeiros Socorros, Consertos Mecânicos, Outras Línguas."
+ },
+ "202": {
+  "name": "Guarda da Própria Casa (NEET)",
+  "description": "Usar Computadores, Escutar, Furtividade, Usar Bibliotecas, Língua Nativa, três especialidades quaisquer que combinem com a imagem de um NEET."
+ },
+ "203": {
+  "name": "Guarda-Costas Brutamontes",
+  "description": "Lutar (Briga), Armas de Fogo, Primeiros Socorros, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Direito, Psicologia, Encontrar e uma das seguintes especialidades pessoais: Dirigir Automóveis ou Cavalgar."
+ },
+ "204": {
+  "name": "Testador de Jogos",
+  "description": "Arte/Ofício (Jogos), Usar Computadores, Consertos Elétricos, Eletrônica, Escutar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "205": {
+  "name": "Cortesã",
+  "description": "Arte/Ofício (qualquer), Avaliação, Furtividade, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Primeiros Socorros, Outras Línguas (europeia), Psicologia, Cavalgar, uma entre (Disfarce, Chaveiro), outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "206": {
+  "name": "Arqueólogo",
+  "description": "Contabilidade, Arte/Ofício (qualquer), Avaliação, História, Usar Bibliotecas, Outras Línguas (europeia), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "207": {
+  "name": "Nobre",
+  "description": "Outras Línguas (Latim), Direito, Outras Línguas (europeia), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Cavalgar, Armas de Fogo (Espingarda), outras três perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "208": {
+  "name": "Artista (II)",
+  "description": "Arte/Ofício (quantas quiser), Avaliação, História, Usar Bibliotecas, Outras Línguas (europeia), Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "209": {
+  "name": "Escritor",
+  "description": "Arte/Ofício (Escrita), História, Usar Bibliotecas, Outras Línguas (europeia), Língua Nativa, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "210": {
+  "name": "Cocheiro",
+  "description": "Esquivar, Conduzir Carruagem, Saltar, Escutar, Consertos Mecânicos, Mundo Natural, Navegação, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Encontrar, Lutar (Chicote), outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "211": {
+  "name": "Sacerdote",
+  "description": "História, Outras Línguas (Latim), Usar Bibliotecas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "212": {
+  "name": "Detetive Consultor",
+  "description": "Antropologia, Avaliação, Ciência (Química), Primeiros Socorros, História, Direito, Usar Bibliotecas, Escutar, Psicologia, Outras Línguas (qualquer), Encontrar, Rastrear, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "213": {
+  "name": "Artesão (II)",
+  "description": "Contabilidade, Avaliação, Arte/Ofício (quantas quiser), Consertos Mecânicos, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "214": {
+  "name": "Criminoso",
+  "description": "Avaliação, Disfarce, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Furtividade, Chaveiro, Lutar (duas quaisquer), outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "215": {
+  "name": "Diletante",
+  "description": "Seis perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "216": {
+  "name": "Artista de Entretenimento (II)",
+  "description": "Arte/Ofício (quantas quiser), Disfarce, Esquivar, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Escutar, Língua Nativa, Psicologia, outras três perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "217": {
+  "name": "Oficial Reformado",
+  "description": "Furtividade, Primeiros Socorros, Armas de Fogo (Pistola, Rifle), Navegação, Outras Línguas (qualquer), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Cavalgar, Lutar (Espada), Encontrar, uma entre (Escalar, Nadar)."
+ },
+ "218": {
+  "name": "Explorador",
+  "description": "Antropologia, Arqueologia, Avaliação, Ciência (Biologia), Escalar, Primeiros Socorros, Armas de Fogo (Pistola, Rifle), Lutar (Briga), Mundo Natural, Navegação, Outras Línguas (qualquer), Pilotar (Bote, Barco, Balão de Ar Quente), Cavalgar, Furtividade, Encontrar, Nadar, Rastrear."
+ },
+ "219": {
+  "name": "Investigador Particular (II)",
+  "description": "Contabilidade, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Direito, Usar Bibliotecas, Escutar, Chaveiro, Arte/Ofício (Fotografia), Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "220": {
+  "name": "Jornalista",
+  "description": "Avaliação, Esquivar, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Usar Bibliotecas, Escutar, Outras Línguas (europeia), Língua Nativa, Arte/Ofício (Fotografia), Psicologia, Encontrar."
+ },
+ "221": {
+  "name": "Operário",
+  "description": "Avaliação, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Esquivar, Primeiros Socorros, Consertos Mecânicos, Operar Maquinário Pesado, outra perícia qualquer como especialidade pessoal ou da época e duas quaisquer das seguintes: (Escalar, Lutar (Briga), Arte/Ofício (qualquer), Conduzir Carruagem, Pilotar (Barco))."
+ },
+ "222": {
+  "name": "Advogado (II)",
+  "description": "Contabilidade, Avaliação, duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), História, Outras Línguas (Latim), Direito, Usar Bibliotecas, Escutar, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "223": {
+  "name": "Médico",
+  "description": "Ciência (Biologia, Farmácia), Primeiros Socorros, Outras Línguas (Latim), Usar Bibliotecas, Medicina, Psicologia, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "224": {
+  "name": "Policial",
+  "description": "Lutar (Briga), Esquivar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Primeiros Socorros, Armas de Fogo (Pistola), Direito, Escutar, Psicologia, Furtividade, Encontrar."
+ },
+ "225": {
+  "name": "Professor/Erudito",
+  "description": "Usar Bibliotecas, Outras Línguas (europeia), uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, até seis perícias de conhecimento adicionais como especialidades pessoais."
+ },
+ "226": {
+  "name": "Cientista (II)",
+  "description": "Arte/Ofício (qualquer), História, Usar Bibliotecas, Consertos Mecânicos, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Encontrar, até seis outras perícias de conhecimento como especialidades pessoais."
+ },
+ "227": {
+  "name": "Criado",
+  "description": "Arte/Ofício (qualquer), Esquivar, Escutar, Furtividade, outra perícia qualquer como especialidade pessoal ou da época e até três das seguintes: (Contabilidade, Avaliação, Conduzir Carruagem, Etiqueta, Primeiros Socorros, Outras Línguas (europeia), Persuasão)."
+ },
+ "228": {
+  "name": "Comerciante",
+  "description": "Contabilidade, Avaliação, Arte/Ofício (qualquer), Escutar, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Psicologia, Encontrar, outra perícia qualquer como especialidade pessoal ou da época."
+ },
+ "229": {
+  "name": "Soldado",
+  "description": "Esquivar, Primeiros Socorros, Furtividade, Escutar, Consertos Mecânicos, Armas de Fogo (Rifle), Furtividade, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época."
+ },
+ "230": {
+  "name": "Agente Secreto",
+  "description": "Disfarce, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Furtividade, História, Usar Bibliotecas, Escutar, Chaveiro, Navegação, Outras Línguas (europeia), Psicologia, Encontrar, Lutar (qualquer)."
+ }
+}

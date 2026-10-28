@@ -1,0 +1,922 @@
+{
+ "1": {
+  "name": "Ocupación personalizada",
+  "description": "No más de 8 habilidades de ocupación. Introduce en los atributos de ocupación de la derecha el valor de la segunda característica de la ocupación (si se deja en blanco, se usa Educación) y fija tú mismo el Crédito inicial. Consulta a tu Guardián antes de usar una ocupación personalizada."
+ },
+ "2": {
+  "name": "Contable",
+  "description": "Contabilidad, Derecho, Buscar libros, Escuchar, Persuasión, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "3": {
+  "name": "Acróbata",
+  "description": "Trepar, Esquivar, Saltar, Lanzar, Descubrir, Nadar, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "4": {
+  "name": "Actor – Actor de teatro",
+  "description": "Arte/Artesanía (Interpretación), Disfrazarse, Combatir, Historia, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "5": {
+  "name": "Actor – Actor de cine",
+  "description": "Arte/Artesanía (Interpretación), Disfrazarse, Conducir automóvil, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época (p. ej., Montar o Combatir)."
+ },
+ "6": {
+  "name": "Agente de agencia de detectives, guardia de seguridad",
+  "description": "Una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Combatir (Pelea), Armas de fuego, Derecho, Buscar libros, Psicología, Sigilo, Rastrear."
+ },
+ "7": {
+  "name": "Alienista (época clásica)",
+  "description": "Derecho, Escuchar, Medicina, Otras lenguas, Psicoanálisis, Psicología, Ciencia (Biología, Química)."
+ },
+ "8": {
+  "name": "Adiestrador de animales",
+  "description": "Saltar, Escuchar, Naturaleza, Psicología, Ciencia (Zoología), Sigilo, Rastrear, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "9": {
+  "name": "Anticuario (Lovecraft)",
+  "description": "Tasación, Arte/Artesanía (cualquiera), Historia, Buscar libros, Otras lenguas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "10": {
+  "name": "Comerciante de antigüedades",
+  "description": "Contabilidad, Tasación, Conducir automóvil, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Historia, Buscar libros, Orientarse."
+ },
+ "11": {
+  "name": "Arqueólogo (Lovecraft)",
+  "description": "Tasación, Arqueología, Historia, Otras lenguas, Buscar libros, Descubrir, Mecánica, Orientarse o Ciencia (cualquiera: p. ej., Química, Física, Geografía)."
+ },
+ "12": {
+  "name": "Arquitecto",
+  "description": "Contabilidad, Arte/Artesanía (Dibujo técnico), Derecho, Lengua propia, Informática o Buscar libros, Persuasión, Psicología, Ciencia (Matemáticas)."
+ },
+ "13": {
+  "name": "Artista",
+  "description": "Arte/Artesanía (cualquiera), Historia o Naturaleza, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Otras lenguas, Psicología, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "14": {
+  "name": "Celador de manicomio",
+  "description": "Esquivar, Combatir (Pelea), Primeros auxilios, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, Sigilo."
+ },
+ "15": {
+  "name": "Atleta",
+  "description": "Trepar, Saltar, Combatir (Pelea), Montar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Nadar, Lanzar, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "16": {
+  "name": "Escritor (Lovecraft)",
+  "description": "Arte/Artesanía (Literatura), Historia, Buscar libros, Naturaleza o Ciencias ocultas, Otras lenguas, Lengua propia, Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "17": {
+  "name": "Barman",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Combatir (Pelea), Escuchar, Psicología, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "18": {
+  "name": "Cazador",
+  "description": "Armas de fuego, Escuchar o Descubrir, Naturaleza, Orientarse, Otras lenguas o Supervivencia (cualquiera), Ciencia (Biología o Botánica), Sigilo, Rastrear."
+ },
+ "19": {
+  "name": "Librero",
+  "description": "Contabilidad, Tasación, Conducir automóvil, Historia, Buscar libros, Lengua propia, Otras lenguas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión)."
+ },
+ "20": {
+  "name": "Cazarrecompensas",
+  "description": "Conducir automóvil, Electrónica o Electricidad, Combatir o Armas de fuego, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Derecho, Psicología, Rastrear, Sigilo."
+ },
+ "21": {
+  "name": "Boxeador, luchador",
+  "description": "Esquivar, Combatir (Pelea), Intimidar, Saltar, Psicología, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "22": {
+  "name": "Mayordomo, ayuda de cámara, doncella",
+  "description": "Contabilidad o Tasación, Arte/Artesanía (cualquiera: p. ej., Cocina, Costura, Peluquería), Primeros auxilios, Escuchar, Otras lenguas, Psicología, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "23": {
+  "name": "Clérigo",
+  "description": "Contabilidad, Historia, Buscar libros, Escuchar, Otras lenguas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera."
+ },
+ "24": {
+  "name": "Programador, ingeniero electrónico (época moderna)",
+  "description": "Informática, Electricidad, Electrónica, Buscar libros, Ciencia (Matemáticas), Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "25": {
+  "name": "Hacker/pirata informático (época moderna)",
+  "description": "Informática, Electricidad, Electrónica, Buscar libros, Descubrir, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), otras dos habilidades cualesquiera."
+ },
+ "26": {
+  "name": "Vaquero",
+  "description": "Esquivar, Combatir o Armas de fuego, Primeros auxilios o Naturaleza, Saltar, Montar, Supervivencia (cualquiera), Lanzar, Rastrear."
+ },
+ "27": {
+  "name": "Artesano",
+  "description": "Contabilidad, Arte/Artesanía (dos cualesquiera), Mecánica, Naturaleza, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "28": {
+  "name": "Criminal – Asesino",
+  "description": "Disfrazarse, Electricidad, Combatir, Armas de fuego, Cerrajería, Mecánica, Sigilo, Psicología."
+ },
+ "29": {
+  "name": "Criminal – Atracador de bancos",
+  "description": "Conducir automóvil, Electricidad o Mecánica, Combatir, Armas de fuego, Intimidar, Cerrajería, Maquinaria pesada, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "30": {
+  "name": "Criminal – Matón, rufián",
+  "description": "Conducir automóvil, Combatir, Armas de fuego, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Sigilo, Descubrir."
+ },
+ "31": {
+  "name": "Criminal – Ladrón",
+  "description": "Tasación, Trepar, Electricidad o Mecánica, Escuchar, Cerrajería, Juegos de manos, Sigilo, Descubrir."
+ },
+ "32": {
+  "name": "Criminal – Estafador",
+  "description": "Tasación, Arte/Artesanía (Interpretación), Derecho u Otras lenguas, Escuchar, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Juegos de manos."
+ },
+ "33": {
+  "name": "Criminal – Delincuente solitario",
+  "description": "Arte/Artesanía (Interpretación) o Disfrazarse, Tasación, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Combatir o Armas de fuego, Cerrajería o Mecánica, Sigilo, Psicología, Descubrir."
+ },
+ "34": {
+  "name": "Criminal – Mujer fatal (época clásica)",
+  "description": "Arte/Artesanía (cualquiera), dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Combatir (Pelea) o Armas de fuego (Pistola), Conducir automóvil, Escuchar, Sigilo, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "35": {
+  "name": "Criminal – Perista",
+  "description": "Contabilidad, Tasación, Arte/Artesanía (Falsificación), Historia, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Buscar libros, Descubrir, otra habilidad cualquiera."
+ },
+ "36": {
+  "name": "Criminal – Falsificador",
+  "description": "Contabilidad, Tasación, Arte/Artesanía (Falsificación), Historia, Buscar libros, Descubrir, Juegos de manos, otra habilidad cualquiera como especialidad personal o de la época (p. ej., Informática)."
+ },
+ "37": {
+  "name": "Criminal – Contrabandista",
+  "description": "Armas de fuego, Escuchar, Orientarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Conducir automóvil o Pilotar (aeronave o barco), Psicología, Juegos de manos, Descubrir."
+ },
+ "38": {
+  "name": "Criminal – Gamberro",
+  "description": "Trepar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Combatir, Armas de fuego, Saltar, Juegos de manos, Sigilo, Lanzar."
+ },
+ "39": {
+  "name": "Líder de secta",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Ciencias ocultas, Psicología, Descubrir, otras dos habilidades cualesquiera como especialidades personales."
+ },
+ "40": {
+  "name": "Desprogramador (época moderna)",
+  "description": "Dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Conducir automóvil, Combatir (Pelea) o Armas de fuego, Historia, Ciencias ocultas, Psicología, Sigilo. ※ Con permiso del Guardián, Hipnosis puede sustituir a una de ellas."
+ },
+ "41": {
+  "name": "Diseñador",
+  "description": "Contabilidad, Arte/Artesanía (Fotografía), Arte/Artesanía (cualquiera), Informática o Buscar libros, Mecánica, Psicología, Descubrir, otra habilidad cualquiera como especialidad personal."
+ },
+ "42": {
+  "name": "Diletante (Lovecraft)",
+  "description": "Arte/Artesanía (cualquiera), Armas de fuego, Otras lenguas, Montar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), otras tres habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "43": {
+  "name": "Buzo",
+  "description": "Bucear, Primeros auxilios, Mecánica, Pilotar (barco), Ciencia (Biología), Descubrir, Nadar, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "44": {
+  "name": "Médico (Lovecraft)",
+  "description": "Primeros auxilios, Medicina, Otras lenguas (latín), Psicología, Ciencia (Biología, Farmacia), otras dos habilidades cualesquiera como especialidades académicas o personales."
+ },
+ "45": {
+  "name": "Trotamundos",
+  "description": "Trepar, Saltar, Escuchar, Orientarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Sigilo, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "46": {
+  "name": "Conductor – Chófer",
+  "description": "Conducir automóvil, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Mecánica, Orientarse, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "47": {
+  "name": "Conductor – Conductor",
+  "description": "Contabilidad, Conducir automóvil, Escuchar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Mecánica, Orientarse, Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "48": {
+  "name": "Conductor – Taxista",
+  "description": "Contabilidad, Conducir automóvil, Electricidad, Charlatanería, Mecánica, Orientarse, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "49": {
+  "name": "Editor",
+  "description": "Contabilidad, Historia, Lengua propia, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "50": {
+  "name": "Funcionario del gobierno",
+  "description": "Encanto, Historia, Intimidar, Charlatanería, Escuchar, Lengua propia, Persuasión, Psicología."
+ },
+ "51": {
+  "name": "Ingeniero",
+  "description": "Arte/Artesanía (Dibujo técnico), Electricidad, Buscar libros, Mecánica, Maquinaria pesada, Ciencia (Ingeniería, Física), otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "52": {
+  "name": "Artista de variedades",
+  "description": "Arte/Artesanía (artes escénicas, p. ej., Interpretación, Canto, Comedia), Disfrazarse, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "53": {
+  "name": "Explorador (época clásica)",
+  "description": "Trepar o Nadar, Armas de fuego, Historia, Saltar, Naturaleza, Orientarse, Otras lenguas, Supervivencia."
+ },
+ "54": {
+  "name": "Granjero",
+  "description": "Arte/Artesanía (Agricultura), Conducir automóvil (o carreta), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Mecánica, Naturaleza, Maquinaria pesada, Rastrear, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "55": {
+  "name": "Agente federal",
+  "description": "Conducir automóvil, Combatir (Pelea), Armas de fuego, Derecho, Persuasión, Sigilo, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "56": {
+  "name": "Bombero",
+  "description": "Trepar, Esquivar, Conducir automóvil, Primeros auxilios, Saltar, Mecánica, Maquinaria pesada, Lanzar."
+ },
+ "57": {
+  "name": "Corresponsal en el extranjero",
+  "description": "Historia, Otras lenguas, Lengua propia, Escuchar, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "58": {
+  "name": "Médico forense",
+  "description": "Otras lenguas (latín), Buscar libros, Medicina, Persuasión, Ciencia (Biología, Farmacia, Ciencia forense), Descubrir."
+ },
+ "59": {
+  "name": "Jugador",
+  "description": "Contabilidad, Arte/Artesanía (Interpretación), dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, Juegos de manos, Descubrir."
+ },
+ "60": {
+  "name": "Gánster – Jefe",
+  "description": "Combatir, Armas de fuego, Derecho, Escuchar, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir."
+ },
+ "61": {
+  "name": "Gánster – Esbirro",
+  "description": "Conducir automóvil, Combatir, Armas de fuego, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "62": {
+  "name": "Caballero, dama",
+  "description": "Arte/Artesanía (cualquiera), dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Armas de fuego (Fusil/Escopeta), Historia, Otras lenguas (cualquiera), Orientarse, Montar."
+ },
+ "63": {
+  "name": "Vagabundo",
+  "description": "Arte/Artesanía (cualquiera), Trepar, Saltar, Escuchar, Cerrajería o Juegos de manos, Orientarse, Sigilo, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "64": {
+  "name": "Celador de hospital",
+  "description": "Electricidad, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Combatir (Pelea), Primeros auxilios, Escuchar, Mecánica, Psicología, Sigilo."
+ },
+ "65": {
+  "name": "Periodista (Lovecraft) – Periodista de investigación",
+  "description": "Arte/Artesanía (Arte o Fotografía), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Historia, Buscar libros, Lengua propia, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "66": {
+  "name": "Periodista (Lovecraft) – Reportero",
+  "description": "Arte/Artesanía (Interpretación), Historia, Escuchar, Lengua propia, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Sigilo, Descubrir."
+ },
+ "67": {
+  "name": "Juez",
+  "description": "Historia, Intimidar, Derecho, Buscar libros, Escuchar, Lengua propia, Persuasión, Psicología."
+ },
+ "68": {
+  "name": "Ayudante de laboratorio",
+  "description": "Informática o Buscar libros, Electricidad, Otras lenguas, Ciencia (Química y otras dos cualesquiera), Descubrir, otra habilidad cualquiera como especialidad personal."
+ },
+ "69": {
+  "name": "Obrero – Obrero no cualificado",
+  "description": "Conducir automóvil, Electricidad, Combatir, Primeros auxilios, Mecánica, Maquinaria pesada, Lanzar, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "70": {
+  "name": "Obrero – Leñador",
+  "description": "Trepar, Esquivar, Combatir (Motosierra), Primeros auxilios, Saltar, Mecánica, Naturaleza o Ciencia (Biología o Botánica), Lanzar."
+ },
+ "71": {
+  "name": "Obrero – Minero",
+  "description": "Trepar, Ciencia (Geología), Saltar, Mecánica, Maquinaria pesada, Sigilo, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "72": {
+  "name": "Abogado",
+  "description": "Contabilidad, Derecho, Buscar libros, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otras dos habilidades."
+ },
+ "73": {
+  "name": "Bibliotecario (Lovecraft)",
+  "description": "Contabilidad, Buscar libros, Otras lenguas, Lengua propia, otras cuatro habilidades cualesquiera como especialidades personales o temas de libros especializados."
+ },
+ "74": {
+  "name": "Técnico",
+  "description": "Arte/Artesanía (Carpintería, Soldadura, Fontanería, etc.), Trepar, Conducir automóvil, Electricidad, Mecánica, Maquinaria pesada, otras dos habilidades cualesquiera como especialidades personales, de la época o técnicas."
+ },
+ "75": {
+  "name": "Oficial militar",
+  "description": "Contabilidad, Armas de fuego, Orientarse, Primeros auxilios, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "76": {
+  "name": "Misionero",
+  "description": "Arte/Artesanía (cualquiera), Primeros auxilios, Mecánica, Medicina, Naturaleza, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "77": {
+  "name": "Alpinista",
+  "description": "Trepar, Primeros auxilios, Saltar, Escuchar, Orientarse, Otras lenguas, Supervivencia (alpina o similar), Rastrear."
+ },
+ "78": {
+  "name": "Conservador de museo",
+  "description": "Contabilidad, Tasación, Arqueología, Historia, Buscar libros, Ciencias ocultas, Otras lenguas, Descubrir."
+ },
+ "79": {
+  "name": "Músico",
+  "description": "Arte/Artesanía (Instrumento), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, otras cuatro habilidades."
+ },
+ "80": {
+  "name": "Enfermero",
+  "description": "Primeros auxilios, Escuchar, Medicina, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Ciencia (Biología, Química), Descubrir."
+ },
+ "81": {
+  "name": "Ocultista",
+  "description": "Antropología, Historia, Buscar libros, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Ciencias ocultas, Otras lenguas, Ciencia (Astronomía), otra habilidad cualquiera como especialidad personal o de la época. ※ Con permiso del Guardián, puede incluir Mitos de Cthulhu."
+ },
+ "82": {
+  "name": "Viajero",
+  "description": "Armas de fuego, Primeros auxilios, Escuchar, Naturaleza, Orientarse, Descubrir, Supervivencia (cualquiera), Rastrear."
+ },
+ "83": {
+  "name": "Parapsicólogo",
+  "description": "Antropología, Arte/Artesanía (Fotografía), Historia, Buscar libros, Ciencias ocultas, Otras lenguas, Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "84": {
+  "name": "Farmacéutico",
+  "description": "Contabilidad, Primeros auxilios, Otras lenguas (latín), Buscar libros, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Ciencia (Farmacia, Química)."
+ },
+ "85": {
+  "name": "Fotógrafo – Fotógrafo",
+  "description": "Arte/Artesanía (Fotografía), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Ciencia (Química), Sigilo, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "86": {
+  "name": "Fotógrafo – Fotoperiodista",
+  "description": "Arte/Artesanía (Fotografía), Trepar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Otras lenguas, Psicología, Ciencia (Química), otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "87": {
+  "name": "Piloto – Piloto",
+  "description": "Electricidad, Mecánica, Orientarse, Maquinaria pesada, Pilotar (aeronave), Ciencia (Astronomía), otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "88": {
+  "name": "Piloto – Piloto acrobático (época clásica)",
+  "description": "Contabilidad, Electricidad, Escuchar, Mecánica, Orientarse, Pilotar (aeronave), Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "89": {
+  "name": "Policía (Lovecraft) – Detective de policía",
+  "description": "Arte/Artesanía (Interpretación) o Disfrazarse, Armas de fuego, Derecho, Escuchar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir, otra habilidad."
+ },
+ "90": {
+  "name": "Policía (Lovecraft) – Agente de patrulla",
+  "description": "Combatir (Pelea), Armas de fuego, Primeros auxilios, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Derecho, Psicología, Descubrir y una de las siguientes como especialidad personal: Conducir automóvil o Montar."
+ },
+ "91": {
+  "name": "Investigador privado",
+  "description": "Arte/Artesanía (Fotografía), Disfrazarse, Derecho, Buscar libros, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir, otra habilidad como especialidad personal o de la época (p. ej., Informática, Cerrajería, Combatir, Armas de fuego)."
+ },
+ "92": {
+  "name": "Profesor (Lovecraft)",
+  "description": "Buscar libros, Otras lenguas, Lengua propia, Psicología, otras cuatro habilidades cualesquiera como especialidades académicas, de la época o personales."
+ },
+ "93": {
+  "name": "Buscador de oro",
+  "description": "Trepar, Primeros auxilios, Historia, Mecánica, Orientarse, Ciencia (Geología), Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "94": {
+  "name": "Trabajador sexual",
+  "description": "Arte/Artesanía (cualquiera), dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Esquivar, Psicología, Juegos de manos, Sigilo, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "95": {
+  "name": "Psiquiatra",
+  "description": "Otras lenguas, Escuchar, Medicina, Persuasión, Psicoanálisis, Psicología, Ciencia (Biología, Química)."
+ },
+ "96": {
+  "name": "Psicólogo, psicoanalista",
+  "description": "Contabilidad, Buscar libros, Escuchar, Persuasión, Psicoanálisis, Psicología, otras dos habilidades cualesquiera como especialidades académicas, personales o de la época."
+ },
+ "97": {
+  "name": "Investigador académico",
+  "description": "Historia, Buscar libros, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Otras lenguas, Descubrir, otros tres campos académicos cualesquiera."
+ },
+ "98": {
+  "name": "Marinero – Marinero de la armada",
+  "description": "Electricidad o Mecánica, Combatir, Armas de fuego, Primeros auxilios, Orientarse, Pilotar (barco), Supervivencia (mar), Nadar."
+ },
+ "99": {
+  "name": "Marinero – Marinero civil",
+  "description": "Primeros auxilios, Mecánica, Naturaleza, Orientarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Pilotar (barco), Descubrir, Nadar."
+ },
+ "100": {
+  "name": "Vendedor",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Conducir automóvil, Escuchar, Psicología, Sigilo o Juegos de manos, otra habilidad."
+ },
+ "101": {
+  "name": "Científico",
+  "description": "Tres especialidades de Ciencia cualesquiera, Informática o Buscar libros, Otras lenguas, Lengua propia, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Descubrir."
+ },
+ "102": {
+  "name": "Secretario",
+  "description": "Contabilidad, Arte/Artesanía (Mecanografía o Taquigrafía), dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Lengua propia, Buscar libros o Informática, Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "103": {
+  "name": "Tendero",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Electricidad, Escuchar, Mecánica, Psicología, Descubrir."
+ },
+ "104": {
+  "name": "Soldado, marine",
+  "description": "Trepar o Nadar, Esquivar, Combatir, Armas de fuego, Sigilo, Supervivencia, dos de las siguientes: Primeros auxilios, Mecánica, Otras lenguas."
+ },
+ "105": {
+  "name": "Espía",
+  "description": "Arte/Artesanía (Interpretación) o Disfrazarse, Armas de fuego, Escuchar, Otras lenguas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Juegos de manos, Sigilo."
+ },
+ "106": {
+  "name": "Estudiante, becario",
+  "description": "Lengua (propia u otra), Buscar libros, Escuchar, tres campos de estudio, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "107": {
+  "name": "Doble de acción",
+  "description": "Trepar, Esquivar, Electricidad o Mecánica, Combatir, Primeros auxilios, Saltar, Nadar, una de las siguientes: Bucear, Conducir automóvil, Pilotar (cualquiera), Montar."
+ },
+ "108": {
+  "name": "Miembro de una tribu",
+  "description": "Trepar, Combatir o Lanzar, Escuchar, Naturaleza, Ciencias ocultas, Descubrir, Nadar, Supervivencia (cualquiera)."
+ },
+ "109": {
+  "name": "Empresario de pompas fúnebres",
+  "description": "Contabilidad, Conducir automóvil, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Historia, Ciencias ocultas, Psicología, Ciencia (Biología, Química)."
+ },
+ "110": {
+  "name": "Sindicalista",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Combatir (Pelea), Derecho, Escuchar, Maquinaria pesada, Psicología."
+ },
+ "111": {
+  "name": "Camarero",
+  "description": "Contabilidad, Arte/Artesanía (cualquiera), Esquivar, Escuchar, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "112": {
+  "name": "Oficinista – Empleado, supervisor",
+  "description": "Contabilidad, Lengua, Derecho, Buscar libros o Informática, Escuchar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "113": {
+  "name": "Oficinista – Directivo medio o alto",
+  "description": "Contabilidad, Otras lenguas, Derecho, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "114": {
+  "name": "Fanático",
+  "description": "Historia, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Sigilo, otras tres habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "115": {
+  "name": "Cuidador de zoo",
+  "description": "Trato con animales, Contabilidad, Esquivar, Primeros auxilios, Naturaleza, Medicina, Ciencia (Farmacia, Zoología)."
+ },
+ "116": {
+  "name": "Embajador",
+  "description": "Encanto, Historia, Intimidar, Charlatanería, Escuchar, Lengua propia, Persuasión, Psicología. (Sustituye dos de las habilidades anteriores por una o dos Otras lenguas.)"
+ },
+ "117": {
+  "name": "Atleta (natación/buceo)",
+  "description": "Trepar, Saltar, Combatir (Pelea), Otras lenguas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Nadar, Lanzar, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "118": {
+  "name": "Atleta (golf)",
+  "description": "Trepar, Saltar, Combatir (Pelea), Montar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Nadar, Lanzar, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "119": {
+  "name": "Atleta (tenis)",
+  "description": "Saltar, Combatir (Pelea), Esquivar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir, Lanzar, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "120": {
+  "name": "Atleta (atletismo)",
+  "description": "Trepar, Saltar, Combatir (Pelea), Otras lenguas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Esquivar, Lanzar, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "121": {
+  "name": "Portavoz",
+  "description": "Disfrazarse, Esquivar, tres habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Otras lenguas, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "122": {
+  "name": "Fiador judicial",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Derecho, Buscar libros, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "123": {
+  "name": "Clérigo (sacerdote católico)",
+  "description": "Contabilidad, Lengua propia, Otras lenguas (latín), Buscar libros, Ciencias ocultas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera."
+ },
+ "124": {
+  "name": "Clérigo (pastor protestante)",
+  "description": "Contabilidad, Historia, Buscar libros, Escuchar, Otras lenguas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera."
+ },
+ "125": {
+  "name": "Clérigo (rabino)",
+  "description": "Lengua propia, Otras lenguas (hebreo), Historia, Buscar libros, Ciencias ocultas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera."
+ },
+ "126": {
+  "name": "Columnista",
+  "description": "Disfrazarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Historia o Buscar libros, Lengua propia, Otras lenguas, Psicología, Sigilo."
+ },
+ "127": {
+  "name": "Socialista/radical",
+  "description": "Combatir (Pelea), dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Armas de fuego (Pistola), Otras lenguas, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "128": {
+  "name": "Redactor",
+  "description": "Lengua propia, Arte/Artesanía (Literatura), dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Historia, Buscar libros, Escuchar, Psicología."
+ },
+ "129": {
+  "name": "Criminal (corredor de apuestas)",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir, Juegos de manos, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "130": {
+  "name": "Criminal (usurero)",
+  "description": "Contabilidad, Tasación, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "131": {
+  "name": "Criminal (carterista)",
+  "description": "Disfrazarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Sigilo, Escuchar, Psicología, Descubrir, Juegos de manos, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "132": {
+  "name": "Criminal (banquero clandestino)",
+  "description": "Contabilidad, Derecho, Buscar libros, Escuchar, Persuasión, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "133": {
+  "name": "Criminal (abogado corrupto)",
+  "description": "Contabilidad, Derecho, Buscar libros, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otras dos habilidades."
+ },
+ "134": {
+  "name": "Dentista",
+  "description": "Primeros auxilios, Medicina, Otras lenguas (latín), Psicología, Ciencia (Biología, Farmacia), otras dos habilidades cualesquiera como especialidades académicas o personales."
+ },
+ "135": {
+  "name": "Cirujano/médico",
+  "description": "Primeros auxilios, Medicina, Otras lenguas (latín), Psicología, Ciencia (Biología, Farmacia), otras dos habilidades cualesquiera como especialidades académicas o personales."
+ },
+ "136": {
+  "name": "Cirujano plástico",
+  "description": "Primeros auxilios, Medicina, Otras lenguas (latín), Psicología, Ciencia (Biología, Farmacia), otras dos habilidades cualesquiera como especialidades académicas o personales."
+ },
+ "137": {
+  "name": "Conductor – Conductor de autobús",
+  "description": "Contabilidad, Conducir automóvil, Electricidad, Mecánica, Orientarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "138": {
+  "name": "Investigador de campo",
+  "description": "Contabilidad, Trepar o Saltar, Primeros auxilios, Buscar libros, Otras lenguas, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), dos habilidades relacionadas con el campo de investigación."
+ },
+ "139": {
+  "name": "Miembro de equipo de rodaje",
+  "description": "Arte/Artesanía (cualquiera, p. ej., Fotografía), Trepar, Conducir automóvil, Electricidad, Mecánica, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "140": {
+  "name": "Científico forense",
+  "description": "Arte/Artesanía (Fotografía), Medicina, Derecho, Ciencia (Química, Ciencia forense, Farmacia), Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "141": {
+  "name": "Mánager deportivo",
+  "description": "Contabilidad, Combatir (Pelea), Esquivar, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Primeros auxilios, Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "142": {
+  "name": "Marinero de la marina mercante",
+  "description": "Antropología, Trepar, Electricidad o Mecánica, Saltar, Maquinaria pesada, Otras lenguas, Supervivencia (mar), otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "143": {
+  "name": "Músico clásico",
+  "description": "Contabilidad, Arte/Artesanía (Instrumento), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, otras tres habilidades."
+ },
+ "144": {
+  "name": "Piloto de carreras/piloto de lanchas",
+  "description": "Conducir automóvil, Electricidad, Mecánica, Pilotar (barco), Psicología, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "145": {
+  "name": "Locutor de radio",
+  "description": "Arte/Artesanía (Interpretación), Lengua propia, Encanto, Charlatanería, Persuasión, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "146": {
+  "name": "Vendedor (vendedor de biblias)",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Conducir automóvil, Escuchar, Psicología, Sigilo o Juegos de manos, otra habilidad."
+ },
+ "147": {
+  "name": "Vendedor (viajante de comercio)",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Conducir automóvil, Orientarse, Escuchar, Psicología, otra habilidad."
+ },
+ "148": {
+  "name": "Pequeño empresario",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, cuatro habilidades relacionadas con la gestión del negocio."
+ },
+ "149": {
+  "name": "Tramoyista",
+  "description": "Arte/Artesanía (cualquiera), Lengua propia, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Disfrazarse, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "150": {
+  "name": "Corredor de bolsa",
+  "description": "Contabilidad, Tasación, Lengua propia, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "151": {
+  "name": "Topógrafo",
+  "description": "Contabilidad, Arte/Artesanía (Fotografía), Buscar libros, Naturaleza, Orientarse, Supervivencia (cualquiera), Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "152": {
+  "name": "Operador telefónico",
+  "description": "Lengua propia, Otras lenguas, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "153": {
+  "name": "Cazatalentos",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Derecho, Psicología, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "154": {
+  "name": "Técnico médico",
+  "description": "Arte/Artesanía (Fotografía), Electricidad, Buscar libros, Mecánica, Medicina, Ciencia (Biología, Química, Farmacia)."
+ },
+ "155": {
+  "name": "Médico del equipo",
+  "description": "Dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Primeros auxilios, Medicina, Ciencia (Farmacia), Psicología, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "156": {
+  "name": "Cazador de tesoros",
+  "description": "Tasación, Trepar, Conducir automóvil o Pilotar (aeronave o barco), Electricidad o Mecánica, Historia, Saltar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Descubrir."
+ },
+ "157": {
+  "name": "Sheriff del Oeste",
+  "description": "Conducir automóvil, Armas de fuego (cualquiera), Combatir (Pelea, Látigo), Derecho, Persuasión o Psicología, Montar, Rastrear."
+ },
+ "158": {
+  "name": "Pandillero motorizado (bōsōzoku)",
+  "description": "Combatir (Pelea), Conducir automóvil, Mecánica, Charlatanería, Intimidar, otras tres habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "159": {
+  "name": "Clérigo (monje, monja budista)",
+  "description": "Arte/Artesanía (Caligrafía), Historia o Buscar libros, Otras lenguas (chino o sánscrito), Saber (budismo), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Escuchar, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "160": {
+  "name": "Clérigo (sacerdote sintoísta, miko)",
+  "description": "Arte/Artesanía (Caligrafía y otra cualquiera), Buscar libros, Ciencias ocultas, Saber (sintoísmo), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "161": {
+  "name": "Maestro de feng shui",
+  "description": "Arte/Artesanía (cualquiera), Buscar libros, Ciencias ocultas, Saber (taoísmo), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Ciencia (Astronomía, Geología), otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "162": {
+  "name": "Exorcista de linaje familiar",
+  "description": "Combatir (Pelea), Naturaleza, Ciencias ocultas, Saber (budismo o sintoísmo), Psicología, Sigilo, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "163": {
+  "name": "Estudiante de bachillerato (Educación inferior a 60)",
+  "description": "Trepar, Sigilo, Saltar, Buscar libros, Combatir (cualquiera), Lengua propia, Ciencia (cualquiera) o Historia, Otras lenguas (inglés u otra)."
+ },
+ "164": {
+  "name": "Ichiko (médium ciega)",
+  "description": "Arte/Artesanía (Interpretación), Escuchar, Saber (sintoísmo), Ciencias ocultas, Historia, Charlatanería o Persuasión, Psicología, otra especialidad cualquiera. ※ Con el consentimiento del Guardián, la habilidad «Médium» puede sustituir a una habilidad elegida libremente."
+ },
+ "165": {
+  "name": "Maestro del kotodama/onmyōji",
+  "description": "Arte/Artesanía (Caligrafía y otra cualquiera), Historia o Buscar libros, Lengua propia, Saber (onmyōdō), Ciencia (Astronomía), Ciencias ocultas, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "166": {
+  "name": "Alquimista taoísta",
+  "description": "Buscar libros, Medicina, Ciencias ocultas, Ciencia (Química), Naturaleza, Saber (taoísmo), Otras lenguas (chino), Primeros auxilios o Psicoanálisis."
+ },
+ "167": {
+  "name": "Profesor de idiomas",
+  "description": "Historia, Escuchar, Lengua propia, Psicología, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "168": {
+  "name": "Inmigrante ilegal",
+  "description": "Disfrazarse, Charlatanería, Escuchar, Descubrir, Sigilo, Juegos de manos, Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "169": {
+  "name": "Luchador de sumo (TAM > 80, FUE > 70)",
+  "description": "Esquivar, Combatir (Pelea), Intimidar, Saltar, Psicología, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época. (Tu Tamaño puede superar 99.)"
+ },
+ "170": {
+  "name": "Pescador",
+  "description": "Mecánica, Maquinaria pesada, Nadar, Pilotar (barco), Ciencia (Astronomía), Orientarse, Naturaleza, Descubrir."
+ },
+ "171": {
+  "name": "Psicoterapeuta",
+  "description": "Arte/Artesanía (cualquiera), dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Derecho, Otras lenguas, Psicología, Psicoanálisis, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "172": {
+  "name": "Colegiala",
+  "description": "Una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Conducir (bicicleta), Primeros auxilios, Escuchar, Arte/Artesanía (cualquiera), Buscar libros, Combatir (Lanza) o Armas de fuego (Arco), Otras lenguas (cualquiera)."
+ },
+ "173": {
+  "name": "Estudiante interno (shosei)",
+  "description": "Primeros auxilios, Contabilidad, Arte/Artesanía (Carpintería), Persuasión, Buscar libros, Otras lenguas (cualquiera), otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "174": {
+  "name": "Terapeuta asistido con animales",
+  "description": "Escuchar, Psicología, Psicoanálisis, Ciencia (Zoología), Saltar, Rastrear, Naturaleza, otra habilidad cualquiera como especialidad personal o de la época. Saltar, Rastrear, Naturaleza, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "175": {
+  "name": "Médico de urgencias/rescatista",
+  "description": "Medicina, Primeros auxilios, Ciencia (Química), Cerrajería, Mecánica, Electricidad, Trepar, Saltar."
+ },
+ "176": {
+  "name": "Médico clandestino",
+  "description": "Medicina, Primeros auxilios, Contabilidad, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Derecho, Ciencia (Farmacia), Otras lenguas, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "177": {
+  "name": "Investigador de policía científica",
+  "description": "Arte/Artesanía (Fotografía), Medicina, Derecho, Ciencia (Química, Ciencia forense, Farmacia), Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "178": {
+  "name": "Rescatador de montaña",
+  "description": "Primeros auxilios, Escuchar, Saltar, Rastrear, Trepar, Orientarse, Supervivencia (montaña), Otras lenguas."
+ },
+ "179": {
+  "name": "Bailarín",
+  "description": "Arte/Artesanía (artes escénicas, p. ej., Interpretación, Canto, Comedia), Disfrazarse, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "180": {
+  "name": "Diseñador de moda",
+  "description": "Contabilidad, Arte/Artesanía (Fotografía), Arte/Artesanía (cualquiera), Informática o Buscar libros, Disfrazarse, Psicología, Descubrir, otra habilidad cualquiera como especialidad personal. ※ Con una tirada exitosa de Descubrir, puede deducir la posición social, los ingresos, etc. de una persona por su ropa."
+ },
+ "181": {
+  "name": "Miembro de la Fuerza Marítima de Autodefensa",
+  "description": "Electricidad o Mecánica, Combatir, Armas de fuego, Primeros auxilios, Orientarse, Pilotar (barco), Supervivencia (mar), Nadar."
+ },
+ "182": {
+  "name": "Guardacostas",
+  "description": "Primeros auxilios, Mecánica, Naturaleza, Orientarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Pilotar (barco), Descubrir, Nadar."
+ },
+ "183": {
+  "name": "Miembro de la Fuerza Terrestre de Autodefensa",
+  "description": "Trepar o Nadar, Esquivar, Combatir, Armas de fuego, Sigilo, Supervivencia, dos de las siguientes: Primeros auxilios, Mecánica, Otras lenguas."
+ },
+ "184": {
+  "name": "Miembro de una compañía militar privada",
+  "description": "Trepar o Nadar, Esquivar, Combatir, Armas de fuego, Sigilo, Supervivencia, dos de las siguientes: Primeros auxilios, Mecánica, Otras lenguas."
+ },
+ "185": {
+  "name": "Profesor aventurero",
+  "description": "Trepar o Nadar, Armas de fuego, Historia, Saltar, Naturaleza, Orientarse, Otras lenguas, Supervivencia."
+ },
+ "186": {
+  "name": "Crítico",
+  "description": "Disfrazarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Historia o Buscar libros, Lengua propia, Otras lenguas, Psicología, Sigilo."
+ },
+ "187": {
+  "name": "Ídolo",
+  "description": "Arte/Artesanía (Interpretación, Canto, Baile), Disfrazarse, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "188": {
+  "name": "Cantante",
+  "description": "Arte/Artesanía (Canto, Baile, Instrumento), Disfrazarse, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "189": {
+  "name": "Humorista",
+  "description": "Arte/Artesanía (Interpretación, Acrobacias, Comedia), Disfrazarse, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "190": {
+  "name": "Deportista del espectáculo",
+  "description": "Trepar, Esquivar, Saltar, Lanzar, Descubrir, Nadar, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "191": {
+  "name": "Locutor",
+  "description": "Arte/Artesanía (Interpretación), Lengua propia, Encanto, Charlatanería, Persuasión, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "192": {
+  "name": "Presentador",
+  "description": "Arte/Artesanía (Interpretación), Lengua propia, Encanto, Charlatanería, Persuasión, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "193": {
+  "name": "Comentarista de televisión",
+  "description": "Arte/Artesanía (Interpretación), Lengua propia, Encanto, Charlatanería, Persuasión, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "194": {
+  "name": "Estrella de internet",
+  "description": "Arte/Artesanía (Interpretación, Canto, Comedia), Disfrazarse, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Psicología, Informática, Electricidad."
+ },
+ "195": {
+  "name": "Representante artístico",
+  "description": "Conducir automóvil, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Sigilo, Escuchar, Derecho, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "196": {
+  "name": "Cazafantasmas",
+  "description": "Ciencias ocultas, Ciencia (Física, Química, Biología), Mecánica, Arte/Artesanía (Fotografía), Electricidad, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión)."
+ },
+ "197": {
+  "name": "Adivino, médium",
+  "description": "Arte/Artesanía (Interpretación), Historia, Buscar libros, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Ciencias ocultas, Psicología, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "198": {
+  "name": "Mecánico",
+  "description": "Arte/Artesanía (Carpintería, Soldadura, Fontanería, etc.), Trepar, Conducir automóvil, Electricidad, Mecánica, Maquinaria pesada, otras dos habilidades cualesquiera como especialidades personales, de la época o técnicas."
+ },
+ "199": {
+  "name": "Cocinero",
+  "description": "Arte/Artesanía (Cocina), Ciencia (Biología, Química), Combatir (Pelea), Naturaleza, Descubrir, Otras lenguas, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "200": {
+  "name": "Ciberdelincuente",
+  "description": "Informática, Electricidad, Electrónica, Buscar libros, Descubrir, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), otras dos habilidades cualesquiera."
+ },
+ "201": {
+  "name": "Mercenario",
+  "description": "Trepar o Nadar, Esquivar, Combatir, Armas de fuego, Sigilo, Supervivencia, dos de las siguientes: Primeros auxilios, Mecánica, Otras lenguas."
+ },
+ "202": {
+  "name": "Guardia de seguridad doméstica (nini)",
+  "description": "Informática, Escuchar, Sigilo, Buscar libros, Lengua propia, tres especialidades cualesquiera que encajen con la imagen de un nini."
+ },
+ "203": {
+  "name": "Guardaespaldas forzudo",
+  "description": "Combatir (Pelea), Armas de fuego, Primeros auxilios, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Derecho, Psicología, Descubrir y una de las siguientes como especialidad personal: Conducir automóvil o Montar."
+ },
+ "204": {
+  "name": "Probador de videojuegos",
+  "description": "Arte/Artesanía (Videojuegos), Informática, Electricidad, Electrónica, Escuchar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "205": {
+  "name": "Cortesana",
+  "description": "Arte/Artesanía (cualquiera), Tasación, Sigilo, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Primeros auxilios, Otras lenguas (europea), Psicología, Montar, una de estas: (Disfrazarse, Cerrajería), otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "206": {
+  "name": "Arqueólogo",
+  "description": "Contabilidad, Arte/Artesanía (cualquiera), Tasación, Historia, Buscar libros, Otras lenguas (europea), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "207": {
+  "name": "Noble",
+  "description": "Otras lenguas (latín), Derecho, Otras lenguas (europea), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Montar, Armas de fuego (Escopeta), otras tres habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "208": {
+  "name": "Artista (II)",
+  "description": "Arte/Artesanía (tantas como se quiera), Tasación, Historia, Buscar libros, Otras lenguas (europea), Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "209": {
+  "name": "Escritor",
+  "description": "Arte/Artesanía (Escritura), Historia, Buscar libros, Otras lenguas (europea), Lengua propia, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "210": {
+  "name": "Cochero",
+  "description": "Esquivar, Conducir carruajes, Saltar, Escuchar, Mecánica, Naturaleza, Orientarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Descubrir, Combatir (Látigo), otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "211": {
+  "name": "Sacerdote",
+  "description": "Historia, Otras lenguas (latín), Buscar libros, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "212": {
+  "name": "Detective asesor",
+  "description": "Antropología, Tasación, Ciencia (Química), Primeros auxilios, Historia, Derecho, Buscar libros, Escuchar, Psicología, Otras lenguas (cualquiera), Descubrir, Rastrear, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "213": {
+  "name": "Artesano (II)",
+  "description": "Contabilidad, Tasación, Arte/Artesanía (tantas como se quiera), Mecánica, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "214": {
+  "name": "Criminal",
+  "description": "Tasación, Disfrazarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Sigilo, Cerrajería, Combatir (dos cualesquiera), otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "215": {
+  "name": "Diletante",
+  "description": "Seis habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "216": {
+  "name": "Artista de variedades (II)",
+  "description": "Arte/Artesanía (tantas como se quiera), Disfrazarse, Esquivar, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Escuchar, Lengua propia, Psicología, otras tres habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "217": {
+  "name": "Oficial retirado",
+  "description": "Sigilo, Primeros auxilios, Armas de fuego (Pistola, Fusil), Orientarse, Otras lenguas (cualquiera), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Montar, Combatir (Espada), Descubrir, una de estas: (Trepar, Nadar)."
+ },
+ "218": {
+  "name": "Explorador",
+  "description": "Antropología, Arqueología, Tasación, Ciencia (Biología), Trepar, Primeros auxilios, Armas de fuego (Pistola, Fusil), Combatir (Pelea), Naturaleza, Orientarse, Otras lenguas (cualquiera), Pilotar (bote, barco, globo aerostático), Montar, Sigilo, Descubrir, Nadar, Rastrear."
+ },
+ "219": {
+  "name": "Investigador privado (II)",
+  "description": "Contabilidad, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Derecho, Buscar libros, Escuchar, Cerrajería, Arte/Artesanía (Fotografía), Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "220": {
+  "name": "Periodista",
+  "description": "Tasación, Esquivar, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Buscar libros, Escuchar, Otras lenguas (europea), Lengua propia, Arte/Artesanía (Fotografía), Psicología, Descubrir."
+ },
+ "221": {
+  "name": "Jornalero",
+  "description": "Tasación, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Esquivar, Primeros auxilios, Mecánica, Maquinaria pesada, otra habilidad cualquiera como especialidad personal o de la época, y dos cualesquiera de las siguientes: (Trepar, Combatir (Pelea), Arte/Artesanía (cualquiera), Conducir carruajes, Pilotar (barco))."
+ },
+ "222": {
+  "name": "Abogado (II)",
+  "description": "Contabilidad, Tasación, dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Historia, Otras lenguas (latín), Derecho, Buscar libros, Escuchar, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "223": {
+  "name": "Médico",
+  "description": "Ciencia (Biología, Farmacia), Primeros auxilios, Otras lenguas (latín), Buscar libros, Medicina, Psicología, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "224": {
+  "name": "Policía",
+  "description": "Combatir (Pelea), Esquivar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Primeros auxilios, Armas de fuego (Pistola), Derecho, Escuchar, Psicología, Sigilo, Descubrir."
+ },
+ "225": {
+  "name": "Profesor/erudito",
+  "description": "Buscar libros, Otras lenguas (europea), una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, hasta seis habilidades de conocimiento adicionales como especialidades personales."
+ },
+ "226": {
+  "name": "Científico (II)",
+  "description": "Arte/Artesanía (cualquiera), Historia, Buscar libros, Mecánica, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Descubrir, hasta seis habilidades de conocimiento más como especialidades personales."
+ },
+ "227": {
+  "name": "Sirviente",
+  "description": "Arte/Artesanía (cualquiera), Esquivar, Escuchar, Sigilo, otra habilidad cualquiera como especialidad personal o de la época, y hasta tres de las siguientes: (Contabilidad, Tasación, Conducir carruajes, Etiqueta, Primeros auxilios, Otras lenguas (europea), Persuasión)."
+ },
+ "228": {
+  "name": "Dueño de tienda",
+  "description": "Contabilidad, Tasación, Arte/Artesanía (cualquiera), Escuchar, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Psicología, Descubrir, otra habilidad cualquiera como especialidad personal o de la época."
+ },
+ "229": {
+  "name": "Soldado",
+  "description": "Esquivar, Primeros auxilios, Sigilo, Escuchar, Mecánica, Armas de fuego (Fusil), Sigilo, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época."
+ },
+ "230": {
+  "name": "Agente secreto",
+  "description": "Disfrazarse, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Sigilo, Historia, Buscar libros, Escuchar, Cerrajería, Orientarse, Otras lenguas (europea), Psicología, Descubrir, Combatir (cualquiera)."
+ }
+}

@@ -1,0 +1,922 @@
+{
+ "1": {
+  "name": "Professione personalizzata",
+  "description": "Non più di 8 abilità professionali. Inserisci nelle caratteristiche professionali a destra il valore della seconda caratteristica professionale (se lasci vuoto si usa Istruzione) e imposta tu il Credito iniziale. Prima di usare una professione personalizzata, consulta il tuo Custode."
+ },
+ "2": {
+  "name": "Contabile",
+  "description": "Contabilità, Legge, Biblioteca, Ascoltare, Persuasione, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "3": {
+  "name": "Acrobata",
+  "description": "Scalare, Schivare, Saltare, Lanciare, Individuare, Nuotare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "4": {
+  "name": "Attore – Attore teatrale",
+  "description": "Arte/Mestiere (Recitazione), Travestimento, Combattere, Storia, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "5": {
+  "name": "Attore – Attore cinematografico",
+  "description": "Arte/Mestiere (Recitazione), Travestimento, Guidare auto, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, altre due abilità a scelta come specialità personali o d'epoca (ad es. Cavalcare o Combattere)."
+ },
+ "6": {
+  "name": "Investigatore d'agenzia / Guardia di sicurezza",
+  "description": "Un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Combattere (Rissa), Armi da fuoco, Legge, Biblioteca, Psicologia, Furtività, Seguire tracce."
+ },
+ "7": {
+  "name": "Alienista (Classico)",
+  "description": "Legge, Ascoltare, Medicina, Lingua straniera, Psicanalisi, Psicologia, Scienza (Biologia, Chimica)."
+ },
+ "8": {
+  "name": "Addestratore di animali",
+  "description": "Saltare, Ascoltare, Mondo naturale, Psicologia, Scienza (Zoologia), Furtività, Seguire tracce, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "9": {
+  "name": "Antiquario (Lovecraftiano)",
+  "description": "Valutare, Arte/Mestiere (qualsiasi), Storia, Biblioteca, Lingua straniera, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "10": {
+  "name": "Commerciante di antichità",
+  "description": "Contabilità, Valutare, Guidare auto, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Storia, Biblioteca, Orientamento."
+ },
+ "11": {
+  "name": "Archeologo (Lovecraftiano)",
+  "description": "Valutare, Archeologia, Storia, Lingua straniera, Biblioteca, Individuare, Riparazioni meccaniche, Orientamento o Scienza (qualsiasi: ad es. Chimica, Fisica, Geografia, ecc.)."
+ },
+ "12": {
+  "name": "Architetto",
+  "description": "Contabilità, Arte/Mestiere (Disegno tecnico), Legge, Lingua madre, Informatica o Biblioteca, Persuasione, Psicologia, Scienza (Matematica)."
+ },
+ "13": {
+  "name": "Artista",
+  "description": "Arte/Mestiere (qualsiasi), Storia o Mondo naturale, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Lingua straniera, Psicologia, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "14": {
+  "name": "Inserviente di manicomio",
+  "description": "Schivare, Combattere (Rissa), Pronto soccorso, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, Furtività."
+ },
+ "15": {
+  "name": "Atleta",
+  "description": "Scalare, Saltare, Combattere (Rissa), Cavalcare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Nuotare, Lanciare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "16": {
+  "name": "Scrittore (Lovecraftiano)",
+  "description": "Arte/Mestiere (Letteratura), Storia, Biblioteca, Mondo naturale o Occultismo, Lingua straniera, Lingua madre, Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "17": {
+  "name": "Barista",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Combattere (Rissa), Ascoltare, Psicologia, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "18": {
+  "name": "Cacciatore",
+  "description": "Armi da fuoco, Ascoltare o Individuare, Mondo naturale, Orientamento, Lingua straniera o Sopravvivenza (qualsiasi), Scienza (Biologia o Botanica), Furtività, Seguire tracce."
+ },
+ "19": {
+  "name": "Libraio",
+  "description": "Contabilità, Valutare, Guidare auto, Storia, Biblioteca, Lingua madre, Lingua straniera, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione)."
+ },
+ "20": {
+  "name": "Cacciatore di taglie",
+  "description": "Guidare auto, Elettronica o Riparazioni elettriche, Combattere o Armi da fuoco, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Legge, Psicologia, Seguire tracce, Furtività."
+ },
+ "21": {
+  "name": "Pugile / Lottatore",
+  "description": "Schivare, Combattere (Rissa), Intimidire, Saltare, Psicologia, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "22": {
+  "name": "Maggiordomo / Valletto / Cameriera",
+  "description": "Contabilità o Valutare, Arte/Mestiere (qualsiasi: ad es. Cucina, Sartoria, Barbiere), Pronto soccorso, Ascoltare, Lingua straniera, Psicologia, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "23": {
+  "name": "Ecclesiastico",
+  "description": "Contabilità, Storia, Biblioteca, Ascoltare, Lingua straniera, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta."
+ },
+ "24": {
+  "name": "Programmatore / Ingegnere elettronico (Moderno)",
+  "description": "Informatica, Riparazioni elettriche, Elettronica, Biblioteca, Scienza (Matematica), Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "25": {
+  "name": "Hacker / Cracker (Moderno)",
+  "description": "Informatica, Riparazioni elettriche, Elettronica, Biblioteca, Individuare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), altre due abilità a scelta."
+ },
+ "26": {
+  "name": "Cowboy",
+  "description": "Schivare, Combattere o Armi da fuoco, Pronto soccorso o Mondo naturale, Saltare, Cavalcare, Sopravvivenza (qualsiasi), Lanciare, Seguire tracce."
+ },
+ "27": {
+  "name": "Artigiano",
+  "description": "Contabilità, Arte/Mestiere (due qualsiasi), Riparazioni meccaniche, Mondo naturale, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "28": {
+  "name": "Criminale – Assassino",
+  "description": "Travestimento, Riparazioni elettriche, Combattere, Armi da fuoco, Scassinare, Riparazioni meccaniche, Furtività, Psicologia."
+ },
+ "29": {
+  "name": "Criminale – Rapinatore di banche",
+  "description": "Guidare auto, Riparazioni elettriche o Riparazioni meccaniche, Combattere, Armi da fuoco, Intimidire, Scassinare, Macchinari pesanti, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "30": {
+  "name": "Criminale – Picchiatore / Teppista",
+  "description": "Guidare auto, Combattere, Armi da fuoco, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Furtività, Individuare."
+ },
+ "31": {
+  "name": "Criminale – Ladro con scasso",
+  "description": "Valutare, Scalare, Riparazioni elettriche o Riparazioni meccaniche, Ascoltare, Scassinare, Rapidità di mano, Furtività, Individuare."
+ },
+ "32": {
+  "name": "Criminale – Truffatore",
+  "description": "Valutare, Arte/Mestiere (Recitazione), Legge o Lingua straniera, Ascoltare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Rapidità di mano."
+ },
+ "33": {
+  "name": "Criminale – Criminale indipendente",
+  "description": "Arte/Mestiere (Recitazione) o Travestimento, Valutare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Combattere o Armi da fuoco, Scassinare o Riparazioni meccaniche, Furtività, Psicologia, Individuare."
+ },
+ "34": {
+  "name": "Criminale – Pupa del gangster (Classico)",
+  "description": "Arte/Mestiere (qualsiasi), due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Combattere (Rissa) o Armi da fuoco (Pistola), Guidare auto, Ascoltare, Furtività, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "35": {
+  "name": "Criminale – Ricettatore",
+  "description": "Contabilità, Valutare, Arte/Mestiere (Falsificazione), Storia, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Biblioteca, Individuare, un'altra abilità a scelta."
+ },
+ "36": {
+  "name": "Criminale – Falsario",
+  "description": "Contabilità, Valutare, Arte/Mestiere (Falsificazione), Storia, Biblioteca, Individuare, Rapidità di mano, un'altra abilità a scelta come specialità personale o d'epoca (ad es. Informatica)."
+ },
+ "37": {
+  "name": "Criminale – Contrabbandiere",
+  "description": "Armi da fuoco, Ascoltare, Orientamento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Guidare auto o Pilotare (Aereo o Imbarcazione), Psicologia, Rapidità di mano, Individuare."
+ },
+ "38": {
+  "name": "Criminale – Teppista di strada",
+  "description": "Scalare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Combattere, Armi da fuoco, Saltare, Rapidità di mano, Furtività, Lanciare."
+ },
+ "39": {
+  "name": "Capo di una setta",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Occultismo, Psicologia, Individuare, altre due abilità a scelta come specialità personali."
+ },
+ "40": {
+  "name": "Deprogrammatore (Moderno)",
+  "description": "Due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Guidare auto, Combattere (Rissa) o Armi da fuoco, Storia, Occultismo, Psicologia, Furtività. ※ Con il permesso del Custode, una di queste può essere sostituita da Ipnosi."
+ },
+ "41": {
+  "name": "Designer",
+  "description": "Contabilità, Arte/Mestiere (Fotografia), Arte/Mestiere (qualsiasi), Informatica o Biblioteca, Riparazioni meccaniche, Psicologia, Individuare, un'altra abilità a scelta come specialità personale."
+ },
+ "42": {
+  "name": "Dilettante (Lovecraftiano)",
+  "description": "Arte/Mestiere (qualsiasi), Armi da fuoco, Lingua straniera, Cavalcare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), altre tre abilità a scelta come specialità personali o d'epoca."
+ },
+ "43": {
+  "name": "Sommozzatore",
+  "description": "Immersione, Pronto soccorso, Riparazioni meccaniche, Pilotare (Imbarcazione), Scienza (Biologia), Individuare, Nuotare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "44": {
+  "name": "Medico (Lovecraftiano)",
+  "description": "Pronto soccorso, Medicina, Lingua straniera (Latino), Psicologia, Scienza (Biologia, Farmacologia), altre due abilità a scelta come specialità accademiche o personali."
+ },
+ "45": {
+  "name": "Girovago",
+  "description": "Scalare, Saltare, Ascoltare, Orientamento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Furtività, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "46": {
+  "name": "Autista – Autista privato",
+  "description": "Guidare auto, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Riparazioni meccaniche, Orientamento, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "47": {
+  "name": "Autista – Autista",
+  "description": "Contabilità, Guidare auto, Ascoltare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Riparazioni meccaniche, Orientamento, Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "48": {
+  "name": "Autista – Tassista",
+  "description": "Contabilità, Guidare auto, Riparazioni elettriche, Raggirare, Riparazioni meccaniche, Orientamento, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "49": {
+  "name": "Redattore",
+  "description": "Contabilità, Storia, Lingua madre, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "50": {
+  "name": "Funzionario pubblico",
+  "description": "Fascino, Storia, Intimidire, Raggirare, Ascoltare, Lingua madre, Persuasione, Psicologia."
+ },
+ "51": {
+  "name": "Ingegnere",
+  "description": "Arte/Mestiere (Disegno tecnico), Riparazioni elettriche, Biblioteca, Riparazioni meccaniche, Macchinari pesanti, Scienza (Ingegneria, Fisica), un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "52": {
+  "name": "Intrattenitore",
+  "description": "Arte/Mestiere (arti dello spettacolo, ad es. Recitazione, Canto, Comicità), Travestimento, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "53": {
+  "name": "Esploratore (Classico)",
+  "description": "Scalare o Nuotare, Armi da fuoco, Storia, Saltare, Mondo naturale, Orientamento, Lingua straniera, Sopravvivenza."
+ },
+ "54": {
+  "name": "Agricoltore",
+  "description": "Arte/Mestiere (Agricoltura), Guidare auto (o carro), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Riparazioni meccaniche, Mondo naturale, Macchinari pesanti, Seguire tracce, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "55": {
+  "name": "Agente federale",
+  "description": "Guidare auto, Combattere (Rissa), Armi da fuoco, Legge, Persuasione, Furtività, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "56": {
+  "name": "Vigile del fuoco",
+  "description": "Scalare, Schivare, Guidare auto, Pronto soccorso, Saltare, Riparazioni meccaniche, Macchinari pesanti, Lanciare."
+ },
+ "57": {
+  "name": "Corrispondente estero",
+  "description": "Storia, Lingua straniera, Lingua madre, Ascoltare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "58": {
+  "name": "Medico legale",
+  "description": "Lingua straniera (Latino), Biblioteca, Medicina, Persuasione, Scienza (Biologia, Farmacologia, Scienze forensi), Individuare."
+ },
+ "59": {
+  "name": "Giocatore d'azzardo",
+  "description": "Contabilità, Arte/Mestiere (Recitazione), due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, Rapidità di mano, Individuare."
+ },
+ "60": {
+  "name": "Gangster – Boss",
+  "description": "Combattere, Armi da fuoco, Legge, Ascoltare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare."
+ },
+ "61": {
+  "name": "Gangster – Scagnozzo",
+  "description": "Guidare auto, Combattere, Armi da fuoco, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "62": {
+  "name": "Gentiluomo / Gentildonna",
+  "description": "Arte/Mestiere (qualsiasi), due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Armi da fuoco (Fucile/Fucile da caccia), Storia, Lingua straniera (qualsiasi), Orientamento, Cavalcare."
+ },
+ "63": {
+  "name": "Vagabondo",
+  "description": "Arte/Mestiere (qualsiasi), Scalare, Saltare, Ascoltare, Scassinare o Rapidità di mano, Orientamento, Furtività, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "64": {
+  "name": "Inserviente ospedaliero",
+  "description": "Riparazioni elettriche, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Combattere (Rissa), Pronto soccorso, Ascoltare, Riparazioni meccaniche, Psicologia, Furtività."
+ },
+ "65": {
+  "name": "Giornalista (Lovecraftiano) – Giornalista investigativo",
+  "description": "Arte/Mestiere (Arte o Fotografia), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Storia, Biblioteca, Lingua madre, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "66": {
+  "name": "Giornalista (Lovecraftiano) – Cronista",
+  "description": "Arte/Mestiere (Recitazione), Storia, Ascoltare, Lingua madre, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Furtività, Individuare."
+ },
+ "67": {
+  "name": "Giudice",
+  "description": "Storia, Intimidire, Legge, Biblioteca, Ascoltare, Lingua madre, Persuasione, Psicologia."
+ },
+ "68": {
+  "name": "Assistente di laboratorio",
+  "description": "Informatica o Biblioteca, Riparazioni elettriche, Lingua straniera, Scienza (Chimica e altre due a scelta), Individuare, un'altra abilità a scelta come specialità personale."
+ },
+ "69": {
+  "name": "Operaio – Operaio non specializzato",
+  "description": "Guidare auto, Riparazioni elettriche, Combattere, Pronto soccorso, Riparazioni meccaniche, Macchinari pesanti, Lanciare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "70": {
+  "name": "Operaio – Taglialegna",
+  "description": "Scalare, Schivare, Combattere (Motosega), Pronto soccorso, Saltare, Riparazioni meccaniche, Mondo naturale o Scienza (Biologia o Botanica), Lanciare."
+ },
+ "71": {
+  "name": "Operaio – Minatore",
+  "description": "Scalare, Scienza (Geologia), Saltare, Riparazioni meccaniche, Macchinari pesanti, Furtività, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "72": {
+  "name": "Avvocato",
+  "description": "Contabilità, Legge, Biblioteca, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, altre due abilità a scelta."
+ },
+ "73": {
+  "name": "Bibliotecario (Lovecraftiano)",
+  "description": "Contabilità, Biblioteca, Lingua straniera, Lingua madre, altre quattro abilità a scelta come specialità personali o argomenti di letture specialistiche."
+ },
+ "74": {
+  "name": "Tecnico",
+  "description": "Arte/Mestiere (Falegnameria, Saldatura, Idraulica, ecc.), Scalare, Guidare auto, Riparazioni elettriche, Riparazioni meccaniche, Macchinari pesanti, altre due abilità a scelta come specialità personali, d'epoca o tecniche."
+ },
+ "75": {
+  "name": "Ufficiale militare",
+  "description": "Contabilità, Armi da fuoco, Orientamento, Pronto soccorso, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "76": {
+  "name": "Missionario",
+  "description": "Arte/Mestiere (qualsiasi), Pronto soccorso, Riparazioni meccaniche, Medicina, Mondo naturale, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "77": {
+  "name": "Alpinista",
+  "description": "Scalare, Pronto soccorso, Saltare, Ascoltare, Orientamento, Lingua straniera, Sopravvivenza (Alpina o simile), Seguire tracce."
+ },
+ "78": {
+  "name": "Curatore museale",
+  "description": "Contabilità, Valutare, Archeologia, Storia, Biblioteca, Occultismo, Lingua straniera, Individuare."
+ },
+ "79": {
+  "name": "Musicista",
+  "description": "Arte/Mestiere (Strumento musicale), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, altre quattro abilità a scelta."
+ },
+ "80": {
+  "name": "Infermiere",
+  "description": "Pronto soccorso, Ascoltare, Medicina, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Scienza (Biologia, Chimica), Individuare."
+ },
+ "81": {
+  "name": "Occultista",
+  "description": "Antropologia, Storia, Biblioteca, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Occultismo, Lingua straniera, Scienza (Astronomia), un'altra abilità a scelta come specialità personale o d'epoca. ※ Con il permesso del Custode può includere Miti di Cthulhu."
+ },
+ "82": {
+  "name": "Viaggiatore",
+  "description": "Armi da fuoco, Pronto soccorso, Ascoltare, Mondo naturale, Orientamento, Individuare, Sopravvivenza (qualsiasi), Seguire tracce."
+ },
+ "83": {
+  "name": "Parapsicologo",
+  "description": "Antropologia, Arte/Mestiere (Fotografia), Storia, Biblioteca, Occultismo, Lingua straniera, Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "84": {
+  "name": "Farmacista",
+  "description": "Contabilità, Pronto soccorso, Lingua straniera (Latino), Biblioteca, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Scienza (Farmacologia, Chimica)."
+ },
+ "85": {
+  "name": "Fotografo – Fotografo",
+  "description": "Arte/Mestiere (Fotografia), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Scienza (Chimica), Furtività, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "86": {
+  "name": "Fotografo – Fotoreporter",
+  "description": "Arte/Mestiere (Fotografia), Scalare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Lingua straniera, Psicologia, Scienza (Chimica), altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "87": {
+  "name": "Pilota – Aviatore",
+  "description": "Riparazioni elettriche, Riparazioni meccaniche, Orientamento, Macchinari pesanti, Pilotare (Aereo), Scienza (Astronomia), altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "88": {
+  "name": "Pilota – Pilota acrobatico (Classico)",
+  "description": "Contabilità, Riparazioni elettriche, Ascoltare, Riparazioni meccaniche, Orientamento, Pilotare (Aereo), Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "89": {
+  "name": "Polizia (Lovecraftiano) – Detective",
+  "description": "Arte/Mestiere (Recitazione) o Travestimento, Armi da fuoco, Legge, Ascoltare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare, un'altra abilità a scelta."
+ },
+ "90": {
+  "name": "Polizia (Lovecraftiano) – Agente di pattuglia",
+  "description": "Combattere (Rissa), Armi da fuoco, Pronto soccorso, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Legge, Psicologia, Individuare e una delle seguenti come specialità personale: Guidare auto o Cavalcare."
+ },
+ "91": {
+  "name": "Investigatore privato",
+  "description": "Arte/Mestiere (Fotografia), Travestimento, Legge, Biblioteca, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare, un'altra abilità a scelta come specialità personale o d'epoca (ad es. Informatica, Scassinare, Combattere, Armi da fuoco)."
+ },
+ "92": {
+  "name": "Professore (Lovecraftiano)",
+  "description": "Biblioteca, Lingua straniera, Lingua madre, Psicologia, altre quattro abilità a scelta come specialità accademiche, d'epoca o personali."
+ },
+ "93": {
+  "name": "Cercatore d'oro",
+  "description": "Scalare, Pronto soccorso, Storia, Riparazioni meccaniche, Orientamento, Scienza (Geologia), Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "94": {
+  "name": "Lavoratore del sesso",
+  "description": "Arte/Mestiere (qualsiasi), due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Schivare, Psicologia, Rapidità di mano, Furtività, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "95": {
+  "name": "Psichiatra",
+  "description": "Lingua straniera, Ascoltare, Medicina, Persuasione, Psicanalisi, Psicologia, Scienza (Biologia, Chimica)."
+ },
+ "96": {
+  "name": "Psicologo / Psicanalista",
+  "description": "Contabilità, Biblioteca, Ascoltare, Persuasione, Psicanalisi, Psicologia, altre due abilità a scelta come specialità accademiche, personali o d'epoca."
+ },
+ "97": {
+  "name": "Ricercatore",
+  "description": "Storia, Biblioteca, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Lingua straniera, Individuare, altri tre campi accademici a scelta."
+ },
+ "98": {
+  "name": "Marinaio – Marinaio militare",
+  "description": "Riparazioni elettriche o Riparazioni meccaniche, Combattere, Armi da fuoco, Pronto soccorso, Orientamento, Pilotare (Imbarcazione), Sopravvivenza (Mare), Nuotare."
+ },
+ "99": {
+  "name": "Marinaio – Marinaio civile",
+  "description": "Pronto soccorso, Riparazioni meccaniche, Mondo naturale, Orientamento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Pilotare (Imbarcazione), Individuare, Nuotare."
+ },
+ "100": {
+  "name": "Venditore",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Guidare auto, Ascoltare, Psicologia, Furtività o Rapidità di mano, un'altra abilità a scelta."
+ },
+ "101": {
+  "name": "Scienziato",
+  "description": "Scienza (tre specializzazioni qualsiasi), Informatica o Biblioteca, Lingua straniera, Lingua madre, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Individuare."
+ },
+ "102": {
+  "name": "Segretario",
+  "description": "Contabilità, Arte/Mestiere (Dattilografia o Stenografia), due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Lingua madre, Biblioteca o Informatica, Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "103": {
+  "name": "Negoziante",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Riparazioni elettriche, Ascoltare, Riparazioni meccaniche, Psicologia, Individuare."
+ },
+ "104": {
+  "name": "Soldato / Marine",
+  "description": "Scalare o Nuotare, Schivare, Combattere, Armi da fuoco, Furtività, Sopravvivenza, due a scelta tra: Pronto soccorso, Riparazioni meccaniche, Lingua straniera."
+ },
+ "105": {
+  "name": "Spia",
+  "description": "Arte/Mestiere (Recitazione) o Travestimento, Armi da fuoco, Ascoltare, Lingua straniera, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Rapidità di mano, Furtività."
+ },
+ "106": {
+  "name": "Studente / Tirocinante",
+  "description": "Lingua (Lingua madre o Lingua straniera), Biblioteca, Ascoltare, tre materie di studio, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "107": {
+  "name": "Stuntman",
+  "description": "Scalare, Schivare, Riparazioni elettriche o Riparazioni meccaniche, Combattere, Pronto soccorso, Saltare, Nuotare, una a scelta tra: Immersione, Guidare auto, Pilotare (qualsiasi), Cavalcare."
+ },
+ "108": {
+  "name": "Membro di una tribù",
+  "description": "Scalare, Combattere o Lanciare, Ascoltare, Mondo naturale, Occultismo, Individuare, Nuotare, Sopravvivenza (qualsiasi)."
+ },
+ "109": {
+  "name": "Impresario di pompe funebri",
+  "description": "Contabilità, Guidare auto, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Storia, Occultismo, Psicologia, Scienza (Biologia, Chimica)."
+ },
+ "110": {
+  "name": "Sindacalista",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Combattere (Rissa), Legge, Ascoltare, Macchinari pesanti, Psicologia."
+ },
+ "111": {
+  "name": "Cameriere",
+  "description": "Contabilità, Arte/Mestiere (qualsiasi), Schivare, Ascoltare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "112": {
+  "name": "Colletto bianco – Impiegato / Supervisore",
+  "description": "Contabilità, Lingua, Legge, Biblioteca o Informatica, Ascoltare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "113": {
+  "name": "Colletto bianco – Quadro / Dirigente",
+  "description": "Contabilità, Lingua straniera, Legge, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "114": {
+  "name": "Fanatico",
+  "description": "Storia, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Furtività, altre tre abilità a scelta come specialità personali o d'epoca."
+ },
+ "115": {
+  "name": "Guardiano dello zoo",
+  "description": "Addestrare animali, Contabilità, Schivare, Pronto soccorso, Mondo naturale, Medicina, Scienza (Farmacologia, Zoologia)."
+ },
+ "116": {
+  "name": "Ambasciatore",
+  "description": "Fascino, Storia, Intimidire, Raggirare, Ascoltare, Lingua madre, Persuasione, Psicologia. (Le prime due abilità possono essere sostituite da una o due Lingue straniere.)"
+ },
+ "117": {
+  "name": "Atleta (Nuoto/Tuffi)",
+  "description": "Scalare, Saltare, Combattere (Rissa), Lingua straniera, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Nuotare, Lanciare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "118": {
+  "name": "Atleta (Golf)",
+  "description": "Scalare, Saltare, Combattere (Rissa), Cavalcare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Nuotare, Lanciare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "119": {
+  "name": "Atleta (Tennis)",
+  "description": "Saltare, Combattere (Rissa), Schivare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare, Lanciare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "120": {
+  "name": "Atleta (Atletica leggera)",
+  "description": "Scalare, Saltare, Combattere (Rissa), Lingua straniera, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Schivare, Lanciare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "121": {
+  "name": "Portavoce",
+  "description": "Travestimento, Schivare, tre abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Lingua straniera, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "122": {
+  "name": "Garante di cauzioni",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Legge, Biblioteca, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "123": {
+  "name": "Ecclesiastico (Sacerdote cattolico)",
+  "description": "Contabilità, Lingua madre, Lingua straniera (Latino), Biblioteca, Occultismo, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta."
+ },
+ "124": {
+  "name": "Ecclesiastico (Pastore protestante)",
+  "description": "Contabilità, Storia, Biblioteca, Ascoltare, Lingua straniera, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta."
+ },
+ "125": {
+  "name": "Ecclesiastico (Rabbino)",
+  "description": "Lingua madre, Lingua straniera (Ebraico), Storia, Biblioteca, Occultismo, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta."
+ },
+ "126": {
+  "name": "Editorialista",
+  "description": "Travestimento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Storia o Biblioteca, Lingua madre, Lingua straniera, Psicologia, Furtività."
+ },
+ "127": {
+  "name": "Socialista / Attivista radicale",
+  "description": "Combattere (Rissa), due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Armi da fuoco (Pistola), Lingua straniera, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "128": {
+  "name": "Autore di testi",
+  "description": "Lingua madre, Arte/Mestiere (Letteratura), due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Storia, Biblioteca, Ascoltare, Psicologia."
+ },
+ "129": {
+  "name": "Criminale (Allibratore)",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare, Rapidità di mano, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "130": {
+  "name": "Criminale (Usuraio)",
+  "description": "Contabilità, Valutare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "131": {
+  "name": "Criminale (Borseggiatore)",
+  "description": "Travestimento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Furtività, Ascoltare, Psicologia, Individuare, Rapidità di mano, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "132": {
+  "name": "Criminale (Banchiere clandestino)",
+  "description": "Contabilità, Legge, Biblioteca, Ascoltare, Persuasione, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "133": {
+  "name": "Criminale (Avvocato corrotto)",
+  "description": "Contabilità, Legge, Biblioteca, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, altre due abilità a scelta."
+ },
+ "134": {
+  "name": "Dentista",
+  "description": "Pronto soccorso, Medicina, Lingua straniera (Latino), Psicologia, Scienza (Biologia, Farmacologia), altre due abilità a scelta come specialità accademiche o personali."
+ },
+ "135": {
+  "name": "Chirurgo / Internista",
+  "description": "Pronto soccorso, Medicina, Lingua straniera (Latino), Psicologia, Scienza (Biologia, Farmacologia), altre due abilità a scelta come specialità accademiche o personali."
+ },
+ "136": {
+  "name": "Chirurgo plastico",
+  "description": "Pronto soccorso, Medicina, Lingua straniera (Latino), Psicologia, Scienza (Biologia, Farmacologia), altre due abilità a scelta come specialità accademiche o personali."
+ },
+ "137": {
+  "name": "Autista – Autista di autobus",
+  "description": "Contabilità, Guidare auto, Riparazioni elettriche, Riparazioni meccaniche, Orientamento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "138": {
+  "name": "Ricercatore sul campo",
+  "description": "Contabilità, Scalare o Saltare, Pronto soccorso, Biblioteca, Lingua straniera, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), due abilità attinenti al campo di ricerca."
+ },
+ "139": {
+  "name": "Membro di una troupe cinematografica",
+  "description": "Arte/Mestiere (qualsiasi, ad es. Fotografia), Scalare, Guidare auto, Riparazioni elettriche, Riparazioni meccaniche, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "140": {
+  "name": "Scienziato forense",
+  "description": "Arte/Mestiere (Fotografia), Medicina, Legge, Scienza (Chimica, Scienze forensi, Farmacologia), Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "141": {
+  "name": "Manager sportivo",
+  "description": "Contabilità, Combattere (Rissa), Schivare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Pronto soccorso, Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "142": {
+  "name": "Marinaio della marina mercantile",
+  "description": "Antropologia, Scalare, Riparazioni elettriche o Riparazioni meccaniche, Saltare, Macchinari pesanti, Lingua straniera, Sopravvivenza (Mare), un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "143": {
+  "name": "Musicista classico",
+  "description": "Contabilità, Arte/Mestiere (Strumento musicale), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, altre tre abilità a scelta."
+ },
+ "144": {
+  "name": "Pilota automobilistico / Pilota motonautico",
+  "description": "Guidare auto, Riparazioni elettriche, Riparazioni meccaniche, Pilotare (Imbarcazione), Psicologia, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "145": {
+  "name": "Speaker radiofonico",
+  "description": "Arte/Mestiere (Recitazione), Lingua madre, Fascino, Raggirare, Persuasione, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "146": {
+  "name": "Venditore (Venditore di Bibbie)",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Guidare auto, Ascoltare, Psicologia, Furtività o Rapidità di mano, un'altra abilità a scelta."
+ },
+ "147": {
+  "name": "Venditore (Commesso viaggiatore)",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Guidare auto, Orientamento, Ascoltare, Psicologia, un'altra abilità a scelta."
+ },
+ "148": {
+  "name": "Piccolo imprenditore",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, quattro abilità attinenti alla gestione dell'attività."
+ },
+ "149": {
+  "name": "Tecnico di scena",
+  "description": "Arte/Mestiere (qualsiasi), Lingua madre, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Travestimento, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "150": {
+  "name": "Agente di borsa",
+  "description": "Contabilità, Valutare, Lingua madre, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "151": {
+  "name": "Topografo",
+  "description": "Contabilità, Arte/Mestiere (Fotografia), Biblioteca, Mondo naturale, Orientamento, Sopravvivenza (qualsiasi), Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "152": {
+  "name": "Centralinista",
+  "description": "Lingua madre, Lingua straniera, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "153": {
+  "name": "Talent scout",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Legge, Psicologia, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "154": {
+  "name": "Tecnico sanitario",
+  "description": "Arte/Mestiere (Fotografia), Riparazioni elettriche, Biblioteca, Riparazioni meccaniche, Medicina, Scienza (Biologia, Chimica, Farmacologia)."
+ },
+ "155": {
+  "name": "Medico di squadra",
+  "description": "Due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Pronto soccorso, Medicina, Scienza (Farmacologia), Psicologia, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "156": {
+  "name": "Cacciatore di tesori",
+  "description": "Valutare, Scalare, Guidare auto o Pilotare (Aereo o Imbarcazione), Riparazioni elettriche o Riparazioni meccaniche, Storia, Saltare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Individuare."
+ },
+ "157": {
+  "name": "Sceriffo del West",
+  "description": "Guidare auto, Armi da fuoco (qualsiasi), Combattere (Rissa, Frusta), Legge, Persuasione o Psicologia, Cavalcare, Seguire tracce."
+ },
+ "158": {
+  "name": "Bōsōzoku (motociclista teppista)",
+  "description": "Combattere (Rissa), Guidare auto, Riparazioni meccaniche, Raggirare, Intimidire, altre tre abilità a scelta come specialità personali o d'epoca."
+ },
+ "159": {
+  "name": "Ecclesiastico (Monaco / Monaca buddhista)",
+  "description": "Arte/Mestiere (Calligrafia), Storia o Biblioteca, Lingua straniera (Cinese o Sanscrito), Sapere (Buddhismo), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Ascoltare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "160": {
+  "name": "Ecclesiastico (Sacerdote shintoista / Miko)",
+  "description": "Arte/Mestiere (Calligrafia e un'altra qualsiasi), Biblioteca, Occultismo, Sapere (Shintoismo), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "161": {
+  "name": "Maestro di feng shui",
+  "description": "Arte/Mestiere (qualsiasi), Biblioteca, Occultismo, Sapere (Taoismo), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Scienza (Astronomia, Geologia), un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "162": {
+  "name": "Esorcista di tradizione familiare",
+  "description": "Combattere (Rissa), Mondo naturale, Occultismo, Sapere (Buddhismo o Shintoismo), Psicologia, Furtività, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "163": {
+  "name": "Studente delle superiori (Istruzione inferiore a 60)",
+  "description": "Scalare, Furtività, Saltare, Biblioteca, Combattere (qualsiasi), Lingua madre, Scienza (qualsiasi) o Storia, Lingua straniera (Inglese o altra)."
+ },
+ "164": {
+  "name": "Ichiko (medium cieca)",
+  "description": "Arte/Mestiere (Recitazione), Ascoltare, Sapere (Shintoismo), Occultismo, Storia, Raggirare o Persuasione, Psicologia, un'altra specialità a scelta. ※ Con il consenso del Custode, l'abilità «Medianità» può sostituire un'abilità a scelta."
+ },
+ "165": {
+  "name": "Maestro del kotodama / Onmyōji",
+  "description": "Arte/Mestiere (Calligrafia e un'altra qualsiasi), Storia o Biblioteca, Lingua madre, Sapere (Onmyōdō), Scienza (Astronomia), Occultismo, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "166": {
+  "name": "Alchimista taoista",
+  "description": "Biblioteca, Medicina, Occultismo, Scienza (Chimica), Mondo naturale, Sapere (Taoismo), Lingua straniera (Cinese), Pronto soccorso o Psicanalisi."
+ },
+ "167": {
+  "name": "Insegnante di lingue straniere",
+  "description": "Storia, Ascoltare, Lingua madre, Psicologia, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "168": {
+  "name": "Immigrato clandestino",
+  "description": "Travestimento, Raggirare, Ascoltare, Individuare, Furtività, Rapidità di mano, Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "169": {
+  "name": "Lottatore di sumo (TAG > 80, FOR > 70)",
+  "description": "Schivare, Combattere (Rissa), Intimidire, Saltare, Psicologia, Individuare, altre due abilità a scelta come specialità personali o d'epoca. (La tua Taglia può superare 99.)"
+ },
+ "170": {
+  "name": "Pescatore",
+  "description": "Riparazioni meccaniche, Macchinari pesanti, Nuotare, Pilotare (Imbarcazione), Scienza (Astronomia), Orientamento, Mondo naturale, Individuare."
+ },
+ "171": {
+  "name": "Psicoterapeuta",
+  "description": "Arte/Mestiere (qualsiasi), due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Legge, Lingua straniera, Psicologia, Psicanalisi, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "172": {
+  "name": "Studentessa",
+  "description": "Un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Guidare bicicletta, Pronto soccorso, Ascoltare, Arte/Mestiere (qualsiasi), Biblioteca, Combattere (Lancia) o Armi da fuoco (Tiro con l'arco), Lingua straniera (qualsiasi)."
+ },
+ "173": {
+  "name": "Studente a pensione",
+  "description": "Pronto soccorso, Contabilità, Arte/Mestiere (Falegnameria), Persuasione, Biblioteca, Lingua straniera (qualsiasi), altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "174": {
+  "name": "Terapeuta con animali",
+  "description": "Ascoltare, Psicologia, Psicanalisi, Scienza (Zoologia), Saltare, Seguire tracce, Mondo naturale, un'altra abilità a scelta come specialità personale o d'epoca. Saltare, Seguire tracce, Mondo naturale, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "175": {
+  "name": "Medico d'urgenza / Soccorritore",
+  "description": "Medicina, Pronto soccorso, Scienza (Chimica), Scassinare, Riparazioni meccaniche, Riparazioni elettriche, Scalare, Saltare."
+ },
+ "176": {
+  "name": "Medico clandestino",
+  "description": "Medicina, Pronto soccorso, Contabilità, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Legge, Scienza (Farmacologia), Lingua straniera, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "177": {
+  "name": "Ricercatore della polizia scientifica",
+  "description": "Arte/Mestiere (Fotografia), Medicina, Legge, Scienza (Chimica, Scienze forensi, Farmacologia), Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "178": {
+  "name": "Soccorritore alpino",
+  "description": "Pronto soccorso, Ascoltare, Saltare, Seguire tracce, Scalare, Orientamento, Sopravvivenza (Montagna), Lingua straniera."
+ },
+ "179": {
+  "name": "Ballerino",
+  "description": "Arte/Mestiere (arti dello spettacolo, ad es. Recitazione, Canto, Comicità), Travestimento, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "180": {
+  "name": "Stilista",
+  "description": "Contabilità, Arte/Mestiere (Fotografia), Arte/Mestiere (qualsiasi), Informatica o Biblioteca, Travestimento, Psicologia, Individuare, un'altra abilità a scelta come specialità personale. ※ Con una prova riuscita di Individuare puoi dedurre lo status, il reddito e simili di una persona dal suo abbigliamento."
+ },
+ "181": {
+  "name": "Membro della Forza di autodifesa marittima",
+  "description": "Riparazioni elettriche o Riparazioni meccaniche, Combattere, Armi da fuoco, Pronto soccorso, Orientamento, Pilotare (Imbarcazione), Sopravvivenza (Mare), Nuotare."
+ },
+ "182": {
+  "name": "Guardia costiera",
+  "description": "Pronto soccorso, Riparazioni meccaniche, Mondo naturale, Orientamento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Pilotare (Imbarcazione), Individuare, Nuotare."
+ },
+ "183": {
+  "name": "Membro della Forza di autodifesa terrestre",
+  "description": "Scalare o Nuotare, Schivare, Combattere, Armi da fuoco, Furtività, Sopravvivenza, due a scelta tra: Pronto soccorso, Riparazioni meccaniche, Lingua straniera."
+ },
+ "184": {
+  "name": "Membro di una compagnia militare privata",
+  "description": "Scalare o Nuotare, Schivare, Combattere, Armi da fuoco, Furtività, Sopravvivenza, due a scelta tra: Pronto soccorso, Riparazioni meccaniche, Lingua straniera."
+ },
+ "185": {
+  "name": "Professore avventuriero",
+  "description": "Scalare o Nuotare, Armi da fuoco, Storia, Saltare, Mondo naturale, Orientamento, Lingua straniera, Sopravvivenza."
+ },
+ "186": {
+  "name": "Critico",
+  "description": "Travestimento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Storia o Biblioteca, Lingua madre, Lingua straniera, Psicologia, Furtività."
+ },
+ "187": {
+  "name": "Idol",
+  "description": "Arte/Mestiere (Recitazione, Canto, Danza), Travestimento, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "188": {
+  "name": "Cantante",
+  "description": "Arte/Mestiere (Canto, Danza, Strumento musicale), Travestimento, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "189": {
+  "name": "Comico",
+  "description": "Arte/Mestiere (Recitazione, Acrobazia, Comicità), Travestimento, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "190": {
+  "name": "Atleta dello spettacolo",
+  "description": "Scalare, Schivare, Saltare, Lanciare, Individuare, Nuotare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "191": {
+  "name": "Annunciatore",
+  "description": "Arte/Mestiere (Recitazione), Lingua madre, Fascino, Raggirare, Persuasione, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "192": {
+  "name": "Presentatore",
+  "description": "Arte/Mestiere (Recitazione), Lingua madre, Fascino, Raggirare, Persuasione, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "193": {
+  "name": "Telecronista",
+  "description": "Arte/Mestiere (Recitazione), Lingua madre, Fascino, Raggirare, Persuasione, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "194": {
+  "name": "Star di internet",
+  "description": "Arte/Mestiere (Recitazione, Canto, Comicità), Travestimento, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Psicologia, Informatica, Riparazioni elettriche."
+ },
+ "195": {
+  "name": "Agente / Manager",
+  "description": "Guidare auto, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Furtività, Ascoltare, Legge, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "196": {
+  "name": "Acchiappafantasmi",
+  "description": "Occultismo, Scienza (Fisica, Chimica, Biologia), Riparazioni meccaniche, Arte/Mestiere (Fotografia), Riparazioni elettriche, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione)."
+ },
+ "197": {
+  "name": "Indovino / Medium",
+  "description": "Arte/Mestiere (Recitazione), Storia, Biblioteca, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Occultismo, Psicologia, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "198": {
+  "name": "Meccanico",
+  "description": "Arte/Mestiere (Falegnameria, Saldatura, Idraulica, ecc.), Scalare, Guidare auto, Riparazioni elettriche, Riparazioni meccaniche, Macchinari pesanti, altre due abilità a scelta come specialità personali, d'epoca o tecniche."
+ },
+ "199": {
+  "name": "Cuoco",
+  "description": "Arte/Mestiere (Cucina), Scienza (Biologia, Chimica), Combattere (Rissa), Mondo naturale, Individuare, Lingua straniera, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "200": {
+  "name": "Criminale informatico",
+  "description": "Informatica, Riparazioni elettriche, Elettronica, Biblioteca, Individuare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), altre due abilità a scelta."
+ },
+ "201": {
+  "name": "Mercenario",
+  "description": "Scalare o Nuotare, Schivare, Combattere, Armi da fuoco, Furtività, Sopravvivenza, due a scelta tra: Pronto soccorso, Riparazioni meccaniche, Lingua straniera."
+ },
+ "202": {
+  "name": "Guardiano di casa (NEET)",
+  "description": "Informatica, Ascoltare, Furtività, Biblioteca, Lingua madre, altre tre abilità a scelta adatte all'immagine di un NEET."
+ },
+ "203": {
+  "name": "Guardia del corpo nerboruta",
+  "description": "Combattere (Rissa), Armi da fuoco, Pronto soccorso, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Legge, Psicologia, Individuare e una delle seguenti come specialità personale: Guidare auto o Cavalcare."
+ },
+ "204": {
+  "name": "Game tester",
+  "description": "Arte/Mestiere (Videogiochi), Informatica, Riparazioni elettriche, Elettronica, Ascoltare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "205": {
+  "name": "Cortigiana",
+  "description": "Arte/Mestiere (qualsiasi), Valutare, Furtività, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Pronto soccorso, Lingua straniera (europea), Psicologia, Cavalcare, una tra Travestimento e Scassinare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "206": {
+  "name": "Archeologo",
+  "description": "Contabilità, Arte/Mestiere (qualsiasi), Valutare, Storia, Biblioteca, Lingua straniera (europea), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "207": {
+  "name": "Nobile",
+  "description": "Lingua straniera (Latino), Legge, Lingua straniera (europea), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Cavalcare, Armi da fuoco (Fucile da caccia), altre tre abilità a scelta come specialità personali o d'epoca."
+ },
+ "208": {
+  "name": "Artista (II)",
+  "description": "Arte/Mestiere (più specializzazioni a scelta), Valutare, Storia, Biblioteca, Lingua straniera (europea), Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "209": {
+  "name": "Scrittore",
+  "description": "Arte/Mestiere (Scrittura), Storia, Biblioteca, Lingua straniera (europea), Lingua madre, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "210": {
+  "name": "Cocchiere",
+  "description": "Schivare, Guidare carrozza, Saltare, Ascoltare, Riparazioni meccaniche, Mondo naturale, Orientamento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Individuare, Combattere (Frusta), un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "211": {
+  "name": "Sacerdote",
+  "description": "Storia, Lingua straniera (Latino), Biblioteca, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "212": {
+  "name": "Investigatore consulente",
+  "description": "Antropologia, Valutare, Scienza (Chimica), Pronto soccorso, Storia, Legge, Biblioteca, Ascoltare, Psicologia, Lingua straniera (qualsiasi), Individuare, Seguire tracce, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "213": {
+  "name": "Artigiano (II)",
+  "description": "Contabilità, Valutare, Arte/Mestiere (più specializzazioni a scelta), Riparazioni meccaniche, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "214": {
+  "name": "Criminale",
+  "description": "Valutare, Travestimento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Furtività, Scassinare, Combattere (due specializzazioni qualsiasi), un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "215": {
+  "name": "Dilettante",
+  "description": "Sei abilità a scelta come specialità personali o d'epoca."
+ },
+ "216": {
+  "name": "Intrattenitore (II)",
+  "description": "Arte/Mestiere (più specializzazioni a scelta), Travestimento, Schivare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Ascoltare, Lingua madre, Psicologia, altre tre abilità a scelta come specialità personali o d'epoca."
+ },
+ "217": {
+  "name": "Ufficiale in congedo",
+  "description": "Furtività, Pronto soccorso, Armi da fuoco (Pistola, Fucile), Orientamento, Lingua straniera (qualsiasi), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Cavalcare, Combattere (Spada), Individuare, una tra Scalare e Nuotare."
+ },
+ "218": {
+  "name": "Esploratore",
+  "description": "Antropologia, Archeologia, Valutare, Scienza (Biologia), Scalare, Pronto soccorso, Armi da fuoco (Pistola, Fucile), Combattere (Rissa), Mondo naturale, Orientamento, Lingua straniera (qualsiasi), Pilotare (Barca, Nave, Mongolfiera), Cavalcare, Furtività, Individuare, Nuotare, Seguire tracce."
+ },
+ "219": {
+  "name": "Investigatore privato (II)",
+  "description": "Contabilità, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Legge, Biblioteca, Ascoltare, Scassinare, Arte/Mestiere (Fotografia), Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "220": {
+  "name": "Giornalista",
+  "description": "Valutare, Schivare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Biblioteca, Ascoltare, Lingua straniera (europea), Lingua madre, Arte/Mestiere (Fotografia), Psicologia, Individuare."
+ },
+ "221": {
+  "name": "Manovale",
+  "description": "Valutare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Schivare, Pronto soccorso, Riparazioni meccaniche, Macchinari pesanti, un'altra abilità a scelta come specialità personale o d'epoca, più due a scelta tra: Scalare, Combattere (Rissa), Arte/Mestiere (qualsiasi), Guidare carrozza, Pilotare (Imbarcazione)."
+ },
+ "222": {
+  "name": "Avvocato (II)",
+  "description": "Contabilità, Valutare, due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Storia, Lingua straniera (Latino), Legge, Biblioteca, Ascoltare, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "223": {
+  "name": "Medico",
+  "description": "Scienza (Biologia, Farmacologia), Pronto soccorso, Lingua straniera (Latino), Biblioteca, Medicina, Psicologia, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "224": {
+  "name": "Poliziotto",
+  "description": "Combattere (Rissa), Schivare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Pronto soccorso, Armi da fuoco (Pistola), Legge, Ascoltare, Psicologia, Furtività, Individuare."
+ },
+ "225": {
+  "name": "Professore / Studioso",
+  "description": "Biblioteca, Lingua straniera (europea), un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, fino a sei altre abilità accademiche come specialità personali."
+ },
+ "226": {
+  "name": "Scienziato (II)",
+  "description": "Arte/Mestiere (qualsiasi), Storia, Biblioteca, Riparazioni meccaniche, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Individuare, fino a sei altre abilità accademiche come specialità personali."
+ },
+ "227": {
+  "name": "Domestico",
+  "description": "Arte/Mestiere (qualsiasi), Schivare, Ascoltare, Furtività, un'altra abilità a scelta come specialità personale o d'epoca, più fino a tre a scelta tra: Contabilità, Valutare, Guidare carrozza, Etichetta, Pronto soccorso, Lingua straniera (europea), Persuasione."
+ },
+ "228": {
+  "name": "Proprietario di negozio",
+  "description": "Contabilità, Valutare, Arte/Mestiere (qualsiasi), Ascoltare, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Psicologia, Individuare, un'altra abilità a scelta come specialità personale o d'epoca."
+ },
+ "229": {
+  "name": "Soldato",
+  "description": "Schivare, Pronto soccorso, Furtività, Ascoltare, Riparazioni meccaniche, Armi da fuoco (Fucile), Furtività, Individuare, altre due abilità a scelta come specialità personali o d'epoca."
+ },
+ "230": {
+  "name": "Agente segreto",
+  "description": "Travestimento, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Furtività, Storia, Biblioteca, Ascoltare, Scassinare, Orientamento, Lingua straniera (europea), Psicologia, Individuare, Combattere (qualsiasi)."
+ }
+}

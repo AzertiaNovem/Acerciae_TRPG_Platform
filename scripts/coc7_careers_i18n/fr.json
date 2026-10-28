@@ -1,0 +1,922 @@
+{
+ "1": {
+  "name": "Profession personnalisée",
+  "description": "8 compétences d'occupation au maximum. Saisissez la valeur de la seconde caractéristique d'occupation dans les attributs d'occupation à droite (si le champ est vide, l'ÉDU est utilisée) et fixez vous-même le Crédit de départ. Consultez votre Gardien avant d'utiliser une profession personnalisée."
+ },
+ "2": {
+  "name": "Comptable",
+  "description": "Comptabilité, Droit, Bibliothèque, Écouter, Persuasion, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "3": {
+  "name": "Acrobate",
+  "description": "Grimper, Esquiver, Sauter, Lancer, Trouver objet caché, Nager, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "4": {
+  "name": "Acteur – Comédien de théâtre",
+  "description": "Art/Artisanat (Comédie), Déguisement, Combat rapproché, Histoire, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "5": {
+  "name": "Acteur – Acteur de cinéma",
+  "description": "Art/Artisanat (Comédie), Déguisement, Conduite automobile, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque, par ex. Équitation ou Combat rapproché)."
+ },
+ "6": {
+  "name": "Détective d'agence, Agent de sécurité",
+  "description": "Une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Combat rapproché (Corps à corps), Armes à feu, Droit, Bibliothèque, Psychologie, Discrétion, Pister."
+ },
+ "7": {
+  "name": "Aliéniste (années 1920)",
+  "description": "Droit, Écouter, Médecine, Langue étrangère, Psychanalyse, Psychologie, Sciences (Biologie, Chimie)."
+ },
+ "8": {
+  "name": "Dresseur d'animaux",
+  "description": "Sauter, Écouter, Monde naturel, Psychologie, Sciences (Zoologie), Discrétion, Pister, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "9": {
+  "name": "Antiquaire (lovecraftien)",
+  "description": "Estimation, Art/Artisanat (au choix), Histoire, Bibliothèque, Langue étrangère, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "10": {
+  "name": "Marchand d'antiquités",
+  "description": "Comptabilité, Estimation, Conduite automobile, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Histoire, Bibliothèque, Orientation."
+ },
+ "11": {
+  "name": "Archéologue (lovecraftien)",
+  "description": "Estimation, Archéologie, Histoire, Langue étrangère, Bibliothèque, Trouver objet caché, Mécanique, Orientation ou Sciences (au choix : par ex. Chimie, Physique, Géographie)."
+ },
+ "12": {
+  "name": "Architecte",
+  "description": "Comptabilité, Art/Artisanat (Dessin technique), Droit, Langue maternelle, Informatique ou Bibliothèque, Persuasion, Psychologie, Sciences (Mathématiques)."
+ },
+ "13": {
+  "name": "Artiste",
+  "description": "Art/Artisanat (au choix), Histoire ou Monde naturel, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Langue étrangère, Psychologie, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "14": {
+  "name": "Infirmier psychiatrique",
+  "description": "Esquiver, Combat rapproché (Corps à corps), Premiers soins, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, Discrétion."
+ },
+ "15": {
+  "name": "Athlète",
+  "description": "Grimper, Sauter, Combat rapproché (Corps à corps), Équitation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Nager, Lancer, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "16": {
+  "name": "Écrivain (lovecraftien)",
+  "description": "Art/Artisanat (Littérature), Histoire, Bibliothèque, Monde naturel ou Occultisme, Langue étrangère, Langue maternelle, Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "17": {
+  "name": "Barman",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Combat rapproché (Corps à corps), Écouter, Psychologie, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "18": {
+  "name": "Chasseur",
+  "description": "Armes à feu, Écouter ou Trouver objet caché, Monde naturel, Orientation, Langue étrangère ou Survie (au choix), Sciences (Biologie ou Botanique), Discrétion, Pister."
+ },
+ "19": {
+  "name": "Libraire",
+  "description": "Comptabilité, Estimation, Conduite automobile, Histoire, Bibliothèque, Langue maternelle, Langue étrangère, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion)."
+ },
+ "20": {
+  "name": "Chasseur de primes",
+  "description": "Conduite automobile, Électronique ou Électricité, Combat rapproché ou Armes à feu, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Droit, Psychologie, Pister, Discrétion."
+ },
+ "21": {
+  "name": "Boxeur, Lutteur",
+  "description": "Esquiver, Combat rapproché (Corps à corps), Intimidation, Sauter, Psychologie, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "22": {
+  "name": "Majordome, Valet, Femme de chambre",
+  "description": "Comptabilité ou Estimation, Art/Artisanat (au choix : par ex. Cuisine, Couture, Coiffure), Premiers soins, Écouter, Langue étrangère, Psychologie, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "23": {
+  "name": "Ecclésiastique",
+  "description": "Comptabilité, Histoire, Bibliothèque, Écouter, Langue étrangère, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix."
+ },
+ "24": {
+  "name": "Programmeur, Ingénieur en électronique (moderne)",
+  "description": "Informatique, Électricité, Électronique, Bibliothèque, Sciences (Mathématiques), Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "25": {
+  "name": "Hacker/Pirate informatique (moderne)",
+  "description": "Informatique, Électricité, Électronique, Bibliothèque, Trouver objet caché, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), deux autres compétences au choix."
+ },
+ "26": {
+  "name": "Cow-boy",
+  "description": "Esquiver, Combat rapproché ou Armes à feu, Premiers soins ou Monde naturel, Sauter, Équitation, Survie (au choix), Lancer, Pister."
+ },
+ "27": {
+  "name": "Artisan",
+  "description": "Comptabilité, Art/Artisanat (deux au choix), Mécanique, Monde naturel, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "28": {
+  "name": "Criminel – Assassin",
+  "description": "Déguisement, Électricité, Combat rapproché, Armes à feu, Serrurerie, Mécanique, Discrétion, Psychologie."
+ },
+ "29": {
+  "name": "Criminel – Braqueur de banque",
+  "description": "Conduite automobile, Électricité ou Mécanique, Combat rapproché, Armes à feu, Intimidation, Serrurerie, Conduite d'engins, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "30": {
+  "name": "Criminel – Homme de main, Voyou",
+  "description": "Conduite automobile, Combat rapproché, Armes à feu, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, Discrétion, Trouver objet caché."
+ },
+ "31": {
+  "name": "Criminel – Cambrioleur",
+  "description": "Estimation, Grimper, Électricité ou Mécanique, Écouter, Serrurerie, Escamotage, Discrétion, Trouver objet caché."
+ },
+ "32": {
+  "name": "Criminel – Escroc",
+  "description": "Estimation, Art/Artisanat (Comédie), Droit ou Langue étrangère, Écouter, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, Escamotage."
+ },
+ "33": {
+  "name": "Criminel – Criminel indépendant",
+  "description": "Art/Artisanat (Comédie) ou Déguisement, Estimation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Combat rapproché ou Armes à feu, Serrurerie ou Mécanique, Discrétion, Psychologie, Trouver objet caché."
+ },
+ "34": {
+  "name": "Criminel – Femme de gangster (années 1920)",
+  "description": "Art/Artisanat (au choix), deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Combat rapproché (Corps à corps) ou Armes à feu (Arme de poing), Conduite automobile, Écouter, Discrétion, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "35": {
+  "name": "Criminel – Receleur",
+  "description": "Comptabilité, Estimation, Art/Artisanat (Contrefaçon), Histoire, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Bibliothèque, Trouver objet caché, une autre compétence au choix."
+ },
+ "36": {
+  "name": "Criminel – Faussaire",
+  "description": "Comptabilité, Estimation, Art/Artisanat (Contrefaçon), Histoire, Bibliothèque, Trouver objet caché, Escamotage, une autre compétence au choix (spécialité personnelle ou d'époque, par ex. Informatique)."
+ },
+ "37": {
+  "name": "Criminel – Contrebandier",
+  "description": "Armes à feu, Écouter, Orientation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Conduite automobile ou Pilotage (Aéronef ou Bateau), Psychologie, Escamotage, Trouver objet caché."
+ },
+ "38": {
+  "name": "Criminel – Petite frappe",
+  "description": "Grimper, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Combat rapproché, Armes à feu, Sauter, Escamotage, Discrétion, Lancer."
+ },
+ "39": {
+  "name": "Gourou de secte",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Occultisme, Psychologie, Trouver objet caché, deux autres compétences au choix (spécialités personnelles)."
+ },
+ "40": {
+  "name": "Déprogrammeur (moderne)",
+  "description": "Deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Conduite automobile, Combat rapproché (Corps à corps) ou Armes à feu, Histoire, Occultisme, Psychologie, Discrétion. ※ Avec l'accord du Gardien, Hypnose peut remplacer l'une de ces compétences."
+ },
+ "41": {
+  "name": "Designer",
+  "description": "Comptabilité, Art/Artisanat (Photographie), Art/Artisanat (au choix), Informatique ou Bibliothèque, Mécanique, Psychologie, Trouver objet caché, une autre compétence au choix (spécialité personnelle)."
+ },
+ "42": {
+  "name": "Dilettante (lovecraftien)",
+  "description": "Art/Artisanat (au choix), Armes à feu, Langue étrangère, Équitation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), trois autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "43": {
+  "name": "Plongeur",
+  "description": "Plongée, Premiers soins, Mécanique, Pilotage (Bateau), Sciences (Biologie), Trouver objet caché, Nager, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "44": {
+  "name": "Médecin (lovecraftien)",
+  "description": "Premiers soins, Médecine, Langue étrangère (Latin), Psychologie, Sciences (Biologie, Pharmacie), deux autres compétences au choix (spécialités universitaires ou personnelles)."
+ },
+ "45": {
+  "name": "Vagabond",
+  "description": "Grimper, Sauter, Écouter, Orientation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Discrétion, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "46": {
+  "name": "Chauffeur – Chauffeur privé",
+  "description": "Conduite automobile, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Mécanique, Orientation, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "47": {
+  "name": "Chauffeur – Chauffeur",
+  "description": "Comptabilité, Conduite automobile, Écouter, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Mécanique, Orientation, Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "48": {
+  "name": "Chauffeur – Chauffeur de taxi",
+  "description": "Comptabilité, Conduite automobile, Électricité, Baratin, Mécanique, Orientation, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "49": {
+  "name": "Rédacteur",
+  "description": "Comptabilité, Histoire, Langue maternelle, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "50": {
+  "name": "Fonctionnaire",
+  "description": "Charme, Histoire, Intimidation, Baratin, Écouter, Langue maternelle, Persuasion, Psychologie."
+ },
+ "51": {
+  "name": "Ingénieur",
+  "description": "Art/Artisanat (Dessin technique), Électricité, Bibliothèque, Mécanique, Conduite d'engins, Sciences (Ingénierie, Physique), une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "52": {
+  "name": "Artiste de spectacle",
+  "description": "Art/Artisanat (arts du spectacle, par ex. Comédie, Chant, Humour), Déguisement, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "53": {
+  "name": "Explorateur (années 1920)",
+  "description": "Grimper ou Nager, Armes à feu, Histoire, Sauter, Monde naturel, Orientation, Langue étrangère, Survie."
+ },
+ "54": {
+  "name": "Fermier",
+  "description": "Art/Artisanat (Agriculture), Conduite automobile (ou chariot), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Mécanique, Monde naturel, Conduite d'engins, Pister, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "55": {
+  "name": "Agent fédéral",
+  "description": "Conduite automobile, Combat rapproché (Corps à corps), Armes à feu, Droit, Persuasion, Discrétion, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "56": {
+  "name": "Pompier",
+  "description": "Grimper, Esquiver, Conduite automobile, Premiers soins, Sauter, Mécanique, Conduite d'engins, Lancer."
+ },
+ "57": {
+  "name": "Correspondant à l'étranger",
+  "description": "Histoire, Langue étrangère, Langue maternelle, Écouter, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "58": {
+  "name": "Médecin légiste",
+  "description": "Langue étrangère (Latin), Bibliothèque, Médecine, Persuasion, Sciences (Biologie, Pharmacie, Criminalistique), Trouver objet caché."
+ },
+ "59": {
+  "name": "Joueur professionnel",
+  "description": "Comptabilité, Art/Artisanat (Comédie), deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, Escamotage, Trouver objet caché."
+ },
+ "60": {
+  "name": "Gangster – Parrain",
+  "description": "Combat rapproché, Armes à feu, Droit, Écouter, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché."
+ },
+ "61": {
+  "name": "Gangster – Sous-fifre",
+  "description": "Conduite automobile, Combat rapproché, Armes à feu, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "62": {
+  "name": "Gentleman, Lady",
+  "description": "Art/Artisanat (au choix), deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Armes à feu (Fusil/Fusil de chasse), Histoire, Langue étrangère (au choix), Orientation, Équitation."
+ },
+ "63": {
+  "name": "Clochard",
+  "description": "Art/Artisanat (au choix), Grimper, Sauter, Écouter, Serrurerie ou Escamotage, Orientation, Discrétion, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "64": {
+  "name": "Aide-soignant",
+  "description": "Électricité, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Combat rapproché (Corps à corps), Premiers soins, Écouter, Mécanique, Psychologie, Discrétion."
+ },
+ "65": {
+  "name": "Journaliste (lovecraftien) – Journaliste d'investigation",
+  "description": "Art/Artisanat (Art ou Photographie), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Histoire, Bibliothèque, Langue maternelle, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "66": {
+  "name": "Journaliste (lovecraftien) – Reporter",
+  "description": "Art/Artisanat (Comédie), Histoire, Écouter, Langue maternelle, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Discrétion, Trouver objet caché."
+ },
+ "67": {
+  "name": "Juge",
+  "description": "Histoire, Intimidation, Droit, Bibliothèque, Écouter, Langue maternelle, Persuasion, Psychologie."
+ },
+ "68": {
+  "name": "Assistant de laboratoire",
+  "description": "Informatique ou Bibliothèque, Électricité, Langue étrangère, Sciences (Chimie et deux autres au choix), Trouver objet caché, une autre compétence au choix (spécialité personnelle)."
+ },
+ "69": {
+  "name": "Ouvrier – Ouvrier non qualifié",
+  "description": "Conduite automobile, Électricité, Combat rapproché, Premiers soins, Mécanique, Conduite d'engins, Lancer, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "70": {
+  "name": "Ouvrier – Bûcheron",
+  "description": "Grimper, Esquiver, Combat rapproché (Tronçonneuse), Premiers soins, Sauter, Mécanique, Monde naturel ou Sciences (Biologie ou Botanique), Lancer."
+ },
+ "71": {
+  "name": "Ouvrier – Mineur",
+  "description": "Grimper, Sciences (Géologie), Sauter, Mécanique, Conduite d'engins, Discrétion, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "72": {
+  "name": "Avocat",
+  "description": "Comptabilité, Droit, Bibliothèque, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, deux autres compétences."
+ },
+ "73": {
+  "name": "Bibliothécaire (lovecraftien)",
+  "description": "Comptabilité, Bibliothèque, Langue étrangère, Langue maternelle, quatre autres compétences au choix (spécialités personnelles ou sujets d'ouvrages spécialisés)."
+ },
+ "74": {
+  "name": "Mécanicien",
+  "description": "Art/Artisanat (Menuiserie, Soudure, Plomberie, etc.), Grimper, Conduite automobile, Électricité, Mécanique, Conduite d'engins, deux autres compétences au choix (spécialités personnelles, d'époque ou techniques)."
+ },
+ "75": {
+  "name": "Officier militaire",
+  "description": "Comptabilité, Armes à feu, Orientation, Premiers soins, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "76": {
+  "name": "Missionnaire",
+  "description": "Art/Artisanat (au choix), Premiers soins, Mécanique, Médecine, Monde naturel, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "77": {
+  "name": "Alpiniste",
+  "description": "Grimper, Premiers soins, Sauter, Écouter, Orientation, Langue étrangère, Survie (Alpes ou similaire), Pister."
+ },
+ "78": {
+  "name": "Conservateur de musée",
+  "description": "Comptabilité, Estimation, Archéologie, Histoire, Bibliothèque, Occultisme, Langue étrangère, Trouver objet caché."
+ },
+ "79": {
+  "name": "Musicien",
+  "description": "Art/Artisanat (Instrument), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, quatre autres compétences."
+ },
+ "80": {
+  "name": "Infirmier",
+  "description": "Premiers soins, Écouter, Médecine, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Sciences (Biologie, Chimie), Trouver objet caché."
+ },
+ "81": {
+  "name": "Occultiste",
+  "description": "Anthropologie, Histoire, Bibliothèque, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Occultisme, Langue étrangère, Sciences (Astronomie), une autre compétence au choix (spécialité personnelle ou d'époque). ※ Avec l'accord du Gardien, peut inclure Mythe de Cthulhu."
+ },
+ "82": {
+  "name": "Voyageur",
+  "description": "Armes à feu, Premiers soins, Écouter, Monde naturel, Orientation, Trouver objet caché, Survie (au choix), Pister."
+ },
+ "83": {
+  "name": "Parapsychologue",
+  "description": "Anthropologie, Art/Artisanat (Photographie), Histoire, Bibliothèque, Occultisme, Langue étrangère, Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "84": {
+  "name": "Pharmacien",
+  "description": "Comptabilité, Premiers soins, Langue étrangère (Latin), Bibliothèque, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Sciences (Pharmacie, Chimie)."
+ },
+ "85": {
+  "name": "Photographe – Photographe",
+  "description": "Art/Artisanat (Photographie), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Sciences (Chimie), Discrétion, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "86": {
+  "name": "Photographe – Photojournaliste",
+  "description": "Art/Artisanat (Photographie), Grimper, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Langue étrangère, Psychologie, Sciences (Chimie), deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "87": {
+  "name": "Pilote – Pilote",
+  "description": "Électricité, Mécanique, Orientation, Conduite d'engins, Pilotage (Aéronef), Sciences (Astronomie), deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "88": {
+  "name": "Pilote – Cascadeur aérien (années 1920)",
+  "description": "Comptabilité, Électricité, Écouter, Mécanique, Orientation, Pilotage (Aéronef), Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "89": {
+  "name": "Police (lovecraftien) – Inspecteur de police",
+  "description": "Art/Artisanat (Comédie) ou Déguisement, Armes à feu, Droit, Écouter, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché, une autre compétence."
+ },
+ "90": {
+  "name": "Police (lovecraftien) – Agent de police",
+  "description": "Combat rapproché (Corps à corps), Armes à feu, Premiers soins, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Droit, Psychologie, Trouver objet caché, et l'une des spécialités personnelles suivantes : Conduite automobile ou Équitation."
+ },
+ "91": {
+  "name": "Détective privé",
+  "description": "Art/Artisanat (Photographie), Déguisement, Droit, Bibliothèque, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché, une autre compétence (spécialité personnelle ou d'époque, par ex. Informatique, Serrurerie, Combat rapproché, Armes à feu)."
+ },
+ "92": {
+  "name": "Professeur (lovecraftien)",
+  "description": "Bibliothèque, Langue étrangère, Langue maternelle, Psychologie, quatre autres compétences au choix (spécialités universitaires, d'époque ou personnelles)."
+ },
+ "93": {
+  "name": "Prospecteur",
+  "description": "Grimper, Premiers soins, Histoire, Mécanique, Orientation, Sciences (Géologie), Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "94": {
+  "name": "Travailleur du sexe",
+  "description": "Art/Artisanat (au choix), deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Esquiver, Psychologie, Escamotage, Discrétion, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "95": {
+  "name": "Psychiatre",
+  "description": "Langue étrangère, Écouter, Médecine, Persuasion, Psychanalyse, Psychologie, Sciences (Biologie, Chimie)."
+ },
+ "96": {
+  "name": "Psychologue, Psychanalyste",
+  "description": "Comptabilité, Bibliothèque, Écouter, Persuasion, Psychanalyse, Psychologie, deux autres compétences au choix (spécialités universitaires, personnelles ou d'époque)."
+ },
+ "97": {
+  "name": "Chercheur",
+  "description": "Histoire, Bibliothèque, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Langue étrangère, Trouver objet caché, trois autres domaines universitaires au choix."
+ },
+ "98": {
+  "name": "Marin – Marin de la marine de guerre",
+  "description": "Électricité ou Mécanique, Combat rapproché, Armes à feu, Premiers soins, Orientation, Pilotage (Bateau), Survie (Mer), Nager."
+ },
+ "99": {
+  "name": "Marin – Marin civil",
+  "description": "Premiers soins, Mécanique, Monde naturel, Orientation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Pilotage (Bateau), Trouver objet caché, Nager."
+ },
+ "100": {
+  "name": "Représentant de commerce",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Conduite automobile, Écouter, Psychologie, Discrétion ou Escamotage, une autre compétence."
+ },
+ "101": {
+  "name": "Scientifique",
+  "description": "Trois spécialités de Sciences au choix, Informatique ou Bibliothèque, Langue étrangère, Langue maternelle, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Trouver objet caché."
+ },
+ "102": {
+  "name": "Secrétaire",
+  "description": "Comptabilité, Art/Artisanat (Dactylographie ou Sténographie), deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Langue maternelle, Bibliothèque ou Informatique, Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "103": {
+  "name": "Commerçant",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Électricité, Écouter, Mécanique, Psychologie, Trouver objet caché."
+ },
+ "104": {
+  "name": "Soldat, Fusilier marin",
+  "description": "Grimper ou Nager, Esquiver, Combat rapproché, Armes à feu, Discrétion, Survie, deux au choix parmi : Premiers soins, Mécanique, Langue étrangère."
+ },
+ "105": {
+  "name": "Espion",
+  "description": "Art/Artisanat (Comédie) ou Déguisement, Armes à feu, Écouter, Langue étrangère, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Escamotage, Discrétion."
+ },
+ "106": {
+  "name": "Étudiant, Stagiaire",
+  "description": "Langue (maternelle ou étrangère), Bibliothèque, Écouter, trois domaines d'études, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "107": {
+  "name": "Cascadeur",
+  "description": "Grimper, Esquiver, Électricité ou Mécanique, Combat rapproché, Premiers soins, Sauter, Nager, une au choix parmi : Plongée, Conduite automobile, Pilotage (au choix), Équitation."
+ },
+ "108": {
+  "name": "Membre d'une tribu",
+  "description": "Grimper, Combat rapproché ou Lancer, Écouter, Monde naturel, Occultisme, Trouver objet caché, Nager, Survie (au choix)."
+ },
+ "109": {
+  "name": "Entrepreneur de pompes funèbres",
+  "description": "Comptabilité, Conduite automobile, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Histoire, Occultisme, Psychologie, Sciences (Biologie, Chimie)."
+ },
+ "110": {
+  "name": "Syndicaliste",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Combat rapproché (Corps à corps), Droit, Écouter, Conduite d'engins, Psychologie."
+ },
+ "111": {
+  "name": "Serveur",
+  "description": "Comptabilité, Art/Artisanat (au choix), Esquiver, Écouter, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "112": {
+  "name": "Employé de bureau – Employé, Superviseur",
+  "description": "Comptabilité, Langue, Droit, Bibliothèque ou Informatique, Écouter, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "113": {
+  "name": "Employé de bureau – Cadre moyen ou supérieur",
+  "description": "Comptabilité, Langue étrangère, Droit, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "114": {
+  "name": "Fanatique",
+  "description": "Histoire, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, Discrétion, trois autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "115": {
+  "name": "Gardien de zoo",
+  "description": "Dressage, Comptabilité, Esquiver, Premiers soins, Monde naturel, Médecine, Sciences (Pharmacie, Zoologie)."
+ },
+ "116": {
+  "name": "Ambassadeur",
+  "description": "Charme, Histoire, Intimidation, Baratin, Écouter, Langue maternelle, Persuasion, Psychologie. (Une ou deux Langues étrangères remplacent les deux compétences précédentes.)"
+ },
+ "117": {
+  "name": "Athlète (Natation/Plongeon)",
+  "description": "Grimper, Sauter, Combat rapproché (Corps à corps), Langue étrangère, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Nager, Lancer, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "118": {
+  "name": "Athlète (Golf)",
+  "description": "Grimper, Sauter, Combat rapproché (Corps à corps), Équitation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Nager, Lancer, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "119": {
+  "name": "Athlète (Tennis)",
+  "description": "Sauter, Combat rapproché (Corps à corps), Esquiver, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché, Lancer, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "120": {
+  "name": "Athlète (Athlétisme)",
+  "description": "Grimper, Sauter, Combat rapproché (Corps à corps), Langue étrangère, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Esquiver, Lancer, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "121": {
+  "name": "Porte-parole",
+  "description": "Déguisement, Esquiver, trois compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, Langue étrangère, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "122": {
+  "name": "Agent de cautionnement",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Droit, Bibliothèque, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "123": {
+  "name": "Ecclésiastique (prêtre catholique)",
+  "description": "Comptabilité, Langue maternelle, Langue étrangère (Latin), Bibliothèque, Occultisme, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix."
+ },
+ "124": {
+  "name": "Ecclésiastique (pasteur protestant)",
+  "description": "Comptabilité, Histoire, Bibliothèque, Écouter, Langue étrangère, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix."
+ },
+ "125": {
+  "name": "Ecclésiastique (rabbin)",
+  "description": "Langue maternelle, Langue étrangère (Hébreu), Histoire, Bibliothèque, Occultisme, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix."
+ },
+ "126": {
+  "name": "Chroniqueur",
+  "description": "Déguisement, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Histoire ou Bibliothèque, Langue maternelle, Langue étrangère, Psychologie, Discrétion."
+ },
+ "127": {
+  "name": "Socialiste/Militant radical",
+  "description": "Combat rapproché (Corps à corps), deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Armes à feu (Arme de poing), Langue étrangère, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "128": {
+  "name": "Rédacteur indépendant",
+  "description": "Langue maternelle, Art/Artisanat (Littérature), deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Histoire, Bibliothèque, Écouter, Psychologie."
+ },
+ "129": {
+  "name": "Criminel (Bookmaker)",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché, Escamotage, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "130": {
+  "name": "Criminel (Usurier)",
+  "description": "Comptabilité, Estimation, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "131": {
+  "name": "Criminel (Pickpocket)",
+  "description": "Déguisement, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Discrétion, Écouter, Psychologie, Trouver objet caché, Escamotage, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "132": {
+  "name": "Criminel (Banquier clandestin)",
+  "description": "Comptabilité, Droit, Bibliothèque, Écouter, Persuasion, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "133": {
+  "name": "Criminel (Avocat véreux)",
+  "description": "Comptabilité, Droit, Bibliothèque, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, deux autres compétences."
+ },
+ "134": {
+  "name": "Dentiste",
+  "description": "Premiers soins, Médecine, Langue étrangère (Latin), Psychologie, Sciences (Biologie, Pharmacie), deux autres compétences au choix (spécialités universitaires ou personnelles)."
+ },
+ "135": {
+  "name": "Chirurgien/Médecin généraliste",
+  "description": "Premiers soins, Médecine, Langue étrangère (Latin), Psychologie, Sciences (Biologie, Pharmacie), deux autres compétences au choix (spécialités universitaires ou personnelles)."
+ },
+ "136": {
+  "name": "Chirurgien esthétique",
+  "description": "Premiers soins, Médecine, Langue étrangère (Latin), Psychologie, Sciences (Biologie, Pharmacie), deux autres compétences au choix (spécialités universitaires ou personnelles)."
+ },
+ "137": {
+  "name": "Chauffeur – Chauffeur de bus",
+  "description": "Comptabilité, Conduite automobile, Électricité, Mécanique, Orientation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "138": {
+  "name": "Enquêteur de terrain",
+  "description": "Comptabilité, Grimper ou Sauter, Premiers soins, Bibliothèque, Langue étrangère, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), deux compétences liées au domaine de recherche."
+ },
+ "139": {
+  "name": "Membre d'équipe de tournage",
+  "description": "Art/Artisanat (au choix, par ex. Photographie), Grimper, Conduite automobile, Électricité, Mécanique, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "140": {
+  "name": "Expert en criminalistique",
+  "description": "Art/Artisanat (Photographie), Médecine, Droit, Sciences (Chimie, Criminalistique, Pharmacie), Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "141": {
+  "name": "Manager sportif",
+  "description": "Comptabilité, Combat rapproché (Corps à corps), Esquiver, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Premiers soins, Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "142": {
+  "name": "Marin de la marine marchande",
+  "description": "Anthropologie, Grimper, Électricité ou Mécanique, Sauter, Conduite d'engins, Langue étrangère, Survie (Mer), une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "143": {
+  "name": "Musicien classique",
+  "description": "Comptabilité, Art/Artisanat (Instrument), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, trois autres compétences."
+ },
+ "144": {
+  "name": "Pilote automobile/Pilote de bateau de course",
+  "description": "Conduite automobile, Électricité, Mécanique, Pilotage (Bateau), Psychologie, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "145": {
+  "name": "Animateur radio",
+  "description": "Art/Artisanat (Comédie), Langue maternelle, Charme, Baratin, Persuasion, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "146": {
+  "name": "Représentant de commerce (vendeur de bibles)",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Conduite automobile, Écouter, Psychologie, Discrétion ou Escamotage, une autre compétence."
+ },
+ "147": {
+  "name": "Représentant de commerce (voyageur de commerce)",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Conduite automobile, Orientation, Écouter, Psychologie, une autre compétence."
+ },
+ "148": {
+  "name": "Petit entrepreneur",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, quatre compétences liées à la gestion de l'entreprise."
+ },
+ "149": {
+  "name": "Technicien de scène",
+  "description": "Art/Artisanat (au choix), Langue maternelle, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Déguisement, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "150": {
+  "name": "Agent de change",
+  "description": "Comptabilité, Estimation, Langue maternelle, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "151": {
+  "name": "Géomètre",
+  "description": "Comptabilité, Art/Artisanat (Photographie), Bibliothèque, Monde naturel, Orientation, Survie (au choix), Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "152": {
+  "name": "Standardiste",
+  "description": "Langue maternelle, Langue étrangère, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "153": {
+  "name": "Dénicheur de talents",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Droit, Psychologie, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "154": {
+  "name": "Technicien médical",
+  "description": "Art/Artisanat (Photographie), Électricité, Bibliothèque, Mécanique, Médecine, Sciences (Biologie, Chimie, Pharmacie)."
+ },
+ "155": {
+  "name": "Médecin d'équipe sportive",
+  "description": "Deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Premiers soins, Médecine, Sciences (Pharmacie), Psychologie, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "156": {
+  "name": "Chasseur de trésors",
+  "description": "Estimation, Grimper, Conduite automobile ou Pilotage (Aéronef ou Bateau), Électricité ou Mécanique, Histoire, Sauter, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Trouver objet caché."
+ },
+ "157": {
+  "name": "Shérif de l'Ouest",
+  "description": "Conduite automobile, Armes à feu (au choix), Combat rapproché (Corps à corps, Fouet), Droit, Persuasion ou Psychologie, Équitation, Pister."
+ },
+ "158": {
+  "name": "Bōsōzoku (gang de motards)",
+  "description": "Combat rapproché (Corps à corps), Conduite automobile, Mécanique, Baratin, Intimidation, trois autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "159": {
+  "name": "Ecclésiastique (moine, nonne bouddhiste)",
+  "description": "Art/Artisanat (Calligraphie), Histoire ou Bibliothèque, Langue étrangère (Chinois ou Sanskrit), Savoir (Bouddhisme), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Écouter, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "160": {
+  "name": "Ecclésiastique (prêtre shinto, miko)",
+  "description": "Art/Artisanat (Calligraphie, plus un au choix), Bibliothèque, Occultisme, Savoir (Shintoïsme), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "161": {
+  "name": "Maître de feng shui",
+  "description": "Art/Artisanat (au choix), Bibliothèque, Occultisme, Savoir (Taoïsme), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Sciences (Astronomie, Géologie), une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "162": {
+  "name": "Exorciste héréditaire",
+  "description": "Combat rapproché (Corps à corps), Monde naturel, Occultisme, Savoir (Bouddhisme ou Shintoïsme), Psychologie, Discrétion, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "163": {
+  "name": "Lycéen (ÉDU inférieure à 60)",
+  "description": "Grimper, Discrétion, Sauter, Bibliothèque, Combat rapproché (au choix), Langue maternelle, Sciences (au choix) ou Histoire, Langue étrangère (Anglais ou autre)."
+ },
+ "164": {
+  "name": "Ichiko (médium aveugle)",
+  "description": "Art/Artisanat (Comédie), Écouter, Savoir (Shintoïsme), Occultisme, Histoire, Baratin ou Persuasion, Psychologie, une spécialité au choix. ※ Avec l'accord du Gardien, la compétence « Médium » peut remplacer une compétence au choix."
+ },
+ "165": {
+  "name": "Maître du kotodama/Onmyōji",
+  "description": "Art/Artisanat (Calligraphie, plus un au choix), Histoire ou Bibliothèque, Langue maternelle, Savoir (Onmyōdō), Sciences (Astronomie), Occultisme, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "166": {
+  "name": "Alchimiste taoïste",
+  "description": "Bibliothèque, Médecine, Occultisme, Sciences (Chimie), Monde naturel, Savoir (Taoïsme), Langue étrangère (Chinois), Premiers soins ou Psychanalyse."
+ },
+ "167": {
+  "name": "Professeur de langue étrangère",
+  "description": "Histoire, Écouter, Langue maternelle, Psychologie, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "168": {
+  "name": "Immigré clandestin",
+  "description": "Déguisement, Baratin, Écouter, Trouver objet caché, Discrétion, Escamotage, Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "169": {
+  "name": "Lutteur de sumo (TAI > 80, FOR > 70)",
+  "description": "Esquiver, Combat rapproché (Corps à corps), Intimidation, Sauter, Psychologie, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque). (Votre Taille peut dépasser 99.)"
+ },
+ "170": {
+  "name": "Pêcheur",
+  "description": "Mécanique, Conduite d'engins, Nager, Pilotage (Bateau), Sciences (Astronomie), Orientation, Monde naturel, Trouver objet caché."
+ },
+ "171": {
+  "name": "Psychothérapeute",
+  "description": "Art/Artisanat (au choix), deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Droit, Langue étrangère, Psychologie, Psychanalyse, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "172": {
+  "name": "Écolière",
+  "description": "Une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Conduite (Bicyclette), Premiers soins, Écouter, Art/Artisanat (au choix), Bibliothèque, Combat rapproché (Lance) ou Armes à feu (Arc), Langue étrangère (au choix)."
+ },
+ "173": {
+  "name": "Étudiant logé chez l'habitant",
+  "description": "Premiers soins, Comptabilité, Art/Artisanat (Menuiserie), Persuasion, Bibliothèque, Langue étrangère (au choix), deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "174": {
+  "name": "Zoothérapeute",
+  "description": "Écouter, Psychologie, Psychanalyse, Sciences (Zoologie), Sauter, Pister, Monde naturel, une autre compétence au choix (spécialité personnelle ou d'époque). Sauter, Pister, Monde naturel, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "175": {
+  "name": "Urgentiste/Secouriste",
+  "description": "Médecine, Premiers soins, Sciences (Chimie), Serrurerie, Mécanique, Électricité, Grimper, Sauter."
+ },
+ "176": {
+  "name": "Médecin clandestin",
+  "description": "Médecine, Premiers soins, Comptabilité, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Droit, Sciences (Pharmacie), Langue étrangère, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "177": {
+  "name": "Chercheur en police scientifique",
+  "description": "Art/Artisanat (Photographie), Médecine, Droit, Sciences (Chimie, Criminalistique, Pharmacie), Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "178": {
+  "name": "Secouriste en montagne",
+  "description": "Premiers soins, Écouter, Sauter, Pister, Grimper, Orientation, Survie (Montagne), Langue étrangère."
+ },
+ "179": {
+  "name": "Danseur",
+  "description": "Art/Artisanat (arts du spectacle, par ex. Comédie, Chant, Humour), Déguisement, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "180": {
+  "name": "Créateur de mode",
+  "description": "Comptabilité, Art/Artisanat (Photographie), Art/Artisanat (au choix), Informatique ou Bibliothèque, Déguisement, Psychologie, Trouver objet caché, une autre compétence au choix (spécialité personnelle). ※ Un test de Trouver objet caché réussi permet de déduire le statut social et les revenus d'une personne d'après ses vêtements."
+ },
+ "181": {
+  "name": "Membre de la Force maritime d'autodéfense",
+  "description": "Électricité ou Mécanique, Combat rapproché, Armes à feu, Premiers soins, Orientation, Pilotage (Bateau), Survie (Mer), Nager."
+ },
+ "182": {
+  "name": "Garde-côte",
+  "description": "Premiers soins, Mécanique, Monde naturel, Orientation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Pilotage (Bateau), Trouver objet caché, Nager."
+ },
+ "183": {
+  "name": "Membre de la Force terrestre d'autodéfense",
+  "description": "Grimper ou Nager, Esquiver, Combat rapproché, Armes à feu, Discrétion, Survie, deux au choix parmi : Premiers soins, Mécanique, Langue étrangère."
+ },
+ "184": {
+  "name": "Membre d'une société militaire privée",
+  "description": "Grimper ou Nager, Esquiver, Combat rapproché, Armes à feu, Discrétion, Survie, deux au choix parmi : Premiers soins, Mécanique, Langue étrangère."
+ },
+ "185": {
+  "name": "Professeur aventurier",
+  "description": "Grimper ou Nager, Armes à feu, Histoire, Sauter, Monde naturel, Orientation, Langue étrangère, Survie."
+ },
+ "186": {
+  "name": "Critique",
+  "description": "Déguisement, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Histoire ou Bibliothèque, Langue maternelle, Langue étrangère, Psychologie, Discrétion."
+ },
+ "187": {
+  "name": "Idole",
+  "description": "Art/Artisanat (Comédie, Chant, Danse), Déguisement, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "188": {
+  "name": "Chanteur",
+  "description": "Art/Artisanat (Chant, Danse, Instrument), Déguisement, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "189": {
+  "name": "Humoriste",
+  "description": "Art/Artisanat (Comédie, Acrobatie, Humour), Déguisement, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "190": {
+  "name": "Athlète du showbiz",
+  "description": "Grimper, Esquiver, Sauter, Lancer, Trouver objet caché, Nager, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "191": {
+  "name": "Speaker",
+  "description": "Art/Artisanat (Comédie), Langue maternelle, Charme, Baratin, Persuasion, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "192": {
+  "name": "Présentateur",
+  "description": "Art/Artisanat (Comédie), Langue maternelle, Charme, Baratin, Persuasion, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "193": {
+  "name": "Commentateur télé",
+  "description": "Art/Artisanat (Comédie), Langue maternelle, Charme, Baratin, Persuasion, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "194": {
+  "name": "Star d'Internet",
+  "description": "Art/Artisanat (Comédie, Chant, Humour), Déguisement, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Psychologie, Informatique, Électricité."
+ },
+ "195": {
+  "name": "Agent artistique",
+  "description": "Conduite automobile, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Discrétion, Écouter, Droit, deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "196": {
+  "name": "Chasseur de fantômes",
+  "description": "Occultisme, Sciences (Physique, Chimie, Biologie), Mécanique, Art/Artisanat (Photographie), Électricité, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion)."
+ },
+ "197": {
+  "name": "Diseur de bonne aventure, Médium",
+  "description": "Art/Artisanat (Comédie), Histoire, Bibliothèque, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Occultisme, Psychologie, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "198": {
+  "name": "Mécanicien industriel",
+  "description": "Art/Artisanat (Menuiserie, Soudure, Plomberie, etc.), Grimper, Conduite automobile, Électricité, Mécanique, Conduite d'engins, deux autres compétences au choix (spécialités personnelles, d'époque ou techniques)."
+ },
+ "199": {
+  "name": "Cuisinier",
+  "description": "Art/Artisanat (Cuisine), Sciences (Biologie, Chimie), Combat rapproché (Corps à corps), Monde naturel, Trouver objet caché, Langue étrangère, une autre compétence au choix (spécialité personnelle ou d'époque)."
+ },
+ "200": {
+  "name": "Cybercriminel",
+  "description": "Informatique, Électricité, Électronique, Bibliothèque, Trouver objet caché, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), deux autres compétences au choix."
+ },
+ "201": {
+  "name": "Mercenaire",
+  "description": "Grimper ou Nager, Esquiver, Combat rapproché, Armes à feu, Discrétion, Survie, deux au choix parmi : Premiers soins, Mécanique, Langue étrangère."
+ },
+ "202": {
+  "name": "Gardien du domicile (NEET)",
+  "description": "Informatique, Écouter, Discrétion, Bibliothèque, Langue maternelle, trois spécialités au choix correspondant à l'image du NEET."
+ },
+ "203": {
+  "name": "Garde du corps costaud",
+  "description": "Combat rapproché (Corps à corps), Armes à feu, Premiers soins, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Droit, Psychologie, Trouver objet caché, et l'une des spécialités personnelles suivantes : Conduite automobile ou Équitation."
+ },
+ "204": {
+  "name": "Testeur de jeux vidéo",
+  "description": "Art/Artisanat (Jeux), Informatique, Électricité, Électronique, Écouter, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), deux autres compétences au choix (spécialités personnelles ou d'époque)."
+ },
+ "205": {
+  "name": "Courtisane",
+  "description": "Art/Artisanat (au choix), Estimation, Discrétion, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Premiers soins, Langue étrangère (européenne), Psychologie, Équitation, l'une des compétences suivantes (Déguisement, Serrurerie), une autre compétence au choix (spécialité personnelle ou d'époque)"
+ },
+ "206": {
+  "name": "Archéologue",
+  "description": "Comptabilité, Art/Artisanat (au choix), Estimation, Histoire, Bibliothèque, Langue étrangère (européenne), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "207": {
+  "name": "Noble",
+  "description": "Langue étrangère (Latin), Droit, Langue étrangère (européenne), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Équitation, Armes à feu (Fusil de chasse), trois autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "208": {
+  "name": "Artiste (II)",
+  "description": "Art/Artisanat (plusieurs au choix), Estimation, Histoire, Bibliothèque, Langue étrangère (européenne), Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "209": {
+  "name": "Écrivain",
+  "description": "Art/Artisanat (Écriture), Histoire, Bibliothèque, Langue étrangère (européenne), Langue maternelle, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "210": {
+  "name": "Cocher",
+  "description": "Esquiver, Conduite d'attelage, Sauter, Écouter, Mécanique, Monde naturel, Orientation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Trouver objet caché, Combat rapproché (Fouet), une autre compétence au choix (spécialité personnelle ou d'époque)"
+ },
+ "211": {
+  "name": "Pasteur",
+  "description": "Histoire, Langue étrangère (Latin), Bibliothèque, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "212": {
+  "name": "Détective consultant",
+  "description": "Anthropologie, Estimation, Sciences (Chimie), Premiers soins, Histoire, Droit, Bibliothèque, Écouter, Psychologie, Langue étrangère (au choix), Trouver objet caché, Pister, deux autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "213": {
+  "name": "Artisan (II)",
+  "description": "Comptabilité, Estimation, Art/Artisanat (plusieurs au choix), Mécanique, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)"
+ },
+ "214": {
+  "name": "Criminel",
+  "description": "Estimation, Déguisement, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Discrétion, Serrurerie, Combat rapproché (deux au choix), une autre compétence au choix (spécialité personnelle ou d'époque)"
+ },
+ "215": {
+  "name": "Dilettante",
+  "description": "Six compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "216": {
+  "name": "Artiste de spectacle (II)",
+  "description": "Art/Artisanat (plusieurs au choix), Déguisement, Esquiver, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Écouter, Langue maternelle, Psychologie, trois autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "217": {
+  "name": "Officier en retraite",
+  "description": "Discrétion, Premiers soins, Armes à feu (Arme de poing, Fusil), Orientation, Langue étrangère (au choix), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Équitation, Combat rapproché (Épée), Trouver objet caché, l'une des compétences suivantes (Grimper, Nager)"
+ },
+ "218": {
+  "name": "Explorateur",
+  "description": "Anthropologie, Archéologie, Estimation, Sciences (Biologie), Grimper, Premiers soins, Armes à feu (Arme de poing, Fusil), Combat rapproché (Corps à corps), Monde naturel, Orientation, Langue étrangère (au choix), Pilotage (Canot, Bateau, Montgolfière), Équitation, Discrétion, Trouver objet caché, Nager, Pister"
+ },
+ "219": {
+  "name": "Détective privé (II)",
+  "description": "Comptabilité, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Droit, Bibliothèque, Écouter, Serrurerie, Art/Artisanat (Photographie), Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)"
+ },
+ "220": {
+  "name": "Journaliste",
+  "description": "Estimation, Esquiver, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Bibliothèque, Écouter, Langue étrangère (européenne), Langue maternelle, Art/Artisanat (Photographie), Psychologie, Trouver objet caché."
+ },
+ "221": {
+  "name": "Manœuvre",
+  "description": "Estimation, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Esquiver, Premiers soins, Mécanique, Conduite d'engins, une autre compétence au choix (spécialité personnelle ou d'époque), ainsi que deux au choix parmi les suivantes : (Grimper, Combat rapproché (Corps à corps), Art/Artisanat (au choix), Conduite d'attelage, Pilotage (Bateau))"
+ },
+ "222": {
+  "name": "Avocat (II)",
+  "description": "Comptabilité, Estimation, deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Histoire, Langue étrangère (Latin), Droit, Bibliothèque, Écouter, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "223": {
+  "name": "Médecin",
+  "description": "Sciences (Biologie, Pharmacie), Premiers soins, Langue étrangère (Latin), Bibliothèque, Médecine, Psychologie, deux autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "224": {
+  "name": "Policier",
+  "description": "Combat rapproché (Corps à corps), Esquiver, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Premiers soins, Armes à feu (Arme de poing), Droit, Écouter, Psychologie, Discrétion, Trouver objet caché"
+ },
+ "225": {
+  "name": "Professeur/Érudit",
+  "description": "Bibliothèque, Langue étrangère (européenne), une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, jusqu'à six compétences de Savoir supplémentaires en tant que spécialités personnelles"
+ },
+ "226": {
+  "name": "Scientifique (II)",
+  "description": "Art/Artisanat (au choix), Histoire, Bibliothèque, Mécanique, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Trouver objet caché, jusqu'à six autres compétences de Savoir en tant que spécialités personnelles"
+ },
+ "227": {
+  "name": "Domestique",
+  "description": "Art/Artisanat (au choix), Esquiver, Écouter, Discrétion, une autre compétence au choix (spécialité personnelle ou d'époque), ainsi que trois au maximum parmi les suivantes : (Comptabilité, Estimation, Conduite d'attelage, Étiquette, Premiers soins, Langue étrangère (européenne), Persuasion)"
+ },
+ "228": {
+  "name": "Boutiquier",
+  "description": "Comptabilité, Estimation, Art/Artisanat (au choix), Écouter, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Psychologie, Trouver objet caché, une autre compétence au choix (spécialité personnelle ou d'époque)"
+ },
+ "229": {
+  "name": "Soldat",
+  "description": "Esquiver, Premiers soins, Discrétion, Écouter, Mécanique, Armes à feu (Fusil), Discrétion, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque)"
+ },
+ "230": {
+  "name": "Agent secret",
+  "description": "Déguisement, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Discrétion, Histoire, Bibliothèque, Écouter, Serrurerie, Orientation, Langue étrangère (européenne), Psychologie, Trouver objet caché, Combat rapproché (au choix)"
+ }
+}
