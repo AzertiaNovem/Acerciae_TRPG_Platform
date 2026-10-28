@@ -265,3 +265,10 @@ table.simple tr.selected td {background:rgba(127,127,127,.08)}
 .points-table td input { width: 52px; text-align: right; }
 .points-table tr.allowed td:first-child { color: var(--warn); }
 .points-table td.over { color: var(--danger); }
+
+/* Atmospheric art is decorative; keep chat text legible over all four variants. */
+.atmosphere-backdrop { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.atmosphere-backdrop img { width: 100%; height: 100%; object-fit: cover; opacity: .26; }
+.chat-body:has(.atmosphere-backdrop) .message-list { position: relative; }
+.chat-body:has(.atmosphere-backdrop) .message:not(.jumped) { background: color-mix(in srgb, var(--bg-0) 65%, transparent); }
+.atmosphere-mock { position: absolute; left: 12px; bottom: 6px; z-index: 1; padding: 2px 6px; border-radius: 4px; background: var(--bg-1); color: var(--fg-2); font-size: 11px; }

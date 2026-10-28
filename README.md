@@ -294,3 +294,11 @@ reproduce it by hand with the demo campaign.
 ## License
 
 BSD 3-Clause; see [LICENSE](LICENSE).
+
+### Optional channel atmosphere
+
+Server settings → Channel atmosphere backgrounds enables automatic generation using that server's image provider and budget; User settings → Show channel atmosphere backgrounds enables personal display. Both switches default off. The Keeper-side LLM conservatively evaluates public narration and remembers previous prompts. It generates four images of the same place: landscape day, landscape night, portrait day, portrait night. Web selects day/night by the device light/dark theme, not the story clock, and displays the appropriate orientation at 26% opacity.
+
+A new set requires a 30-minute cooldown and at least 12 further public Keeper narrations; uncertain/minor changes reuse existing art. All four images must finish before switching. Prompts and source references are retained, with Keeper-readable history in Log Studio → Assets; generated images remain candidates for publication review and can be reused after approval. Private Keeper knowledge and split-party chat are excluded from shared background generation. Migration `0030_channel_atmosphere.sql` is additive. [API and native client contract](docs/API.md#channel-atmosphere-backgrounds).
+
+The integration test `tests/integration/atmosphere.test.mjs` exercises opt-in, four-image mock generation, image access, cooldown and privacy against an isolated backend. Database tests cover previous-prompt context, uncertainty, private evidence rejection and fallback to a complete prior set. Frontend tests cover all four theme/orientation combinations. Real image API credentials were not used for this feature's verification; the existing GPT Image adapter is reused.

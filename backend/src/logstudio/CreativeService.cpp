@@ -327,6 +327,8 @@ void CreativeService::loop() {
 void CreativeService::run(const Json::Value &j) {
   auto id = j["id"].asString();
   try {
+    const bool atmosphere = j["params"]["attach"].isMember("atmosphere_id");
+    if(atmosphere && db_.queryOne("SELECT 1 FROM channels c JOIN server_settings s ON s.server_id=c.server_id WHERE c.id=$1 AND s.feature_atmosphere AND EXISTS(SELECT 1 FROM channel_members cm JOIN users u ON u.id=cm.user_id WHERE cm.channel_id=c.id AND u.atmosphere_enabled)",{j["channel_id"].asString()}).isNull()) throw std::runtime_error("channel atmosphere disabled");
     auto provider_ = providerFor(j["channel_id"].asString());
     if (!provider_) throw std::runtime_error("image generation disabled or not configured by the server maintainer");
     const auto fingerprint = json::str(j["params"], "provider_configuration");
@@ -338,7 +340,7 @@ void CreativeService::run(const Json::Value &j) {
       // Character-page art is not Log Studio work; everything else follows the campaign's Studio cloud policy.
       const auto &att = j["params"]["attach"];
       const bool characterArt = att.isObject() && att.isMember("character_id") && !att.isMember("presentation_id");
-      if (!characterArt) requireCloudPermission(db_, j["channel_id"].asString());
+      if (!characterArt && !atmosphere) requireCloudPermission(db_, j["channel_id"].asString());
     }
     auto params = j["params"];
     const auto parentId = json::str(params, "portrait_job_id");
@@ -410,6 +412,7 @@ void CreativeService::run(const Json::Value &j) {
     m["visibility_scope"] = forCharacter || forScript ? "channel" : "gm";
     if (forScript && !forCharacter) m["name"] = "Background · " + json::str(attachTo, "scene_title", json::str(attachTo, "scene_key"));
     if (forCharacter) { m["name"] = json::str(j["params"]["request"]["character"], "name") + " · " + (json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot")); m["expression"] = json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot"); }
+    if(atmosphere) { m["name"]="Atmosphere · "+json::str(attachTo,"scene_title")+" · "+json::str(attachTo,"variant"); m["visibility_scope"]="channel"; }
     m["generation_provider"] = provider_->name();
     m["generation_model"] = provider_->model();
     m["prompt"] = j["prompt"];
@@ -417,6 +420,7 @@ void CreativeService::run(const Json::Value &j) {
     m["style_profile_id"] = j["style_profile_id"];
     m["style_profile_version"] = j["params"]["style_profile_version"];
     m["source_reference"]["job_id"] = id;
+    if(atmosphere) m["source_reference"]["atmosphere"] = attachTo;
     if (params.isMember("portrait_reference")) m["source_reference"]["portrait_reference"] = params["portrait_reference"];
     m["source_reference"]["visual_identity_check"] = "manual review required";
     m["source_reference"]["character_profile"] =
@@ -474,6 +478,10 @@ void CreativeService::run(const Json::Value &j) {
     Json::Value out;
     out["job_id"] = id;
     out["asset_id"] = asset["id"];
+    if (atmosphere) {
+      Json::Value changed; changed["atmosphere_id"] = attachTo["atmosphere_id"];
+      notifier_.studioEvent(j["channel_id"].asString(), "atmosphere.updated", changed, false);
+    }
     if (forScript) out["presentation_id"] = attachTo["presentation_id"];
     notifier_.studioEvent(j["channel_id"].asString(), "asset.generated", out,
                           !(forCharacter || forScript));

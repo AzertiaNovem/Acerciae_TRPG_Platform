@@ -24,6 +24,7 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const [username, setUsername] = useState(user.username);
   const [name, setName] = useState(user.display_name);
   const [language, setLanguage] = useState(user.ui_language || 'en');
+  const [atmosphere, setAtmosphere] = useState(!!user.atmosphere_enabled);
   const [avatar, setAvatar] = useState(user.avatar_data || '');
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
@@ -36,7 +37,7 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); const epoch = sessionEpoch();
     try {
-      const updated = await api.updateMe({ username, display_name: name.trim(), ui_language: language, avatar_data: avatar });
+      const updated = await api.updateMe({ username, display_name: name.trim(), ui_language: language, avatar_data: avatar, atmosphere_enabled: atmosphere });
       if (epoch !== sessionEpoch()) return;
       useAuth.setState({ user: updated }); useLocale.getState().setLanguage(updated.ui_language);
       useUi.getState().toast(t('User settings saved')); onClose();
@@ -74,6 +75,8 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
           <label className="field"><span>{t('Display name')}</span><input required maxLength={60} value={name} onChange={(e)=>setName(e.target.value)} /></label>
           <label className="field"><span>{t('Interface language')}</span><select value={language} onChange={(e)=>setLanguage(e.target.value)}>{(user.languages || Object.keys(LANGUAGE_LABELS)).map((code)=><option key={code} value={code}>{LANGUAGE_LABELS[code] || code}</option>)}</select></label>
           <p className="tiny muted">{t('This changes your interface only. Server AI output language stays unchanged.')}</p>
+          <label className="row"><input type="checkbox" checked={atmosphere} onChange={e => setAtmosphere(e.target.checked)} />{t('Show channel atmosphere backgrounds')}</label>
+          <p className="tiny muted">{t('Requires the server atmosphere feature. Follows your device’s light/dark theme and screen orientation; displayed translucently.')}</p>
         </fieldset>
         {error && <div role="alert" className="profile-error">{error}</div>}
         <div className="row"><button className="primary" disabled={busy || reading || !name.trim()}>{t(busy ? 'Saving…' : 'Save')}</button><button type="button" className="ghost" disabled={busy} onClick={close}>{t('Cancel')}</button></div>

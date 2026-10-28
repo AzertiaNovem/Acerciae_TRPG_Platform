@@ -1,5 +1,5 @@
 // Shared API types (mirrors backend JSON shapes).
-export interface User { id: string; username: string; display_name: string; ui_language: string; avatar_data: string; avatar_version: number; languages?: string[] }
+export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; avatar_version: number; languages?: string[] }
 export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest' }
 export interface DirectoryServer { id: string; name: string; member_count: number }
 export interface ServerInvite { id: string; code: string; max_uses: number; uses: number; expires_at: string | null; revoked_at: string | null; created_at: string; created_by_name?: string | null; active: boolean }
@@ -131,7 +131,7 @@ export interface TtsJob { id: string; presentation_id: string | null; kind: stri
 export interface UserLite { id: string; username: string; display_name: string }
 export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member' | 'guest'; joined_at: string }
 export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
-export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'coc7_points';
+export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'coc7_points' | 'atmosphere';
 export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; images_used: number; running: number }
 export interface ServerSettings {
   server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;

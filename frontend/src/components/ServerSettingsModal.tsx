@@ -13,6 +13,7 @@ type Tab = 'general' | 'access' | 'ai' | 'features' | 'members' | 'channels' | '
 import { LANGUAGE_LABELS } from '../i18n';
 export { LANGUAGE_LABELS } from '../i18n';
 const FEATURES: { key: Feature; label: string; help: string }[] = [
+  { key: 'atmosphere', label: 'Channel atmosphere backgrounds', help: 'Allow automatic image generation from public Keeper narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display.' },
   { key: 'consistency', label: 'Consistency Check', help: 'Players and GMs can check a draft against what their character knows.' },
   { key: 'dice', label: 'Integrated Dice', help: 'Sealdice-style commands in chat: .r .ra .sc .st .en, with the gray attribute hint while typing.' },
   { key: 'inspiration', label: 'Inspiration', help: 'Drafts a possible in-character reply from the character’s knowledge (never sent automatically).' },

@@ -23,7 +23,7 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 
 | Method | Path | Notes |
 |---|---|---|
-| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?}`. Empty avatar removes it; duplicate username returns 409. |
+| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?,atmosphere_enabled?}`. Empty avatar removes it; duplicate username returns 409. |
 | GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. |
 | POST | `/auth/register` | `{username, password, display_name}` → `{token, user}` |
 | POST | `/auth/login` | `{username, password}` → `{token, user}` |
@@ -324,3 +324,19 @@ window; the original `chat_window_id` is returned for navigation. Chat-origin ev
 PDFs with memory appendices are private exports bound to KP or the originating player group and version. They cannot be
 published as share links or requested with `pl_public` scope. Group changes invalidate access to old player memory exports.
 Legacy PDFs containing shared-memory appendices become KP-only, and their old publication links are revoked by migration.
+
+## Channel atmosphere backgrounds
+
+Maintainers enable `features.atmosphere` in `PUT /servers/{id}/settings` and configure the independent `image` provider. Each user opts in with `PUT /auth/me {"atmosphere_enabled":true}`; both default off. The account field is a boolean and persists across logins.
+
+`GET /channels/{id}/atmosphere` requires channel membership. Returns `{enabled:false}` when either switch is off; otherwise `{enabled:true,id?,mock?,assets?:{day_landscape,night_landscape,day_portrait,night_portrait}}`. Assets appear only when an entire four-image set is complete. Keys contain media asset IDs, not external provider URLs. A failed/incomplete newer set leaves the previous complete set active. Rejected, deleted or GM-private assets cannot be used as shared backgrounds.
+
+`GET /channels/{id}/atmosphere/assets/{asset_id}` delivers version 1 of a current background with membership and both switches checked on every request. Accepts the normal Authorization header or a short-lived file token; private/no-store. The channel preview is separate from publication approval: generated assets stay candidates in Log Studio until the Keeper approves them for publishing.
+
+`GET /channels/{id}/atmosphere/history` is Keeper-only. Returns the latest 100 sets with their scene label, mood, reason, all four prompts, source event IDs, timestamps and per-variant job status/error/asset ID. The database retains all sets. Prompt and source metadata also accompany each generated media asset. The asset library exposes this history for review and later VN reuse.
+
+A `studio.atmosphere.updated` context WebSocket event invalidates the current set after image completion; clients also refresh on reconnect. Web uses device `prefers-color-scheme` and viewport orientation: light → day, dark → night, wide → landscape, tall → portrait. These are display variants, not assertions about story time. Native clients can use their resolved app theme and orientation with the same keys; their background UI is not added by this change. Web opacity is 0.26.
+
+The Keeper observer invokes a separate structured LLM request with only public Main Chat Keeper narration that every occupied player group witnessed. No private narration, module secrets, player records or retrieval tools enter it. Context includes the previous set's four prompts. After at least three fresh public narrations, reviews are limited to once every two minutes. New sets require at least 30 minutes and 12 public narrations since the preceding request, no pending image jobs, confidence ≥0.85, fresh public source IDs, and a sufficiently established changed setting. Image calls use existing per-server image budgets, concurrency limits and retry handling. Review and generation timestamps persist across restarts.
+
+Mock LLM mode only generates for an explicit public narration beginning `[Atmosphere] ` plus a scene description; three eligible public narrations and the same cooldown rules still apply. Mock images are visibly identified diagnostic patterns. No paid-provider request was made to validate this feature.

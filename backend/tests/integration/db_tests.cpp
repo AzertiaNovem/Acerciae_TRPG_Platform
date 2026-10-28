@@ -1,6 +1,9 @@
 // Database-backed tests for the validation core. Requires PostgreSQL; set TEST_DATABASE_URL (a
 // database that may be wiped) — defaults to postgresql://postgres@localhost:5432/acerciae_test.
 #include "app/Services.h"
+#include "atmosphere/AtmosphereService.h"
+#include "logstudio/ImageProvider.h"
+#include "logstudio/MediaService.h"
 #include "auth/AuthService.h"
 #include "chat/ChatService.h"
 #include "scenes/SceneManager.h"
@@ -732,6 +735,76 @@ int main() {
         CHECK(S.db->queryOne("SELECT 1 AS ok FROM chat_window_members WHERE user_id=$1", {p3User}).isNull());
         bool gone = false; try { S.auth->channelAccess(p3User, channelId); } catch (const ApiError& e) { gone = e.status() == 403; } CHECK(gone);
         CHECK(!S.chat->searchUsers(gmP, "p3" + suffix, 10).empty());
+    });
+    test("channel atmosphere is opt-in, public-only, rate-limited, and remembers all four prompts", [&] {
+        auto srv=S.chat->createServer(gmP,"Atmosphere checks");auto sid=srv["id"].asString();
+        Json::Value cb;cb["name"]="Atmosphere";auto ch=S.chat->createChannel(gmP,sid,cb)["id"].asString();
+        auto a=S.auth->channelAccess(gmUser,ch);S.chat->addChannelMember(a,"p1"+suffix,"player");
+        auto win=S.chat->listWindows(a)[0]["id"].asString();
+        auto client=std::make_unique<ReminderPlanClient>();auto* fixture=client.get();
+        LlmGateway gateway(cfg,std::move(client));AtmosphereService service(*S.db,gateway,*S.settings,*S.media);
+        Json::Value batch(Json::arrayValue);batch.append("trigger");
+        auto post=[&](const std::string& text,bool secret=false){
+            Json::Value b;b["content"]=text;b["kind"]="narration";if(secret)b["visibility"]="gm_only";
+            auto m=S.chat->postMessage(a,win,b);return S.db->queryOne("SELECT id FROM events WHERE message_id=$1",{m["id"].asString()})["id"];
+        };
+        auto fresh=[&](){Json::Value id;for(int i=0;i<12;++i)id=post("Public stone courtyard with ivy "+std::to_string(i));return id;};
+        auto count=[&](){return S.db->queryOne("SELECT count(*) AS n FROM channel_atmospheres WHERE channel_id=$1",{ch})["n"].asInt();};
+        auto due=[&](){S.db->exec("UPDATE channel_atmosphere_state SET next_review_at=now()-interval '1 minute',next_generation_at=now()-interval '1 minute' WHERE channel_id=$1",{ch});};
+        auto plan=[&](Json::Value id,const std::string& label){
+            fixture->plan=json::parse(R"({"generate":true,"confidence":0.95,"reason":"Established new public location","mood":"Quiet","prompts":{}})");
+            fixture->plan["scene_label"]=label;fixture->plan["source_event_ids"].append(id);
+            for(auto key:{"day_landscape","night_landscape","day_portrait","night_portrait"})fixture->plan["prompts"][key]=label+"; "+key;
+        };
+        CHECK(!S.settings->get(gmP,sid)["features"]["atmosphere"].asBool());
+        Json::Value off;off["atmosphere_enabled"]=false;S.auth->updateProfile(gmP,off);
+        auto id=fresh();auto secret=post("PRIVATE hidden monster in courtyard",true);plan(id,"Courtyard");
+        service.afterBatch(ch,batch);CHECK(fixture->calls==0);
+        Json::Value settings;settings["features"]["atmosphere"]=true;settings["image"]["provider"]="mock";S.settings->update(gmP,sid,settings);
+        service.afterBatch(ch,batch);CHECK(fixture->calls==0);
+        Json::Value on;on["atmosphere_enabled"]=true;CHECK(S.auth->updateProfile(gmP,on)["atmosphere_enabled"].asBool());
+        service.afterBatch(ch,batch);CHECK(count()==1);CHECK(fixture->calls==1);
+        CHECK(json::dump(fixture->context).find("PRIVATE")==std::string::npos);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM asset_generation_jobs WHERE channel_id=$1",{ch})["n"].asInt()==4);
+        auto first=service.history(a)[0];CHECK(first["prompts"]==fixture->plan["prompts"]);
+        for(const auto& j:S.db->queryJson("SELECT params FROM asset_generation_jobs WHERE channel_id=$1",{ch})){
+            auto key=j["params"]["attach"]["variant"].asString();
+            CHECK(j["params"]["request"]["size"]==(key.find("portrait")!=std::string::npos?"1024x1536":"1536x1024"));
+        }
+        CHECK(service.current(a)["enabled"].asBool());CHECK(service.current(a)["assets"].isNull());
+        auto oldCalls=fixture->calls;service.afterBatch(ch,batch);CHECK(fixture->calls==oldCalls);
+        // In-flight images prevent another set even after the cooldown.
+        id=fresh();plan(id,"Harbour");due();service.afterBatch(ch,batch);CHECK(fixture->calls==oldCalls);
+        S.db->exec("UPDATE asset_generation_jobs SET status='failed' WHERE channel_id=$1",{ch});
+        service.afterBatch(ch,batch);CHECK(count()==2);CHECK(fixture->context["previous_background"]["prompts"]==first["prompts"]);
+        S.db->exec("UPDATE asset_generation_jobs SET status='failed' WHERE channel_id=$1",{ch});
+        // A private source can never authorize shared art, and uncertain plans create no jobs.
+        fresh();plan(secret,"Secret room");due();service.afterBatch(ch,batch);CHECK(count()==2);
+        id=fresh();plan(id,"Harbour");fixture->plan["confidence"]=0.3;due();service.afterBatch(ch,batch);CHECK(count()==2);
+        // Complete one mock set, preserving candidate publication status and all versioned prompts.
+        logstudio::ImageConfig imageCfg;imageCfg.provider="mock";auto provider=logstudio::makeImageProvider(imageCfg);
+        for(const auto& v:first["variants"]){
+            auto job=S.db->queryOne("SELECT * FROM asset_generation_jobs WHERE id=$1",{v["job_id"].asString()});
+            auto image=provider->generate(job["params"]["request"]);CHECK(image.ok);
+            int w=0,h=0;logstudio::MediaService::probeDimensions(image.bytes,image.mime,w,h);
+            CHECK((h>w)==(v["variant"].asString().find("portrait")!=std::string::npos));
+            Json::Value meta;meta["name"]="Atmosphere";meta["visibility_scope"]="channel";meta["approval_status"]="candidate";meta["prompt"]=job["prompt"];
+            auto asset=S.media->storeInternal(ch,"background","generated",image.bytes,image.mime,meta);
+            S.db->exec("UPDATE asset_generation_jobs SET status='completed',result_asset_id=$2 WHERE id=$1",{v["job_id"].asString(),asset["id"].asString()});
+        }
+        auto current=service.current(a);CHECK(current["id"]==first["id"]);CHECK(current["assets"].size()==4);CHECK(current["mock"].asBool());
+        std::string bytes,mime;auto asset=current["assets"]["night_portrait"].asString();CHECK(service.fetch(a,asset,bytes,mime));
+        S.db->exec("UPDATE media_assets SET approval_status='rejected' WHERE id=$1",{asset});
+        CHECK(service.current(a)["assets"].isNull());CHECK(!service.fetch(a,asset,bytes,mime));
+        S.db->exec("UPDATE media_assets SET approval_status='candidate',visibility_scope='gm' WHERE id=$1",{asset});
+        CHECK(service.current(a)["assets"].isNull());
+        S.db->exec("UPDATE media_assets SET visibility_scope='channel' WHERE id=$1",{asset});
+        auto pl=S.auth->channelAccess(p1User,ch);CHECK(!service.current(pl)["enabled"].asBool());CHECK(!service.fetch(pl,asset,bytes,mime));
+        bool denied=false;try{service.history(pl);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
+        S.auth->updateProfile(gmP,off);CHECK(!service.fetch(a,asset,bytes,mime));
+        on["atmosphere_enabled"]=true;S.auth->updateProfile(gmP,on);
+        settings["features"]["atmosphere"]=false;S.settings->update(gmP,sid,settings);CHECK(!service.fetch(a,asset,bytes,mime));
+        S.auth->updateProfile(gmP,off);
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();

@@ -201,6 +201,7 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         try { summary["script"] = script_.afterBatch(sys, batch, jobId, scriptCalls); }
         catch (const std::exception& e) { ALOG_WARN << "script knowledge failed: " << e.what(); summary["script"]["error"] = e.what(); }
         llmCalls_ += scriptCalls;
+        if(atmosphereHook_) try { atmosphereHook_(channelId,batch); } catch(const std::exception& e) { ALOG_WARN << "atmosphere planning: " << e.what(); }
 
         finish("succeeded", "", summary, toSeq, (int)batch.size(), outcome.llmCalls + stageCalls + scriptCalls, true);
         groupsProcessed_++;

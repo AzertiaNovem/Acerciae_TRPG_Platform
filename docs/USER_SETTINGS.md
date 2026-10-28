@@ -1,6 +1,6 @@
 # Personal profile and interface language
 
-Open the gear beside your identity at the bottom of the channel sidebar. Personal settings allow changing the login username, display name, avatar and interface language. Saving takes effect immediately; the account preference is restored at login and on other devices. Changing a username keeps the same user ID, memberships, sessions and record ownership. The next login uses the new username. Existing usernames keep the platform's 3–32 ASCII letters/digits/underscore/dot/hyphen rule; display names support Unicode.
+Open the gear beside your identity at the bottom of the channel sidebar. Personal settings allow changing the login username, display name, avatar interface language, and translucent channel atmosphere backgrounds. Saving takes effect immediately; the account preference is restored at login and on other devices. Changing a username keeps the same user ID, memberships, sessions and record ownership. The next login uses the new username. Existing usernames keep the platform's 3–32 ASCII letters/digits/underscore/dot/hyphen rule; display names support Unicode.
 
 There are eleven interface languages, matching `ServerSettingsService::languages()`: English, Simplified Chinese, Traditional Chinese, Japanese, Korean, Spanish, French, German, Russian, Portuguese and Italian. Personal language does not change the server's LLM/dice language. Campaign names, character names, chat, generated narrative documents, dice results and canonical log text are content, so they remain in their original language.
 
@@ -8,9 +8,9 @@ The English source-key catalog is `frontend/src/i18n/catalog.json`; each row con
 
 ## Client API
 
-`GET /api/auth/me`, login and registration responses include `ui_language`, `avatar_data`, `avatar_version`, and `languages` in the user object. `languages` is the same backend list used by server settings. Native clients may continue ignoring these additive fields until they implement personal settings.
+`GET /api/auth/me`, login and registration responses include `ui_language`, `avatar_data`, `avatar_version`, `atmosphere_enabled`, and `languages` in the user object. `languages` is the same backend list used by server settings. Native clients may continue ignoring these additive fields until they implement personal settings.
 
-`PUT /api/auth/me` accepts a partial JSON object containing only `username`, `display_name`, `ui_language`, and `avatar_data`. No user ID is accepted: the authenticated account is always the target. Updates lock the account row and apply atomically. A duplicate username returns 409 without saving any other field; invalid fields/language/image return 400; missing authentication returns 401. Empty `avatar_data` removes the avatar. Unspecified fields are retained. The response is the updated user object.
+`PUT /api/auth/me` accepts a partial JSON object containing only `username`, `display_name`, `ui_language`, `avatar_data`, and the boolean `atmosphere_enabled`. No user ID is accepted: the authenticated account is always the target. Updates lock the account row and apply atomically. A duplicate username returns 409 without saving any other field; invalid fields/language/image return 400; missing authentication returns 401. Empty `avatar_data` removes the avatar. Unspecified fields are retained. The response is the updated user object.
 
 The browser accepts PNG, JPEG and WebP uploads up to 5 MB, crops the center to a square, and re-encodes at 256 × 256 as PNG or JPEG to remove metadata and avoid retaining arbitrary external sources. The API accepts only canonical base64 `data:image/png;base64,...` or `data:image/jpeg;base64,...`, at most 128 KiB decoded and 512 × 512 pixels, checked by file signature and dimensions. SVG and external URLs are rejected. Small profile images are bounded database fields; they are separate from campaign media and publication assets.
 
@@ -21,3 +21,5 @@ Migration `0012_user_preferences.sql` adds the fields without replacing existing
 ## Verification
 
 `API_BASE=http://127.0.0.1:18081 node --test tests/integration/profile.test.mjs` verifies all language choices against the server list, fresh-login persistence, atomic duplicate-name rejection, stable identity and server permissions, image validation/download/removal, and account isolation. It creates disposable accounts in the selected test backend. The original ten integration scenarios, 188 unit checks and 98 database checks also passed after migration. Chinese and Japanese settings, image upload, display-name changes and reload persistence were checked in the browser using a separate test login.
+
+Channel backgrounds require the maintainer to enable the server atmosphere feature as well. On the web, day/night images follow the device light/dark theme, not narrative time; landscape/portrait follows screen orientation. The background is displayed at 26% opacity. See [channel atmosphere API](API.md#channel-atmosphere-backgrounds) for generation rules and native client integration.

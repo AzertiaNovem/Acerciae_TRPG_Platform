@@ -30,6 +30,7 @@ public:
     // artwork.
     auto hash = crypto::sha256Hex(json::dump(req));
     int w = 320, h = 180;
+    if(json::str(req,"size")=="1024x1536") { w=180; h=320; }
     std::string raw;
     for (int y = 0; y < h; ++y) {
       raw += '\0';
@@ -72,7 +73,9 @@ public:
     ImageResult r;
     Json::Value body;
     body["model"] = model(); body["n"] = 1; body["output_format"] = "png";
-    if (config_.size != "auto") body["size"] = config_.size;
+    auto size=json::str(request,"size",config_.size);
+    if(size!="auto" && size!="1024x1024" && size!="1536x1024" && size!="1024x1536") throw std::runtime_error("unsupported image size");
+    if(size!="auto") body["size"]=size;
     if (config_.quality != "auto") body["quality"] = config_.quality;
     auto context = request; context.removeMember("reference_images");
     body["prompt"] = "Create one TRPG visual asset from the following selected art direction and source data. "

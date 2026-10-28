@@ -1,3 +1,4 @@
+#include "../atmosphere/AtmosphereService.h"
 #include "Services.h"
 #include "Maintenance.h"
 #include "../auth/AuthService.h"
@@ -80,7 +81,9 @@ Services& Services::build(const Config& cfg) {
     s.reminders = std::make_unique<ReminderService>(*s.db, *s.llm, *s.retrieval, *s.notifier);
     s.script = std::make_unique<ScriptKnowledgeService>(*s.db, *s.llm, *s.retrieval, *s.reminders, *s.notifier);
     s.modules->setPostProcess([&s](const std::string& channelId, const std::string& moduleId) { int calls = 0; s.script->buildFromModule(channelId, moduleId, calls); });
+    s.atmosphere = std::make_unique<AtmosphereService>(*s.db,*s.llm,*s.settings,*s.media);
     s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge, *s.scenarios, *s.reminders, *s.script);
+    s.observer->setAtmosphereHook([&s](const std::string& ch,const Json::Value& batch){s.atmosphere->afterBatch(ch,batch);});
     s.maintenance = std::make_unique<Maintenance>(s);
     // Background work that used to run on detached threads: bounded, and drained at shutdown.
     s.background = std::make_unique<WorkPool>("background", 2, 256);

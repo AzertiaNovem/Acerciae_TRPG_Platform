@@ -27,7 +27,7 @@ Json::Value AuthService::registerUser(const std::string& username, const std::st
     auto existing = db_.queryOne("SELECT id FROM users WHERE username=$1", {username});
     if (!existing.isNull()) throw conflict("username already taken");
     auto row = db_.queryOne(
-        "INSERT INTO users(username, display_name, password_hash) VALUES($1,$2,$3) RETURNING id, username, display_name, ui_language, avatar_version, avatar_data, created_at",
+        "INSERT INTO users(username, display_name, password_hash) VALUES($1,$2,$3) RETURNING id, username, display_name, ui_language, atmosphere_enabled, avatar_version, avatar_data, created_at",
         {username, displayName.empty() ? username : displayName, crypto::hashPassword(password)});
     return row;
 }
@@ -46,7 +46,7 @@ Json::Value AuthService::login(const std::string& username, const std::string& p
 }
 
 Json::Value AuthService::profile(const std::string& userId) {
-    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, avatar_data, avatar_version FROM users WHERE id=$1", {userId});
+    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, atmosphere_enabled, avatar_data, avatar_version FROM users WHERE id=$1", {userId});
     result["languages"] = Json::arrayValue;
     for (const auto& code : ServerSettingsService::languages()) result["languages"].append(code);
     return result;
@@ -55,8 +55,8 @@ Json::Value AuthService::profile(const std::string& userId) {
 Json::Value AuthService::updateProfile(const Principal& principal, const Json::Value& body) {
     if (!body.isObject()) throw badRequest("profile must be an object");
     for (const auto& key : body.getMemberNames()) {
-        if (key != "username" && key != "display_name" && key != "ui_language" && key != "avatar_data") throw badRequest("unknown profile field");
-        if (!body[key].isString()) throw badRequest("profile fields must be strings");
+        if (key != "username" && key != "display_name" && key != "ui_language" && key != "avatar_data" && key != "atmosphere_enabled") throw badRequest("unknown profile field");
+        if (key != "atmosphere_enabled" && !body[key].isString()) throw badRequest("profile fields must be strings");
     }
     // Validate every supplied field before writing; a failed edit cannot partially change the account.
     if (body.isMember("username")) validateUsername(body["username"].asString());
@@ -64,6 +64,7 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
         auto name = text::trim(body["display_name"].asString());
         if (name.empty() || name.size() > 200 || name.find_first_of("\r\n\t") != std::string::npos) throw badRequest("display name must be 1-200 bytes on one line");
     }
+    if (body.isMember("atmosphere_enabled") && !body["atmosphere_enabled"].isBool()) throw badRequest("atmosphere_enabled must be boolean");
     if (body.isMember("ui_language")) {
         auto& languages = ServerSettingsService::languages();
         if (std::find(languages.begin(), languages.end(), body["ui_language"].asString()) == languages.end()) throw badRequest("unsupported interface language");
@@ -88,6 +89,7 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
             auto name = text::trim(json::str(body, "display_name", current["display_name"].asString()));
             auto language = json::str(body, "ui_language", current["ui_language"].asString());
             auto data = json::str(body, "avatar_data", current["avatar_data"].asString());
+            if(body.isMember("atmosphere_enabled")) Db::exec(w,"UPDATE users SET atmosphere_enabled=$2 WHERE id=$1",{principal.userId,body["atmosphere_enabled"].asBool()});
             Db::exec(w, "UPDATE users SET username=$2, display_name=$3, ui_language=$4, avatar_version=avatar_version + CASE WHEN avatar_data<>$5 THEN 1 ELSE 0 END, avatar_data=$5 WHERE id=$1", {principal.userId, username, name, language, data});
         });
     } catch (const pqxx::unique_violation&) { throw conflict("username already taken"); }

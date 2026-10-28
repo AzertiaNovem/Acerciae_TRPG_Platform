@@ -10,7 +10,7 @@ class DocumentService; class HighlightService; class ContextRetrievalService; cl
 class ScenarioService; class ReminderService; class ScriptKnowledgeService; class CharacterSpaceService; class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
 class Notifier;
 namespace logstudio { class LogStudioService; class ObjectStore; class MediaService; class PresentationService; class StyleService; class TtsService; class PublicationService; class CreativeService; class VnScriptService; }
-class ServerSettingsService; class DeletionService; class DiceService; class AiPolicyService; class WorkPool; class Maintenance;
+class AtmosphereService; class ServerSettingsService; class DeletionService; class DiceService; class AiPolicyService; class WorkPool; class Maintenance;
 
 // Composition root: every module gets its dependencies through here (constructed once in main).
 struct Services {
@@ -38,6 +38,7 @@ struct Services {
     std::unique_ptr<InspirationService> inspiration;
     std::unique_ptr<ModuleImporter> modules;
     std::unique_ptr<ObserverScheduler> observer;
+    std::unique_ptr<AtmosphereService> atmosphere;
     std::unique_ptr<logstudio::LogStudioService> studio;
     std::unique_ptr<logstudio::ObjectStore> objectStore;
     std::unique_ptr<logstudio::MediaService> media;

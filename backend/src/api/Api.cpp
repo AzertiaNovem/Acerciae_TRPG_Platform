@@ -1,3 +1,4 @@
+#include "../atmosphere/AtmosphereService.h"
 #include "Api.h"
 #include "../ws/Notifier.h"
 #include "../app/Services.h"
@@ -321,7 +322,15 @@ void registerRoutes() {
     route1("/api/channels/{1}/proposals", {Get}, [&](auto& req, auto& p, auto& a) { return S.documents->listProposals(access(p, a[0]), req->getParameter("status")); });
     route2("/api/channels/{1}/proposals/{2}/decide", {Post}, [&](auto& req, auto& p, auto& a) { return S.documents->decideProposal(access(p, a[0]), a[1], json::toBool(body(req), "accept", false)); });
 
-    // ---- reminder bubbles ----
+    // ---- channel atmosphere and reminder bubbles ----
+    route1("/api/channels/{1}/atmosphere", {Get}, [&](auto&,auto& p,auto& a){return S.atmosphere->current(access(p,a[0]));});
+    route1("/api/channels/{1}/atmosphere/history", {Get}, [&](auto&,auto& p,auto& a){return S.atmosphere->history(access(p,a[0]));});
+    app().registerHandler("/api/channels/{1}/atmosphere/assets/{2}", [&](const HttpRequestPtr& req,Cb&& cb,std::string ch,std::string id){
+        try { auto p=fileAuth(req);if(!p)throw unauthorized("authentication required");auto a=access(*p,ch);std::string bytes,mime;
+            if(!S.atmosphere->fetch(a,id,bytes,mime))throw notFound("background unavailable");
+            auto r=HttpResponse::newHttpResponse();r->setBody(std::move(bytes));r->setContentTypeString(mime);r->addHeader("Cache-Control","private, no-store");r->addHeader("X-Content-Type-Options","nosniff");cb(r);
+        }catch(const ApiError& e){cb(errResp(e.status(),e.code(),e.what()));}catch(const std::exception& e){cb(internalErr(e,req));}
+    },{Get});
     route1("/api/channels/{1}/reminders", {Get}, [&](auto&, auto& p, auto& a) { return S.reminders->list(access(p, a[0])); });
     route2("/api/channels/{1}/reminders/{2}/dismiss", {Post}, [&](auto&, auto& p, auto& a) { return S.reminders->dismiss(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/reminders/{2}/context", {Get}, [&](auto& req, auto& p, auto& a) { return S.reminders->context(access(p, a[0]), a[1], qint(req, "limit", 30)); });
