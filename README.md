@@ -268,6 +268,7 @@ reproduce it by hand with the demo campaign.
 
 ## Documentation
 
+* [第十三声雾钟](docs/DEMO_STORY.zh-CN.md) — Chinese demo story and feature walkthrough for the Keeper, with a separate [player handout](docs/DEMO_STORY_PLAYER_HANDOUT.zh-CN.md)
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — modules, data model, permission model, schedulers
 * [docs/DATA_FLOW.md](docs/DATA_FLOW.md) — the vertical flow from message to highlighted document, proposal validation
 * [docs/API.md](docs/API.md) — HTTP and WebSocket reference
