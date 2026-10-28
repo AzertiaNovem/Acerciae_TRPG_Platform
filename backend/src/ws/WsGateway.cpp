@@ -67,6 +67,10 @@ void WsGateway::dropSubscription(const std::string& userId, const std::string& c
     std::lock_guard<std::mutex> lk(mu_);
     for (auto& [conn, s] : conns_) if (s->userId == userId) { s->channels.erase(channelId); s->channels.erase(spectateKey(channelId)); }
 }
+void WsGateway::dropChannel(const std::string& channelId) {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& [conn, s] : conns_) { s->channels.erase(channelId); s->channels.erase(spectateKey(channelId)); }
+}
 void WsGateway::revalidate(const std::function<bool(const std::string&)>& sessionValid,
                            const std::function<bool(const std::string&, const std::string&)>& mayFollow) {
     struct Item { drogon::WebSocketConnectionPtr conn; std::string user, hash; std::set<std::string> channels; };

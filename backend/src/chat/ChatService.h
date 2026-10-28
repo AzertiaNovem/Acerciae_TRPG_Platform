@@ -36,6 +36,8 @@ public:
     // channels
     Json::Value listChannels(const Principal& p, const std::string& serverId);
     Json::Value createChannel(const Principal& p, const std::string& serverId, const Json::Value& body);
+    // Maintainers: every channel of the server, member or not ({id, name, description, created_at, member_count, message_count}).
+    Json::Value allChannels(const Principal& p, const std::string& serverId);
     Json::Value getChannel(const ChannelAccess& a);
     Json::Value updateChannel(const ChannelAccess& a, const Json::Value& body);
     // The Keeper ends the story: every member can then read the whole story in the campaign log, Keeper-only lines

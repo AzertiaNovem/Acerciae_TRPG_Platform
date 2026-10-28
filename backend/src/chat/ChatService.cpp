@@ -207,6 +207,14 @@ Json::Value ChatService::listChannels(const Principal& p, const std::string& ser
         "SELECT c.*, cm.role AS my_role FROM channels c JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=$2 WHERE c.server_id=$1 ORDER BY c.created_at",
         {serverId, p.userId});
 }
+Json::Value ChatService::allChannels(const Principal& p, const std::string& serverId) {
+    auth_.requireServerMember(p.userId, serverId);
+    auto role = serverRole(db_, serverId, p.userId);
+    if (role != "owner" && role != "admin") throw forbidden("server maintainer required");
+    return db_.queryJson(
+        "SELECT c.id, c.name, c.description, c.created_at, (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=c.id)::int AS member_count, "
+        "(SELECT count(*) FROM messages m WHERE m.channel_id=c.id)::int AS message_count FROM channels c WHERE c.server_id=$1 ORDER BY c.created_at", {serverId});
+}
 Json::Value ChatService::createChannel(const Principal& p, const std::string& serverId, const Json::Value& body) {
     auth_.requireServerMember(p.userId, serverId);
     auto role = serverRole(db_, serverId, p.userId);

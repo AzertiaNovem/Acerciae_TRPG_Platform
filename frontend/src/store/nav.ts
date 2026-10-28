@@ -31,11 +31,29 @@ interface NavState {
   loadServerSettings: () => Promise<void>;
   applyServerSettings: (s: Partial<ServerSettings> & { server_id: string }) => void;
   refreshChannel: () => Promise<void>;
+  // A server or channel was deleted: drop it, and move on if it was the one open.
+  forgetServer: (id: string) => Promise<void>;
+  forgetChannel: (id: string) => Promise<void>;
 }
 const initial = (): Pick<NavState, 'servers' | 'channels' | 'windows' | 'characters' | 'scenes' | 'serverId' | 'channelId' | 'windowId' | 'channel' | 'gmWorkspaceOpen' | 'studioOpen' | 'characterSpaceId' | 'error' | 'serverSettings' | 'spectatable' | 'spectateChannelId'> => ({ servers: [], channels: [], windows: [], characters: [], scenes: [], serverId: null, channelId: null, windowId: null, channel: null, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null, error: null, serverSettings: null, spectatable: [], spectateChannelId: null });
 export const useNav = create<NavState>((set, get) => ({
   ...initial(),
   reset: () => { const prev = get().channelId; if (prev) { chatSocket.unsubscribe(prev); contextSocket.unsubscribe(prev); } const sp = get().spectateChannelId; if (sp) chatSocket.stopSpectating(sp); set(initial()); },
+  forgetServer: async (id) => {
+    const servers = get().servers.filter((s) => s.id !== id);
+    if (get().serverId !== id) { set({ servers }); return; }
+    get().reset(); await get().loadServers();
+  },
+  forgetChannel: async (id) => {
+    const s = get();
+    const channels = s.channels.filter((c) => c.id !== id);
+    set({ channels, spectatable: s.spectatable.filter((c) => c.id !== id) });
+    if (s.spectateChannelId === id) get().openSpectate(null);
+    if (s.channelId !== id) return;
+    chatSocket.unsubscribe(id); contextSocket.unsubscribe(id); bumpEpoch(); resetChannelStores();
+    set({ channelId: null, channel: null, windows: [], characters: [], scenes: [], windowId: null, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null });
+    if (channels[0]) await get().selectChannel(channels[0].id);
+  },
   loadServers: async () => {
     const e = sessionEpoch();
     const servers = await api.servers();

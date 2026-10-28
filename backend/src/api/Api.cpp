@@ -29,6 +29,7 @@
 #include "../logstudio/CreativeService.h"
 #include "../logstudio/VnScriptService.h"
 #include "../servers/ServerSettingsService.h"
+#include "../servers/DeletionService.h"
 #include "../dice/DiceService.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
@@ -225,6 +226,7 @@ void registerRoutes() {
     // ---- servers ----
     route0("/api/servers", {Get}, [&](auto&, auto& p, auto&) { return S.chat->listServers(p); });
     route0("/api/servers", {Post}, [&](auto& req, auto& p, auto&) { return S.chat->createServer(p, json::requireStr(body(req), "name")); });
+    route1("/api/servers/{1}", {Delete}, [&](auto& req, auto& p, auto& a) { return S.deletion->deleteServer(p, a[0], body(req)); });   // owner only
     route1("/api/servers/{1}/join", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->joinServer(p, a[0], json::str(b, "invite_code")); });
     route0("/api/server-directory", {Get}, [&](auto& req, auto& p, auto&) { return S.chat->discoverServers(p, req->getParameter("q")); });
     route1("/api/servers/{1}/invites", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->listInvites(p, a[0]); });
@@ -246,11 +248,13 @@ void registerRoutes() {
     route2("/api/servers/{1}/dice-texts/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.settings->deleteTextGroup(p, a[0], a[1]); });
     route0("/api/dice/texts", {Get}, [&](auto&, auto&, auto&) { return ServerSettingsService::builtinTexts(); });
     route0("/api/users/search", {Get}, [&](auto& req, auto& p, auto&) { return S.chat->searchUsers(p, req->getParameter("q"), qint(req, "limit", 15)); });
+    route1("/api/servers/{1}/all-channels", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->allChannels(p, a[0]); });
     route1("/api/servers/{1}/channels", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->listChannels(p, a[0]); });
     route1("/api/servers/{1}/channels", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->createChannel(p, a[0], body(req)); });
 
     // ---- channels / members / characters ----
     route1("/api/channels/{1}", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->getChannel(access(p, a[0])); });
+    route1("/api/channels/{1}", {Delete}, [&](auto& req, auto& p, auto& a) { return S.deletion->deleteChannel(p, a[0], body(req)); });   // server maintainers
     route1("/api/channels/{1}", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->updateChannel(access(p, a[0]), body(req)); });
     route1("/api/channels/{1}/story/end", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->endStory(access(p, a[0]), body(req)); });
     route1("/api/channels/{1}/story/reopen", {Post}, [&](auto&, auto& p, auto& a) { return S.chat->reopenStory(access(p, a[0])); });

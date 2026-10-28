@@ -68,6 +68,16 @@ void Notifier::revokeChannel(const std::string& userId, const std::string& chann
 void Notifier::revokeServer(const std::string& userId, const std::string& serverId) {
     for (auto& r : db_.queryJson("SELECT id FROM channels WHERE server_id=$1", {serverId})) WsGateway::instance().dropSubscription(userId, r["id"].asString());
 }
+void Notifier::channelDeleted(const std::string& serverId, const std::string& channelId, const std::vector<std::string>& members) {
+    WsGateway::instance().dropChannel(channelId);
+    Json::Value msg; msg["type"] = "channel.deleted"; msg["server_id"] = serverId; msg["channel_id"] = channelId;
+    for (auto& u : members) WsGateway::instance().sendToUser("chat", u, msg);
+}
+void Notifier::serverDeleted(const std::string& serverId, const std::vector<std::string>& channels, const std::vector<std::string>& members) {
+    for (auto& c : channels) WsGateway::instance().dropChannel(c);
+    Json::Value msg; msg["type"] = "server.deleted"; msg["server_id"] = serverId;
+    for (auto& u : members) WsGateway::instance().sendToUser("chat", u, msg);
+}
 void Notifier::channelUpdated(const std::string& channelId) {
     Json::Value msg; msg["type"] = "channel.updated"; msg["channel_id"] = channelId;
     WsGateway::instance().broadcast("chat", channelId, msg);

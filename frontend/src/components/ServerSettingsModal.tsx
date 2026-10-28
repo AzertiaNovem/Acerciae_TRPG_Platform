@@ -6,9 +6,10 @@ import { useNav } from '../store/nav';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 import UserPicker, { userCandidate } from './UserPicker';
+import TypedConfirm from './TypedConfirm';
 import type { BuiltinDiceTexts, DiceTextGroup, Feature, ServerInvite, ServerMember, ServerPolicy, ServerSettings } from '../types';
 
-type Tab = 'general' | 'access' | 'ai' | 'features' | 'members' | 'dice';
+type Tab = 'general' | 'access' | 'ai' | 'features' | 'members' | 'channels' | 'dice';
 import { LANGUAGE_LABELS } from '../i18n';
 export { LANGUAGE_LABELS } from '../i18n';
 const FEATURES: { key: Feature; label: string; help: string }[] = [
@@ -233,6 +234,65 @@ function Invites({ serverId, joinPolicy }: { serverId: string; joinPolicy: Serve
   );
 }
 
+// Every channel of the server (maintainers see them all, member or not); deleting one asks for "Delete Channel".
+function Channels({ serverId }: { serverId: string }) {
+  const toast = useUi((s) => s.toast);
+  const [channels, setChannels] = useState<Awaited<ReturnType<typeof api.allChannels>>>([]);
+  const [doomed, setDoomed] = useState<{ id: string; name: string } | null>(null);
+  const load = useCallback(() => { api.allChannels(serverId).then(setChannels).catch((e) => toast(e.message, 'error')); }, [serverId, toast]);
+  useEffect(load, [load]);
+  const remove = async () => {
+    if (!doomed) return;
+    try {
+      await api.deleteChannel(doomed.id, 'Delete Channel');
+      await useNav.getState().forgetChannel(doomed.id);   // members (this user too) are also told over the socket
+      setDoomed(null); load();
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      {channels.length === 0 && <div className="muted small">{tr('No channels yet.')}</div>}
+      {channels.map((c) => (
+        <div key={c.id} className="pick-row">
+          <span className="grow">#{c.name} <span className="tiny muted">{tr('{n} members · {m} messages', { n: c.member_count, m: c.message_count })}</span></span>
+          <button className="small" onClick={() => setDoomed(c)}>{tr('Delete')}</button>
+        </div>
+      ))}
+      <div className="tiny muted">{tr('Deleting a channel removes it for every member, with its chat, characters, documents, media and logs.')}</div>
+      {doomed && (
+        <TypedConfirm title={tr('Delete the channel “{name}”?', { name: doomed.name })} phrase="Delete Channel" action={tr('Delete channel')} onCancel={() => setDoomed(null)} onConfirm={remove}>
+          {tr('Its chat, characters, documents, media, scenarios and logs are deleted for every member. This cannot be undone.')}
+        </TypedConfirm>
+      )}
+    </div>
+  );
+}
+
+// The owner alone deletes the server, after typing "Delete Server".
+function DeleteServer({ serverId, name, isOwner, onDeleted }: { serverId: string; name: string; isOwner: boolean; onDeleted: () => void }) {
+  const toast = useUi((s) => s.toast);
+  const [asking, setAsking] = useState(false);
+  const remove = async () => {
+    try {
+      await api.deleteServer(serverId, 'Delete Server');
+      onDeleted();
+      await useNav.getState().forgetServer(serverId);   // members (this user too) are also told over the socket
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
+  return (
+    <div className="card" style={{ borderColor: 'var(--danger)', marginTop: 12 }}>
+      <h4 style={{ margin: '0 0 6px' }}>{tr('Danger zone')}</h4>
+      {isOwner ? <div className="row"><span className="grow small">{tr('Delete this server with all its channels, members, invites and settings.')}</span><button className="danger" onClick={() => setAsking(true)}>{tr('Delete server')}</button></div>
+        : <div className="small muted">{tr('Only the server owner can delete the server.')}</div>}
+      {asking && (
+        <TypedConfirm title={tr('Delete the server “{name}”?', { name })} phrase="Delete Server" action={tr('Delete server')} onCancel={() => setAsking(false)} onConfirm={remove}>
+          {tr('Every channel goes with it — chat, characters, documents, media and logs — for every member, and its invites stop working. This cannot be undone.')}
+        </TypedConfirm>
+      )}
+    </div>
+  );
+}
+
 function Members({ serverId, myRole }: { serverId: string; myRole: string }) {
   const me = useAuth((s) => s.user);
   const toast = useUi((s) => s.toast);
@@ -346,7 +406,7 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
   useEffect(() => { if (serverId) api.serverSettings(serverId).then(setSettings).catch((e) => setLoadError(e.message)); }, [serverId]);
   if (!serverId) return null;
   const onSaved = (s: ServerSettings) => { setSettings(s); loadServerSettings(); useNav.getState().loadServers(); };
-  const tabs: [Tab, string][] = [['general', 'General'], ['access', 'Access'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['dice', 'Dice texts']];
+  const tabs: [Tab, string][] = [['general', 'General'], ['access', 'Access'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['channels', 'Channels'], ['dice', 'Dice texts']];
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide col" role="dialog" aria-modal="true" aria-label={tr("Server settings")} onClick={(e) => e.stopPropagation()}>
@@ -356,7 +416,9 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
           <>
             {(tab === 'general' || tab === 'access' || tab === 'ai' || tab === 'features') && <Settings tab={tab} settings={settings} onSaved={onSaved} />}
             {tab === 'access' && <Invites serverId={serverId} joinPolicy={settings.policy?.join_policy ?? 'invite'} />}
+            {tab === 'general' && <DeleteServer serverId={serverId} name={settings.name ?? ''} isOwner={myRole === 'owner'} onDeleted={onClose} />}
             {tab === 'members' && <Members serverId={serverId} myRole={myRole} />}
+            {tab === 'channels' && <Channels serverId={serverId} />}
             {tab === 'dice' && <DiceTexts serverId={serverId} />}
           </>
         )}

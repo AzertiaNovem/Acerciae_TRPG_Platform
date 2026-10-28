@@ -183,7 +183,8 @@ improve Cthulhu Mythos, and a skill improved to 90+ grants 2D6 SAN. `.st fast-ta
 **Server maintainers** — the server owner and admins ("maintainers") set the server's language, its AI providers (language model with
 thinking effort and embedding model, images, speech) and AI policy — a token and an image budget for the whole server (per month or
 until reset) and how many AI tasks may run at once — and switch Consistency Check, Integrated Dice and Inspiration on or off; they invite and remove
-members. Keys are sealed with AES-256-GCM under `AUTH_SECRET` and never returned to clients; a server API base is only used with
+members and delete channels (Server settings → Channels, after typing "Delete Channel"). Only the owner deletes the whole
+server (Server settings → General, after typing "Delete Server"); members still in it are moved off at once. Keys are sealed with AES-256-GCM under `AUTH_SECRET` and never returned to clients; a server API base is only used with
 the server's own key; there is no platform key to fall back to. They also set the server's access policy: how people join (an
 invite link — the default —, open to anyone from the server directory, or closed so that only maintainers add members), who may
 create channels (every member or maintainers only), whether channel GMs may invite **guests** from outside the server (a guest sees

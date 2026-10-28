@@ -38,6 +38,7 @@ public:
     // Revocation. Subscriptions are checked when made; these keep them honest afterwards.
     void closeSession(const std::string& sessionHash);                              // logout
     void dropSubscription(const std::string& userId, const std::string& channelId);   // removed from a channel
+    void dropChannel(const std::string& channelId);                                   // the channel was deleted: nobody follows it
     // Re-checks every socket: `sessionValid(hash)` and `mayFollow(userId, channelKey)`; closes or unsubscribes the rest.
     void revalidate(const std::function<bool(const std::string&)>& sessionValid,
                     const std::function<bool(const std::string&, const std::string&)>& mayFollow);

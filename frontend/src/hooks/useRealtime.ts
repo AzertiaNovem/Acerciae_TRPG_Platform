@@ -34,6 +34,8 @@ export function useRealtime() {
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
       else if (m.type === 'character.updated') useNav.getState().refreshCharacters();
       else if (m.type === 'channel.updated') useNav.getState().refreshChannel();
+      else if (m.type === 'channel.deleted') { const nav = useNav.getState(); if (nav.channelId === m.channel_id) useUi.getState().toast('The channel you were in was deleted.'); nav.forgetChannel(m.channel_id).catch(() => undefined); }
+      else if (m.type === 'server.deleted') { const nav = useNav.getState(); if (nav.serverId === m.server_id) useUi.getState().toast('The server you were on was deleted.'); nav.forgetServer(m.server_id).catch(() => undefined); }
       else if (m.type === 'server.settings') { useNav.getState().applyServerSettings(m.settings); useNav.getState().loadSpectatable().catch(() => undefined); }
     });
     const offCtx = contextSocket.on((m) => {

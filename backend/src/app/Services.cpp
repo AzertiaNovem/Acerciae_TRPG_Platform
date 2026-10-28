@@ -28,6 +28,7 @@
 #include "../logstudio/CreativeService.h"
 #include "../logstudio/VnScriptService.h"
 #include "../servers/ServerSettingsService.h"
+#include "../servers/DeletionService.h"
 #include "../servers/AiPolicyService.h"
 #include "../core/WorkPool.h"
 #include "../core/NetGuard.h"
@@ -67,6 +68,7 @@ Services& Services::build(const Config& cfg) {
     s.studio = std::make_unique<logstudio::LogStudioService>(s.cfg, *s.db, *s.notifier);
     s.objectStore = logstudio::makeObjectStore(s.cfg);
     s.media = std::make_unique<logstudio::MediaService>(s.cfg, *s.db, *s.objectStore);
+    s.deletion = std::make_unique<DeletionService>(*s.db, *s.objectStore, *s.notifier);
     s.presentations = std::make_unique<logstudio::PresentationService>(s.cfg, *s.db, *s.notifier, *s.studio);
     s.styles = std::make_unique<logstudio::StyleService>(*s.db);
     s.tts = std::make_unique<logstudio::TtsService>(s.cfg, *s.db, *s.objectStore, *s.notifier, *s.presentations, *s.settings, *s.aiPolicy);

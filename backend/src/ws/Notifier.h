@@ -20,7 +20,10 @@ public:
     void channelUpdated(const std::string& channelId);
     // A member left: their sockets stop following the channel (or every channel of the server) immediately.
     void revokeChannel(const std::string& userId, const std::string& channelId);
-    void revokeServer(const std::string& userId, const std::string& serverId);   // settings or story state changed: members refetch the channel
+    void revokeServer(const std::string& userId, const std::string& serverId);
+    // Deleted: sockets stop following the channels and every former server member's clients are told.
+    void channelDeleted(const std::string& serverId, const std::string& channelId, const std::vector<std::string>& members);
+    void serverDeleted(const std::string& serverId, const std::vector<std::string>& channels, const std::vector<std::string>& members);   // settings or story state changed: members refetch the channel
     void serverSettingsChanged(const std::string& serverId, const Json::Value& publicSettings);  // every channel of the server
     // context stream
     void documentUpdated(const std::string& channelId, const Json::Value& payload);   // {document_id, doc_type, version, change_count, summary, gm_only}

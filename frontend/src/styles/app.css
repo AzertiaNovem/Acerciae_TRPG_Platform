@@ -13,6 +13,7 @@ button { cursor: pointer; border: 1px solid var(--bg-4); background: var(--bg-3)
 button:hover { background: var(--bg-4); }
 button:disabled { opacity: .5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #0b0e14; font-weight: 600; }
+button.danger { background: #3a1b1f; border-color: var(--danger); color: var(--danger); font-weight: 600; }
 button.primary:hover { filter: brightness(1.08); }
 button.ghost { background: transparent; border-color: transparent; color: var(--fg-1); }
 button.ghost:hover { background: var(--bg-3); }
