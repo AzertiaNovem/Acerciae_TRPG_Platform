@@ -19,7 +19,8 @@ std::string familyOfCanonical(const std::string& canon) {
 int specialBase(const std::string& fam, const std::string& spec) {
     static const std::map<std::string, std::map<std::string, int>> t = {
         {"Fighting", {{"brawl", 25}, {"斗殴", 25}, {"axe", 15}, {"chainsaw", 10}, {"flail", 10}, {"garrote", 15}, {"spear", 20}, {"sword", 20}, {"whip", 5}, {"剑", 20}, {"矛", 20}, {"鞭", 5}, {"链锯", 10}}},
-        {"Firearms", {{"handgun", 20}, {"手枪", 20}, {"rifle/shotgun", 25}, {"rifle", 25}, {"shotgun", 25}, {"步枪", 25}, {"霰弹枪", 25}, {"步/霰", 25}, {"bow", 15}, {"弓", 15}, {"弓术", 15}, {"smg", 15}, {"flamethrower", 10}, {"heavy weapons", 10}, {"machine gun", 10}}},
+        {"Firearms", {{"handgun", 20}, {"手枪", 20}, {"rifle/shotgun", 25}, {"rifle", 25}, {"shotgun", 25}, {"步枪", 25}, {"霰弹枪", 25}, {"步/霰", 25}, {"来复", 25}, {"来复枪", 25}, {"步枪/霰弹枪", 25},
+                       {"bow", 15}, {"弓", 15}, {"弓术", 15}, {"smg", 15}, {"submachine gun", 15}, {"冲锋枪", 15}, {"flamethrower", 10}, {"火焰喷射器", 10}, {"heavy weapons", 10}, {"重武器", 10}, {"machine gun", 10}, {"机枪", 10}}},
     };
     auto f = t.find(fam);
     if (f == t.end()) return -1;
@@ -64,25 +65,48 @@ const Career* findCareer(const std::string& name) {
     for (auto& c : careers()) if (c.name == n) return &c;
     return nullptr;
 }
+// Where the specialisation starts: the LAST "(" or "（", so "Language (Other) (Latin)" splits after "Language (Other)".
+static std::size_t specStart(const std::string& t, std::size_t& open) {
+    auto a = t.rfind('('), b = t.rfind("（");
+    if (a == std::string::npos && b == std::string::npos) return std::string::npos;
+    if (b == std::string::npos || (a != std::string::npos && a > b)) { open = 1; return a; }
+    open = 3; return b;
+}
 std::string family(const std::string& key) {
     auto canon = dice::canonicalName(key);
     if (dice::baseCode(canon)) return familyOfCanonical(canon);
     auto t = text::trim(key);
-    auto p = t.find(" (");
-    if (p == std::string::npos) p = t.find("（");
-    if (p == std::string::npos) return canon;
-    auto fam = familyOfCanonical(dice::canonicalName(t.substr(0, p)));
-    return fam;
+    std::size_t open = 0; auto p = specStart(t, open);
+    if (p == std::string::npos || p == 0) return canon;
+    return familyOfCanonical(dice::canonicalName(text::trim(t.substr(0, p))));
 }
 static std::string specOf(const std::string& key) {
     auto t = text::trim(key);
-    auto p = t.find(" ("); size_t open = 2;
-    if (p == std::string::npos) { p = t.find("（"); open = 3; }
-    if (p == std::string::npos) return "";
+    std::size_t open = 0; auto p = specStart(t, open);
+    if (p == std::string::npos || p == 0) return "";
     auto s = t.substr(p + open);
     auto fullWidthClose = [&] { return s.size() >= 3 && s.compare(s.size() - 3, 3, "）") == 0; };
     while (!s.empty() && (s.back() == ')' || fullWidthClose())) { if (s.back() == ')') s.pop_back(); else s.erase(s.size() - 3); }
     return text::trim(s);
+}
+static std::string normSpec(const std::string& s) { return text::lower(text::trim(s)); }
+// Does a career entry ({skill, any?, spec?}) cover this skill key? "any" takes every specialisation of the family;
+// a named specialisation takes only that one (written in either language's words, so containment is enough).
+static bool covers(const Json::Value& entry, const std::string& key) {
+    auto canon = dice::canonicalName(key), fam = family(key), es = entry["skill"].asString();
+    if (json::toBool(entry, "any")) return fam == es || canon == es;
+    auto want = normSpec(json::str(entry, "spec"));
+    if (!want.empty()) {
+        if (fam != es) return false;
+        auto have = normSpec(specOf(key));
+        if (have.empty() && canon != fam) have = normSpec(canon);   // "Fighting (Brawl)" written as a canonical name
+        return !have.empty() && (have.find(want) != std::string::npos || want.find(have) != std::string::npos);
+    }
+    return canon == es || (fam == es && specOf(key).empty());
+}
+static std::string entryLabel(const Json::Value& e) {
+    auto spec = json::str(e, "spec");
+    return e["skill"].asString() + (json::toBool(e, "any") ? " (any)" : spec.empty() ? "" : " (" + spec + ")");
 }
 int skillBase(const std::string& key, const Json::Value& c, int customBase) {
     auto canon = dice::canonicalName(key);
@@ -144,25 +168,39 @@ Json::Value apply(Json::Value& card) {
     rep["hobby_budget"] = hobbyBudget(chars);
 
     // What career points may go to: fixed skills, the chosen options of each group, the player's specialties.
-    std::set<std::string> allowed;
-    auto member = [](const Json::Value& list, const std::string& fam) { for (const auto& e : list) if (e["skill"].asString() == fam) return true; return false; };
+    // Entries keep their specialisation: "Science (Biology)" opens Biology, not every science.
+    Json::Value allowedEntries(Json::arrayValue);
+    std::set<std::string> allowed;   // labels for the report
+    auto allow = [&](const Json::Value& e) { allowedEntries.append(e); allowed.insert(entryLabel(e)); };
+    auto member = [](const Json::Value& list, const std::string& key) -> const Json::Value* { for (const auto& e : list) if (covers(e, key)) return &e; return nullptr; };
     if (career) {
-        allowed.insert("Credit Rating");   // every career: the range above must be reached with career points
-        for (const auto& e : career->fixed) allowed.insert(e["skill"].asString());
+        { Json::Value cr; cr["skill"] = "Credit Rating"; allow(cr); }   // every career: the range above must be reached with career points
+        for (const auto& e : career->fixed) allow(e);
         const Json::Value& picks = card["career"]["choices"];
         for (Json::ArrayIndex g = 0; g < career->choices.size(); ++g) {
             const auto& group = career->choices[g];
             const Json::Value chosen = picks.isArray() && g < picks.size() && picks[g].isArray() ? picks[g] : Json::Value(Json::arrayValue);
             if ((int)chosen.size() > json::toInt(group, "pick", 1)) violate("invalid_choice", "option group " + std::to_string(g + 1) + " allows " + std::to_string(json::toInt(group, "pick", 1)) + " pick(s)");
             for (const auto& s : chosen) {
-                auto fam = family(s.asString());
-                if (!member(group["from"], fam)) { violate("invalid_choice", s.asString() + " is not an option of group " + std::to_string(g + 1), s.asString()); continue; }
-                allowed.insert(fam);
+                auto* opt = member(group["from"], s.asString());
+                if (!opt) { violate("invalid_choice", s.asString() + " is not an option of group " + std::to_string(g + 1), s.asString()); continue; }
+                // The pick itself is what the points may go to (an "any" option names one specialisation here).
+                Json::Value e; e["skill"] = family(s.asString());
+                auto spec = specOf(s.asString()); if (!spec.empty()) e["spec"] = spec; else if (json::toBool(*opt, "any")) e["any"] = true;
+                if (dice::canonicalName(s.asString()) != family(s.asString()) && spec.empty()) e["skill"] = dice::canonicalName(s.asString());
+                allow(e);
             }
         }
         const Json::Value& spec = card["career"]["specialties"];
-        if ((int)spec.size() > career->free) violate("too_many_specialties", career->name + " allows " + std::to_string(career->free) + " specialt" + (career->free == 1 ? "y" : "ies"));
-        for (const auto& s : spec) allowed.insert(family(s.asString()));
+        int named = 0; for (const auto& s : spec) if (!s.asString().empty()) ++named;
+        if (named > career->free) violate("too_many_specialties", career->name + " allows " + std::to_string(career->free) + " specialt" + (career->free == 1 ? "y" : "ies"));
+        for (const auto& s : spec) {
+            if (s.asString().empty()) continue;
+            Json::Value e; auto sp = specOf(s.asString());
+            e["skill"] = sp.empty() ? dice::canonicalName(s.asString()) : family(s.asString());
+            if (!sp.empty()) e["spec"] = sp;
+            allow(e);
+        }
     }
     rep["allowed"] = Json::Value(Json::arrayValue); for (auto& a : allowed) rep["allowed"].append(a);
 
@@ -174,7 +212,8 @@ Json::Value apply(Json::Value& card) {
         int c = json::toInt(e, "career", 0), h = json::toInt(e, "hobby", 0), g = json::toInt(e, "growth", 0);
         auto canon = dice::canonicalName(key);
         if (canon == "Cthulhu Mythos" && (c || h)) violate("mythos", "Cthulhu Mythos cannot take skill points", key);
-        if (c > 0 && !allowed.count(family(key)) && !allowed.count(canon)) violate("career_points_not_allowed", key + " is not one of the career's skills", key);
+        bool careerSkill = false; for (const auto& e : allowedEntries) if (covers(e, key)) { careerSkill = true; break; }
+        if (c > 0 && !careerSkill) violate("career_points_not_allowed", key + " is not one of the career's skills", key);
         int base = skillBase(key, chars, json::toInt(e, "base", 0));
         int totalSkill = base + c + h + g;
         if (totalSkill > 99) violate("over_99", key + " exceeds 99", key);
@@ -185,7 +224,10 @@ Json::Value apply(Json::Value& card) {
     if (careerSpent > rep["career_budget"].asInt()) violate("career_over", "career points " + std::to_string(careerSpent) + " exceed the budget " + std::to_string(rep["career_budget"].asInt()));
     if (hobbySpent > rep["hobby_budget"].asInt()) violate("hobby_over", "hobby points " + std::to_string(hobbySpent) + " exceed the budget " + std::to_string(rep["hobby_budget"].asInt()));
     if (career && career->creditMin >= 0) {
-        int cr = card["skills"]["Credit Rating"].isNumeric() ? card["skills"]["Credit Rating"].asInt() : 0;
+        // Read without inserting: operator[] on the card would add a null "Credit Rating" that later mirrors as 0.
+        const Json::Value& skills = card["skills"];
+        int cr = 0;
+        for (const auto& k : skills.getMemberNames()) if (dice::canonicalName(k) == "Credit Rating" && skills[k].isNumeric()) cr = std::max(cr, skills[k].asInt());
         if (cr < career->creditMin || cr > career->creditMax) warn("credit_rating", "Credit Rating " + std::to_string(cr) + " is outside " + career->name + "'s range " + std::to_string(career->creditMin) + "–" + std::to_string(career->creditMax));
     }
     return rep;

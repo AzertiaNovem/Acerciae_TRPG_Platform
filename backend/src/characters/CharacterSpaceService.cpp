@@ -1,4 +1,5 @@
 #include "CharacterSpaceService.h"
+#include <map>
 #include "Coc7Rules.h"
 #include "../servers/ServerSettingsService.h"
 #include "../core/Errors.h"
@@ -44,7 +45,9 @@ Json::Value CharacterSpaceService::normalizeRoleCard(const Json::Value& in) {
         cr["choices"] = Json::Value(Json::arrayValue);
         for (const auto& g : src["career"]["choices"]) { if (cr["choices"].size() >= 8) break; Json::Value picks(Json::arrayValue); for (const auto& x : g) if (x.isString() && picks.size() < 8) { auto v = clip(text::trim(x.asString()), 60); if (!v.empty()) picks.append(v); } cr["choices"].append(picks); }
         cr["specialties"] = Json::Value(Json::arrayValue);
-        for (const auto& x : src["career"]["specialties"]) if (x.isString() && cr["specialties"].size() < 12) { auto v = clip(text::trim(x.asString()), 60); if (!v.empty()) cr["specialties"].append(v); }
+        // Slots keep their positions: an empty slot stays empty instead of pulling later ones forward.
+        for (const auto& x : src["career"]["specialties"]) if (cr["specialties"].size() < 12) cr["specialties"].append(x.isString() ? clip(text::trim(x.asString()), 60) : std::string());
+        while (!cr["specialties"].empty() && cr["specialties"][cr["specialties"].size() - 1].asString().empty()) { Json::Value last; cr["specialties"].removeIndex(cr["specialties"].size() - 1, &last); }
         card["career"] = cr;
     }
     if (src["skill_points"].isObject()) {
@@ -71,7 +74,14 @@ Json::Value CharacterSpaceService::mirrorAttrs(const Json::Value& attrsIn, const
     auto put = [&](const std::string& raw, int v) { auto key = dice::storedKey(attrs, raw); if (key.empty()) key = dice::canonicalName(raw); if (key.empty()) return; attrs[key] = v; };
     for (auto& k : card["characteristics"].getMemberNames()) put(k, card["characteristics"][k].asInt());
     for (auto& k : {"hp","mp","san","mov"}) if (card["derived"].isMember(k)) put(std::string(k), card["derived"][k].asInt());
-    for (auto& k : card["skills"].getMemberNames()) put(k, card["skills"][k].asInt());
+    // Two spellings of one skill ("侦查" and "Spot Hidden") mirror once, with the higher value, whatever their order.
+    std::map<std::string, std::pair<std::string, int>> best;
+    for (auto& k : card["skills"].getMemberNames()) {
+        auto canon = dice::canonicalName(k); int v = card["skills"][k].asInt();
+        auto it = best.find(canon);
+        if (it == best.end() || v > it->second.second) best[canon] = {k, v};
+    }
+    for (auto& [canon, kv] : best) put(kv.first, kv.second);
     return attrs;
 }
 std::string CharacterSpaceService::normalizeSubtitle(const std::string& s) {
@@ -129,6 +139,14 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
 Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
     auto c = characterFor(a, characterId, true);
     auto card = body.isMember("role_card") ? normalizeRoleCard(body["role_card"]) : normalizeRoleCard(c["role_card"]);
+    if (pointsMode(a) && !a.isGm) {
+        // Growth points record improvement the Keeper granted (or .en rolled): a player cannot set them.
+        auto before = normalizeRoleCard(c["role_card"]);
+        for (auto& k : card["skill_points"].getMemberNames()) {
+            const auto& old = before["skill_points"];
+            card["skill_points"][k]["growth"] = old.isMember(k) ? old[k]["growth"] : Json::Value(0);
+        }
+    }
     if (pointsMode(a)) {
         auto rep = coc7::apply(card);
         if (!rep["violations"].empty()) {

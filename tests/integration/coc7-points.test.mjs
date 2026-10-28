@@ -53,11 +53,17 @@ test("COC7 point-buy: a server feature; careers from the list gate career points
   const saved = await save(card);
   const rc = saved.character.role_card;
   assert.equal(rc.skills["Spot Hidden"], 65, "base 25 + 40 career; the direct total sent was ignored");
-  assert.equal(rc.skills["Library Use"], 80); assert.equal(rc.skills["Dodge"], 65); assert.equal(rc.skills["Science (Biology)"], 20); assert.equal(rc.skills["Stealth"], 25);
+  assert.equal(rc.skills["Library Use"], 80); assert.equal(rc.skills["Dodge"], 65); assert.equal(rc.skills["Science (Biology)"], 20);
+  assert.equal(rc.skills["Stealth"], 20, "a player cannot grant themselves growth points");
   assert.equal(saved.points.career_budget, 300); assert.equal(saved.points.career_spent, 150); assert.equal(saved.points.hobby_spent, 59); assert.equal(saved.points.characteristics_total, 505);
   assert.deepEqual(saved.points.violations, []); assert.deepEqual(saved.points.warnings, []);
   assert.equal(saved.attrs["Spot Hidden"], 65, "dice attributes mirror the computed totals");
   assert.equal(saved.attrs["Dodge"], 65);
+  // Growth is the Keeper's to record (improvement checks); the player's next save keeps it.
+  const grown = await call(gm, "PUT", `/api/channels/${ch}/characters/${ada.id}/card`, { role_card: card });
+  assert.equal(grown.character.role_card.skills["Stealth"], 25);
+  const kept = await save({ ...card, skill_points: { ...card.skill_points, Stealth: { growth: 40 } } });
+  assert.equal(kept.character.role_card.skills["Stealth"], 25);
 
   // Limits: career points on a skill outside the career, overspending, too many specialties, a career not in the list.
   const e1 = await rejects(save({ ...card, skill_points: { ...card.skill_points, Stealth: { career: 10 } } }), 400);

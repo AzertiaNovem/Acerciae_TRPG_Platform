@@ -558,6 +558,46 @@ int main() {
         auto entries=json::parse(R"([{"term":"拉莱耶","reading":"拉来耶","mode":"replace"}])");std::string source="我们前往拉莱耶。";CHECK(logstudio::TtsService::applyDictionary(source,entries,false)=="我们前往拉来耶。");CHECK(source=="我们前往拉莱耶。");
         Json::Value params;auto k=logstudio::TtsService::cacheKey("mock","model","voice",1,source,"",1,params);CHECK(k!=logstudio::TtsService::cacheKey("mock","model","voice",2,source,"",1,params));CHECK(k!=logstudio::TtsService::cacheKey("mock","model","voice",1,source,"whisper",1,params));
     });
+    test("dice rules: fumbles against the needed number, spaced .sc, hyphenated .st names, .en limits and the 90% SAN bonus", [] {
+        dice::TextSet en;
+        dice::Context ctx; ctx.name = "Alice"; ctx.hasCharacter = true; ctx.attrs["Spot Hidden"] = 80; ctx.attrs["SAN"] = 60; ctx.attrs["Library Use"] = 85; ctx.attrs["Cthulhu Mythos"] = 5;
+        // Skill 80 at Hard needs 40 or less: 97 is a fumble, not a plain failure; at Regular it stays a failure.
+        dice::SeqRng hard({97}); auto h = dice::execute(*dice::parseCommand(".ra hard spot hidden"), ctx, en, hard);
+        CHECK(h.detail["rolls"][0]["level"].asString() == "fumble");
+        dice::SeqRng reg({97}); auto r = dice::execute(*dice::parseCommand(".ra spot hidden"), ctx, en, reg);
+        CHECK(r.detail["rolls"][0]["level"].asString() == "failure");
+        dice::SeqRng sc({50, 4}); auto spaced = dice::execute(*dice::parseCommand(".sc 1 / 1d6"), ctx, en, sc);
+        CHECK(spaced.attrsChanged && spaced.attrs["SAN"].asInt() == 59);
+        dice::SeqRng st({}); auto set = dice::execute(*dice::parseCommand(".st fast-talk 50"), ctx, en, st);
+        CHECK(set.attrsChanged); CHECK(dice::lookup(set.attrs, "fast talk").value == 50);
+        dice::SeqRng st2({2}); auto minus = dice::execute(*dice::parseCommand(".st san-2"), ctx, en, st2);
+        CHECK(minus.attrs["SAN"].asInt() == 58);
+        dice::SeqRng m({99}); bool refused = false; try { dice::execute(*dice::parseCommand(".en cthulhu mythos"), ctx, en, m); } catch (const dice::DiceError&) { refused = true; } CHECK(refused);
+        // 85 + 6 crosses 90: 2D6 (3+4) SAN.
+        dice::SeqRng g({97, 6, 3, 4}); auto grow = dice::execute(*dice::parseCommand(".en library use"), ctx, en, g);
+        CHECK(grow.attrs["Library Use"].asInt() == 91); CHECK(grow.attrs["SAN"].asInt() == 67); CHECK(grow.detail["san_bonus"].asInt() == 7);
+    });
+    test("COC7 point-buy: specialisation keys, named specialties, Credit Rating and specialised bases", [] {
+        CHECK(coc7::family("Language (Other) (拉丁)") == "Language (Other)");
+        CHECK(coc7::family("外语（拉丁）") == "Language (Other)");
+        CHECK(coc7::family("Science (生物)") == "Science");
+        Json::Value chars; chars["DEX"] = 60; chars["EDU"] = 70;
+        CHECK(coc7::skillBase("射击（来复）", chars) == 25); CHECK(coc7::skillBase("Firearms (SMG)", chars) == 15);
+        // A career naming Science (Biology) takes Biology, not every science.
+        const coc7::Career* doctor = nullptr;
+        for (auto& c : coc7::careers()) for (auto& e : c.fixed) if (e["skill"].asString() == "Science" && json::str(e, "spec") == "生物") { doctor = &c; break; }
+        CHECK(doctor != nullptr);
+        if (doctor) {
+            Json::Value card; card["career"]["name"] = doctor->name; card["characteristics"]["EDU"] = 80; card["characteristics"]["INT"] = 70; card["characteristics"]["DEX"] = 50;
+            card["skill_points"]["Science (生物)"]["career"] = 10;
+            card["skill_points"]["Science (化学)"]["career"] = 10;
+            auto rep = coc7::apply(card);
+            bool chemRefused = false, bioRefused = false;
+            for (auto& v : rep["violations"]) { if (v["skill"].asString() == "Science (化学)") chemRefused = true; if (v["skill"].asString() == "Science (生物)") bioRefused = true; }
+            CHECK(chemRefused); CHECK(!bioRefused);
+            CHECK(!card["skills"].isMember("Credit Rating"));   // reading the range never inserts a null Credit Rating
+        }
+    });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;
 }

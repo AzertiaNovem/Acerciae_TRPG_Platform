@@ -12,6 +12,14 @@ on, every role card in the server is built the way the Call of Cthulhu 7e invest
 - A skill's total is base + growth + career + hobby. Bases are the 7e values (Dodge = DEX/2, Language (Own) = EDU,
   specialisations by family: Science 1, Art/Craft 5, Survival 10, Fighting (Sword) 20 …). No skill may pass 99, and
   Cthulhu Mythos takes no points. Credit Rating outside the career's range is a warning, not a block.
+- A career that names a specialisation opens only that one: a doctor's "Science (Biology)" takes career points, their
+  "Science (Chemistry)" does not; "any" entries (☆ 任意) open the whole family. Keys are read by their last
+  parenthesis, so "Language (Other) (Latin)" belongs to Language (Other). Specialty slots keep their positions.
+- Growth points record improvement (the Keeper's entry, or `.en` in chat): only the Keeper can change them; a player's
+  save keeps the stored values.
+- Some specialisations have their own base: Firearms (Rifle/Shotgun, 来复) 25, (SMG, 冲锋枪) 15, Bow 15, heavy
+  weapons, machine guns and flamethrowers 10.
+- When a card spells one skill twice ("侦查" and "Spot Hidden"), the dice get the higher value.
 - The player can only choose a career from the built-in list. Custom career (自定义职业) is in the list: eight skills of
   the player's choice, credit rating agreed with the Keeper.
 

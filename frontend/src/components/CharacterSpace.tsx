@@ -21,7 +21,7 @@ type Tab = 'card' | 'look' | 'background' | 'items';
 // The character space: avatar, main portrait, basic information, the COC7-styled role card, background and items.
 // The Keeper and the character's actor edit; everyone else reads. Images come from uploads or from image AI.
 export default function CharacterSpace({ characterId }: { characterId: string }) {
-  const { channelId, characters, openCharacter } = useNav();
+  const { channelId, characters, openCharacter, channel } = useNav();
   const toast = useUi((s) => s.toast);
   const [space, setSpace] = useState<Space | null>(null);
   const [card, setCard] = useState<RoleCard | null>(null);
@@ -113,7 +113,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
               {([['hp', 'HP'], ['hp_max', 'HP max'], ['mp', 'MP'], ['mp_max', 'MP max'], ['san', 'SAN'], ['san_max', 'SAN max'], ['mov', 'MOV'], ['build', 'Build']] as const).map(([k, label]) => <div key={k} className="cell"><b>{label}</b>{editable ? <input inputMode="numeric" value={card.derived[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete (x.derived as any)[k]; else if (Number.isFinite(v)) (x.derived as any)[k] = Math.round(v); })} /> : <span className="v">{card.derived[k] ?? '—'}</span>}</div>)}
               <div className="cell"><b>DB</b>{editable ? <input value={card.derived.db} onChange={(e) => setCardField((x) => { x.derived.db = e.target.value; })} /> : <span className="v">{card.derived.db || '—'}</span>}</div>
             </div>
-            {pointsOn && rules && <PointBuy card={card} rules={rules} editable={!!editable} report={space.points} setCard={setCardField} />}
+            {pointsOn && rules && <PointBuy card={card} rules={rules} editable={!!editable} isKeeper={channel?.my_role === 'gm'} report={space.points} setCard={setCardField} />}
             {pointsOn && !rules && <div className="tiny muted">{tr('Loading…')}</div>}
             {!pointsOn && <><h4>{tr('Skills')}</h4>
             <div className="skills">

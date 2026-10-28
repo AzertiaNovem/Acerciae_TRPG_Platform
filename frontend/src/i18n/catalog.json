@@ -13750,5 +13750,29 @@
     "отклонено",
     "rejeitado",
     "rifiutato"
+  ],
+  "Growth points for {skill}": [
+    "{skill} 的成长点数",
+    "{skill} 的成長點數",
+    "{skill} の成長ポイント",
+    "{skill} 성장 포인트",
+    "Puntos de mejora de {skill}",
+    "Points de progression de {skill}",
+    "Steigerungspunkte für {skill}",
+    "Очки роста для {skill}",
+    "Pontos de evolução de {skill}",
+    "Punti di crescita di {skill}"
+  ],
+  "Growth comes from improvement checks; the Keeper records it.": [
+    "成长来自成长检定，由 KP 记录。",
+    "成長來自成長檢定，由 KP 記錄。",
+    "成長は成長判定によるもので、KP が記録します。",
+    "성장은 성장 판정에서 나오며 KP가 기록합니다.",
+    "La mejora viene de las tiradas de mejora; la registra el Guardián.",
+    "La progression vient des jets d’expérience ; le Gardien l’enregistre.",
+    "Steigerung kommt aus Steigerungswürfen; der Spielleiter trägt sie ein.",
+    "Рост даёт проверка развития; его записывает Хранитель.",
+    "A evolução vem dos testes de evolução; o Guardião a registra.",
+    "La crescita deriva dai tiri di miglioramento; la registra il Custode."
   ]
 }

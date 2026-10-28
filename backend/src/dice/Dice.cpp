@@ -284,6 +284,8 @@ const Json::Value& builtinTexts(const std::string& lang) {
         "st.clear": "{name}: all attributes cleared",
         "en.success": "{name}'s {attr} growth check: D100={roll}/{value} — improved by {gain}, now {new}",
         "en.failure": "{name}'s {attr} growth check: D100={roll}/{value} — no improvement",
+        "en.mythos": "Cthulhu Mythos cannot be improved by experience",
+        "en.san_bonus": "{attr} reached 90: {name} gains {gain} SAN (2D6), now {new}",
         "hint.roll": "{name} rolls {expr}",
         "hint.target": " ({difficulty}target ≤ {target})",
         "hint.set": "set {list}",
@@ -320,6 +322,8 @@ const Json::Value& builtinTexts(const std::string& lang) {
         "st.clear": "{name}: 已清空所有属性",
         "en.success": "{name}的{attr}成长检定: D100={roll}/{value} 成功，增加{gain}点，当前{new}",
         "en.failure": "{name}的{attr}成长检定: D100={roll}/{value} 失败，没有成长",
+        "en.mythos": "克苏鲁神话不能通过成长检定提升",
+        "en.san_bonus": "{attr}达到90：{name}获得{gain}点理智（2D6），当前{new}",
         "hint.roll": "{name}掷骰 {expr}",
         "hint.target": "（{difficulty}目标 ≤ {target}）",
         "hint.set": "设置 {list}",
@@ -528,6 +532,8 @@ Outcome runCheck(const Command& cmd, const Context& ctx, const TextSet& t, Rng& 
     for (int i = 0; i < c.times; ++i) {
         auto d = rollD100(rng, c.bonus, c.penalty);
         auto lvl = successLevel(d.roll, tg.value);
+        // A fumble is judged against the number needed: at Hard or Extreme a target below 50 fumbles on 96+.
+        if (lvl != Level::Critical && (d.roll >= 100 || (target < 50 && d.roll >= 96))) lvl = Level::Fumble;
         auto effective = lvl;
         if (lvl != Level::Critical && lvl != Level::Fumble && (int)lvl < c.difficulty) effective = Level::Failure;
         std::string rollText = itos(d.roll);
@@ -547,6 +553,10 @@ Outcome runCheck(const Command& cmd, const Context& ctx, const TextSet& t, Rng& 
 Outcome runSanity(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng) {
     static const std::string u = ".sc <success loss>/<failure loss> [SAN]";
     auto s = text::trim(foldPunct(cmd.args));
+    // "1 / 1d6" is the same as "1/1d6".
+    { std::string joined; for (std::size_t k = 0; k < s.size(); ++k) {
+        if (isAsciiSpace(s[k])) { std::size_t j = k; while (j < s.size() && isAsciiSpace(s[j])) ++j; if ((j < s.size() && s[j] == '/') || (!joined.empty() && joined.back() == '/')) { k = j - 1; continue; } }
+        joined += s[k]; } s = joined; }
     std::size_t sp = 0; while (sp < s.size() && !isAsciiSpace(s[sp])) ++sp;
     auto spec = s.substr(0, sp), rest = text::trim(s.substr(sp));
     auto slash = spec.find('/');
@@ -597,6 +607,7 @@ Outcome runGrowth(const Command& cmd, const Context& ctx, const TextSet& t, Rng&
         if (!v.found) throw DiceError(t.render("attr.missing", {{"name", ctx.name}, {"attr", canonicalName(n.name)}}));
         value = v.value; key = v.isBase ? canonicalName(n.name) : v.name;
     }
+    if (canonicalName(key) == "Cthulhu Mythos") throw DiceError(t.get("en.mythos"));
     int roll = rng.roll(100);
     Outcome o;
     o.detail["type"] = "growth"; o.detail["attr"] = key; o.detail["roll"] = roll; o.detail["value"] = value;
@@ -605,6 +616,17 @@ Outcome runGrowth(const Command& cmd, const Context& ctx, const TextSet& t, Rng&
         o.attrs = ctx.attrs; o.attrs[key] = value + gain; o.attrsChanged = true;
         o.text = t.render("en.success", {{"name", ctx.name}, {"attr", key}, {"roll", itos(roll)}, {"value", itos(value)}, {"gain", itos(gain)}, {"new", itos(value + gain)}});
         o.detail["success"] = true; o.detail["gain"] = gain;
+        // Reaching 90 in a skill steadies the mind: +2D6 SAN.
+        if (value < 90 && value + gain >= 90) {
+            auto san = lookup(ctx.attrs, "SAN");
+            if (san.found) {
+                int bonus = rng.roll(6) + rng.roll(6);
+                std::string sanKey = san.isBase ? std::string("SAN") : san.name;
+                o.attrs[sanKey] = san.value + bonus;
+                o.text += "\n" + t.render("en.san_bonus", {{"name", ctx.name}, {"attr", key}, {"gain", itos(bonus)}, {"new", itos(san.value + bonus)}});
+                o.detail["san_bonus"] = bonus;
+            }
+        }
     } else {
         o.text = t.render("en.failure", {{"name", ctx.name}, {"attr", key}, {"roll", itos(roll)}, {"value", itos(value)}});
         o.detail["success"] = false;
@@ -637,8 +659,10 @@ StPlan parseSt(const std::string& argsIn, const TextSet& t) {
     if (auto r = firstWord({"del", "rm", "delete"})) { p.kind = StPlan::Delete; p.names = splitWords(*r); if (p.names.empty()) usage(t, u); return p; }
     if (firstWord({"clr", "clear"})) { p.kind = StPlan::Clear; return p; }
     // name±expr (a single modification): hp-2, san - 1d6, HP+1
+    auto hyphenInName = [&](std::size_t i) { return s[i] == '-' && i + 1 < s.size() && std::isalpha((unsigned char)s[i + 1]); };   // fast-talk
     for (std::size_t i = 1; i < s.size(); ++i) {
         if (s[i] != '+' && s[i] != '-') continue;
+        if (hyphenInName(i)) continue;
         auto name = text::trim(s.substr(0, i));
         bool nameOk = !name.empty() && std::none_of(name.begin(), name.end(), [](char c) { return isDigit(c); });
         auto expr = text::trim(s.substr(i + 1));
@@ -652,7 +676,7 @@ StPlan parseSt(const std::string& argsIn, const TextSet& t) {
         while (i < s.size() && (isAsciiSpace(s[i]) || s[i] == ',' || s[i] == ';' || s[i] == '|')) ++i;
         if (i >= s.size()) break;
         std::size_t start = i;
-        while (i < s.size() && !isDigit(s[i]) && s[i] != ':' && s[i] != '=' && s[i] != ',' && s[i] != ';' && s[i] != '|' && s[i] != '+' && s[i] != '-') ++i;
+        while (i < s.size() && !isDigit(s[i]) && s[i] != ':' && s[i] != '=' && s[i] != ',' && s[i] != ';' && s[i] != '|' && s[i] != '+' && (s[i] != '-' || hyphenInName(i))) ++i;
         auto name = text::trim(s.substr(start, i - start));
         while (i < s.size() && (isAsciiSpace(s[i]) || s[i] == ':' || s[i] == '=')) ++i;
         std::size_t ds = i; while (i < s.size() && isDigit(s[i])) ++i;
