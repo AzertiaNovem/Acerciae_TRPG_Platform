@@ -1,6 +1,7 @@
 #include "AnthropicClient.h"
 #include "../core/Json.h"
-#include <curl/curl.h>
+#include "HttpTransport.h"
+#include "../core/Log.h"
 
 namespace acerciae {
 Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoint& ep) {
@@ -18,6 +19,7 @@ Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoin
         const std::string role = m.role == "assistant" ? "assistant" : "user";
         if (m.role == "tool") {
             Json::Value result; result["type"] = "tool_result"; result["tool_use_id"] = m.toolCallId; result["content"] = m.content;
+            if (m.isError) result["is_error"] = true;
             blocks.append(result);
         } else if (m.role == "assistant" && m.providerContent.isArray() && !m.providerContent.empty()) {
             blocks = m.providerContent;
@@ -51,7 +53,9 @@ Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoin
 LlmResponse AnthropicClient::parseResponse(const Json::Value& b) {
     LlmResponse r;
     if (b["type"] == "error" || !b["content"].isArray()) { r.error = "invalid Anthropic Messages response"; return r; }
-    if (b["stop_reason"] == "max_tokens") { r.error = "Anthropic response reached max_tokens; increase LLM_MAX_TOKENS"; return r; }
+    if (b["stop_reason"] == "max_tokens") { r.error = "the model stopped at its output token limit before finishing"; return r; }
+    // A refusal is final: neither its partial text nor any tool_use in the same turn is acted on.
+    if (b["stop_reason"] == "refusal") { r.error = "the model declined this request"; return r; }
     r.providerContent = b["content"];
     for (const auto& block : b["content"]) {
         if (block["type"] == "text" && block["text"].isString()) r.content += block["text"].asString();
@@ -72,34 +76,13 @@ LlmResponse AnthropicClient::complete(const LlmRequest& req) {
     auto body = json::dump(requestBody(req, ep_));
     auto url = ep_.apiBase; while (!url.empty() && url.back() == '/') url.pop_back();
     url += "/messages";
-    auto* c = curl_easy_init();
-    if (!c) { result.error = "HTTP client unavailable"; return result; }
-    curl_slist* h = nullptr;
-    h = curl_slist_append(h, "Content-Type: application/json");
-    h = curl_slist_append(h, "anthropic-version: 2023-06-01");
-    h = curl_slist_append(h, ("x-api-key: " + ep_.apiKey).c_str());
-    std::string output;
-    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, h);
-    curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)body.size());
-    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(c, CURLOPT_PROTOCOLS_STR, "http,https");
-    curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, (long)ep_.timeoutMs);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 10000L);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, +[](char* p, size_t s, size_t n, void* ctx) -> size_t {
-        auto& out = *static_cast<std::string*>(ctx);
-        if (s*n > 16*1024*1024 - out.size()) return 0;
-        out.append(p, s*n); return s*n;
-    });
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &output);
-    const auto rc = curl_easy_perform(c);
-    long status = 0; curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
-    curl_slist_free_all(h); curl_easy_cleanup(c);
-    if (rc != CURLE_OK || status < 200 || status >= 300) {
-        result.error = "Anthropic request failed (HTTP " + std::to_string(status) + ")"; return result;
+    auto res = llm::postJson(url, {"Content-Type: application/json", "anthropic-version: 2023-06-01", "x-api-key: " + ep_.apiKey}, body, ep_.timeoutMs);
+    if (!res.error.empty()) { result.error = res.error; return result; }
+    if (res.status < 200 || res.status >= 300) {
+        ALOG_WARN << "Anthropic HTTP " << res.status << " for task " << req.task << ": " << llm::excerpt(res.body);
+        result.error = "the AI provider returned HTTP " + std::to_string(res.status); return result;
     }
-    try { return parseResponse(json::parse(output)); }
+    try { return parseResponse(json::parse(res.body)); }
     catch (...) { result.error = "invalid Anthropic response JSON"; return result; }
 }
 }

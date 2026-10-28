@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
 
 namespace acerciae {
 
@@ -13,6 +14,7 @@ struct LlmMessage {
     std::string toolCallId;     // tool: id of the call this answers
     std::string name;           // tool: tool name
     Json::Value providerContent; // Anthropic blocks preserved when returning tool results
+    bool isError = false;        // tool: the call failed (sent as is_error where the provider supports it)
 };
 
 struct LlmToolSpec {
@@ -21,9 +23,9 @@ struct LlmToolSpec {
     Json::Value parameters;     // JSON schema
 };
 
-// Where and how to reach a model. Built from the process config, optionally overridden per server.
+// Where and how to reach a model: a server's own provider settings (there is no platform-wide default).
 struct LlmEndpoint {
-    std::string provider = "openai_compatible";
+    std::string provider = "mock";  // mock | openai_compatible | anthropic
     std::string apiBase;
     std::string apiKey;            // empty => mock mode
     std::string model;
@@ -39,7 +41,7 @@ struct LlmProfile {
 };
 
 struct LlmRequest {
-    std::string channelId;      // selects the server's LLM profile; empty = process default
+    std::string channelId;      // selects the server's LLM profile; empty = mock
     std::string task;           // observer_extract | consolidate | consistency | inspiration | module_structure
     std::string system;
     std::vector<LlmMessage> messages;
@@ -58,7 +60,17 @@ struct LlmResponse {
     int promptTokens = 0, completionTokens = 0;
 };
 
-// Pluggable backend. Implementations: OpenAiCompatClient, MockLlmClient.
+// A server's AI policy as seen by the gateway: the token budget and the number of AI calls it may run at once.
+// Implemented by AiPolicyService; every live call checks the budget, holds a slot while it runs and records usage.
+class AiMeter {
+public:
+    virtual ~AiMeter() = default;
+    virtual void checkTokens(const std::string& channelId) = 0;                    // throws std::runtime_error when spent
+    virtual std::shared_ptr<void> acquire(const std::string& channelId) = 0;       // throws when no slot frees up in time
+    virtual void recordTokens(const std::string& channelId, const std::string& task, int promptTokens, int completionTokens) = 0;
+};
+
+// Pluggable backend. Implementations: OpenAiCompatClient, AnthropicClient, MockLlmClient.
 class ILlmClient {
 public:
     virtual ~ILlmClient() = default;

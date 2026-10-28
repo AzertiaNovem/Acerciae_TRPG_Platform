@@ -15,6 +15,7 @@
 #include "consistency/ConsistencyService.h"
 #include "inspiration/InspirationService.h"
 #include "servers/ServerSettingsService.h"
+#include "servers/AiPolicyService.h"
 #include "dice/DiceService.h"
 #include "llm/LlmGateway.h"
 #include "llm/MockLlmClient.h"
@@ -519,7 +520,7 @@ int main() {
         auto pub = S.settings->get(p1P, sid);
         CHECK(!pub["is_maintainer"].asBool()); CHECK(!pub.isMember("llm")); CHECK(pub["features"]["dice"].asBool());
         bool denied = false; try { S.settings->update(p1P, sid, Json::Value(Json::objectValue)); } catch (const ApiError& e) { denied = e.status() == 403; } CHECK(denied);
-        Json::Value b; b["language"] = "zh-CN"; b["llm"]["api_key"] = "sk-test-1234567890abcd"; b["llm"]["model"] = "my-model"; b["llm"]["reasoning_effort"] = "high"; b["llm"]["api_base"] = "https://llm.example/v1";
+        Json::Value b; b["language"] = "zh-CN"; b["llm"]["provider"] = "openai_compatible"; b["tts"]["provider"] = "qwen"; b["llm"]["api_key"] = "sk-test-1234567890abcd"; b["llm"]["model"] = "my-model"; b["llm"]["reasoning_effort"] = "high"; b["llm"]["api_base"] = "https://llm.example/v1";
         b["tts"]["api_key"] = "tts-secret-key-9999"; b["tts"]["voice"] = "alloy"; b["features"]["consistency"] = false; b["features"]["dice"] = false;
         auto full = S.settings->update(gmP, sid, b);
         CHECK(json::dump(full).find("sk-test") == std::string::npos); CHECK(full["llm"]["api_key_set"].asBool()); CHECK(full["llm"]["api_key_hint"].asString() == "…abcd");
@@ -527,7 +528,7 @@ int main() {
         CHECK(stored["llm_api_key_sealed"].asString().rfind("v1:", 0) == 0); CHECK(stored["llm_api_key_sealed"].asString().find("sk-test") == std::string::npos);
         auto prof = S.settings->profileForChannel(channelId);
         CHECK(prof && prof->endpoint.apiKey == "sk-test-1234567890abcd" && prof->endpoint.model == "my-model" && prof->endpoint.reasoningEffort == "high" && prof->endpoint.apiBase == "https://llm.example/v1" && prof->language == "zh-CN");
-        CHECK(S.llm->mode(channelId) == "live"); CHECK(S.llm->status(channelId)["source"].asString() == "server");
+        CHECK(S.llm->mode(channelId) == "live"); CHECK(S.llm->status(channelId)["provider"].asString() == "openai_compatible");
         CHECK(S.settings->ttsConfig(sid).apiKey == "tts-secret-key-9999");
         Json::Value imageSettings; imageSettings["llm"]["provider"]="anthropic";
         imageSettings["image"]["provider"]="gpt_image"; imageSettings["image"]["api_base"]="https://images.example/v1";
@@ -545,19 +546,47 @@ int main() {
         CHECK(S.settings->profileForChannel(channelId)->endpoint.reasoningEffort.empty());
         CHECK(S.llm->status(channelId)["provider"]=="anthropic");
         CHECK(!S.settings->get(p1P,sid).isMember("image"));
-        Json::Value clearImage; clearImage["image"]["clear_api_key"]=true;
+        bool keyRequired = false; try { Json::Value noKey; noKey["image"]["clear_api_key"] = true; S.settings->update(gmP, sid, noKey); } catch (const ApiError& e) { keyRequired = e.status() == 400; } CHECK(keyRequired);
+        Json::Value clearImage; clearImage["image"]["clear_api_key"]=true; clearImage["image"]["provider"]="disabled";
         S.settings->update(gmP,sid,clearImage);
         CHECK(S.settings->imageConfigForChannel(channelId).apiKey.empty());
 
         bool off = false; try { S.settings->requireFeature(sid, "consistency"); } catch (const ApiError& e) { off = e.code() == "feature_disabled"; } CHECK(off);
         auto plain = say(p1User, splitWin, ".ra research");   // dice off: posted as an ordinary message
         CHECK(plain["kind"].asString() == "ic"); CHECK(plain["dice"].isNull());
-        Json::Value clear; clear["llm"]["clear_api_key"] = true; clear["features"]["consistency"] = true; clear["features"]["dice"] = true; clear["language"] = "en";
+        Json::Value clear; clear["llm"]["clear_api_key"] = true; clear["llm"]["provider"] = "mock"; clear["features"]["consistency"] = true; clear["features"]["dice"] = true; clear["language"] = "en";
         S.settings->update(gmP, sid, clear);
         CHECK(S.llm->mode(channelId) == "mock");
-        // A server base URL without the server's own key is ignored, so the process key never travels to it.
+        // No platform key exists: a server without its own provider is mock, whatever base URL it stores.
         Json::Value baseOnly; baseOnly["llm"]["api_base"] = "https://attacker.example/v1"; S.settings->update(gmP, sid, baseOnly);
-        CHECK(S.settings->profileForChannel(channelId)->endpoint.apiBase == S.cfg.llmApiBase);
+        CHECK(S.settings->profileForChannel(channelId)->endpoint.provider == "mock"); CHECK(S.settings->profileForChannel(channelId)->endpoint.apiKey.empty());
+        // Provider URLs may not point inside the deployment (unless the operator allows private endpoints).
+        for (auto bad : {"http://llm.example/v1", "https://127.0.0.1/v1", "https://10.1.2.3/v1", "https://[::1]/v1", "https://localhost:8080/v1", "https://169.254.169.254/latest"}) {
+            bool refused = false; try { Json::Value u; u["llm"]["api_base"] = bad; S.settings->update(gmP, sid, u); } catch (const ApiError& e) { refused = e.status() == 400; } CHECK(refused);
+        }
+        // AI policy: a token budget for the whole server, an image budget and a concurrency limit.
+        Json::Value pol; pol["ai_policy"]["token_budget"] = 100; pol["ai_policy"]["image_budget"] = 1; pol["ai_policy"]["max_concurrent"] = 1; pol["ai_policy"]["period"] = "total";
+        auto withPolicy = S.settings->update(gmP, sid, pol);
+        CHECK(withPolicy["ai_policy"]["token_budget"].asInt64() == 100); CHECK(withPolicy["ai_policy"]["max_concurrent"].asInt() == 1); CHECK(withPolicy["ai_policy"]["tokens_used"].asInt64() == 0);
+        S.aiPolicy->checkTokens(channelId);
+        S.aiPolicy->recordTokens(channelId, "observer_extract", 70, 40);
+        bool spent = false; try { S.aiPolicy->checkTokens(channelId); } catch (const ApiError& e) { spent = e.status() == 429 && e.code() == "ai_budget_exhausted"; } CHECK(spent);
+        CHECK(S.settings->get(gmP, sid)["ai_policy"]["tokens_used"].asInt64() == 110);
+        S.aiPolicy->recordImage(channelId, "background");
+        bool imagesSpent = false; try { S.aiPolicy->checkImages(channelId); } catch (const ApiError& e) { imagesSpent = e.status() == 429; } CHECK(imagesSpent);
+        Json::Value reset; reset["ai_policy"]["reset_usage"] = true; S.settings->update(gmP, sid, reset);
+        S.aiPolicy->checkTokens(channelId); S.aiPolicy->checkImages(channelId);
+        CHECK(S.settings->get(gmP, sid)["ai_policy"]["tokens_used"].asInt64() == 0);
+        {   // one slot: a second caller waits, then gives up with 503
+            S.aiPolicy->setSlotWaitSeconds(1);
+            auto slot = S.aiPolicy->acquire(channelId);
+            CHECK(S.aiPolicy->usage(sid)["running"].asInt() == 1);
+            bool busy = false; try { S.aiPolicy->acquire(channelId); } catch (const ApiError& e) { busy = e.status() == 503; } CHECK(busy);
+            slot.reset();
+            auto again = S.aiPolicy->acquire(channelId); CHECK(again != nullptr || S.aiPolicy->usage(sid)["running"].asInt() == 1);
+            S.aiPolicy->setSlotWaitSeconds(120);
+        }
+        bool badPolicy = false; try { Json::Value bp; bp["ai_policy"]["max_concurrent"] = 0; S.settings->update(gmP, sid, bp); } catch (const ApiError& e) { badPolicy = e.status() == 400; } CHECK(badPolicy);
         // Members: only the owner appoints maintainers; removal also drops channel and window membership.
         bool adminDenied = false;
         S.chat->addServerMember(gmP, sid, p2User, "admin");

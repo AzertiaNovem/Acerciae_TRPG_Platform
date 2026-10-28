@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useAuth } from '../store/auth';
 
 export default function LoginScreen() {
-  const { login, register, error, llmMode } = useAuth();
+  const { login, register, error } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [u, setU] = useState(''); const [p, setP] = useState(''); const [d, setD] = useState('');
   const submit = (e: React.FormEvent) => { e.preventDefault(); if (mode === 'login') login(u, p); else register(u, p, d); };
@@ -18,7 +18,7 @@ export default function LoginScreen() {
         {error && <div className="small" style={{ color: 'var(--danger)' }}>{tr(error)}</div>}
         <button className="primary" type="submit">{mode === 'login' ? tr("Sign in") : tr("Create account")}</button>
         <button type="button" className="ghost small" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? tr("Need an account? Register") : tr("Have an account? Sign in")}</button>
-        <div className="tiny muted">{tr("Demo accounts: keeper / alice / bob / carol — password “password”. LLM mode: ")}{llmMode}.</div>
+        <div className="tiny muted">{tr("Demo accounts (when the server seeds them): keeper / alice / bob / carol — password “password”.")}</div>
       </form>
     </div>
   );

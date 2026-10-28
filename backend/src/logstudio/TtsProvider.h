@@ -57,7 +57,8 @@ public:
     virtual Json::Value capabilities() const = 0;
 };
 
-std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& overrides = Json::Value());   // from env: TTS_PROVIDER=auto|qwen|mock
+// {provider: "qwen", api_key, api_base?, model?} makes the Qwen provider; anything else the labelled mock provider.
+std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& config = Json::Value());
 int wavDurationMs(const std::string& bytes);        // 0 if not a PCM WAV
 std::string makeWav(const std::vector<int16_t>& samples, int sampleRate);
 

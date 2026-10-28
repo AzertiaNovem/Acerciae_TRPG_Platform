@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include "../core/Db.h"
 #include "../auth/AuthService.h"
 #include "../llm/Llm.h"
@@ -46,10 +47,10 @@ public:
     // Compact document snapshot used in prompts.
     Json::Value documentSnapshot(const ChannelAccess& a, const std::string& docType, const std::string& sceneId, int limit);
 
-    void indexEmbedding(const std::string& factId, const std::string& textual);   // no-op when embeddings disabled
-    bool embeddingsEnabled();
+    void indexEmbedding(const std::string& channelId, const std::string& factId, const std::string& textual);   // no-op without the server's embedding model
+    bool embeddingsEnabled(const std::string& channelId);
 private:
     Db& db_; KnowledgeService& knowledge_; EventStore& events_; LlmGateway& llm_;
-    int vectorState_ = -1;
+    std::atomic<int> vectorState_{-1};
 };
 }

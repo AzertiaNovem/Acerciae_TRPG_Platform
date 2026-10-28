@@ -20,9 +20,7 @@ function Shell() {
   const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers } = useNav();
   const toasts = useUi((s) => s.toasts);
   const aiActivity = useUi((s) => s.aiActivity);
-  const platformMode = useAuth((s) => s.llmMode);
-  const serverMode = useNav((s) => s.serverSettings?.llm_mode);
-  const llmMode = serverMode ?? platformMode;   // a server with its own key runs live even when the platform has none
+  const llmMode = useNav((s) => s.serverSettings?.llm_mode);   // AI belongs to each server; there is no platform key
   const [sidebarOpen, setSidebarOpen] = useState(false);
   useEffect(() => { loadServers().catch(() => undefined); }, [loadServers]);
   return (
@@ -30,7 +28,7 @@ function Shell() {
       <ServerSidebar onPick={() => setSidebarOpen(true)} />
       <ChannelSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main">
-        {llmMode === 'mock' && <div className="mode-banner">{tr("MOCK LLM MODE — no LLM API key for this server or the platform; the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.")}</div>}
+        {llmMode === 'mock' && <div className="mode-banner">{tr("MOCK LLM MODE — this server has no language model configured (a maintainer sets one in Server settings → AI); the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.")}</div>}
         {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
         {channelId && characterSpaceId ? <CharacterSpace key={characterSpaceId} characterId={characterSpaceId} /> : channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
           <div style={{ padding: 40 }} className="muted">{tr("Pick a server and channel, or create one from the left.")}</div>

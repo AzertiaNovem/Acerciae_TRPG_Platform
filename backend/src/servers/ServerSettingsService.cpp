@@ -8,7 +8,8 @@
 #include "../core/Log.h"
 #include "../core/Text.h"
 #include <algorithm>
-#include <curl/curl.h>
+#include "../core/NetGuard.h"
+#include "AiPolicyService.h"
 
 namespace acerciae {
 
@@ -23,18 +24,7 @@ static std::string keyHint(const std::string& key) {
     return key.size() > 8 ? "…" + key.substr(key.size() - 4) : "set";
 }
 static void checkUrl(const std::string& u) {
-    if (u.empty()) return;
-    if (u.size() > 300 || u.find_first_of("\r\n\t ") != std::string::npos || (u.rfind("https://", 0) != 0 && u.rfind("http://", 0) != 0)) throw badRequest("API base must be an http(s) URL");
-    auto* parsed = curl_url();
-    if (!parsed) throw badRequest("invalid API base URL");
-    bool valid = curl_url_set(parsed, CURLUPART_URL, u.c_str(), 0) == CURLUE_OK;
-    for (auto part : {CURLUPART_USER, CURLUPART_PASSWORD, CURLUPART_QUERY, CURLUPART_FRAGMENT}) {
-        char* value = nullptr;
-        if (curl_url_get(parsed, part, &value, 0) == CURLUE_OK) valid = false;
-        curl_free(value);
-    }
-    curl_url_cleanup(parsed);
-    if (!valid) throw badRequest("API base must not contain credentials, query parameters or fragments");
+    try { net::checkEndpointSyntax(u); } catch (const std::invalid_argument& e) { throw badRequest(e.what()); }
 }
 static void checkLen(const std::string& v, std::size_t n, const char* what) {
     if (v.size() > n) throw badRequest(std::string(what) + " is too long");
@@ -54,8 +44,9 @@ Json::Value ServerSettingsService::publicView(const Json::Value& r, const std::s
     Json::Value v;
     v["server_id"] = serverId; v["name"] = r["server_name"]; v["language"] = r["language"];
     for (auto* f : FEATURES) v["features"][f] = r[std::string("feature_") + f].asBool();
-    bool live = !r["llm_api_key_sealed"].asString().empty() || !cfg_.llmApiKey.empty();
+    bool live = r["llm_provider"].asString() != "mock" && !r["llm_api_key_sealed"].asString().empty();
     v["llm_mode"] = live ? "live" : "mock";
+    v["images_enabled"] = r["image_provider"].asString() != "disabled";
     return v;
 }
 
@@ -68,12 +59,13 @@ Json::Value ServerSettingsService::get(const Principal& p, const std::string& se
     v["is_maintainer"] = maint;
     if (!maint) return v;
     Json::Value llm;
-    llm["provider"] = r["llm_provider"]; llm["default_provider"] = cfg_.llmProvider;
+    llm["provider"] = r["llm_provider"];
     llm["api_base"] = r["llm_api_base"]; llm["model"] = r["llm_model"]; llm["reasoning_effort"] = r["llm_reasoning_effort"];
+    llm["embedding_model"] = r["llm_embedding_model"];
     llm["api_key_set"] = !r["llm_api_key_sealed"].asString().empty(); llm["api_key_hint"] = r["llm_api_key_hint"];
-    llm["default_api_base"] = cfg_.llmApiBase; llm["default_model"] = cfg_.llmModel; llm["default_key_configured"] = !cfg_.llmApiKey.empty();
     v["llm"] = llm;
     Json::Value tts;
+    tts["provider"] = r["tts_provider"];
     tts["api_base"] = r["tts_api_base"]; tts["model"] = r["tts_model"]; tts["voice"] = r["tts_voice"];
     tts["api_key_set"] = !r["tts_api_key_sealed"].asString().empty(); tts["api_key_hint"] = r["tts_api_key_hint"];
     v["tts"] = tts;
@@ -81,8 +73,9 @@ Json::Value ServerSettingsService::get(const Principal& p, const std::string& se
     image["provider"] = r["image_provider"]; image["api_base"] = r["image_api_base"]; image["model"] = r["image_model"];
     image["size"] = r["image_size"]; image["quality"] = r["image_quality"];
     image["api_key_set"] = !r["image_api_key_sealed"].asString().empty(); image["api_key_hint"] = r["image_api_key_hint"];
-    image["default_provider"] = logstudio::imageConfigFromEnv().provider;
     v["image"] = image;
+    v["ai_policy"] = policy_.usage(serverId);
+    v["private_endpoints_allowed"] = net::allowPrivate();
     v["updated_at"] = r["updated_at"];
     Json::Value langs(Json::arrayValue); for (auto& l : languages()) langs.append(l);
     v["languages"] = langs;
@@ -101,9 +94,12 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     if (std::find(languages().begin(), languages().end(), language) == languages().end()) throw badRequest("unsupported language");
 
     auto llmProvider = str(llm, "provider", cur["llm_provider"].asString());
-    if (llmProvider != "" && llmProvider != "openai_compatible" && llmProvider != "anthropic") throw badRequest("unsupported LLM provider");
+    if (llmProvider != "mock" && llmProvider != "openai_compatible" && llmProvider != "anthropic") throw badRequest("unsupported LLM provider");
     auto imageProvider = str(image, "provider", cur["image_provider"].asString());
-    if (imageProvider != "inherit" && imageProvider != "disabled" && imageProvider != "mock" && imageProvider != "gpt_image") throw badRequest("unsupported image provider");
+    if (imageProvider != "disabled" && imageProvider != "mock" && imageProvider != "gpt_image") throw badRequest("unsupported image provider");
+    auto ttsProvider = str(tts, "provider", cur["tts_provider"].asString());
+    if (ttsProvider != "disabled" && ttsProvider != "mock" && ttsProvider != "qwen") throw badRequest("unsupported speech provider");
+    auto embeddingModel = str(llm, "embedding_model", cur["llm_embedding_model"].asString()); checkLen(embeddingModel, 120, "embedding model");
     auto imageBase = str(image, "api_base", cur["image_api_base"].asString()); checkUrl(imageBase);
     auto imageModel = str(image, "model", cur["image_model"].asString()); checkLen(imageModel, 120, "image model");
     auto imageSize = str(image, "size", cur["image_size"].asString());
@@ -130,8 +126,28 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     auto [llmKey, llmHint] = sealed(llm, "llm_api_key_sealed", "llm_api_key_hint");
     auto [ttsKey, ttsHint] = sealed(tts, "tts_api_key_sealed", "tts_api_key_hint");
     auto [imageKey, imageHint] = sealed(image, "image_api_key_sealed", "image_api_key_hint");
-    if (llmProvider == "anthropic" && !llmKey.empty() && llmModel.empty() && cfg_.llmProvider != "anthropic") throw badRequest("model is required for Anthropic");
+    if (llmProvider != "mock" && llmKey.empty()) throw badRequest("an API key is required for a live LLM provider");
+    if (llmProvider != "mock" && llmModel.empty()) throw badRequest("a model is required for a live LLM provider");
     if (imageProvider == "gpt_image" && imageModel.empty()) throw badRequest("image model is required for GPT Image");
+    if (imageProvider == "gpt_image" && imageKey.empty()) throw badRequest("an API key is required for GPT Image");
+    if (ttsProvider == "qwen" && ttsKey.empty()) throw badRequest("an API key is required for Qwen speech");
+
+    // AI policy
+    const Json::Value& pol = b["ai_policy"];
+    auto num64 = [&](const char* k, long long def, long long lo, long long hi) -> long long {
+        if (!pol.isObject() || !pol.isMember(k)) return def;
+        const auto& v = pol[k];
+        if (!v.isNumeric()) throw badRequest(std::string(k) + " must be a number");
+        double d = v.asDouble();
+        if (d < lo || d > hi) throw badRequest(std::string(k) + " must be between " + std::to_string(lo) + " and " + std::to_string(hi));
+        return (long long)d;
+    };
+    long long tokenBudget = num64("token_budget", cur["ai_token_budget"].asInt64(), 0, 1000000000000LL);
+    long long imageBudget = num64("image_budget", cur["ai_image_budget"].asInt64(), 0, 10000000);
+    long long maxConcurrent = num64("max_concurrent", cur["ai_max_concurrent"].asInt64(), 1, 64);
+    auto period = str(pol, "period", cur["ai_budget_period"].asString());
+    if (period != "month" && period != "total") throw badRequest("period must be month or total");
+    bool resetUsage = json::toBool(pol, "reset_usage", false);
 
     bool feat[5];
     for (int i = 0; i < 5; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
@@ -142,8 +158,11 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
                     "tts_api_base=$8, tts_api_key_sealed=$9, tts_api_key_hint=$10, tts_model=$11, tts_voice=$12, "
                     "feature_consistency=$13, feature_dice=$14, feature_inspiration=$15, feature_log_studio=$17, feature_coc7_points=$18, updated_by=$16, updated_at=now() WHERE server_id=$1",
             {serverId, language, llmBase, llmKey, llmHint, llmModel, effort, ttsBase, ttsKey, ttsHint, ttsModel, ttsVoice, feat[0], feat[1], feat[2], p.userId, feat[3], feat[4]});
-        Db::exec(w, "UPDATE server_settings SET llm_provider=$2, image_provider=$3, image_api_base=$4, image_api_key_sealed=$5, image_api_key_hint=$6, image_model=$7, image_size=$8, image_quality=$9 WHERE server_id=$1",
-                 {serverId, llmProvider, imageProvider, imageBase, imageKey, imageHint, imageModel, imageSize, imageQuality});
+        Db::exec(w, "UPDATE server_settings SET llm_provider=$2, image_provider=$3, image_api_base=$4, image_api_key_sealed=$5, image_api_key_hint=$6, image_model=$7, image_size=$8, image_quality=$9, "
+                    "tts_provider=$10, llm_embedding_model=$11, ai_token_budget=$12, ai_image_budget=$13, ai_budget_period=$14, ai_max_concurrent=$15 WHERE server_id=$1",
+                 {serverId, llmProvider, imageProvider, imageBase, imageKey, imageHint, imageModel, imageSize, imageQuality, ttsProvider, embeddingModel,
+                  (int64_t)tokenBudget, (int64_t)imageBudget, period, (int64_t)maxConcurrent});
+        if (resetUsage) Db::exec(w, "UPDATE server_settings SET ai_usage_reset_at=now() WHERE server_id=$1", {serverId});
     });
     auto fresh = row(serverId);
     notifier_.serverSettingsChanged(serverId, publicView(fresh, serverId));
@@ -165,23 +184,15 @@ std::optional<LlmProfile> ServerSettingsService::profileForChannel(const std::st
     LlmProfile p;
     p.language = r["language"].asString();
     auto& e = p.endpoint;
-    // The server's API base is only honoured together with the server's own key: otherwise a maintainer could point
-    // the process-wide key at a URL of their choosing and capture it.
-    e.provider = cfg_.llmProvider;
-    e.apiBase = cfg_.llmApiBase; e.apiKey = cfg_.llmApiKey;
-    e.model = r["llm_model"].asString().empty() ? cfg_.llmModel : r["llm_model"].asString();
-    e.reasoningEffort = r["llm_reasoning_effort"].asString();
-    e.embeddingModel = cfg_.llmEmbeddingModel; e.timeoutMs = cfg_.llmTimeoutMs; e.maxTokens = cfg_.llmMaxTokens;
+    e.provider = r["llm_provider"].asString();
+    e.timeoutMs = cfg_.llmTimeoutMs; e.maxTokens = cfg_.llmMaxTokens;
     auto sealed = r["llm_api_key_sealed"].asString();
-    if (!sealed.empty()) {
-        // Do not fall back to a different credential on decryption failure.
-        e.apiKey = crypto::openSecret(cfg_.authSecret, sealed);
-        e.provider = r["llm_provider"].asString().empty() ? cfg_.llmProvider : r["llm_provider"].asString();
-        e.apiBase = r["llm_api_base"].asString();
-        if (e.apiBase.empty()) e.apiBase = e.provider == cfg_.llmProvider ? cfg_.llmApiBase :
-            (e.provider == "anthropic" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1");
-    }
-    if (e.provider == "anthropic") { e.reasoningEffort.clear(); e.embeddingModel.clear(); }
+    if (e.provider == "mock" || sealed.empty()) { e.provider = "mock"; return p; }
+    e.apiKey = crypto::openSecret(cfg_.authSecret, sealed);   // throws: never fall back to another credential
+    e.model = r["llm_model"].asString();
+    e.apiBase = r["llm_api_base"].asString();
+    if (e.apiBase.empty()) e.apiBase = e.provider == "anthropic" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1";
+    if (e.provider == "openai_compatible") { e.reasoningEffort = r["llm_reasoning_effort"].asString(); e.embeddingModel = r["llm_embedding_model"].asString(); }
     return p;
 }
 
@@ -189,22 +200,25 @@ ServerSettingsService::TtsConfig ServerSettingsService::ttsConfig(const std::str
     auto r = row(serverId);
     TtsConfig t;
     if (r.isNull()) return t;
+    t.provider = r["tts_provider"].asString();
     t.apiBase = r["tts_api_base"].asString(); t.model = r["tts_model"].asString(); t.voice = r["tts_voice"].asString(); t.language = r["language"].asString();
     auto sealed = r["tts_api_key_sealed"].asString();
-    if (!sealed.empty()) { try { t.apiKey = crypto::openSecret(cfg_.authSecret, sealed); } catch (const std::exception& e) { ALOG_WARN << "cannot unseal TTS key: " << e.what(); } }
+    if (t.provider == "qwen") {
+        if (sealed.empty()) t.provider = "disabled";
+        else t.apiKey = crypto::openSecret(cfg_.authSecret, sealed);   // throws rather than falling back
+    }
     return t;
 }
 
 logstudio::ImageConfig ServerSettingsService::imageConfigForChannel(const std::string& channelId) {
     auto r = db_.queryOne("SELECT ss.* FROM channels c JOIN server_settings ss ON ss.server_id=c.server_id WHERE c.id=$1", {channelId});
-    if (r.isNull() || r["image_provider"] == "inherit") return logstudio::imageConfigFromEnv();
     logstudio::ImageConfig c;
+    if (r.isNull()) return c;   // disabled
     c.provider = r["image_provider"].asString();
     if (c.provider == "disabled" || c.provider == "mock") return c;
     c.apiBase = r["image_api_base"].asString().empty() ? "https://api.openai.com/v1" : r["image_api_base"].asString();
     c.model = r["image_model"].asString(); c.size = r["image_size"].asString(); c.quality = r["image_quality"].asString();
     if (!r["image_api_key_sealed"].asString().empty()) c.apiKey = crypto::openSecret(cfg_.authSecret, r["image_api_key_sealed"].asString());
-    // Custom image endpoints never borrow the platform, text LLM or TTS credential.
     return c;
 }
 

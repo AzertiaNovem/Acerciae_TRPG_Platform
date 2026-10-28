@@ -125,11 +125,13 @@ export interface UserLite { id: string; username: string; display_name: string }
 export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member'; joined_at: string }
 export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
 export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'coc7_points';
+export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; images_used: number; running: number }
 export interface ServerSettings {
-  server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; is_maintainer?: boolean;
-  llm?: { provider: '' | 'openai_compatible' | 'anthropic'; default_provider: string; api_base: string; model: string; reasoning_effort: string; api_key_set: boolean; api_key_hint: string; default_api_base: string; default_model: string; default_key_configured: boolean };
-  tts?: { api_base: string; model: string; voice: string; api_key_set: boolean; api_key_hint: string };
-  image?: { provider: 'inherit' | 'disabled' | 'mock' | 'gpt_image'; api_base: string; model: string; size: string; quality: string; api_key_set: boolean; api_key_hint: string; default_provider: string };
+  server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;
+  llm?: { provider: 'mock' | 'openai_compatible' | 'anthropic'; api_base: string; model: string; reasoning_effort: string; embedding_model: string; api_key_set: boolean; api_key_hint: string };
+  tts?: { provider: 'disabled' | 'mock' | 'qwen'; api_base: string; model: string; voice: string; api_key_set: boolean; api_key_hint: string };
+  image?: { provider: 'disabled' | 'mock' | 'gpt_image'; api_base: string; model: string; size: string; quality: string; api_key_set: boolean; api_key_hint: string };
+  ai_policy?: AiPolicyUsage; private_endpoints_allowed?: boolean;
   languages?: string[];
 }
 export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: Record<string, string>; updated_at: string; created_by_name?: string | null }

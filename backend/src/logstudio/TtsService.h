@@ -8,10 +8,11 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <set>
 #include <condition_variable>
 #include <map>
 
-namespace acerciae { class Notifier; class ServerSettingsService; }
+namespace acerciae { class Notifier; class ServerSettingsService; class AiPolicyService; }
 namespace acerciae::logstudio {
 class PresentationService;
 
@@ -19,7 +20,7 @@ class PresentationService;
 // retries, concurrency throttling and WebSocket progress. Audio bytes live in the object store.
 class TtsService {
 public:
-    TtsService(const Config& cfg, Db& db, ObjectStore& store, Notifier& n, PresentationService& pres, ServerSettingsService& settings);
+    TtsService(const Config& cfg, Db& db, ObjectStore& store, Notifier& n, PresentationService& pres, ServerSettingsService& settings, AiPolicyService& policy);
     ~TtsService();
     void start(); void stop();
 
@@ -55,7 +56,9 @@ private:
     const Config& cfg_; Db& db_; ObjectStore& store_; Notifier& notifier_; PresentationService& pres_;
     std::shared_ptr<TtsProvider> provider_;
     ServerSettingsService& settings_;
+    AiPolicyService& policy_;
     std::mutex providersMu_;
+    std::mutex inflightMu_; std::condition_variable inflightCv_; std::set<std::string> inflight_;   // cache keys being synthesized
     std::map<std::string,std::shared_ptr<TtsProvider>> providers_;
     std::shared_ptr<TtsProvider> providerFor(const std::string& channelId);
     std::atomic<bool> running_{false}; std::thread worker_; std::mutex mu_; std::condition_variable cv_;

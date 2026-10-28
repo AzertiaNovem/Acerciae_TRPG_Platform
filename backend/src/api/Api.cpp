@@ -19,6 +19,7 @@
 #include "../consistency/ConsistencyService.h"
 #include "../inspiration/InspirationService.h"
 #include "../modules/ModuleImporter.h"
+#include "../core/WorkPool.h"
 #include "../logstudio/LogStudioService.h"
 #include "../logstudio/MediaService.h"
 #include "../logstudio/PresentationService.h"
@@ -93,6 +94,18 @@ void route2(const std::string& path, std::vector<drogon::internal::HttpConstrain
 void route3(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn, bool auth = true) {
     app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b, std::string c) { run(req, std::move(cb), {a, b, c}, fn, auth); }, m);
 }
+// Requests that call a model run on the AI request pool, so a slow provider never holds Drogon's network threads.
+void offload(const HttpRequestPtr& req, Cb&& cb, Params params, const Fn& fn) {
+    auto shared = std::make_shared<Cb>(std::move(cb));
+    if (!services().aiRequests->submit([req, shared, params, fn] { run(req, std::move(*shared), params, fn, true); }))
+        (*shared)(errResp(503, "ai_busy", "The server is handling too many AI requests; try again shortly."));
+}
+void ai1(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn) {
+    app().registerHandler(path, [fn](const HttpRequestPtr& req, Cb&& cb, std::string a) { offload(req, std::move(cb), {a}, fn); }, m);
+}
+void ai2(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn) {
+    app().registerHandler(path, [fn](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b) { offload(req, std::move(cb), {a, b}, fn); }, m);
+}
 ChannelAccess access(const Principal& p, const std::string& channelId) { return services().auth->channelAccess(p.userId, channelId); }
 // The Log Studio opens for every member only when the server maintainer has not turned it off and the GM has not hidden it.
 ChannelAccess studioAccess(const Principal& p, const std::string& channelId) {
@@ -110,8 +123,7 @@ void registerRoutes() {
     auto& S = services();
 
     // ---- health / llm ----
-    route0("/api/health", {Get}, [&](auto&, auto&, auto&) { Json::Value v; v["status"] = "ok"; v["llm_mode"] = S.llm->mode(); v["ws_connections"] = (int)WsGateway::instance().connectionCount(); S.db->exec("SELECT 1"); v["db"] = "ok"; return v; }, false);
-    route0("/api/llm/status", {Get}, [&](auto&, auto&, auto&) { return S.llm->status(); }, false);
+    route0("/api/health", {Get}, [&](auto&, auto&, auto&) { Json::Value v; v["status"] = "ok"; v["ws_connections"] = (int)WsGateway::instance().connectionCount(); S.db->exec("SELECT 1"); v["db"] = "ok"; return v; }, false);
 
     // ---- auth ----
     route0("/api/auth/register", {Post}, [&](auto& req, auto&, auto&) { auto b = body(req); auto u = S.auth->registerUser(json::requireStr(b, "username"), json::requireStr(b, "password"), json::str(b, "display_name")); auto login = S.auth->login(json::requireStr(b, "username"), json::requireStr(b, "password")); login["user"] = S.auth->profile(u["id"].asString()); return login; }, false);
@@ -251,15 +263,16 @@ void registerRoutes() {
     route1("/api/channels/{1}/shards", {Get}, [&](auto& req, auto& p, auto& a) { return S.retrieval->getShard(access(p, a[0]), req->getParameter("id")); });
 
     // ---- AI auxiliary (user-triggered) ----
-    route1("/api/channels/{1}/consistency", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "consistency"); return S.consistency->check(ac, json::str(b, "chat_window_id"), json::str(b, "character_id"), json::str(b, "draft")); });
+    ai1("/api/channels/{1}/consistency", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "consistency"); return S.consistency->check(ac, json::str(b, "chat_window_id"), json::str(b, "character_id"), json::str(b, "draft")); });
     route1("/api/channels/{1}/consistency/history", {Get}, [&](auto& req, auto& p, auto& a) { return S.consistency->history(access(p, a[0]), qint(req, "limit", 20)); });
-    route1("/api/channels/{1}/inspiration", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "inspiration"); return S.inspiration->draft(ac, json::str(b, "chat_window_id"), json::str(b, "character_id"), json::str(b, "hint"), json::toInt(b, "variant", 0)); });
+    ai1("/api/channels/{1}/inspiration", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "inspiration"); return S.inspiration->draft(ac, json::str(b, "chat_window_id"), json::str(b, "character_id"), json::str(b, "hint"), json::toInt(b, "variant", 0)); });
 
     // ---- AI observer admin ----
-    route1("/api/channels/{1}/ai/status", {Get}, [&](auto&, auto& p, auto& a) { access(p, a[0]); auto s = S.observer->status(); s["llm"] = S.llm->status(a[0]); s["cursors"] = S.db->queryJson("SELECT kind, group_key, last_seq, updated_at FROM ai_processing_cursors WHERE channel_id=$1", {a[0]}); return s; });
+    // Members see the channel's AI mode; the observer's cursors (group keys, private window ids) stay with the Keeper.
+    route1("/api/channels/{1}/ai/status", {Get}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); Json::Value s; if (ac.isGm) { s = S.observer->status(); s["cursors"] = S.db->queryJson("SELECT kind, group_key, last_seq, updated_at FROM ai_processing_cursors WHERE channel_id=$1", {a[0]}); } s["llm"] = S.llm->status(a[0]); return s; });
     route1("/api/channels/{1}/ai/jobs", {Get}, [&](auto& req, auto& p, auto& a) { auto ac = access(p, a[0]); S.auth->requireGm(ac); return S.observer->listJobs(a[0], qint(req, "limit", 30)); });
-    route1("/api/channels/{1}/ai/observe-now", {Post}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); S.auth->requireGm(ac); Json::Value v; v["jobs"] = S.observer->observeChannel(a[0], true); return v; });
-    route1("/api/channels/{1}/ai/consolidate-now", {Post}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); S.auth->requireGm(ac); Json::Value v; v["job"] = S.observer->consolidateChannel(a[0]); return v; });
+    ai1("/api/channels/{1}/ai/observe-now", {Post}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); S.auth->requireGm(ac); Json::Value v; v["jobs"] = S.observer->observeChannel(a[0], true); return v; });
+    ai1("/api/channels/{1}/ai/consolidate-now", {Post}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); S.auth->requireGm(ac); Json::Value v; v["job"] = S.observer->consolidateChannel(a[0]); return v; });
     route1("/api/channels/{1}/ai/cleanup-highlights", {Post}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); S.auth->requireGm(ac); Json::Value v; v["removed"] = S.observer->cleanupHighlights(); return v; });
 
     // ---- modules / GM workspace ----
@@ -273,7 +286,7 @@ void registerRoutes() {
         std::string title; auto& ps = mp.getParameters(); if (ps.count("title")) title = ps.at("title");
         return S.modules->importPdf(ac, f.getFileName(), bytes, title);
     });
-    route1("/api/channels/{1}/modules/text", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); std::vector<std::string> pages = json::strArray(b["pages"]); if (pages.empty() && !json::str(b, "text").empty()) pages.push_back(json::str(b, "text")); return S.modules->importText(access(p, a[0]), json::str(b, "title"), pages); });
+    ai1("/api/channels/{1}/modules/text", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); std::vector<std::string> pages = json::strArray(b["pages"]); if (pages.empty() && !json::str(b, "text").empty()) pages.push_back(json::str(b, "text")); return S.modules->importText(access(p, a[0]), json::str(b, "title"), pages); });
     route1("/api/channels/{1}/modules/hints", {Get}, [&](auto& req, auto& p, auto& a) { return S.modules->listHints(access(p, a[0]), req->getParameter("status")); });
     route2("/api/channels/{1}/modules/hints/{2}/decide", {Post}, [&](auto& req, auto& p, auto& a) { return S.modules->decideHint(access(p, a[0]), a[1], json::str(body(req), "decision")); });
     route2("/api/channels/{1}/modules/nodes/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.modules->updateNode(access(p, a[0]), a[1], body(req)); });
@@ -290,7 +303,7 @@ void registerRoutes() {
     route1("/api/channels/{1}/studio/vn-scripts", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->create(studioAccess(p,a[0]),body(req)); });
     route2("/api/channels/{1}/studio/vn-scripts/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->get(studioAccess(p,a[0]),a[1]); });
     route2("/api/channels/{1}/studio/vn-scripts/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.vnScripts->cancel(studioAccess(p,a[0]),a[1]); });
-    route2("/api/channels/{1}/studio/presentations/{2}/suggest", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->suggest(studioAccess(p,a[0]),a[1],body(req)); });
+    ai2("/api/channels/{1}/studio/presentations/{2}/suggest", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->suggest(studioAccess(p,a[0]),a[1],body(req)); });
     route1("/api/channels/{1}/studio/pdf/templates", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->templates(studioAccess(p,a[0])); });
     route1("/api/channels/{1}/studio/pdf/templates", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->saveTemplate(studioAccess(p,a[0]),body(req)); });
     route2("/api/channels/{1}/studio/snapshots/{2}/pdf", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->createPdf(studioAccess(p,a[0]),a[1],body(req)); });
@@ -412,7 +425,7 @@ void registerRoutes() {
     route1("/api/channels/{1}/studio/dictionaries", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listDictionaries(studioAccess(p, a[0])); });
     route1("/api/channels/{1}/studio/dictionaries", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->saveDictionary(studioAccess(p, a[0]), "", body(req)); });
     route2("/api/channels/{1}/studio/dictionaries/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.tts->saveDictionary(studioAccess(p, a[0]), a[1], body(req)); });
-    route1("/api/channels/{1}/studio/tts/preview", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->preview(studioAccess(p, a[0]), body(req)); });
+    ai1("/api/channels/{1}/studio/tts/preview", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->preview(studioAccess(p, a[0]), body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/estimate", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->estimate(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->createJob(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listJobs(studioAccess(p, a[0]), a[1]); });

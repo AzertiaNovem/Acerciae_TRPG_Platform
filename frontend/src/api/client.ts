@@ -26,8 +26,7 @@ const del = <R,>(p: string) => request<R>('DELETE', p);
 const q = (o: Record<string, string | number | undefined>) => { const s = Object.entries(o).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&'); return s ? `?${s}` : ''; };
 
 export const api = {
-  health: () => get<{ status: string; llm_mode: string }>('/api/health'),
-  llmStatus: () => get<{ mode: string; model: string; note: string }>('/api/llm/status'),
+  health: () => get<{ status: string }>('/api/health'),
   register: (username: string, password: string, display_name: string) => post<{ token: string; user: T.User }>('/api/auth/register', { username, password, display_name }),
   login: (username: string, password: string) => post<{ token: string; user: T.User }>('/api/auth/login', { username, password }),
   logout: () => post('/api/auth/logout'),

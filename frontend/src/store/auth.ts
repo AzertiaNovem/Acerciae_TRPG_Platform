@@ -7,16 +7,15 @@ import { useLocale } from '../i18n';
 import { resetUserStores } from './reset';
 
 interface AuthState {
-  user: User | null; loading: boolean; error: string | null; llmMode: string;
+  user: User | null; loading: boolean; error: string | null;
   bootstrap: () => Promise<void>;
   login: (u: string, p: string) => Promise<void>;
   register: (u: string, p: string, d: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 export const useAuth = create<AuthState>((set) => ({
-  user: null, loading: true, error: null, llmMode: 'unknown',
+  user: null, loading: true, error: null,
   bootstrap: async () => {
-    try { const h = await api.health(); set({ llmMode: h.llm_mode }); } catch { /* backend down */ }
     if (!getToken()) { set({ loading: false }); return; }
     try { const me = await api.me(); useLocale.getState().setLanguage(me.ui_language || 'en'); set({ user: me, loading: false }); connectSockets(); }
     catch { setToken(null); set({ user: null, loading: false }); }

@@ -1,6 +1,8 @@
 #include "ImageProvider.h"
 #include "../core/Crypto.h"
 #include "../core/Json.h"
+#include "../core/NetGuard.h"
+#include "../core/Log.h"
 #include "MediaService.h"
 #include <cstdlib>
 #include <vector>
@@ -8,10 +10,6 @@
 #include <drogon/utils/Utilities.h>
 #include <zlib.h>
 namespace acerciae::logstudio {
-static std::string env(const char *key, const char *def = "") {
-  auto v = std::getenv(key);
-  return v && *v ? v : def;
-}
 static void u32(std::string &s, uint32_t n) {
   for (int i = 3; i >= 0; --i)
     s += char(n >> (i * 8));
@@ -59,75 +57,6 @@ public:
     return {true, false, png, "image/png", ""};
   }
 };
-class HttpImage final : public ImageGenerationProvider {
-public:
-  explicit HttpImage(ImageConfig c) : config_(std::move(c)) {}
-  std::string name() const override { return "http"; }
-  std::string model() const override { return config_.model; }
-  std::string configurationId() const override { return crypto::sha256Hex(config_.apiBase + "\n" + config_.apiKey + "\n" + model()); }
-  ImageResult generate(const Json::Value &req) override {
-    ImageResult r;
-    auto endpoint = config_.apiBase, key = config_.apiKey;
-    if (endpoint.rfind("https://", 0) != 0 || key.empty()) {
-      r.error = "IMAGE_API_URL (HTTPS) and IMAGE_API_KEY required";
-      return r;
-    }
-    Json::Value body = req;
-    body["model"] = model();
-    body["response_format"] = "b64_json";
-    auto encoded = json::dump(body);
-    std::string out;
-    CURL *c = curl_easy_init();
-    curl_slist *headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers =
-        curl_slist_append(headers, ("Authorization: Bearer " + key).c_str());
-    curl_easy_setopt(c, CURLOPT_URL, endpoint.c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(c, CURLOPT_POSTFIELDS, encoded.c_str());
-    curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)encoded.size());
-    curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, 120000L);
-    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(
-        c, CURLOPT_WRITEFUNCTION,
-        +[](char *p, size_t s, size_t n, void *ctx) -> size_t {
-          auto &v = *static_cast<std::string *>(ctx);
-          if (v.size() + s * n > 30 * 1024 * 1024)
-            return 0;
-          v.append(p, s * n);
-          return s * n;
-        });
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &out);
-    auto rc = curl_easy_perform(c);
-    long status = 0;
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(c);
-    if (rc != CURLE_OK || status < 200 || status >= 300) {
-      r.error =
-          "image provider request failed (HTTP " + std::to_string(status) + ")";
-      r.retryable = rc != CURLE_OK || status == 429 || status >= 500;
-      return r;
-    }
-    try {
-      auto data = json::parse(out);
-      auto b64 = json::str(data["data"][0], "b64_json");
-      if (b64.empty())
-        throw std::runtime_error("provider must return data[0].b64_json; "
-                                 "remote URLs are not fetched");
-      r.bytes = drogon::utils::base64Decode(b64);
-      r.mime = MediaService::sniffMime(r.bytes, "image.png");
-      if (!MediaService::allowedMime(r.mime, "background"))
-        throw std::runtime_error("provider returned invalid raster image");
-      r.ok = true;
-    } catch (const std::exception &e) {
-      r.error = e.what();
-    }
-    return r;
-  }
-private:
-  ImageConfig config_;
-};
 std::string ImageGenerationProvider::configurationId() const {
   return crypto::sha256Hex(name() + "\n" + model());
 }
@@ -168,6 +97,8 @@ public:
     } catch (const std::exception& e) { r.error = e.what(); return r; }
     auto url = config_.apiBase; while (!url.empty() && url.back() == '/') url.pop_back();
     url += refs.empty() ? "/images/generations" : "/images/edits";
+    std::unique_ptr<net::PinnedRequest> pinned;
+    try { pinned = std::make_unique<net::PinnedRequest>(url); } catch (const std::exception& e) { r.error = e.what(); return r; }
     auto encoded = json::dump(body);
     auto* c = curl_easy_init();
     if (!c) { r.error = "HTTP client unavailable"; return r; }
@@ -192,9 +123,8 @@ public:
       curl_easy_setopt(c, CURLOPT_MIMEPOST, form);
     }
     std::string output;
-    curl_easy_setopt(c, CURLOPT_URL, url.c_str()); curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
+    pinned->apply(c, 30u * 1024 * 1024); curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, 180000L); curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 10000L);
-    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 0L); curl_easy_setopt(c, CURLOPT_PROTOCOLS_STR, "http,https");
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, +[](char* p, size_t s, size_t n, void* ctx) -> size_t {
       auto& out = *static_cast<std::string*>(ctx);
       if (s*n > 30*1024*1024 - out.size()) return 0;
@@ -222,18 +152,9 @@ public:
 private:
   ImageConfig config_;
 };
-ImageConfig imageConfigFromEnv() {
-  ImageConfig c; c.provider = env("IMAGE_PROVIDER", "disabled");
-  c.apiBase = c.provider == "http" ? env("IMAGE_API_URL") : env("IMAGE_API_BASE", "https://api.openai.com/v1");
-  c.apiKey = env("IMAGE_API_KEY"); c.model = env("IMAGE_MODEL");
-  c.size = env("IMAGE_SIZE", "auto"); c.quality = env("IMAGE_QUALITY", "auto");
-  return c;
-}
 std::unique_ptr<ImageGenerationProvider> makeImageProvider(const ImageConfig& c) {
   if (c.provider == "mock") return std::make_unique<MockImage>();
-  if (c.provider == "http") return std::make_unique<HttpImage>(c);
   if (c.provider == "gpt_image" && !c.apiKey.empty() && !c.apiBase.empty() && !c.model.empty()) return std::make_unique<GptImage>(c);
   return nullptr;
 }
-std::unique_ptr<ImageGenerationProvider> makeImageProvider() { return makeImageProvider(imageConfigFromEnv()); }
 } // namespace acerciae::logstudio

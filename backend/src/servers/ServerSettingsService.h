@@ -9,13 +9,15 @@
 
 namespace acerciae {
 class Notifier;
+class AiPolicyService;
 
-// Per-server settings owned by the server's maintainers (owner and admins): LLM endpoint/model/reasoning effort,
-// output language, TTS credentials, which user-facing features are available, and the dice reply text groups.
+// Per-server settings owned by the server's maintainers (owner and admins): the AI providers (LLM, images, speech)
+// with their keys, the AI policy (budgets, concurrency), output language, which user-facing features are available,
+// and the dice reply text groups. There are no platform AI keys: a server without its own provider runs mock AI.
 // API keys are sealed at rest and never leave the backend; clients only learn whether one is set.
 class ServerSettingsService {
 public:
-    ServerSettingsService(const Config& cfg, Db& db, AuthService& auth, Notifier& notifier) : cfg_(cfg), db_(db), auth_(auth), notifier_(notifier) {}
+    ServerSettingsService(const Config& cfg, Db& db, AuthService& auth, AiPolicyService& policy, Notifier& notifier) : cfg_(cfg), db_(db), auth_(auth), policy_(policy), notifier_(notifier) {}
 
     bool isMaintainer(const std::string& userId, const std::string& serverId);
     // Members get the public view (language, features, effective LLM mode); maintainers also get the configuration.
@@ -26,11 +28,11 @@ public:
     bool featureEnabled(const std::string& serverId, const std::string& feature);
     void requireFeature(const std::string& serverId, const std::string& feature);   // 403 feature_disabled
 
-    // LLM profile for the gateway: process config overridden by the server's non-empty fields.
+    // LLM profile for the gateway: the server's own provider, or mock when it has none.
     std::optional<LlmProfile> profileForChannel(const std::string& channelId);
 
-    // For the TTS integration: the server's TTS endpoint with the key unsealed. Empty fields = not configured.
-    struct TtsConfig { std::string apiBase, apiKey, model, voice, language; };
+    // For the TTS integration: the server's speech provider (disabled | mock | qwen) with the key unsealed.
+    struct TtsConfig { std::string provider = "mock", apiBase, apiKey, model, voice, language; };
     TtsConfig ttsConfig(const std::string& serverId);
 
     logstudio::ImageConfig imageConfigForChannel(const std::string& channelId);
@@ -47,7 +49,7 @@ private:
     Json::Value row(const std::string& serverId);
     Json::Value publicView(const Json::Value& r, const std::string& serverId);
     void validateTexts(const Json::Value& texts);
-    const Config& cfg_; Db& db_; AuthService& auth_; Notifier& notifier_;
+    const Config& cfg_; Db& db_; AuthService& auth_; AiPolicyService& policy_; Notifier& notifier_;
 };
 
 } // namespace acerciae

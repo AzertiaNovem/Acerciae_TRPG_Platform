@@ -27,6 +27,9 @@
 #include "../logstudio/CreativeService.h"
 #include "../logstudio/VnScriptService.h"
 #include "../servers/ServerSettingsService.h"
+#include "../servers/AiPolicyService.h"
+#include "../core/WorkPool.h"
+#include "../core/NetGuard.h"
 #include "../dice/DiceService.h"
 
 namespace acerciae {
@@ -47,11 +50,15 @@ Services& Services::build(const Config& cfg) {
     s.knowledge = std::make_unique<KnowledgeService>(*s.db);
     s.documents = std::make_unique<DocumentService>(*s.db, *s.knowledge, *s.notifier);
     s.highlights = std::make_unique<HighlightService>(*s.db, *s.notifier, cfg.highlightTtlSeconds);
-    s.settings = std::make_unique<ServerSettingsService>(s.cfg, *s.db, *s.auth, *s.notifier);
+    net::setAllowPrivate(cfg.aiAllowPrivateEndpoints);
+    s.aiPolicy = std::make_unique<AiPolicyService>(*s.db);
+    s.settings = std::make_unique<ServerSettingsService>(s.cfg, *s.db, *s.auth, *s.aiPolicy, *s.notifier);
     s.dice = std::make_unique<DiceService>(*s.db, *s.auth, *s.settings, *s.notifier);
     s.chat = std::make_unique<ChatService>(*s.db, *s.auth, *s.events, *s.scenes, *s.notifier, *s.documents, *s.dice);
     s.llm = std::make_unique<LlmGateway>(s.cfg);
     s.llm->setProfileResolver([&s](const std::string& channelId) { return s.settings->profileForChannel(channelId); });
+    s.llm->setMeter(s.aiPolicy.get());
+    s.aiRequests = std::make_unique<WorkPool>("ai-requests", std::max(1, cfg.aiHttpWorkers), (std::size_t)std::max(8, cfg.aiHttpWorkers * 8));
     s.retrieval = std::make_unique<ContextRetrievalService>(*s.db, *s.knowledge, *s.events, *s.llm);
     s.consistency = std::make_unique<ConsistencyService>(s.cfg, *s.db, *s.retrieval, *s.llm, *s.highlights, *s.knowledge);
     s.inspiration = std::make_unique<InspirationService>(s.cfg, *s.db, *s.retrieval, *s.llm);
@@ -61,9 +68,9 @@ Services& Services::build(const Config& cfg) {
     s.media = std::make_unique<logstudio::MediaService>(s.cfg, *s.db, *s.objectStore);
     s.presentations = std::make_unique<logstudio::PresentationService>(s.cfg, *s.db, *s.notifier, *s.studio);
     s.styles = std::make_unique<logstudio::StyleService>(*s.db);
-    s.tts = std::make_unique<logstudio::TtsService>(s.cfg, *s.db, *s.objectStore, *s.notifier, *s.presentations, *s.settings);
+    s.tts = std::make_unique<logstudio::TtsService>(s.cfg, *s.db, *s.objectStore, *s.notifier, *s.presentations, *s.settings, *s.aiPolicy);
     s.publication = std::make_unique<logstudio::PublicationService>(*s.db,*s.objectStore,*s.notifier,*s.studio,*s.presentations,*s.media,*s.documents);
-    s.creative = std::make_unique<logstudio::CreativeService>(*s.db,*s.media,*s.presentations,*s.studio,*s.llm,*s.notifier,*s.settings,*s.auth);
+    s.creative = std::make_unique<logstudio::CreativeService>(*s.db,*s.media,*s.presentations,*s.studio,*s.llm,*s.notifier,*s.settings,*s.auth,*s.aiPolicy);
     s.vnScripts = std::make_unique<logstudio::VnScriptService>(*s.db,*s.auth,*s.studio,*s.presentations,*s.creative,*s.llm,*s.notifier);
     s.characterSpace = std::make_unique<CharacterSpaceService>(*s.db, *s.media, *s.creative, *s.settings, *s.notifier);
     s.scenarios = std::make_unique<ScenarioService>(*s.db, *s.events, *s.scenes, *s.llm, *s.notifier);
@@ -76,6 +83,7 @@ Services& Services::build(const Config& cfg) {
 
 void Services::shutdown() {
     if (!g_services) return;
+    if (g_services->aiRequests) g_services->aiRequests->stop();
     if (g_services->observer) g_services->observer->stop();
     if (g_services->creative) g_services->creative->stop();
     if (g_services->vnScripts) g_services->vnScripts->stop();

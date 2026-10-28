@@ -20,7 +20,6 @@ public:
   virtual std::string configurationId() const;
   virtual ImageResult generate(const Json::Value &request) = 0;
 };
-std::unique_ptr<ImageGenerationProvider> makeImageProvider();
+// Image providers come only from a server's settings: disabled (default), mock test patterns, or GPT Image.
 std::unique_ptr<ImageGenerationProvider> makeImageProvider(const ImageConfig& config);
-ImageConfig imageConfigFromEnv();
 } // namespace acerciae::logstudio

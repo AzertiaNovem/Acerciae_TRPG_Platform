@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 // Run against an isolated server with the mock LLM, mock image and mock TTS providers:
-// API_BASE=http://127.0.0.1:8080 IMAGE_PROVIDER=mock TTS_PROVIDER=mock node --test tests/integration/vnscript.test.mjs
+// API_BASE=http://127.0.0.1:8080 node --test tests/integration/vnscript.test.mjs
 const base = process.env.API_BASE || "http://localhost:18081";
 async function call(token, method, path, body) {
   const r = await fetch(base + path, {
@@ -28,6 +28,8 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
     u[role] = await call(null, "POST", "/api/auth/register", { username: role + suffix, password: "password", display_name: role });
   const gm = u.gm.token, p1 = u.p1.token, p2 = u.p2.token;
   const server = await call(gm, "POST", "/api/servers", { name: "VN script" });
+  // Images are the server's own setting (there is no platform provider): use the labelled mock test patterns.
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { image: { provider: "mock" } });
   const ch = (await call(gm, "POST", `/api/servers/${server.id}/channels`, { name: "Harbour", knowledge_mode: "isolated" })).id;
   await call(gm, "PUT", `/api/channels/${ch}`, { era: "1920s New England" });
   const root = `/api/channels/${ch}/studio`;

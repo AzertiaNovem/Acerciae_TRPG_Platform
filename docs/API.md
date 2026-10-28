@@ -3,20 +3,14 @@
 Base URL `/api`. JSON in/out. Authentication: `Authorization: Bearer <token>` (tokens from `/auth/login`).
 Errors: `{ "error": "<code>", "message": "..." }` with 400/401/403/404/409/500.
 
-## Health & LLM
+## Health
 
-Server settings now accept `llm.provider: "" | "openai_compatible" | "anthropic"` (empty inherits the platform protocol).
-Only a server-owned key activates a custom protocol/base URL. Anthropic uses non-streaming Messages with tool-use/result
-blocks and the existing structured-output validator; OpenAI reasoning-effort parameters are omitted in Anthropic mode.
-Maintainers also get/put `image: {provider: inherit|disabled|mock|gpt_image, api_base, model, size, quality, api_key?,
-clear_api_key?}`. Image GET returns `api_key_set`, `api_key_hint`, and `default_provider`, never `api_key`.
-Members receive neither credential configuration object. Empty keys preserve stored values; `clear_api_key:true` removes
-one. The image configuration is independent of `llm` and `tts`, including credential resolution. See
-[configuration guide](SERVER_AI_SETTINGS.zh-CN.md). Migration `0023_server_ai_providers.sql` adds these settings.
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/health` | `{status, llm_mode: "mock"|"live", db, ws_connections}` |
-| GET | `/llm/status` | mode, model, provider, embeddings flag, note |
+| GET | `/health` | `{status, db, ws_connections}` |
+
+AI is configured per server (see `/servers/{id}/settings` below); there is no platform-wide model, key or status route.
+Each channel's AI status is `GET /channels/{id}/ai/status`.
 
 ## Auth
 
@@ -37,7 +31,7 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET/POST | `/servers/{id}/members` | add `{user_id | username, role: admin|member}` (maintainer; only the owner grants `admin` = maintainer) |
 | PUT | `/servers/{id}/members/{uid}` | `{role: admin|member}` (owner) |
 | DELETE | `/servers/{id}/members/{uid}` | maintainer removes a member (owner removes maintainers; anyone may leave); also drops their channel and chat-window memberships |
-| GET/PUT | `/servers/{id}/settings` | members get `{name, language, features{consistency,dice,inspiration,log_studio,coc7_points}, llm_mode, is_maintainer}`; maintainers also get `llm{api_base, model, reasoning_effort, api_key_set, api_key_hint, default_*}` and `tts{api_base, model, voice, api_key_set, api_key_hint}`. PUT (maintainer) takes `{name?, language?, features?, llm?{api_base, api_key, clear_api_key, model, reasoning_effort}, tts?{…same}}` — keys are sealed (AES-256-GCM) and never returned |
+| GET/PUT | `/servers/{id}/settings` | members get `{name, language, features{consistency,dice,inspiration,log_studio,coc7_points}, llm_mode, images_enabled, is_maintainer}`; maintainers also get `llm{provider: mock|openai_compatible|anthropic, api_base, model, reasoning_effort, embedding_model, api_key_set, api_key_hint}`, `image{provider: disabled|mock|gpt_image, api_base, model, size, quality, api_key_set, api_key_hint}`, `tts{provider: disabled|mock|qwen, api_base, model, voice, api_key_set, api_key_hint}`, `ai_policy{token_budget, image_budget, period: month|total, max_concurrent, period_start, tokens_used, images_used, running}` and `private_endpoints_allowed`. PUT (maintainer) takes the same objects plus `api_key` / `clear_api_key` per provider and `ai_policy{token_budget, image_budget, period, max_concurrent, reset_usage}`. A live provider needs its own key; keys are sealed (AES-256-GCM) and never returned. Endpoints must be https on a public address unless the deployment sets `AI_ALLOW_PRIVATE_ENDPOINTS`. Budgets of 0 mean no limit; a spent budget answers AI requests with 429 `ai_budget_exhausted`, and a server already running `max_concurrent` AI tasks makes new ones wait (503 `ai_busy` after two minutes). |
 | GET/POST | `/servers/{id}/dice-texts` | dice reply text groups; create `{name, base: en|zh, texts:{key: template}}` (maintainer) |
 | PUT/DELETE | `/servers/{id}/dice-texts/{gid}` | (maintainer); deleting resets channels that used it |
 | GET | `/dice/texts` | built-in texts `{keys, en, zh}` (template placeholders such as `{name}`, `{attr}`, `{roll}`, `{target}`, `{level}`) |

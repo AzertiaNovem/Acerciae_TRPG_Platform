@@ -10,6 +10,7 @@
 #include "MediaService.h"
 #include "PresentationService.h"
 #include "StudioPolicy.h"
+#include "../servers/AiPolicyService.h"
 #include <drogon/utils/Utilities.h>
 #include <algorithm>
 #include <set>
@@ -48,6 +49,7 @@ void CreativeService::usePortraitReference(const ChannelAccess &a, const std::st
 }
 Json::Value CreativeService::status(const ChannelAccess &a) {
   auto provider_ = providerFor(a.channelId);
+  if (provider_ && provider_->name() != "mock") policy_.checkImages(a.channelId);
   Json::Value v;
   v["enabled"] = bool(provider_);
   v["provider"] = provider_ ? provider_->name() : "disabled";
@@ -76,6 +78,7 @@ Json::Value CreativeService::create(const ChannelAccess &a,
   if (!a.isGm)
     throw forbidden("GM role required");
   auto provider_ = providerFor(a.channelId);
+  if (provider_ && provider_->name() != "mock") policy_.checkImages(a.channelId);
   if (!provider_)
     throw badRequest("image generation disabled or not configured by the server maintainer");
   if (provider_->name() != "mock" && !json::toBool(b, "allow_cloud"))
@@ -186,12 +189,13 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   if (!a.isGm && !owner)
     throw forbidden("only the Keeper or the character's actor may generate this character's images");
   auto provider_ = providerFor(a.channelId);
+  if (provider_ && provider_->name() != "mock") policy_.checkImages(a.channelId);
   if (!provider_)
     throw badRequest("image generation disabled or not configured by the server maintainer");
+  // Character art is the character page's own feature: it needs the server's image provider and the requester's
+  // confirmation, not the Log Studio's cloud-processing switch.
   if (provider_->name() != "mock" && !allowCloud)
     throw badRequest("confirm cloud processing for the appearance prompt");
-  if (provider_->name() != "mock")
-    requireCloudPermission(db_, a.channelId);
   auto cid = character["id"].asString();
   auto style = db_.queryOne("SELECT * FROM visual_style_profiles WHERE channel_id=$1 ORDER BY is_default DESC, created_at LIMIT 1", {a.channelId});
   Json::Value params;
@@ -222,6 +226,7 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
 }
 Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud) {
   auto provider_ = providerFor(a.channelId);
+  if (provider_ && provider_->name() != "mock") policy_.checkImages(a.channelId);
   if (!provider_)
     throw badRequest("image generation disabled or not configured by the server maintainer");
   if (kind != "background" && kind != "standee")
@@ -330,7 +335,10 @@ void CreativeService::run(const Json::Value &j) {
       throw std::runtime_error("image configuration changed; submit a new generation request");
     if (provider_->name() != "mock") {
       if (!json::toBool(j["params"], "cloud_authorized")) throw std::runtime_error("cloud processing was not authorized");
-      requireCloudPermission(db_, j["channel_id"].asString());
+      // Character-page art is not Log Studio work; everything else follows the campaign's Studio cloud policy.
+      const auto &att = j["params"]["attach"];
+      const bool characterArt = att.isObject() && att.isMember("character_id") && !att.isMember("presentation_id");
+      if (!characterArt) requireCloudPermission(db_, j["channel_id"].asString());
     }
     auto params = j["params"];
     const auto parentId = json::str(params, "portrait_job_id");
@@ -352,7 +360,21 @@ void CreativeService::run(const Json::Value &j) {
       params.removeMember("portrait_job_id");
       db_.exec("UPDATE asset_generation_jobs SET params=$2::jsonb WHERE id=$1 AND status='running'", {id, json::dump(params)});
     }
+    // Real providers spend the server's image budget and hold one of its concurrent AI slots while they run.
+    std::shared_ptr<void> slot;
+    if (provider_->name() != "mock") {
+      try { policy_.checkImages(j["channel_id"].asString()); }
+      catch (const std::exception &e) {
+        db_.exec("UPDATE asset_generation_jobs SET status='failed', error=$2, updated_at=now() WHERE id=$1 AND status='running'", {id, std::string(e.what())});
+        return;
+      }
+      slot = policy_.acquire(j["channel_id"].asString());
+    }
     auto r = provider_->generate(params["request"]);
+    slot.reset();
+    if (r.ok && provider_->name() != "mock") {
+      try { policy_.recordImage(j["channel_id"].asString(), j["kind"].asString()); } catch (const std::exception &e) { ALOG_WARN << "image usage not recorded: " << e.what(); }
+    }
     if (!r.ok) {
       db_.exec("UPDATE asset_generation_jobs SET "
                "status=$2,error=$3,updated_at=now() WHERE id=$1 AND "

@@ -71,7 +71,6 @@ void WsEndpointBase::onConnect(const drogon::HttpRequestPtr& req, const drogon::
     conn->setContext(s);
     WsGateway::instance().add(conn, s);
     Json::Value hello; hello["type"] = "hello"; hello["stream"] = stream; hello["user_id"] = p->userId;
-    hello["llm_mode"] = services().cfg.mockLlm() ? "mock" : "live";
     conn->send(json::dump(hello));
 }
 

@@ -1,43 +1,15 @@
 #include "OpenAiCompatClient.h"
 #include "../core/Json.h"
 #include "../core/Log.h"
-#include <curl/curl.h>
+#include "HttpTransport.h"
 
 namespace acerciae {
 
-static size_t writeCb(char* ptr, size_t size, size_t nmemb, void* ud) {
-    auto* s = static_cast<std::string*>(ud); s->append(ptr, size * nmemb); return size * nmemb;
-}
-
-LlmEndpoint OpenAiCompatClient::endpointFrom(const Config& cfg) {
-    LlmEndpoint e; e.provider = cfg.llmProvider; e.apiBase = cfg.llmApiBase; e.apiKey = cfg.llmApiKey; e.model = cfg.llmModel; e.embeddingModel = cfg.llmEmbeddingModel;
-    e.timeoutMs = cfg.llmTimeoutMs; e.maxTokens = cfg.llmMaxTokens;
-    return e;
-}
-
 std::string OpenAiCompatClient::post(const std::string& path, const std::string& body, long& status, std::string& err) {
-    std::string out;
-    CURL* c = curl_easy_init();
-    if (!c) { err = "curl init failed"; return out; }
-    std::string url = ep_.apiBase; if (!url.empty() && url.back() == '/') url.pop_back(); url += path;
-    struct curl_slist* hdr = nullptr;
-    hdr = curl_slist_append(hdr, "Content-Type: application/json");
-    hdr = curl_slist_append(hdr, ("Authorization: Bearer " + ep_.apiKey).c_str());
-    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, hdr);
-    curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)body.size());
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, writeCb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &out);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, (long)ep_.timeoutMs);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 10000L);
-    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
-    auto rc = curl_easy_perform(c);
-    if (rc != CURLE_OK) err = curl_easy_strerror(rc);
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
-    curl_slist_free_all(hdr);
-    curl_easy_cleanup(c);
-    return out;
+    std::string url = ep_.apiBase; while (!url.empty() && url.back() == '/') url.pop_back(); url += path;
+    auto res = llm::postJson(url, {"Content-Type: application/json", "Authorization: Bearer " + ep_.apiKey}, body, ep_.timeoutMs);
+    status = res.status; err = res.error;
+    return res.body;
 }
 
 LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
@@ -80,8 +52,12 @@ LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
     LlmResponse r;
     long status = 0; std::string err;
     auto text = post("/chat/completions", json::dump(body), status, err);
-    if (!err.empty()) { r.error = "transport: " + err; return r; }
-    if (status < 200 || status >= 300) { r.error = "http " + std::to_string(status) + ": " + text.substr(0, 400); return r; }
+    if (!err.empty()) { r.error = err; return r; }
+    if (status < 200 || status >= 300) {
+        // Provider bodies stay in the server log: they can carry account details and anything a host chose to answer.
+        ALOG_WARN << "LLM provider HTTP " << status << " for task " << req.task << ": " << llm::excerpt(text);
+        r.error = "the AI provider returned HTTP " + std::to_string(status); return r;
+    }
     Json::Value j;
     try { j = json::parse(text); } catch (const std::exception& e) { r.error = std::string("bad json: ") + e.what(); return r; }
     if (!j["choices"].isArray() || j["choices"].empty()) { r.error = "no choices in response"; return r; }

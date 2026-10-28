@@ -1,5 +1,6 @@
 // Core unit tests: no database required.
 #include "characters/Coc7Rules.h"
+#include "core/NetGuard.h"
 #include "core/Text.h"
 #include "core/Json.h"
 #include "core/Crypto.h"
@@ -151,7 +152,7 @@ int main() {
         Config cfg; LlmGateway gw(cfg, std::make_unique<MockLlmClient>());
         LlmRequest req; req.task = "consistency"; req.responseSchema = json::parse(R"({"type":"object","required":["rationale","conflicts"]})");
         LlmMessage u; u.role = "user"; Json::Value ctx; ctx["draft"] = "hello"; ctx["known_facts"] = Json::Value(Json::arrayValue); u.content = json::dump(ctx); req.messages.push_back(u);
-        auto o = gw.runStructured(req); CHECK(o.ok); CHECK(o.data.isMember("conflicts")); CHECK(gw.isMock());
+        auto o = gw.runStructured(req); CHECK(o.ok); CHECK(o.data.isMember("conflicts")); CHECK(gw.isMock("any-channel"));
     });
     test("document entry rendering", [] {
         Json::Value f; f["summary"] = "A brass key"; f["status"] = "confirmed"; f["data"]["title"] = "Brass key"; f["data"]["source"] = "found at the docks";
@@ -480,6 +481,23 @@ int main() {
         Json::Value n2; n2["event_id"] = "e3"; n2["actor_role"] = "gm"; n2["character_name"] = ""; n2["content"] = "Dust covers a desk. Something like a diary lies under a loose board."; rem["new_events"].append(n2);
         auto plan = ReminderService::mockPlanKp(rem);
         CHECK(!plan["reminders"].empty()); CHECK(plan["reminders"][0]["kind"] == "needed"); CHECK(plan["reminders"][0]["title"].asString().find("Diary") != std::string::npos); CHECK(plan["reminders"][0]["script_refs"].size() == 1); CHECK(plan["reminders"][0]["quotes"][0]["event_id"] == "e3");
+    });
+    test("AI endpoint guard: public https only, private and special-purpose addresses refused", [] {
+        using namespace net;
+        for (auto ip : {"127.0.0.1", "10.0.0.5", "172.16.3.4", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1", "::1", "::", "fc00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "2001:db8::1", "not-an-ip"})
+            CHECK(isRestrictedAddress(ip));
+        for (auto ip : {"8.8.8.8", "1.1.1.1", "104.18.0.1", "2606:4700:4700::1111", "::ffff:8.8.8.8"}) CHECK(!isRestrictedAddress(ip));
+        setAllowPrivate(false);
+        auto refused = [](const char* u) { try { checkEndpointSyntax(u); return false; } catch (const std::invalid_argument&) { return true; } };
+        CHECK(!refused("https://api.openai.com/v1")); CHECK(!refused("")); CHECK(!refused("https://8.8.8.8/v1"));
+        CHECK(refused("http://api.openai.com/v1")); CHECK(refused("https://127.0.0.1/v1")); CHECK(refused("https://[::1]:8443/v1")); CHECK(refused("https://localhost/v1"));
+        CHECK(refused("https://user:pw@api.example.com/v1")); CHECK(refused("https://api.example.com/v1?x=1")); CHECK(refused("ftp://api.example.com")); CHECK(refused("https://a.example.com/v1 x"));
+        bool pinnedRefused = false; try { PinnedRequest r("https://127.0.0.1:9/v1"); } catch (const std::runtime_error&) { pinnedRefused = true; } CHECK(pinnedRefused);
+        bool localhostRefused = false; try { PinnedRequest r("https://localhost:9/v1"); } catch (const std::runtime_error&) { localhostRefused = true; } CHECK(localhostRefused);
+        setAllowPrivate(true);
+        CHECK(!refused("http://127.0.0.1:11434/v1")); CHECK(!refused("http://localhost:8000/v1"));
+        bool allowed = true; try { PinnedRequest r("http://127.0.0.1:9/v1"); } catch (...) { allowed = false; } CHECK(allowed);
+        setAllowPrivate(false);
     });
     test("coc7 point-buy: budgets, allowed skills and limits follow the career list", [] {
         using namespace coc7;

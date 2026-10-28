@@ -266,7 +266,7 @@ void ObserverScheduler::applyExtraction(const ChannelAccess& sys, const std::str
             summary["pending_review"] = summary["pending_review"].asInt() + res.pendingReview;
             for (auto& fid : res.touchedFactIds) {
                 auto f = db_.queryOne("SELECT summary, data FROM knowledge_facts WHERE id=$1", {fid});
-                if (!f.isNull()) retrieval_.indexEmbedding(fid, f["summary"].asString());
+                if (!f.isNull()) retrieval_.indexEmbedding(channelId, fid, f["summary"].asString());
             }
         } catch (const ApiError& e) { Json::Value d; d["doc_type"] = pr.documentType; d["error"] = e.what(); summary["documents"].append(d); }
     }
@@ -363,7 +363,7 @@ Json::Value ObserverScheduler::consolidateChannel(const std::string& channelId) 
 
 Json::Value ObserverScheduler::status() const {
     Json::Value s; s["running"] = running_.load(); s["enabled"] = cfg_.observerEnabled; s["interval_ms"] = cfg_.observerIntervalMs; s["consolidate_interval_ms"] = cfg_.consolidatorIntervalMs;
-    s["ticks"] = ticks_.load(); s["groups_processed"] = groupsProcessed_.load(); s["llm_calls"] = llmCalls_.load(); s["llm"] = llm_.status(); return s;
+    s["ticks"] = ticks_.load(); s["groups_processed"] = groupsProcessed_.load(); s["llm_calls"] = llmCalls_.load(); return s;
 }
 Json::Value ObserverScheduler::listJobs(const std::string& channelId, int limit) {
     return db_.queryJson("SELECT id, kind, group_key, status, from_seq, to_seq, event_count, llm_calls, llm_mode, error, result, started_at, finished_at FROM ai_jobs WHERE channel_id=$1 ORDER BY started_at DESC LIMIT $2", {channelId, (int64_t)std::max(1, std::min(limit, 100))});

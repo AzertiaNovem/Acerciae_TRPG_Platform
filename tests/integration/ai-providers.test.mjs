@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-// Local protocol fixtures only: never call paid providers. Run against a test backend.
+// Local protocol fixtures only: never call paid providers. The test backend needs AI_ALLOW_PRIVATE_ENDPOINTS=true
+// because the fixture listens on 127.0.0.1.
 const base = process.env.API_BASE || 'http://127.0.0.1:18081';
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 async function call(token, method, path, body) {
@@ -106,6 +107,9 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     assert.ok(edit.headers['content-type'].startsWith('multipart/form-data;'));
     assert.ok(edit.body.includes('name="image[]"')); assert.ok(edit.body.includes('name="prompt"')); assert.ok(!edit.body.includes('name="reference_images"'));
 
+    // Character art belongs to the character page, not the Log Studio: it works with Studio cloud processing off.
+    await call(gm.token, 'PUT', root + '/settings', { studio_cloud_allowed: false });
+    await rejects(generate({ request_id: 'studio-off' }), 403);
     // Uploaded main portrait -> poses use /edits, including its actual PNG bytes and frozen provenance.
     const pc = await call(pl.token, 'POST', `/api/channels/${ch}/characters`, { name: 'Reference investigator' });
     const pcRoot = `/api/channels/${ch}/characters/${pc.id}`;
@@ -139,6 +143,8 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     }
     const batchRequests = requests.slice(beforeBatch);
     assert.deepEqual(batchRequests.map(r => r.url.split('/').at(-1)), ['generations', 'edits', 'edits']);
+
+    await call(gm.token, 'PUT', root + '/settings', { studio_cloud_allowed: true });
 
     // A different server resolves its own credentials and model even inside the same worker process.
     const other = await call(gm.token, 'POST', '/api/servers', { name: 'Other provider server' });
@@ -185,17 +191,19 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     await call(gm.token, 'PUT', settings, { image: { provider: 'disabled' } });
     assert.equal((await call(gm.token, 'GET', root + '/images/status')).enabled, false);
     await rejects(generate(), 400);
-    // Deleting an image key must not borrow either the language-model or platform credential.
-    await call(gm.token, 'PUT', settings, { image: { provider: 'gpt_image', clear_api_key: true } });
+    // A live image provider needs its own key: there is no other credential to borrow.
+    await rejects(call(gm.token, 'PUT', settings, { image: { provider: 'gpt_image', clear_api_key: true } }), 400);
     assert.equal((await call(gm.token, 'GET', root + '/images/status')).enabled, false);
     await rejects(generate(), 400);
     await call(gm.token, 'PUT', settings, { image: { provider: 'mock' } });
     assert.equal((await call(gm.token, 'GET', root + '/images/status')).mock, true);
-    await call(gm.token, 'PUT', settings, { llm: { clear_api_key: true } });
-    assert.equal((await call(gm.token, 'GET', settings)).llm.api_key_set, false);
+    await rejects(call(gm.token, 'PUT', settings, { llm: { clear_api_key: true } }), 400);   // still Anthropic: a key is required
+    await call(gm.token, 'PUT', settings, { llm: { provider: 'mock', clear_api_key: true } });
+    const cleared = await call(gm.token, 'GET', settings);
+    assert.equal(cleared.llm.api_key_set, false); assert.equal(cleared.llm_mode, 'mock');
   } finally {
     if (releaseImage) releaseImage();
-    for (const [token, path] of settingsToClear) await call(token, 'PUT', path, { llm: { clear_api_key: true }, image: { provider: 'disabled', clear_api_key: true } }).catch(() => {});
+    for (const [token, path] of settingsToClear) await call(token, 'PUT', path, { llm: { provider: 'mock', clear_api_key: true }, image: { provider: 'disabled', clear_api_key: true } }).catch(() => {});
     fixture.closeAllConnections(); await new Promise(r => fixture.close(r));
   }
 });

@@ -20,16 +20,20 @@ const FEATURES: { key: Feature; label: string; help: string }[] = [
 
 interface Form {
   name: string; language: string; features: Record<Feature, boolean>;
-  llm: { provider: string; api_base: string; model: string; reasoning_effort: string; api_key: string; clear_api_key: boolean };
+  llm: { provider: string; api_base: string; model: string; reasoning_effort: string; embedding_model: string; api_key: string; clear_api_key: boolean };
   image: { provider: string; api_base: string; model: string; size: string; quality: string; api_key: string; clear_api_key: boolean };
-  tts: { api_base: string; model: string; voice: string; api_key: string; clear_api_key: boolean };
+  tts: { provider: string; api_base: string; model: string; voice: string; api_key: string; clear_api_key: boolean };
+  ai_policy: { token_budget: string; image_budget: string; period: 'month' | 'total'; max_concurrent: string; reset_usage: boolean };
 }
 const formFrom = (s: ServerSettings): Form => ({
   name: s.name, language: s.language, features: { ...s.features },
-  llm: { provider: s.llm?.provider ?? '', api_base: s.llm?.api_base ?? '', model: s.llm?.model ?? '', reasoning_effort: s.llm?.reasoning_effort ?? '', api_key: '', clear_api_key: false },
-  image: { provider: s.image?.provider ?? 'inherit', api_base: s.image?.api_base ?? '', model: s.image?.model ?? '', size: s.image?.size ?? 'auto', quality: s.image?.quality ?? 'auto', api_key: '', clear_api_key: false },
-  tts: { api_base: s.tts?.api_base ?? '', model: s.tts?.model ?? '', voice: s.tts?.voice ?? '', api_key: '', clear_api_key: false },
+  llm: { provider: s.llm?.provider ?? 'mock', api_base: s.llm?.api_base ?? '', model: s.llm?.model ?? '', reasoning_effort: s.llm?.reasoning_effort ?? '', embedding_model: s.llm?.embedding_model ?? '', api_key: '', clear_api_key: false },
+  image: { provider: s.image?.provider ?? 'mock', api_base: s.image?.api_base ?? '', model: s.image?.model ?? '', size: s.image?.size ?? 'auto', quality: s.image?.quality ?? 'auto', api_key: '', clear_api_key: false },
+  tts: { provider: s.tts?.provider ?? 'mock', api_base: s.tts?.api_base ?? '', model: s.tts?.model ?? '', voice: s.tts?.voice ?? '', api_key: '', clear_api_key: false },
+  ai_policy: { token_budget: String(s.ai_policy?.token_budget ?? 0), image_budget: String(s.ai_policy?.image_budget ?? 0), period: s.ai_policy?.period ?? 'month', max_concurrent: String(s.ai_policy?.max_concurrent ?? 4), reset_usage: false },
 });
+const count = (n: string) => { const v = Number(n.trim() || '0'); return Number.isFinite(v) ? Math.floor(v) : NaN; };
+const budgetText = (used: number, budget: number) => budget > 0 ? `${used.toLocaleString()} / ${budget.toLocaleString()}` : `${used.toLocaleString()} (${tr('no limit')})`;
 
 function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'features'; settings: ServerSettings; onSaved: (s: ServerSettings) => void }) {
   const toast = useUi((s) => s.toast);
@@ -38,11 +42,14 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'feature
   useEffect(() => setForm(formFrom(settings)), [settings]);
   const save = async () => {
     setSaving(true);
-    try { const s = await api.updateServerSettings(settings.server_id, form); onSaved(s); toast('Server settings saved'); }
+    const pol = form.ai_policy;
+    const body = { ...form, ai_policy: { token_budget: count(pol.token_budget), image_budget: count(pol.image_budget), max_concurrent: count(pol.max_concurrent), period: pol.period, reset_usage: pol.reset_usage } };
+    try { const s = await api.updateServerSettings(settings.server_id, body); onSaved(s); toast('Server settings saved'); }
     catch (e: any) { toast(e.message, 'error'); } finally { setSaving(false); }
   };
-  const llm = settings.llm, tts = settings.tts, image = settings.image;
-  const anthropic = (form.llm.provider || llm?.default_provider) === 'anthropic';
+  const llm = settings.llm, tts = settings.tts, image = settings.image, usage = settings.ai_policy;
+  const anthropic = form.llm.provider === 'anthropic';
+  const setPolicy = (patch: Partial<Form['ai_policy']>) => setForm({ ...form, ai_policy: { ...form.ai_policy, ...patch } });
   const keyField = (part: 'llm' | 'tts' | 'image', info?: { api_key_set: boolean; api_key_hint: string }, fallback?: string) => (
     <div className="col" style={{ gap: 4 }}>
       <label className="field"><span>{tr("API key")}</span>
@@ -64,54 +71,89 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'feature
         <div className="tiny muted">{tr("The language the AI chronicler, consistency check and inspiration write in, and the default dice reply texts (Chinese settings use the 中文 dice texts unless a channel picks another group).")}</div>
       </>)}
       {tab === 'ai' && (<>
+        <div className="tiny muted">{tr("AI on this server runs only on the providers configured here, with this server's own keys. Without them it runs in mock mode.")}</div>
         <div className="section-label">{tr("Language model")}</div>
         <label className="field"><span>{tr("API protocol")}</span>
           <select value={form.llm.provider} onChange={(e) => setForm({ ...form, llm: { ...form.llm, provider: e.target.value } })}>
-            <option value="">{tr("Use platform settings")}</option>
+            <option value="mock">{tr("Mock (no model)")}</option>
             <option value="openai_compatible">{tr("OpenAI compatible")}</option>
             <option value="anthropic">{tr("Anthropic compatible")}</option>
           </select>
         </label>
-        <label className="field"><span>{tr("API base URL")}</span><input value={form.llm.api_base} onChange={(e) => setForm({ ...form, llm: { ...form.llm, api_base: e.target.value } })} placeholder={anthropic ? "https://api.anthropic.com/v1" : llm?.default_api_base ?? "https://api.openai.com/v1"} /></label>
-        {keyField('llm', llm, llm?.default_key_configured ? 'not set — uses the platform key' : 'not set — the platform has no key either (mock mode)')}
-        <div className="tiny muted">{tr("The selected protocol and custom URL require this server’s own key. Include /v1 in the base URL. Without a server key, platform settings apply.")}</div>
-        <label className="field"><span>{tr("Model")}</span><input value={form.llm.model} onChange={(e) => setForm({ ...form, llm: { ...form.llm, model: e.target.value } })} placeholder={anthropic && llm?.default_provider !== "anthropic" ? tr("model name") : llm?.default_model ?? tr("model name")} /></label>
-        {!anthropic && <><label className="field"><span>{tr("Thinking effort")}</span>
-          <select value={form.llm.reasoning_effort} onChange={(e) => setForm({ ...form, llm: { ...form.llm, reasoning_effort: e.target.value } })}>
-            <option value="">{tr("Off (non-reasoning model)")}</option><option value="minimal">{tr("Minimal")}</option><option value="low">{tr("Low")}</option><option value="medium">{tr("Medium")}</option><option value="high">{tr("High")}</option>
-          </select>
-        </label>
-        <div className="tiny muted">{tr("Sent as ")}<code>{tr("reasoning_effort")}</code>{tr("; only set it for reasoning models.")}</div></>}
-        {anthropic && <div className="tiny muted">{tr("Anthropic uses the Messages API with tool support. OpenAI thinking effort is not sent.")}</div>}
+        {form.llm.provider !== 'mock' && <>
+          <label className="field"><span>{tr("API base URL")}</span><input value={form.llm.api_base} onChange={(e) => setForm({ ...form, llm: { ...form.llm, api_base: e.target.value } })} placeholder={anthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"} /></label>
+          {keyField('llm', llm, tr("required"))}
+          <div className="tiny muted">{tr("Include /v1 in the base URL.")}</div>
+          <label className="field"><span>{tr("Model")}</span><input value={form.llm.model} onChange={(e) => setForm({ ...form, llm: { ...form.llm, model: e.target.value } })} placeholder={tr("model name")} /></label>
+          {!anthropic && <><label className="field"><span>{tr("Thinking effort")}</span>
+            <select value={form.llm.reasoning_effort} onChange={(e) => setForm({ ...form, llm: { ...form.llm, reasoning_effort: e.target.value } })}>
+              <option value="">{tr("Off (non-reasoning model)")}</option><option value="minimal">{tr("Minimal")}</option><option value="low">{tr("Low")}</option><option value="medium">{tr("Medium")}</option><option value="high">{tr("High")}</option>
+            </select>
+          </label>
+          <div className="tiny muted">{tr("Sent as ")}<code>{tr("reasoning_effort")}</code>{tr("; only set it for reasoning models.")}</div>
+          <label className="field"><span>{tr("Embedding model")}</span><input value={form.llm.embedding_model} onChange={(e) => setForm({ ...form, llm: { ...form.llm, embedding_model: e.target.value } })} placeholder={tr("optional")} /></label>
+          <div className="tiny muted">{tr("Used for semantic recall over the chat log. Leave empty to recall by keywords only.")}</div></>}
+          {anthropic && <div className="tiny muted">{tr("Anthropic uses the Messages API with tool support. OpenAI thinking effort is not sent.")}</div>}
+        </>}
         <div className="section-label">{tr("Image generation")}</div>
         <label className="field"><span>{tr("Provider")}</span>
           <select value={form.image.provider} onChange={(e) => setForm({ ...form, image: { ...form.image, provider: e.target.value } })}>
-            <option value="inherit">{tr("Use platform settings")}</option>
             <option value="disabled">{tr("Disabled")}</option>
             <option value="mock">{tr("Mock test patterns")}</option>
             <option value="gpt_image">{tr("GPT Image compatible")}</option>
           </select>
         </label>
         <div className="tiny muted">{tr("Image generation has its own endpoint, model and key. It never uses the language model or speech key.")}</div>
-        {form.image.provider === 'inherit' && <div className="tiny muted">{tr("Platform image provider")}: {image?.default_provider ?? 'disabled'}</div>}
         {form.image.provider === 'gpt_image' && <>
           <label className="field"><span>{tr("API base URL")}</span><input value={form.image.api_base} onChange={(e) => setForm({ ...form, image: { ...form.image, api_base: e.target.value } })} placeholder="https://api.openai.com/v1" /></label>
-          {keyField('image', image)}
+          {keyField('image', image, tr("required"))}
           <label className="field"><span>{tr("Model")}</span><input value={form.image.model} onChange={(e) => setForm({ ...form, image: { ...form.image, model: e.target.value } })} placeholder={tr("Enter the image model ID from your provider")} /></label>
           <div className="row">
             <label className="field grow"><span>{tr("Image size")}</span><select value={form.image.size} onChange={(e) => setForm({ ...form, image: { ...form.image, size: e.target.value } })}>{['auto', '1024x1024', '1536x1024', '1024x1536'].map((v) => <option key={v} value={v}>{v === 'auto' ? tr('Provider default') : v}</option>)}</select></label>
             <label className="field grow"><span>{tr("Image quality")}</span><select value={form.image.quality} onChange={(e) => setForm({ ...form, image: { ...form.image, quality: e.target.value } })}>{['auto', 'low', 'medium', 'high'].map((v) => <option key={v} value={v}>{v === 'auto' ? tr('Provider default') : tr(v === 'low' ? 'Low' : v === 'medium' ? 'Medium' : 'High')}</option>)}</select></label>
           </div>
-          <div className="tiny muted">{tr("Supports image generation and reference-image edits. Cloud permission is still required for each campaign.")}</div>
+          <div className="tiny muted">{tr("Character portraits only need this provider. Log Studio art also needs the campaign's cloud permission.")}</div>
         </>}
         <div className="section-label">{tr("Text-to-speech")}</div>
-        <label className="field"><span>{tr("API base URL")}</span><input value={form.tts.api_base} onChange={(e) => setForm({ ...form, tts: { ...form.tts, api_base: e.target.value } })} placeholder={tr("https://…")} /></label>
-        {keyField('tts', tts)}
-        <div className="row">
-          <label className="field grow"><span>{tr("Model")}</span><input value={form.tts.model} onChange={(e) => setForm({ ...form, tts: { ...form.tts, model: e.target.value } })} /></label>
-          <label className="field grow"><span>{tr("Voice")}</span><input value={form.tts.voice} onChange={(e) => setForm({ ...form, tts: { ...form.tts, voice: e.target.value } })} /></label>
-        </div>
+        <label className="field"><span>{tr("Provider")}</span>
+          <select value={form.tts.provider} onChange={(e) => setForm({ ...form, tts: { ...form.tts, provider: e.target.value } })}>
+            <option value="disabled">{tr("Disabled")}</option>
+            <option value="mock">{tr("Mock speech")}</option>
+            <option value="qwen">{tr("Qwen speech")}</option>
+          </select>
+        </label>
+        {form.tts.provider === 'qwen' && <>
+          <label className="field"><span>{tr("API base URL")}</span><input value={form.tts.api_base} onChange={(e) => setForm({ ...form, tts: { ...form.tts, api_base: e.target.value } })} placeholder={tr("https://…")} /></label>
+          {keyField('tts', tts, tr("required"))}
+          <div className="row">
+            <label className="field grow"><span>{tr("Model")}</span><input value={form.tts.model} onChange={(e) => setForm({ ...form, tts: { ...form.tts, model: e.target.value } })} /></label>
+            <label className="field grow"><span>{tr("Voice")}</span><input value={form.tts.voice} onChange={(e) => setForm({ ...form, tts: { ...form.tts, voice: e.target.value } })} /></label>
+          </div>
+        </>}
         <div className="tiny muted">{tr("Keys are encrypted on the server and never sent back to the browser.")}</div>
+        {!settings.private_endpoints_allowed && <div className="tiny muted">{tr("Endpoints must use https and a public address.")}</div>}
+        <div className="section-label">{tr("AI policy")}</div>
+        <div className="row">
+          <label className="field grow"><span>{tr("Token budget")}</span><input type="number" min={0} value={form.ai_policy.token_budget} onChange={(e) => setPolicy({ token_budget: e.target.value })} /></label>
+          <label className="field grow"><span>{tr("Image budget")}</span><input type="number" min={0} value={form.ai_policy.image_budget} onChange={(e) => setPolicy({ image_budget: e.target.value })} /></label>
+        </div>
+        <div className="row">
+          <label className="field grow"><span>{tr("Budget period")}</span>
+            <select value={form.ai_policy.period} onChange={(e) => setPolicy({ period: e.target.value as 'month' | 'total' })}>
+              <option value="month">{tr("Each calendar month")}</option>
+              <option value="total">{tr("Until reset")}</option>
+            </select>
+          </label>
+          <label className="field grow"><span>{tr("Simultaneous AI tasks")}</span><input type="number" min={1} max={64} value={form.ai_policy.max_concurrent} onChange={(e) => setPolicy({ max_concurrent: e.target.value })} /></label>
+        </div>
+        <div className="tiny muted">{tr("Budgets cover the whole server; 0 means no limit. Mock providers are not counted. When a budget is used up, AI requests stop until the next period or a reset.")}</div>
+        {usage && <div className="small">
+          <div>{tr("Tokens used")}: {budgetText(usage.tokens_used, usage.token_budget)}</div>
+          <div>{tr("Images used")}: {budgetText(usage.images_used, usage.image_budget)}</div>
+          <div>{tr("Running now")}: {usage.running} / {usage.max_concurrent}</div>
+          {usage.period_start && <div className="tiny muted">{tr("Counted since")} {new Date(usage.period_start).toLocaleString()}</div>}
+        </div>}
+        <label className="row tiny"><input type="checkbox" checked={form.ai_policy.reset_usage} onChange={(e) => setPolicy({ reset_usage: e.target.checked })} />{tr("Reset usage counters when saving")}</label>
       </>)}
       {tab === 'features' && FEATURES.map((f) => (
         <label key={f.key} className="feature">

@@ -10,7 +10,7 @@ A multiplayer online table for Call of Cthulhu and other Basic Roleplaying games
 | Backend | C++20, [Drogon](https://github.com/drogonframework/drogon) (HTTP + WebSocket), [libpqxx](https://github.com/jtv/libpqxx), jsoncpp, libcurl, poppler-cpp |
 | Database | PostgreSQL 16 with full-text search, `pg_trgm`, optional `pgvector` |
 | Frontend | React 18 + TypeScript + Vite, zustand, react-markdown |
-| AI | Pluggable LLM gateway: any OpenAI-compatible chat-completions API, or a clearly labelled **Mock LLM mode** |
+| AI | Per-server LLM gateway (OpenAI- or Anthropic-compatible), image and speech providers set by each server's maintainers, or a clearly labelled **Mock mode** |
 | Deployment | Docker Compose (db / backend / frontend / PDF worker; optional MinIO) |
 
 Screenshots (taken from the running app in mock mode):
@@ -30,7 +30,7 @@ Screenshots (taken from the running app in mock mode):
 ## Quick start (Docker Compose)
 
 ```bash
-cp .env.example .env            # leave LLM_API_KEY empty for Mock LLM mode, or fill in a key
+cp .env.example .env            # AI keys are not set here: each server's maintainers configure them in Server settings → AI
 # Set PDF_WORKER_TOKEN in .env to a random secret of at least 32 characters first
 # openssl rand -hex 32
 docker compose up --build
@@ -73,14 +73,18 @@ Everything is read from environment variables; see [`.env.example`](.env.example
 | Variable | Meaning |
 |---|---|
 | `DATABASE_URL` | libpq connection string |
-| `LLM_API_BASE`, `LLM_API_KEY`, `LLM_MODEL` | OpenAI-compatible endpoint. **Empty key ⇒ Mock LLM mode** (banner shown in the UI, `llm_mode: "mock"` in `/api/health`) |
-| `LLM_EMBEDDING_MODEL` | optional; enables pgvector semantic retrieval (1536-dim) |
+| `LLM_TIMEOUT_MS`, `LLM_MAX_TOKENS`, `LLM_TEMPERATURE` | limits for the model calls servers make (providers and keys are per server, not environment variables) |
+| `AI_ALLOW_PRIVATE_ENDPOINTS` (false) | allow server AI endpoints on private addresses or plain http — only for a trusted self-hosted model |
+| `AI_HTTP_WORKERS` (4) | threads that run request-triggered model calls off the HTTP threads |
 | `AI_OBSERVER_INTERVAL_MS` (5000) | scan cadence of the high-frequency observer |
 | `AI_CONSOLIDATOR_INTERVAL_MS` (60000) | cadence of the low-frequency consolidation pass |
 | `HIGHLIGHT_TTL_SECONDS`, `HIGHLIGHT_CLEANUP_INTERVAL_MS` | highlight lifetime and the independent expiry sweeper |
 | `AUTH_SECRET` | HMAC key for API tokens and the key that seals per-server API keys (change in production; rotating it invalidates stored server keys) |
 
-LLM API keys live only in the backend process; the frontend never sees them.
+There are no platform AI keys. Each server's maintainers set its language model, embedding model, image and speech providers
+with the server's own keys (sealed at rest, never sent to browsers); a server without a provider runs in **Mock mode** (banner in
+the UI, `llm_mode: "mock"` in the server settings). Provider endpoints must be https on a public address unless
+`AI_ALLOW_PRIVATE_ENDPOINTS` is set; DNS is resolved once and pinned, and redirects are not followed.
 
 ## What is implemented
 
@@ -168,10 +172,11 @@ difficulty, bonus/penalty dice, sanity loss written back to SAN, hidden rolls wh
 a gray hint follows the command (`.ra research —— Alice's research is 53`). Reply wording comes from built-in English/中文 texts
 or server-defined text groups; each channel's GM picks one. GMs maintain NPC sheets by speaking as the NPC or in the character sheet.
 
-**Server maintainers** — the server owner and admins ("maintainers") set the server's language, LLM API base/key/model and
-thinking effort, TTS credentials, and switch Consistency Check, Integrated Dice and Inspiration on or off; they invite and remove
+**Server maintainers** — the server owner and admins ("maintainers") set the server's language, its AI providers (language model with
+thinking effort and embedding model, images, speech) and AI policy — a token and an image budget for the whole server (per month or
+until reset) and how many AI tasks may run at once — and switch Consistency Check, Integrated Dice and Inspiration on or off; they invite and remove
 members. Keys are sealed with AES-256-GCM under `AUTH_SECRET` and never returned to clients; a server API base is only used with
-the server's own key. Members are chosen with search-and-click pickers when creating chat windows, inviting to the server or a
+the server's own key; there is no platform key to fall back to. Members are chosen with search-and-click pickers when creating chat windows, inviting to the server or a
 channel, and managing an existing window's participants.
 
 **PDF module import** — poppler text extraction per page → chunked LLM structuring into a conditional knowledge graph
@@ -253,7 +258,7 @@ reproduce it by hand with the demo campaign.
 
 * **Mock LLM mode is rule-based.** It demonstrates every pipeline end to end and is deterministic, but its extraction is
   heuristic English pattern matching; the live mode uses the same prompts, schemas, tools and validators with a real model.
-* Semantic (pgvector) retrieval is wired but only active when `LLM_EMBEDDING_MODEL` is set; FTS + trigram is the default.
+* Semantic (pgvector) retrieval is wired but only active when the server sets an embedding model; FTS + trigram is the default.
 * Timeline compression and relationship merging in the consolidator are conservative (resolve promise threads, drop exact
   duplicate relationships); richer long-term compression is left to the live model.
 * Group membership is managed explicitly by the KP. Changing it rebuilds derived player journals from currently readable

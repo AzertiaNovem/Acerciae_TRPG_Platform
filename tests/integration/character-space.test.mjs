@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-// Run against an isolated server with IMAGE_PROVIDER=mock: API_BASE=http://127.0.0.1:8080 node --test tests/integration/character-space.test.mjs
+// Run against an isolated server: API_BASE=http://127.0.0.1:8080 node --test tests/integration/character-space.test.mjs
 const base = process.env.API_BASE || "http://localhost:18081";
 async function call(token, method, path, body, raw) {
   const r = await fetch(base + path, { method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(raw ? {} : { "Content-Type": "application/json" }) }, body: raw ?? (body === undefined ? undefined : JSON.stringify(body)) });
@@ -18,6 +18,8 @@ test("character space: role card mirrors into dice attributes, uploads and gener
   for (const r of ["gm", "p1", "p2"]) u[r] = await call(null, "POST", "/api/auth/register", { username: r + s, password: "password", display_name: r });
   const gm = u.gm.token, p1 = u.p1.token, p2 = u.p2.token;
   const server = await call(gm, "POST", "/api/servers", { name: "Space" });
+  // Images are the server's own setting (there is no platform provider): use the labelled mock test patterns.
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { image: { provider: "mock" } });
   const ch = (await call(gm, "POST", `/api/servers/${server.id}/channels`, { name: "Arkham", knowledge_mode: "isolated" })).id;
   for (const r of ["p1", "p2"]) await call(gm, "POST", `/api/channels/${ch}/members`, { username: r + s, role: "player" });
   await call(gm, "PUT", `/api/channels/${ch}`, { era: "1925, Arkham" });
@@ -47,7 +49,8 @@ test("character space: role card mirrors into dice attributes, uploads and gener
   await rejects(call(p1, "POST", `/api/channels/${ch}/characters/${ada.id}/assets/generate`, { slots: ["portrait"] }), 409);
   const gen = await call(p1, "PUT", `/api/channels/${ch}/characters/${ada.id}/appearance`, { asset_mode: "generated", appearance_prompt: "A gaunt woman in a grey wool coat, cropped dark hair, round spectacles" });
   assert.equal(gen.character.asset_mode, "generated");
-  if (gen.generation_available) {
+  assert.equal(gen.generation_available, true, "the server's mock image provider is on");
+  {
     const r = await call(p1, "POST", `/api/channels/${ch}/characters/${ada.id}/assets/generate`, { slots: ["portrait", "avatar"], subtitles: ["IDLE", "fight"], allow_cloud: true });
     assert.equal(r.jobs.length, 4);
     const done = await waitFor(async () => { const x = await call(p1, "GET", `/api/channels/${ch}/characters/${ada.id}/space`); return x.jobs.filter((j) => j.status === "completed").length >= 4 ? x : null; });

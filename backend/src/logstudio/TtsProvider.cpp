@@ -4,6 +4,7 @@
 #include "../core/Text.h"
 #include "../core/Crypto.h"
 #include <curl/curl.h>
+#include "../core/NetGuard.h"
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -71,8 +72,11 @@ static size_t wcb(char* p, size_t s, size_t n, void* u) { auto& out=*static_cast
 class QwenTtsProvider : public TtsProvider {
 public:
     QwenTtsProvider(const Json::Value& config) {
-        apiKey_ = json::str(config,"api_key",env("QWEN_API_KEY", "")); base_ = json::str(config,"api_base",env("QWEN_API_BASE", "https://dashscope.aliyuncs.com")); if (!base_.empty() && base_.back() == '/') base_.pop_back();
-        official_ = json::str(config,"model",env("QWEN_TTS_MODEL_OFFICIAL", "qwen-audio-3.1-tts-plus")); preview_ = env("QWEN_TTS_MODEL_PREVIEW", "qwen-audio-3.1-tts-flash");
+        // Key, API base and model come from the server's settings; the remaining protocol details have operator overrides.
+        apiKey_ = json::str(config, "api_key", ""); base_ = json::str(config, "api_base", ""); if (base_.empty()) base_ = "https://dashscope.aliyuncs.com";
+        while (!base_.empty() && base_.back() == '/') base_.pop_back();
+        official_ = json::str(config, "model", ""); if (official_.empty()) official_ = "qwen-audio-3.1-tts-plus";
+        preview_ = env("QWEN_TTS_MODEL_PREVIEW", "qwen-audio-3.1-tts-flash");
         synthPath_ = env("QWEN_TTS_ENDPOINT", "/api/v1/services/audio/tts/SpeechSynthesizer");
         enrollPath_ = env("QWEN_VOICE_ENROLL_ENDPOINT", "/api/v1/services/audio/tts/customization"); enrollModel_ = env("QWEN_VOICE_ENROLL_MODEL", "voice-enrollment"); designModel_ = env("QWEN_VOICE_DESIGN_MODEL", "voice-enrollment");
         instructionField_ = env("QWEN_TTS_INSTRUCTION_FIELD", "instruction"); pricePer10k_ = std::atof(env("TTS_PRICE_PER_10K_CHARS", "0").c_str()); timeoutMs_ = std::atol(env("QWEN_TIMEOUT_MS", "60000").c_str());
@@ -94,8 +98,10 @@ public:
         body["input"]["format"] = "wav"; // bounded, measurable audio; no invented MP3 duration
         long st = 0; std::string err; auto resp = post(synthPath_, json::dump(body), st, err);
         if (!err.empty()) { r.error = "transport: " + err; r.retryable = true; return r; }
-        if (st == 429 || st >= 500) { r.error = "qwen http " + std::to_string(st) + ": " + resp.substr(0, 300); r.retryable = true; return r; }
-        if (st < 200 || st >= 300) { r.error = "qwen http " + std::to_string(st) + ": " + resp.substr(0, 300); return r; }
+        if (st < 200 || st >= 300) {
+            ALOG_WARN << "Qwen speech HTTP " << st << ": " << resp.substr(0, 300);
+            r.error = "the speech provider returned HTTP " + std::to_string(st); r.retryable = st == 429 || st >= 500; return r;
+        }
         Json::Value j; try { j = json::parse(resp); } catch (...) { r.error = "qwen: unparseable response"; return r; }
         r.providerMeta["request_id"] = j["request_id"]; r.providerMeta["usage"] = j["usage"];
         const auto& audio = j["output"]["audio"];
@@ -105,7 +111,7 @@ public:
             // Vendor URLs are temporary (hours). Download now; never persist the URL as the asset location.
             long dst = 0; std::string derr; r.audioBytes = getUrl(url, dst, derr);
             if (!derr.empty() || dst < 200 || dst >= 300) { r.error = "failed to download audio from vendor url (" + std::to_string(dst) + " " + derr + ")"; r.retryable = true; return r; }
-        } else { r.error = "qwen: no audio in response: " + resp.substr(0, 300); return r; }
+        } else { ALOG_WARN << "Qwen speech without audio: " << resp.substr(0, 300); r.error = "the speech provider returned no audio"; return r; }
         if (r.audioBytes.size() < 44 || wavDurationMs(r.audioBytes) <= 0) { r.error = "provider returned invalid or empty WAV audio"; return r; }
         r.mime = r.audioBytes.compare(0, 4, "RIFF") == 0 ? "audio/wav" : (r.audioBytes.compare(0, 3, "ID3") == 0 || ((unsigned char)r.audioBytes[0] == 0xFF)) ? "audio/mpeg" : "audio/wav";
         r.durationMs = r.mime == "audio/wav" ? wavDurationMs(r.audioBytes) : 0;
@@ -129,18 +135,20 @@ public:
         else body["input"]["audio"] = "data:" + req.referenceMime + ";base64," + base64Encode(req.referenceAudio);
         if (!req.language.empty()) body["input"]["language_hints"].append(req.language=="zh-dialect"?"zh":req.language);
         long st = 0; std::string err; auto resp = post(enrollPath_, json::dump(body), st, err);
-        if (!err.empty() || st < 200 || st >= 300) { r.error = "voice " + req.kind + " failed: http " + std::to_string(st) + " " + err + " " + resp.substr(0, 300); return r; }
+        if (!err.empty() || st < 200 || st >= 300) { ALOG_WARN << "Qwen voice " << req.kind << " HTTP " << st << " " << err << ": " << resp.substr(0, 300); r.error = "voice " + req.kind + " failed" + (err.empty() ? " (HTTP " + std::to_string(st) + ")" : ": " + err); return r; }
         try { auto j = json::parse(resp); r.voiceId = json::str(j["output"], "voice"); if (r.voiceId.empty()) r.voiceId = json::str(j["output"], "voice_id"); r.providerMeta = j["output"]; r.providerMeta["request_id"] = j["request_id"]; } catch (...) {}
-        if (r.voiceId.empty()) { r.error = "voice " + req.kind + ": no voice id in response: " + resp.substr(0, 300); return r; }
+        if (r.voiceId.empty()) { ALOG_WARN << "Qwen voice " << req.kind << " without id: " << resp.substr(0, 300); r.error = "voice " + req.kind + ": the provider returned no voice id"; return r; }
         r.ok = true; return r;
     }
     double estimateSynthesisCost(const std::string&, int chars) override { return pricePer10k_ * chars / 10000.0; }
     Json::Value capabilities() const override { Json::Value c; c["word_timestamps"] = "only if returned by the API (not assumed)"; c["voice_design"] = true; c["voice_clone"] = true; c["phoneme_hints"] = true; c["api_base"] = base_; c["synth_endpoint"] = synthPath_; c["enroll_endpoint"] = enrollPath_; c["instruction_field"] = instructionField_; c["note"] = "Qwen-Audio 3.1 HTTP contract checked 2026-10-26; preset availability depends on model and region. Live account validation still required."; return c; }
 private:
     std::string post(const std::string& path, const std::string& body, long& st, std::string& err) {
+        std::unique_ptr<net::PinnedRequest> pinned;
+        try { pinned = std::make_unique<net::PinnedRequest>(base_ + path); } catch (const std::exception& e) { err = e.what(); st = 0; return ""; }
         CURL* c = curl_easy_init(); std::string out; struct curl_slist* h = nullptr;
         h = curl_slist_append(h, "Content-Type: application/json"); h = curl_slist_append(h, ("Authorization: Bearer " + apiKey_).c_str());
-        curl_easy_setopt(c, CURLOPT_URL, (base_ + path).c_str()); curl_easy_setopt(c, CURLOPT_HTTPHEADER, h); curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str()); curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)body.size());
+        pinned->apply(c, 50u * 1024 * 1024); curl_easy_setopt(c, CURLOPT_HTTPHEADER, h); curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str()); curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)body.size());
         curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, wcb); curl_easy_setopt(c, CURLOPT_WRITEDATA, &out); curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, timeoutMs_);
         auto rc = curl_easy_perform(c); if (rc != CURLE_OK) err = curl_easy_strerror(rc); curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &st); curl_slist_free_all(h); curl_easy_cleanup(c); return out;
     }
@@ -162,10 +170,9 @@ private:
     std::string apiKey_, base_, official_, preview_, synthPath_, enrollPath_, enrollModel_, designModel_, instructionField_; double pricePer10k_ = 0; long timeoutMs_ = 60000;
 };
 
-std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& overrides) {
-    auto mode = env("TTS_PROVIDER", "auto"); bool haveKey = !json::str(overrides,"api_key",env("QWEN_API_KEY", "")).empty();
-    if (!overrides.isNull() || mode == "qwen" || (mode == "auto" && haveKey)) { if (!haveKey) ALOG_WARN << "TTS_PROVIDER=qwen but QWEN_API_KEY is empty"; ALOG_INFO << "TTS provider: qwen"; return std::make_unique<QwenTtsProvider>(overrides); }
-    ALOG_INFO << "TTS provider: MOCK (no QWEN_API_KEY)"; return std::make_unique<MockTtsProvider>();
+std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& config) {
+    if (json::str(config, "provider") == "qwen") return std::make_unique<QwenTtsProvider>(config);
+    return std::make_unique<MockTtsProvider>();
 }
 
 } // namespace

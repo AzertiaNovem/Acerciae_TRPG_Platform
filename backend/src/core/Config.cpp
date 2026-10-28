@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <string>
 #include <stdexcept>
+#include <cstdio>
 
 namespace acerciae {
 
@@ -35,15 +36,13 @@ Config Config::fromEnv() {
     c.authTokenTtlHours = envInt("AUTH_TOKEN_TTL_HOURS", c.authTokenTtlHours);
     c.uploadDir = envStr("UPLOAD_DIR", c.uploadDir);
     c.maxUploadMb = (std::size_t)envInt("MAX_UPLOAD_MB", (int)c.maxUploadMb);
-    c.llmProvider = envStr("LLM_PROVIDER", c.llmProvider);
-    if (c.llmProvider != "openai_compatible" && c.llmProvider != "anthropic") throw std::runtime_error("Unsupported LLM_PROVIDER");
-    c.llmApiBase = envStr("LLM_API_BASE", c.llmProvider == "anthropic" ? "https://api.anthropic.com/v1" : c.llmApiBase);
-    c.llmApiKey = envStr("LLM_API_KEY", "");
-    c.llmModel = envStr("LLM_MODEL", c.llmModel);
+    for (auto* gone : {"LLM_PROVIDER", "LLM_API_BASE", "LLM_API_KEY", "LLM_MODEL", "LLM_EMBEDDING_MODEL", "IMAGE_PROVIDER", "IMAGE_API_KEY", "IMAGE_API_BASE", "IMAGE_API_URL", "IMAGE_MODEL", "QWEN_API_KEY", "QWEN_API_BASE", "TTS_PROVIDER"})
+        if (const char* v = std::getenv(gone); v && *v) std::fprintf(stderr, "warning: %s is ignored; AI providers and keys are configured per server by its maintainers\n", gone);
     c.llmTimeoutMs = envInt("LLM_TIMEOUT_MS", c.llmTimeoutMs);
     c.llmMaxTokens = envInt("LLM_MAX_TOKENS", c.llmMaxTokens);
     c.llmTemperature = envDouble("LLM_TEMPERATURE", c.llmTemperature);
-    c.llmEmbeddingModel = envStr("LLM_EMBEDDING_MODEL", "");
+    c.aiAllowPrivateEndpoints = envBool("AI_ALLOW_PRIVATE_ENDPOINTS", c.aiAllowPrivateEndpoints);
+    c.aiHttpWorkers = envInt("AI_HTTP_WORKERS", c.aiHttpWorkers);
     c.observerEnabled = envBool("AI_OBSERVER_ENABLED", c.observerEnabled);
     c.observerIntervalMs = envInt("AI_OBSERVER_INTERVAL_MS", c.observerIntervalMs);
     c.consolidatorIntervalMs = envInt("AI_CONSOLIDATOR_INTERVAL_MS", c.consolidatorIntervalMs);

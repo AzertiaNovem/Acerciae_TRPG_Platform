@@ -63,7 +63,7 @@ Json::Value ContextRetrievalService::searchSceneHistory(const ChannelAccess& a, 
     sql += " ORDER BY rank DESC, f.updated_at DESC LIMIT " + std::to_string(std::max(1, std::min(limit, 50)));
     out["facts"] = db_.queryJson(sql, p);
     out["events"] = events_.search(a, query, sceneId, std::min(limit, 20));
-    if (out["facts"].empty() && embeddingsEnabled()) out["semantic"] = semanticSearch(a, query, 10);
+    if (out["facts"].empty() && embeddingsEnabled(a.channelId)) out["semantic"] = semanticSearch(a, query, 10);
     return out;
 }
 Json::Value ContextRetrievalService::searchEvents(const ChannelAccess& a, const std::string& query, const std::string& sceneId, int limit) {
@@ -207,24 +207,24 @@ Json::Value ContextRetrievalService::getShard(const ChannelAccess& a, const std:
     if (kind == "relationship" || kind == "clue" || kind == "thread" || kind == "timeline") return knowledge_.getFact(a, id);
     throw badRequest("unknown shard kind: " + kind);
 }
-bool ContextRetrievalService::embeddingsEnabled() {
+bool ContextRetrievalService::embeddingsEnabled(const std::string& channelId) {
     if (vectorState_ < 0) {
         auto r = db_.queryOne("SELECT 1 AS ok FROM information_schema.tables WHERE table_name='fact_embeddings'");
-        vectorState_ = (!r.isNull() && llm_.status()["embeddings"].asBool()) ? 1 : 0;
+        vectorState_ = r.isNull() ? 0 : 1;
     }
-    return vectorState_ == 1;
+    return vectorState_ == 1 && llm_.embeddingsAvailable(channelId);
 }
 static std::string vecLiteral(const std::vector<float>& v) { std::string s = "["; for (size_t i = 0; i < v.size(); ++i) { if (i) s += ","; s += std::to_string(v[i]); } return s + "]"; }
-void ContextRetrievalService::indexEmbedding(const std::string& factId, const std::string& textual) {
-    if (!embeddingsEnabled()) return;
-    auto v = llm_.embed(textual);
+void ContextRetrievalService::indexEmbedding(const std::string& channelId, const std::string& factId, const std::string& textual) {
+    if (!embeddingsEnabled(channelId)) return;
+    auto v = llm_.embed(channelId, textual);
     if (v.size() != 1536) return;
-    try { db_.exec("INSERT INTO fact_embeddings(fact_id, model, embedding) VALUES($1,$2,$3::vector) ON CONFLICT (fact_id) DO UPDATE SET embedding=EXCLUDED.embedding, model=EXCLUDED.model", {factId, llm_.modelName(), vecLiteral(v)}); }
+    try { db_.exec("INSERT INTO fact_embeddings(fact_id, model, embedding) VALUES($1,$2,$3::vector) ON CONFLICT (fact_id) DO UPDATE SET embedding=EXCLUDED.embedding, model=EXCLUDED.model", {factId, llm_.modelName(channelId), vecLiteral(v)}); }
     catch (const std::exception& e) { ALOG_WARN << "embedding index failed: " << e.what(); }
 }
 Json::Value ContextRetrievalService::semanticSearch(const ChannelAccess& a, const std::string& query, int limit) {
-    if (!embeddingsEnabled()) return Json::Value(Json::arrayValue);
-    auto v = llm_.embed(query);
+    if (!embeddingsEnabled(a.channelId)) return Json::Value(Json::arrayValue);
+    auto v = llm_.embed(a.channelId, query);
     if (v.size() != 1536) return Json::Value(Json::arrayValue);
     return db_.queryJson("SELECT " + FACT_COLS + ", (fe.embedding <=> $2::vector) AS distance " + FACT_FROM + "JOIN fact_embeddings fe ON fe.fact_id=f.id WHERE f.channel_id=$1 AND f.status <> 'retracted' AND " + Visibility::factFilter(a) + " ORDER BY fe.embedding <=> $2::vector LIMIT " + std::to_string(std::max(1, std::min(limit, 30))), {a.channelId, vecLiteral(v)});
 }

@@ -44,7 +44,7 @@ int main(int argc, char** argv) {
     drogon::app().registerBeginningAdvice([&] { S.observer->start(); S.tts->start(); S.creative->start(); S.vnScripts->start(); });
     std::signal(SIGTERM, [](int) { drogon::app().quit(); });
     std::signal(SIGINT, [](int) { drogon::app().quit(); });
-    ALOG_INFO << "Acerciae TRPG backend listening on :" << cfg.httpPort << " (LLM mode: " << S.llm->mode() << ")";
+    ALOG_INFO << "Acerciae TRPG backend listening on :" << cfg.httpPort << " (AI providers: per server)";
     drogon::app().run();
     Services::shutdown();
     curl_global_cleanup();

@@ -43,6 +43,8 @@ test("Log Studio A–I: the campaign log and its exports, immutable snapshots, s
   const server = await call(gm, "POST", "/api/servers", {
     name: "Studio acceptance",
   });
+  // Images are the server's own setting (there is no platform provider): use the labelled mock test patterns.
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { image: { provider: "mock" } });
   const channel = await call(gm, "POST", `/api/servers/${server.id}/channels`, {
     name: "中文回放",
     knowledge_mode: "public",
@@ -433,6 +435,7 @@ test("Log Studio A–I: the campaign log and its exports, immutable snapshots, s
   // Server credentials select the real provider, while the campaign policy prevents any outbound call.
   await call(gm, "PUT", `/api/servers/${server.id}/settings`, {
     tts: {
+      provider: "qwen",
       api_key: "test-only-no-outbound-key",
       api_base: "https://example.invalid",
       model: "qwen-audio-3.1-tts-plus",
@@ -457,7 +460,7 @@ test("Log Studio A–I: the campaign log and its exports, immutable snapshots, s
     usedBefore,
   );
   await call(gm, "PUT", `/api/servers/${server.id}/settings`, {
-    tts: { clear_api_key: true },
+    tts: { provider: "mock", clear_api_key: true },
   });
   console.log("validated channel", ch);
 });

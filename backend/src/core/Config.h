@@ -14,14 +14,13 @@ struct Config {
     std::string uploadDir = "./uploads";
     std::size_t maxUploadMb = 50;
 
-    std::string llmProvider = "openai_compatible";
-    std::string llmApiBase = "https://api.openai.com/v1";
-    std::string llmApiKey;
-    std::string llmModel = "gpt-4o-mini";
+    // AI providers, models and keys belong to each server's maintainers (server settings); the process only sets
+    // operational guards for every outbound AI call.
     int llmTimeoutMs = 60000;
     int llmMaxTokens = 2048;
     double llmTemperature = 0.2;
-    std::string llmEmbeddingModel;
+    bool aiAllowPrivateEndpoints = false;   // allow http:// and private/loopback hosts (self-hosted models)
+    int aiHttpWorkers = 8;                  // threads that run user-triggered AI requests off the HTTP threads
 
     bool observerEnabled = true;
     int observerIntervalMs = 5000;
@@ -32,7 +31,6 @@ struct Config {
     bool seedDemo = true;
     std::string migrationsDir = "./migrations";
 
-    bool mockLlm() const { return llmApiKey.empty(); }
     static Config fromEnv();
 };
 

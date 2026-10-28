@@ -10,7 +10,7 @@ class DocumentService; class HighlightService; class ContextRetrievalService; cl
 class ScenarioService; class ReminderService; class ScriptKnowledgeService; class CharacterSpaceService; class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
 class Notifier;
 namespace logstudio { class LogStudioService; class ObjectStore; class MediaService; class PresentationService; class StyleService; class TtsService; class PublicationService; class CreativeService; class VnScriptService; }
-class ServerSettingsService; class DiceService;
+class ServerSettingsService; class DiceService; class AiPolicyService; class WorkPool;
 
 // Composition root: every module gets its dependencies through here (constructed once in main).
 struct Services {
@@ -27,6 +27,7 @@ struct Services {
     std::unique_ptr<KnowledgeService> knowledge;
     std::unique_ptr<DocumentService> documents;
     std::unique_ptr<HighlightService> highlights;
+    std::unique_ptr<AiPolicyService> aiPolicy;
     std::unique_ptr<ServerSettingsService> settings;
     std::unique_ptr<DiceService> dice;
     std::unique_ptr<ChatService> chat;
@@ -45,6 +46,7 @@ struct Services {
     std::unique_ptr<logstudio::PublicationService> publication;
     std::unique_ptr<logstudio::CreativeService> creative;
     std::unique_ptr<logstudio::VnScriptService> vnScripts;
+    std::unique_ptr<WorkPool> aiRequests;   // user-triggered model calls, off the HTTP threads
 
     static Services& build(const Config& cfg);   // constructs the singleton
     static void shutdown();

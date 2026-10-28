@@ -9,32 +9,48 @@
 namespace acerciae {
 
 LlmGateway::LlmGateway(const Config& cfg) : cfg_(cfg), mock_(std::make_shared<MockLlmClient>()) {
-    if (cfg.mockLlm()) client_ = mock_;
-    else if (cfg.llmProvider == "anthropic") client_ = std::make_shared<AnthropicClient>(OpenAiCompatClient::endpointFrom(cfg));
-    else client_ = std::make_shared<OpenAiCompatClient>(cfg);
-    ALOG_INFO << "LLM gateway mode=" << client_->mode() << " model=" << client_->modelName();
+    ALOG_INFO << "LLM gateway: providers come from each server's settings (mock until a maintainer configures one)";
 }
-LlmGateway::LlmGateway(const Config& cfg, std::unique_ptr<ILlmClient> client) : cfg_(cfg), client_(std::move(client)), mock_(std::make_shared<MockLlmClient>()) {}
+LlmGateway::LlmGateway(const Config& cfg, std::unique_ptr<ILlmClient> client) : cfg_(cfg), fixed_(std::move(client)), mock_(std::make_shared<MockLlmClient>()) {}
 
 LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId) const {
-    Resolved r; r.client = client_; r.provider = cfg_.llmProvider;
+    Resolved r; r.client = mock_; r.provider = "mock";
+    if (fixed_) { r.client = fixed_; r.fixed = true; return r; }
     if (channelId.empty() || !resolver_) return r;
-    // A broken server credential must not silently send private requests to the platform provider.
-    auto profile = resolver_(channelId);
+    auto profile = resolver_(channelId);   // throws when the server's key cannot be unsealed: never fall back silently
     if (!profile) return r;
     r.language = profile->language;
     const auto& ep = profile->endpoint;
-    r.provider = ep.provider;
-    if (ep.apiKey.empty()) { r.client = mock_; r.custom = true; return r; }
+    if (ep.provider == "mock" || ep.apiKey.empty()) return r;
+    r.provider = ep.provider; r.embeddingModel = ep.embeddingModel;
     auto key = ep.provider + "\n" + std::to_string(ep.timeoutMs) + "\n" + std::to_string(ep.maxTokens) + "\n" + ep.apiBase + "\n" + ep.apiKey + "\n" + ep.model + "\n" + ep.reasoningEffort + "\n" + ep.embeddingModel;
     std::lock_guard<std::mutex> lk(mu_);
-    auto& c = clients_[key];
-    if (!c) {
+    auto it = clients_.find(key);
+    if (it == clients_.end()) {
+        if (clients_.size() >= 256) clients_.clear();   // settings changes leave old entries behind
+        std::shared_ptr<ILlmClient> c;
         if (ep.provider == "anthropic") c = std::make_shared<AnthropicClient>(ep);
         else c = std::make_shared<OpenAiCompatClient>(ep);
+        it = clients_.emplace(key, c).first;
     }
-    r.client = c; r.custom = true;
+    r.client = it->second;
     return r;
+}
+
+bool LlmGateway::embeddingsAvailable(const std::string& channelId) const {
+    try { auto r = clientFor(channelId); return r.client->mode() == "live" && r.provider == "openai_compatible" && !r.embeddingModel.empty(); }
+    catch (...) { return false; }
+}
+std::vector<float> LlmGateway::embed(const std::string& channelId, const std::string& text) {
+    if (!embeddingsAvailable(channelId)) return {};
+    auto r = clientFor(channelId);
+    try {
+        if (meter_) meter_->checkTokens(channelId);
+        std::shared_ptr<void> slot = meter_ ? meter_->acquire(channelId) : nullptr;
+        auto v = r.client->embed(text);
+        if (meter_) meter_->recordTokens(channelId, "embedding", (int)(text.size() / 4) + 1, 0);   // providers bill input only; estimate
+        return v;
+    } catch (const std::exception& e) { ALOG_WARN << "embedding skipped: " << e.what(); return {}; }
 }
 
 std::string LlmGateway::languageName(const std::string& code) {
@@ -46,13 +62,15 @@ std::string LlmGateway::languageName(const std::string& code) {
 }
 
 Json::Value LlmGateway::status(const std::string& channelId) const {
-    auto r = clientFor(channelId);
+    Json::Value s;
+    Resolved r;
+    try { r = clientFor(channelId); }
+    catch (const std::exception& e) { s["mode"] = "error"; s["model"] = ""; s["provider"] = ""; s["note"] = e.what(); s["embeddings"] = false; s["language"] = "en"; return s; }
     bool mock = r.client->mode() == "mock";
-    Json::Value s; s["mode"] = r.client->mode(); s["model"] = r.client->modelName(); s["provider"] = r.provider;
-    s["source"] = r.custom ? "server" : "process";
-    s["api_base"] = mock || r.custom ? "" : cfg_.llmApiBase; s["embeddings"] = cfg_.llmProvider == "openai_compatible" && !cfg_.llmEmbeddingModel.empty();
+    s["mode"] = r.client->mode(); s["model"] = r.client->modelName(); s["provider"] = r.provider;
+    s["embeddings"] = embeddingsAvailable(channelId);
     s["language"] = r.language.empty() ? "en" : r.language;
-    s["note"] = mock ? "MOCK LLM MODE: no LLM API key configured. Rule-based extraction demonstrates the pipeline end to end." : "live";
+    s["note"] = mock ? "MOCK LLM MODE: this server has no AI provider configured. Rule-based extraction demonstrates the pipeline end to end." : "live";
     return s;
 }
 
@@ -74,15 +92,27 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
     if (req.maxTokens <= 0) req.maxTokens = cfg_.llmMaxTokens;
     if (req.temperature < 0) req.temperature = cfg_.llmTemperature;
     if (!exec) req.tools.clear();
-    auto resolved = clientFor(req.channelId);
+    Resolved resolved;
+    try { resolved = clientFor(req.channelId); }
+    catch (const std::exception& e) { out.error = e.what(); return out; }
     auto& client = *resolved.client;
+    // Mock calls cost nothing; live calls spend the server's budget and hold one of its concurrent AI slots.
+    AiMeter* meter = client.mode() == "live" && !resolved.fixed ? meter_ : nullptr;
     auto lang = languageName(resolved.language);
     if (!lang.empty())
         req.system += "\n\nOutput language: write every human-readable string (summaries, titles, rationale, descriptions, drafts) in " + lang +
                       ". Keep JSON keys, enum values, status values and ids exactly as specified.";
     for (int round = 0; round < maxRounds; ++round) {
-        auto resp = client.complete(req);
+        LlmResponse resp;
+        try {
+            if (meter) meter->checkTokens(req.channelId);
+            std::shared_ptr<void> slot = meter ? meter->acquire(req.channelId) : nullptr;
+            resp = client.complete(req);
+        } catch (const std::exception& e) { out.error = e.what(); return out; }
         out.llmCalls++;
+        if (meter && (resp.promptTokens || resp.completionTokens)) {
+            try { meter->recordTokens(req.channelId, req.task, resp.promptTokens, resp.completionTokens); } catch (const std::exception& e) { ALOG_WARN << "AI usage not recorded: " << e.what(); }
+        }
         if (!resp.ok) { out.error = resp.error; return out; }
         if (resp.toolCalls.isArray() && !resp.toolCalls.empty() && exec) {
             LlmMessage assistant; assistant.role = "assistant"; assistant.content = resp.content; assistant.toolCalls = resp.toolCalls; assistant.providerContent = resp.providerContent;
@@ -91,10 +121,11 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
                 Json::Value args;
                 try { args = tc["arguments"].isString() ? json::parse(tc["arguments"].asString()) : tc["arguments"]; } catch (...) { args = Json::Value(Json::objectValue); }
                 Json::Value result;
+                bool failed = false;
                 try { result = exec(tc["name"].asString(), args); }
-                catch (const std::exception& e) { result["error"] = e.what(); }
+                catch (const std::exception& e) { result["error"] = e.what(); failed = true; }
                 out.toolCalls++;
-                LlmMessage tm; tm.role = "tool"; tm.toolCallId = tc["id"].asString(); tm.name = tc["name"].asString(); tm.content = json::dump(result);
+                LlmMessage tm; tm.role = "tool"; tm.toolCallId = tc["id"].asString(); tm.name = tc["name"].asString(); tm.content = json::dump(result); tm.isError = failed;
                 req.messages.push_back(tm);
             }
             continue;

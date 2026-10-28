@@ -9,6 +9,7 @@ namespace acerciae {
 class LlmGateway;
 class Notifier;
 class ServerSettingsService;
+class AiPolicyService;
 } // namespace acerciae
 namespace acerciae::logstudio {
 class MediaService;
@@ -17,9 +18,9 @@ class LogStudioService;
 class CreativeService {
 public:
   CreativeService(Db &db, MediaService &media, PresentationService &pres,
-                  LogStudioService &logs, LlmGateway &llm, Notifier &n, ServerSettingsService &settings, AuthService &auth)
+                  LogStudioService &logs, LlmGateway &llm, Notifier &n, ServerSettingsService &settings, AuthService &auth, AiPolicyService &policy)
       : db_(db), media_(media), pres_(pres), logs_(logs), llm_(llm),
-        notifier_(n), settings_(settings), auth_(auth) {}
+        notifier_(n), settings_(settings), auth_(auth), policy_(policy) {}
   ~CreativeService() { stop(); }
   void start();
   void stop();
@@ -49,6 +50,7 @@ private:
   Notifier &notifier_;
   ServerSettingsService &settings_;
   AuthService &auth_;
+  AiPolicyService &policy_;
   void usePortraitReference(const ChannelAccess &a, const std::string &characterId, Json::Value &params, const std::string &portraitJobId = "");
   std::unique_ptr<ImageGenerationProvider> providerFor(const std::string& channelId);
   std::atomic<bool> running_{false};

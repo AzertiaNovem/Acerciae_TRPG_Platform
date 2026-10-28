@@ -9,10 +9,9 @@
 
 namespace acerciae {
 
-// The only module that talks to a model. Owns the clients, enforces timeouts/limits from config,
-// runs the tool-call loop and validates structured output against a schema before returning it.
-// Each server may bring its own endpoint/model/reasoning effort/language; requests carry a channel id and the
-// profile resolver maps it to that server's settings (no resolver or no profile = the process default).
+// The only module that talks to a model. Runs the tool-call loop and validates structured output against a schema
+// before returning it. Providers, models and keys come from each server's settings through the profile resolver;
+// a channel whose server has no live provider runs in mock mode. Live calls are metered by the server's AI policy.
 class LlmGateway {
 public:
     using ToolExecutor = std::function<Json::Value(const std::string& name, const Json::Value& args)>;
@@ -27,29 +26,34 @@ public:
     };
 
     explicit LlmGateway(const Config& cfg);
+    // Tests: every channel uses this client.
     LlmGateway(const Config& cfg, std::unique_ptr<ILlmClient> client);
 
     void setProfileResolver(ProfileResolver r) { resolver_ = std::move(r); }
+    void setMeter(AiMeter* meter) { meter_ = meter; }
 
     // Runs the request; when `exec` is provided tool calls are executed and fed back (max `maxRounds`).
     // The final content must be JSON matching req.responseSchema (if set).
     Outcome runStructured(LlmRequest req, ToolExecutor exec = nullptr, int maxRounds = 4);
-    std::string mode(const std::string& channelId = "") const { return clientFor(channelId).client->mode(); }
-    std::string modelName(const std::string& channelId = "") const { return clientFor(channelId).client->modelName(); }
-    bool isMock(const std::string& channelId = "") const { return mode(channelId) == "mock"; }
-    std::vector<float> embed(const std::string& text) { return client_->embed(text); }
-    Json::Value status(const std::string& channelId = "") const;
+    std::string mode(const std::string& channelId) const { return clientFor(channelId).client->mode(); }
+    std::string modelName(const std::string& channelId) const { return clientFor(channelId).client->modelName(); }
+    bool isMock(const std::string& channelId) const { return mode(channelId) == "mock"; }
+    // Embeddings through the channel's server provider; empty when it has none (mock, Anthropic, no embedding model).
+    std::vector<float> embed(const std::string& channelId, const std::string& text);
+    bool embeddingsAvailable(const std::string& channelId) const;
+    Json::Value status(const std::string& channelId) const;
     static std::string languageName(const std::string& code);   // "zh-CN" -> "Simplified Chinese"; "" for English
 private:
-    struct Resolved { std::shared_ptr<ILlmClient> client; std::string language; std::string provider; bool custom = false; };
+    struct Resolved { std::shared_ptr<ILlmClient> client; std::string language; std::string provider; std::string embeddingModel; bool fixed = false; };
     Resolved clientFor(const std::string& channelId) const;
     static Json::Value extractJson(const std::string& content);
     const Config& cfg_;
-    std::shared_ptr<ILlmClient> client_;
+    std::shared_ptr<ILlmClient> fixed_;   // tests only
     std::shared_ptr<ILlmClient> mock_;
     ProfileResolver resolver_;
+    AiMeter* meter_ = nullptr;
     mutable std::mutex mu_;
-    mutable std::map<std::string, std::shared_ptr<ILlmClient>> clients_;   // per distinct endpoint
+    mutable std::map<std::string, std::shared_ptr<ILlmClient>> clients_;   // per distinct endpoint (bounded)
 };
 
 } // namespace acerciae

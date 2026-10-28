@@ -1,4 +1,5 @@
 #include "TtsService.h"
+#include "../servers/AiPolicyService.h"
 #include "StudioPolicy.h"
 #include "PresentationService.h"
 #include "LogStudioService.h"
@@ -20,15 +21,16 @@ static int utf8Chars(const std::string& s) { int n=0; for (unsigned char c : s) 
 static DbParam opt(const std::string& s) { return s.empty() ? dbNull() : DbParam(s); }
 static std::string envs(const char* k, const char* d) { const char* v = std::getenv(k); return (v && *v) ? std::string(v) : std::string(d); }
 
-TtsService::TtsService(const Config& cfg, Db& db, ObjectStore& store, Notifier& n, PresentationService& pres, ServerSettingsService& settings) : cfg_(cfg), db_(db), store_(store), notifier_(n), pres_(pres), provider_(makeTtsProvider()), settings_(settings) {
+TtsService::TtsService(const Config& cfg, Db& db, ObjectStore& store, Notifier& n, PresentationService& pres, ServerSettingsService& settings, AiPolicyService& policy) : cfg_(cfg), db_(db), store_(store), notifier_(n), pres_(pres), provider_(makeTtsProvider()), settings_(settings), policy_(policy) {
     concurrency_ = std::max(1, std::atoi(envs("TTS_CONCURRENCY", "2").c_str()));
 }
 std::shared_ptr<TtsProvider> TtsService::providerFor(const std::string& channelId) {
     auto ch=db_.queryOne("SELECT server_id FROM channels WHERE id=$1",{channelId});
     if(ch.isNull()) throw notFound("channel not found");
     auto c=settings_.ttsConfig(ch["server_id"].asString());
-    if(c.apiKey.empty()) return provider_;
-    Json::Value v; v["api_key"]=c.apiKey; if(!c.apiBase.empty())v["api_base"]=c.apiBase; if(!c.model.empty())v["model"]=c.model;
+    if(c.provider=="disabled") throw ApiError(403,"tts_disabled","Speech is turned off on this server (Server settings → AI)");
+    if(c.provider!="qwen") return provider_;
+    Json::Value v; v["provider"]="qwen"; v["api_key"]=c.apiKey; if(!c.apiBase.empty())v["api_base"]=c.apiBase; if(!c.model.empty())v["model"]=c.model;
     auto key=crypto::sha256Hex(json::dump(v));std::lock_guard<std::mutex> guard(providersMu_);
     auto it=providers_.find(key);if(it!=providers_.end())return it->second;
     auto made=std::shared_ptr<TtsProvider>(makeTtsProvider(v));if(providers_.size()>32)providers_.clear();providers_[key]=made;return made;
@@ -186,28 +188,42 @@ Json::Value TtsService::usage(const ChannelAccess& a) {
 }
 
 std::string TtsService::synthesizeLine(const std::string& channelId, const LinePlan& l, const std::string& userId, std::string& error, bool& retryable) {
-    return db_.tx([&](pqxx::work& lock) -> std::string {
-    Db::exec(lock,"SELECT pg_advisory_xact_lock(hashtextextended($1,0))",{l.cacheKey});
+    // One synthesis per cache key at a time (the cache makes the second caller a hit). No database transaction or
+    // connection is held while the provider runs.
+    {
+        std::unique_lock<std::mutex> lk(inflightMu_);
+        inflightCv_.wait(lk, [&] { return !inflight_.count(l.cacheKey); });
+        inflight_.insert(l.cacheKey);
+    }
+    struct Release { TtsService* s; const std::string& k; ~Release() { { std::lock_guard<std::mutex> g(s->inflightMu_); s->inflight_.erase(k); } s->inflightCv_.notify_all(); } } release{this, l.cacheKey};
     auto provider = providerFor(channelId);
     auto hit = db_.queryOne("SELECT id FROM tts_audio_assets WHERE cache_key=$1", {l.cacheKey});
     if (!hit.isNull()) { db_.exec("INSERT INTO tts_usage_records(channel_id, provider, model_id, chars, estimated_cost, cached) VALUES($1,$2,$3,$4,0,true)", {channelId, provider->name(), l.modelId, (int64_t)utf8Chars(l.text)}); return hit["id"].asString(); }
-    if(!provider->isMock()) requireCloudPermission(db_,channelId);
+    if (!provider->isMock()) requireCloudPermission(db_, channelId);
     TtsSynthesisRequest req; req.modelId = l.modelId; req.voiceId = l.voiceId; req.text = l.text; req.language = l.language; req.instruction = l.instruction; req.parameters = l.params;
-    db_.tx([&](pqxx::work& w) {
-        auto budget=Db::queryOne(w,"SELECT tts_budget_chars FROM channels WHERE id=$1 FOR UPDATE",{channelId});
-        auto used=Db::queryOne(w,"SELECT coalesce(sum(chars),0) AS n FROM tts_usage_records WHERE channel_id=$1 AND NOT cached",{channelId});
-        if(used["n"].asInt64()+utf8Chars(l.text)>budget["tts_budget_chars"].asInt64())throw ApiError(429,"budget_exceeded","channel TTS budget exhausted");
-        Db::exec(w,"INSERT INTO tts_usage_records(channel_id,provider,model_id,chars,estimated_cost,cached) VALUES($1,$2,$3,$4,$5,false)",{channelId,provider->name(),l.modelId,(int64_t)utf8Chars(l.text),provider->estimateSynthesisCost(l.modelId,utf8Chars(l.text))});
+    // Charge the channel's character budget up front (under the channel row lock) and refund it if synthesis fails.
+    auto usage = db_.tx([&](pqxx::work& w) {
+        auto budget = Db::queryOne(w, "SELECT tts_budget_chars FROM channels WHERE id=$1 FOR UPDATE", {channelId});
+        auto used = Db::queryOne(w, "SELECT coalesce(sum(chars),0) AS n FROM tts_usage_records WHERE channel_id=$1 AND NOT cached", {channelId});
+        if (used["n"].asInt64() + utf8Chars(l.text) > budget["tts_budget_chars"].asInt64()) throw ApiError(429, "budget_exceeded", "channel TTS budget exhausted");
+        return Db::queryOne(w, "INSERT INTO tts_usage_records(channel_id,provider,model_id,chars,estimated_cost,cached) VALUES($1,$2,$3,$4,$5,false) RETURNING id",
+            {channelId, provider->name(), l.modelId, (int64_t)utf8Chars(l.text), provider->estimateSynthesisCost(l.modelId, utf8Chars(l.text))});
     });
-    auto res = provider->synthesize(req);
-    if (!res.ok) { error = res.error; retryable = res.retryable; return ""; }
+    TtsSynthesisResult res;
+    try {
+        std::shared_ptr<void> slot = provider->isMock() ? nullptr : policy_.acquire(channelId);
+        res = provider->synthesize(req);
+    } catch (const std::exception& e) { res.ok = false; res.error = e.what(); res.retryable = true; }
+    if (!res.ok) {
+        db_.exec("DELETE FROM tts_usage_records WHERE id=$1", {usage["id"].asString()});
+        error = res.error; retryable = res.retryable; return "";
+    }
     auto key = safeObjectKey(channelId, "tts", res.mime == "audio/wav" ? "wav" : "mp3");
     store_.put(key, res.audioBytes, res.mime);
     int dur = res.durationMs ? res.durationMs : (res.mime == "audio/wav" ? wavDurationMs(res.audioBytes) : 0);
     auto row = db_.queryOne("INSERT INTO tts_audio_assets(channel_id, cache_key, provider, model_id, voice_id, voice_profile_id, voice_profile_version, spoken_text, style_instruction, dictionary_version, synthesis_parameters, object_key, mime, bytes, duration_ms, word_timestamps, is_mock, created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18) ON CONFLICT (cache_key) DO UPDATE SET bytes=EXCLUDED.bytes RETURNING id",
         {channelId, l.cacheKey, provider->name(), l.modelId, l.voiceId, opt(l.voiceProfileId), (int64_t)l.voiceVersion, l.text, l.instruction, (int64_t)l.dictVersion, json::dump(l.params), key, res.mime, (int64_t)res.audioBytes.size(), dur ? DbParam((int64_t)dur) : dbNull(), res.wordTimestamps.isNull() ? dbNull() : DbParam(json::dump(res.wordTimestamps)), provider->isMock(), opt(userId)});
     return row["id"].asString();
-    });
 }
 
 Json::Value TtsService::preview(const ChannelAccess& a, const Json::Value& body) {
