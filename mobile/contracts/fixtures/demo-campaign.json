@@ -1,0 +1,27 @@
+{
+  "title": "黑水湾的提灯",
+  "scene": "第三幕 · 海尔寄宿屋",
+  "messages": [
+    {"id":"demo-1","author_name":"守秘人","character_name":null,"kind":"narration","seq":1,"content":"清晨的雾还没有散。海尔太太端来咖啡，你们终于在寄宿屋重新碰面。"},
+    {"id":"demo-2","author_name":"Carol","character_name":"托马斯","kind":"ic","seq":2,"content":"我把昨夜拾到的徽章放在桌上。\n“码头上那个人掉的。上面也是提灯的图案。”"},
+    {"id":"demo-3","author_name":"Alice","character_name":"哈维","kind":"ic","seq":3,"content":"“那就有两枚了。”我翻开笔记，“还有，警长答应的灯塔钥匙，至今没有送来。”"},
+    {"id":"demo-4","author_name":"守秘人","character_name":null,"kind":"narration","seq":4,"content":"海尔太太脸色一变。“伊莱亚斯也有一枚。他说，是协会给他的。”她递给你们一封三周前的信。"}
+  ],
+  "documents": [
+    {"id":"scene","title":"当前场景","doc_type":"current_scene","version":8,"preview":"海尔寄宿屋 · 调查员重聚。海尔太太递出一封旧信。"},
+    {"id":"clues","title":"线索日志","doc_type":"clue_journal","version":4,"preview":"警长桌上的徽章与码头发现的徽章有相同的提灯纹样。"},
+    {"id":"relations","title":"人物关系","doc_type":"relationships","version":3,"preview":"海尔太太是失踪灯塔看守人的姐姐。警长与提灯协会的关系仍待查证。"},
+    {"id":"threads","title":"未决事项","doc_type":"open_threads","version":4,"preview":"警长承诺寻找并送来灯塔钥匙，尚未有交付记录。"},
+    {"id":"timeline","title":"时间线","doc_type":"timeline","version":8,"preview":"警署初访 → 分头调查 → 寄宿屋重聚。"},
+    {"id":"module","title":"模组进度","doc_type":"module_progress","version":4,"gm_only":true,"preview":"GM 专属演示文档。真实服务按当前身份过滤权限。"}
+  ],
+  "highlights": [
+    {"id":"hint-1","document_id":"clues","target_entry_id":null,"reason":"新的徽章与警长桌上的旧线索呼应。","source_event_ids":["demo-2"],"expires_at":"2099-01-01T00:00:00Z"},
+    {"id":"hint-2","document_id":"threads","target_entry_id":null,"reason":"提及钥匙时，请留意“承诺交付”不等于“已经持有”。","source_event_ids":["demo-3"],"expires_at":"2099-01-01T00:00:00Z"}
+  ],
+  "replay": [
+    {"id":"frame-1","speaker":"守秘人","text":"雾气笼罩着黑水湾。你们的故事，从一盏熄灭的灯开始。","atmosphere":"黑水湾 · 清晨薄雾"},
+    {"id":"frame-2","speaker":"托马斯","text":"“码头上那个人掉的。上面也是提灯的图案。”","atmosphere":"海尔寄宿屋 · 微冷的晨光"},
+    {"id":"frame-3","speaker":"海尔太太","text":"“伊莱亚斯也有一枚。他说，是协会给他的。”","atmosphere":"海尔寄宿屋 · 桌上的旧信"}
+  ]
+}

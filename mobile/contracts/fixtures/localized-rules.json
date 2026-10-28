@@ -1,0 +1,240 @@
+{
+  "skills": [
+    {
+      "base": 5,
+      "name": "Accounting",
+      "names": {
+        "de": "Buchführung",
+        "es": "Contabilidad",
+        "fr": "Comptabilité",
+        "it": "Contabilità",
+        "ja": "経理",
+        "ko": "회계",
+        "pt": "Contabilidade",
+        "ru": "Бухгалтерия",
+        "zh-CN": "会计",
+        "zh-TW": "會計"
+      }
+    },
+    {
+      "base": "DEX/2",
+      "name": "Dodge",
+      "names": {
+        "de": "Ausweichen",
+        "es": "Esquivar",
+        "fr": "Esquiver",
+        "it": "Schivare",
+        "ja": "回避",
+        "ko": "회피",
+        "pt": "Esquivar",
+        "ru": "Уклонение",
+        "zh-CN": "闪避",
+        "zh-TW": "閃避"
+      }
+    },
+    {
+      "base": 1,
+      "name": "Science",
+      "names": {
+        "de": "Naturwissenschaft",
+        "es": "Ciencia",
+        "fr": "Sciences",
+        "it": "Scienza",
+        "ja": "科学",
+        "ko": "과학",
+        "pt": "Ciência",
+        "ru": "Наука",
+        "zh-CN": "科学",
+        "zh-TW": "科學"
+      }
+    },
+    {
+      "base": 1,
+      "name": "Language (Other)",
+      "names": {
+        "de": "Fremdsprache",
+        "es": "Otras lenguas",
+        "fr": "Langue étrangère",
+        "it": "Lingua straniera",
+        "ja": "ほかの言語",
+        "ko": "외국어",
+        "pt": "Outras Línguas",
+        "ru": "Иностранный язык",
+        "zh-CN": "外语",
+        "zh-TW": "外語"
+      }
+    }
+  ],
+  "families": [
+    {
+      "base": 0,
+      "name": "Fighting",
+      "names": {
+        "de": "Nahkampf",
+        "es": "Combatir",
+        "fr": "Combat rapproché",
+        "it": "Combattere",
+        "ja": "近接戦闘",
+        "ko": "근접전",
+        "pt": "Lutar",
+        "ru": "Ближний бой",
+        "zh-CN": "格斗",
+        "zh-TW": "格鬥"
+      }
+    },
+    {
+      "base": 0,
+      "name": "Firearms",
+      "names": {
+        "de": "Schusswaffen",
+        "es": "Armas de fuego",
+        "fr": "Armes à feu",
+        "it": "Armi da fuoco",
+        "ja": "射撃",
+        "ko": "사격",
+        "pt": "Armas de Fogo",
+        "ru": "Стрельба",
+        "zh-CN": "射击",
+        "zh-TW": "射擊"
+      }
+    },
+    {
+      "base": 1,
+      "name": "Language (Other)",
+      "names": {
+        "de": "Fremdsprache",
+        "es": "Otras lenguas",
+        "fr": "Langue étrangère",
+        "it": "Lingua straniera",
+        "ja": "ほかの言語",
+        "ko": "외국어",
+        "pt": "Outras Línguas",
+        "ru": "Иностранный язык",
+        "zh-CN": "外语",
+        "zh-TW": "外語"
+      }
+    },
+    {
+      "base": 1,
+      "name": "Science",
+      "names": {
+        "de": "Naturwissenschaft",
+        "es": "Ciencia",
+        "fr": "Sciences",
+        "it": "Scienza",
+        "ja": "科学",
+        "ko": "과학",
+        "pt": "Ciência",
+        "ru": "Наука",
+        "zh-CN": "科学",
+        "zh-TW": "科學"
+      }
+    }
+  ],
+  "characteristics": [
+    {
+      "name": "STR",
+      "names": {
+        "de": "Stärke",
+        "es": "Fuerza",
+        "fr": "Force",
+        "it": "Forza",
+        "ja": "筋力",
+        "ko": "근력",
+        "pt": "Força",
+        "ru": "Сила",
+        "zh-CN": "力量",
+        "zh-TW": "力量"
+      }
+    },
+    {
+      "name": "EDU",
+      "names": {
+        "de": "Bildung",
+        "es": "Educación",
+        "fr": "Éducation",
+        "it": "Istruzione",
+        "ja": "教育",
+        "ko": "교육",
+        "pt": "Educação",
+        "ru": "Образование",
+        "zh-CN": "教育",
+        "zh-TW": "教育"
+      }
+    }
+  ],
+  "careers": [
+    {
+      "choices": [],
+      "credit": [
+        30,
+        70
+      ],
+      "description": "会计，法律，图书馆，聆听，说服，侦查，任意其他两项个人或时代特长。",
+      "descriptions": {
+        "de": "Buchführung, Rechtswesen, Bibliotheksnutzung, Horchen, Überzeugen, Verborgenes erkennen, zwei beliebige weitere Fertigkeiten als persönliche oder zeittypische Spezialitäten.",
+        "en": "Accounting, Law, Library Use, Listen, Persuade, Spot Hidden, any two other skills as personal or era specialties.",
+        "es": "Contabilidad, Derecho, Buscar libros, Escuchar, Persuasión, Descubrir, otras dos habilidades cualesquiera como especialidades personales o de la época.",
+        "fr": "Comptabilité, Droit, Bibliothèque, Écouter, Persuasion, Trouver objet caché, deux autres compétences au choix (spécialités personnelles ou d'époque).",
+        "it": "Contabilità, Legge, Biblioteca, Ascoltare, Persuasione, Individuare, altre due abilità a scelta come specialità personali o d'epoca.",
+        "ja": "経理、法律、図書館、聞き耳、説得、目星、個人的または時代的な専門技能としてその他の任意の技能2つ。",
+        "ko": "회계, 법률, 자료조사, 듣기, 설득, 관찰력, 개인 또는 시대 특기로 임의의 다른 기술 2개.",
+        "pt": "Contabilidade, Direito, Usar Bibliotecas, Escutar, Persuasão, Encontrar, outras duas perícias quaisquer como especialidades pessoais ou da época.",
+        "ru": "Бухгалтерия, Юриспруденция, Работа в библиотеке, Слух, Убеждение, Внимательность, два любых других навыка (личная специализация или навык эпохи).",
+        "zh-CN": "会计，法律，图书馆，聆听，说服，侦查，任意其他两项个人或时代特长。",
+        "zh-TW": "會計，法律，圖書館使用，聆聽，說服，偵查，任意其他兩項個人或時代特長。"
+      },
+      "fixed": [
+        {
+          "label": "会计",
+          "skill": "Accounting"
+        },
+        {
+          "label": "法律",
+          "skill": "Law"
+        },
+        {
+          "label": "图书馆使用",
+          "skill": "Library Use"
+        },
+        {
+          "label": "聆听",
+          "skill": "Listen"
+        },
+        {
+          "label": "说服",
+          "skill": "Persuade"
+        },
+        {
+          "label": "侦查",
+          "skill": "Spot Hidden"
+        }
+      ],
+      "formula": "教育×4",
+      "free": 2,
+      "id": 2,
+      "name": "会计师",
+      "names": {
+        "de": "Buchhalter",
+        "en": "Accountant",
+        "es": "Contable",
+        "fr": "Comptable",
+        "it": "Contabile",
+        "ja": "会計士",
+        "ko": "회계사",
+        "pt": "Contador",
+        "ru": "Бухгалтер",
+        "zh-CN": "会计师",
+        "zh-TW": "會計師"
+      },
+      "points": [
+        {
+          "attrs": [
+            "EDU"
+          ],
+          "mult": 4
+        }
+      ]
+    }
+  ]
+}

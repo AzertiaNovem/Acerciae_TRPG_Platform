@@ -1,0 +1,420 @@
+{
+  "rules": {
+    "skills": [
+      {
+        "name": "Dodge",
+        "base": "DEX/2"
+      },
+      {
+        "name": "Language (Own)",
+        "base": "EDU"
+      },
+      {
+        "name": "Credit Rating",
+        "base": 0
+      },
+      {
+        "name": "Listen",
+        "base": 20
+      },
+      {
+        "name": "Spot Hidden",
+        "base": 25
+      },
+      {
+        "name": "Cthulhu Mythos",
+        "base": 0
+      },
+      {
+        "name": "Fighting (Brawl)",
+        "base": 25
+      }
+    ],
+    "families": [
+      {
+        "name": "Fighting",
+        "base": 0
+      },
+      {
+        "name": "Firearms",
+        "base": 0
+      },
+      {
+        "name": "Science",
+        "base": 1
+      },
+      {
+        "name": "Language (Other)",
+        "base": 1
+      }
+    ],
+    "careers": [
+      {
+        "id": 1,
+        "name": "测试调查员",
+        "formula": "EDU×2 + max(STR,DEX)×2",
+        "points": [
+          {
+            "mult": 2,
+            "attrs": [
+              "EDU"
+            ]
+          },
+          {
+            "mult": 2,
+            "attrs": [
+              "STR",
+              "DEX"
+            ]
+          }
+        ],
+        "credit": [
+          10,
+          50
+        ],
+        "fixed": [
+          {
+            "skill": "Listen",
+            "label": "聆听"
+          }
+        ],
+        "choices": [
+          {
+            "pick": 1,
+            "from": [
+              {
+                "skill": "Spot Hidden",
+                "label": "侦查"
+              },
+              {
+                "skill": "Science",
+                "label": "科学"
+              }
+            ]
+          }
+        ],
+        "free": 1,
+        "description": "测试职业"
+      }
+    ]
+  },
+  "card": {
+    "characteristics": {
+      "STR": 50,
+      "CON": 60,
+      "SIZ": 65,
+      "DEX": 55,
+      "APP": 60,
+      "INT": 65,
+      "POW": 60,
+      "EDU": 60,
+      "LUK": 70
+    },
+    "career": {
+      "name": "测试调查员",
+      "choices": [
+        [
+          "Spot Hidden"
+        ]
+      ],
+      "specialties": [
+        "Fighting"
+      ]
+    },
+    "skills": {},
+    "skill_points": {
+      "Listen": {
+        "career": 30,
+        "hobby": 10,
+        "growth": 2
+      },
+      "Credit Rating": {
+        "career": 10
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "valid",
+      "card": {
+        "characteristics": {
+          "STR": 50,
+          "CON": 60,
+          "SIZ": 65,
+          "DEX": 55,
+          "APP": 60,
+          "INT": 65,
+          "POW": 60,
+          "EDU": 60,
+          "LUK": 70
+        },
+        "career": {
+          "name": "测试调查员",
+          "choices": [
+            [
+              "Spot Hidden"
+            ]
+          ],
+          "specialties": [
+            "Fighting"
+          ]
+        },
+        "skills": {},
+        "skill_points": {
+          "Listen": {
+            "career": 30,
+            "hobby": 10,
+            "growth": 2
+          },
+          "Credit Rating": {
+            "career": 10
+          }
+        }
+      },
+      "issues": 0
+    },
+    {
+      "name": "not allowed",
+      "card": {
+        "characteristics": {
+          "STR": 50,
+          "CON": 60,
+          "SIZ": 65,
+          "DEX": 55,
+          "APP": 60,
+          "INT": 65,
+          "POW": 60,
+          "EDU": 60,
+          "LUK": 70
+        },
+        "career": {
+          "name": "测试调查员",
+          "choices": [
+            [
+              "Spot Hidden"
+            ]
+          ],
+          "specialties": [
+            "Fighting"
+          ]
+        },
+        "skills": {},
+        "skill_points": {
+          "Listen": {
+            "career": 30,
+            "hobby": 10,
+            "growth": 2
+          },
+          "Credit Rating": {
+            "career": 10
+          },
+          "Dodge": {
+            "career": 1
+          }
+        }
+      },
+      "issues": 1
+    },
+    {
+      "name": "over 99",
+      "card": {
+        "characteristics": {
+          "STR": 50,
+          "CON": 60,
+          "SIZ": 65,
+          "DEX": 55,
+          "APP": 60,
+          "INT": 65,
+          "POW": 60,
+          "EDU": 60,
+          "LUK": 70
+        },
+        "career": {
+          "name": "测试调查员",
+          "choices": [
+            [
+              "Spot Hidden"
+            ]
+          ],
+          "specialties": [
+            "Fighting"
+          ]
+        },
+        "skills": {},
+        "skill_points": {
+          "Listen": {
+            "career": 80
+          },
+          "Credit Rating": {
+            "career": 10
+          }
+        }
+      },
+      "issues": 1
+    },
+    {
+      "name": "hobby budget",
+      "card": {
+        "characteristics": {
+          "STR": 50,
+          "CON": 60,
+          "SIZ": 65,
+          "DEX": 55,
+          "APP": 60,
+          "INT": 65,
+          "POW": 60,
+          "EDU": 60,
+          "LUK": 70
+        },
+        "career": {
+          "name": "测试调查员",
+          "choices": [
+            [
+              "Spot Hidden"
+            ]
+          ],
+          "specialties": [
+            "Fighting"
+          ]
+        },
+        "skills": {},
+        "skill_points": {
+          "Listen": {
+            "career": 30,
+            "hobby": 10,
+            "growth": 2
+          },
+          "Credit Rating": {
+            "career": 10
+          },
+          "X": {
+            "hobby": 66
+          },
+          "Y": {
+            "hobby": 65
+          }
+        }
+      },
+      "issues": 1
+    },
+    {
+      "name": "mythos",
+      "card": {
+        "characteristics": {
+          "STR": 50,
+          "CON": 60,
+          "SIZ": 65,
+          "DEX": 55,
+          "APP": 60,
+          "INT": 65,
+          "POW": 60,
+          "EDU": 60,
+          "LUK": 70
+        },
+        "career": {
+          "name": "测试调查员",
+          "choices": [
+            [
+              "Spot Hidden"
+            ]
+          ],
+          "specialties": [
+            "Fighting"
+          ]
+        },
+        "skills": {},
+        "skill_points": {
+          "Listen": {
+            "career": 30,
+            "hobby": 10,
+            "growth": 2
+          },
+          "Credit Rating": {
+            "career": 10
+          },
+          "Cthulhu Mythos": {
+            "hobby": 1
+          }
+        }
+      },
+      "issues": 1
+    },
+    {
+      "name": "too many choices",
+      "card": {
+        "characteristics": {
+          "STR": 50,
+          "CON": 60,
+          "SIZ": 65,
+          "DEX": 55,
+          "APP": 60,
+          "INT": 65,
+          "POW": 60,
+          "EDU": 60,
+          "LUK": 70
+        },
+        "career": {
+          "name": "测试调查员",
+          "choices": [
+            [
+              "Listen",
+              "Spot Hidden"
+            ]
+          ],
+          "specialties": [
+            "Fighting"
+          ]
+        },
+        "skills": {},
+        "skill_points": {
+          "Listen": {
+            "career": 30,
+            "hobby": 10,
+            "growth": 2
+          },
+          "Credit Rating": {
+            "career": 10
+          }
+        }
+      },
+      "issues": 2
+    },
+    {
+      "name": "unknown career",
+      "card": {
+        "characteristics": {
+          "STR": 50,
+          "CON": 60,
+          "SIZ": 65,
+          "DEX": 55,
+          "APP": 60,
+          "INT": 65,
+          "POW": 60,
+          "EDU": 60,
+          "LUK": 70
+        },
+        "career": {
+          "name": "missing",
+          "choices": [
+            [
+              "Spot Hidden"
+            ]
+          ],
+          "specialties": []
+        },
+        "skills": {},
+        "skill_points": {
+          "Listen": {
+            "career": 30,
+            "hobby": 10,
+            "growth": 2
+          },
+          "Credit Rating": {
+            "career": 10
+          }
+        }
+      },
+      "issues": 4
+    }
+  ]
+}
