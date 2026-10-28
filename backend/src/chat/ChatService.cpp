@@ -9,6 +9,7 @@
 #include "../dice/Dice.h"
 #include "../dice/DiceService.h"
 #include "../core/Text.h"
+#include "../core/Crypto.h"
 
 namespace acerciae {
 
@@ -29,12 +30,102 @@ Json::Value ChatService::createServer(const Principal& p, const std::string& nam
         return s;
     });
 }
-Json::Value ChatService::joinServer(const Principal& p, const std::string& serverId) {
+ChatService::Policy ChatService::policy(const std::string& serverId) {
+    Policy pol;
+    auto r = db_.queryOne("SELECT join_policy, channel_creation, guest_invites, main_chat_spectators FROM server_settings WHERE server_id=$1", {serverId});
+    if (r.isNull()) return pol;   // no settings row yet: the defaults
+    pol.join = r["join_policy"].asString(); pol.channelCreation = r["channel_creation"].asString();
+    pol.guestInvites = r["guest_invites"].asBool(); pol.spectators = r["main_chat_spectators"].asBool();
+    return pol;
+}
+static std::string serverRole(Db& db, const std::string& serverId, const std::string& userId);
+Json::Value ChatService::joinServer(const Principal& p, const std::string& serverId, const std::string& inviteCode) {
+    if (!Visibility::isUuid(serverId)) throw notFound("server not found");
     auto s = db_.queryOne("SELECT * FROM servers WHERE id=$1", {serverId});
     if (s.isNull()) throw notFound("server not found");
-    db_.exec("INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING", {serverId, p.userId});
+    auto role = serverRole(db_, serverId, p.userId);
+    if (!role.empty() && role != "guest") { s["my_role"] = role; return s; }
+    auto pol = policy(serverId);
+    if (pol.join == "closed") throw forbidden("this server is closed; a server maintainer must add you");
+    if (inviteCode.empty() && pol.join != "open") throw forbidden("this server needs an invite code from a maintainer");
+    db_.tx([&](pqxx::work& w) {
+        if (!inviteCode.empty()) {
+            auto used = Db::queryOne(w, "UPDATE server_invites SET uses=uses+1 WHERE code=$1 AND server_id=$2 AND revoked_at IS NULL "
+                                        "AND (expires_at IS NULL OR expires_at > now()) AND (max_uses=0 OR uses < max_uses) RETURNING id", {inviteCode, serverId});
+            if (used.isNull()) throw ApiError(410, "invite_invalid", "this invite has expired, been used up or been revoked");
+        }
+        Db::exec(w, "INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,'member') ON CONFLICT (server_id,user_id) DO UPDATE SET role='member' WHERE server_members.role='guest'", {serverId, p.userId});
+    });
     s["my_role"] = "member";
     return s;
+}
+Json::Value ChatService::discoverServers(const Principal& p, const std::string& query) {
+    auto q = text::trim(query);
+    std::string like;
+    for (char c : q) { if (c == '%' || c == '_' || c == '\\') like += '\\'; like += c; }
+    return db_.queryJson("SELECT s.id, s.name, (SELECT count(*) FROM server_members m WHERE m.server_id=s.id AND m.role<>'guest') AS member_count "
+                         "FROM servers s JOIN server_settings ss ON ss.server_id=s.id AND ss.join_policy='open' "
+                         "WHERE NOT EXISTS (SELECT 1 FROM server_members me WHERE me.server_id=s.id AND me.user_id=$1 AND me.role<>'guest') "
+                         "AND ($2='' OR s.name ILIKE '%' || $2 || '%') ORDER BY member_count DESC, s.created_at LIMIT 50", {p.userId, like});
+}
+static std::string inviteCode() {
+    // 10 characters from an unambiguous alphabet (~50 bits).
+    static const char* A = "abcdefghjkmnpqrstuvwxyz23456789";
+    auto hex = crypto::randomHex(10);
+    std::string out;
+    for (std::size_t i = 0; i < 10; ++i) out += A[std::stoi(hex.substr(i * 2, 2), nullptr, 16) % 31];
+    return out;
+}
+Json::Value ChatService::listInvites(const Principal& p, const std::string& serverId) {
+    auth_.requireServerAdmin(p.userId, serverId);
+    return db_.queryJson("SELECT i.id, i.code, i.max_uses, i.uses, i.expires_at, i.revoked_at, i.created_at, u.display_name AS created_by_name, "
+                         "(i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at > now()) AND (i.max_uses=0 OR i.uses < i.max_uses)) AS active "
+                         "FROM server_invites i LEFT JOIN users u ON u.id=i.created_by WHERE i.server_id=$1 ORDER BY i.created_at DESC LIMIT 100", {serverId});
+}
+Json::Value ChatService::createInvite(const Principal& p, const std::string& serverId, const Json::Value& body) {
+    auth_.requireServerAdmin(p.userId, serverId);
+    if (policy(serverId).join == "closed") throw badRequest("the server is closed; switch its join policy to invite first");
+    auto num = [&](const char* k, int def, int lo, int hi) {
+        if (!body.isMember(k) || body[k].isNull()) return def;
+        if (!body[k].isNumeric()) throw badRequest(std::string(k) + " must be a number");
+        double d = body[k].asDouble();
+        if (d < lo || d > hi) throw badRequest(std::string(k) + " must be between " + std::to_string(lo) + " and " + std::to_string(hi));
+        return (int)d;
+    };
+    int maxUses = num("max_uses", 0, 0, 10000);
+    int hours = num("expires_in_hours", 168, 0, 24 * 365);   // 0 = never
+    if ((int)db_.queryOne("SELECT count(*) AS n FROM server_invites WHERE server_id=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())", {serverId})["n"].asInt64() >= 50)
+        throw badRequest("this server already has 50 active invites; revoke some first");
+    return db_.queryOne("INSERT INTO server_invites(server_id, code, created_by, max_uses, expires_at) "
+                        "VALUES($1,$2,$3,$4, CASE WHEN $5::int > 0 THEN now() + make_interval(hours => $5::int) END) "
+                        "RETURNING id, code, max_uses, uses, expires_at, revoked_at, created_at, true AS active",
+                        {serverId, inviteCode(), p.userId, (int64_t)maxUses, (int64_t)hours});
+}
+Json::Value ChatService::revokeInvite(const Principal& p, const std::string& serverId, const std::string& inviteId) {
+    auth_.requireServerAdmin(p.userId, serverId);
+    if (!Visibility::isUuid(inviteId)) throw notFound("invite not found");
+    if (db_.queryOne("UPDATE server_invites SET revoked_at=coalesce(revoked_at, now()) WHERE id=$1 AND server_id=$2 RETURNING id", {inviteId, serverId}).isNull())
+        throw notFound("invite not found");
+    return listInvites(p, serverId);
+}
+Json::Value ChatService::previewInvite(const Principal& p, const std::string& code) {
+    auto r = db_.queryOne("SELECT s.id AS server_id, s.name, coalesce(ss.join_policy, 'invite') AS join_policy, "
+                          "(i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at > now()) AND (i.max_uses=0 OR i.uses < i.max_uses)) AS active, "
+                          "(SELECT count(*) FROM server_members m WHERE m.server_id=s.id AND m.role<>'guest') AS member_count "
+                          "FROM server_invites i JOIN servers s ON s.id=i.server_id LEFT JOIN server_settings ss ON ss.server_id=s.id WHERE i.code=$1", {text::trim(code)});
+    if (r.isNull()) throw notFound("invite not found");
+    Json::Value v;
+    v["server_id"] = r["server_id"]; v["name"] = r["name"]; v["member_count"] = r["member_count"];
+    v["valid"] = r["active"].asBool() && r["join_policy"].asString() != "closed";
+    auto role = serverRole(db_, r["server_id"].asString(), p.userId);
+    v["already_member"] = !role.empty() && role != "guest";
+    return v;
+}
+Json::Value ChatService::acceptInvite(const Principal& p, const std::string& code) {
+    auto c = text::trim(code);
+    auto r = db_.queryOne("SELECT server_id FROM server_invites WHERE code=$1", {c});
+    if (r.isNull()) throw notFound("invite not found");
+    return joinServer(p, r["server_id"].asString(), c);
 }
 Json::Value ChatService::findUser(const std::string& user) {
     auto u = Visibility::isUuid(user)
@@ -95,6 +186,7 @@ Json::Value ChatService::removeServerMember(const Principal& p, const std::strin
 }
 Json::Value ChatService::serverMembers(const Principal& p, const std::string& serverId) {
     auth_.requireServerMember(p.userId, serverId);
+    if (serverRole(db_, serverId, p.userId) == "guest") throw forbidden("guests only see the channels they were invited to");
     return db_.queryJson("SELECT u.id, u.username, u.display_name, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 "
                          "ORDER BY CASE sm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, sm.joined_at", {serverId});
 }
@@ -116,6 +208,9 @@ Json::Value ChatService::listChannels(const Principal& p, const std::string& ser
 }
 Json::Value ChatService::createChannel(const Principal& p, const std::string& serverId, const Json::Value& body) {
     auth_.requireServerMember(p.userId, serverId);
+    auto role = serverRole(db_, serverId, p.userId);
+    if (role == "guest") throw forbidden("guests cannot create channels");
+    if (role == "member" && policy(serverId).channelCreation == "maintainers") throw forbidden("on this server only maintainers create channels");
     auto name = json::requireStr(body, "name");
     auto mode = json::str(body, "knowledge_mode", "isolated");
     if (mode != "public" && mode != "isolated") throw badRequest("knowledge_mode must be public or isolated");
@@ -161,11 +256,17 @@ Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::str
     if (role != "gm" && role != "player") throw badRequest("role must be gm or player");
     auto u = findUser(user);
     auto uid = u["id"].asString();
-    bool inServer = !db_.queryOne("SELECT 1 AS ok FROM server_members WHERE server_id=$1 AND user_id=$2", {a.serverId, uid}).isNull();
-    if (!inServer && !isServerMaintainer(a.userId, a.serverId)) throw badRequest("that user is not on this server yet — ask a server maintainer to invite them");
+    // Outsiders join the server as members when a maintainer invites them, as guests when the server allows GMs to
+    // invite guests, and not at all otherwise.
+    std::string serverRoleForNew;
+    if (serverRole(db_, a.serverId, uid).empty()) {
+        if (isServerMaintainer(a.userId, a.serverId)) serverRoleForNew = "member";
+        else if (policy(a.serverId).guestInvites) serverRoleForNew = "guest";
+        else throw badRequest("that user is not on this server — ask a server maintainer to invite them");
+    }
     std::string mainId;
     db_.tx([&](pqxx::work& w) {
-        Db::exec(w, "INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING", {a.serverId, uid});
+        if (!serverRoleForNew.empty()) Db::exec(w, "INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", {a.serverId, uid, serverRoleForNew});
         Db::exec(w, "INSERT INTO channel_members(channel_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT (channel_id,user_id) DO UPDATE SET role=EXCLUDED.role", {a.channelId, uid, role});
         // Everyone joins the main window by default.
         auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {a.channelId});
@@ -173,6 +274,7 @@ Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::str
     });
     if (!mainId.empty()) notifier_.windowChanged(a.channelId, db_.queryOne("SELECT * FROM chat_windows WHERE id=$1", {mainId}));
     u["role"] = role;
+    u["server_role"] = serverRole(db_, a.serverId, uid);
     return u;
 }
 Json::Value ChatService::removeChannelMember(const ChannelAccess& a, const std::string& userId) {
@@ -185,6 +287,9 @@ Json::Value ChatService::removeChannelMember(const ChannelAccess& a, const std::
         if (m.isNull()) throw notFound("not a member of this channel");
         for (auto& r : Db::queryJson(w, "DELETE FROM chat_window_members wm USING chat_windows cw WHERE cw.id=wm.chat_window_id AND cw.channel_id=$1 AND wm.user_id=$2 RETURNING cw.id", {a.channelId, userId}))
             windows.push_back(r["id"].asString());
+        // A guest belongs to the server only through their channels.
+        Db::exec(w, "DELETE FROM server_members sm WHERE sm.server_id=$1 AND sm.user_id=$2 AND sm.role='guest' AND NOT EXISTS "
+                    "(SELECT 1 FROM channel_members cm JOIN channels c ON c.id=cm.channel_id WHERE c.server_id=$1 AND cm.user_id=$2)", {a.serverId, userId});
     });
     for (auto& wid : windows) notifier_.windowChanged(a.channelId, db_.queryOne("SELECT * FROM chat_windows WHERE id=$1", {wid}));
     return channelMembers(a);
@@ -194,6 +299,48 @@ Json::Value ChatService::channelMembers(const ChannelAccess& a) {
         "SELECT u.id, u.username, u.display_name, cm.role, "
         "(SELECT json_agg(json_build_object('id', ch.id, 'name', ch.name)) FROM characters ch WHERE ch.channel_id=cm.channel_id AND ch.user_id=u.id) AS characters "
         "FROM channel_members cm JOIN users u ON u.id=cm.user_id WHERE cm.channel_id=$1 ORDER BY cm.role, cm.joined_at", {a.channelId});
+}
+
+// ---- Main Chat spectating ------------------------------------------------------------------
+bool ChatService::canSpectate(const std::string& userId, const std::string& channelId) {
+    if (!Visibility::isUuid(channelId)) return false;
+    auto c = db_.queryOne("SELECT server_id FROM channels WHERE id=$1", {channelId});
+    if (c.isNull()) return false;
+    auto sid = c["server_id"].asString();
+    auto role = serverRole(db_, sid, userId);
+    return !role.empty() && role != "guest" && policy(sid).spectators;
+}
+Json::Value ChatService::spectatableChannels(const Principal& p, const std::string& serverId) {
+    auth_.requireServerMember(p.userId, serverId);
+    auto role = serverRole(db_, serverId, p.userId);
+    if (role == "guest" || !policy(serverId).spectators) return Json::Value(Json::arrayValue);
+    return db_.queryJson("SELECT c.id, c.name, c.description FROM channels c WHERE c.server_id=$1 "
+                         "AND NOT EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id=c.id AND cm.user_id=$2) ORDER BY c.created_at", {serverId, p.userId});
+}
+Json::Value ChatService::spectate(const Principal& p, const std::string& channelId, int limit, int64_t beforeSeq) {
+    if (!canSpectate(p.userId, channelId)) {
+        if (!Visibility::isUuid(channelId) || db_.queryOne("SELECT 1 AS ok FROM channels WHERE id=$1", {channelId}).isNull()) throw notFound("channel not found");
+        throw forbidden("this server does not let members read channels they were not invited to");
+    }
+    Json::Value out;
+    out["channel"] = db_.queryOne("SELECT id, server_id, name, description FROM channels WHERE id=$1", {channelId});
+    auto win = db_.queryOne("SELECT id, name FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {channelId});
+    out["window"] = win;
+    out["messages"] = Json::Value(Json::arrayValue);
+    if (win.isNull()) return out;
+    // Only lines every Main Chat participant sees; never whispers or Keeper-only lines.
+    std::string sql = MSG_SELECT + "WHERE m.chat_window_id=$1 AND m.visibility='window'";
+    DbParams params{win["id"].asString()};
+    if (beforeSeq > 0) { sql += " AND m.seq < $2"; params.push_back(beforeSeq); }
+    sql += " ORDER BY m.seq DESC LIMIT " + std::to_string(std::max(1, std::min(limit, 200)));
+    for (auto m : db_.queryJson("SELECT * FROM (" + sql + ") x ORDER BY seq ASC", params)) out["messages"].append(spectatorMessage(m));
+    return out;
+}
+Json::Value ChatService::spectatorMessage(Json::Value m) {
+    // Character art lives in the channel's media library, which spectators cannot open.
+    m["character_avatar_asset_id"] = Json::Value(); m["character_avatar_version"] = Json::Value();
+    m.removeMember("whisper_to");
+    return m;
 }
 
 // ---- characters ------------------------------------------------------------------------------

@@ -16,7 +16,16 @@ public:
     // servers
     Json::Value listServers(const Principal& p);
     Json::Value createServer(const Principal& p, const std::string& name);
-    Json::Value joinServer(const Principal& p, const std::string& serverId);
+    // Joining follows the server's join policy: open servers take anyone, invite servers need a valid invite code,
+    // closed servers only take members a maintainer adds. A guest who joins becomes a full member.
+    Json::Value joinServer(const Principal& p, const std::string& serverId, const std::string& inviteCode = "");
+    Json::Value discoverServers(const Principal& p, const std::string& query);   // open servers the user is not in
+    // Invite codes (maintainers). An invite may expire and may be limited to a number of uses.
+    Json::Value listInvites(const Principal& p, const std::string& serverId);
+    Json::Value createInvite(const Principal& p, const std::string& serverId, const Json::Value& body);
+    Json::Value revokeInvite(const Principal& p, const std::string& serverId, const std::string& inviteId);
+    Json::Value previewInvite(const Principal& p, const std::string& code);
+    Json::Value acceptInvite(const Principal& p, const std::string& code);
     // `user` is a user id or a username. Only the owner can grant or change the admin (maintainer) role.
     Json::Value addServerMember(const Principal& p, const std::string& serverId, const std::string& user, const std::string& role);
     Json::Value setServerMemberRole(const Principal& p, const std::string& serverId, const std::string& userId, const std::string& role);
@@ -29,10 +38,18 @@ public:
     Json::Value createChannel(const Principal& p, const std::string& serverId, const Json::Value& body);
     Json::Value getChannel(const ChannelAccess& a);
     Json::Value updateChannel(const ChannelAccess& a, const Json::Value& body);
-    // `user` is a user id or a username. Players must already be server members unless the GM is a server maintainer.
+    // `user` is a user id or a username. Someone outside the server is added as a member when a maintainer invites
+    // them, as a guest (who sees only the channels they are invited to) when the server allows guest invites, and is
+    // refused otherwise.
     Json::Value addChannelMember(const ChannelAccess& a, const std::string& user, const std::string& role);
     Json::Value removeChannelMember(const ChannelAccess& a, const std::string& userId);
     Json::Value channelMembers(const ChannelAccess& a);
+    // Main Chat spectating: when the server allows it, members (not guests) may read the Main Chat of channels they
+    // were not invited to: only lines visible to the whole window, nothing else of the channel.
+    bool canSpectate(const std::string& userId, const std::string& channelId);
+    Json::Value spectatableChannels(const Principal& p, const std::string& serverId);
+    Json::Value spectate(const Principal& p, const std::string& channelId, int limit, int64_t beforeSeq);
+    static Json::Value spectatorMessage(Json::Value m);   // what a spectator may see of a public Main Chat line
     // characters
     Json::Value listCharacters(const ChannelAccess& a);
     Json::Value createCharacter(const ChannelAccess& a, const Json::Value& body);
@@ -48,6 +65,8 @@ public:
     Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body);
     Json::Value getMessage(const ChannelAccess& a, const std::string& messageId);
     Json::Value searchMessages(const ChannelAccess& a, const std::string& query, int limit);
+    struct Policy { std::string join = "invite", channelCreation = "members"; bool guestInvites = false, spectators = false; };
+    Policy policy(const std::string& serverId);
 private:
     Json::Value findUser(const std::string& user);
     bool isServerMaintainer(const std::string& userId, const std::string& serverId);

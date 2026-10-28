@@ -1,6 +1,12 @@
 // Shared API types (mirrors backend JSON shapes).
 export interface User { id: string; username: string; display_name: string; ui_language: string; avatar_data: string; avatar_version: number; languages?: string[] }
-export interface Server { id: string; name: string; owner_id: string; my_role: string }
+export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest' }
+export interface DirectoryServer { id: string; name: string; member_count: number }
+export interface ServerInvite { id: string; code: string; max_uses: number; uses: number; expires_at: string | null; revoked_at: string | null; created_at: string; created_by_name?: string | null; active: boolean }
+export interface InvitePreview { server_id: string; name: string; member_count: number; valid: boolean; already_member: boolean }
+export interface ServerPolicy { join_policy: 'open' | 'invite' | 'closed'; channel_creation: 'members' | 'maintainers'; guest_invites: boolean; main_chat_spectators: boolean }
+export interface SpectatableChannel { id: string; name: string; description: string }
+export interface SpectateView { channel: { id: string; server_id: string; name: string; description: string }; window: { id: string; name: string } | null; messages: Message[] }
 export interface Channel {
   id: string; server_id: string; name: string; description: string; rule_system: string;
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
@@ -122,7 +128,7 @@ export interface VoiceProfile { id: string; channel_id: string; character_id: st
 export interface PronunciationDictionary { id: string; name: string; entries: { term: string; reading: string; mode: 'replace' | 'phoneme'; language: string }[]; version: number }
 export interface TtsJob { id: string; presentation_id: string | null; kind: string; scope: Record<string, any>; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; total: number; done: number; failed: number; cached: number; estimated_chars: number; estimated_cost: number; provider: string; error: string | null; result: Record<string, any>; created_at: string; finished_at: string | null }
 export interface UserLite { id: string; username: string; display_name: string }
-export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member'; joined_at: string }
+export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member' | 'guest'; joined_at: string }
 export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
 export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'coc7_points';
 export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; images_used: number; running: number }
@@ -131,7 +137,7 @@ export interface ServerSettings {
   llm?: { provider: 'mock' | 'openai_compatible' | 'anthropic'; api_base: string; model: string; reasoning_effort: string; embedding_model: string; api_key_set: boolean; api_key_hint: string };
   tts?: { provider: 'disabled' | 'mock' | 'qwen'; api_base: string; model: string; voice: string; api_key_set: boolean; api_key_hint: string };
   image?: { provider: 'disabled' | 'mock' | 'gpt_image'; api_base: string; model: string; size: string; quality: string; api_key_set: boolean; api_key_hint: string };
-  ai_policy?: AiPolicyUsage; private_endpoints_allowed?: boolean;
+  policy?: ServerPolicy; ai_policy?: AiPolicyUsage; private_endpoints_allowed?: boolean;
   languages?: string[];
 }
 export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: Record<string, string>; updated_at: string; created_by_name?: string | null }

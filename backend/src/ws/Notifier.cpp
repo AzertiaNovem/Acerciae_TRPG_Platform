@@ -2,6 +2,7 @@
 #include "WsGateway.h"
 #include "../core/Json.h"
 #include "../knowledge/Visibility.h"
+#include "../chat/ChatService.h"
 #include <set>
 
 namespace acerciae {
@@ -39,6 +40,18 @@ void Notifier::messagePosted(const Json::Value& m) {
     for(const auto& r : db_.queryJson("SELECT DISTINCT pm.user_id FROM player_group_members pm JOIN player_group_readable_messages ge ON ge.group_id=pm.group_id WHERE ge.message_id=$1",{m["id"].asString()})) allowed.insert(r["user_id"].asString());
     Json::Value msg; msg["type"] = "message.posted"; msg["channel_id"] = channelId; msg["message"] = m;
     WsGateway::instance().broadcast("chat", channelId, msg, setFilter(std::move(allowed)));
+    // Spectators: public lines of the Main Chat only, to members (not guests) of a server that still allows it.
+    auto key = WsGateway::spectateKey(channelId);
+    if (vis == "window" && WsGateway::instance().hasSubscribers("chat", key)) {
+        auto ok = db_.queryOne("SELECT c.server_id FROM chat_windows w JOIN channels c ON c.id=w.channel_id JOIN server_settings ss ON ss.server_id=c.server_id "
+                               "WHERE w.id=$1 AND w.kind='main' AND ss.main_chat_spectators", {windowId});
+        if (!ok.isNull()) {
+            std::set<std::string> members;
+            for (auto& r : db_.queryJson("SELECT user_id FROM server_members WHERE server_id=$1 AND role<>'guest'", {ok["server_id"].asString()})) members.insert(r["user_id"].asString());
+            Json::Value spec; spec["type"] = "spectate.message"; spec["channel_id"] = channelId; spec["message"] = ChatService::spectatorMessage(m);
+            WsGateway::instance().broadcast("chat", key, spec, setFilter(std::move(members)));
+        }
+    }
 }
 void Notifier::knowledgeChanged(const std::string& channelId) {
     Json::Value msg; msg["type"]="knowledge.reset"; msg["channel_id"]=channelId;

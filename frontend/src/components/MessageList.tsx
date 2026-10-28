@@ -19,7 +19,8 @@ function diceTone(m: Message): string {
   return '';
 }
 
-function MessageRow({ m, jumped }: { m: Message; jumped: boolean }) {
+// readOnly: a spectator's view — no quoting and no references into a channel the reader cannot open.
+export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolean; readOnly?: boolean }) {
   const user = useAuth((s) => s.user);
   const references = useChat(s=>s.references);
   const addReference = useChat(s=>s.addReference);
@@ -39,9 +40,9 @@ function MessageRow({ m, jumped }: { m: Message; jumped: boolean }) {
           {m.visibility === 'gm_only' && <span className="pill gm">{tr("GM note")}</span>}
           {m.visibility === 'whisper' && <span className="pill ai">{tr("whisper")}</span>}
           <span className="tiny muted">{new Date(m.created_at).toLocaleTimeString(currentLocale())}</span>
-          <button className="ghost small" onClick={()=>addReference(m)} disabled={references.length>=5 || references.some(r=>r.id===m.id)}>{tr('Quote as reference')}</button>
+          {!readOnly && <button className="ghost small" onClick={()=>addReference(m)} disabled={references.length>=5 || references.some(r=>r.id===m.id)}>{tr('Quote as reference')}</button>}
         </div>
-        {m.reference_ids?.map(id=><ChatReference key={id} channelId={m.channel_id} messageId={id}/>)}
+        {!readOnly && m.reference_ids?.map(id=><ChatReference key={id} channelId={m.channel_id} messageId={id}/>)}
         {m.dice?.type === 'hidden_notice' ? <div className="dice-result notice">🎲 {m.dice.text}</div>
           : m.dice ? (<>
             <div className={`content dice-command ${jumped ? 'jumped' : ''}`}>{m.content}</div>

@@ -4,6 +4,7 @@
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Log.h"
+#include "../chat/ChatService.h"
 
 namespace acerciae {
 
@@ -53,6 +54,12 @@ void WsGateway::sendToUser(const std::string& stream, const std::string& userId,
     for (auto& c : targets) if (c->connected()) c->send(text);
 }
 
+bool WsGateway::hasSubscribers(const std::string& stream, const std::string& channelId) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& [conn, s] : conns_) if (s->stream == stream && s->channels.count(channelId)) return true;
+    return false;
+}
+
 std::size_t WsGateway::connectionCount() const { std::lock_guard<std::mutex> lk(mu_); return conns_.size(); }
 
 // ---- endpoints -------------------------------------------------------------------------------
@@ -86,12 +93,19 @@ void WsEndpointBase::onMessage(const drogon::WebSocketConnectionPtr& conn, std::
     try {
         if (t == "subscribe") {
             auto ch = json::requireStr(msg, "channel_id");
-            services().auth->channelAccess(s->userId, ch);    // throws when not a member
-            WsGateway::instance().subscribe(conn, ch);
+            if (json::toBool(msg, "spectate")) {
+                // Read-only Main Chat of a channel the user was not invited to (when the server allows it).
+                if (!services().chat->canSpectate(s->userId, ch)) throw forbidden("spectating is not allowed here");
+                WsGateway::instance().subscribe(conn, WsGateway::spectateKey(ch));
+                reply["spectate"] = true;
+            } else {
+                services().auth->channelAccess(s->userId, ch);    // throws when not a member
+                WsGateway::instance().subscribe(conn, ch);
+            }
             reply["type"] = "subscribed"; reply["channel_id"] = ch;
         } else if (t == "unsubscribe") {
             auto ch = json::requireStr(msg, "channel_id");
-            WsGateway::instance().unsubscribe(conn, ch);
+            WsGateway::instance().unsubscribe(conn, json::toBool(msg, "spectate") ? WsGateway::spectateKey(ch) : ch);
             reply["type"] = "unsubscribed"; reply["channel_id"] = ch;
         } else if (t == "ping") {
             reply["type"] = "pong";
@@ -100,6 +114,8 @@ void WsEndpointBase::onMessage(const drogon::WebSocketConnectionPtr& conn, std::
         }
     } catch (const ApiError& e) {
         reply["type"] = "error"; reply["error"] = e.what();
+    } catch (const std::exception&) {
+        reply["type"] = "error"; reply["error"] = "invalid request";
     }
     conn->send(json::dump(reply));
 }

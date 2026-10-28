@@ -14,10 +14,11 @@ import StudioWorkspace from './components/studio/StudioWorkspace';
 import SharedPublication from './components/studio/PublicationViewer';
 import EvidenceModal from './components/EvidenceModal';
 import CharacterSpace from './components/CharacterSpace';
+import SpectatorView from './components/SpectatorView';
 
 function Shell() {
   useRealtime();
-  const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers } = useNav();
+  const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers, spectateChannelId } = useNav();
   const toasts = useUi((s) => s.toasts);
   const aiActivity = useUi((s) => s.aiActivity);
   const llmMode = useNav((s) => s.serverSettings?.llm_mode);   // AI belongs to each server; there is no platform key
@@ -30,7 +31,7 @@ function Shell() {
       <div className="main">
         {llmMode === 'mock' && <div className="mode-banner">{tr("MOCK LLM MODE — this server has no language model configured (a maintainer sets one in Server settings → AI); the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.")}</div>}
         {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
-        {channelId && characterSpaceId ? <CharacterSpace key={characterSpaceId} characterId={characterSpaceId} /> : channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
+        {spectateChannelId ? <SpectatorView key={spectateChannelId} channelId={spectateChannelId} /> : channelId && characterSpaceId ? <CharacterSpace key={characterSpaceId} characterId={characterSpaceId} /> : channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
           <div style={{ padding: 40 }} className="muted">{tr("Pick a server and channel, or create one from the left.")}</div>
         )}
       </div>

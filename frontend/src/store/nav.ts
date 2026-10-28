@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
-import type { Server, Channel, ChatWindow, Character, Scene, ServerSettings } from '../types';
+import type { Server, Channel, ChatWindow, Character, Scene, ServerSettings, SpectatableChannel } from '../types';
 import { chatSocket, contextSocket } from '../api/ws';
 import { sessionEpoch, bumpEpoch, isStale } from './session';
 import { resetChannelStores } from './reset';
@@ -10,6 +10,10 @@ interface NavState {
   serverId: string | null; channelId: string | null; windowId: string | null; channel: Channel | null;
   gmWorkspaceOpen: boolean; studioOpen: boolean; characterSpaceId: string | null; error: string | null;
   serverSettings: ServerSettings | null;
+  // Channels of this server the user may read (Main Chat only) without being a member, and the one being read.
+  spectatable: SpectatableChannel[]; spectateChannelId: string | null;
+  loadSpectatable: () => Promise<void>;
+  openSpectate: (id: string | null) => void;
   loadServers: () => Promise<void>;
   selectServer: (id: string) => Promise<void>;
   selectChannel: (id: string) => Promise<void>;
@@ -27,10 +31,10 @@ interface NavState {
   applyServerSettings: (s: Partial<ServerSettings> & { server_id: string }) => void;
   refreshChannel: () => Promise<void>;
 }
-const initial = (): Pick<NavState, 'servers' | 'channels' | 'windows' | 'characters' | 'scenes' | 'serverId' | 'channelId' | 'windowId' | 'channel' | 'gmWorkspaceOpen' | 'studioOpen' | 'characterSpaceId' | 'error' | 'serverSettings'> => ({ servers: [], channels: [], windows: [], characters: [], scenes: [], serverId: null, channelId: null, windowId: null, channel: null, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null, error: null, serverSettings: null });
+const initial = (): Pick<NavState, 'servers' | 'channels' | 'windows' | 'characters' | 'scenes' | 'serverId' | 'channelId' | 'windowId' | 'channel' | 'gmWorkspaceOpen' | 'studioOpen' | 'characterSpaceId' | 'error' | 'serverSettings' | 'spectatable' | 'spectateChannelId'> => ({ servers: [], channels: [], windows: [], characters: [], scenes: [], serverId: null, channelId: null, windowId: null, channel: null, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null, error: null, serverSettings: null, spectatable: [], spectateChannelId: null });
 export const useNav = create<NavState>((set, get) => ({
   ...initial(),
-  reset: () => { const prev = get().channelId; if (prev) { chatSocket.unsubscribe(prev); contextSocket.unsubscribe(prev); } set(initial()); },
+  reset: () => { const prev = get().channelId; if (prev) { chatSocket.unsubscribe(prev); contextSocket.unsubscribe(prev); } const sp = get().spectateChannelId; if (sp) chatSocket.stopSpectating(sp); set(initial()); },
   loadServers: async () => {
     const e = sessionEpoch();
     const servers = await api.servers();
@@ -45,12 +49,14 @@ export const useNav = create<NavState>((set, get) => ({
     const e = sessionEpoch();
     const channels = await api.channels(id);
     if (isStale(e)) return;
-    set({ serverId: id, channels, channelId: null, windowId: null, channel: null, windows: [], scenes: [], serverSettings: null });
+    const sp = get().spectateChannelId; if (sp) chatSocket.stopSpectating(sp);
+    set({ serverId: id, channels, channelId: null, windowId: null, channel: null, windows: [], scenes: [], serverSettings: null, spectatable: [], spectateChannelId: null });
 
     const remembered = localStorage.getItem('acerciae.channel');
     const pick = channels.find((c) => c.id === remembered) ?? channels[0];
     if (pick) await get().selectChannel(pick.id);
     get().loadServerSettings().catch(() => undefined);
+    get().loadSpectatable().catch(() => undefined);
   },
   selectChannel: async (id) => {
     const prev = get().channelId;
@@ -65,9 +71,12 @@ export const useNav = create<NavState>((set, get) => ({
     chatSocket.subscribe(id); contextSocket.subscribe(id);
     const remembered = localStorage.getItem(`acerciae.window.${id}`);
     const win = windows.find((w) => w.id === remembered) ?? windows[0];
+    get().openSpectate(null);
     set({ channelId: id, channel, windows, characters, scenes, windowId: win?.id ?? null, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null });
   },
-  selectWindow: (id) => { const ch = get().channelId; if (ch) localStorage.setItem(`acerciae.window.${ch}`, id); set({ windowId: id, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null }); },
+  selectWindow: (id) => { const ch = get().channelId; if (ch) localStorage.setItem(`acerciae.window.${ch}`, id); get().openSpectate(null); set({ windowId: id, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null }); },
+  loadSpectatable: async () => { const id = get().serverId; if (!id) return; const e = sessionEpoch(); const list = await api.spectatableChannels(id); if (!isStale(e) && get().serverId === id) set({ spectatable: list }); },
+  openSpectate: (id) => { const prev = get().spectateChannelId; if (prev === id) return; if (prev) chatSocket.stopSpectating(prev); if (id) chatSocket.spectate(id); set({ spectateChannelId: id }); },
   refreshWindows: async () => { const ch = get().channelId; if (!ch) return; const e = sessionEpoch(); const windows = await api.windows(ch); if (isStale(e) || get().channelId !== ch) return; set(s=>({ windows, windowId:windows.some(w=>w.id===s.windowId)?s.windowId:windows[0]?.id??null })); },
   refreshScenes: async () => { const ch = get().channelId; if (!ch) return; const e = sessionEpoch(); const [scenes, channel] = await Promise.all([api.scenes(ch), api.channel(ch)]); if (isStale(e) || get().channelId !== ch) return; set({ scenes, channel }); },
   refreshCharacters: async () => { const ch = get().channelId; if (!ch) return; const e = sessionEpoch(); const characters = await api.characters(ch); if (isStale(e) || get().channelId !== ch) return; set({ characters }); },

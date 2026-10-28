@@ -33,6 +33,9 @@ public:
     void broadcast(const std::string& stream, const std::string& channelId, const Json::Value& msg, UserFilter allow = nullptr);
     void sendToUser(const std::string& stream, const std::string& userId, const Json::Value& msg);
     std::size_t connectionCount() const;
+    bool hasSubscribers(const std::string& stream, const std::string& channelId) const;
+    // Spectators subscribe under a separate key so channel broadcasts never reach them; only public Main Chat lines do.
+    static std::string spectateKey(const std::string& channelId) { return "spectate:" + channelId; }
 
 private:
     mutable std::mutex mu_;

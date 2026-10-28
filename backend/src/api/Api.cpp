@@ -150,7 +150,15 @@ void registerRoutes() {
     // ---- servers ----
     route0("/api/servers", {Get}, [&](auto&, auto& p, auto&) { return S.chat->listServers(p); });
     route0("/api/servers", {Post}, [&](auto& req, auto& p, auto&) { return S.chat->createServer(p, json::requireStr(body(req), "name")); });
-    route1("/api/servers/{1}/join", {Post}, [&](auto&, auto& p, auto& a) { return S.chat->joinServer(p, a[0]); });
+    route1("/api/servers/{1}/join", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->joinServer(p, a[0], json::str(b, "invite_code")); });
+    route0("/api/server-directory", {Get}, [&](auto& req, auto& p, auto&) { return S.chat->discoverServers(p, req->getParameter("q")); });
+    route1("/api/servers/{1}/invites", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->listInvites(p, a[0]); });
+    route1("/api/servers/{1}/invites", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->createInvite(p, a[0], body(req)); });
+    route2("/api/servers/{1}/invites/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->revokeInvite(p, a[0], a[1]); });
+    route1("/api/invites/{1}", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->previewInvite(p, a[0]); });
+    route1("/api/invites/{1}/accept", {Post}, [&](auto&, auto& p, auto& a) { return S.chat->acceptInvite(p, a[0]); });
+    route1("/api/servers/{1}/spectate", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->spectatableChannels(p, a[0]); });
+    route1("/api/channels/{1}/spectate", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->spectate(p, a[0], qint(req, "limit", 80), qint(req, "before_seq", 0)); });
     route1("/api/servers/{1}/members", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->serverMembers(p, a[0]); });
     route1("/api/servers/{1}/members", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto who = json::str(b, "user_id", json::str(b, "username")); if (who.empty()) throw badRequest("user_id or username required"); return S.chat->addServerMember(p, a[0], who, json::str(b, "role", "member")); });
     route2("/api/servers/{1}/members/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->setServerMemberRole(p, a[0], a[1], json::requireStr(body(req), "role")); });

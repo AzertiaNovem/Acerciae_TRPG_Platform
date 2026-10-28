@@ -5,9 +5,9 @@ import { useNav } from '../store/nav';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 import UserPicker, { userCandidate } from './UserPicker';
-import type { BuiltinDiceTexts, DiceTextGroup, Feature, ServerMember, ServerSettings } from '../types';
+import type { BuiltinDiceTexts, DiceTextGroup, Feature, ServerInvite, ServerMember, ServerPolicy, ServerSettings } from '../types';
 
-type Tab = 'general' | 'ai' | 'features' | 'members' | 'dice';
+type Tab = 'general' | 'access' | 'ai' | 'features' | 'members' | 'dice';
 import { LANGUAGE_LABELS } from '../i18n';
 export { LANGUAGE_LABELS } from '../i18n';
 const FEATURES: { key: Feature; label: string; help: string }[] = [
@@ -24,18 +24,20 @@ interface Form {
   image: { provider: string; api_base: string; model: string; size: string; quality: string; api_key: string; clear_api_key: boolean };
   tts: { provider: string; api_base: string; model: string; voice: string; api_key: string; clear_api_key: boolean };
   ai_policy: { token_budget: string; image_budget: string; period: 'month' | 'total'; max_concurrent: string; reset_usage: boolean };
+  policy: ServerPolicy;
 }
 const formFrom = (s: ServerSettings): Form => ({
   name: s.name, language: s.language, features: { ...s.features },
   llm: { provider: s.llm?.provider ?? 'mock', api_base: s.llm?.api_base ?? '', model: s.llm?.model ?? '', reasoning_effort: s.llm?.reasoning_effort ?? '', embedding_model: s.llm?.embedding_model ?? '', api_key: '', clear_api_key: false },
   image: { provider: s.image?.provider ?? 'mock', api_base: s.image?.api_base ?? '', model: s.image?.model ?? '', size: s.image?.size ?? 'auto', quality: s.image?.quality ?? 'auto', api_key: '', clear_api_key: false },
   tts: { provider: s.tts?.provider ?? 'mock', api_base: s.tts?.api_base ?? '', model: s.tts?.model ?? '', voice: s.tts?.voice ?? '', api_key: '', clear_api_key: false },
+  policy: { join_policy: 'invite', channel_creation: 'members', guest_invites: false, main_chat_spectators: false, ...s.policy },
   ai_policy: { token_budget: String(s.ai_policy?.token_budget ?? 0), image_budget: String(s.ai_policy?.image_budget ?? 0), period: s.ai_policy?.period ?? 'month', max_concurrent: String(s.ai_policy?.max_concurrent ?? 4), reset_usage: false },
 });
 const count = (n: string) => { const v = Number(n.trim() || '0'); return Number.isFinite(v) ? Math.floor(v) : NaN; };
 const budgetText = (used: number, budget: number) => budget > 0 ? `${used.toLocaleString()} / ${budget.toLocaleString()}` : `${used.toLocaleString()} (${tr('no limit')})`;
 
-function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'features'; settings: ServerSettings; onSaved: (s: ServerSettings) => void }) {
+function Settings({ tab, settings, onSaved }: { tab: 'general' | 'access' | 'ai' | 'features'; settings: ServerSettings; onSaved: (s: ServerSettings) => void }) {
   const toast = useUi((s) => s.toast);
   const [form, setForm] = useState<Form>(() => formFrom(settings));
   const [saving, setSaving] = useState(false);
@@ -50,6 +52,7 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'feature
   const llm = settings.llm, tts = settings.tts, image = settings.image, usage = settings.ai_policy;
   const anthropic = form.llm.provider === 'anthropic';
   const setPolicy = (patch: Partial<Form['ai_policy']>) => setForm({ ...form, ai_policy: { ...form.ai_policy, ...patch } });
+  const setAccess = (patch: Partial<ServerPolicy>) => setForm({ ...form, policy: { ...form.policy, ...patch } });
   const keyField = (part: 'llm' | 'tts' | 'image', info?: { api_key_set: boolean; api_key_hint: string }, fallback?: string) => (
     <div className="col" style={{ gap: 4 }}>
       <label className="field"><span>{tr("API key")}</span>
@@ -69,6 +72,30 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'feature
           </select>
         </label>
         <div className="tiny muted">{tr("The language the AI chronicler, consistency check and inspiration write in, and the default dice reply texts (Chinese settings use the 中文 dice texts unless a channel picks another group).")}</div>
+      </>)}
+      {tab === 'access' && (<>
+        <label className="field"><span>{tr("How people join")}</span>
+          <select value={form.policy.join_policy} onChange={(e) => setAccess({ join_policy: e.target.value as ServerPolicy['join_policy'] })}>
+            <option value="invite">{tr("With an invite link from a maintainer")}</option>
+            <option value="open">{tr("Open: listed in the server directory, anyone may join")}</option>
+            <option value="closed">{tr("Closed: only maintainers add members")}</option>
+          </select>
+        </label>
+        <div className="tiny muted">{tr("Maintainers can always add people directly under Members.")}</div>
+        <label className="field"><span>{tr("Who may create channels")}</span>
+          <select value={form.policy.channel_creation} onChange={(e) => setAccess({ channel_creation: e.target.value as ServerPolicy['channel_creation'] })}>
+            <option value="members">{tr("Every member")}</option>
+            <option value="maintainers">{tr("Maintainers only")}</option>
+          </select>
+        </label>
+        <label className="feature">
+          <input type="checkbox" checked={form.policy.guest_invites} onChange={(e) => setAccess({ guest_invites: e.target.checked })} />
+          <span className="col" style={{ gap: 2 }}><span>{tr("Channel GMs may invite guests")}</span><span className="tiny muted">{tr("A GM can invite people from outside the server. Guests see only the channels they were invited to and leave the server with their last channel.")}</span></span>
+        </label>
+        <label className="feature">
+          <input type="checkbox" checked={form.policy.main_chat_spectators} onChange={(e) => setAccess({ main_chat_spectators: e.target.checked })} />
+          <span className="col" style={{ gap: 2 }}><span>{tr("Members may read other channels' Main Chat")}</span><span className="tiny muted">{tr("Members not invited to a channel can read its Main Chat, read-only: only lines everyone at that table sees. Guests never can.")}</span></span>
+        </label>
       </>)}
       {tab === 'ai' && (<>
         <div className="tiny muted">{tr("AI on this server runs only on the providers configured here, with this server's own keys. Without them it runs in mock mode.")}</div>
@@ -166,6 +193,45 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'ai' | 'feature
   );
 }
 
+function Invites({ serverId, joinPolicy }: { serverId: string; joinPolicy: ServerPolicy['join_policy'] }) {
+  const toast = useUi((s) => s.toast);
+  const [invites, setInvites] = useState<ServerInvite[]>([]);
+  const [uses, setUses] = useState('0');
+  const [hours, setHours] = useState('168');
+  const load = useCallback(() => { api.serverInvites(serverId).then(setInvites).catch(() => undefined); }, [serverId]);
+  useEffect(load, [load]);
+  const link = (code: string) => `${location.origin}${location.pathname}?invite=${code}`;
+  const copy = async (code: string) => { try { await navigator.clipboard.writeText(link(code)); toast('Invite link copied'); } catch { toast(link(code)); } };
+  const create = async () => {
+    try { const inv = await api.createServerInvite(serverId, { max_uses: Number(uses) || 0, expires_in_hours: Number(hours) || 0 }); load(); copy(inv.code); }
+    catch (e: any) { toast(e.message, 'error'); }
+  };
+  if (joinPolicy === 'closed') return <div className="tiny muted">{tr("The server is closed, so invite links do not work.")}</div>;
+  return (
+    <div className="col">
+      <div className="section-label">{tr("Invite links")}</div>
+      <div className="row">
+        <label className="field grow"><span>{tr("Uses")}</span><select value={uses} onChange={(e) => setUses(e.target.value)}>{['0', '1', '5', '10', '25', '100'].map((v) => <option key={v} value={v}>{v === '0' ? tr('No limit') : v}</option>)}</select></label>
+        <label className="field grow"><span>{tr("Expires after")}</span><select value={hours} onChange={(e) => setHours(e.target.value)}>
+          <option value="1">{tr("1 hour")}</option><option value="24">{tr("1 day")}</option><option value="168">{tr("7 days")}</option><option value="720">{tr("30 days")}</option><option value="0">{tr("Never")}</option>
+        </select></label>
+        <button className="primary small" onClick={create}>{tr("Create link")}</button>
+      </div>
+      {invites.length === 0 && <div className="tiny muted">{tr("No invite links yet.")}</div>}
+      {invites.map((i) => (
+        <div key={i.id} className="pick-row">
+          <code className="grow">{i.code}</code>
+          <span className="tiny muted">{i.uses}{i.max_uses ? ` / ${i.max_uses}` : ''} · {i.expires_at ? new Date(i.expires_at).toLocaleString() : tr("Never")}</span>
+          {i.active ? <>
+            <button className="small" onClick={() => copy(i.code)}>{tr("Copy link")}</button>
+            <button className="small" onClick={async () => { try { setInvites(await api.revokeServerInvite(serverId, i.id)); } catch (e: any) { toast(e.message, 'error'); } }}>{tr("Revoke")}</button>
+          </> : <span className="pill">{i.revoked_at ? tr("revoked") : tr("expired")}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Members({ serverId, myRole }: { serverId: string; myRole: string }) {
   const me = useAuth((s) => s.user);
   const toast = useUi((s) => s.toast);
@@ -181,12 +247,15 @@ function Members({ serverId, myRole }: { serverId: string; myRole: string }) {
         {members.map((m) => (
           <div key={m.id} className="pick-row">
             <span className="grow">{m.display_name} <span className="tiny muted">@{m.username}</span></span>
-            {m.role === 'owner' ? <span className="pill gm">{tr("owner")}</span> : isOwner ? (
-              <select value={tr(m.role)} onChange={(e) => run(() => api.setServerMemberRole(serverId, m.id, e.target.value as any))} title={tr("Maintainers can change server settings and manage members")}>
+            {m.role === 'owner' ? <span className="pill gm">{tr("owner")}</span> : m.role === 'guest' ? (<>
+              <span className="pill" title={tr("Sees only the channels they were invited to")}>{tr("guest")}</span>
+              <button className="small" onClick={() => run(() => api.addServerMember(serverId, m.id, 'member'))}>{tr("Make member")}</button>
+            </>) : isOwner ? (
+              <select value={m.role} onChange={(e) => run(() => api.setServerMemberRole(serverId, m.id, e.target.value as any))} title={tr("Maintainers can change server settings and manage members")}>
                 <option value="member">{tr("member")}</option><option value="admin">{tr("maintainer")}</option>
               </select>
             ) : <span className="pill">{m.role === 'admin' ? tr("maintainer") : tr("member")}</span>}
-            {m.role !== 'owner' && m.id !== me?.id && (isOwner || m.role === 'member') && (
+            {m.role !== 'owner' && m.id !== me?.id && (isOwner || m.role === 'member' || m.role === 'guest') && (
               <button className="small" onClick={() => confirm(`Remove ${m.display_name} from this server? They also leave all of its channels and chat windows.`) && run(() => api.removeServerMember(serverId, m.id))}>{tr("Remove")}</button>
             )}
           </div>
@@ -274,7 +343,7 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
   useEffect(() => { if (serverId) api.serverSettings(serverId).then(setSettings).catch(() => undefined); }, [serverId]);
   if (!serverId) return null;
   const onSaved = (s: ServerSettings) => { setSettings(s); loadServerSettings(); useNav.getState().loadServers(); };
-  const tabs: [Tab, string][] = [['general', 'General'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['dice', 'Dice texts']];
+  const tabs: [Tab, string][] = [['general', 'General'], ['access', 'Access'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['dice', 'Dice texts']];
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide col" onClick={(e) => e.stopPropagation()}>
@@ -282,7 +351,8 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
         <div className="tabs inline">{tabs.map(([t, label]) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(label)}</button>)}</div>
         {!settings ? <div className="muted">{tr("Loading…")}</div> : !settings.is_maintainer ? <div className="muted">{tr("Only server maintainers can change these settings.")}</div> : (
           <>
-            {(tab === 'general' || tab === 'ai' || tab === 'features') && <Settings tab={tab} settings={settings} onSaved={onSaved} />}
+            {(tab === 'general' || tab === 'access' || tab === 'ai' || tab === 'features') && <Settings tab={tab} settings={settings} onSaved={onSaved} />}
+            {tab === 'access' && <Invites serverId={serverId} joinPolicy={settings.policy?.join_policy ?? 'invite'} />}
             {tab === 'members' && <Members serverId={serverId} myRole={myRole} />}
             {tab === 'dice' && <DiceTexts serverId={serverId} />}
           </>

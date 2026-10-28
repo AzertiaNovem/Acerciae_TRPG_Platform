@@ -47,6 +47,9 @@ Json::Value ServerSettingsService::publicView(const Json::Value& r, const std::s
     bool live = r["llm_provider"].asString() != "mock" && !r["llm_api_key_sealed"].asString().empty();
     v["llm_mode"] = live ? "live" : "mock";
     v["images_enabled"] = r["image_provider"].asString() != "disabled";
+    auto& pol = v["policy"];
+    pol["join_policy"] = r["join_policy"]; pol["channel_creation"] = r["channel_creation"];
+    pol["guest_invites"] = r["guest_invites"]; pol["main_chat_spectators"] = r["main_chat_spectators"];
     return v;
 }
 
@@ -149,6 +152,15 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     if (period != "month" && period != "total") throw badRequest("period must be month or total");
     bool resetUsage = json::toBool(pol, "reset_usage", false);
 
+    // Server policy: joining, channel creation, guests, Main Chat spectators
+    const Json::Value& sp = b["policy"];
+    auto joinPolicy = str(sp, "join_policy", cur["join_policy"].asString());
+    if (joinPolicy != "open" && joinPolicy != "invite" && joinPolicy != "closed") throw badRequest("join_policy must be open, invite or closed");
+    auto channelCreation = str(sp, "channel_creation", cur["channel_creation"].asString());
+    if (channelCreation != "members" && channelCreation != "maintainers") throw badRequest("channel_creation must be members or maintainers");
+    bool guestInvites = json::toBool(sp, "guest_invites", cur["guest_invites"].asBool());
+    bool spectators = json::toBool(sp, "main_chat_spectators", cur["main_chat_spectators"].asBool());
+
     bool feat[5];
     for (int i = 0; i < 5; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
 
@@ -162,6 +174,8 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
                     "tts_provider=$10, llm_embedding_model=$11, ai_token_budget=$12, ai_image_budget=$13, ai_budget_period=$14, ai_max_concurrent=$15 WHERE server_id=$1",
                  {serverId, llmProvider, imageProvider, imageBase, imageKey, imageHint, imageModel, imageSize, imageQuality, ttsProvider, embeddingModel,
                   (int64_t)tokenBudget, (int64_t)imageBudget, period, (int64_t)maxConcurrent});
+        Db::exec(w, "UPDATE server_settings SET join_policy=$2, channel_creation=$3, guest_invites=$4, main_chat_spectators=$5 WHERE server_id=$1",
+                 {serverId, joinPolicy, channelCreation, guestInvites, spectators});
         if (resetUsage) Db::exec(w, "UPDATE server_settings SET ai_usage_reset_at=now() WHERE server_id=$1", {serverId});
     });
     auto fresh = row(serverId);

@@ -29,15 +29,20 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   const studioOpen = nav.channel?.studio_visible !== false && nav.serverSettings?.features?.log_studio !== false;
   const myServerRole = nav.servers.find((s) => s.id === nav.serverId)?.my_role;
   const isMaintainer = myServerRole === 'owner' || myServerRole === 'admin';
+  const isGuest = myServerRole === 'guest';
+  const policy = nav.serverSettings?.policy;
+  const canCreateChannel = !isGuest && (isMaintainer || policy?.channel_creation !== 'maintainers');
+  // A GM may bring in people from outside the server: as members when they maintain it, as guests when it allows guests.
+  const canInviteOutsiders = isMaintainer || !!policy?.guest_invites;
   const characters = nav.channel ? nav.characters : [];
 
   // Member lists for the pickers are fetched when a dialog that needs them opens.
   useEffect(() => {
     if (!nav.channelId || (dialog !== 'window' && dialog !== 'member')) return;
     api.channelMembers(nav.channelId).then(setChannelMembers).catch(() => undefined);
-    if (dialog === 'member' && nav.serverId) api.serverMembers(nav.serverId).then(setServerMembers).catch(() => undefined);
-  }, [dialog, nav.channelId, nav.serverId]);
-  const searchAll = useCallback(async (q: string) => (await api.searchUsers(q)).map((u) => userCandidate(u, 'not on this server')), []);
+    if (dialog === 'member' && nav.serverId && !isGuest) api.serverMembers(nav.serverId).then(setServerMembers).catch(() => undefined);
+  }, [dialog, nav.channelId, nav.serverId, isGuest]);
+  const searchAll = useCallback(async (q: string) => (await api.searchUsers(q)).map((u) => userCandidate(u, isMaintainer ? tr('not on this server') : tr('joins as a guest'))), [isMaintainer]);
 
   const close = () => { setDialog(null); setForm({}); setPicked([]); };
   const submit = async () => {
@@ -55,8 +60,8 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   const invite = async (userId: string, label: string) => {
     if (!nav.channelId) return;
     try {
-      await api.addChannelMember(nav.channelId, userId, (f('role') as any) || 'player');
-      toast(`Added ${label}`);
+      const added = await api.addChannelMember(nav.channelId, userId, (f('role') as any) || 'player');
+      toast(added.server_role === 'guest' ? `${label} joined as a guest` : `Added ${label}`);
       setChannelMembers(await api.channelMembers(nav.channelId));
       await nav.refreshWindows();
     } catch (e: any) { toast(e.message, 'error'); }
@@ -68,15 +73,24 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
       <div className="section"><span>{serverName ?? tr("Channels")}</span>
         <span className="row" style={{ gap: 2 }}>
           {nav.serverId && isMaintainer && <button className="ghost small" title={tr("Server settings (maintainers)")} onClick={() => setServerSettingsOpen(true)}>⚙</button>}
-          {nav.serverId && <button className="ghost small" title={tr("New campaign channel")} onClick={() => setDialog('channel')}>+</button>}
+          {nav.serverId && canCreateChannel && <button className="ghost small" title={tr("New campaign channel")} onClick={() => setDialog('channel')}>+</button>}
         </span>
       </div>
       <div className="sidebar-scroll">
         {nav.channels.map((c) => (
-          <div key={c.id} className={`item ${c.id === nav.channelId ? 'active' : ''}`} onClick={() => { nav.selectChannel(c.id); onClose(); }}>
+          <div key={c.id} className={`item ${c.id === nav.channelId && !nav.spectateChannelId ? 'active' : ''}`} onClick={() => { nav.selectChannel(c.id); onClose(); }}>
             <span className="muted">#</span><span className="name">{c.name}</span>{c.my_role === 'gm' && <span className="pill gm">{tr("GM")}</span>}
           </div>
         ))}
+        {isGuest && <div className="tiny muted" style={{ padding: '2px 12px' }}>{tr("You are a guest on this server: you see only the channels you were invited to.")}</div>}
+        {nav.spectatable.length > 0 && (<>
+          <div className="section"><span>{tr("Other channels (read-only)")}</span></div>
+          {nav.spectatable.map((c) => (
+            <div key={c.id} className={`item ${c.id === nav.spectateChannelId ? 'active' : ''}`} title={c.description || tr("Read its Main Chat")} onClick={() => { nav.openSpectate(c.id); onClose(); }}>
+              <span className="muted">👁</span><span className="name">{c.name}</span>
+            </div>
+          ))}
+        </>)}
         {nav.channelId && (
           <>
             <div className="section"><span>{tr("Chat windows")}</span>{isGm && <button className="ghost small" title={tr("New chat window")} onClick={() => setDialog('window')}>+</button>}</div>
@@ -146,9 +160,9 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             {dialog === 'member' && (<><h3>{tr("Invite to channel")}</h3>
               <select value={f('role') || 'player'} onChange={(e) => set('role', e.target.value)}><option value="player">{tr("as Player")}</option><option value="gm">{tr("as GM")}</option></select>
               <UserPicker mode="action" actionLabel={tr("Invite")} autoFocus
-                candidates={serverMembers.map((m) => userCandidate(m))} search={isMaintainer ? searchAll : undefined}
-                exclude={channelMembers.map((m) => m.id)} placeholder={isMaintainer ? tr("Search server members or any user…") : tr("Search server members…")}
-                emptyText={isMaintainer ? tr("No matching user.") : tr("No matching server member — a server maintainer can invite new people to the server.")}
+                candidates={serverMembers.map((m) => userCandidate(m))} search={canInviteOutsiders ? searchAll : undefined}
+                exclude={channelMembers.map((m) => m.id)} placeholder={canInviteOutsiders ? tr("Search server members or any user…") : tr("Search server members…")}
+                emptyText={canInviteOutsiders ? tr("No matching user.") : tr("No matching server member — a server maintainer can invite new people to the server.")}
                 onAction={(c) => invite(c.id, c.label)} /></>)}
             {dialog === 'character' && (<><h3>{tr("New character")}</h3><input placeholder={tr("Name")} value={f('name')} onChange={(e) => set('name', e.target.value)} autoFocus />
               {isGm && <select value={f('kind') || 'pc'} onChange={(e) => set('kind', e.target.value)}><option value="pc">{tr("Player character")}</option><option value="npc">{tr("NPC (GM)")}</option></select>}

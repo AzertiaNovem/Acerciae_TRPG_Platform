@@ -176,7 +176,11 @@ or server-defined text groups; each channel's GM picks one. GMs maintain NPC she
 thinking effort and embedding model, images, speech) and AI policy — a token and an image budget for the whole server (per month or
 until reset) and how many AI tasks may run at once — and switch Consistency Check, Integrated Dice and Inspiration on or off; they invite and remove
 members. Keys are sealed with AES-256-GCM under `AUTH_SECRET` and never returned to clients; a server API base is only used with
-the server's own key; there is no platform key to fall back to. Members are chosen with search-and-click pickers when creating chat windows, inviting to the server or a
+the server's own key; there is no platform key to fall back to. They also set the server's access policy: how people join (an
+invite link — the default —, open to anyone from the server directory, or closed so that only maintainers add members), who may
+create channels (every member or maintainers only), whether channel GMs may invite **guests** from outside the server (a guest sees
+only the channels they were invited to and leaves the server with their last channel), and whether members may **spectate** the
+Main Chat of channels they were not invited to (read-only, only lines the whole table sees). Members are chosen with search-and-click pickers when creating chat windows, inviting to the server or a
 channel, and managing an existing window's participants.
 
 **PDF module import** — poppler text extraction per page → chunked LLM structuring into a conditional knowledge graph
