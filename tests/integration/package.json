@@ -1,6 +1,6 @@
 {
   "name": "acerciae-integration-tests",
-  "private": true,
+  "private": true, "license": "BSD-3-Clause",
   "type": "module",
   "scripts": {
     "test": "node --test scenarios.test.mjs"

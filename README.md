@@ -285,3 +285,7 @@ reproduce it by hand with the demo campaign.
   WebSocket fan-out is per instance and would need a broker for cross-instance pushes).
 * The Node e2e suite uses the `ws` package because Node's built-in WebSocket reuses pooled HTTP connections, which Drogon
   does not upgrade (browsers always open a fresh connection, so the product is unaffected).
+
+## License
+
+BSD 3-Clause; see [LICENSE](LICENSE).
