@@ -27,6 +27,7 @@ public:
     // Features: "consistency" | "dice" | "inspiration".
     bool featureEnabled(const std::string& serverId, const std::string& feature);
     void requireFeature(const std::string& serverId, const std::string& feature);   // 403 feature_disabled
+    std::string language(const std::string& serverId);   // the server language ("en" before settings exist)
 
     // LLM profile for the gateway: the server's own provider, or mock when it has none.
     std::optional<LlmProfile> profileForChannel(const std::string& channelId);

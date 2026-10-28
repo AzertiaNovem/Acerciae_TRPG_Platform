@@ -238,7 +238,8 @@ ends. See
 A server maintainer can switch on **COC7 point-buy** (Server settings → Features): role cards then show the
 characteristic total, take a career from the built-in list of 230 (credit-rating range, points formula, career skills,
 option groups and free specialties, generated from the community COC7 sheet), and split skill investment into career
-points (career skills only) and hobby points (INT×2, any skill) with the limits enforced on save. See
+points (career skills only) and hobby points (INT×2, any skill) with the limits enforced on save. Skill names follow
+the server language, and dice commands take them in English or that language (`.ra 目星` on a Japanese server). See
 [COC7 point-buy](docs/COC7_POINT_BUY.md).
 
 See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.md), [media/generation](docs/ASSETS.md),

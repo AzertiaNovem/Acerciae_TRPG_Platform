@@ -50,3 +50,15 @@ names serve the card, `.ra` in chat and the visual novel.
 `choices[i]` holds the picks of the career's i-th option group; a family pick ("Survival") permits any specialisation of
 it. `base` is only honoured for skills the table does not know. `skills` keeps the computed totals, and
 `sheet.attrs` mirrors them for the dice.
+
+## Skill names in the server language
+
+The skill table (every core skill, the specialisation families and the characteristics) carries a name in each server
+language, so the sheet shows "目星" on a Japanese server and "Trouver objet caché" on a French one; `/api/coc7/rules`
+returns them as `names {lang: name}`. What a player types in the sheet, in English or the server language, is stored
+under the English key ("目星" → `Spot Hidden`); a specialisation keeps its own words ("科学(生物学)" →
+`Science (生物学)`). Skills outside the table and career names stay as written.
+
+Dice commands accept the same names: `.ra 目星` and `.ra spot hidden` both roll Spot Hidden on a Japanese server, and
+the reply names the skill in the server language. Names of other languages are not recognised there, apart from the
+Chinese aliases dice users already type (`侦查`). The table lives in `backend/src/dice/SkillNames.cpp`.

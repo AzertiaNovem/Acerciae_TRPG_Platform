@@ -1,10 +1,12 @@
 import { t as tr } from '../i18n';
 import { useMemo, useState } from 'react';
 import type { Coc7Career, Coc7Rules, PointsReport, RoleCard, SkillPoints } from '../types';
+import { skillKey, skillLabel } from './skillNames';
 
 // Point-buy mode of the role card (server feature coc7_points). The player picks a career from the built-in list,
 // resolves its option groups and free specialties, then spends career points on those skills and hobby points on
 // any skill. Totals here are previews; the server recomputes them on save and refuses a card that breaks a limit.
+// Skill names show in the server language; what the player types in either language is stored under the English key.
 
 const SPECIAL_BASE: Record<string, Record<string, number>> = {
   Fighting: { brawl: 25, axe: 15, chainsaw: 10, flail: 10, garrote: 15, spear: 20, sword: 20, whip: 5 },
@@ -52,10 +54,12 @@ export function careerAllows(allowed: Set<string>, key: string, rules: Coc7Rules
   return false;
 }
 const optionKey = (o: { skill: string; spec?: string }) => (o.spec ? `${o.skill} (${o.spec})` : o.skill);
-const optionLabel = (o: { skill: string; label: string; spec?: string; any?: boolean }) => `${o.label}${o.spec ? `（${o.spec}）` : o.any ? tr(' (any)') : ''} · ${o.skill}`;
 
 export default function PointBuy({ card, rules, editable, isKeeper, report, setCard }: { card: RoleCard; rules: Coc7Rules; editable: boolean; isKeeper: boolean; report: PointsReport; setCard: (fn: (c: RoleCard) => void) => void }) {
   const [newSkill, setNewSkill] = useState('');
+  const lang = report.language ?? 'en';
+  const label = (key: string) => skillLabel(key, rules, lang), keyOf = (text: string) => skillKey(text, rules, lang);
+  const optionLabel = (o: { skill: string; spec?: string; any?: boolean }) => `${label(optionKey(o))}${o.any ? tr(' (any)') : ''}`;
   const career = useMemo(() => rules.careers.find((c) => c.name === card.career?.name), [rules, card.career?.name]);
   const chars = card.characteristics;
   const budget = careerBudget(career, chars), hobbyBudget = (chars.INT ?? 0) * 2;
@@ -64,8 +68,8 @@ export default function PointBuy({ card, rules, editable, isKeeper, report, setC
   const spent = Object.values(points).reduce((a, p) => ({ career: a.career + (p.career || 0), hobby: a.hobby + (p.hobby || 0) }), { career: 0, hobby: 0 });
   const rows = useMemo(() => {
     const names = new Set<string>([...rules.skills.map((s) => s.name), ...Object.keys(points), ...Object.keys(card.skills)]);
-    return [...names].sort((a, b) => a.localeCompare(b));
-  }, [rules, points, card.skills]);
+    return [...names].sort((a, b) => skillLabel(a, rules, lang).localeCompare(skillLabel(b, rules, lang), lang));
+  }, [rules, points, card.skills, lang]);
   const setPoints = (key: string, patch: Partial<SkillPoints>) => setCard((x) => { x.skill_points = x.skill_points ?? {}; const cur = x.skill_points[key] ?? { career: 0, hobby: 0, growth: 0 }; x.skill_points[key] = { ...cur, ...patch }; });
   const num = (v: string) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 ? n : 0; };
   const half = (v: number) => `${Math.floor(v / 2)} / ${Math.floor(v / 5)}`;
@@ -95,16 +99,16 @@ export default function PointBuy({ card, rules, editable, isKeeper, report, setC
       {career && career.choices.map((g, gi) => (
         <div key={gi} className="row tiny" style={{ flexWrap: 'wrap', marginTop: 6 }}>
           <span className="muted">{tr('Pick {n} of:', { n: g.pick })}</span>
-          {g.from.map((o) => { const key = optionKey(o); const on = (card.career?.choices?.[gi] ?? []).includes(key); return <label key={key} className={`pill ${on ? 'ok' : ''}`} style={{ cursor: editable ? 'pointer' : 'default' }}><input type="checkbox" checked={on} disabled={!editable} onChange={() => toggleChoice(gi, key, g.pick)} /> {optionLabel(o)}</label>; })}
+          {g.from.map((o) => { const key = optionKey(o); const on = (card.career?.choices?.[gi] ?? []).includes(key); return <label key={key} className={`pill ${on ? 'ok' : ''}`} title={o.label} style={{ cursor: editable ? 'pointer' : 'default' }}><input type="checkbox" checked={on} disabled={!editable} onChange={() => toggleChoice(gi, key, g.pick)} /> {optionLabel(o)}</label>; })}
         </div>
       ))}
       {career && career.free > 0 && (
         <div className="row tiny" style={{ flexWrap: 'wrap', marginTop: 6 }}>
           <span className="muted">{tr('{n} specialties of your choice (career points allowed):', { n: career.free })}</span>
-          {Array.from({ length: career.free }).map((_, i) => <input key={i} list="coc7-skill-names" value={card.career?.specialties?.[i] ?? ''} disabled={!editable} placeholder={tr('skill')} style={{ width: 150 }} onChange={(e) => setSpecialty(i, e.target.value)} />)}
+          {Array.from({ length: career.free }).map((_, i) => <input key={i} list="coc7-skill-names" value={label(card.career?.specialties?.[i] ?? '')} disabled={!editable} placeholder={tr('skill')} style={{ width: 150 }} onChange={(e) => setSpecialty(i, e.target.value)} onBlur={(e) => setSpecialty(i, keyOf(e.target.value))} />)}
         </div>
       )}
-      <datalist id="coc7-skill-names">{rules.skills.map((s) => <option key={s.name} value={s.name} />)}{rules.families.map((f) => <option key={f.name} value={f.name} />)}</datalist>
+      <datalist id="coc7-skill-names">{rules.skills.map((s) => <option key={s.name} value={label(s.name)} />)}{rules.families.map((f) => <option key={'family:' + f.name} value={label(f.name)} />)}</datalist>
 
       <div className="row" style={{ marginTop: 12 }}>
         <h4 style={{ margin: 0 }}>{tr('Skills')}</h4><span className="grow" />
@@ -120,9 +124,9 @@ export default function PointBuy({ card, rules, editable, isKeeper, report, setC
             return (
               <tr key={key} className={ok ? 'allowed' : ''}>
                 <td>{ok ? '★' : ''}</td>
-                <td>{key}{custom && editable && <button className="ghost small" title={tr('remove')} onClick={() => setCard((x) => { delete x.skill_points?.[key]; delete x.skills[key]; })}>×</button>}</td>
+                <td title={label(key) !== key ? key : undefined}>{label(key)}{custom && editable && <button className="ghost small" title={tr('remove')} onClick={() => setCard((x) => { delete x.skill_points?.[key]; delete x.skills[key]; })}>×</button>}</td>
                 <td>{custom && editable ? <input inputMode="numeric" value={p?.base ?? 0} onChange={(e) => setPoints(key, { base: Math.min(99, num(e.target.value)) })} /> : baseOf(key, chars, rules, p?.base)}</td>
-                <td>{editable && !mythos && isKeeper ? <input inputMode="numeric" aria-label={tr('Growth points for {skill}', { skill: key })} value={p?.growth ?? 0} onChange={(e) => setPoints(key, { growth: num(e.target.value) })} /> : <span title={tr('Growth comes from improvement checks; the Keeper records it.')}>{p?.growth ?? 0}</span>}</td>
+                <td>{editable && !mythos && isKeeper ? <input inputMode="numeric" aria-label={tr('Growth points for {skill}', { skill: label(key) })} value={p?.growth ?? 0} onChange={(e) => setPoints(key, { growth: num(e.target.value) })} /> : <span title={tr('Growth comes from improvement checks; the Keeper records it.')}>{p?.growth ?? 0}</span>}</td>
                 <td>{editable && ok && !mythos ? <input inputMode="numeric" value={p?.career ?? 0} onChange={(e) => setPoints(key, { career: num(e.target.value) })} /> : mythos ? '—' : p?.career ?? 0}</td>
                 <td>{editable && !mythos ? <input inputMode="numeric" value={p?.hobby ?? 0} onChange={(e) => setPoints(key, { hobby: num(e.target.value) })} /> : mythos ? '—' : p?.hobby ?? 0}</td>
                 <td className={total > 99 ? 'over' : ''}><b>{total}</b></td>
@@ -134,8 +138,8 @@ export default function PointBuy({ card, rules, editable, isKeeper, report, setC
       </table>
       {editable && (
         <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
-          <input list="coc7-skill-names" placeholder={tr('Add a specialisation or custom skill, e.g. Science (Biology)')} value={newSkill} onChange={(e) => setNewSkill(e.target.value)} style={{ minWidth: 280 }} onKeyDown={(e) => { if (e.key === 'Enter' && newSkill.trim()) { setPoints(newSkill.trim(), {}); setNewSkill(''); } }} />
-          <button className="small" onClick={() => { if (newSkill.trim()) { setPoints(newSkill.trim(), {}); setNewSkill(''); } }}>{tr('Add')}</button>
+          <input list="coc7-skill-names" placeholder={tr('Add a specialisation or custom skill, e.g. Science (Biology)')} value={newSkill} onChange={(e) => setNewSkill(e.target.value)} style={{ minWidth: 280 }} onKeyDown={(e) => { if (e.key === 'Enter' && newSkill.trim()) { setPoints(keyOf(newSkill), {}); setNewSkill(''); } }} />
+          <button className="small" onClick={() => { if (newSkill.trim()) { setPoints(keyOf(newSkill), {}); setNewSkill(''); } }}>{tr('Add')}</button>
         </div>
       )}
       {(report.violations?.length || report.warnings?.length) ? (

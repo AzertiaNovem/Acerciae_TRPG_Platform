@@ -41,8 +41,18 @@ ExprResult evaluate(const std::string& expr, Rng& rng, int defaultSides = 100); 
 bool isExpression(const std::string& s);                                          // syntactically valid, no rolling
 
 // ---- attributes ------------------------------------------------------------------------------------
+// Names are matched in English (plus the Chinese aliases dice users already type) and, given a server language, in
+// that language too: "目星" is Spot Hidden on a Japanese server. A translated family keeps its specialisation:
+// "科学(生物学)" -> "Science (生物学)".
 std::string normKey(const std::string& raw);          // lowercase, spaces/_/-/()/ removed
-std::string canonicalName(const std::string& raw);    // "侦查" / "spot" / "spothidden" -> "Spot Hidden"; unknown -> trimmed raw
+std::string canonicalName(const std::string& raw, const std::string& lang = "");   // "侦查" / "spot" -> "Spot Hidden"; unknown -> trimmed raw
+// The name to show for a stored key in a server language: "Spot Hidden" -> "目星" (ja); unknown keys and English as is.
+std::string displayName(const std::string& key, const std::string& lang);
+// The skill and characteristic name table (SkillNames.cpp): its languages, its canonical names, one name, all names.
+const std::vector<std::string>& nameLanguages();
+std::vector<std::string> namedCanonicals();
+std::string localName(const std::string& canonical, const std::string& lang);   // "" when there is none
+Json::Value localNames(const std::string& canonical);                            // {lang: name}
 // The skill table: canonical name and base code (>= 0 fixed value, -2 half DEX, -3 EDU).
 struct SkillDef { std::string name; int base; };
 std::vector<SkillDef> skillDefs();
@@ -50,9 +60,9 @@ std::optional<int> baseCode(const std::string& raw);   // base code of a known s
 struct AttrValue { bool found = false; int value = 0; std::string name; bool isBase = false; };
 // Looks a name up in an attrs object (case/alias-insensitive). Falls back to CoC7 base values (Dodge = DEX/2,
 // Language (Own) = EDU, Spot Hidden 25, ...) with isBase = true.
-AttrValue lookup(const Json::Value& attrs, const std::string& raw);
+AttrValue lookup(const Json::Value& attrs, const std::string& raw, const std::string& lang = "");
 // Finds the key under which `raw` is stored in attrs (exact stored spelling), or "" if absent.
-std::string storedKey(const Json::Value& attrs, const std::string& raw);
+std::string storedKey(const Json::Value& attrs, const std::string& raw, const std::string& lang = "");
 // Moves legacy sheet layouts (numeric top-level fields, a "skills" object) into sheet.attrs with canonical names.
 Json::Value normalizeSheet(const Json::Value& sheet);
 
@@ -92,6 +102,7 @@ std::optional<Command> parseCommand(const std::string& content);
 struct Context {
     std::string name;           // who acts: character name, or the author's display name for plain rolls
     bool hasCharacter = false;
+    std::string language;       // server language: names in it are accepted and replies use them
     Json::Value attrs = Json::Value(Json::objectValue);
 };
 struct Outcome {

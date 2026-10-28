@@ -24,6 +24,7 @@
 #include "characters/CharacterSpaceService.h"
 #include "logstudio/ImageProvider.h"
 #include <iostream>
+#include <map>
 #include <functional>
 #include <vector>
 
@@ -234,6 +235,42 @@ int main() {
         CHECK(dice::lookup(attrs, "母语").value == 70); CHECK(dice::lookup(attrs, "library").value == 20); CHECK(!dice::lookup(attrs, "unknownskill").found);
         Json::Value legacy; legacy["occupation"] = "Journalist"; legacy["STR"] = 55; legacy["skills"]["Spot Hidden"] = 40;
         auto n = dice::normalizeSheet(legacy); CHECK(n["attrs"]["STR"].asInt() == 55); CHECK(n["attrs"]["Spot Hidden"].asInt() == 40); CHECK(!n.isMember("STR")); CHECK(n["occupation"].asString() == "Journalist"); CHECK(!n.isMember("skills"));
+    });
+    test("skill names in the server language: accepted next to English, shown in replies", [] {
+        // Every skill and characteristic has a name in every server language, and no name means two things.
+        for (auto& lang : dice::nameLanguages()) {
+            std::map<std::string, std::string> seen;
+            for (auto& c : dice::namedCanonicals()) {
+                auto n = dice::localName(c, lang); CHECK(!n.empty());
+                auto [it, fresh] = seen.emplace(dice::normKey(n), c);
+                if (!fresh) std::cerr << "  duplicate " << lang << " name " << n << ": " << it->second << " / " << c << "\n";
+                CHECK(fresh);
+            }
+        }
+        for (auto& d : dice::skillDefs()) CHECK(dice::localNames(d.name).size() == dice::nameLanguages().size());
+        CHECK(dice::canonicalName("目星", "ja") == "Spot Hidden"); CHECK(dice::canonicalName("目星") == "目星");
+        CHECK(dice::canonicalName("Spot Hidden", "ja") == "Spot Hidden"); CHECK(dice::canonicalName("侦查", "ja") == "Spot Hidden");
+        CHECK(dice::canonicalName("体力", "ja") == "CON"); CHECK(dice::canonicalName("体力") == "HP");   // the server language wins
+        CHECK(dice::canonicalName("внимательность", "ru") == "Spot Hidden"); CHECK(dice::canonicalName("ÉCOUTER", "fr") == "Listen");
+        CHECK(dice::canonicalName("偵查", "zh-TW") == "Spot Hidden"); CHECK(dice::canonicalName("근접전(맨손)", "ko") == "Fighting (Brawl)");
+        CHECK(dice::canonicalName("科学(生物学)", "ja") == "Science (生物学)"); CHECK(dice::canonicalName("近接戦闘（刀剣）", "ja") == "Fighting (刀剣)");
+        CHECK(dice::displayName("Spot Hidden", "ja") == "目星"); CHECK(dice::displayName("Spot Hidden", "en") == "Spot Hidden");
+        CHECK(dice::displayName("Science (Biology)", "zh-CN") == "科学（Biology）"); CHECK(dice::displayName("Science (Biology)", "de") == "Naturwissenschaft (Biology)");
+        CHECK(dice::displayName("research", "ja") == "research"); CHECK(dice::displayName("侦查", "fr") == "Trouver objet caché");
+
+        dice::TextSet en; dice::TextSet zh("zh", Json::Value());
+        dice::Context ja; ja.name = "Aki"; ja.hasCharacter = true; ja.language = "ja"; ja.attrs["Spot Hidden"] = 50; ja.attrs["DEX"] = 60;
+        dice::SeqRng r1({20}); auto o = dice::execute(*dice::parseCommand(".ra 目星"), ja, en, r1);
+        CHECK(o.text == "Aki's 目星 check: D100=20/50 — Hard Success"); CHECK(o.detail["attr"].asString() == "Spot Hidden");
+        dice::SeqRng r2({20}); CHECK(dice::execute(*dice::parseCommand(".ra spot hidden"), ja, en, r2).text == o.text);
+        CHECK(dice::preview(*dice::parseCommand(".ra 回避"), ja, en) == "Aki's 回避 is 30 (base value)");
+        dice::SeqRng r3({1}); auto st = dice::execute(*dice::parseCommand(".st 図書館60 聞き耳 55"), ja, en, r3);
+        CHECK(st.attrs["Library Use"].asInt() == 60); CHECK(st.attrs["Listen"].asInt() == 55); CHECK(st.text.find("図書館 60") != std::string::npos);
+        dice::Context zhCtx = ja; zhCtx.language = "zh-CN";
+        dice::SeqRng r4({20}); CHECK(dice::execute(*dice::parseCommand(".ra 侦查"), zhCtx, zh, r4).text.find("侦查") != std::string::npos);
+        dice::Context enCtx = ja; enCtx.language = "en";
+        CHECK(dice::preview(*dice::parseCommand(".ra 目星"), enCtx, en).find("目星") != std::string::npos);   // not a skill name here
+        CHECK(!dice::lookup(enCtx.attrs, "目星", "en").found);
     });
     test("dice command parsing (Sealdice syntax)", [] {
         auto c = dice::parseCommand(".ra research"); CHECK(c && c->name == "ra" && c->args == "research" && !c->hidden);

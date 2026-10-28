@@ -36,10 +36,10 @@ export interface RoleCard {
   skill_points?: Record<string, SkillPoints>;
 }
 export interface SkillPoints { career: number; hobby: number; growth: number; base?: number }
-export interface PointsReport { enabled: boolean; career?: string | null; career_budget?: number; career_spent?: number; hobby_budget?: number; hobby_spent?: number; characteristics_total?: number; luck?: number; allowed?: string[]; violations?: { code: string; message: string; skill?: string }[]; warnings?: { code: string; message: string }[] }
+export interface PointsReport { enabled: boolean; language?: string; career?: string | null; career_budget?: number; career_spent?: number; hobby_budget?: number; hobby_spent?: number; characteristics_total?: number; luck?: number; allowed?: string[]; violations?: { code: string; message: string; skill?: string }[]; warnings?: { code: string; message: string }[] }
 export interface Coc7Option { skill: string; label: string; any?: boolean; spec?: string }
 export interface Coc7Career { id: number; name: string; credit: [number, number] | null; points: { attrs: string[]; mult: number }[]; formula: string; fixed: Coc7Option[]; choices: { pick: number; from: Coc7Option[] }[]; free: number; description: string }
-export interface Coc7Rules { skills: { name: string; base: number | 'DEX/2' | 'EDU' }[]; families: { name: string; base: number }[]; careers: Coc7Career[]; hobby_formula: string }
+export interface Coc7Rules { skills: { name: string; base: number | 'DEX/2' | 'EDU'; names?: Record<string, string> }[]; families: { name: string; base: number; names?: Record<string, string> }[]; careers: Coc7Career[]; hobby_formula: string }
 export interface CharacterAssetRef { id: string; version: number; mime: string; width: number | null; height: number | null; source_type: string; approval_status: string; subtitle?: string }
 export interface CharacterSpace { character: Character & { role_card: RoleCard; editable: boolean }; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[]; jobs: { id: string; kind: string; status: string; error: string | null; attach: { slot: string; subtitle: string } | null; created_at: string; finished_at: string | null }[]; era: string; narrative_time: string | null; attrs: Record<string, number>; generation_available: boolean; points: PointsReport }
 export interface PlayerGroup { id: string; channel_id: string; name: string; version: number; members: {user_id: string; display_name: string}[] }

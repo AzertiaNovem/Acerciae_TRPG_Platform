@@ -22,7 +22,8 @@ struct Career {
 
 const std::vector<Career>& careers();
 const Career* findCareer(const std::string& name);
-// What the client needs to build a card: skills with bases, specialisation families and every career.
+// What the client needs to build a card: skills with bases and their names in each server language ({lang: name}),
+// specialisation families and every career.
 const Json::Value& rules();
 
 // "Science (Biology)" → "Science"; a plain skill → its canonical name.

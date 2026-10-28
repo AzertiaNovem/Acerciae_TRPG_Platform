@@ -18,15 +18,16 @@ std::optional<dice::Command> DiceService::recognise(const ChannelAccess& a, cons
     return cmd;
 }
 
-dice::TextSet DiceService::textsForChannel(const std::string& channelId) {
-    return db_.tx([&](pqxx::work& w) { return textsForChannel(w, channelId); });
+dice::TextSet DiceService::textsForChannel(const std::string& channelId, std::string* language) {
+    return db_.tx([&](pqxx::work& w) { return textsForChannel(w, channelId, language); });
 }
-dice::TextSet DiceService::textsForChannel(pqxx::work& w, const std::string& channelId) {
+dice::TextSet DiceService::textsForChannel(pqxx::work& w, const std::string& channelId, std::string* language) {
     auto r = Db::queryOne(w, 
         "SELECT c.dice_text_group, coalesce(ss.language, 'en') AS language, g.base, g.texts FROM channels c "
         "LEFT JOIN server_settings ss ON ss.server_id=c.server_id "
         "LEFT JOIN dice_text_groups g ON g.id::text=c.dice_text_group AND g.server_id=c.server_id WHERE c.id=$1", {channelId});
     if (r.isNull()) return dice::TextSet();
+    if (language) *language = r["language"].asString();
     if (r["base"].isString()) return dice::TextSet(r["base"].asString(), r["texts"]);
     auto sel = r["dice_text_group"].asString();
     if (sel == "builtin:zh") return dice::TextSet("zh", Json::Value());
@@ -50,8 +51,8 @@ Json::Value DiceService::characterFor(const ChannelAccess& a, const std::string&
 }
 
 DiceService::Result DiceService::execute(pqxx::work& w, const ChannelAccess& a, const std::string& characterId, const dice::Command& cmd) {
-    auto texts = textsForChannel(w, a.channelId);   // inside the caller's transaction: no second connection
     dice::Context ctx;
+    auto texts = textsForChannel(w, a.channelId, &ctx.language);   // inside the caller's transaction: no second connection
     std::string sheetKind;
     if (!characterId.empty()) {
         auto c = Db::queryOne(w, "SELECT name, kind, sheet FROM characters WHERE id=$1 AND channel_id=$2 FOR UPDATE", {characterId, a.channelId});
@@ -94,7 +95,8 @@ Json::Value DiceService::preview(const ChannelAccess& a, const std::string& wind
         ctx.name = c["name"].asString(); ctx.hasCharacter = true;
         ctx.attrs = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
     } else ctx.name = displayName(a.userId);
-    auto hint = dice::preview(*cmd, ctx, textsForChannel(a.channelId));
+    auto texts = textsForChannel(a.channelId, &ctx.language);
+    auto hint = dice::preview(*cmd, ctx, texts);
     if (!hint.empty()) out["hint"] = hint;
     return out;
 }
@@ -114,14 +116,15 @@ Json::Value DiceService::updateAttributes(const ChannelAccess& a, const std::str
     db_.tx([&](pqxx::work& w) {
         auto c = Db::queryOne(w, "SELECT sheet FROM characters WHERE id=$1 FOR UPDATE", {characterId});
         Json::Value attrs = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
-        for (auto& n : json::strArray(body["remove"])) { auto k = dice::storedKey(attrs, n); if (!k.empty()) attrs.removeMember(k); }
+        std::string lang; textsForChannel(w, a.channelId, &lang);
+        for (auto& n : json::strArray(body["remove"])) { auto k = dice::storedKey(attrs, n, lang); if (!k.empty()) attrs.removeMember(k); }
         if (body["set"].isObject()) for (auto& n : body["set"].getMemberNames()) {
             const auto& v = body["set"][n];
             if (!v.isNumeric() || v.isBool()) throw badRequest("value for " + n + " must be a number");
-            auto name = dice::canonicalName(n);
+            auto name = dice::canonicalName(n, lang);
             if (name.empty() || name.size() > 60) throw badRequest("attribute names must be 1-60 chars");
             if (v.asDouble() < -99999 || v.asDouble() > 99999) throw badRequest("value for " + n + " is out of range");
-            auto k = dice::storedKey(attrs, n); if (k.empty()) k = name;
+            auto k = dice::storedKey(attrs, n, lang); if (k.empty()) k = name;
             attrs[k] = v.asInt();
         }
         if (attrs.size() > 300) throw badRequest("at most 300 attributes per character");

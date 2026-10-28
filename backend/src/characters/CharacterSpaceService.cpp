@@ -113,6 +113,7 @@ bool CharacterSpaceService::pointsMode(const ChannelAccess& a) { return settings
 Json::Value CharacterSpaceService::pointsReport(const ChannelAccess& a, const Json::Value& card) {
     Json::Value rep; rep["enabled"] = pointsMode(a);
     if (!rep["enabled"].asBool()) return rep;
+    rep["language"] = settings_.language(a.serverId);   // skill names are shown in the server language
     Json::Value copy = card; auto r = coc7::apply(copy);
     for (auto& k : r.getMemberNames()) rep[k] = r[k];
     return rep;

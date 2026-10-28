@@ -37,9 +37,10 @@ public:
     // body: {set: {name: value}, remove: [names]} — names are canonicalised (侦查 -> Spot Hidden).
     Json::Value updateAttributes(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);
 
-    dice::TextSet textsForChannel(const std::string& channelId);
+    // The channel's reply texts; `language` receives the server language (skill names are accepted and shown in it).
+    dice::TextSet textsForChannel(const std::string& channelId, std::string* language = nullptr);
 
-    dice::TextSet textsForChannel(pqxx::work& w, const std::string& channelId);
+    dice::TextSet textsForChannel(pqxx::work& w, const std::string& channelId, std::string* language = nullptr);
     void setRng(std::unique_ptr<dice::Rng> rng) { rng_ = std::move(rng); }   // tests
 private:
     Json::Value characterFor(const ChannelAccess& a, const std::string& characterId, bool forWrite);

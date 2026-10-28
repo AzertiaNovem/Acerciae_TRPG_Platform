@@ -135,9 +135,9 @@ const Json::Value& rules() {
     static const Json::Value v = [] {
         Json::Value r;
         r["skills"] = Json::Value(Json::arrayValue);
-        for (auto& d : dice::skillDefs()) { Json::Value s; s["name"] = d.name; s["base"] = d.base == -2 ? Json::Value("DEX/2") : d.base == -3 ? Json::Value("EDU") : Json::Value(d.base); r["skills"].append(s); }
+        for (auto& d : dice::skillDefs()) { Json::Value s; s["name"] = d.name; s["base"] = d.base == -2 ? Json::Value("DEX/2") : d.base == -3 ? Json::Value("EDU") : Json::Value(d.base); s["names"] = dice::localNames(d.name); r["skills"].append(s); }
         r["families"] = Json::Value(Json::arrayValue);
-        for (auto f : {"Art/Craft", "Fighting", "Firearms", "Language (Other)", "Science", "Pilot", "Survival", "Lore"}) { Json::Value x; x["name"] = f; x["base"] = familyBase(f); r["families"].append(x); }
+        for (auto f : {"Art/Craft", "Fighting", "Firearms", "Language (Other)", "Science", "Pilot", "Survival", "Lore"}) { Json::Value x; x["name"] = f; x["base"] = familyBase(f); x["names"] = dice::localNames(f); r["families"].append(x); }
         r["careers"] = Json::Value(Json::arrayValue);
         for (auto& c : careers()) {
             Json::Value j; j["id"] = c.id; j["name"] = c.name;

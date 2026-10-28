@@ -37,3 +37,32 @@ test('storage helpers survive blocked or corrupt storage', () => {
   writeStorage('seen', '{"a":1}'); assert.deepEqual(readJson('seen', {}), { a: 1 });
   delete global.localStorage;
 });
+
+test('point-buy skill names: shown in the server language, typed in either language, stored under the English key', () => {
+  const { skillLabel, skillKey } = load('components/skillNames.ts');
+  const rules = {
+    skills: [
+      { name: 'Spot Hidden', base: 25, names: { ja: '目星', 'zh-CN': '侦查', fr: 'Trouver objet caché' } },
+      { name: 'Science', base: 1, names: { ja: '科学', 'zh-CN': '科学', de: 'Naturwissenschaft' } },
+      { name: 'Fighting (Brawl)', base: 25, names: { ja: '近接戦闘（格闘）' } },
+    ],
+    families: [{ name: 'Science', base: 1, names: { ja: '科学', 'zh-CN': '科学', de: 'Naturwissenschaft', ko: '과학' } }, { name: 'Fighting', base: 0, names: { ja: '近接戦闘' } }],
+    careers: [], hobby_formula: 'INT×2',
+  };
+  assert.equal(skillLabel('Spot Hidden', rules, 'ja'), '目星');
+  assert.equal(skillLabel('Spot Hidden', rules, 'en'), 'Spot Hidden');
+  assert.equal(skillLabel('Science (Biology)', rules, 'zh-CN'), '科学（Biology）');
+  assert.equal(skillLabel('Science (Biology)', rules, 'de'), 'Naturwissenschaft (Biology)');
+  assert.equal(skillLabel('Science (Biology)', rules, 'ko'), '과학(Biology)');
+  assert.equal(skillLabel('Fighting (Sword)', rules, 'ja'), '近接戦闘（Sword）');
+  assert.equal(skillLabel('research', rules, 'ja'), 'research');
+  assert.equal(skillKey('目星', rules, 'ja'), 'Spot Hidden');
+  assert.equal(skillKey(' spot hidden ', rules, 'ja'), 'Spot Hidden');
+  assert.equal(skillKey('目星', rules, 'fr'), '目星');   // only English and the server language
+  assert.equal(skillKey('trouver objet caché', rules, 'fr'), 'Spot Hidden');
+  assert.equal(skillKey('科学（生物学）', rules, 'ja'), 'Science (生物学)');
+  assert.equal(skillKey('近接戦闘(刀剣)', rules, 'ja'), 'Fighting (刀剣)');
+  assert.equal(skillKey('近接戦闘', rules, 'ja'), 'Fighting (Brawl)');
+  assert.equal(skillKey('Science (Biology)', rules, 'en'), 'Science (Biology)');
+  assert.equal(skillKey('research', rules, 'ja'), 'research');
+});

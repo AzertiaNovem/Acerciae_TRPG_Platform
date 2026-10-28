@@ -146,27 +146,64 @@ const std::vector<AttrDef>& attrDefs() {
     };
     return defs;
 }
-const std::map<std::string, const AttrDef*>& aliasIndex() {
-    static const std::map<std::string, const AttrDef*> idx = [] {
-        std::map<std::string, const AttrDef*> m;
-        for (auto& d : attrDefs()) { m[normKey(d.name)] = &d; for (auto* a : d.aliases) m[normKey(a)] = &d; }
-        return m;
+// English names and aliases (with the Chinese aliases dice users already type) hold in every language; a server
+// language adds its own names, which win over an alias that means something else there ("体力" is CON in Japanese).
+const std::map<std::string, const AttrDef*>& aliasIndex(const std::string& lang) {
+    using Index = std::map<std::string, const AttrDef*>;
+    static const std::map<std::string, Index> all = [] {
+        Index base, byName;
+        for (auto& d : attrDefs()) { byName[d.name] = &d; base[normKey(d.name)] = &d; for (auto* a : d.aliases) base[normKey(a)] = &d; }
+        std::map<std::string, Index> out{{"", base}};
+        for (auto& l : nameLanguages()) {
+            auto& m = out[l] = base;
+            for (auto& c : namedCanonicals()) {
+                // The families without a skill of their own read as their usual member, as "fighting" does.
+                auto it = byName.find(c == "Fighting" ? "Fighting (Brawl)" : c == "Firearms" ? "Firearms (Handgun)" : c);
+                if (it != byName.end()) m[normKey(localName(c, l))] = it->second;
+            }
+        }
+        return out;
     }();
-    return idx;
+    auto it = all.find(lang);
+    return it == all.end() ? all.at("") : it->second;
 }
-const AttrDef* defFor(const std::string& raw) {
-    auto& idx = aliasIndex();
+const AttrDef* defFor(const std::string& raw, const std::string& lang = "") {
+    auto& idx = aliasIndex(lang);
     auto it = idx.find(normKey(raw));
     return it == idx.end() ? nullptr : it->second;
+}
+std::string familyOf(const std::string& canon) {
+    if (canon == "Fighting (Brawl)") return "Fighting";
+    if (canon.rfind("Firearms (", 0) == 0) return "Firearms";
+    return canon;
+}
+// "Family (spec)" with the family resolved to a known skill: {canonical family, spec}; nothing otherwise.
+std::optional<std::pair<std::string, std::string>> splitSpec(const std::string& raw, const std::string& lang) {
+    auto f = text::trim(foldPunct(raw));
+    if (f.empty() || f.back() != ')') return std::nullopt;
+    auto open = f.rfind('(');
+    if (open == std::string::npos || open == 0) return std::nullopt;
+    auto spec = text::trim(f.substr(open + 1, f.size() - open - 2));
+    auto* d = defFor(f.substr(0, open), lang);
+    if (spec.empty() || !d || d->base == -1) return std::nullopt;
+    return std::make_pair(familyOf(d->name), spec);
 }
 int intOf(const Json::Value& v) { return v.isInt() ? v.asInt() : v.isDouble() ? (int)v.asDouble() : v.isString() ? std::atoi(v.asCString()) : 0; }
 }
 
 std::string normKey(const std::string& raw) {
     std::string s = foldPunct(raw), o;
-    for (char c : s) {
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
         if (isAsciiSpace(c) || c == '_' || c == '-' || c == '(' || c == ')' || c == '/' || c == '.' || c == '\'' || c == ':') continue;
-        o += isNonAscii(c) ? c : (char)std::tolower((unsigned char)c);
+        if (!isNonAscii(c)) { o += (char)std::tolower((unsigned char)c); continue; }
+        // Two-byte capitals of the translated names: Latin-1 À-Þ (not ×) and Cyrillic Ѐ-Я.
+        unsigned a = (unsigned char)c, b = i + 1 < s.size() ? (unsigned char)s[i + 1] : 0u;
+        if (a == 0xC3 && b >= 0x80 && b <= 0x9E && b != 0x97) { o += c; o += (char)(b + 0x20); ++i; continue; }
+        if (a == 0xD0 && b >= 0x80 && b <= 0x8F) { o += (char)0xD1; o += (char)(b + 0x10); ++i; continue; }
+        if (a == 0xD0 && b >= 0x90 && b <= 0x9F) { o += c; o += (char)(b + 0x20); ++i; continue; }
+        if (a == 0xD0 && b >= 0xA0 && b <= 0xAF) { o += (char)0xD1; o += (char)(b - 0x20); ++i; continue; }
+        o += c;
     }
     return o;
 }
@@ -180,24 +217,36 @@ std::optional<int> baseCode(const std::string& raw) {
     if (!d || d->base == -1) return std::nullopt;
     return d->base;
 }
-std::string canonicalName(const std::string& raw) {
-    auto* d = defFor(raw);
-    return d ? std::string(d->name) : text::trim(raw);
+std::string canonicalName(const std::string& raw, const std::string& lang) {
+    if (auto* d = defFor(raw, lang)) return d->name;
+    if (auto sp = splitSpec(raw, lang)) return sp->first + " (" + sp->second + ")";
+    return text::trim(raw);
 }
-std::string storedKey(const Json::Value& attrs, const std::string& raw) {
+std::string displayName(const std::string& key, const std::string& lang) {
+    auto canon = canonicalName(key, lang);
+    if (auto n = localName(canon, lang); !n.empty()) return n;
+    if (auto sp = splitSpec(canon, lang)) {
+        auto fam = localName(sp->first, lang);
+        if (fam.empty()) return key;
+        if (lang.rfind("zh", 0) == 0 || lang == "ja") return fam + "（" + sp->second + "）";
+        return fam + (lang == "ko" ? "(" : " (") + sp->second + ")";
+    }
+    return key;
+}
+std::string storedKey(const Json::Value& attrs, const std::string& raw, const std::string& lang) {
     if (!attrs.isObject()) return "";
-    auto want = normKey(canonicalName(raw)), rawKey = normKey(raw);
+    auto want = normKey(canonicalName(raw, lang)), rawKey = normKey(raw);
     for (auto& k : attrs.getMemberNames()) {
         auto nk = normKey(k);
-        if (nk == want || nk == rawKey || normKey(canonicalName(k)) == want) return k;
+        if (nk == want || nk == rawKey || normKey(canonicalName(k, lang)) == want) return k;
     }
     return "";
 }
-AttrValue lookup(const Json::Value& attrs, const std::string& raw) {
-    AttrValue r; r.name = canonicalName(raw);
-    auto key = storedKey(attrs, raw);
+AttrValue lookup(const Json::Value& attrs, const std::string& raw, const std::string& lang) {
+    AttrValue r; r.name = canonicalName(raw, lang);
+    auto key = storedKey(attrs, raw, lang);
     if (!key.empty()) { r.found = true; r.value = intOf(attrs[key]); r.name = key; return r; }
-    auto* d = defFor(raw);
+    auto* d = defFor(raw, lang);
     if (!d) return r;
     if (d->base >= 0) { r.found = true; r.isBase = true; r.value = d->base; }
     else if (d->base == -2) { auto dex = storedKey(attrs, "DEX"); if (!dex.empty()) { r.found = true; r.isBase = true; r.value = intOf(attrs[dex]) / 2; } }
@@ -406,7 +455,7 @@ int takeRepeat(std::string& s) {
 struct NameSplit { std::string name; std::optional<int> value; int modifier = 0; std::string reason; };
 // "spot hidden 60+10 for the clue" -> {Spot Hidden, 60, +10, "for the clue"}. The longest prefix that names a known
 // attribute wins; otherwise the name runs up to the first space, digit or sign.
-NameSplit splitName(const std::string& restIn, const Json::Value& attrs) {
+NameSplit splitName(const std::string& restIn, const Json::Value& attrs, const std::string& lang) {
     NameSplit r;
     auto rest = text::trim(restIn);
     std::vector<std::size_t> cuts;
@@ -419,7 +468,7 @@ NameSplit splitName(const std::string& restIn, const Json::Value& attrs) {
     for (auto it = cuts.rbegin(); it != cuts.rend(); ++it) {
         auto cand = text::trim(rest.substr(0, *it));
         if (cand.empty() || isDigit(cand[0])) continue;
-        if (!storedKey(attrs, cand).empty() || defFor(cand)) { chosen = *it; break; }
+        if (!storedKey(attrs, cand, lang).empty() || defFor(cand, lang)) { chosen = *it; break; }
     }
     if (chosen == std::string::npos) {
         chosen = rest.empty() || isDigit(rest[0]) ? 0 : cuts.front();
@@ -484,7 +533,7 @@ Outcome runRoll(const Command& cmd, const Context& ctx, const TextSet& t, Rng& r
 
 // ---- .ra ----
 struct CheckArgs { int times = 1; int difficulty = 2; int bonus = 0, penalty = 0; NameSplit target; };
-CheckArgs parseCheck(const std::string& argsIn, const Json::Value& attrs) {
+CheckArgs parseCheck(const std::string& argsIn, const Json::Value& attrs, const std::string& lang) {
     CheckArgs c; auto s = text::trim(foldPunct(argsIn)); c.times = takeRepeat(s);
     for (int guard = 0; guard < 4; ++guard) {
         if (startsWithCi(s, "hard ") ) { c.difficulty = 3; s = text::trim(s.substr(5)); continue; }
@@ -501,19 +550,19 @@ CheckArgs parseCheck(const std::string& argsIn, const Json::Value& attrs) {
         }
         break;
     }
-    c.target = splitName(s, attrs);
+    c.target = splitName(s, attrs, lang);
     return c;
 }
 struct ResolvedTarget { std::string attr; int value = 0; bool base = false; };
 ResolvedTarget resolveTarget(const Command& cmd, const NameSplit& n, const Context& ctx, const TextSet& t, const std::string& usageText) {
     ResolvedTarget r;
     if (n.name.empty() && !n.value) usage(t, usageText);
-    r.attr = n.name.empty() ? "D100" : canonicalName(n.name);
+    r.attr = n.name.empty() ? "D100" : canonicalName(n.name, ctx.language);
     if (n.value) r.value = *n.value;
     else {
         if (!ctx.hasCharacter) noCharacter(t, cmd);
-        auto v = lookup(ctx.attrs, n.name);
-        if (!v.found) throw DiceError(t.render("attr.missing", {{"name", ctx.name}, {"attr", r.attr}}));
+        auto v = lookup(ctx.attrs, n.name, ctx.language);
+        if (!v.found) throw DiceError(t.render("attr.missing", {{"name", ctx.name}, {"attr", displayName(r.attr, ctx.language)}}));
         r.attr = v.name; r.value = v.value; r.base = v.isBase;
     }
     r.value += n.modifier;
@@ -524,7 +573,7 @@ int targetFor(int value, int d) { return d == 3 ? value / 2 : d == 4 ? value / 5
 std::string tensList(const D100& r) { std::vector<std::string> v; for (int x : r.tens) v.push_back(itos(x)); return text::join(v, "/"); }
 
 Outcome runCheck(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng) {
-    auto c = parseCheck(cmd.args, ctx.attrs);
+    auto c = parseCheck(cmd.args, ctx.attrs, ctx.language);
     auto tg = resolveTarget(cmd, c.target, ctx, t, ".ra [hard|extreme] [b|p] <skill> [value] [reason]");
     int target = targetFor(tg.value, c.difficulty);
     Outcome o; o.hidden = cmd.hidden;
@@ -538,7 +587,7 @@ Outcome runCheck(const Command& cmd, const Context& ctx, const TextSet& t, Rng& 
         if (lvl != Level::Critical && lvl != Level::Fumble && (int)lvl < c.difficulty) effective = Level::Failure;
         std::string rollText = itos(d.roll);
         if (!d.tens.empty()) rollText += t.render(c.bonus > c.penalty ? "dice.bonus" : "dice.penalty", {{"tens", tensList(d)}});
-        lines.push_back(t.render("check.result", {{"name", ctx.name}, {"attr", tg.attr}, {"difficulty", diffVar(t, c.difficulty)}, {"reason", reasonVar(t, c.target.reason)},
+        lines.push_back(t.render("check.result", {{"name", ctx.name}, {"attr", displayName(tg.attr, ctx.language)}, {"difficulty", diffVar(t, c.difficulty)}, {"reason", reasonVar(t, c.target.reason)},
                                                   {"roll", rollText}, {"target", itos(target)}, {"value", itos(tg.value)}, {"level", t.get(levelKey(effective))}}));
         Json::Value j; j["roll"] = d.roll; j["level"] = std::string(levelKey(effective)).substr(6); j["success"] = (int)effective >= (int)Level::Regular; rolls.append(j);
     }
@@ -569,7 +618,7 @@ Outcome runSanity(const Command& cmd, const Context& ctx, const TextSet& t, Rng&
     else {
         if (!ctx.hasCharacter) noCharacter(t, cmd);
         auto v = lookup(ctx.attrs, "SAN");
-        if (!v.found) throw DiceError(t.render("attr.missing", {{"name", ctx.name}, {"attr", "SAN"}}));
+        if (!v.found) throw DiceError(t.render("attr.missing", {{"name", ctx.name}, {"attr", displayName("SAN", ctx.language)}}));
         san = v.value; sanKey = v.name;
     }
     auto d = rollD100(rng, 0, 0);
@@ -598,23 +647,25 @@ Outcome runSanity(const Command& cmd, const Context& ctx, const TextSet& t, Rng&
 // ---- .en ----
 Outcome runGrowth(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng) {
     if (!ctx.hasCharacter) noCharacter(t, cmd);
-    auto n = splitName(foldPunct(cmd.args), ctx.attrs);
+    const auto& L = ctx.language;
+    auto n = splitName(foldPunct(cmd.args), ctx.attrs, L);
     if (n.name.empty()) usage(t, ".en <skill> [value]");
     int value; std::string key;
-    if (n.value) { value = *n.value; key = storedKey(ctx.attrs, n.name); if (key.empty()) key = canonicalName(n.name); }
+    if (n.value) { value = *n.value; key = storedKey(ctx.attrs, n.name, L); if (key.empty()) key = canonicalName(n.name, L); }
     else {
-        auto v = lookup(ctx.attrs, n.name);
-        if (!v.found) throw DiceError(t.render("attr.missing", {{"name", ctx.name}, {"attr", canonicalName(n.name)}}));
-        value = v.value; key = v.isBase ? canonicalName(n.name) : v.name;
+        auto v = lookup(ctx.attrs, n.name, L);
+        if (!v.found) throw DiceError(t.render("attr.missing", {{"name", ctx.name}, {"attr", displayName(canonicalName(n.name, L), L)}}));
+        value = v.value; key = v.isBase ? canonicalName(n.name, L) : v.name;
     }
-    if (canonicalName(key) == "Cthulhu Mythos") throw DiceError(t.get("en.mythos"));
+    auto shown = displayName(key, L);
+    if (canonicalName(key, L) == "Cthulhu Mythos") throw DiceError(t.get("en.mythos"));
     int roll = rng.roll(100);
     Outcome o;
     o.detail["type"] = "growth"; o.detail["attr"] = key; o.detail["roll"] = roll; o.detail["value"] = value;
     if (roll > value || roll > 95) {
         int gain = rng.roll(10);
         o.attrs = ctx.attrs; o.attrs[key] = value + gain; o.attrsChanged = true;
-        o.text = t.render("en.success", {{"name", ctx.name}, {"attr", key}, {"roll", itos(roll)}, {"value", itos(value)}, {"gain", itos(gain)}, {"new", itos(value + gain)}});
+        o.text = t.render("en.success", {{"name", ctx.name}, {"attr", shown}, {"roll", itos(roll)}, {"value", itos(value)}, {"gain", itos(gain)}, {"new", itos(value + gain)}});
         o.detail["success"] = true; o.detail["gain"] = gain;
         // Reaching 90 in a skill steadies the mind: +2D6 SAN.
         if (value < 90 && value + gain >= 90) {
@@ -623,12 +674,12 @@ Outcome runGrowth(const Command& cmd, const Context& ctx, const TextSet& t, Rng&
                 int bonus = rng.roll(6) + rng.roll(6);
                 std::string sanKey = san.isBase ? std::string("SAN") : san.name;
                 o.attrs[sanKey] = san.value + bonus;
-                o.text += "\n" + t.render("en.san_bonus", {{"name", ctx.name}, {"attr", key}, {"gain", itos(bonus)}, {"new", itos(san.value + bonus)}});
+                o.text += "\n" + t.render("en.san_bonus", {{"name", ctx.name}, {"attr", shown}, {"gain", itos(bonus)}, {"new", itos(san.value + bonus)}});
                 o.detail["san_bonus"] = bonus;
             }
         }
     } else {
-        o.text = t.render("en.failure", {{"name", ctx.name}, {"attr", key}, {"roll", itos(roll)}, {"value", itos(value)}});
+        o.text = t.render("en.failure", {{"name", ctx.name}, {"attr", shown}, {"roll", itos(roll)}, {"value", itos(value)}});
         o.detail["success"] = false;
     }
     return o;
@@ -686,25 +737,26 @@ StPlan parseSt(const std::string& argsIn, const TextSet& t) {
     if (p.sets.empty() || p.sets.size() > 200) usage(t, u);
     return p;
 }
-std::string listAttrs(const std::vector<std::pair<std::string, int>>& kv) {
-    std::vector<std::string> parts; for (auto& [k, v] : kv) parts.push_back(k + " " + itos(v)); return text::join(parts, ", ");
+std::string listAttrs(const std::vector<std::pair<std::string, int>>& kv, const std::string& lang) {
+    std::vector<std::string> parts; for (auto& [k, v] : kv) parts.push_back(displayName(k, lang) + " " + itos(v)); return text::join(parts, ", ");
 }
 Outcome runSt(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng) {
     if (!ctx.hasCharacter) noCharacter(t, cmd);
     auto p = parseSt(cmd.args, t);
+    const auto& L = ctx.language;
     Outcome o; o.detail["type"] = "st"; Json::Value attrs = ctx.attrs.isObject() ? ctx.attrs : Json::Value(Json::objectValue);
     switch (p.kind) {
     case StPlan::Show: {
         std::vector<std::pair<std::string, int>> kv;
         if (p.names.empty()) for (auto& k : attrs.getMemberNames()) kv.emplace_back(k, intOf(attrs[k]));
-        else for (auto& n : p.names) { auto v = lookup(attrs, n); if (v.found) kv.emplace_back(v.name, v.value); }
-        o.text = kv.empty() ? t.render("st.show_empty", {{"name", ctx.name}}) : t.render("st.show", {{"name", ctx.name}, {"list", listAttrs(kv)}});
+        else for (auto& n : p.names) { auto v = lookup(attrs, n, L); if (v.found) kv.emplace_back(v.name, v.value); }
+        o.text = kv.empty() ? t.render("st.show_empty", {{"name", ctx.name}}) : t.render("st.show", {{"name", ctx.name}, {"list", listAttrs(kv, L)}});
         o.detail["op"] = "show";
         return o;
     }
     case StPlan::Delete: {
         std::vector<std::string> removed;
-        for (auto& n : p.names) { auto k = storedKey(attrs, n); if (!k.empty()) { attrs.removeMember(k); removed.push_back(k); } }
+        for (auto& n : p.names) { auto k = storedKey(attrs, n, L); if (!k.empty()) { attrs.removeMember(k); removed.push_back(displayName(k, L)); } }
         o.text = t.render("st.delete", {{"name", ctx.name}, {"list", removed.empty() ? "—" : text::join(removed, ", ")}});
         o.attrs = attrs; o.attrsChanged = !removed.empty(); o.detail["op"] = "delete";
         return o;
@@ -713,28 +765,28 @@ Outcome runSt(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng
         o.text = t.render("st.clear", {{"name", ctx.name}}); o.attrs = Json::Value(Json::objectValue); o.attrsChanged = true; o.detail["op"] = "clear";
         return o;
     case StPlan::Modify: {
-        auto cur = lookup(attrs, p.attr);
-        auto key = cur.found && !cur.isBase ? cur.name : canonicalName(p.attr);
+        auto cur = lookup(attrs, p.attr, L);
+        auto key = cur.found && !cur.isBase ? cur.name : canonicalName(p.attr, L);
         int old = cur.found ? cur.value : 0;
         auto r = evalOrThrow(t, p.expr, rng);
         int now = p.sign == '+' ? old + r.total : old - r.total;
         attrs[key] = now;
         std::string delta = std::string(1, p.sign) + p.expr;
         if (stripSpaces(p.expr) != itos(r.total)) delta += "=" + std::string(1, p.sign) + itos(r.total);
-        o.text = t.render("st.modify", {{"name", ctx.name}, {"attr", key}, {"old", itos(old)}, {"new", itos(now)}, {"delta", delta}});
+        o.text = t.render("st.modify", {{"name", ctx.name}, {"attr", displayName(key, L)}, {"old", itos(old)}, {"new", itos(now)}, {"delta", delta}});
         o.attrs = attrs; o.attrsChanged = true; o.detail["op"] = "modify"; o.detail["attr"] = key; o.detail["old"] = old; o.detail["new"] = now;
         return o;
     }
     case StPlan::Set: {
         std::vector<std::pair<std::string, int>> applied;
         for (auto& [n, v] : p.sets) {
-            auto k = storedKey(attrs, n); if (k.empty()) k = canonicalName(n);
+            auto k = storedKey(attrs, n, L); if (k.empty()) k = canonicalName(n, L);
             attrs[k] = v;
             auto it = std::find_if(applied.begin(), applied.end(), [&](auto& x) { return x.first == k; });
             if (it != applied.end()) it->second = v; else applied.emplace_back(k, v);
         }
         if (attrs.size() > 300) usage(t, "at most 300 attributes per character");
-        o.text = t.render("st.set", {{"name", ctx.name}, {"list", listAttrs(applied)}});
+        o.text = t.render("st.set", {{"name", ctx.name}, {"list", listAttrs(applied, L)}});
         o.attrs = attrs; o.attrsChanged = true; o.detail["op"] = "set"; o.detail["count"] = (int)applied.size();
         return o;
     }
@@ -754,39 +806,41 @@ Outcome execute(const Command& cmd, const Context& ctx, const TextSet& texts, Rn
 
 std::string preview(const Command& cmd, const Context& ctx, const TextSet& t) {
     try {
+        const auto& L = ctx.language;
+        auto shown = [&](const std::string& key) { return displayName(key, L); };
         auto attrValue = [&](const std::string& raw) {
             if (!ctx.hasCharacter) noCharacter(t, cmd);
-            auto v = lookup(ctx.attrs, raw);
-            if (!v.found) return t.render("attr.missing", {{"name", ctx.name}, {"attr", canonicalName(raw)}});
-            return t.render(v.isBase ? "attr.value_base" : "attr.value", {{"name", ctx.name}, {"attr", v.name}, {"value", itos(v.value)}});
+            auto v = lookup(ctx.attrs, raw, L);
+            if (!v.found) return t.render("attr.missing", {{"name", ctx.name}, {"attr", shown(canonicalName(raw, L))}});
+            return t.render(v.isBase ? "attr.value_base" : "attr.value", {{"name", ctx.name}, {"attr", shown(v.name)}, {"value", itos(v.value)}});
         };
         if (cmd.name == "r") { auto a = parseRoll(cmd.args); return t.render("hint.roll", {{"name", ctx.name}, {"expr", a.expr}}); }
         if (cmd.name == "ra") {
-            auto c = parseCheck(cmd.args, ctx.attrs);
+            auto c = parseCheck(cmd.args, ctx.attrs, L);
             if (c.target.name.empty() && !c.target.value) return "";
             std::string hint; int value;
             if (c.target.value) {
                 value = *c.target.value + c.target.modifier;
-                hint = t.render("attr.value", {{"name", ctx.name}, {"attr", c.target.name.empty() ? "D100" : canonicalName(c.target.name)}, {"value", itos(value)}});
+                hint = t.render("attr.value", {{"name", ctx.name}, {"attr", c.target.name.empty() ? "D100" : shown(canonicalName(c.target.name, L))}, {"value", itos(value)}});
             } else {
                 if (!ctx.hasCharacter) noCharacter(t, cmd);
-                auto v = lookup(ctx.attrs, c.target.name);
-                if (!v.found) return t.render("attr.missing", {{"name", ctx.name}, {"attr", canonicalName(c.target.name)}});
+                auto v = lookup(ctx.attrs, c.target.name, L);
+                if (!v.found) return t.render("attr.missing", {{"name", ctx.name}, {"attr", shown(canonicalName(c.target.name, L))}});
                 value = v.value + c.target.modifier;
-                hint = t.render(v.isBase ? "attr.value_base" : "attr.value", {{"name", ctx.name}, {"attr", v.name}, {"value", itos(value)}});
+                hint = t.render(v.isBase ? "attr.value_base" : "attr.value", {{"name", ctx.name}, {"attr", shown(v.name)}, {"value", itos(value)}});
             }
             if (c.difficulty > 2) hint += t.render("hint.target", {{"difficulty", diffVar(t, c.difficulty)}, {"target", itos(targetFor(value, c.difficulty))}});
             return hint;
         }
         if (cmd.name == "sc") return attrValue("SAN");
-        if (cmd.name == "en") { auto n = splitName(cmd.args, ctx.attrs); return n.name.empty() ? "" : attrValue(n.name); }
+        if (cmd.name == "en") { auto n = splitName(cmd.args, ctx.attrs, L); return n.name.empty() ? "" : attrValue(n.name); }
         if (cmd.name == "st") {
             if (!ctx.hasCharacter) noCharacter(t, cmd);
             auto p = parseSt(cmd.args, t);
             if (p.kind == StPlan::Modify) return attrValue(p.attr);
             if (p.kind == StPlan::Set) {
-                std::vector<std::pair<std::string, int>> kv; for (auto& [n, v] : p.sets) kv.emplace_back(canonicalName(n), v);
-                return t.render("hint.set", {{"list", listAttrs(kv)}});
+                std::vector<std::pair<std::string, int>> kv; for (auto& [n, v] : p.sets) kv.emplace_back(canonicalName(n, L), v);
+                return t.render("hint.set", {{"list", listAttrs(kv, L)}});
             }
             return "";
         }

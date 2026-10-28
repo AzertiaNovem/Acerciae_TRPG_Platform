@@ -90,3 +90,32 @@ test("COC7 point-buy: a server feature; careers from the list gate career points
   await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { coc7_points: false } });
   await save({ ...card, skill_points: { ...card.skill_points, Stealth: { career: 10 } } });
 });
+
+test("COC7 skill names follow the server language: the sheet gets the names, .ra takes English or that language", async () => {
+  const suffix = Math.random().toString(36).slice(2);
+  const gm = (await call(null, "POST", "/api/auth/register", { username: "kpja" + suffix, password: "password", display_name: "Keeper" })).token;
+  const server = await call(gm, "POST", "/api/servers", { name: "Names" });
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { language: "ja", features: { coc7_points: true } });
+  const ch = (await call(gm, "POST", `/api/servers/${server.id}/channels`, { name: "Innsmouth" })).id;
+  const main = (await call(gm, "GET", `/api/channels/${ch}/windows`))[0].id;
+  const npc = await call(gm, "POST", `/api/channels/${ch}/characters`, { name: "Aki" });
+
+  const rules = await call(gm, "GET", "/api/coc7/rules");
+  const names = (n) => rules.skills.find((s) => s.name === n).names;
+  assert.equal(names("Spot Hidden").ja, "目星"); assert.equal(names("Spot Hidden")["zh-CN"], "侦查"); assert.equal(Object.keys(names("Dodge")).length, 10);
+  assert.equal(rules.families.find((f) => f.name === "Fighting").names.ja, "近接戦闘");
+  const space = await call(gm, "PUT", `/api/channels/${ch}/characters/${npc.id}/card`, { role_card: { characteristics: { DEX: 60, EDU: 70, INT: 70 }, skill_points: { "Spot Hidden": { hobby: 35 } } } });
+  assert.equal(space.points.language, "ja");
+
+  const roll = async (content) => (await call(gm, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content, kind: "ic", character_id: npc.id })).dice;
+  const ja = await roll(".ra 目星");
+  assert.equal(ja.attr, "Spot Hidden"); assert.equal(ja.value, 60); assert.match(ja.text, /目星/);
+  const en = await roll(".ra spot hidden");
+  assert.equal(en.attr, "Spot Hidden"); assert.match(en.text, /目星/);
+  const set = await roll(".st 図書館55");
+  assert.match(set.text, /図書館 55/);
+  const attrs = await call(gm, "GET", `/api/channels/${ch}/characters/${npc.id}/attributes`);
+  assert.equal(attrs.attrs["Library Use"], 55, "stored under the English name");
+  // Names of another language are not skills here.
+  await rejects(roll(".ra Trouver objet caché"), 400);
+});

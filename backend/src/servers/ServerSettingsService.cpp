@@ -188,6 +188,10 @@ bool ServerSettingsService::featureEnabled(const std::string& serverId, const st
     auto r = db_.queryOne("SELECT feature_" + feature + " AS enabled FROM server_settings WHERE server_id=$1", {serverId});
     return r.isNull() || r["enabled"].asBool();   // no row yet = defaults (everything on)
 }
+std::string ServerSettingsService::language(const std::string& serverId) {
+    auto r = db_.queryOne("SELECT language FROM server_settings WHERE server_id=$1", {serverId});
+    return r.isNull() ? "en" : r["language"].asString();
+}
 void ServerSettingsService::requireFeature(const std::string& serverId, const std::string& feature) {
     if (!featureEnabled(serverId, feature)) throw ApiError(403, "feature_disabled", "This feature is turned off by the server maintainer");
 }
