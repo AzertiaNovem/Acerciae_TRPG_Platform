@@ -54,6 +54,39 @@ void WsGateway::sendToUser(const std::string& stream, const std::string& userId,
     for (auto& c : targets) if (c->connected()) c->send(text);
 }
 
+void WsGateway::closeSession(const std::string& sessionHash) {
+    if (sessionHash.empty()) return;
+    std::vector<drogon::WebSocketConnectionPtr> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (auto& [conn, s] : conns_) if (s->sessionHash == sessionHash) { s->channels.clear(); targets.push_back(conn); }
+    }
+    for (auto& c : targets) c->shutdown(drogon::CloseCode::kNormalClosure, "signed out");
+}
+void WsGateway::dropSubscription(const std::string& userId, const std::string& channelId) {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& [conn, s] : conns_) if (s->userId == userId) { s->channels.erase(channelId); s->channels.erase(spectateKey(channelId)); }
+}
+void WsGateway::revalidate(const std::function<bool(const std::string&)>& sessionValid,
+                           const std::function<bool(const std::string&, const std::string&)>& mayFollow) {
+    struct Item { drogon::WebSocketConnectionPtr conn; std::string user, hash; std::set<std::string> channels; };
+    std::vector<Item> items;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (auto& [conn, s] : conns_) items.push_back({conn, s->userId, s->sessionHash, s->channels});
+    }
+    // Database checks run without the lock; the results are applied afterwards.
+    std::map<std::string, bool> sessions;
+    for (auto& it : items) {
+        if (!sessions.count(it.hash)) sessions[it.hash] = sessionValid(it.hash);
+        if (!sessions[it.hash]) {
+            { std::lock_guard<std::mutex> lk(mu_); if (auto f = conns_.find(it.conn); f != conns_.end()) f->second->channels.clear(); }
+            it.conn->shutdown(drogon::CloseCode::kNormalClosure, "session ended");
+            continue;
+        }
+        for (auto& ch : it.channels) if (!mayFollow(it.user, ch)) { std::lock_guard<std::mutex> lk(mu_); if (auto f = conns_.find(it.conn); f != conns_.end()) f->second->channels.erase(ch); }
+    }
+}
 bool WsGateway::hasSubscribers(const std::string& stream, const std::string& channelId) const {
     std::lock_guard<std::mutex> lk(mu_);
     for (auto& [conn, s] : conns_) if (s->stream == stream && s->channels.count(channelId)) return true;
@@ -65,8 +98,10 @@ std::size_t WsGateway::connectionCount() const { std::lock_guard<std::mutex> lk(
 // ---- endpoints -------------------------------------------------------------------------------
 
 void WsEndpointBase::onConnect(const drogon::HttpRequestPtr& req, const drogon::WebSocketConnectionPtr& conn, const std::string& stream) {
+    // Browsers cannot set headers on a WebSocket: the URL carries a short-lived file token (or, for other
+    // clients, the session token).
     auto token = req->getParameter("token");
-    auto p = services().auth->authenticate(token);
+    auto p = token.rfind("f1.", 0) == 0 ? services().auth->authenticateFileToken(token) : services().auth->authenticate(token);
     if (!p) {
         Json::Value err; err["type"] = "error"; err["error"] = "unauthorized";
         conn->send(json::dump(err));
@@ -74,7 +109,7 @@ void WsEndpointBase::onConnect(const drogon::HttpRequestPtr& req, const drogon::
         return;
     }
     auto s = std::make_shared<WsSession>();
-    s->userId = p->userId; s->stream = stream;
+    s->userId = p->userId; s->stream = stream; s->sessionHash = services().auth->sessionHashOf(token);
     conn->setContext(s);
     WsGateway::instance().add(conn, s);
     Json::Value hello; hello["type"] = "hello"; hello["stream"] = stream; hello["user_id"] = p->userId;

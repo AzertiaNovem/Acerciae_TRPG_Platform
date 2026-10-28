@@ -62,6 +62,12 @@ void Notifier::windowChanged(const std::string& channelId, const Json::Value& wi
     Json::Value msg; msg["type"] = "window.changed"; msg["channel_id"] = channelId; msg["window"]["id"] = window["id"];
     WsGateway::instance().broadcast("chat", channelId, msg);
 }
+void Notifier::revokeChannel(const std::string& userId, const std::string& channelId) {
+    WsGateway::instance().dropSubscription(userId, channelId);
+}
+void Notifier::revokeServer(const std::string& userId, const std::string& serverId) {
+    for (auto& r : db_.queryJson("SELECT id FROM channels WHERE server_id=$1", {serverId})) WsGateway::instance().dropSubscription(userId, r["id"].asString());
+}
 void Notifier::channelUpdated(const std::string& channelId) {
     Json::Value msg; msg["type"] = "channel.updated"; msg["channel_id"] = channelId;
     WsGateway::instance().broadcast("chat", channelId, msg);

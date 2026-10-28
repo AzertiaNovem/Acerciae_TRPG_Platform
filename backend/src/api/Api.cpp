@@ -34,6 +34,9 @@
 #include "../core/Json.h"
 #include "../core/Log.h"
 #include "../ws/WsGateway.h"
+#include "../core/Throttle.h"
+#include "../core/Crypto.h"
+#include "../core/Text.h"
 #include <drogon/drogon.h>
 #include <drogon/MultiPart.h>
 
@@ -54,11 +57,37 @@ HttpResponsePtr jsonResp(const Json::Value& v, int status = 200) {
 HttpResponsePtr errResp(int status, const std::string& code, const std::string& msg) {
     Json::Value e; e["error"] = code; e["message"] = msg; return jsonResp(e, status);
 }
+// The session token travels only in the Authorization header.
 std::string bearer(const HttpRequestPtr& req) {
     auto h = req->getHeader("Authorization");
     if (h.rfind("Bearer ", 0) == 0) return h.substr(7);
+    return "";
+}
+// Files a browser loads by itself (images, audio, downloads) also accept a short-lived file token in ?token=.
+std::optional<Principal> fileAuth(const HttpRequestPtr& req) {
+    auto h = bearer(req);
+    if (!h.empty()) return services().auth->authenticate(h);
     auto q = req->getParameter("token");
-    return q;
+    return q.empty() ? std::nullopt : services().auth->authenticateFileToken(q);
+}
+// Unexpected failures are logged with their detail and answered with a generic message: SQL text, file paths and
+// provider responses never reach the client.
+HttpResponsePtr internalErr(const std::exception& e) {
+    auto id = crypto::randomHex(6);
+    if (auto* sql = dynamic_cast<const pqxx::sql_error*>(&e)) ALOG_ERROR << "[" << id << "] sql error: " << sql->what() << " :: " << sql->query();
+    else ALOG_ERROR << "[" << id << "] unhandled: " << e.what();
+    return errResp(500, "internal", "internal error (reference " + id + ")");
+}
+std::string clientIp(const HttpRequestPtr& req) {
+    // Behind a trusted reverse proxy: X-Real-IP as the proxy set it, else the address the proxy appended last
+    // (the earlier entries of X-Forwarded-For come from the client and can be forged).
+    if (services().cfg.trustProxy) {
+        auto real = text::trim(req->getHeader("X-Real-IP"));
+        if (!real.empty()) return real;
+        auto f = req->getHeader("X-Forwarded-For");
+        if (!f.empty()) { auto comma = f.rfind(','); return text::trim(comma == std::string::npos ? f : f.substr(comma + 1)); }
+    }
+    return req->peerAddr().toIp();
 }
 Json::Value body(const HttpRequestPtr& req) {
     auto j = req->getJsonObject();
@@ -79,8 +108,7 @@ void run(const HttpRequestPtr& req, Cb&& cb, const Params& params, const Fn& fn,
         }
         cb(jsonResp(fn(req, p, params)));
     } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
-    catch (const pqxx::sql_error& e) { ALOG_ERROR << "sql error: " << e.what() << " :: " << e.query(); cb(errResp(500, "db_error", "database error")); }
-    catch (const std::exception& e) { ALOG_ERROR << "unhandled: " << e.what(); cb(errResp(500, "internal", e.what())); }
+    catch (const std::exception& e) { cb(internalErr(e)); }
 }
 void route0(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn, bool auth = true) {
     app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb) { run(req, std::move(cb), {}, fn, auth); }, m);
@@ -131,14 +159,40 @@ void registerRoutes() {
     route0("/api/health", {Get}, [&](auto&, auto&, auto&) { Json::Value v; v["status"] = "ok"; v["ws_connections"] = (int)WsGateway::instance().connectionCount(); S.db->exec("SELECT 1"); v["db"] = "ok"; return v; }, false);
 
     // ---- auth ----
-    route0("/api/auth/register", {Post}, [&](auto& req, auto&, auto&) { auto b = body(req); auto u = S.auth->registerUser(json::requireStr(b, "username"), json::requireStr(b, "password"), json::str(b, "display_name")); auto login = S.auth->login(json::requireStr(b, "username"), json::requireStr(b, "password")); login["user"] = S.auth->profile(u["id"].asString()); return login; }, false);
-    route0("/api/auth/login", {Post}, [&](auto& req, auto&, auto&) { auto b = body(req); return S.auth->login(json::requireStr(b, "username"), json::requireStr(b, "password")); }, false);
-    route0("/api/auth/logout", {Post}, [&](auto& req, auto&, auto&) { S.auth->logout(bearer(req)); return ok(); });
+    // Password guessing: per account, 5 failed logins in 15 minutes; per client address, 30 failed logins in 15 minutes
+    // and AUTH_REGISTER_PER_HOUR registrations an hour.
+    static Throttle loginByUser(5, std::chrono::minutes(15)), loginByIp(30, std::chrono::minutes(15)), registerByIp(std::max(1, S.cfg.registerPerHour), std::chrono::hours(1));
+    auto throttled = [](int seconds) { return ApiError(429, "too_many_attempts", "Too many attempts; try again in " + std::to_string((seconds + 59) / 60) + " minute(s)."); };
+    route0("/api/auth/register", {Post}, [&, throttled](auto& req, auto&, auto&) {
+        auto ip = "ip:" + clientIp(req);
+        if (int w = registerByIp.retryAfter(ip)) throw throttled(w);
+        registerByIp.hit(ip);
+        auto b = body(req); auto u = S.auth->registerUser(json::requireStr(b, "username"), json::requireStr(b, "password"), json::str(b, "display_name"));
+        auto login = S.auth->login(json::requireStr(b, "username"), json::requireStr(b, "password")); login["user"] = S.auth->profile(u["id"].asString()); return login;
+    }, false);
+    route0("/api/auth/login", {Post}, [&, throttled](auto& req, auto&, auto&) {
+        auto b = body(req); auto user = "user:" + text::lower(json::requireStr(b, "username")), ip = "ip:" + clientIp(req);
+        if (int w = std::max(loginByUser.retryAfter(user), loginByIp.retryAfter(ip))) throw throttled(w);
+        try {
+            auto out = S.auth->login(json::requireStr(b, "username"), json::requireStr(b, "password"));
+            loginByUser.clear(user);
+            return out;
+        } catch (const ApiError& e) {
+            if (e.status() == 401) { loginByUser.hit(user); loginByIp.hit(ip); }
+            throw;
+        }
+    }, false);
+    route0("/api/auth/logout", {Post}, [&](auto& req, auto&, auto&) {
+        auto token = bearer(req);
+        WsGateway::instance().closeSession(S.auth->sessionHashOf(token));   // its sockets stop receiving at once
+        S.auth->logout(token); return ok();
+    });
+    route0("/api/auth/file-token", {Post}, [&](auto& req, auto&, auto&) { return S.auth->issueFileToken(bearer(req)); });
     route0("/api/auth/me", {Get}, [&](auto&, auto& p, auto&) { return S.auth->profile(p.userId); });
     route0("/api/auth/me", {Put}, [&](auto& req, auto& p, auto&) { return S.auth->updateProfile(p, body(req)); });
     app().registerHandler("/api/users/{1}/avatar", [](const HttpRequestPtr& req, Cb&& cb, std::string userId) {
         try {
-            auto principal = services().auth->authenticate(bearer(req));
+            auto principal = fileAuth(req);
             if (!principal) throw unauthorized("missing or invalid token");
             auto [mime, bytes] = services().auth->avatar(*principal, userId);
             auto response = HttpResponse::newHttpResponse();
@@ -329,14 +383,14 @@ void registerRoutes() {
     route2("/api/channels/{1}/studio/publications/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->publication(studioAccess(p,a[0]),a[1]); });
     route2("/api/channels/{1}/studio/publications/{2}/revoke", {Post}, [&](auto&, auto& p, auto& a) { return S.publication->revoke(studioAccess(p,a[0]),a[1]); });
     route1("/api/published/{1}", {Get}, [&](auto&, auto&, auto& a) { return S.publication->shared(a[0]); },false);
-    auto workerAuth=[](const HttpRequestPtr& req) { const char* key=std::getenv("PDF_WORKER_TOKEN"); if(!key||std::string(key).size()<32||req->getHeader("X-Worker-Token")!=key) throw forbidden("invalid worker credentials"); };
+    auto workerAuth=[](const HttpRequestPtr& req) { const char* key=std::getenv("PDF_WORKER_TOKEN"); if(!key||std::string(key).size()<32||!crypto::constantTimeEquals(req->getHeader("X-Worker-Token"),key)) throw forbidden("invalid worker credentials"); };
     route0("/api/internal/pdf/claim", {Post}, [&,workerAuth](auto& req, auto&, auto&) { workerAuth(req); return S.publication->claimPdf(); },false);
     route1("/api/internal/pdf/{1}/finish", {Post}, [&,workerAuth](auto& req, auto&, auto& a) { workerAuth(req); return S.publication->finishPdf(a[0],req->getHeader("X-Worker-Lease"),std::string(req->getBody()),req->getHeader("X-Worker-Error")); },false);
     app().registerHandler("/api/channels/{1}/studio/pdf/jobs/{2}/file", [&](const HttpRequestPtr& req,Cb&& cb,std::string ch,std::string id) {
-        try { auto p=S.auth->authenticate(bearer(req)); if(!p) throw ApiError(401,"unauthorized","authentication required"); auto data=S.publication->pdfBytes(studioAccess(*p,ch),id); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString("application/pdf"); r->addHeader("Cache-Control","private, no-store"); r->addHeader("Content-Disposition","inline; filename=log.pdf"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","PDF unavailable")); }
+        try { auto p=fileAuth(req); if(!p) throw ApiError(401,"unauthorized","authentication required"); auto data=S.publication->pdfBytes(studioAccess(*p,ch),id); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString("application/pdf"); r->addHeader("Cache-Control","private, no-store"); r->addHeader("Content-Disposition","inline; filename=log.pdf"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","PDF unavailable")); }
     },{Get});
     app().registerHandler("/api/channels/{1}/studio/publications/{2}/files/{3}", [&](const HttpRequestPtr& req,Cb&& cb,std::string ch,std::string pub,std::string id) {
-        try { auto p=S.auth->authenticate(bearer(req)); if(!p)throw ApiError(401,"unauthorized","authentication required"); std::string mime; auto data=S.publication->publicationFile(studioAccess(*p,ch),pub,id,mime); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Cache-Control","no-store"); r->addHeader("X-Content-Type-Options","nosniff"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","file unavailable")); }
+        try { auto p=fileAuth(req); if(!p)throw ApiError(401,"unauthorized","authentication required"); std::string mime; auto data=S.publication->publicationFile(studioAccess(*p,ch),pub,id,mime); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Cache-Control","no-store"); r->addHeader("X-Content-Type-Options","nosniff"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","file unavailable")); }
     },{Get});
     app().registerHandler("/api/published/{1}/files/{2}", [&](const HttpRequestPtr&,Cb&& cb,std::string token,std::string id) {
         try { std::string mime; auto data=S.publication->sharedFile(token,id,mime); auto r=HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Cache-Control","no-store"); r->addHeader("X-Content-Type-Options","nosniff"); r->setBody(std::move(data)); cb(r); } catch(const ApiError& e) { cb(errResp(e.status(),e.code(),e.what())); } catch(const std::exception&) { cb(errResp(500,"internal","file unavailable")); }
@@ -349,10 +403,10 @@ void registerRoutes() {
     route1("/api/channels/{1}/studio/log", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->campaignLog(studioAccess(p, a[0])); });
     app().registerHandler("/api/channels/{1}/studio/log/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch) {
         try {
-            auto pr = S.auth->authenticate(bearer(req)); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
+            auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
             std::string mime, name; auto data = S.studio->exportLog(studioAccess(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name);
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
     }, {Get});
     route1("/api/channels/{1}/studio/projects", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listProjects(studioAccess(p, a[0])); });
     route1("/api/channels/{1}/studio/projects", {Post}, [&](auto& req, auto& p, auto& a) { return S.studio->createProject(studioAccess(p, a[0]), body(req)); });
@@ -368,12 +422,12 @@ void registerRoutes() {
     route2("/api/channels/{1}/studio/snapshots/{2}", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->getSnapshot(studioAccess(p, a[0]), a[1], req->getParameter("events") != "false"); });
     app().registerHandler("/api/channels/{1}/studio/snapshots/{2}/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string snap) {
         try {
-            auto pr = S.auth->authenticate(bearer(req)); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
+            auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             std::string mime, name; auto data = S.studio->exportSnapshot(studioAccess(*pr, ch), snap, req->getParameter("format").empty() ? "json" : req->getParameter("format"), mime, name);
             auto r = HttpResponse::newHttpResponse(); r->setBody(data); r->setContentTypeString(mime);
             if (req->getParameter("download") == "1") r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
             cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
     }, {Get});
 
     // ---- Log Studio: media assets ----
@@ -393,13 +447,13 @@ void registerRoutes() {
     // Binary delivery (images/audio for <img>/<audio>/howler): token may come as ?token= since media tags cannot set headers.
     app().registerHandler("/api/channels/{1}/media/{2}", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string id) {
         try {
-            auto pr = S.auth->authenticate(bearer(req)); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
+            auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             auto ac = access(*pr, ch); std::string bytes, mime, name; int v = qint(req, "v", 0);
             if (!S.media->fetch(ac, id, v, bytes, mime, name)) { cb(errResp(404, "not_found", "asset not found")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=3600"); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
             if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
             cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
     }, {Get});
 
     // ---- Log Studio: presentations (performance timeline) ----
@@ -449,33 +503,46 @@ void registerRoutes() {
     // Standalone visual novel: index.html plus every image and voice line, as one ZIP.
     app().registerHandler("/api/channels/{1}/studio/presentations/{2}/bundle.zip", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string pid) {
         try {
-            auto pr = S.auth->authenticate(bearer(req)); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
+            auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
             std::string name; auto data = S.publication->bundle(studioAccess(*pr, ch), pid, name);
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
     }, {Get});
     route2("/api/channels/{1}/studio/tts/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->getJob(studioAccess(p, a[0]), a[1]); });
     route2("/api/channels/{1}/studio/tts/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.tts->cancelJob(studioAccess(p, a[0]), a[1]); });
     app().registerHandler("/api/channels/{1}/studio/tts/audio/{2}", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string id) {
         try {
-            auto pr = S.auth->authenticate(bearer(req)); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
+            auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             std::string bytes, mime; if (!S.tts->fetchAudio(studioAccess(*pr, ch), id, bytes, mime)) { cb(errResp(404, "not_found", "audio not found")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=86400"); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(errResp(500, "internal", e.what())); }
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e)); }
     }, {Get});
 
-    // CORS for dev setups where the frontend is served from another origin.
-    app().registerPreRoutingAdvice([](const HttpRequestPtr& req, AdviceCallback&& acb, AdviceChainCallback&& ccb) {
+    // CORS only for the origins listed in CORS_ORIGINS (the bundled frontend is same-origin and needs none).
+    static std::vector<std::string> origins = [] { std::vector<std::string> v; std::string cur; for (char c : services().cfg.corsOrigins + ",") { if (c == ',') { cur = text::trim(cur); if (!cur.empty()) v.push_back(cur); cur.clear(); } else cur += c; } return v; }();
+    auto allowedOrigin = [](const HttpRequestPtr& req) -> std::string {
+        auto o = req->getHeader("Origin");
+        if (o.empty()) return "";
+        for (auto& a : origins) if (a == "*" || a == o) return o;
+        return "";
+    };
+    app().registerPreRoutingAdvice([allowedOrigin](const HttpRequestPtr& req, AdviceCallback&& acb, AdviceChainCallback&& ccb) {
         if (req->method() == Options) {
             auto r = HttpResponse::newHttpResponse();
-            r->addHeader("Access-Control-Allow-Origin", "*");
-            r->addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-            r->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+            if (auto o = allowedOrigin(req); !o.empty()) {
+                r->addHeader("Access-Control-Allow-Origin", o); r->addHeader("Vary", "Origin");
+                r->addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+                r->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+                r->addHeader("Access-Control-Max-Age", "600");
+            }
             acb(r); return;
         }
         ccb();
     });
-    app().registerPostHandlingAdvice([](const HttpRequestPtr&, const HttpResponsePtr& resp) { resp->addHeader("Access-Control-Allow-Origin", "*"); });
+    app().registerPostHandlingAdvice([allowedOrigin](const HttpRequestPtr& req, const HttpResponsePtr& resp) {
+        if (auto o = allowedOrigin(req); !o.empty()) { resp->addHeader("Access-Control-Allow-Origin", o); resp->addHeader("Vary", "Origin"); }
+        resp->addHeader("X-Content-Type-Options", "nosniff");
+    });
 }
 
 } // namespace acerciae

@@ -181,6 +181,7 @@ Json::Value ChatService::removeServerMember(const Principal& p, const std::strin
         Db::exec(w, "DELETE FROM server_members WHERE server_id=$1 AND user_id=$2", {serverId, userId});
     });
     for (auto& wid : windows) { auto win = db_.queryOne("SELECT * FROM chat_windows WHERE id=$1", {wid}); if (!win.isNull()) notifier_.windowChanged(win["channel_id"].asString(), win); }
+    notifier_.revokeServer(userId, serverId);
     if (self) { Json::Value v; v["ok"] = true; return v; }
     return serverMembers(p, serverId);
 }
@@ -305,6 +306,7 @@ Json::Value ChatService::removeChannelMember(const ChannelAccess& a, const std::
                     "(SELECT 1 FROM channel_members cm JOIN channels c ON c.id=cm.channel_id WHERE c.server_id=$1 AND cm.user_id=$2)", {a.serverId, userId});
     });
     for (auto& wid : windows) notifier_.windowChanged(a.channelId, db_.queryOne("SELECT * FROM chat_windows WHERE id=$1", {wid}));
+    notifier_.revokeChannel(userId, a.channelId);
     return channelMembers(a);
 }
 Json::Value ChatService::channelMembers(const ChannelAccess& a) {

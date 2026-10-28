@@ -31,15 +31,17 @@ Screenshots (taken from the running app in mock mode):
 
 ```bash
 cp .env.example .env            # AI keys are not set here: each server's maintainers configure them in Server settings → AI
-# Set PDF_WORKER_TOKEN in .env to a random secret of at least 32 characters first
-# openssl rand -hex 32
+# In .env set AUTH_SECRET and PDF_WORKER_TOKEN to two different random secrets (openssl rand -hex 32),
+# and change the database password in POSTGRES_PASSWORD and DATABASE_URL.
 docker compose up --build
 ```
 
-* Frontend: http://localhost:5173
-* Backend API: http://localhost:8080/api/health
-* A complete demonstration campaign is seeded on first start (`SEED_DEMO=true`):
-  users **keeper / alice / bob / carol**, password **password**.
+* Frontend: http://localhost:5173 (register the first account, create a server)
+* Backend API: http://localhost:8080/api/health — bound to this machine; PostgreSQL is too.
+* The backend refuses to start without a strong `AUTH_SECRET`. For a throwaway local demo, `ALLOW_INSECURE_DEV=true` with
+  `SEED_DEMO=true` seeds a demonstration campaign with users **keeper / alice / bob / carol**, password **password** —
+  never on a reachable machine.
+* Put TLS in front of port 5173 (any reverse proxy) before exposing it beyond localhost.
 
 > Note: the Docker images were authored against the exact Ubuntu 24.04 package set used to build and test the backend in
 > this repository's CI-less environment, but `docker compose build` itself was not executed in the authoring environment
@@ -58,13 +60,13 @@ PostgreSQL 16 (+ `postgresql-16-pgvector` optional), Node 22.13+ (or Node 24+), 
 cd backend
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build
 createdb acerciae
-DATABASE_URL=postgresql://postgres@localhost:5432/acerciae MIGRATIONS_DIR=./migrations UPLOAD_DIR=/tmp/acerciae-uploads ./build/acerciae-server
+AUTH_SECRET=$(openssl rand -hex 32) DATABASE_URL=postgresql://postgres@localhost:5432/acerciae MIGRATIONS_DIR=./migrations UPLOAD_DIR=/tmp/acerciae-uploads ./build/acerciae-server
 # frontend (dev server proxies /api and /ws to :8080)
 cd ../frontend && npm install && npm run dev
 ```
 
 Migrations are applied automatically at startup (`schema_migrations` table). `./build/acerciae-server --migrate-only` and
-`--seed-demo` (force re-seed) are also available.
+`--seed-demo` (force re-seed, local development only) are also available.
 
 ## Configuration
 
@@ -79,7 +81,10 @@ Everything is read from environment variables; see [`.env.example`](.env.example
 | `AI_OBSERVER_INTERVAL_MS` (5000) | scan cadence of the high-frequency observer |
 | `AI_CONSOLIDATOR_INTERVAL_MS` (60000) | cadence of the low-frequency consolidation pass |
 | `HIGHLIGHT_TTL_SECONDS`, `HIGHLIGHT_CLEANUP_INTERVAL_MS` | highlight lifetime and the independent expiry sweeper |
-| `AUTH_SECRET` | HMAC key for API tokens and the key that seals per-server API keys (change in production; rotating it invalidates stored server keys) |
+| `AUTH_SECRET` | HMAC key for API tokens and the key that seals per-server API keys. Required, ≥ 32 characters; the backend refuses a missing or published value unless `ALLOW_INSECURE_DEV=true` (local development only). Rotating it signs everyone out and invalidates stored server keys |
+| `CORS_ORIGINS` | origins allowed to call the API cross-origin (empty = same origin only) |
+| `TRUST_PROXY` | take the client address from the reverse proxy's `X-Real-IP` / `X-Forwarded-For` (login throttling) |
+| `AUTH_REGISTER_PER_HOUR`, `RETENTION_AI_JOB_DAYS`, `RETENTION_AUDIT_DAYS` | registration throttle and retention of old rows |
 
 There are no platform AI keys. Each server's maintainers set its language model, embedding model, image and speech providers
 with the server's own keys (sealed at rest, never sent to browsers); a server without a provider runs in **Mock mode** (banner in

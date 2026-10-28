@@ -16,7 +16,17 @@ export function useRealtime() {
   const windowId = useNav((s) => s.windowId);
   const windows = useNav((s) => s.windows);
   useEffect(() => {
+    // After a reconnect, reload what may have been posted while the socket was down.
+    let dropped = false;
     const offChat = chatSocket.on((m) => {
+      if (m.type === '_close') { dropped = true; return; }
+      if (m.type === '_open') {
+        if (!dropped) return;
+        dropped = false;
+        const { channelId: cur, windowId: win } = useNav.getState();
+        if (cur) { useNav.getState().refreshWindows(); useNav.getState().refreshChannel(); if (win) useChat.getState().load(cur, win).catch(() => undefined); }
+        return;
+      }
       const ch = useNav.getState().channelId;
       if (m.channel_id && m.channel_id !== ch) return;
       if (m.type === 'message.posted') useChat.getState().push(m.message);

@@ -1,7 +1,12 @@
 # API reference
 
-Base URL `/api`. JSON in/out. Authentication: `Authorization: Bearer <token>` (tokens from `/auth/login`).
-Errors: `{ "error": "<code>", "message": "..." }` with 400/401/403/404/409/500.
+Base URL `/api`. JSON in/out. Authentication: `Authorization: Bearer <token>` (tokens from `/auth/login`); the
+session token is accepted only in that header. Files a browser loads by itself — media, avatars, TTS audio, exports,
+PDFs, bundles — and the WebSocket also accept `?token=<file token>`: a short-lived (≤ 6 h) signed token from
+`POST /auth/file-token`, bound to the session (logging out revokes it).
+Errors: `{ "error": "<code>", "message": "..." }` with 400/401/403/404/409/410/429/500. A 500 carries only a generic
+message with a reference id; details go to the server log. Logins are throttled (5 failures per account and 30 per
+client address in 15 minutes, then 429 `too_many_attempts`), as are registrations per client address.
 
 ## Health
 
@@ -22,7 +27,8 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. |
 | POST | `/auth/register` | `{username, password, display_name}` → `{token, user}` |
 | POST | `/auth/login` | `{username, password}` → `{token, user}` |
-| POST | `/auth/logout` | |
+| POST | `/auth/logout` | ends the session and closes its WebSockets |
+| POST | `/auth/file-token` | `{token, expires_at}` for `?token=` on file URLs and the WebSocket |
 | GET | `/auth/me` | |
 
 ## Servers

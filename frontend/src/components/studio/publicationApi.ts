@@ -1,4 +1,4 @@
-import { request, getToken } from "../../api/client";
+import { request, fileToken } from "../../api/client";
 export interface PdfConfig {
   base: string;
   page_size: string;
@@ -63,7 +63,7 @@ export const publicationApi = {
       retry: true,
     }),
   file: (ch: string, id: string) =>
-    `${base}${studioPath(ch)}/pdf/jobs/${id}/file?token=${encodeURIComponent(getToken() || "")}`,
+    `${base}${studioPath(ch)}/pdf/jobs/${id}/file?token=${encodeURIComponent(fileToken())}`,
   list: (ch: string) =>
     request<Publication[]>("GET", studioPath(ch) + "/publications"),
   publish: (ch: string, body: unknown) =>
@@ -75,7 +75,7 @@ export const publicationApi = {
   shared: (token: string) =>
     request<Publication>("GET", `/api/published/${encodeURIComponent(token)}`),
   publicationFile: (ch: string, pub: string, id: string) =>
-    `${base}${studioPath(ch)}/publications/${pub}/files/${id}?token=${encodeURIComponent(getToken() || "")}`,
+    `${base}${studioPath(ch)}/publications/${pub}/files/${id}?token=${encodeURIComponent(fileToken())}`,
   sharedFile: (token: string, id: string) =>
     `${base}/api/published/${encodeURIComponent(token)}/files/${encodeURIComponent(id)}`,
 };

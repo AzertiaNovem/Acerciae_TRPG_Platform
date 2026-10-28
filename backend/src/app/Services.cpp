@@ -1,4 +1,5 @@
 #include "Services.h"
+#include "Maintenance.h"
 #include "../auth/AuthService.h"
 #include "../events/EventStore.h"
 #include "../chat/ChatService.h"
@@ -78,11 +79,13 @@ Services& Services::build(const Config& cfg) {
     s.script = std::make_unique<ScriptKnowledgeService>(*s.db, *s.llm, *s.retrieval, *s.reminders, *s.notifier);
     s.modules->setPostProcess([&s](const std::string& channelId, const std::string& moduleId) { int calls = 0; s.script->buildFromModule(channelId, moduleId, calls); });
     s.observer = std::make_unique<ObserverScheduler>(s.cfg, *s.db, *s.events, *s.documents, *s.highlights, *s.retrieval, *s.llm, *s.notifier, *s.knowledge, *s.scenarios, *s.reminders, *s.script);
+    s.maintenance = std::make_unique<Maintenance>(s);
     return s;
 }
 
 void Services::shutdown() {
     if (!g_services) return;
+    if (g_services->maintenance) g_services->maintenance->stop();
     if (g_services->aiRequests) g_services->aiRequests->stop();
     if (g_services->observer) g_services->observer->stop();
     if (g_services->creative) g_services->creative->stop();

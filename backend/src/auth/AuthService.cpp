@@ -1,5 +1,6 @@
 #include "AuthService.h"
 #include "../core/Crypto.h"
+#include <ctime>
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include <regex>
@@ -104,6 +105,38 @@ void AuthService::logout(const std::string& token) {
     db_.exec("DELETE FROM auth_tokens WHERE token_hash=$1", {tokenHash(token)});
 }
 
+static const int kFileTokenSeconds = 6 * 3600;
+Json::Value AuthService::issueFileToken(const std::string& sessionToken) {
+    auto hash = tokenHash(sessionToken);
+    auto row = db_.queryOne("SELECT extract(epoch from least(expires_at, now() + make_interval(secs => $2)))::bigint AS exp FROM auth_tokens WHERE token_hash=$1 AND expires_at > now()", {hash, (int64_t)kFileTokenSeconds});
+    if (row.isNull()) throw unauthorized("session expired");
+    auto exp = std::to_string(row["exp"].asInt64());
+    Json::Value out;
+    out["token"] = "f1." + hash + "." + exp + "." + crypto::hmacSha256Hex(cfg_.authSecret, "file-token|" + hash + "|" + exp);
+    out["expires_at"] = (Json::Int64)row["exp"].asInt64();
+    return out;
+}
+static bool splitFileToken(const std::string& token, std::string& hash, std::string& exp, std::string& sig) {
+    if (token.rfind("f1.", 0) != 0) return false;
+    auto a = token.find('.', 3), b = a == std::string::npos ? a : token.find('.', a + 1);
+    if (b == std::string::npos) return false;
+    hash = token.substr(3, a - 3); exp = token.substr(a + 1, b - a - 1); sig = token.substr(b + 1);
+    return hash.size() == 64 && !exp.empty() && exp.size() < 12 && std::all_of(exp.begin(), exp.end(), ::isdigit);
+}
+std::optional<Principal> AuthService::authenticateFileToken(const std::string& token) {
+    std::string hash, exp, sig;
+    if (!splitFileToken(token, hash, exp, sig)) return std::nullopt;
+    if (!crypto::constantTimeEquals(sig, crypto::hmacSha256Hex(cfg_.authSecret, "file-token|" + hash + "|" + exp))) return std::nullopt;
+    if (std::stoll(exp) < (long long)std::time(nullptr)) return std::nullopt;
+    auto row = db_.queryOne("SELECT u.id, u.username, u.display_name FROM auth_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at > now()", {hash});
+    if (row.isNull()) return std::nullopt;
+    return Principal{row["id"].asString(), row["username"].asString(), row["display_name"].asString()};
+}
+std::string AuthService::sessionHashOf(const std::string& token) {
+    std::string hash, exp, sig;
+    if (splitFileToken(token, hash, exp, sig)) return authenticateFileToken(token) ? hash : "";
+    return authenticate(token) ? tokenHash(token) : "";
+}
 std::optional<Principal> AuthService::authenticate(const std::string& token) {
     if (token.empty()) return std::nullopt;
     auto row = db_.queryOne(

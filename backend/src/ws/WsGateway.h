@@ -16,7 +16,8 @@ namespace acerciae {
 struct WsSession {
     std::string userId;
     std::string stream;                    // "chat" | "context"
-    std::set<std::string> channels;        // subscribed channel ids
+    std::string sessionHash;               // the login session behind the socket (logout closes it)
+    std::set<std::string> channels;        // subscribed channel ids (spectating: spectateKey(id))
 };
 
 class WsGateway {
@@ -34,6 +35,12 @@ public:
     void sendToUser(const std::string& stream, const std::string& userId, const Json::Value& msg);
     std::size_t connectionCount() const;
     bool hasSubscribers(const std::string& stream, const std::string& channelId) const;
+    // Revocation. Subscriptions are checked when made; these keep them honest afterwards.
+    void closeSession(const std::string& sessionHash);                              // logout
+    void dropSubscription(const std::string& userId, const std::string& channelId);   // removed from a channel
+    // Re-checks every socket: `sessionValid(hash)` and `mayFollow(userId, channelKey)`; closes or unsubscribes the rest.
+    void revalidate(const std::function<bool(const std::string&)>& sessionValid,
+                    const std::function<bool(const std::string&, const std::string&)>& mayFollow);
     // Spectators subscribe under a separate key so channel broadcasts never reach them; only public Main Chat lines do.
     static std::string spectateKey(const std::string& channelId) { return "spectate:" + channelId; }
 

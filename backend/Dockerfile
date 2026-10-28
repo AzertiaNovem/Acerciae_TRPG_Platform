@@ -24,7 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=build /src/build/acerciae-server /app/acerciae-server
 COPY migrations /app/migrations
-RUN mkdir -p /data/uploads
+RUN useradd --system --uid 10001 --home /app acerciae && mkdir -p /data/uploads && chown -R acerciae /data/uploads
 ENV MIGRATIONS_DIR=/app/migrations UPLOAD_DIR=/data/uploads HTTP_PORT=8080
 EXPOSE 8080
+USER acerciae
 CMD ["/app/acerciae-server"]

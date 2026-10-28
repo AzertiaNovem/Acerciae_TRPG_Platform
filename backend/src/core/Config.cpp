@@ -50,8 +50,22 @@ Config Config::fromEnv() {
     c.highlightTtlSeconds = envInt("HIGHLIGHT_TTL_SECONDS", c.highlightTtlSeconds);
     c.highlightCleanupIntervalMs = envInt("HIGHLIGHT_CLEANUP_INTERVAL_MS", c.highlightCleanupIntervalMs);
     c.seedDemo = envBool("SEED_DEMO", c.seedDemo);
+    c.allowInsecureDev = envBool("ALLOW_INSECURE_DEV", c.allowInsecureDev);
+    c.corsOrigins = envStr("CORS_ORIGINS", c.corsOrigins);
+    c.trustProxy = envBool("TRUST_PROXY", c.trustProxy);
+    c.registerPerHour = envInt("AUTH_REGISTER_PER_HOUR", c.registerPerHour);
+    c.retentionAuditDays = envInt("RETENTION_AUDIT_DAYS", c.retentionAuditDays);
+    c.retentionAiJobDays = envInt("RETENTION_AI_JOB_DAYS", c.retentionAiJobDays);
     c.migrationsDir = envStr("MIGRATIONS_DIR", c.migrationsDir);
     return c;
+}
+
+std::string Config::weakSecretReason(const std::string& s) {
+    if (s.empty()) return "AUTH_SECRET is not set";
+    for (auto* known : {"dev-secret", "change-me-in-production", "changeme", "change-me", "secret", "password"})
+        if (s == known) return "AUTH_SECRET is a published default";
+    if (s.size() < 32) return "AUTH_SECRET is shorter than 32 characters";
+    return "";
 }
 
 } // namespace acerciae

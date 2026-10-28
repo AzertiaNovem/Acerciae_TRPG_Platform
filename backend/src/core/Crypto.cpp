@@ -52,6 +52,12 @@ std::string hashPassword(const std::string& password) {
     return "pbkdf2$" + std::to_string(iter) + "$" + salt + "$" + pbkdf2(password, salt, iter);
 }
 
+bool constantTimeEquals(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < a.size(); ++i) diff |= (unsigned char)(a[i] ^ b[i]);
+    return diff == 0;
+}
 bool verifyPassword(const std::string& password, const std::string& stored) {
     std::vector<std::string> parts; std::string cur;
     for (char c : stored) { if (c == '$') { parts.push_back(cur); cur.clear(); } else cur += c; }

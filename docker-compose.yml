@@ -12,8 +12,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
+    # Reachable from this machine only (psql, backups); the backend uses the compose network.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   backend:
     build:
@@ -25,13 +27,17 @@ services:
       HTTP_PORT: 8080
       UPLOAD_DIR: /data/uploads
       PDF_WORKER_TOKEN: ${PDF_WORKER_TOKEN:?Set PDF_WORKER_TOKEN to a random secret of at least 32 characters}
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET to a random secret of at least 32 characters (openssl rand -hex 32)}
+      # The bundled frontend's nginx sets X-Real-IP; the backend port below is bound to this machine only.
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+    restart: unless-stopped
     volumes:
       - uploads:/data/uploads
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health || exit 1"]
       interval: 10s
@@ -43,6 +49,7 @@ services:
       context: ./frontend
     depends_on:
       - backend
+    restart: unless-stopped
     ports:
       - "5173:80"
 

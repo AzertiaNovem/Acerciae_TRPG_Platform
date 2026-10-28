@@ -7,6 +7,8 @@ std::string sha256Hex(const std::string& data);
 std::string hmacSha256Hex(const std::string& key, const std::string& data);
 std::string hashPassword(const std::string& password);               // pbkdf2$iter$salt$hash
 bool verifyPassword(const std::string& password, const std::string& stored);
+// Compares two secrets in time that depends only on their lengths.
+bool constantTimeEquals(const std::string& a, const std::string& b);
 std::string uuid4();
 // Secrets at rest (per-server API keys): AES-256-GCM under a key derived from `masterSecret`.
 // Output is "v1:" + hex(iv | tag | ciphertext). openSecret throws on tampering or a wrong key.

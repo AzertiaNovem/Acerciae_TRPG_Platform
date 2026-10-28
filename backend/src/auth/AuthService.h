@@ -38,6 +38,12 @@ public:
     std::pair<std::string, std::string> avatar(const Principal& principal, const std::string& userId);
     void logout(const std::string& token);
     std::optional<Principal> authenticate(const std::string& token);
+    // Short-lived tokens for URLs a browser loads by itself (images, audio, downloads, the WebSocket), so the session
+    // token never lands in a URL, a proxy log or the browser history. Bound to the session: logging out revokes them.
+    Json::Value issueFileToken(const std::string& sessionToken);          // {token, expires_at}
+    std::optional<Principal> authenticateFileToken(const std::string& token);
+    // The session behind a session token or a file token, by its stored hash ("" when neither is valid).
+    std::string sessionHashOf(const std::string& token);
 
     // Authorisation helpers (throw ApiError 403/404)
     ChannelAccess channelAccess(const std::string& userId, const std::string& channelId);
