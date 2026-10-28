@@ -344,6 +344,36 @@ int main() {
         CHECK(!S.db->queryJson("SELECT 1 FROM player_scenario_outlines o JOIN player_group_members pm ON pm.group_id=o.group_id WHERE pm.user_id=$1", {p1User}).empty());
         (void)ask;
     });
+    test("narrative editing rejects placeholder-only evidence, updates one entry and skips repetition", [&] {
+        auto noise = say(gmUser, mainWin, "Narration", "narration");
+        auto noiseId = eventOf(noise["id"].asString())["id"].asString();
+        auto roll = say(gmUser, mainWin, ".r 1d100");
+        auto rollId = eventOf(roll["id"].asString())["id"].asString();
+        auto story = say(gmUser, mainWin, "The courier leaves a sealed violet letter beside the well.", "narration");
+        auto storyId = eventOf(story["id"].asString())["id"].asString();
+        auto evidence = say(gmUser, mainWin, "The violet letter is addressed to the Northwatch curator.", "narration");
+        auto evidenceId = eventOf(evidence["id"].asString())["id"].asString();
+        p1 = S.auth->channelAccess(p1User, channelId);
+        for (bool player : {false,true}) {
+            Proposal p; p.channelId=channelId; p.documentType="current_scene"; p.actor="ai";
+            if(player) {p.playerGroupId=p1.playerGroupId;p.playerGroupVersion=p1.playerGroupVersion;}
+            p.allowedSourceEventIds={noiseId,rollId,storyId,evidenceId};
+            Json::Value op; op["op"]="add_entry";op["fact"]["summary"]="A placeholder narration was sent, with no plot content.";op["fact"]["status"]="confirmed";op["fact"]["source_event_ids"].append(noiseId);p.ops.append(op);
+            auto rejected=S.documents->commit(p);CHECK(rejected.applied==0);CHECK(rejected.rejected==1);
+            op["fact"]["source_event_ids"][0]=rollId;op["fact"]["summary"]="An unexplained dice result was rolled.";p.ops[0]=op;
+            CHECK(S.documents->commit(p).applied==0);
+            op["fact"]["summary"]="The courier left a sealed violet letter by the well.";op["fact"]["source_event_ids"][0]=storyId;p.ops[0]=op;
+            auto added=S.documents->commit(p);CHECK(added.applied==1);auto fid=added.touchedFactIds.at(0);
+            Json::Value upd;upd["op"]="update_entry";upd["fact_id"]=fid;upd["summary"]="The courier's sealed violet letter by the well is addressed to the Northwatch curator.";upd["source_event_ids"].append(evidenceId);p.ops[0]=upd;
+            auto updated=S.documents->commit(p);CHECK(updated.applied==1);CHECK(updated.touchedFactIds.at(0)==fid);
+            auto fact=S.db->queryOne("SELECT * FROM knowledge_facts WHERE id=$1",{fid});CHECK(fact["source_event_ids"].size()==2);
+            CHECK(S.db->queryOne("SELECT count(*) AS n FROM document_entries WHERE document_id=$1 AND fact_id=$2 AND NOT removed",{added.documentId,fid})["n"].asInt()==1);
+            auto repeated=S.documents->commit(p);CHECK(repeated.applied==0);CHECK(repeated.version==updated.version);
+            CHECK(S.db->queryOne("SELECT version FROM knowledge_facts WHERE id=$1",{fid})["version"]==fact["version"]);
+        }
+        CHECK(S.chat->getMessage(gm,noise["id"].asString())["content"]=="Narration");
+        CHECK(S.chat->getMessage(gm,roll["id"].asString())["content"]==".r 1d100");
+    });
     test("one reminder plan maintains old entries and creates new ones, with evidence, scope and version guards", [&] {
         auto client = std::make_unique<ReminderPlanClient>(); auto* fixture = client.get();
         LlmGateway gateway(cfg, std::move(client));
@@ -546,6 +576,13 @@ int main() {
         LlmGateway gateway(cfg,std::move(recording));
         ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge,*S.scenarios,*S.reminders,*S.script);
         auto jobs=observer.observeChannel(ch,true); for(const auto& j:jobs) {if(j["status"]!="succeeded")std::cerr<<json::dump(j)<<"\n";CHECK(j["status"]=="succeeded");}
+        for (const auto& req : recorded->requests) if (req.task == "observer_extract") {
+            CHECK(req.system.find("Choose SKIP, UPDATE, or ADD") != std::string::npos);
+            CHECK(req.system.find("Do NOT create a meta-entry") != std::string::npos);
+            Json::Value context;
+            for (const auto& m : req.messages) if (m.role == "user") { try { auto v=json::parse(m.content); if(v.isMember("new_events")) context=v; } catch (...) {} }
+            for (const auto& e : context["new_events"]) if (e["kind"] == "message.posted") CHECK(e["payload"]["message_kind"].isString());
+        }
         int playerCalls=0,deniedToolResponses=0;
         for(const auto& req:recorded->requests) if(req.system.find("ONE player group")!=std::string::npos) {
             playerCalls++;

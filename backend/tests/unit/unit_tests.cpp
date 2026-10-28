@@ -1,3 +1,4 @@
+#include "documents/NarrativeMemoryPolicy.h"
 // Core unit tests: no database required.
 #include "characters/Coc7Rules.h"
 #include "core/NetGuard.h"
@@ -451,6 +452,25 @@ int main() {
         auto s = ScenarioService::mockSummary(sctx);
         CHECK(s["summary"].asString().find("Boarding house") != std::string::npos); CHECK(s["summary"].asString().find("Harvey Walters") != std::string::npos); CHECK(s["summary"].asString().find("Dice rolled: 1") != std::string::npos);
         CHECK(s["key_points"].size() >= 1); CHECK(s["title"] == "Hale opens the door and you");
+    });
+    test("narrative memory skips mechanical noise and reuses existing entries", [] {
+        auto e = json::parse(R"({"kind":"message.posted","event_id":"e1","actor_role":"gm","content":"Narration","payload":{"message_kind":"narration"}})");
+        CHECK(narrative_memory::obviousNonNarrative(e));
+        Json::Value ctx; ctx["new_events"].append(e); CHECK(MockLlmClient::observerExtract(ctx)["proposals"].empty());
+        e["content"] = "Anastasia rolled 1d100 = 75"; e["payload"]["dice"]["type"] = "roll";
+        CHECK(narrative_memory::obviousNonNarrative(e));
+        e["payload"]["dice"]["reason"] = "damage to the locked door"; CHECK(!narrative_memory::obviousNonNarrative(e));
+        e["payload"]["dice"]["type"] = "check"; e["payload"]["dice"]["reason"] = ""; CHECK(!narrative_memory::obviousNonNarrative(e));
+        e.removeMember("payload"); e["content"] = "You find a brass key under the mat.";
+        ctx["new_events"][0] = e;
+        auto first = MockLlmClient::observerExtract(ctx); CHECK(!first["proposals"].empty());
+        for (const auto& p : first["proposals"]) for (const auto& op : p["ops"]) { auto f = op["fact"]; f["fact_id"] = "existing-id"; ctx["documents"][p["document_type"].asString()]["entries"].append(f); }
+        CHECK(MockLlmClient::observerExtract(ctx)["proposals"].empty());
+        ctx["documents"]["clue_journal"]["entries"][0]["status"] = "attempted";
+        auto next = MockLlmClient::observerExtract(ctx); CHECK(next["proposals"].size() == 1);
+        CHECK(next["proposals"][0]["ops"][0]["op"] == "update_entry"); CHECK(next["proposals"][0]["ops"][0]["fact_id"] == "existing-id");
+        // A fictional scientific test is not excluded by a broad word blacklist.
+        e["content"] = "The laboratory test reveals poison in the well."; CHECK(!narrative_memory::obviousNonNarrative(e));
     });
     test("reminders keep only verbatim quotes from readable lines and the mock planner links new lines to earlier ones", [] {
         std::map<std::string, Json::Value> readable;

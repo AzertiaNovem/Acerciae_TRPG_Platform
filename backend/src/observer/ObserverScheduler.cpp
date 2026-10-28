@@ -1,3 +1,4 @@
+#include "../documents/NarrativeMemoryPolicy.h"
 #include "ObserverScheduler.h"
 #include "../events/EventStore.h"
 #include "../documents/DocumentService.h"
@@ -417,7 +418,7 @@ Json::Value ObserverScheduler::listJobs(const std::string& channelId, int limit)
 }
 
 std::string ObserverScheduler::observerSystemPrompt() {
-    return R"(You are the silent background chronicler of a Call of Cthulhu / BRP tabletop campaign. You never speak to the players. You read a batch of new chat events and propose structured, incremental updates to six living documents: current_scene, clue_journal, relationships, open_threads, timeline, module_progress (GM-only).
+    return std::string(R"(You are the silent background chronicler of a Call of Cthulhu / BRP tabletop campaign. You never speak to the players. You read a batch of new chat events and propose structured, incremental updates to six living documents: current_scene, clue_journal, relationships, open_threads, timeline, module_progress (GM-only).
 
 Rules:
 - Raw events are the only source of truth. Every op MUST cite source_event_ids from the batch you were given. Never invent ids.
@@ -435,7 +436,7 @@ Output strictly this JSON shape:
  "highlights":[{"fact_id":"...","reason":"...","source_event_ids":["..."],"kind":"association"}],
  "module_hints":[{"node_id":"...","reason":"...","source_event_ids":["..."]}],
  "scene_update":{"location":"...","narrative_time":"..."}}
-Data conventions: clue -> {title, source, discovered_by, handed_over:bool}; relationship -> {from, from_kind, to, to_kind, relation}; thread -> {title, thread_kind: question|foreshadowing|promise|agreement|deadline}; timeline -> {when}; scene_state -> {facet: location|action|event|npc_statement|status}; module_progress -> {node_id, node_name, node_type, progress}.)";
+Data conventions: clue -> {title, source, discovered_by, handed_over:bool}; relationship -> {from, from_kind, to, to_kind, relation}; thread -> {title, thread_kind: question|foreshadowing|promise|agreement|deadline}; timeline -> {when}; scene_state -> {facet: location|action|event|npc_statement|status}; module_progress -> {node_id, node_name, node_type, progress}.)") + narrative_memory::guidance();
 }
 
 Json::Value ObserverScheduler::observerSchema() {
