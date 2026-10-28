@@ -17,6 +17,7 @@ public:
     void windowChanged(const std::string& channelId, const Json::Value& window);
     void sceneChanged(const std::string& channelId, const Json::Value& scene);
     void characterUpdated(const std::string& channelId, const Json::Value& character);  // NPC changes reach GMs only
+    void channelUpdated(const std::string& channelId);   // settings or story state changed: members refetch the channel
     void serverSettingsChanged(const std::string& serverId, const Json::Value& publicSettings);  // every channel of the server
     // context stream
     void documentUpdated(const std::string& channelId, const Json::Value& payload);   // {document_id, doc_type, version, change_count, summary, gm_only}

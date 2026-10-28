@@ -9,6 +9,7 @@ import WindowMembersModal from './WindowMembersModal';
 import UserSettingsModal from './UserSettingsModal';
 import ServerSettingsModal from './ServerSettingsModal';
 import type { ChannelMember, ServerMember } from '../types';
+import { studioAccess } from './studio/access';
 
 export default function ChannelSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const nav = useNav();
@@ -26,7 +27,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   const f = (k: string) => form[k] ?? '';
   const set = (k: string, v: string) => setForm({ ...form, [k]: v });
   const isGm = nav.channel?.my_role === 'gm';
-  const studioOpen = nav.channel?.studio_visible !== false && nav.serverSettings?.features?.log_studio !== false;
+  const studioOpen = studioAccess(nav.channel, nav.serverSettings) === 'open';
   const myServerRole = nav.servers.find((s) => s.id === nav.serverId)?.my_role;
   const isMaintainer = myServerRole === 'owner' || myServerRole === 'admin';
   const isGuest = myServerRole === 'guest';

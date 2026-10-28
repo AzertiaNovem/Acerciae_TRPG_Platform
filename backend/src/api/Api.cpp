@@ -107,12 +107,17 @@ void ai2(const std::string& path, std::vector<drogon::internal::HttpConstraint> 
     app().registerHandler(path, [fn](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b) { offload(req, std::move(cb), {a, b}, fn); }, m);
 }
 ChannelAccess access(const Principal& p, const std::string& channelId) { return services().auth->channelAccess(p.userId, channelId); }
-// The Log Studio opens for every member only when the server maintainer has not turned it off and the GM has not hidden it.
+// The Log Studio, when the server maintainer has not turned it off: before the story ends, the Keeper decides whether
+// it is shown at all and whether players may open it; once the story has ended it opens to every member, so that
+// everyone can read the whole story.
 ChannelAccess studioAccess(const Principal& p, const std::string& channelId) {
     auto a = access(p, channelId);
     if (!services().settings->featureEnabled(a.serverId, "log_studio")) throw ApiError(403, "studio_disabled", "The Log Studio is turned off by the server maintainer");
-    auto row = services().db->queryOne("SELECT studio_visible FROM channels WHERE id=$1", {a.channelId});
-    if (row.isNull() || !row["studio_visible"].asBool()) throw ApiError(403, "studio_hidden", "The Keeper has hidden the Log Studio in this channel");
+    auto row = services().db->queryOne("SELECT studio_visible, studio_player_access, story_status FROM channels WHERE id=$1", {a.channelId});
+    if (row.isNull()) throw notFound("channel not found");
+    if (row["story_status"].asString() == "ended") return a;
+    if (!row["studio_visible"].asBool()) throw ApiError(403, "studio_hidden", "The Keeper has hidden the Log Studio in this channel");
+    if (!a.isGm && !row["studio_player_access"].asBool()) throw ApiError(403, "studio_locked", "The Keeper opens the Log Studio to players when the story ends");
     return a;
 }
 Json::Value ok() { Json::Value v; v["ok"] = true; return v; }
@@ -177,6 +182,8 @@ void registerRoutes() {
     // ---- channels / members / characters ----
     route1("/api/channels/{1}", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->getChannel(access(p, a[0])); });
     route1("/api/channels/{1}", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->updateChannel(access(p, a[0]), body(req)); });
+    route1("/api/channels/{1}/story/end", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->endStory(access(p, a[0]), body(req)); });
+    route1("/api/channels/{1}/story/reopen", {Post}, [&](auto&, auto& p, auto& a) { return S.chat->reopenStory(access(p, a[0])); });
     route1("/api/channels/{1}/members", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->channelMembers(access(p, a[0])); });
     route1("/api/channels/{1}/members", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto who = json::str(b, "user_id", json::str(b, "username")); if (who.empty()) throw badRequest("user_id or username required"); return S.chat->addChannelMember(access(p, a[0]), who, json::str(b, "role", "player")); });
     route2("/api/channels/{1}/members/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeChannelMember(access(p, a[0]), a[1]); });

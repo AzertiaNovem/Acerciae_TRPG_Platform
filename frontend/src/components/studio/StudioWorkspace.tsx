@@ -1,4 +1,5 @@
 import { t as tr } from '../../i18n';
+import { studioAccess } from './access';
 import { useEffect } from 'react';
 import { useNav } from '../../store/nav';
 import { useStudio, type StudioView } from '../../store/studio';
@@ -18,12 +19,13 @@ export default function StudioWorkspace() {
   const { channelId, channel, serverSettings, setStudioOpen } = useNav();
   const { view, setView, loadLog, snapshot } = useStudio();
   const isGm = channel?.my_role === 'gm';
-  const allowed = channel?.studio_visible !== false && serverSettings?.features?.log_studio !== false;
+  const access = studioAccess(channel, serverSettings);
+  const allowed = access === 'open';
   useEffect(() => { if (channelId && allowed) loadLog(channelId).catch(() => undefined); }, [channelId, loadLog, allowed]);
   if (!allowed) return (
     <div className="workspace"><div className="content"><div className="card">
       <h3>{tr("Log Studio")}</h3>
-      <div className="muted small">{serverSettings?.features?.log_studio === false ? tr("The server maintainer has turned the Log Studio off for this server.") : tr("The Keeper has hidden the Log Studio in this channel.")}</div>
+      <div className="muted small">{access === 'disabled' ? tr("The server maintainer has turned the Log Studio off for this server.") : access === 'locked' ? tr("The Keeper opens the Log Studio to players when the story ends.") : tr("The Keeper has hidden the Log Studio in this channel.")}</div>
       <button style={{ marginTop: 8 }} onClick={() => setStudioOpen(false)}>{tr("← back to chat")}</button>
     </div></div></div>
   );

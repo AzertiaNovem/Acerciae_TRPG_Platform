@@ -62,6 +62,10 @@ void Notifier::windowChanged(const std::string& channelId, const Json::Value& wi
     Json::Value msg; msg["type"] = "window.changed"; msg["channel_id"] = channelId; msg["window"]["id"] = window["id"];
     WsGateway::instance().broadcast("chat", channelId, msg);
 }
+void Notifier::channelUpdated(const std::string& channelId) {
+    Json::Value msg; msg["type"] = "channel.updated"; msg["channel_id"] = channelId;
+    WsGateway::instance().broadcast("chat", channelId, msg);
+}
 void Notifier::sceneChanged(const std::string& channelId, const Json::Value& scene) {
     Json::Value msg; msg["type"] = "scene.changed"; msg["channel_id"] = channelId; msg["scene"] = scene;
     std::set<std::string> allowed; for(const auto& u : gmUsers(channelId)) allowed.insert(u);

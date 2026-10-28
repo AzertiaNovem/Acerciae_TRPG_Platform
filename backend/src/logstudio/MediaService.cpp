@@ -46,7 +46,8 @@ static const std::string ASSET_COLS = "id, channel_id, asset_type, source_type, 
 
 Json::Value MediaService::list(const ChannelAccess& a, const std::string& type, const std::string& characterId, const std::string& approval) {
     std::string sql = "SELECT " + ASSET_COLS + " FROM media_assets WHERE channel_id=$1"; DbParams p{a.channelId};
-    if (!a.isGm) sql += " AND visibility_scope='channel' AND approval_status='approved'";
+    // Players never list an NPC's art: the library would otherwise name NPCs they have not met.
+    if (!a.isGm) sql += " AND visibility_scope='channel' AND approval_status='approved' AND (character_id IS NULL OR EXISTS (SELECT 1 FROM characters c WHERE c.id=media_assets.character_id AND c.kind='pc'))";
     if (!type.empty()) { p.push_back(type); sql += " AND asset_type=$" + std::to_string(p.size()); }
     if (!characterId.empty()) { p.push_back(characterId); sql += " AND character_id=$" + std::to_string(p.size()); }
     if (!approval.empty() && a.isGm) { p.push_back(approval); sql += " AND approval_status=$" + std::to_string(p.size()); }
@@ -56,6 +57,9 @@ Json::Value MediaService::list(const ChannelAccess& a, const std::string& type, 
 Json::Value MediaService::get(const ChannelAccess& a, const std::string& id) {
     auto r = db_.queryOne("SELECT " + ASSET_COLS + " FROM media_assets WHERE id=$1 AND channel_id=$2" + std::string(a.isGm ? "" : " AND visibility_scope='channel' AND approval_status='approved'"), {id, a.channelId});
     if (r.isNull()) throw notFound("asset not found");
+    if (!a.isGm && r["character_id"].isString() && db_.queryOne("SELECT 1 AS ok FROM characters WHERE id=$1 AND kind='npc'", {r["character_id"].asString()}).isMember("ok")) {
+        r.removeMember("prompt"); r.removeMember("source_reference");   // an NPC's appearance notes stay with the Keeper
+    }
     r["versions"] = db_.queryJson("SELECT version, mime, bytes, note, created_at FROM asset_versions WHERE asset_id=$1 ORDER BY version DESC", {id});
     return r;
 }
@@ -103,9 +107,11 @@ Json::Value MediaService::update(const ChannelAccess& a, const std::string& id, 
     auto approval = json::str(body, "approval_status", cur["approval_status"].asString());
     if (approval != cur["approval_status"].asString() && !a.isGm) throw forbidden("only the GM approves assets");
     if (approval != "candidate" && approval != "approved" && approval != "rejected") throw badRequest("invalid approval_status");
+    auto charId = json::str(body, "character_id", cur["character_id"].isNull() ? "" : cur["character_id"].asString());
+    if (!charId.empty() && (!Visibility::isUuid(charId) || db_.queryOne("SELECT id FROM characters WHERE id=$1 AND channel_id=$2", {charId, a.channelId}).isNull())) throw badRequest("character not in channel");
     return db_.queryOne("UPDATE media_assets SET name=$3, tags=$4::text[], expression=$5, outfit=$6, character_id=$7, approval_status=$8, visibility_scope=$9, license_metadata=$10::jsonb, updated_at=now() WHERE id=$1 AND channel_id=$2 RETURNING " + ASSET_COLS,
         {id, a.channelId, json::str(body, "name", cur["name"].asString()), pgArrayLiteral(body.isMember("tags") ? json::strArray(body["tags"]) : json::strArray(cur["tags"])), json::str(body, "expression", cur["expression"].asString()), json::str(body, "outfit", cur["outfit"].asString()),
-         opt(json::str(body, "character_id", cur["character_id"].isNull() ? "" : cur["character_id"].asString())), approval, a.isGm ? json::str(body, "visibility_scope", cur["visibility_scope"].asString()) : cur["visibility_scope"].asString(), json::dump(body.isMember("license_metadata") ? body["license_metadata"] : cur["license_metadata"])});
+         opt(charId), approval, a.isGm ? json::str(body, "visibility_scope", cur["visibility_scope"].asString()) : cur["visibility_scope"].asString(), json::dump(body.isMember("license_metadata") ? body["license_metadata"] : cur["license_metadata"])});
 }
 Json::Value MediaService::newVersion(const ChannelAccess& a, const std::string& id, const std::string& fileName, const std::string& bytes, const std::string&, const std::string& note) {
     auto cur = db_.queryOne("SELECT * FROM media_assets WHERE id=$1 AND channel_id=$2", {id, a.channelId});

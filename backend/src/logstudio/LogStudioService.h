@@ -55,7 +55,11 @@ public:
 
     // helpers used by other studio services
     Json::Value projectRow(const ChannelAccess& a, const std::string& projectId);
-    static bool eventVisibleTo(const ChannelAccess& a, const std::string& visibility, const std::vector<std::string>& audience);
+    // " AND <predicate>" limiting log_events rows (aliased `le`) to what the viewer may read; "" for the Keeper.
+    std::string scopeSql(const ChannelAccess& a, const std::string& le);
+    // Before the story ends players see "Scenario N" instead of scenario titles and locations.
+    void maskScenes(const std::string& channelId, std::vector<LogEvent>& events);
+    void maskScenes(const std::string& channelId, Json::Value& rows);
     void audit(const ChannelAccess& a, const std::string& action, const Json::Value& target);
 private:
     std::vector<LogEvent> loadEvents(pqxx::work& w, const std::string& projectId, const std::vector<std::string>& ids);

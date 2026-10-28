@@ -38,6 +38,10 @@ public:
     Json::Value createChannel(const Principal& p, const std::string& serverId, const Json::Value& body);
     Json::Value getChannel(const ChannelAccess& a);
     Json::Value updateChannel(const ChannelAccess& a, const Json::Value& body);
+    // The Keeper ends the story: every member can then read the whole story in the campaign log, Keeper-only lines
+    // included when `reveal_keeper_lines` is set. Reopening returns to the Keeper's own visibility rules.
+    Json::Value endStory(const ChannelAccess& a, const Json::Value& body);
+    Json::Value reopenStory(const ChannelAccess& a);
     // `user` is a user id or a username. Someone outside the server is added as a member when a maintainer invites
     // them, as a guest (who sees only the channels they are invited to) when the server allows guest invites, and is
     // refused otherwise.

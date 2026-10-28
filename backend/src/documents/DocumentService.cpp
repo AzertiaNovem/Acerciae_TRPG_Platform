@@ -407,7 +407,8 @@ Json::Value DocumentService::getDocument(const ChannelAccess& a, const std::stri
     if (doc["doc_type"].asString() == "current_scene" && sceneId!="all") {
         std::string sid = sceneId;
         if (sid.empty()) { auto ch = db_.queryOne("SELECT current_scene_id FROM channels WHERE id=$1", {a.channelId}); if (!ch.isNull() && !ch["current_scene_id"].isNull()) sid = ch["current_scene_id"].asString(); }
-        if (!sid.empty()) { p.push_back(sid); sql += " AND f.scene_id=$2"; doc["scene_id"] = sid; auto sc = db_.queryOne("SELECT title, location, narrative_time, status FROM scenes WHERE id=$1", {sid}); if(a.isGm) doc["scene"] = sc; }
+        if (!sid.empty() && !Visibility::isUuid(sid)) throw badRequest("invalid scene id");
+        if (!sid.empty()) { p.push_back(sid); sql += " AND f.scene_id=$2"; doc["scene_id"] = sid; auto sc = db_.queryOne("SELECT title, location, narrative_time, status FROM scenes WHERE id=$1 AND channel_id=$2", {sid, a.channelId}); if(a.isGm) doc["scene"] = sc; }
     }
     sql += " ORDER BY de.section, de.position";
     auto entries = db_.queryJson(sql, p);

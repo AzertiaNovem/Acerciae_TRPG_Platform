@@ -1,5 +1,5 @@
 import { t as tr, currentLocale } from '../i18n';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
@@ -86,14 +86,30 @@ function ChannelSettings() {
   const toast = useUi((s) => s.toast);
   const [groups, setGroups] = useState<DiceTextGroup[]>([]);
   const [members, setMembers] = useState<ChannelMember[]>([]);
-  const [form, setForm] = useState({ name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, dice_text_group: '', era: '', studio_visible: true });
-  useEffect(() => { if (channel) setForm({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false }); }, [channel]);
+  const blank = { name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, dice_text_group: '', era: '', studio_visible: true, studio_player_access: true };
+  const [form, setFormState] = useState(blank);
+  const [dirty, setDirty] = useState(false);
+  const setForm = (f: typeof blank) => { setFormState(f); setDirty(true); };
+  const [revealKeeper, setRevealKeeper] = useState(false);
+  // Refill from the channel when it changes — but never over edits the Keeper has not saved yet.
+  const loadedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!channel || (dirty && loadedFor.current === channel.id)) return;
+    loadedFor.current = channel.id; setDirty(false);
+    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false });
+  }, [channel, dirty]);
   useEffect(() => {
     if (serverId) api.diceTextGroups(serverId).then(setGroups).catch(() => undefined);
     if (channelId) api.channelMembers(channelId).then(setMembers).catch(() => undefined);
   }, [serverId, channelId]);
   if (!channelId || !channel) return null;
-  const save = async () => { try { await api.updateChannel(channelId, form as any); await refreshChannel(); toast('Channel settings saved'); } catch (e: any) { toast(e.message, 'error'); } };
+  const save = async () => { try { await api.updateChannel(channelId, form as any); setDirty(false); await refreshChannel(); toast('Channel settings saved'); } catch (e: any) { toast(e.message, 'error'); } };
+  const ended = channel.story_status === 'ended';
+  const endStory = async () => {
+    if (!confirm(tr('End the story? Every member of this channel will be able to read the whole story in the Log Studio.'))) return;
+    try { await api.endStory(channelId, revealKeeper); await refreshChannel(); toast('The story has ended'); } catch (e: any) { toast(e.message, 'error'); }
+  };
+  const reopenStory = async () => { try { await api.reopenStory(channelId); await refreshChannel(); toast('The story is open again'); } catch (e: any) { toast(e.message, 'error'); } };
   const remove = async (m: ChannelMember) => {
     if (!confirm(`Remove ${m.display_name} from this channel? They leave every chat window here; their characters stay.`)) return;
     try { setMembers(await api.removeChannelMember(channelId, m.id)); await refreshWindows(); } catch (e: any) { toast(e.message, 'error'); }
@@ -124,7 +140,19 @@ function ChannelSettings() {
         <div className="tiny muted">{tr("The image AI uses the era for portraits and backgrounds.")}</div>
         <label className="row small"><input type="checkbox" checked={form.studio_visible} onChange={(e) => setForm({ ...form, studio_visible: e.target.checked })} disabled={studioAllowed === false} />{tr("Log Studio available in this channel")}</label>
         <div className="tiny muted">{studioAllowed === false ? tr("The server maintainer has turned the Log Studio off for this server.") : tr("When it is on, every member can read the campaign log in their own scope, export it, and make PDFs or visual novels from it.")}</div>
+        <label className="row small"><input type="checkbox" checked={form.studio_player_access} onChange={(e) => setForm({ ...form, studio_player_access: e.target.checked })} disabled={studioAllowed === false || !form.studio_visible} />{tr("Players may open the Log Studio before the story ends")}</label>
         <div className="row"><span className="grow" /><button className="primary" onClick={save}>{tr("Save")}</button></div>
+      </div>
+      <div className="card col">
+        <h3>{tr("Story")} <span className={`pill ${ended ? 'ok' : ''}`}>{ended ? tr("ended") : tr("ongoing")}</span></h3>
+        {ended ? (<>
+          <div className="small">{channel.story_reveal_all ? tr("Every member can read the whole story in the Log Studio, Keeper-only lines included.") : tr("Every member can read the whole story in the Log Studio. Keeper-only lines stay with you.")}</div>
+          <div className="row"><span className="grow" /><button onClick={reopenStory}>{tr("Reopen the story")}</button></div>
+        </>) : (<>
+          <div className="tiny muted">{tr("When the story ends, the Log Studio opens to every member and the campaign log shows them the whole story: every chat window, whispers and hidden rolls, and the scenario titles.")}</div>
+          <label className="row small"><input type="checkbox" checked={revealKeeper} onChange={(e) => setRevealKeeper(e.target.checked)} />{tr("Also reveal Keeper-only lines")}</label>
+          <div className="row"><span className="grow" /><button className="primary" onClick={endStory}>{tr("End the story")}</button></div>
+        </>)}
       </div>
       <PlayerGroups />
       <div className="card">

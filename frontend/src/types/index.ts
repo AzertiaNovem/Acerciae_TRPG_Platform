@@ -10,7 +10,8 @@ export interface SpectateView { channel: { id: string; server_id: string; name: 
 export interface Channel {
   id: string; server_id: string; name: string; description: string; rule_system: string;
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
-  knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean;
+  knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean; studio_player_access?: boolean;
+  story_status?: 'ongoing' | 'ended'; story_ended_at?: string | null; story_reveal_all?: boolean;
   ai_enabled: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }

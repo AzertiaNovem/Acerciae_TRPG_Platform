@@ -46,7 +46,9 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 | GET/POST | `/servers/{id}/channels` | create `{name, description?, knowledge_mode: public|isolated, rule_system?}` — creator becomes GM; Main Chat + 6 documents created |
 
 ## Channels
-| GET/PUT | `/channels/{id}` | details incl. `my_role`, `my_character_ids`, `player_group_id`, `player_group_version`, `player_group_name`; GM may update `name, description, knowledge_mode, ai_enabled, dice_text_group` (`''` = follow server language, `builtin:en`, `builtin:zh`, or a text group id) |
+| GET/PUT | `/channels/{id}` | details incl. `my_role`, `my_character_ids`, `player_group_id`, `player_group_version`, `player_group_name`; GM may update `name, description, knowledge_mode, ai_enabled, dice_text_group` (`''` = follow server language, `builtin:en`, `builtin:zh`, or a text group id), `studio_visible`, `studio_player_access`; also returns `story_status: ongoing|ended`, `story_ended_at`, `story_reveal_all` |
+| POST | `/channels/{id}/story/end` | GM: `{reveal_keeper_lines?}` — every member may then open the Log Studio and read the whole story (Keeper-only lines only when revealed); members get `channel.updated` on the chat socket |
+| POST | `/channels/{id}/story/reopen` | GM: back to the Keeper's Studio switches and per-player visibility |
 | GET/POST | `/channels/{id}/members` | add `{user_id | username, role: gm|player}` (GM; the user must already be on the server unless the GM is a server maintainer) |
 | DELETE | `/channels/{id}/members/{uid}` | (GM) also removes them from every chat window of the channel |
 | GET/POST | `/channels/{id}/characters` | create `{name, kind: pc|npc, speaking_style?, sheet?, description?}` (NPC: GM) |

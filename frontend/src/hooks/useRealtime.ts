@@ -23,6 +23,7 @@ export function useRealtime() {
       else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows(); }
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
       else if (m.type === 'character.updated') useNav.getState().refreshCharacters();
+      else if (m.type === 'channel.updated') useNav.getState().refreshChannel();
       else if (m.type === 'server.settings') { useNav.getState().applyServerSettings(m.settings); useNav.getState().loadSpectatable().catch(() => undefined); }
     });
     const offCtx = contextSocket.on((m) => {

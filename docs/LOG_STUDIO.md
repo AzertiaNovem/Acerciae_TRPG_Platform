@@ -17,6 +17,30 @@ Exports need no snapshot and are available to every member within their own view
 SealDice-compatible JSON per chat window (`{version:105, items[]}` as story-painter reads it, with the structured
 dice result under `commandInfo`), and a zip of all of them.
 
+## Who reads what
+
+Access to the Log Studio (`studioAccess`): the server maintainer can turn the feature off for the whole server.
+Before the story ends, the Keeper decides whether the Studio is shown in the channel at all (`studio_visible`) and
+whether players may open it (`studio_player_access`; refused with 403 `studio_locked`). When the Keeper ends the story
+(`POST /channels/{id}/story/end {reveal_keeper_lines?}`), the Studio opens to every member regardless of those
+switches; `POST /channels/{id}/story/reopen` restores them.
+
+Which lines a reader sees is decided when they read, never frozen at sync time:
+
+* the Keeper reads everything;
+* before the end, a player reads a line from the channel's chat only if the chat itself lets their player group read
+  it (`player_group_readable_messages`), whatever the knowledge mode — a Keeper side window, another group's window or
+  a Keeper-only line never appears. Whispers (hidden rolls included) stay with the characters they were addressed to,
+  even inside a shared group. Scenario titles and locations read "Scenario N", and a scenario the Keeper only
+  prepared is not a line at all;
+* after the end, every member reads the whole story — every window, whispers and hidden rolls, real scenario titles —
+  except Keeper-only lines, which appear only if the Keeper chose to reveal them.
+
+Snapshot scopes use the same rules: `pl_public` holds the lines every player group can read (never a whisper),
+`character` the lines that character's player can read. A players' snapshot made before the end freezes masked
+scenario titles. Presentations and publications show player characters' visuals plus the NPCs who speak in their
+lines; an NPC's art never appears in a player's media library and its appearance notes stay with the Keeper.
+
 ## Snapshots, privacy and publication
 
 Snapshots freeze ordered event text/metadata, role mappings, scene labels, scope and creation version. New chat events require explicit sync and a new snapshot. Current access restrictions are also checked when reading a working snapshot. GM-only, public-player and per-character snapshots are distinct. UI hiding is not the permission boundary: API, TTS jobs/audio, images and PDF downloads check access independently.

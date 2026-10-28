@@ -288,9 +288,9 @@ bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, 
         bool allowed = refs.empty() && row["created_by"] == a.userId;
         for (const auto& ref : refs) {
             try { pres_.presentationRow(a,ref["presentation_id"].asString()); } catch (const ApiError&) { continue; }
-            auto ids=json::strArray(ref["merged_event_ids"]); ids.push_back(ref["canonical_event_id"].asString()); bool all=true;
-            for(const auto& id:ids) { auto e=db_.queryOne("SELECT visibility_scope,audience FROM log_events WHERE id=$1 AND channel_id=$2",{id,a.channelId}); if(e.isNull()||!LogStudioService::eventVisibleTo(a,json::str(e,"visibility_scope"),json::strArray(e["audience"]))) {all=false;break;} }
-            if(all) {allowed=true;break;}
+            auto ids=json::strArray(ref["merged_event_ids"]); ids.push_back(ref["canonical_event_id"].asString());
+            auto n=db_.queryOne("SELECT count(*) AS n FROM log_events le WHERE le.channel_id=$1 AND le.id = ANY(" + Visibility::uuidArray(ids) + ") AND " + visibleLogFilter(a, storyState(db_, a.channelId), "le"),{a.channelId});
+            if(n["n"].asInt64()==(int64_t)std::set<std::string>(ids.begin(),ids.end()).size()) {allowed=true;break;}
         }
         if(!allowed) return false;
     }

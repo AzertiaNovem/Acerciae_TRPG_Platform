@@ -247,8 +247,21 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
         if (!Visibility::isUuid(group) || db_.queryOne("SELECT 1 AS ok FROM dice_text_groups WHERE id=$1 AND server_id=$2", {group, a.serverId}).isNull())
             throw badRequest("unknown dice text group");
     }
-    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9 WHERE id=$1",
-        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool()), group, json::toBool(body, "auto_scenarios", cur["auto_scenarios"].asBool()), json::str(body, "era", cur["era"].asString()).substr(0, 80), json::toBool(body, "studio_visible", cur["studio_visible"].asBool())});
+    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10 WHERE id=$1",
+        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool()), group, json::toBool(body, "auto_scenarios", cur["auto_scenarios"].asBool()), json::str(body, "era", cur["era"].asString()).substr(0, 80), json::toBool(body, "studio_visible", cur["studio_visible"].asBool()), json::toBool(body, "studio_player_access", cur["studio_player_access"].asBool())});
+    notifier_.channelUpdated(a.channelId);
+    return getChannel(a);
+}
+Json::Value ChatService::endStory(const ChannelAccess& a, const Json::Value& body) {
+    auth_.requireGm(a);
+    db_.exec("UPDATE channels SET story_status='ended', story_ended_at=coalesce(story_ended_at, now()), story_reveal_all=$2 WHERE id=$1", {a.channelId, json::toBool(body, "reveal_keeper_lines")});
+    notifier_.channelUpdated(a.channelId);
+    return getChannel(a);
+}
+Json::Value ChatService::reopenStory(const ChannelAccess& a) {
+    auth_.requireGm(a);
+    db_.exec("UPDATE channels SET story_status='ongoing', story_ended_at=NULL, story_reveal_all=false WHERE id=$1", {a.channelId});
+    notifier_.channelUpdated(a.channelId);
     return getChannel(a);
 }
 Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::string& user, const std::string& role) {

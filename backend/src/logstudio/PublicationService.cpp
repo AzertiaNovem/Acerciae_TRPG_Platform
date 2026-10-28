@@ -326,6 +326,8 @@ Json::Value PublicationService::publish(const ChannelAccess &a,
     auto p = pres_.get(a, pid);
     if (p["snapshot_id"] != snap["id"])
       throw badRequest("presentation snapshot mismatch");
+    if (vis != "gm")
+      PresentationService::limitVisuals(p);
     auto freeze = [&](const std::string &asset, int version) {
       if (asset.empty())
         return;

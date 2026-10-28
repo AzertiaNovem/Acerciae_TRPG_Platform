@@ -47,6 +47,8 @@ public:
 private:
     bool canEdit(const ChannelAccess& a, const Json::Value& pres);
     const Config& cfg_; Db& db_; Notifier& notifier_; LogStudioService& studio_;
+public:
+    static void limitVisuals(Json::Value& presentation);   // what a shared presentation may show of the cast
 };
 
 } // namespace

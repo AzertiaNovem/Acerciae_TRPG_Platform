@@ -7,6 +7,7 @@
 #include "../knowledge/Visibility.h"
 #include <cmath>
 #include <map>
+#include <set>
 #include <regex>
 #include <set>
 #include <tuple>
@@ -149,9 +150,8 @@ Json::Value PresentationService::get(const ChannelAccess& a, const std::string& 
     for (auto& r : rows) {
         auto it=frozen.find(json::str(r,"canonical_event_id")); if(it==frozen.end())continue;
         auto stored=it->second.toJson(); for(const auto key:{"content","event_type","speaker_display_name","speaker_role","dice","media","sequence_number"})r[key]=stored[key];
-        // Canonical visibility is re-checked per viewer at read time: a GM-only line never reaches a player even
-        // if a presentation was built by the GM and later shared.
-        if (!LogStudioService::eventVisibleTo(a, r["visibility_scope"].isNull() ? "public" : r["visibility_scope"].asString(), json::strArray(r["audience"]))) continue;
+        // `frozen` holds only the lines this viewer may read now (snapshotEvents re-checks each one), so a GM-only
+        // line never reaches a player even if a presentation was built by the GM and later shared.
         if (!r["segment_text"].isNull()) r["display_text"] = r["segment_text"]; else r["display_text"] = r["content"];
         if (!r["merged_event_ids"].isNull() && r["merged_event_ids"].isArray() && !r["merged_event_ids"].empty()) {
             auto ids = json::strArray(r["merged_event_ids"]);
@@ -163,8 +163,17 @@ Json::Value PresentationService::get(const ChannelAccess& a, const std::string& 
     }
     p["events"] = visible;
     p["can_edit"] = canEdit(a, p);
-    p["character_visuals"] = db_.queryJson("SELECT cv.*, c.name FROM character_visual_profiles cv JOIN characters c ON c.id=cv.character_id WHERE cv.channel_id=$1", {a.channelId});
+    p["character_visuals"] = db_.queryJson("SELECT cv.*, c.name, c.kind FROM character_visual_profiles cv JOIN characters c ON c.id=cv.character_id WHERE cv.channel_id=$1", {a.channelId});
+    if (!a.isGm) limitVisuals(p);
     return p;
+}
+void PresentationService::limitVisuals(Json::Value& p) {
+    // Player characters, and only those NPCs who speak in the lines this presentation shows.
+    std::set<std::string> speakers;
+    for (const auto& e : p["events"]) if (e["speaker_character_id"].isString()) speakers.insert(e["speaker_character_id"].asString());
+    Json::Value kept(Json::arrayValue);
+    for (const auto& v : p["character_visuals"]) if (json::str(v, "kind") == "pc" || speakers.count(json::str(v, "character_id"))) kept.append(v);
+    p["character_visuals"] = kept;
 }
 Json::Value PresentationService::update(const ChannelAccess& a, const std::string& id, const Json::Value& body) {
     auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
