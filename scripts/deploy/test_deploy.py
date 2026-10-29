@@ -1,5 +1,7 @@
 """Exercise release failure boundaries without touching a live server or database."""
 import io
+import hashlib
+import json
 from pathlib import Path
 import subprocess
 import tarfile
@@ -90,9 +92,42 @@ class DeploymentTests(unittest.TestCase):
             output.addfile(member, io.BytesIO(b'bad'))
         with patch.object(deploy, 'run') as run:
             with self.assertRaises(RuntimeError):
-                deploy.prepare(archive, self.root / 'unpack', self.root)
+                deploy.prepare(archive, self.root / 'unpack', self.root, 'b'*40, hashlib.sha256(archive.read_bytes()).hexdigest())
             run.assert_not_called()
         self.assertFalse((self.root / 'outside').exists())
+
+
+    def release_archive(self, tree='b'*40):
+        root = self.root / 'package'
+        (root / 'backend/build').mkdir(parents=True)
+        (root / 'backend/migrations').mkdir()
+        (root / 'backend/build/acerciae-server').write_bytes(b'\x7fELFfixture')
+        (root / 'backend/build/acerciae-server').chmod(0o755)
+        (root / 'pdf-worker/node_modules').mkdir(parents=True)
+        (root / 'build.json').write_text(json.dumps({'schema': 1, 'tree': tree, 'platform': 'ubuntu-24.04-x86_64'}))
+        archive = self.root / 'release.tar.gz'
+        with tarfile.open(archive, 'w:gz') as out:
+            for path in root.iterdir():
+                out.add(path, arcname=path.name)
+        return archive
+
+    def test_prebuilt_release_never_compiles_or_installs_dependencies(self):
+        archive = self.release_archive()
+        with patch.object(deploy.platform, 'system', return_value='Linux'), patch.object(deploy.platform, 'machine', return_value='x86_64'), patch.object(deploy, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='libraries resolved')) as run:
+            deploy.prepare(archive, self.root / 'unpack', self.root, 'b'*40, hashlib.sha256(archive.read_bytes()).hexdigest())
+        commands = [c.args[0] for c in run.call_args_list]
+        self.assertEqual(len(commands), 3)
+        self.assertEqual(commands[0][0], 'ldd')
+        self.assertEqual(commands[1][1], '--help')
+        self.assertEqual(commands[2], ['npm', 'test'])
+
+    def test_wrong_tree_or_archive_checksum_never_runs_binary(self):
+        archive = self.release_archive()
+        for tree, checksum in [('c'*40, hashlib.sha256(archive.read_bytes()).hexdigest()), ('b'*40, '0'*64)]:
+            with patch.object(deploy, 'run') as run:
+                with self.assertRaises(RuntimeError):
+                    deploy.prepare(archive, self.root / tree, self.root, tree, checksum)
+                run.assert_not_called()
 
 
 if __name__ == '__main__':
