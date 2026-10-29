@@ -47,6 +47,7 @@ fi
 echo "== every server deletes cleanly"
 psql "$PGBASE/acerciae_e2e" -q -v ON_ERROR_STOP=1 -c "BEGIN" -c "DELETE FROM servers" -c "SELECT 'left: ' || ((SELECT count(*) FROM channels) + (SELECT count(*) FROM messages) + (SELECT count(*) FROM media_assets))" -c "ROLLBACK"
 
+echo "== gm-agent tests"; (cd "$ROOT/gm-agent" && [ -d node_modules ] || npm ci --silent) && (cd "$ROOT/gm-agent" && npm test --silent)
 echo "== pdf worker tests"; (cd "$ROOT/pdf-worker" && [ -d node_modules ] || npm ci --silent) && (cd "$ROOT/pdf-worker" && npm test --silent)
 echo "== frontend typecheck, tests and build"
 (cd "$ROOT/frontend" && [ -d node_modules ] || npm ci --silent)

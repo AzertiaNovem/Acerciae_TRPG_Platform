@@ -249,6 +249,19 @@ See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.
 [PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the
 shared mobile-facing contracts; `mobile/` development is maintained independently.
 
+## AI Game Master client
+
+[`gm-agent/`](gm-agent/README.md) is an optional Node.js client that sits at the table as the Keeper through the same
+HTTP + WebSocket API the web and mobile apps use. It narrates and voices the NPCs with the Keeper's full context,
+including the platform's AI tips (board, reminders, script knowledge, documents, highlights). It also plays a chosen
+number of **co-players**: AI investigators whose COC7 role cards its LLM writes, and who see only the chat lines their
+character witnessed.
+
+```bash
+cd gm-agent && npm install && cp .env.example .env   # account, ANTHROPIC_API_KEY (or another provider)
+node src/cli.mjs setup --coplayers 3 && CHANNEL_ID=<printed id> npm start
+```
+
 ## Tests
 
 ```bash
@@ -261,6 +274,7 @@ backend/build/unit_tests             # no DB needed
 API_BASE=http://localhost:8080 node --test --test-concurrency=1 tests/integration/*.test.mjs
 npm --prefix pdf-worker test
 npm --prefix frontend test && npm --prefix frontend run build
+npm --prefix gm-agent test
 ```
 
 See [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) for how each mandated scenario is exercised and how to
@@ -274,6 +288,7 @@ reproduce it by hand with the demo campaign.
 * [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) — the seven scenarios
 * [docs/OPERATIONS.md](docs/OPERATIONS.md) — deployment checklist, TLS, backups and restore, upgrades, housekeeping
 * [docs/SERVER_AI_SETTINGS.zh-CN.md](docs/SERVER_AI_SETTINGS.zh-CN.md) — server AI providers and AI policy
+* [gm-agent/README.md](gm-agent/README.md) — the AI Game Master client: roles, what each role sees, configuration
 
 ## Known limitations (explicitly out of the MVP)
 
