@@ -1,12 +1,14 @@
 #include "AnthropicClient.h"
 #include "../core/Json.h"
 #include "HttpTransport.h"
+#include "StreamResponse.h"
 #include "../core/Log.h"
 
 namespace acerciae {
 Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoint& ep) {
     Json::Value b;
     b["model"] = ep.model;
+    b["stream"] = true;
     b["max_tokens"] = req.maxTokens > 0 ? req.maxTokens : ep.maxTokens;
     std::string system = req.system;
     if (!req.responseSchema.isNull())
@@ -85,7 +87,7 @@ LlmResponse AnthropicClient::complete(const LlmRequest& req) {
         ALOG_WARN << "Anthropic HTTP " << res.status << " for task " << req.task << ": " << llm::excerpt(res.body);
         result.error = "the AI provider returned HTTP " + std::to_string(res.status); return result;
     }
-    try { return parseResponse(json::parse(res.body)); }
-    catch (...) { result.error = "invalid Anthropic response JSON"; return result; }
+    try { return parseResponse(llm::anthropicResponse(res.body)); }
+    catch (const std::exception& e) { result.error = std::string("invalid Anthropic response: ")+e.what(); return result; }
 }
 }

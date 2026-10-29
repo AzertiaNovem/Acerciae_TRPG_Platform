@@ -48,6 +48,7 @@ struct Services {
     std::unique_ptr<logstudio::PublicationService> publication;
     std::unique_ptr<logstudio::CreativeService> creative;
     std::unique_ptr<logstudio::VnScriptService> vnScripts;
+    std::unique_ptr<WorkPool> apiRequests;  // ordinary API work, isolated from model waits
     std::unique_ptr<WorkPool> aiRequests;   // user-triggered model calls, off the HTTP threads
     std::unique_ptr<Maintenance> maintenance;
     std::unique_ptr<WorkPool> background;   // module imports, scenario summaries

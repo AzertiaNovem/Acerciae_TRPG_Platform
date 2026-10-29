@@ -894,6 +894,17 @@ int main() {
         LlmRequest normal;normal.task="general";normal.maxTokens=300;normal.responseSchema=ModuleImporter::structureSchema();gateway.runStructured(normal);
         CHECK(fixture->requests.back().maxTokens==8192);
         LlmRequest knowledge=normal;knowledge.task="script_knowledge";gateway.runStructured(knowledge);CHECK(fixture->requests.back().maxTokens==32768);
+        ScriptKnowledgeService builds(*S.db,*S.llm,*S.retrieval,*S.reminders,*S.notifier);
+        builds.setExecutor([&](std::function<void()> task){if(queueFull)return false;queued.push_back(std::move(task));return true;});
+        auto job=builds.rebuild(access,id,true);CHECK(job["status"]=="pending");CHECK(queued.size()==1);
+        CHECK(builds.rebuild(access,id,true)["id"]==job["id"]);CHECK(queued.size()==1);
+        queued.back()();queued.clear();CHECK(builds.builds(access)[0]["status"]=="completed");
+        queueFull=true;CHECK(builds.rebuild(access,id,true)["status"]=="failed");
+        queueFull=false;job=builds.rebuild(access,id,true);CHECK(job["status"]=="pending");
+        builds.recoverInterrupted();CHECK(builds.builds(access)[0]["status"]=="failed");
+        queued.back()();queued.clear();CHECK(builds.builds(access)[0]["status"]=="failed");
+        denied=false;try{builds.builds(player);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
+
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();

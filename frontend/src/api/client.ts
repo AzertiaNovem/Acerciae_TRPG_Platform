@@ -30,12 +30,20 @@ export async function request<R>(method: string, path: string, body?: unknown, r
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const res = await fetch(BASE + path, { method, headers, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
-  const text = await res.text();
-  let data: any = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText);
-  return data as R;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120000);
+  try {
+    const res = await fetch(BASE + path, { method, headers, signal: controller.signal, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
+    const text = await res.text();
+    let data: any = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+    if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText);
+    return data as R;
+  } catch (error) {
+    if (controller.signal.aborted) throw new ApiError(408, 'request_timeout', 'Request timed out. Check the saved task status before retrying.');
+    throw error;
+  } finally { clearTimeout(timer); }
+
 }
 const get = <R,>(p: string) => request<R>('GET', p);
 const post = <R,>(p: string, b?: unknown) => request<R>('POST', p, b);
@@ -133,7 +141,8 @@ export const api = {
   dismissReminder: (ch: string, id: string) => post<{ dismissed: boolean }>(`/api/channels/${ch}/reminders/${id}/dismiss`),
   scriptKnowledge: (ch: string, kind?: string) => get<T.ScriptKnowledge[]>(`/api/channels/${ch}/script-knowledge${q({ kind })}`),
   updateScriptKnowledge: (ch: string, id: string, body: { title?: string; body?: string; status?: T.ScriptStatus }) => put<T.ScriptKnowledge>(`/api/channels/${ch}/script-knowledge/${id}`, body),
-  rebuildScriptKnowledge: (ch: string, module_id?: string) => post<{ module_id: string; entries: number; by_kind?: Record<string, number> }>(`/api/channels/${ch}/script-knowledge/rebuild`, { module_id }),
+  scriptBuilds: (ch: string) => get<T.ScriptBuild[]>(`/api/channels/${ch}/script-knowledge/builds`),
+  rebuildScriptKnowledge: (ch: string, module_id?: string) => post<T.ScriptBuild>(`/api/channels/${ch}/script-knowledge/rebuild`, { module_id, async: true }),
   scriptChanges: (ch: string, limit = 50) => get<T.ScriptChange[]>(`/api/channels/${ch}/script-knowledge/changes${q({ limit })}`),
   kpBoard: (ch: string) => get<T.KpBoard>(`/api/channels/${ch}/kp/board`),
   reminderContext: (ch: string, id: string, limit = 30) => get<{ reminder: T.Reminder; events: T.ReminderContextEvent[]; anchor_event_id?: string }>(`/api/channels/${ch}/reminders/${id}/context${q({ limit })}`),

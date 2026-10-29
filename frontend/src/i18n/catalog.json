@@ -14398,5 +14398,17 @@
     "Выйти без сохранения изменений персонажа?",
     "Sair sem salvar as alterações do personagem?",
     "Uscire senza salvare le modifiche al personaggio?"
+  ],
+  "Knowledge batches: {done}/{total}": [
+    "知识整理批次：{done}/{total}",
+    "知識整理批次：{done}/{total}",
+    "知識整理：{done}/{total} バッチ",
+    "지식 정리: {done}/{total} 배치",
+    "Lotes de conocimiento: {done}/{total}",
+    "Lots de connaissances : {done}/{total}",
+    "Wissenspakete: {done}/{total}",
+    "Пакеты знаний: {done}/{total}",
+    "Lotes de conhecimento: {done}/{total}",
+    "Lotti di conoscenza: {done}/{total}"
   ]
 }
