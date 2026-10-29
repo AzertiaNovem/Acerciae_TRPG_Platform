@@ -1,3 +1,4 @@
+#include <atomic>
 #include "../atmosphere/AtmosphereService.h"
 #include "Api.h"
 #include "../ws/Notifier.h"
@@ -128,26 +129,47 @@ void run(const HttpRequestPtr& req, Cb&& cb, const Params& params, const Fn& fn,
     catch (const std::out_of_range&) { cb(errResp(400, "bad_request", "a number in the request is out of range")); }
     catch (const std::exception& e) { cb(internalErr(e, req)); }
 }
+// Separate bounded pools keep synchronous database/business work off socket loops.
+// A response deadline also prevents an overloaded queue leaving a browser pending indefinitely.
+void dispatch(const HttpRequestPtr& req, Cb&& cb, Params params, const Fn& fn, bool auth, bool ai) {
+    auto responded = std::make_shared<std::atomic<bool>>(false);
+    auto original = std::make_shared<Cb>(std::move(cb));
+    auto reply = [responded, original](const HttpResponsePtr& response) { if (!responded->exchange(true)) (*original)(response); };
+    auto timer = app().getLoop()->runAfter(ai ? 90.0 : 30.0, [reply, ai] {
+        reply(errResp(504, ai ? "ai_timeout" : "request_timeout", ai
+            ? "The AI request timed out. Background tasks may still be running; check their status before retrying."
+            : "The request timed out. Check the saved state before retrying."));
+    });
+    auto& pool = ai ? services().aiRequests : services().apiRequests;
+    if (!pool->submit([req, reply, responded, timer, params, fn, auth] {
+        if (!responded->load()) run(req, Cb(reply), params, fn, auth);
+        app().getLoop()->invalidateTimer(timer);
+    })) {
+        app().getLoop()->invalidateTimer(timer);
+        reply(errResp(503, ai ? "ai_busy" : "server_busy", "The request queue is full; try again shortly."));
+    }
+}
 void route0(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn, bool auth = true) {
-    app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb) { run(req, std::move(cb), {}, fn, auth); }, m);
+    app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb) { dispatch(req, std::move(cb), {}, fn, auth, false); }, m);
 }
 void route1(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn, bool auth = true) {
-    app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb, std::string a) { run(req, std::move(cb), {a}, fn, auth); }, m);
+    app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb, std::string a) { dispatch(req, std::move(cb), {a}, fn, auth, false); }, m);
 }
 void route2(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn, bool auth = true) {
-    app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b) { run(req, std::move(cb), {a, b}, fn, auth); }, m);
+    app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b) { dispatch(req, std::move(cb), {a, b}, fn, auth, false); }, m);
 }
 void route3(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn, bool auth = true) {
-    app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b, std::string c) { run(req, std::move(cb), {a, b, c}, fn, auth); }, m);
+    app().registerHandler(path, [fn, auth](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b, std::string c) { dispatch(req, std::move(cb), {a, b, c}, fn, auth, false); }, m);
 }
-// Requests that call a model run on the AI request pool, so a slow provider never holds Drogon's network threads.
 void offload(const HttpRequestPtr& req, Cb&& cb, Params params, const Fn& fn) {
-    auto shared = std::make_shared<Cb>(std::move(cb));
-    if (!services().aiRequests->submit([req, shared, params, fn] { run(req, std::move(*shared), params, fn, true); }))
-        (*shared)(errResp(503, "ai_busy", "The server is handling too many AI requests; try again shortly."));
+    dispatch(req, std::move(cb), std::move(params), fn, true, true);
 }
-void ai1(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn) {
-    app().registerHandler(path, [fn](const HttpRequestPtr& req, Cb&& cb, std::string a) { offload(req, std::move(cb), {a}, fn); }, m);
+void ai1(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn, bool queuedWhenAsync = false) {
+    app().registerHandler(path, [fn, queuedWhenAsync](const HttpRequestPtr& req, Cb&& cb, std::string a) {
+        auto j=req->getJsonObject();
+        if(queuedWhenAsync && j && j->isObject() && (*j)["async"].isBool() && (*j)["async"].asBool()) dispatch(req,std::move(cb),{a},fn,true,false);
+        else offload(req, std::move(cb), {a}, fn);
+    }, m);
 }
 void ai2(const std::string& path, std::vector<drogon::internal::HttpConstraint> m, Fn fn) {
     app().registerHandler(path, [fn](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b) { offload(req, std::move(cb), {a, b}, fn); }, m);
@@ -336,9 +358,10 @@ void registerRoutes() {
     route2("/api/channels/{1}/reminders/{2}/context", {Get}, [&](auto& req, auto& p, auto& a) { return S.reminders->context(access(p, a[0]), a[1], qint(req, "limit", 30)); });
     // ---- Keeper script knowledge and the pinned board ----
     route1("/api/channels/{1}/script-knowledge", {Get}, [&](auto& req, auto& p, auto& a) { return S.script->list(access(p, a[0]), req->getParameter("kind")); });
-    route1("/api/channels/{1}/script-knowledge/rebuild", {Post}, [&](auto& req, auto& p, auto& a) { return S.script->rebuild(access(p, a[0]), json::str(body(req), "module_id")); });
+    ai1("/api/channels/{1}/script-knowledge/rebuild", {Post}, [&](auto& req, auto& p, auto& a) { return S.script->rebuild(access(p, a[0]), json::str(body(req), "module_id"), json::toBool(body(req),"async",false)); }, true);
+    route1("/api/channels/{1}/script-knowledge/builds", {Get}, [&](auto&, auto& p, auto& a) { return S.script->builds(access(p,a[0])); });
     route1("/api/channels/{1}/script-knowledge/changes", {Get}, [&](auto& req, auto& p, auto& a) { return S.script->changes(access(p, a[0]), qint(req, "limit", 50)); });
-    route2("/api/channels/{1}/script-knowledge/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.script->update(access(p, a[0]), a[1], body(req)); });
+    ai2("/api/channels/{1}/script-knowledge/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.script->update(access(p, a[0]), a[1], body(req)); });
     route1("/api/channels/{1}/kp/board", {Get}, [&](auto&, auto& p, auto& a) { return S.script->board(access(p, a[0])); });
     // ---- highlights ----
     route1("/api/channels/{1}/highlights", {Get}, [&](auto& req, auto& p, auto& a) { return S.highlights->listActive(access(p, a[0]), req->getParameter("document_id")); });
@@ -357,7 +380,7 @@ void registerRoutes() {
     route1("/api/channels/{1}/entities", {Get}, [&](auto& req, auto& p, auto& a) { return S.knowledge->listEntities(access(p, a[0]), req->getParameter("q")); });
     route2("/api/channels/{1}/entities/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.knowledge->getEntity(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/knowledge/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.knowledge->knowledgeScope(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/tools/{2}", {Post}, [&](auto& req, auto& p, auto& a) { return S.retrieval->executeTool(access(p, a[0]), a[1], body(req)); });
+    ai2("/api/channels/{1}/tools/{2}", {Post}, [&](auto& req, auto& p, auto& a) { return S.retrieval->executeTool(access(p, a[0]), a[1], body(req)); });
     route1("/api/channels/{1}/shards", {Get}, [&](auto& req, auto& p, auto& a) { return S.retrieval->getShard(access(p, a[0]), req->getParameter("id")); });
 
     // ---- AI auxiliary (user-triggered) ----
@@ -384,7 +407,7 @@ void registerRoutes() {
         std::string title; auto& ps = mp.getParameters(); if (ps.count("title")) title = ps.at("title");
         return S.modules->importPdf(ac, f.getFileName(), bytes, title);
     });
-    ai1("/api/channels/{1}/modules/text", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); std::vector<std::string> pages = json::strArray(b["pages"]); if (pages.empty() && !json::str(b, "text").empty()) pages.push_back(json::str(b, "text")); return S.modules->importText(access(p, a[0]), json::str(b, "title"), pages, json::toBool(b,"async",false)); });
+    ai1("/api/channels/{1}/modules/text", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); std::vector<std::string> pages = json::strArray(b["pages"]); if (pages.empty() && !json::str(b, "text").empty()) pages.push_back(json::str(b, "text")); return S.modules->importText(access(p, a[0]), json::str(b, "title"), pages, json::toBool(b,"async",false)); }, true);
     route1("/api/channels/{1}/modules/hints", {Get}, [&](auto& req, auto& p, auto& a) { return S.modules->listHints(access(p, a[0]), req->getParameter("status")); });
     route2("/api/channels/{1}/modules/hints/{2}/decide", {Post}, [&](auto& req, auto& p, auto& a) { return S.modules->decideHint(access(p, a[0]), a[1], json::str(body(req), "decision")); });
     route2("/api/channels/{1}/modules/nodes/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.modules->updateNode(access(p, a[0]), a[1], body(req)); });
@@ -511,10 +534,10 @@ void registerRoutes() {
 
     // ---- Log Studio: TTS ----
     route1("/api/channels/{1}/studio/tts/status", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->status(studioAccess(p, a[0])); });
-    route1("/api/channels/{1}/studio/tts/available-voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->availableVoices(studioAccess(p, a[0])); });
+    ai1("/api/channels/{1}/studio/tts/available-voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->availableVoices(studioAccess(p, a[0])); });
     route1("/api/channels/{1}/studio/tts/usage", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->usage(studioAccess(p, a[0])); });
     route1("/api/channels/{1}/studio/voices", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listVoices(studioAccess(p, a[0])); });
-    route1("/api/channels/{1}/studio/voices", {Post}, [&](auto& req, auto& p, auto& a) {
+    ai1("/api/channels/{1}/studio/voices", {Post}, [&](auto& req, auto& p, auto& a) {
         auto ac = studioAccess(p, a[0]); MultiPartParser mp;
         if (mp.parse(req) == 0 && !mp.getParameters().empty()) { Json::Value b(Json::objectValue); for (auto& [k, v] : mp.getParameters()) { if (k == "consent_metadata" || k == "synthesis_parameters") { try { b[k] = json::parse(v); } catch (...) { b[k] = v; } } else b[k] = v; } std::string audio, mime; if (!mp.getFiles().empty()) { audio = std::string(mp.getFiles()[0].fileContent()); mime = "audio/wav"; } return S.tts->createVoice(ac, b, audio, mime); }
         return S.tts->createVoice(ac, body(req), "", "");

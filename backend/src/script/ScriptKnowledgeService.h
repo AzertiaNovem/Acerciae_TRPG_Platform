@@ -3,6 +3,9 @@
 #include "../auth/AuthService.h"
 #include <json/json.h>
 #include <map>
+#include <functional>
+#include <mutex>
+#include <set>
 #include <string>
 
 namespace acerciae {
@@ -20,13 +23,16 @@ public:
         : db_(db), llm_(llm), retrieval_(retrieval), reminders_(reminders), notifier_(n) {}
 
     // Builds (or rebuilds) the script-origin entries of one module; Keeper-edited and play-origin entries survive.
-    Json::Value buildFromModule(const std::string& channelId, const std::string& moduleId, int& llmCalls);
+    Json::Value buildFromModule(const std::string& channelId, const std::string& moduleId, int& llmCalls, std::function<void(int,int)> progress = {});
     // Keeper observer hook for one processed batch: propose → review → apply, refresh the board, raise reminders.
     Json::Value afterBatch(const ChannelAccess& sys, const Json::Value& batch, const std::string& aiJobId, int& llmCalls);
 
     Json::Value list(const ChannelAccess& a, const std::string& kind);
     Json::Value update(const ChannelAccess& a, const std::string& id, const Json::Value& body);   // Keeper edit: title, body, status
-    Json::Value rebuild(const ChannelAccess& a, const std::string& moduleId);
+    Json::Value rebuild(const ChannelAccess& a, const std::string& moduleId, bool async = false);
+    Json::Value builds(const ChannelAccess& a);
+    void recoverInterrupted();
+    void setExecutor(std::function<bool(std::function<void()>)> f) { executor_ = std::move(f); }
     Json::Value changes(const ChannelAccess& a, int limit);
     Json::Value board(const ChannelAccess& a);
 
@@ -42,6 +48,10 @@ private:
     Json::Value proposeChanges(const ChannelAccess& sys, const Json::Value& knowledge, const Json::Value& newEvents, int& llmCalls);
     Json::Value reviewChange(const ChannelAccess& sys, const Json::Value& change, const Json::Value& entry, const Json::Value& evidence, int& llmCalls);
     void refreshBoard(const ChannelAccess& sys, const std::string& aiJobId, const std::vector<std::string>& eventIds);
+    void runBuild(const std::string& jobId);
+    std::function<bool(std::function<void()>)> executor_;
+    std::mutex buildMutex_;
+    std::set<std::string> building_;
     Db& db_; LlmGateway& llm_; ContextRetrievalService& retrieval_; ReminderService& reminders_; Notifier& notifier_;
 };
 }

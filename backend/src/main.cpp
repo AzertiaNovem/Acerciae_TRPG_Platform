@@ -1,4 +1,5 @@
 #include "modules/ModuleImporter.h"
+#include "script/ScriptKnowledgeService.h"
 #include "app/Services.h"
 #include "api/Api.h"
 #include "ws/WsGateway.h"
@@ -47,12 +48,13 @@ int main(int argc, char** argv) {
         std::cerr << "warning: PDF_WORKER_TOKEN is unset or shorter than 32 characters; the PDF worker cannot connect and PDF jobs will stay pending.\n";
     auto& S = Services::build(cfg);
     try { S.db->runMigrations(cfg.migrationsDir); }
-    catch (const std::exception& e) { std::cerr << "migration failed: " << e.what() << "\n"; return 1; }
-    if (migrateOnly) return 0;
-    if (seedOnly) { std::cerr << "Seeding demo accounts with the published password \"password\": local development only.\n"; DemoSeed::run(S, true); return 0; }
+    catch (const std::exception& e) { std::cerr << "migration failed: " << e.what() << "\n"; Services::shutdown(); curl_global_cleanup(); return 1; }
+    if (migrateOnly) { Services::shutdown(); curl_global_cleanup(); return 0; }
+    if (seedOnly) { std::cerr << "Seeding demo accounts with the published password \"password\": local development only.\n"; DemoSeed::run(S, true); Services::shutdown(); curl_global_cleanup(); return 0; }
     if (cfg.seedDemo && !noSeed) { try { DemoSeed::run(S, false); } catch (const std::exception& e) { ALOG_ERROR << "demo seed failed: " << e.what(); } }
 
     S.modules->recoverInterrupted();
+    S.script->recoverInterrupted();
     registerRoutes();
     drogon::app().addListener("0.0.0.0", cfg.httpPort)
         .setThreadNum(cfg.httpThreads)

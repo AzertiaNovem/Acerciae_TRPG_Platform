@@ -14,6 +14,7 @@
 #include "../highlights/HighlightService.h"
 #include "../retrieval/ContextRetrievalService.h"
 #include "../llm/LlmGateway.h"
+#include "../llm/HttpTransport.h"
 #include "../observer/ObserverScheduler.h"
 #include "../consistency/ConsistencyService.h"
 #include "../inspiration/InspirationService.h"
@@ -61,6 +62,8 @@ Services& Services::build(const Config& cfg) {
     s.llm = std::make_unique<LlmGateway>(s.cfg);
     s.llm->setProfileResolver([&s](const std::string& channelId) { return s.settings->profileForChannel(channelId); });
     s.llm->setMeter(s.aiPolicy.get());
+    llm::configureTransport(cfg.llmMaxConnections, cfg.llmQueueLimit);
+    s.apiRequests = std::make_unique<WorkPool>("api-requests", cfg.apiWorkers, cfg.apiQueueLimit);
     s.aiRequests = std::make_unique<WorkPool>("ai-requests", std::max(1, cfg.aiHttpWorkers), (std::size_t)std::max(8, cfg.aiHttpWorkers * 8));
     s.retrieval = std::make_unique<ContextRetrievalService>(*s.db, *s.knowledge, *s.events, *s.llm);
     s.consistency = std::make_unique<ConsistencyService>(s.cfg, *s.db, *s.retrieval, *s.llm, *s.highlights, *s.knowledge);
@@ -89,6 +92,7 @@ Services& Services::build(const Config& cfg) {
     s.background = std::make_unique<WorkPool>("background", 2, 256);
     auto submit = [&s](std::function<void()> f) { return s.background->submit(std::move(f)); };
     s.modules->setExecutor(submit);
+    s.script->setExecutor(submit);
     s.scenarios->setExecutor(submit);
     return s;
 }
@@ -96,12 +100,14 @@ Services& Services::build(const Config& cfg) {
 void Services::shutdown() {
     if (!g_services) return;
     if (g_services->maintenance) g_services->maintenance->stop();
+    if (g_services->apiRequests) g_services->apiRequests->stop();
     if (g_services->aiRequests) g_services->aiRequests->stop();
     if (g_services->background) g_services->background->stop();
     if (g_services->observer) g_services->observer->stop();
     if (g_services->creative) g_services->creative->stop();
     if (g_services->vnScripts) g_services->vnScripts->stop();
     if (g_services->tts) g_services->tts->stop();
+    llm::stopTransport();
     g_services.reset();
 }
 

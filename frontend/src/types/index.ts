@@ -144,3 +144,5 @@ export interface ServerSettings {
 export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: Record<string, string>; updated_at: string; created_by_name?: string | null }
 export interface BuiltinDiceTexts { keys: string[]; en: Record<string, string>; zh: Record<string, string> }
 export interface CharacterAttributes { character_id: string; name: string; kind: 'pc' | 'npc'; attrs: Record<string, number>; editable: boolean }
+
+export interface ScriptBuild { id: string; module_id: string; status: 'pending' | 'running' | 'completed' | 'failed'; completed_batches: number; total_batches: number; error: string | null; result: { entries: number; llm_calls: number } | null; }

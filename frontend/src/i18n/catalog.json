@@ -14362,5 +14362,53 @@
     "Импорт…",
     "Importando…",
     "Importazione…"
+  ],
+  "Unsaved character changes": [
+    "角色修改尚未保存",
+    "角色修改尚未儲存",
+    "キャラクターの変更は未保存です",
+    "캐릭터 변경 사항이 저장되지 않았습니다",
+    "Cambios del personaje sin guardar",
+    "Modifications du personnage non enregistrées",
+    "Ungespeicherte Charakteränderungen",
+    "Изменения персонажа не сохранены",
+    "Alterações do personagem não salvas",
+    "Modifiche al personaggio non salvate"
+  ],
+  "All character changes saved": [
+    "角色修改已全部保存",
+    "角色修改已全部儲存",
+    "キャラクターの変更は保存済みです",
+    "모든 캐릭터 변경 사항이 저장되었습니다",
+    "Todos los cambios del personaje guardados",
+    "Toutes les modifications du personnage sont enregistrées",
+    "Alle Charakteränderungen gespeichert",
+    "Все изменения персонажа сохранены",
+    "Todas as alterações do personagem foram salvas",
+    "Tutte le modifiche al personaggio sono salvate"
+  ],
+  "Leave without saving character changes?": [
+    "角色修改尚未保存，仍要离开吗？",
+    "角色修改尚未儲存，仍要離開嗎？",
+    "キャラクターの変更を保存せずに離れますか？",
+    "캐릭터 변경 사항을 저장하지 않고 나가시겠습니까?",
+    "¿Salir sin guardar los cambios del personaje?",
+    "Quitter sans enregistrer les modifications du personnage ?",
+    "Ohne Speichern der Charakteränderungen verlassen?",
+    "Выйти без сохранения изменений персонажа?",
+    "Sair sem salvar as alterações do personagem?",
+    "Uscire senza salvare le modifiche al personaggio?"
+  ],
+  "Knowledge batches: {done}/{total}": [
+    "知识整理批次：{done}/{total}",
+    "知識整理批次：{done}/{total}",
+    "知識整理：{done}/{total} バッチ",
+    "지식 정리: {done}/{total} 배치",
+    "Lotes de conocimiento: {done}/{total}",
+    "Lots de connaissances : {done}/{total}",
+    "Wissenspakete: {done}/{total}",
+    "Пакеты знаний: {done}/{total}",
+    "Lotes de conhecimento: {done}/{total}",
+    "Lotti di conoscenza: {done}/{total}"
   ]
 }

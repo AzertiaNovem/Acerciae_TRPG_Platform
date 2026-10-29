@@ -5,6 +5,7 @@ import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 import type { CharacterSpace as Space, Coc7Rules, RoleCard } from '../types';
 import PointBuy from './PointBuy';
+import { sessionEpoch } from '../store/session';
 
 let rulesPromise: Promise<Coc7Rules> | null = null;
 // A failed load is not cached: the next visit tries again.
@@ -26,7 +27,16 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const [space, setSpace] = useState<Space | null>(null);
   const [card, setCard] = useState<RoleCard | null>(null);
   const [head, setHead] = useState({ name: '', speaking_style: '', bio: '' });
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirtyState] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const dirtyRef = useRef(false);
+  const revision = useRef(0);
+  const responseEpoch = useRef(0);
+  const mounted = useRef(true);
+  const busyRef = useRef(false);
+  const setDirty = (value: boolean) => { dirtyRef.current = value; if (value) { ++revision.current; setSaveError(''); } setDirtyState(value); };
+  const validResponse = () => { const epoch = sessionEpoch(), response = responseEpoch.current; return () => mounted.current && epoch === sessionEpoch() && response === responseEpoch.current; };
   const [tab, setTab] = useState<Tab>('card');
   const [look, setLook] = useState({ asset_mode: 'uploaded' as 'uploaded' | 'generated', appearance_prompt: '' });
   const [newSkill, setNewSkill] = useState('');
@@ -37,16 +47,29 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const [rules, setRules] = useState<Coc7Rules | null>(null);
   const fileFor = useRef<{ slot: 'avatar' | 'portrait' | 'subtitle'; subtitle?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const apply = (s: Space) => { setSpace(s); setCard(s.character.role_card); setHead({ name: s.character.name, speaking_style: s.character.speaking_style, bio: s.character.bio ?? '' }); setLook({ asset_mode: s.character.asset_mode ?? 'uploaded', appearance_prompt: s.character.appearance_prompt ?? '' }); setDirty(false); };
-  const load = async () => { if (!channelId) return; try { apply(await api.characterSpace(channelId, characterId)); } catch (e: any) { toast(e.message, 'error'); } };
-  // Background refreshes (a generation finished, another editor saved) never overwrite unsaved edits: while the
-  // card is dirty only the images and jobs are refreshed.
-  const dirtyRef = useRef(false); dirtyRef.current = dirty;
+  const apply = (s: Space, savedRevision?: number) => {
+    setSpace(s);
+    // Image responses and polls contain the last saved card, not the local draft.
+    // A save acknowledgement also must not erase edits made while it was in flight.
+    if (!dirtyRef.current || savedRevision === revision.current) {
+      setCard(s.character.role_card);
+      setHead({ name: s.character.name, speaking_style: s.character.speaking_style, bio: s.character.bio ?? '' });
+      setDirty(false);
+    }
+    setLook({ asset_mode: s.character.asset_mode ?? 'uploaded', appearance_prompt: s.character.appearance_prompt ?? '' });
+  };
   const refresh = async () => {
     if (!channelId) return;
-    try { const s = await api.characterSpace(channelId, characterId); if (dirtyRef.current) setSpace(s); else apply(s); } catch { /* the next poll or event retries */ }
+    const valid = validResponse();
+    try { const s = await api.characterSpace(channelId, characterId); if (valid()) apply(s); }
+    catch (e: any) { if (valid() && !space) toast(e.message, 'error'); }
   };
-  useEffect(() => { load(); }, [channelId, characterId]);
+  useEffect(() => { mounted.current = true; refresh(); return () => { mounted.current = false; ++responseEpoch.current; }; }, [channelId, characterId]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (dirtyRef.current) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
   const pointsOn = !!space?.points?.enabled;
   useEffect(() => { if (pointsOn && !rules) loadRules().then(setRules).catch((e) => toast(e.message, 'error')); }, [pointsOn]);
   // Live updates (generation finished, another editor saved) arrive as character.updated → characters refresh.
@@ -58,12 +81,26 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const url = (a: { id: string; version: number } | null) => (a ? api.mediaUrl(channelId, a.id, a.version) : '');
   const half = (v?: number) => (v === undefined ? '' : `${Math.floor(v / 2)} / ${Math.floor(v / 5)}`);
   const setCardField = (fn: (c: RoleCard) => void) => { const next = JSON.parse(JSON.stringify(card)) as RoleCard; fn(next); setCard(next); setDirty(true); };
-  const save = async () => { setBusy(true); try { apply(await api.updateCharacterCard(channelId, characterId, { ...head, role_card: card })); toast(tr('Character saved')); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); } };
-  const saveLook = async (patch: Partial<typeof look>) => { const next = { ...look, ...patch }; setLook(next); try { apply(await api.updateCharacterAppearance(channelId, characterId, next)); } catch (e: any) { toast(e.message, 'error'); } };
+  const mutate = async (request: () => Promise<Space>, message?: string, isCardSave = false) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true); setSaving(isCardSave);
+    ++responseEpoch.current; // Drop polls started before this write.
+    const valid = validResponse(), savedRevision = revision.current;
+    if (isCardSave) setSaveError('');
+    try {
+      const result = await request();
+      if (valid()) { ++responseEpoch.current; apply(result, isCardSave ? savedRevision : undefined); if (message) toast(message); }
+    } catch (e: any) {
+      if (valid()) { if (isCardSave) setSaveError(e.message); toast(e.message, 'error'); }
+    } finally { busyRef.current = false; if (mounted.current) { setBusy(false); setSaving(false); } }
+  };
+  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, role_card: card }), tr('Character saved'), true);
+  const saveLook = async (patch: Partial<typeof look>) => { if (busyRef.current) return; const next = { ...look, ...patch }; setLook(next); await mutate(() => api.updateCharacterAppearance(channelId, characterId, next)); };
   const pickFile = (slot: 'avatar' | 'portrait' | 'subtitle', subtitle?: string) => { fileFor.current = { slot, subtitle }; fileInput.current?.click(); };
-  const onFile = async (f: File | undefined) => { if (!f || !fileFor.current) return; setBusy(true); try { apply(await api.uploadCharacterAsset(channelId, characterId, fileFor.current.slot, f, fileFor.current.subtitle ?? '')); toast(tr('Image uploaded')); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); if (fileInput.current) fileInput.current.value = ''; } };
-  const generate = async (slots: string[], subtitles: string[]) => { setBusy(true); try { const r = await api.generateCharacterAssets(channelId, characterId, { slots, subtitles, allow_cloud: true }); apply(r.space); toast(tr('Image generation queued')); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); } };
-  const remove = async (assetId: string) => { if (!confirm(tr('Remove this image from the character?'))) return; try { apply(await api.deleteCharacterAsset(channelId, characterId, assetId)); } catch (e: any) { toast(e.message, 'error'); } };
+  const onFile = async (f: File | undefined) => { if (!f || !fileFor.current) return; const target = fileFor.current; await mutate(() => api.uploadCharacterAsset(channelId, characterId, target.slot, f, target.subtitle ?? ''), tr('Image uploaded')); if (fileInput.current) fileInput.current.value = ''; };
+  const generate = (slots: string[], subtitles: string[]) => mutate(async () => (await api.generateCharacterAssets(channelId, characterId, { slots, subtitles, allow_cloud: true })).space, tr('Image generation queued'));
+  const remove = async (assetId: string) => { if (!confirm(tr('Remove this image from the character?'))) return; await mutate(() => api.deleteCharacterAsset(channelId, characterId, assetId)); };
+  const back = () => { if (!dirtyRef.current || confirm(tr('Leave without saving character changes?'))) openCharacter(null); };
   const pending = space.jobs.filter((j) => j.status === 'pending' || j.status === 'running');
   const canGenerate = editable && look.asset_mode === 'generated' && space.generation_available;
   return (
@@ -72,8 +109,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
       <div className="tabs">
         {(['card', 'look', 'background', 'items'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t === 'card' ? 'Role card' : t === 'look' ? 'Appearance & images' : t === 'background' ? 'Background' : 'Items')}</button>)}
         <span className="grow" />
-        {editable && dirty && <button className="primary" onClick={save} disabled={busy}>{tr('Save')}</button>}
-        <button className="ghost" onClick={() => openCharacter(null)}>{tr('← back to chat')}</button>
+        <button className="ghost" onClick={back}>{tr('← back to chat')}</button>
       </div>
       <div className="content">
         <div className="card hero">
@@ -198,6 +234,13 @@ export default function CharacterSpace({ characterId }: { characterId: string })
           </div>
         )}
       </div>
+      {editable && <div className="character-save-bar">
+        <div className="grow" role="status" aria-live="polite">
+          <span>{saving ? tr('Saving…') : dirty ? tr('Unsaved character changes') : tr('All character changes saved')}</span>
+          {saveError && <div role="alert" className="small" style={{ color: 'var(--danger)' }}>{saveError}</div>}
+        </div>
+        <button className="primary" onClick={save} disabled={busy || !dirty}>{saving ? tr('Saving…') : tr('Save')}</button>
+      </div>}
     </div>
   );
 }

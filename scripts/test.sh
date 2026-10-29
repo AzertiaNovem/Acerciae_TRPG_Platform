@@ -13,6 +13,7 @@ cleanup() { for p in "${PIDS[@]:-}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 
 echo "== unit tests"; "$ROOT/backend/build/unit_tests"
+echo "== nonblocking HTTP transport tests"; "$ROOT/backend/build/http_transport_tests"
 echo "== database tests"; psql "$PG" -q -c "DROP DATABASE IF EXISTS acerciae_test" -c "CREATE DATABASE acerciae_test"
 (cd "$ROOT/backend" && TEST_DATABASE_URL="$PGBASE/acerciae_test" ./build/db_tests)
 
@@ -22,7 +23,7 @@ WORKER_TOKEN="$(openssl rand -hex 32)"
 # Strict mode: a nested database transaction fails the request instead of risking a pool deadlock. The provider suites
 # talk to local protocol fixtures, hence private endpoints.
 (cd "$ROOT/backend" && exec env AUTH_SECRET="$(openssl rand -hex 32)" PDF_WORKER_TOKEN="$WORKER_TOKEN" ACERCIAE_STRICT_DB=1 AI_ALLOW_PRIVATE_ENDPOINTS=true \
-  AUTH_REGISTER_PER_HOUR=100000 DATABASE_URL="$PGBASE/acerciae_e2e" HTTP_PORT=$PORT MIGRATIONS_DIR=./migrations \
+  AUTH_REGISTER_PER_HOUR=100000 HTTP_THREADS=1 AI_HTTP_WORKERS=2 DATABASE_URL="$PGBASE/acerciae_e2e" HTTP_PORT=$PORT MIGRATIONS_DIR=./migrations \
   UPLOAD_DIR="${TMPDIR:-/tmp}/acerciae-e2e-uploads" SEED_DEMO=false AI_OBSERVER_INTERVAL_MS=2000 \
   ./build/acerciae-server > "${TMPDIR:-/tmp}/acerciae-e2e.log" 2>&1) &
 PIDS+=($!)

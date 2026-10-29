@@ -10,6 +10,7 @@
 #include "llm/MockLlmClient.h"
 #include "llm/LlmGateway.h"
 #include "llm/AnthropicClient.h"
+#include "llm/StreamResponse.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
 #include "logstudio/LogAdapters.h"
@@ -35,6 +36,29 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("SSE completion requires terminal events and reconstructs tool arguments and usage", [] {
+        auto event=[](const Json::Value& v){return "data: "+json::dump(v)+"\r\n\r\n";};
+        std::string open=": heartbeat\r\n\r\n";
+        open+=event(json::parse(R"({"choices":[{"index":0,"delta":{"content":"你好","tool_calls":[{"index":0,"id":"call_1","function":{"name":"search","arguments":"{\"q\":"}}]}}]})"));
+        open+=event(json::parse(R"({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"雾港\"}"}}]},"finish_reason":"tool_calls"}]})"));
+        open+=event(json::parse(R"({"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":12}})"));
+        bool incomplete=false;try{llm::openAiResponse(open);}catch(...){incomplete=true;}CHECK(incomplete);
+        auto answer=llm::openAiResponse(open+"data: [DONE]\r\n\r\n");CHECK(answer["choices"][0]["message"]["content"]=="你好");
+        CHECK(answer["usage"]["completion_tokens"]==12);CHECK(json::parse(answer["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"].asString())["q"]=="雾港");
+        std::string anthropic;
+        for(const auto& e:json::parse(R"([
+          {"type":"message_start","message":{"type":"message","usage":{"input_tokens":8,"output_tokens":1}}},
+          {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"search","input":{}}},
+          {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"q\":"}},
+          {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"原文\"}"}},
+          {"type":"content_block_stop","index":0},
+          {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}
+        ])"))anthropic+=event(e);
+        incomplete=false;try{llm::anthropicResponse(anthropic);}catch(...){incomplete=true;}CHECK(incomplete);
+        auto result=AnthropicClient::parseResponse(llm::anthropicResponse(anthropic+event(json::parse(R"({"type":"message_stop"})"))));
+        CHECK(result.ok);CHECK(result.promptTokens==8&&result.completionTokens==9);CHECK(json::parse(result.toolCalls[0]["arguments"].asString())["q"]=="原文");
+        bool failed=false;try{llm::openAiResponse("data: {\"error\":{}}\n\n");}catch(...){failed=true;}CHECK(failed);
+    });
     test("Anthropic Messages preserves tool blocks, schema and parallel result turns", [] {
         LlmEndpoint ep; ep.provider="anthropic"; ep.model="fixture-claude"; ep.reasoningEffort="high";
         LlmRequest req; req.system="Only use authorized records"; req.responseSchema=json::parse(R"({"type":"object","required":["draft"]})");

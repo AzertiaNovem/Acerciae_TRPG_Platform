@@ -32,6 +32,8 @@ Config Config::fromEnv() {
     c.databaseUrl = envStr("DATABASE_URL", c.databaseUrl);
     c.httpPort = envInt("HTTP_PORT", c.httpPort);
     c.httpThreads = envInt("HTTP_THREADS", c.httpThreads);
+    c.apiWorkers = envInt("API_WORKERS", c.apiWorkers);
+    c.apiQueueLimit = envInt("API_QUEUE_LIMIT", c.apiQueueLimit);
     c.authSecret = envStr("AUTH_SECRET", c.authSecret);
     c.authTokenTtlHours = envInt("AUTH_TOKEN_TTL_HOURS", c.authTokenTtlHours);
     c.uploadDir = envStr("UPLOAD_DIR", c.uploadDir);
@@ -47,6 +49,12 @@ Config Config::fromEnv() {
     c.llmTemperature = envDouble("LLM_TEMPERATURE", c.llmTemperature);
     c.aiAllowPrivateEndpoints = envBool("AI_ALLOW_PRIVATE_ENDPOINTS", c.aiAllowPrivateEndpoints);
     c.aiHttpWorkers = envInt("AI_HTTP_WORKERS", c.aiHttpWorkers);
+    c.llmMaxConnections = envInt("LLM_MAX_CONNECTIONS", c.llmMaxConnections);
+    c.llmQueueLimit = envInt("LLM_QUEUE_LIMIT", c.llmQueueLimit);
+    if (c.httpThreads < 1 || c.httpThreads > 64 || c.apiWorkers < 1 || c.apiWorkers > 128 ||
+        c.aiHttpWorkers < 1 || c.aiHttpWorkers > 128 || c.apiQueueLimit < 1 || c.apiQueueLimit > 4096 ||
+        c.llmMaxConnections < 1 || c.llmMaxConnections > 256 || c.llmQueueLimit < 0 || c.llmQueueLimit > 4096)
+        throw std::runtime_error("HTTP/API/AI worker and queue limits are outside the supported range");
     c.observerEnabled = envBool("AI_OBSERVER_ENABLED", c.observerEnabled);
     c.observerIntervalMs = envInt("AI_OBSERVER_INTERVAL_MS", c.observerIntervalMs);
     c.consolidatorIntervalMs = envInt("AI_CONSOLIDATOR_INTERVAL_MS", c.consolidatorIntervalMs);
