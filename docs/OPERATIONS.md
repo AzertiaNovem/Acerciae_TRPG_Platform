@@ -1,5 +1,8 @@
 # Operating a deployment
 
+The existing native systemd deployment on server-sh uses the [online deployment workflow](ONLINE_DEPLOYMENT.md).
+The Docker instructions below apply to Compose installations.
+
 ## Before exposing it
 
 1. **Secrets.** In `.env` set `AUTH_SECRET` and `PDF_WORKER_TOKEN` to two different values from `openssl rand -hex 32`, and
