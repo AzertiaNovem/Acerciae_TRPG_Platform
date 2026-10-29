@@ -1,3 +1,4 @@
+import PageCitations from './PageCitations';
 import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
@@ -61,7 +62,7 @@ export default function ScriptKnowledgePanel() {
               </div>
               {describe(e) && <div className="tiny muted">{describe(e)}</div>}
               <div className="small muted" style={{ whiteSpace: 'pre-wrap' }}>{e.body.slice(0, 400)}{e.body.length > 400 ? '…' : ''}</div>
-              {e.citations.slice(0, 2).map((c, i) => <div key={i} className="cit">{tr('p.')}{c.page}: “{c.excerpt.slice(0, 140)}”</div>)}
+              <PageCitations citations={e.citations} maxExcerpt={140} />
               {e.status_event_ids.length > 0 && <button className="ghost small" onClick={() => showEvidence(e.status_event_ids)}>{tr('chat lines that moved it')}</button>}
             </div>
           ))}

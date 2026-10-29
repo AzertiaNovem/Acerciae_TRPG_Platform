@@ -1,3 +1,4 @@
+import PageCitations from './PageCitations';
 import { t as tr } from '../i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { contextSocket } from '../api/ws';
@@ -133,7 +134,7 @@ export default function ModuleImportPanel() {
                     <div key={n.id} className="node">
                       <div className="row"><span className="pill">{n.node_type}</span><b className="small">{n.name}</b><span className={`pill ${n.progress === 'untouched' ? '' : n.progress === 'completed' ? 'ok' : 'ai'}`}>{n.progress}</span>{n.gm_edited && <span className="pill gm">{tr("edited")}</span>}<span className="grow" /><button className="ghost small" onClick={() => setEditing({ ...n })}>{tr("edit")}</button></div>
                       <div className="small muted">{n.description.slice(0, 220)}</div>
-                      {n.citations.slice(0, 2).map((c, i) => <div key={i} className="cit" style={{ cursor: 'pointer' }} onClick={async () => channelId && setPage(await api.modulePage(channelId, current.id, c.page))}>{tr("p.")}{c.page}: “{c.excerpt.slice(0, 120)}”</div>)}
+                      <PageCitations citations={n.citations} maxExcerpt={120} onPage={async (page) => { if (channelId) setPage(await api.modulePage(channelId, current.id, page)); }} />
                       {outEdges(n.id).length > 0 && <div className="tiny muted">→ {outEdges(n.id).map((e) => `${e.relation} ${e.to_name}`).join(' · ')}</div>}
                     </div>
                   ))}

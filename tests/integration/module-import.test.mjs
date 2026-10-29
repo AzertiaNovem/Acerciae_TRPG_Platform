@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+const userText=body=>{const c=body.messages.find(m=>m.role==='user').content;return typeof c==='string'?c:c.filter(b=>b.type==='text').map(b=>b.text).join('');};
 const base=process.env.API_BASE||'http://127.0.0.1:18081';
 async function call(token,method,path,body) {
  const r=await fetch(base+path,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
@@ -8,15 +9,17 @@ async function call(token,method,path,body) {
 }
 async function until(fn) {for(let n=0;n<150;n++){const r=await fn();if(r)return r;await new Promise(r=>setTimeout(r,100));}throw Error('timed out');}
 test('module import accepts promptly, reports durable progress, deduplicates retries and rejects truncated model output',async(t)=>{
- let releaseFirst,hold=true,truncated=false;
+ let releaseFirst,hold=true,truncated=false,timeoutAbove=0;
  const requests=[];
  const fixture=http.createServer(async(req,res)=>{
   let raw='';for await(const b of req)raw+=b;
   const body=JSON.parse(raw);requests.push(body);
   if(hold){hold=false;await new Promise(resolve=>{releaseFirst=resolve;});}
-  const module=body.messages[0].content.includes('conditional knowledge graph');
-  const content=module?{nodes:[{key:'location|harbour',node_type:'location',name:'Harbour',description:'Rainy stone harbour',citations:[{page:1,excerpt:'Scene: Harbour'}]}],edges:[]}:{entries:[]};
+  const module=(body.system||body.messages[0].content).includes('conditional knowledge graph');
+  if(module&&timeoutAbove){const ctx=JSON.parse(userText(body));if(ctx.pages.reduce((n,p)=>n+Buffer.byteLength(p.text),0)>timeoutAbove){res.writeHead(504,{'Retry-After':'0'});return res.end('{}');}}
+  const content=module?{nodes:[{key:'location|harbour',node_type:'location',name:'Harbour',description:'Rainy stone harbour',citations:[{page:1}]}],edges:[]}:{entries:[]};
   res.setHeader('Content-Type','application/json');
+  if(req.url.endsWith('/messages'))return res.end(JSON.stringify({content:[{type:'text',text:JSON.stringify(content)}],stop_reason:'end_turn',usage:{input_tokens:20,output_tokens:30}}));
   res.end(JSON.stringify({choices:[{finish_reason:truncated?'length':'stop',message:{role:'assistant',content:JSON.stringify(content)}}],usage:{prompt_tokens:20,completion_tokens:30}}));
  });
  await new Promise(r=>fixture.listen(0,'127.0.0.1',r));
@@ -39,6 +42,7 @@ test('module import accepts promptly, reports durable progress, deduplicates ret
  await assert.rejects(call(pl,'POST',root+'/'+a.id+'/retry'),e=>e.status===403);
  releaseFirst();
  const ready=await until(async()=>{const m=await call(gm,'GET',root+'/'+a.id);assert.notEqual(m.status,'failed',m.error);return m.status==='ready'&&m;});
+ assert.equal(ready.nodes[0].citations[0].excerpt,'','old clients receive a string even for page-only model citations');
  assert.equal(ready.import_stage,'ready');assert.equal(ready.completed_chunks,ready.total_chunks);assert.equal(ready.import_warning,null);
  const moduleCalls=requests.filter(b=>b.messages[0].content.includes('conditional knowledge graph'));
  assert.equal(moduleCalls.length,ready.total_chunks);
@@ -55,4 +59,18 @@ test('module import accepts promptly, reports durable progress, deduplicates ret
  const retried=await call(gm,'POST',root+'/'+fail.id+'/retry');assert.equal(retried.id,fail.id);
  await until(async()=>{const m=await call(gm,'GET',root+'/'+fail.id);assert.notEqual(m.status,'failed',m.error);return m.status==='ready';});
  assert.equal((await call(gm,'GET',root)).length,2);
+ timeoutAbove=3200;
+ for(const provider of ['openai_compatible','anthropic']){
+  await call(gm,'PUT',`/api/servers/${srv.id}/settings`,{llm:{provider,api_base:`http://127.0.0.1:${fixture.address().port}/v1`,api_key:'fixture',model:'fixture'}});
+  requests.length=0;
+  const source=provider+'\n'+'雾中的灯塔。'.repeat(1800);
+  const imported=await call(gm,'POST',root+'/text',{text:source,async:true});
+  const done=await until(async()=>{const m=await call(gm,'GET',root+'/'+imported.id);assert.notEqual(m.status,'failed',m.error);return m.status==='ready'&&m;});
+  const contexts=requests.filter(b=>(b.system||b.messages[0].content).includes('conditional knowledge graph')).map(b=>JSON.parse(userText(b)));
+  const accepted=contexts.filter(c=>c.pages.reduce((n,p)=>n+Buffer.byteLength(p.text),0)<=3200);
+  assert.equal(contexts.length-accepted.length,6,'two reductions, three HTTP attempts per timed-out chunk');
+  assert.equal(accepted.length,done.total_chunks);assert.equal(done.completed_chunks,done.total_chunks);
+  assert.equal(accepted.flatMap(c=>c.pages).map(p=>p.text).join(''),source);
+ }
+
 });

@@ -55,6 +55,7 @@ struct LlmResponse {
     Json::Value providerContent;
     bool ok = false;
     std::string error;
+    long providerStatus = 0; // HTTP status, separate from transport/schema failures
     std::string content;
     Json::Value toolCalls = Json::Value(Json::arrayValue);   // [{id, name, arguments}]
     int promptTokens = 0, completionTokens = 0;

@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -22,6 +25,9 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@v4
+
+      - name: Test deployment failure handling
+        run: python3 -m unittest discover -s scripts/deploy -p 'test_*.py' -v
 
       - uses: actions/setup-node@v4
         with:
@@ -58,3 +64,31 @@ jobs:
         run: |
           tail -n 200 /tmp/acerciae-e2e.log || true
           tail -n 100 /tmp/acerciae-pdf-worker.log || true
+
+  deploy:
+    name: Deploy backend
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/online'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment:
+      name: production
+      url: https://trpg.missazertia.com:15510/api/health
+    concurrency:
+      group: production-backend
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Upload and deploy the tested commit
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/deploy/publish.sh

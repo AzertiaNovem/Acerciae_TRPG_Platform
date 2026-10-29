@@ -117,7 +117,7 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
         if (meter && (resp.promptTokens || resp.completionTokens)) {
             try { meter->recordTokens(req.channelId, req.task, resp.promptTokens, resp.completionTokens); } catch (const std::exception& e) { ALOG_WARN << "AI usage not recorded: " << e.what(); }
         }
-        if (!resp.ok) { out.error = resp.error; return out; }
+        if (!resp.ok) { out.error = resp.error; out.providerStatus = resp.providerStatus; return out; }
         if (resp.toolCalls.isArray() && !resp.toolCalls.empty() && exec) {
             LlmMessage assistant; assistant.role = "assistant"; assistant.content = resp.content; assistant.toolCalls = resp.toolCalls; assistant.providerContent = resp.providerContent;
             req.messages.push_back(assistant);

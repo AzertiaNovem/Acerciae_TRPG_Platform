@@ -77,12 +77,14 @@ public:
 
 class ModuleProgressClient : public ILlmClient {
 public:
-    bool fail=false;std::vector<LlmRequest> requests;
+    bool fail=false;size_t timeoutAbove=0;long failureStatus=0;std::vector<LlmRequest> requests;
     std::string mode() const override{return "live";}
     std::string modelName() const override{return "module-progress-fixture";}
     LlmResponse complete(const LlmRequest& req) override {
         requests.push_back(req);LlmResponse r;
-        if(fail){r.error="fixture output limit reached";return r;}
+        if(fail){r.error="fixture output limit reached";r.providerStatus=failureStatus;return r;}
+        if(timeoutAbove){size_t bytes=0;auto ctx=json::parse(req.messages.back().content);for(const auto& p:ctx["pages"])bytes+=p["text"].asString().size();
+            if(bytes>timeoutAbove){r.providerStatus=504;r.error="upstream deadline";return r;}}
         r.ok=true;r.content=R"({"nodes":[{"key":"location|harbour","node_type":"location","name":"Harbour","description":"Rainy harbour","citations":[{"page":1,"excerpt":"Scene"}]}],"edges":[]})";
         return r;
     }
@@ -865,6 +867,30 @@ int main() {
         CHECK(importer.get(access,pdf["id"].asString())["status"]=="failed");
         CHECK(importer.importPdf(access,"renamed.pdf","%PDF-broken","Other")["id"]==pdf["id"]);CHECK(queued.empty());
         bool denied=false;auto player=access;player.isGm=false;try{importer.retry(player,id);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
+        auto node=complete["nodes"][0]["id"].asString();
+        S.db->exec("UPDATE module_nodes SET citations='[{\"page\":1},{\"page\":2,\"excerpt\":\"Original quote\"}]'::jsonb WHERE id=$1",{node});
+        auto citations=importer.get(access,id)["nodes"][0]["citations"];
+        CHECK(citations[0]["page"]==1);CHECK(citations[0]["excerpt"].isString());CHECK(citations[0]["excerpt"]=="");
+        CHECK(citations[1]["excerpt"]=="Original quote");
+        fixture->requests.clear();fixture->timeoutAbove=3200;
+        const std::vector<std::string> adaptivePages={"Scene: First",text,"尾页证据"};
+        auto adaptive=importer.importText(access,"Adaptive timeout",adaptivePages);
+        CHECK(adaptive["status"]=="ready");CHECK(adaptive["completed_chunks"]==adaptive["total_chunks"]);
+        std::map<int,std::string> recovered;int timeouts=0;
+        for(const auto& req:fixture->requests){auto ctx=json::parse(req.messages.back().content);size_t bytes=0;
+            for(const auto& p:ctx["pages"])bytes+=p["text"].asString().size();
+            if(bytes>3200){++timeouts;continue;}
+            for(const auto& p:ctx["pages"])recovered[p["page"].asInt()]+=p["text"].asString();
+        }
+        CHECK(timeouts==2);CHECK(fixture->requests.size()==adaptive["total_chunks"].asUInt()+2);
+        for(int i=0;i<3;++i)CHECK(recovered[i+1]==adaptivePages[i]);
+        fixture->requests.clear();fixture->fail=true;fixture->failureStatus=504;
+        auto outage=importer.importText(access,"Bounded outage",{text+"Outage"});
+        CHECK(outage["status"]=="failed");CHECK(fixture->requests.size()==3);
+        fixture->requests.clear();fixture->failureStatus=401;
+        auto unauthorized=importer.importText(access,"Invalid key",{text+"Invalid key"});
+        CHECK(unauthorized["status"]=="failed");CHECK(fixture->requests.size()==1);
+        fixture->fail=false;fixture->timeoutAbove=0;fixture->failureStatus=0;
         LlmRequest normal;normal.task="general";normal.maxTokens=300;normal.responseSchema=ModuleImporter::structureSchema();gateway.runStructured(normal);
         CHECK(fixture->requests.back().maxTokens==8192);
         LlmRequest knowledge=normal;knowledge.task="script_knowledge";gateway.runStructured(knowledge);CHECK(fixture->requests.back().maxTokens==32768);

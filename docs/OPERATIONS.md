@@ -1,5 +1,8 @@
 # Operating a deployment
 
+The existing native systemd deployment on server-sh uses the [online deployment workflow](ONLINE_DEPLOYMENT.md).
+The Docker instructions below apply to Compose installations.
+
 ## Before exposing it
 
 1. **Secrets.** In `.env` set `AUTH_SECRET` and `PDF_WORKER_TOKEN` to two different values from `openssl rand -hex 32`, and
@@ -69,3 +72,5 @@ without serving.
 When upgrading the module-import workflow, review explicit environment overrides: use `LLM_MAX_TOKENS=8192`, `LLM_MODULE_MAX_TOKENS=32768` and `LLM_MODULE_TIMEOUT_MS=300000` for the new defaults. An older `LLM_MAX_TOKENS=2048` in an environment file still overrides the general default. Use a lower module allowance if a configured provider/model requires it; higher allowances are upper limits, not a request to pad every answer.
 
 Migration 0031 adds durable import progress and content fingerprints. It does not delete or merge older modules. Imports interrupted by a backend restart become failed tasks that the Keeper can retry. Always poll the saved task after a network failure rather than assuming a rejected upload. The webpage uses asynchronous text imports; older clients retain their synchronous contract until they send `async:true`.
+
+Module structuring handles persistent upstream HTTP 504 by reducing only pending input chunks from 12 KB to 6 KB and then 3 KB (smaller source chunks can reduce directly to the floor). Already accepted chunks are retained, original UTF-8 text and page references are preserved, and the progress total grows accordingly. There are at most two reductions per import; a provider that still times out fails the saved task rather than looping indefinitely. The existing transport retries each transient failure twice. This cannot override an upstream gateway deadline; retry the saved task after provider recovery instead of uploading again. Authentication, schema and token-limit errors do not trigger this fallback.
