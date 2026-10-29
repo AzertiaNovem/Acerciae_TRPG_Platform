@@ -52,6 +52,7 @@ LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
     LlmResponse r;
     long status = 0; std::string err;
     auto text = post("/chat/completions", json::dump(body), status, err);
+    r.providerStatus = status;
     if (!err.empty()) { r.error = err; return r; }
     if (status < 200 || status >= 300) {
         // Provider bodies stay in the server log: they can carry account details and anything a host chose to answer.

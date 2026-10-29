@@ -19,6 +19,7 @@ public:
     struct Outcome {
         bool ok = false;
         std::string error;
+        long providerStatus = 0; // HTTP status, separate from transport/schema failures
         Json::Value data;          // validated structured output
         int llmCalls = 0;
         int toolCalls = 0;

@@ -79,6 +79,7 @@ LlmResponse AnthropicClient::complete(const LlmRequest& req) {
     auto url = ep_.apiBase; while (!url.empty() && url.back() == '/') url.pop_back();
     url += "/messages";
     auto res = llm::postJson(url, {"Content-Type: application/json", "anthropic-version: 2023-06-01", "x-api-key: " + ep_.apiKey}, body, ep_.timeoutMs);
+    result.providerStatus = res.status;
     if (!res.error.empty()) { result.error = res.error; return result; }
     if (res.status < 200 || res.status >= 300) {
         ALOG_WARN << "Anthropic HTTP " << res.status << " for task " << req.task << ": " << llm::excerpt(res.body);

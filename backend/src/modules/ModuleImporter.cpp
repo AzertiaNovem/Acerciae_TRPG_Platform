@@ -15,6 +15,39 @@
 #include <thread>
 
 namespace acerciae {
+namespace {
+// Byte limits preserve UTF-8 and original page references, including split PDF pages.
+std::vector<Json::Value> chunkModulePages(const Json::Value& pages, size_t chunkBytes, bool keepWhitespace = false) {
+  std::vector<Json::Value> chunks;
+  Json::Value cur(Json::arrayValue);
+  size_t curSize = 0;
+  for (const auto &p : pages) {
+    const auto t = json::str(p, "text");
+    if (!keepWhitespace && text::trim(t).empty())
+      continue;
+    for (size_t start = 0; start < t.size();) {
+      size_t end = std::min(start + chunkBytes, t.size());
+      while (end < t.size() &&
+             (static_cast<unsigned char>(t[end]) & 0xc0) == 0x80)
+        --end;
+      auto piece = p;
+      piece["text"] = t.substr(start, end - start);
+      if (curSize + (end - start) > chunkBytes && !cur.empty()) {
+        chunks.push_back(cur);
+        cur = Json::Value(Json::arrayValue);
+        curSize = 0;
+      }
+      cur.append(piece);
+      curSize += end - start;
+      start = end;
+    }
+  }
+  if (!cur.empty())
+    chunks.push_back(cur);
+  return chunks;
+}
+} // namespace
+
 
 std::vector<std::string> ModuleImporter::extractPdfText(const std::string& bytes) {
     std::vector<char> buf(bytes.begin(), bytes.end());
@@ -287,35 +320,8 @@ void ModuleImporter::process(const std::string &moduleId) {
 void ModuleImporter::structurePages(const std::string &moduleId,
                                     const std::string &channelId,
                                     const Json::Value &pages) {
-  // Chunk pages so each model call stays within a sane context; keys are global
-  // so chunks can link.
-  const size_t chunkChars = 12000;
-  std::vector<Json::Value> chunks;
-  Json::Value cur(Json::arrayValue);
-  size_t curSize = 0;
-  for (const auto &p : pages) {
-    const auto t = json::str(p, "text");
-    if (text::trim(t).empty())
-      continue;
-    for (size_t start = 0; start < t.size();) {
-      size_t end = std::min(start + chunkChars, t.size());
-      while (end < t.size() &&
-             (static_cast<unsigned char>(t[end]) & 0xc0) == 0x80)
-        --end;
-      auto piece = p;
-      piece["text"] = t.substr(start, end - start);
-      if (curSize + (end - start) > chunkChars && !cur.empty()) {
-        chunks.push_back(cur);
-        cur = Json::Value(Json::arrayValue);
-        curSize = 0;
-      }
-      cur.append(piece);
-      curSize += end - start;
-      start = end;
-    }
-  }
-  if (!cur.empty())
-    chunks.push_back(cur);
+  size_t chunkBytes = 12000;
+  auto chunks = chunkModulePages(pages, chunkBytes);
   if (chunks.empty())
     throw badRequest(
         "No readable text found. Scanned PDFs need OCR before import.");
@@ -325,8 +331,9 @@ void ModuleImporter::structurePages(const std::string &moduleId,
   db_.exec("DELETE FROM module_nodes WHERE module_id=$1",
            {moduleId}); // re-import replaces graph (edges cascade)
   int chunkIdx = 0;
-  for (auto &chunk : chunks) {
-    chunkIdx++;
+  for (size_t index = 0; index < chunks.size();) {
+    chunkIdx = static_cast<int>(index) + 1;
+    const auto chunk = chunks[index];
     LlmRequest req;
     req.channelId = channelId;
     req.task = "module_structure";
@@ -348,6 +355,25 @@ void ModuleImporter::structurePages(const std::string &moduleId,
     u.content = json::dump(ctx);
     req.messages.push_back(u);
     auto outcome = llm_.runStructured(req, nullptr, 2);
+    if (!outcome.ok && outcome.providerStatus == 504 && chunkBytes > 3000) {
+      // Transport already retries transient errors. Repeating a large request again
+      // will not fix a gateway deadline: shrink only unprocessed input, at most twice.
+      size_t bytes = 0;
+      for (const auto& page : chunk) bytes += json::str(page, "text").size();
+      if (bytes > 3000) {
+        chunkBytes = std::max<size_t>(3000, std::min(chunkBytes / 2, bytes / 2));
+        Json::Value remaining(Json::arrayValue);
+        for (size_t j = index; j < chunks.size(); ++j)
+          for (const auto& page : chunks[j]) remaining.append(page);
+        auto smaller = chunkModulePages(remaining, chunkBytes, true);
+        chunks.resize(index);
+        chunks.insert(chunks.end(), smaller.begin(), smaller.end());
+        ALOG_WARN << "Module " << moduleId << " upstream 504; reducing pending chunks to " << chunkBytes << " bytes";
+        progress(moduleId, "structuring", static_cast<int>(index), static_cast<int>(chunks.size()));
+        // Use the same ordinal next iteration; successful chunks remain committed.
+        continue;
+      }
+    }
     if (!outcome.ok)
       throw std::runtime_error("structuring failed on chunk " +
                                std::to_string(chunkIdx) + ": " + outcome.error);
@@ -387,6 +413,7 @@ void ModuleImporter::structurePages(const std::string &moduleId,
         pendingEdges.push_back(e);
     });
     progress(moduleId, "structuring", chunkIdx, (int)chunks.size());
+    ++index;
   }
   db_.tx([&](pqxx::work &w) {
     for (auto &e : pendingEdges) {
@@ -433,6 +460,11 @@ Json::Value ModuleImporter::get(const ChannelAccess &a,
       "array_position(ARRAY['stage','scene','location','npc','clue','item','"
       "secret','condition','twist','ending'], n.node_type), n.created_at",
       {moduleId});
+  // Page-only citations are valid model output. Keep older clients' string
+  // contract without inventing a quote or rewriting the stored source record.
+  for (auto& node : m["nodes"])
+    for (auto& citation : node["citations"])
+      if (citation.isObject() && !citation["excerpt"].isString()) citation["excerpt"] = "";
   m["edges"] =
       db_.queryJson("SELECT e.id, e.from_node_id, e.to_node_id, e.relation, "
                     "f.name AS from_name, t.name AS to_name FROM module_edges "
