@@ -71,6 +71,9 @@ LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
         }
     }
     r.promptTokens = j["usage"]["prompt_tokens"].asInt(); r.completionTokens = j["usage"]["completion_tokens"].asInt();
+    if (j["choices"][0]["finish_reason"] == "length") {
+        r.error = "the model stopped at its output token limit before finishing"; return r;
+    }
     r.ok = true;
     return r;
 }

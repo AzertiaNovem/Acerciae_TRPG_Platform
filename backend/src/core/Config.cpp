@@ -40,6 +40,10 @@ Config Config::fromEnv() {
         if (const char* v = std::getenv(gone); v && *v) std::fprintf(stderr, "warning: %s is ignored; AI providers and keys are configured per server by its maintainers\n", gone);
     c.llmTimeoutMs = envInt("LLM_TIMEOUT_MS", c.llmTimeoutMs);
     c.llmMaxTokens = envInt("LLM_MAX_TOKENS", c.llmMaxTokens);
+    c.llmModuleMaxTokens = envInt("LLM_MODULE_MAX_TOKENS", c.llmModuleMaxTokens);
+    c.llmModuleTimeoutMs = envInt("LLM_MODULE_TIMEOUT_MS", c.llmModuleTimeoutMs);
+    if(c.llmMaxTokens<1 || c.llmModuleMaxTokens<1 || c.llmModuleTimeoutMs<1000)
+        throw std::runtime_error("LLM output limits must be positive and module timeout at least 1000 ms");
     c.llmTemperature = envDouble("LLM_TEMPERATURE", c.llmTemperature);
     c.aiAllowPrivateEndpoints = envBool("AI_ALLOW_PRIVATE_ENDPOINTS", c.aiAllowPrivateEndpoints);
     c.aiHttpWorkers = envInt("AI_HTTP_WORKERS", c.aiHttpWorkers);

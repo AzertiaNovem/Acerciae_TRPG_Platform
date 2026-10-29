@@ -1,3 +1,4 @@
+#include "modules/ModuleImporter.h"
 #include "app/Services.h"
 #include "api/Api.h"
 #include "ws/WsGateway.h"
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
     if (seedOnly) { std::cerr << "Seeding demo accounts with the published password \"password\": local development only.\n"; DemoSeed::run(S, true); return 0; }
     if (cfg.seedDemo && !noSeed) { try { DemoSeed::run(S, false); } catch (const std::exception& e) { ALOG_ERROR << "demo seed failed: " << e.what(); } }
 
+    S.modules->recoverInterrupted();
     registerRoutes();
     drogon::app().addListener("0.0.0.0", cfg.httpPort)
         .setThreadNum(cfg.httpThreads)

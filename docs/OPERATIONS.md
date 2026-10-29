@@ -63,3 +63,9 @@ without serving.
   instances behind a load balancer would each throttle separately and miss each other's socket revocations.
 - The PDF worker polls the backend; PDF jobs stay pending while it is down (the backend warns at startup when
   `PDF_WORKER_TOKEN` is missing).
+
+## Import output allowance
+
+When upgrading the module-import workflow, review explicit environment overrides: use `LLM_MAX_TOKENS=8192`, `LLM_MODULE_MAX_TOKENS=32768` and `LLM_MODULE_TIMEOUT_MS=300000` for the new defaults. An older `LLM_MAX_TOKENS=2048` in an environment file still overrides the general default. Use a lower module allowance if a configured provider/model requires it; higher allowances are upper limits, not a request to pad every answer.
+
+Migration 0031 adds durable import progress and content fingerprints. It does not delete or merge older modules. Imports interrupted by a backend restart become failed tasks that the Keeper can retry. Always poll the saved task after a network failure rather than assuming a rejected upload. The webpage uses asynchronous text imports; older clients retain their synchronous contract until they send `async:true`.

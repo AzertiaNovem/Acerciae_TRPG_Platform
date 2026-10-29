@@ -17,7 +17,9 @@ struct Config {
     // AI providers, models and keys belong to each server's maintainers (server settings); the process only sets
     // operational guards for every outbound AI call.
     int llmTimeoutMs = 60000;
-    int llmMaxTokens = 2048;
+    int llmMaxTokens = 8192;
+    int llmModuleMaxTokens = 32768;
+    int llmModuleTimeoutMs = 300000;
     double llmTemperature = 0.2;
     bool aiAllowPrivateEndpoints = false;   // allow http:// and private/loopback hosts (self-hosted models)
     int aiHttpWorkers = 8;                  // threads that run user-triggered AI requests off the HTTP threads

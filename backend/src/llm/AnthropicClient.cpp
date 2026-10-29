@@ -53,6 +53,8 @@ Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoin
 LlmResponse AnthropicClient::parseResponse(const Json::Value& b) {
     LlmResponse r;
     if (b["type"] == "error" || !b["content"].isArray()) { r.error = "invalid Anthropic Messages response"; return r; }
+    r.promptTokens = b["usage"].get("input_tokens", 0).asInt();
+    r.completionTokens = b["usage"].get("output_tokens", 0).asInt();
     if (b["stop_reason"] == "max_tokens") { r.error = "the model stopped at its output token limit before finishing"; return r; }
     // A refusal is final: neither its partial text nor any tool_use in the same turn is acted on.
     if (b["stop_reason"] == "refusal") { r.error = "the model declined this request"; return r; }

@@ -55,7 +55,12 @@ export function useRealtime() {
       else if (m.type === 'highlight.created') useHighlights.getState().add(m.highlight);
       else if (m.type === 'highlight.expired') useHighlights.getState().remove(m.highlight_ids);
       else if (m.type === 'proposal.pending') useUi.getState().toast('The AI filed a change that needs GM review.', 'ai');
-      else if (m.type === 'module.updated') useUi.getState().toast('Module workspace updated.', 'ai');
+      else if (m.type === 'module.updated') {
+        if (m.import_stage) {
+          if (m.status === 'ready') useUi.getState().toast(m.import_warning ? 'Module imported with a warning' : 'Module import complete', 'ai');
+          else if (m.status === 'failed') useUi.getState().toast('Module import failed; retry the saved task', 'error');
+        } else useUi.getState().toast('Module workspace updated.', 'ai');
+      }
       else if (m.type === 'ai.job' && m.job?.status === 'failed') useUi.getState().toast(`AI observer error: ${m.job.error}`, 'error');
     });
     const prune = setInterval(() => { useHighlights.getState().prune(); useReminders.getState().prune(); }, 15000);

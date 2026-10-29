@@ -28,6 +28,8 @@
 #include "core/Errors.h"
 #include <iostream>
 #include <cstdlib>
+#include <future>
+#include <mutex>
 
 using namespace acerciae;
 static int failures = 0, passed = 0;
@@ -70,6 +72,19 @@ public:
         ++calls; context = json::parse(req.messages.back().content);
         if (beforeReturn) beforeReturn();
         r.content = json::dump(plan); return r;
+    }
+};
+
+class ModuleProgressClient : public ILlmClient {
+public:
+    bool fail=false;std::vector<LlmRequest> requests;
+    std::string mode() const override{return "live";}
+    std::string modelName() const override{return "module-progress-fixture";}
+    LlmResponse complete(const LlmRequest& req) override {
+        requests.push_back(req);LlmResponse r;
+        if(fail){r.error="fixture output limit reached";return r;}
+        r.ok=true;r.content=R"({"nodes":[{"key":"location|harbour","node_type":"location","name":"Harbour","description":"Rainy harbour","citations":[{"page":1,"excerpt":"Scene"}]}],"edges":[]})";
+        return r;
     }
 };
 
@@ -805,6 +820,54 @@ int main() {
         on["atmosphere_enabled"]=true;S.auth->updateProfile(gmP,on);
         settings["features"]["atmosphere"]=false;S.settings->update(gmP,sid,settings);CHECK(!service.fetch(a,asset,bytes,mime));
         S.auth->updateProfile(gmP,off);
+    });
+    test("module imports persist progress, deduplicate concurrent content, retry failures and preserve UTF-8 chunks", [&] {
+        auto client=std::make_unique<ModuleProgressClient>();auto* fixture=client.get();
+        LlmGateway gateway(cfg,std::move(client));ModuleImporter importer(cfg,*S.db,gateway,*S.notifier);
+        std::vector<std::function<void()>> queued;std::mutex queueMutex;bool queueFull=false;
+        importer.setExecutor([&](auto fn){std::lock_guard<std::mutex> lock(queueMutex);if(queueFull)return false;queued.push_back(fn);return true;});
+        auto srv=S.chat->createServer(gmP,"Module import tests");
+        Json::Value body;body["name"]="Import tests";auto ch=S.chat->createChannel(gmP,srv["id"].asString(),body)["id"].asString();
+        auto access=S.auth->channelAccess(gmUser,ch);
+        std::string text="Scene: 雾港\n";for(int i=0;i<7000;++i)text+="中文剧情";
+        auto first=std::async(std::launch::async,[&]{return importer.importText(access,"Long module",{text},true);});
+        auto second=std::async(std::launch::async,[&]{return importer.importText(access,"Different title",{text},true);});
+        auto one=first.get(),two=second.get();auto id=one["id"].asString();
+        CHECK(one["id"]==two["id"]);CHECK(one["deduplicated"].asBool()!=two["deduplicated"].asBool());CHECK(queued.size()==1);
+        CHECK(importer.get(access,id)["import_stage"]=="queued");
+        importer.setPostProcess([&](const auto&,const auto& module){
+            auto state=importer.get(access,module);CHECK(state["import_stage"]=="knowledge");CHECK(state["completed_chunks"]==state["total_chunks"]);
+            throw std::runtime_error("fixture knowledge failure");
+        });
+        queued.back()();queued.clear();
+        auto complete=importer.get(access,id);CHECK(complete["status"]=="ready");CHECK(!complete["import_warning"].asString().empty());
+        CHECK(complete["total_chunks"].asInt()>1);CHECK(complete["completed_chunks"]==complete["total_chunks"]);
+        std::string joined;
+        for(const auto& req:fixture->requests){
+            CHECK(req.maxTokens==32768);auto ctx=json::parse(req.messages.back().content);size_t bytes=0;
+            for(const auto& page:ctx["pages"]){CHECK(page["page"]==1);auto s=page["text"].asString();joined+=s;bytes+=s.size();CHECK((static_cast<unsigned char>(s[0])&0xc0)!=0x80);}
+            CHECK(bytes<=12000);
+        }
+        CHECK(joined==text);
+        CHECK(importer.importText(access,"Again",{text},true)["deduplicated"].asBool());CHECK(queued.empty());
+        CHECK(importer.retry(access,id)["status"]=="ready");CHECK(queued.empty());
+        importer.setPostProcess({});fixture->fail=true;
+        auto bad=importer.importText(access,"Failing module",{"Scene: Failed garden"},true);
+        queued.back()();queued.clear();CHECK(importer.get(access,bad["id"].asString())["status"]=="failed");
+        fixture->fail=false;auto retry=importer.retry(access,bad["id"].asString());CHECK(retry["id"]==bad["id"]);CHECK(queued.size()==1);
+        importer.retry(access,bad["id"].asString());CHECK(queued.size()==1);queued.back()();queued.clear();
+        CHECK(importer.get(access,bad["id"].asString())["status"]=="ready");
+        queueFull=true;auto full=importer.importText(access,"Queue full",{"Scene: Crowded queue"},true);CHECK(full["status"]=="failed");
+        queueFull=false;importer.retry(access,full["id"].asString());CHECK(queued.size()==1);
+        importer.recoverInterrupted();CHECK(importer.get(access,full["id"].asString())["status"]=="failed");queued.clear();
+        importer.retry(access,full["id"].asString());queued.back()();queued.clear();CHECK(importer.get(access,full["id"].asString())["status"]=="ready");
+        auto pdf=importer.importPdf(access,"broken.pdf","%PDF-broken","Broken");queued.back()();queued.clear();
+        CHECK(importer.get(access,pdf["id"].asString())["status"]=="failed");
+        CHECK(importer.importPdf(access,"renamed.pdf","%PDF-broken","Other")["id"]==pdf["id"]);CHECK(queued.empty());
+        bool denied=false;auto player=access;player.isGm=false;try{importer.retry(player,id);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
+        LlmRequest normal;normal.task="general";normal.maxTokens=300;normal.responseSchema=ModuleImporter::structureSchema();gateway.runStructured(normal);
+        CHECK(fixture->requests.back().maxTokens==8192);
+        LlmRequest knowledge=normal;knowledge.task="script_knowledge";gateway.runStructured(knowledge);CHECK(fixture->requests.back().maxTokens==32768);
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();
