@@ -18,3 +18,7 @@ backend/seed/*.tmp
 
 pdf-worker/node_modules/
 pdf-worker/output/
+
+gm-agent/node_modules/
+gm-agent/.state/
+gm-agent/.env
