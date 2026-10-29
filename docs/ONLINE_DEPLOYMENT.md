@@ -7,7 +7,7 @@ Cloudflare Pages 独立监听 `online`；它不会等待后端部署完成，所
 产物名为 `backend-<Git tree SHA>`，包含后端 ELF、运行所需的非 glibc 共享库、数据库迁移、PDF worker
 及锁定的生产 npm 依赖。合并提交的 SHA 通常不同于测试提交，因此按完整代码树匹配，并核验构建来源：
 必须来自本仓库 `CI` 的成功运行，来源为 `main` push 或 `main → online` 的 PR。PR 产物还核验临时合并提交
-的两个父提交，下载后校验 GitHub artifact digest 与内部 tar 的 SHA-256。PR 构建没有生产密钥。
+的原始 head 父提交和已上线历史中的 base 父提交（不信任会随分支前进而改变的 PR 引用），下载后校验 GitHub artifact digest 与内部 tar 的 SHA-256。PR 构建没有生产密钥。
 
 artifact 保留 30 天；失败、过期、其他仓库/分支、代码树不同或摘要不符的产物不会被部署。
 没有匹配产物时部署失败，不会偷偷转为线上编译。先重新运行 `main` 或发布 PR 的 CI，再重跑 `online`

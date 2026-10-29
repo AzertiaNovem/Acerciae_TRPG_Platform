@@ -25,8 +25,7 @@ def eligible(run, repo, workflow_id):
     if run.get('event') == 'push':
         return run.get('head_branch') == 'main'
     if run.get('event') == 'pull_request' and run.get('head_branch') == 'main':
-        return any(p.get('base', {}).get('ref') == 'online' and p.get('head', {}).get('sha') == run.get('head_sha')
-                   for p in run.get('pull_requests', []))
+        return any(p.get('base', {}).get('ref') == 'online' for p in run.get('pull_requests', []))
     return False
 
 
@@ -41,8 +40,9 @@ def verify_manifest(manifest, run, commit, expected_tree, repo):
             raise RuntimeError('Artifact was not built from the push commit')
     else:
         parents = [p['sha'] for p in commit['parents']]
-        if not any(parents == [p['base']['sha'], p['head']['sha']] and p['base']['ref'] == 'online'
-                   and p['head']['sha'] == run['head_sha'] for p in run.get('pull_requests', [])):
+        # Workflow-run PR metadata follows the live branch tips after merge; use the
+        # immutable run head and the actual Git commit parents instead.
+        if len(parents) != 2 or parents[1] != run['head_sha']:
             raise RuntimeError('Artifact was not built from this PR merge candidate')
 
 
@@ -76,6 +76,10 @@ def fetch(destination):
                     raise RuntimeError('Invalid build commit')
                 commit = api(f'repos/{repo}/git/commits/{build_sha}')
                 verify_manifest(manifest, run, commit, expected_tree, repo)
+                if run['event'] == 'pull_request':
+                    ancestor = subprocess.run(['git', 'merge-base', '--is-ancestor', commit['parents'][0]['sha'], sha])
+                    if ancestor.returncode != 0:
+                        continue  # Candidate used a base outside the deployed branch's history.
                 with z.open('release.tar.gz') as source, (destination / 'release.tar.gz').open('wb') as target:
                     import shutil
                     shutil.copyfileobj(source, target)

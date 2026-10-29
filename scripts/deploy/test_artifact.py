@@ -38,7 +38,11 @@ class ArtifactTests(unittest.TestCase):
         self.manifest['build_commit'] = self.commit['sha'] = 'd'*40
         self.commit['parents'] = [{'sha': 'c'*40}, {'sha': 'a'*40}]
         self.assertTrue(eligible(self.run, self.repo, 8)); self.verify()
-        self.commit['parents'][0]['sha'] = 'e'*40
+        # GitHub mutates the run's associated PR refs after merge/new pushes.
+        self.run['pull_requests'][0]['base']['sha'] = 'f'*40
+        self.run['pull_requests'][0]['head']['sha'] = 'e'*40
+        self.verify()
+        self.commit['parents'][1]['sha'] = 'e'*40
         with self.assertRaises(RuntimeError): self.verify()
 
 if __name__ == '__main__': unittest.main()
