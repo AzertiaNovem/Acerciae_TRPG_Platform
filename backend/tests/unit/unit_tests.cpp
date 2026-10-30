@@ -80,11 +80,15 @@ int main() {
         CHECK(b["max_output_tokens"]==900); CHECK(b["temperature"].asDouble()==0.3); CHECK(!b.isMember("reasoning")); CHECK(!b.isMember("messages"));
         CHECK(b["text"]["format"]["type"]=="json_object");
         CHECK(b["tools"][0]["type"]=="function"); CHECK(b["tools"][0]["name"]=="search_events"); CHECK(b["tools"][0]["strict"]==false); CHECK(!b["tools"][0].isMember("function"));
-        CHECK(b["input"].size()==3); CHECK(b["input"][0]["role"]=="user");
-        CHECK(b["input"][1]["type"]=="function_call"); CHECK(b["input"][1]["call_id"]=="call_7"); CHECK(b["input"][1]["arguments"]=="{\"q\":\"badge\"}");
-        CHECK(b["input"][2]["type"]=="function_call_output"); CHECK(b["input"][2]["call_id"]=="call_7"); CHECK(b["input"][2]["output"]=="{\"events\":[]}");
+        CHECK(b["input"].size()==4); CHECK(b["input"][0]["role"]=="system");
+        CHECK(b["input"][0]["content"].asString().find("JSON")!=std::string::npos);
+        CHECK(b["input"][1]["role"]=="user"); CHECK(b["input"][1]["content"]=="Find my clue");
+        CHECK(b["input"][2]["type"]=="function_call"); CHECK(b["input"][2]["call_id"]=="call_7"); CHECK(b["input"][2]["arguments"]=="{\"q\":\"badge\"}");
+        CHECK(b["input"][3]["type"]=="function_call_output"); CHECK(b["input"][3]["call_id"]=="call_7"); CHECK(b["input"][3]["output"]=="{\"events\":[]}");
         ep.reasoningEffort="high"; b=OpenAiCompatClient::requestBody(req, ep);
         CHECK(b["reasoning"]["effort"]=="high"); CHECK(!b.isMember("temperature"));
+        req.responseSchema=Json::Value(); b=OpenAiCompatClient::requestBody(req, ep);
+        CHECK(!b.isMember("text")); CHECK(b["input"].size()==3); CHECK(b["input"][0]["role"]=="user");
         auto ok=OpenAiCompatClient::parseResponse(json::parse(R"({"status":"completed","output":[{"type":"reasoning","summary":[]},{"type":"message","content":[{"type":"output_text","text":"{\"draft\":"},{"type":"output_text","text":"\"x\"}"}]}],"usage":{"input_tokens":5,"output_tokens":7}})"));
         CHECK(ok.ok); CHECK(ok.content=="{\"draft\":\"x\"}"); CHECK(ok.toolCalls.empty()); CHECK(ok.completionTokens==7);
         auto cut=OpenAiCompatClient::parseResponse(json::parse(R"({"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","content":[{"type":"output_text","text":"{"}]}]})"));
