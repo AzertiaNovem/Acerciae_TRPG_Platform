@@ -31,6 +31,7 @@ public:
     auto hash = crypto::sha256Hex(json::dump(req));
     int w = 320, h = 180;
     if(json::str(req,"size")=="1024x1536") { w=180; h=320; }
+    const bool transparent = json::str(req, "kind") == "standee";
     std::string raw;
     for (int y = 0; y < h; ++y) {
       raw += '\0';
@@ -39,6 +40,7 @@ public:
         raw += char(light ? 160 : 45);
         raw += char(light ? static_cast<unsigned char>(hash[0]) : 35);
         raw += char(light ? 180 : 55);
+        if (transparent) raw += char(x < w/8 || x >= 7*w/8 || y < h/8 || y >= 7*h/8 ? 0 : 255);
       }
     }
     uLongf size = compressBound(raw.size());
@@ -49,7 +51,7 @@ public:
     std::string png("\x89PNG\r\n\x1a\n", 8), ihdr;
     u32(ihdr, w);
     u32(ihdr, h);
-    ihdr += std::string("\x08\x02\0\0\0", 5);
+    ihdr += transparent ? std::string("\x08\x06\0\0\0", 5) : std::string("\x08\x02\0\0\0", 5);
     chunk(png, "IHDR", ihdr);
     chunk(png, "tEXt",
           std::string("Description\0MOCK test pattern - not AI artwork", 44));
@@ -73,6 +75,10 @@ public:
     ImageResult r;
     Json::Value body;
     body["model"] = model(); body["n"] = 1; body["output_format"] = "png";
+    const bool standee = json::str(request, "kind") == "standee";
+    // GPT Image 2.5 needs an explicit API option, not just a prompt saying "transparent".
+    // Applies to JSON generations and multipart edits, including older queued pose jobs.
+    if (standee) body["background"] = "transparent";
     auto size=json::str(request,"size",config_.size);
     if(size!="auto" && size!="1024x1024" && size!="1536x1024" && size!="1024x1536") throw std::runtime_error("unsupported image size");
     if(size!="auto") body["size"]=size;
@@ -81,6 +87,11 @@ public:
     body["prompt"] = "Create one TRPG visual asset from the following selected art direction and source data. "
       "Preserve the specified character identity and style. Do not invent narrative facts or add text/watermarks. "
       "Use attached images as visual references when present.\n" + json::dump(context);
+    if (standee) body["prompt"] = body["prompt"].asString() +
+      "\nOutput one isolated full-body character cutout on a transparent background with a real alpha channel. "
+      "Use the main profile portrait as the identity reference, retaining the face, hairstyle, clothing and art style "
+      "while applying the requested gesture and expression. Keep hands, feet and the entire silhouette inside the frame. "
+      "Do not copy the reference background or add scenery, a solid backdrop, a checkerboard pattern or a ground shadow.";
     std::vector<std::pair<std::string, std::string>> refs;
     try {
       const auto& images = request["reference_images"];

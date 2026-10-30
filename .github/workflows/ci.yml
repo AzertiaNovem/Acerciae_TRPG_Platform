@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   test:
+    if: github.event_name != 'push' || github.ref != 'refs/heads/online'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     services:
@@ -47,7 +48,7 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             libdrogon-dev libtrantor-dev libpqxx-dev libpq-dev libjsoncpp-dev libpoppler-cpp-dev \
             libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libbrotli-dev libhiredis-dev libyaml-cpp-dev \
-            libsqlite3-dev libmariadb-dev libmariadb-dev-compat postgresql-client fonts-noto-cjk
+            libsqlite3-dev libmariadb-dev libmariadb-dev-compat postgresql-client fonts-noto-cjk patchelf
 
       - name: Build backend
         run: |
@@ -59,6 +60,19 @@ jobs:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: scripts/test.sh postgresql://postgres:postgres@localhost:5432/postgres
 
+      - name: Package tested deployment
+        id: package
+        run: python3 scripts/deploy/package.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: release-artifact/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+          compression-level: 0
+
       - name: Server logs
         if: failure()
         run: |
@@ -67,10 +81,12 @@ jobs:
 
   deploy:
     name: Deploy backend
-    needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/online'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
     environment:
       name: production
       url: https://trpg.missazertia.com:15510/api/health
@@ -81,8 +97,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
-      - name: Upload and deploy the tested commit
+      - name: Fetch the tested artifact matching the merged tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/deploy/fetch_artifact.py
+
+      - name: Upload and activate the tested binaries
         env:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}

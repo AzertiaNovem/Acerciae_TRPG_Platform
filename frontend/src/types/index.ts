@@ -136,7 +136,7 @@ export interface AiPolicyUsage { token_budget: number; image_budget: number; per
 export interface ServerSettings {
   server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;
   llm?: { provider: 'mock' | 'openai_compatible' | 'anthropic'; api_base: string; model: string; reasoning_effort: string; embedding_model: string; api_key_set: boolean; api_key_hint: string };
-  tts?: { provider: 'disabled' | 'mock' | 'qwen'; api_base: string; model: string; voice: string; api_key_set: boolean; api_key_hint: string };
+  tts?: { provider: 'disabled' | 'mock' | 'qwen' | 'openai'; api_base: string; model: string; voice: string; api_key_set: boolean; api_key_hint: string };
   image?: { provider: 'disabled' | 'mock' | 'gpt_image'; api_base: string; model: string; size: string; quality: string; api_key_set: boolean; api_key_hint: string };
   policy?: ServerPolicy; ai_policy?: AiPolicyUsage; private_endpoints_allowed?: boolean;
   languages?: string[];

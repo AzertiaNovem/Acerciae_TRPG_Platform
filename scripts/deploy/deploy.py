@@ -3,10 +3,12 @@
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import platform
 import shutil
 import signal
 import subprocess
@@ -58,7 +60,7 @@ def health():
 def preflight(root):
     if os.geteuid() == 0:
         raise RuntimeError('Run this script as deploy, not root')
-    for name in ('cmake', 'ninja', 'node', 'npm', 'pg_restore', 'tar'):
+    for name in ('node', 'npm', 'pg_restore', 'tar', 'ldd'):
         if not shutil.which(name):
             raise RuntimeError(f'Missing executable: {name}')
     for name in ('backend.env', 'pdf-worker.env'):
@@ -72,23 +74,33 @@ def preflight(root):
     run(['/usr/bin/systemctl', 'is-active', '--quiet', 'acerciae.service', 'acerciae-pdf.service'])
 
 
-def prepare(archive, release, root):
+def prepare(archive, release, root, tree, archive_sha256):
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != archive_sha256:
+        raise RuntimeError('Release archive checksum mismatch')
     release.mkdir()  # Never overwrite a release, including a failed attempt.
     with tarfile.open(archive) as source:
         for member in source.getmembers():
             parts = Path(member.name).parts
-            if not parts or parts[0] not in ('backend', 'pdf-worker') or '..' in parts:
+            if not parts or parts[0] not in ('backend', 'pdf-worker', 'build.json') or '..' in parts:
                 raise RuntimeError(f'Unexpected archive path: {member.name}')
         source.extractall(release, filter='data')
+    manifest = json.loads((release / 'build.json').read_text())
+    if manifest.get('schema') != 1 or manifest.get('tree') != tree or manifest.get('platform') != 'ubuntu-24.04-x86_64':
+        raise RuntimeError('Release manifest does not match the approved tree/platform')
+    if platform.system() != 'Linux' or platform.machine() != 'x86_64':
+        raise RuntimeError('Release requires Linux x86_64')
+    binary = release / 'backend/build/acerciae-server'
+    if binary.read_bytes()[:4] != b'\x7fELF' or not os.access(binary, os.X_OK):
+        raise RuntimeError('Release has no executable Linux backend')
     (release / 'backend/uploads').symlink_to(root / 'uploads')
-    run(['cmake', '-S', release / 'backend', '-B', release / 'backend/build',
-         '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release'])
-    run(['cmake', '--build', release / 'backend/build', '--parallel', '2'])
-    run([release / 'backend/build/unit_tests'], cwd=release / 'backend')
-    # Production already supplies Chromium; do not download a second browser.
-    npm_env = {**os.environ, 'PUPPETEER_SKIP_DOWNLOAD': 'true', 'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD': '1'}
-    run(['npm', 'ci', '--omit=dev', '--no-audit', '--no-fund'], cwd=release / 'pdf-worker', env=npm_env)
-    run(['npm', 'test'], cwd=release / 'pdf-worker', env=npm_env)
+    # No compiler, dependency installation or network registry access on the server.
+    linked = run(['ldd', binary], capture_output=True, text=True)
+    if 'not found' in linked.stdout:
+        raise RuntimeError('Release has unresolved runtime libraries')
+    run([binary, '--help'])
+    if not (release / 'pdf-worker/node_modules').is_dir():
+        raise RuntimeError('Release has no packaged PDF dependencies')
+    run(['npm', 'test'], cwd=release / 'pdf-worker')
     # The service runs as acerciae; archives and npm may include restrictive modes.
     for directory, dirs, files in os.walk(release, followlinks=False):
         Path(directory).chmod(Path(directory).stat().st_mode | 0o555)
@@ -148,6 +160,7 @@ def activate(root, release, commit, run_number):
         'commit': commit, 'source': 'origin/online', 'run_number': run_number,
         'release': str(release), 'previous_release': str(old), 'backup': str(backup),
         'updated_at': datetime.now(timezone.utc).isoformat(),
+        'build': json.loads((release / 'build.json').read_text()) if (release / 'build.json').exists() else None,
     })
     print(f'Deployed {commit}; backup: {backup}', flush=True)
 
@@ -157,6 +170,8 @@ def main():
     parser.add_argument('--check', action='store_true', help='Read-only readiness check; no build, backup, or restart')
     parser.add_argument('--archive', type=Path)
     parser.add_argument('--commit')
+    parser.add_argument('--tree')
+    parser.add_argument('--archive-sha256')
     parser.add_argument('--release-id')
     parser.add_argument('--run-number', type=int)
     args = parser.parse_args()
@@ -168,6 +183,8 @@ def main():
         return
     if not args.commit or not re.fullmatch(r'[0-9a-f]{40}', args.commit):
         parser.error('--commit must be a full Git SHA')
+    if not args.tree or not re.fullmatch(r'[0-9a-f]{40}', args.tree) or not args.archive_sha256 or not re.fullmatch(r'[0-9a-f]{64}', args.archive_sha256):
+        parser.error('--tree and --archive-sha256 are required')
     if not args.release_id or not re.fullmatch(re.escape(args.commit) + r'-[0-9]+-[0-9]+', args.release_id):
         parser.error('--release-id must be <SHA>-<run ID>-<attempt>')
     if not args.archive or not args.run_number or args.run_number < 1:
@@ -185,7 +202,7 @@ def main():
                 print('This commit is already deployed and healthy.')
                 return
         release = ROOT / 'releases' / args.release_id
-        prepare(args.archive, release, ROOT)
+        prepare(args.archive, release, ROOT, args.tree, args.archive_sha256)
         activate(ROOT, release, args.commit, args.run_number)
 
 

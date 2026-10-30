@@ -7,7 +7,7 @@ HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile app
 |---|---|---|---|
 | **GM (Keeper)** | the client's account, channel role `gm` | – | everything the Keeper may read (below) |
 | **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the Keeper by hand) | **the same context as the GM** |
-| **Co-player** | an `npc` character | **the LLM writes its COC7 role card** at setup | **only the chat log its character witnessed**, plus its own card and persona |
+| **Co-player** | an `npc` character | **the LLM writes its COC7 role card** at setup | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
 Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
 platform they are NPCs like any other, because only a GM may create characters without a player. Inside this client
@@ -22,7 +22,9 @@ never get them.
 **GM and real NPCs** (one shared context, built per turn by `src/context/gmContext.mjs`):
 
 - every line in every chat window, including Keeper-only notes, whispers and hidden rolls;
-- the cast (player characters, co-players, real NPCs), the current scenario and the summaries of earlier ones;
+- the cast: every player character and co-player with its basic details (occupation, age, sex, residence, birthplace),
+  bio and background from its role card, and each real NPC with its brief;
+- the current scenario and the summaries of earlier ones;
 - the platform's AI tips:
   - `GET /kp/board`
   - `/reminders` and `/script-knowledge`
@@ -37,7 +39,14 @@ it applies the platform's player filter itself. A co-player gets only:
 - lines with `window` visibility, and whispers addressed to its own character.
 
 It never gets `gm_only` lines (Keeper notes, hidden roll results), whispers to anyone else, other windows, or any
-platform AI tip. Its role card and persona are added to its prompt.
+platform AI tip.
+
+Besides the log, its prompt holds:
+- its own role card and persona;
+- the other investigators' basic details, bio and background (`src/context/profiles.mjs`): the player characters and
+  the other co-players, as a human player can read any player character's page.
+
+It never gets a real NPC's details, or another investigator's characteristics and skills.
 
 ## How a turn runs
 

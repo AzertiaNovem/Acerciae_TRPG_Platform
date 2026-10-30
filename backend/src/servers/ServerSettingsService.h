@@ -32,7 +32,7 @@ public:
     // LLM profile for the gateway: the server's own provider, or mock when it has none.
     std::optional<LlmProfile> profileForChannel(const std::string& channelId);
 
-    // For the TTS integration: the server's speech provider (disabled | mock | qwen) with the key unsealed.
+    // For the TTS integration: the server's speech provider (disabled | mock | qwen | openai) with the key unsealed.
     struct TtsConfig { std::string provider = "mock", apiBase, apiKey, model, voice, language; };
     TtsConfig ttsConfig(const std::string& serverId);
 

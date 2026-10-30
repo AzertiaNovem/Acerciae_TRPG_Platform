@@ -37,6 +37,11 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
       ], usage: { input_tokens: 12, output_tokens: 6 } });
       return send({ type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ draft: '我先核对聊天中的原始证词。', used_fact_ids: [] }) }], usage: { input_tokens: 25, output_tokens: 12 } });
     }
+    if (req.url.endsWith('/audio/speech')) {
+      if (json?.model === 'rate-limited-tts') { res.statusCode = 429; return send({ error: { message: 'fixture rate limit' } }); }
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return res.end(Buffer.alloc(24000 * 2 / 2));   // half a second of 24 kHz 16-bit PCM silence
+    }
     if (req.url.endsWith('/chat/completions')) return send({ choices: [{ message: { content: JSON.stringify({ draft: 'I check the original statement.', used_fact_ids: [] }) } }] });
     if (req.url.endsWith('/images/generations') || req.url.endsWith('/images/edits')) {
       if (json?.model === 'held-image') await new Promise(resolve => { releaseImage = resolve; });
@@ -60,7 +65,7 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     const ch = (await call(gm.token, 'POST', `/api/servers/${server.id}/channels`, { name: 'Protocol test', knowledge_mode: 'isolated' })).id;
     await call(gm.token, 'POST', `/api/channels/${ch}/members`, { username: pl.user.username, role: 'player' });
     const root = `/api/channels/${ch}/studio`;
-    const imageConfig = { provider: 'gpt_image', api_base: endpoint + '/image/v1', api_key: 'image-secret-A', model: 'fixture-image', size: '1536x1024', quality: 'low' };
+    const imageConfig = { provider: 'gpt_image', api_base: endpoint + '/image/v1', api_key: 'image-secret-A', model: 'gpt-image-2.5-sunburst', size: '1536x1024', quality: 'low' };
     const saved = await call(gm.token, 'PUT', settings, { llm: { provider: 'anthropic', api_base: endpoint + '/anthropic/v1', api_key: 'anthropic-secret-A', model: 'fixture-claude', reasoning_effort: 'high' }, image: imageConfig });
     assert.equal(saved.llm.provider, 'anthropic'); assert.equal(saved.image.api_key_set, true);
     assert.ok(!JSON.stringify(saved).includes('secret-A'));
@@ -96,7 +101,7 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     assert.equal(generated.status, 'completed', generated.error);
     const img = requests.find(r => r.url.endsWith('/images/generations'));
     assert.equal(img.url, '/image/v1/images/generations'); assert.equal(img.headers.authorization, 'Bearer image-secret-A');
-    assert.equal(img.json.model, 'fixture-image'); assert.equal(img.json.output_format, 'png'); assert.equal(img.json.response_format, undefined);
+    assert.equal(img.json.model, 'gpt-image-2.5-sunburst'); assert.equal(img.json.background, undefined); assert.equal(img.json.output_format, 'png'); assert.equal(img.json.response_format, undefined);
     assert.equal(img.json.size, '1536x1024'); assert.equal(img.json.quality, 'low'); assert.ok(img.json.prompt.includes('blue-grey'));
     assert.ok(!img.body.includes('anthropic-secret-A'));
     await call(gm.token, 'PUT', `/api/channels/${ch}/media/${generated.result_asset_id}`, { approval_status: 'approved', visibility_scope: 'channel' });
@@ -105,6 +110,7 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     assert.equal(edited.status, 'completed', edited.error);
     const edit = requests.find(r => r.url.endsWith('/images/edits'));
     assert.ok(edit.headers['content-type'].startsWith('multipart/form-data;'));
+    assert.ok(!edit.body.includes('name="background"'));
     assert.ok(edit.body.includes('name="image[]"')); assert.ok(edit.body.includes('name="prompt"')); assert.ok(!edit.body.includes('name="reference_images"'));
 
     // Character art belongs to the character page, not the Log Studio: it works with Studio cloud processing off.
@@ -129,6 +135,13 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     const poseRequests = requests.slice(beforePose);
     assert.equal(poseRequests.length, 2); assert.ok(poseRequests.every(r => r.url.endsWith('/images/edits')));
     assert.ok(poseRequests.every(r => r.body.includes('name="image[]"') && r.body.includes('identity_instruction')));
+    for (const request of poseRequests) {
+      assert.match(request.body, /name="background"\r\n\r\ntransparent\r\n/);
+      assert.match(request.body, /name="output_format"\r\n\r\npng\r\n/);
+      assert.match(request.body, /name="model"\r\n\r\ngpt-image-2.5-sunburst\r\n/);
+      assert.match(request.body, /transparent background with a real alpha channel/);
+      assert.ok(!request.body.includes('standee on a plain background'));
+    }
     // Generating a new main portrait and poses together waits for the new portrait, not the old upload.
     await call(pl.token, 'PUT', pcRoot + '/appearance', { appearance_prompt: 'Grey coat and round spectacles' });
     const beforeBatch = requests.length;
@@ -143,6 +156,8 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     }
     const batchRequests = requests.slice(beforeBatch);
     assert.deepEqual(batchRequests.map(r => r.url.split('/').at(-1)), ['generations', 'edits', 'edits']);
+    assert.equal(batchRequests[0].json.background, undefined);
+    for (const request of batchRequests.slice(1)) assert.match(request.body, /name="background"\r\n\r\ntransparent\r\n/);
 
     await call(gm.token, 'PUT', root + '/settings', { studio_cloud_allowed: true });
 
@@ -187,6 +202,30 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     const dependent = await finish(failedBatch.jobs[1].id);
     assert.equal(dependent.status, 'failed'); assert.match(dependent.error, /main portrait generation failed/);
     assert.equal(requests.slice(beforeFailedPortrait).length, 1, 'failed main portrait must not trigger text-only poses');
+
+    // OpenAI speech: /audio/speech with gpt-4o-mini-tts by default, or any model of the same contract.
+    await rejects(call(gm.token, 'PUT', settings, { tts: { provider: 'openai', clear_api_key: true } }), 400);   // needs its own key
+    await call(gm.token, 'PUT', settings, { tts: { provider: 'openai', api_base: endpoint + '/openai/v1', api_key: 'speech-secret-A', model: '', voice: 'coral' } });
+    await call(gm.token, 'PUT', root + '/settings', { studio_cloud_allowed: true });
+    const ttsStatus = await call(gm.token, 'GET', root + '/tts/status');
+    assert.equal(ttsStatus.provider, 'openai'); assert.equal(ttsStatus.mock, false); assert.equal(ttsStatus.official_model, 'gpt-4o-mini-tts');
+    assert.equal(ttsStatus.capabilities.voice_design, false); assert.equal(ttsStatus.capabilities.voice_clone, false);
+    assert.ok((await call(gm.token, 'GET', root + '/tts/available-voices')).some(v => v.id === 'marin'));
+    await rejects(call(gm.token, 'POST', root + '/voices', { name: 'Designed', voice_type: 'design', design_prompt: 'A calm old sailor' }), 502);
+    const sailor = await call(gm.token, 'POST', root + '/voices', { name: 'Sailor', voice_type: 'preset', voice_id: 'ash', language: 'en', style_instruction: 'gravelly, unhurried' });
+    assert.equal(sailor.provider, 'openai'); assert.equal(sailor.model_id, 'gpt-4o-mini-tts');
+    const speak = extra => call(gm.token, 'POST', root + '/tts/preview', { voice_profile_id: sailor.id, text: 'The tide is turning.', ...extra });
+    const clip = await speak({ style_instruction: 'whispered' });
+    assert.equal(clip.mime, 'audio/wav'); assert.equal(clip.duration_ms, 500); assert.equal(clip.is_mock, false);
+    const speech = requests.filter(r => r.url === '/openai/v1/audio/speech');
+    assert.equal(speech.length, 1); assert.equal(speech[0].headers.authorization, 'Bearer speech-secret-A');
+    assert.deepEqual(speech[0].json, { model: 'gpt-4o-mini-tts', input: 'The tide is turning.', voice: 'ash', response_format: 'pcm', instructions: 'gravelly, unhurried; whispered' });
+    await speak({ style_instruction: 'whispered' });   // cached: no second call
+    assert.equal(requests.filter(r => r.url === '/openai/v1/audio/speech').length, 1);
+    await speak({ model_id: 'tts-1-hd', text: 'Older model.' });   // the same contract; tts-1 models take no instructions
+    assert.deepEqual(requests.filter(r => r.url === '/openai/v1/audio/speech').at(-1).json, { model: 'tts-1-hd', input: 'Older model.', voice: 'ash', response_format: 'pcm' });
+    await rejects(speak({ model_id: 'rate-limited-tts', text: 'Busy.' }), 502);
+    await call(gm.token, 'PUT', settings, { tts: { provider: 'mock', clear_api_key: true } });
 
     await call(gm.token, 'PUT', settings, { image: { provider: 'disabled' } });
     assert.equal((await call(gm.token, 'GET', root + '/images/status')).enabled, false);
