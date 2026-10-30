@@ -23,7 +23,7 @@ User objects now include `ui_language`, `avatar_data`, `avatar_version` and `lan
 
 | Method | Path | Notes |
 |---|---|---|
-| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?}`. Empty avatar removes it; duplicate username returns 409. |
+| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?,atmosphere_enabled?}`. Empty avatar removes it; duplicate username returns 409. |
 | GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. |
 | POST | `/auth/register` | `{username, password, display_name}` → `{token, user}` |
 | POST | `/auth/login` | `{username, password}` → `{token, user}` |
@@ -109,12 +109,24 @@ Chat messages carry `character_avatar_asset_id` and `character_avatar_version`; 
 | GET | `/channels/{id}/proposals?status=needs_gm_review` | (GM) |
 | POST | `/channels/{id}/proposals/{pid}/decide` | `{accept: bool}` (GM) — KP memory proposals only; legacy sharing is retired |
 
+The Keeper and each player group's observer perform editorial selection in the same extraction pass: skip irrelevant/repeated chat, update an existing `fact_id` for a meaningful development of the same subject, or add a distinct useful story fact. A batch with no meaningful change returns empty proposals successfully. Technical explanations, placeholder labels and unexplained raw dice results should not become entries describing their own irrelevance. Tagged `ic`/`narration` or GM authorship does not automatically establish narrative value. Important short clues, consequential attempts, adjudicated checks and story corrections remain eligible. The prompt explicitly supplies top-level `update_entry` fields and directs the model to consult existing scene entries before adding.
+
+Player observer context includes the witnessed message payload (message type and structured dice information) and a snapshot of the current scene's own entries. The backend rejects AI writes based solely on unambiguous placeholders and new entries based solely on raw rolls without a purpose (an existing action entry can supply context for an update), and skips materially identical AI updates without a fact/document version bump. Original messages and proposal audit records remain intact. Other semantic judgments are made by the configured model; mock mode only uses conservative rules and exact-entry matching, not full semantic editing. Existing confirmed or Keeper-authored entries retain review protections; this change does not bulk-delete previously recorded clutter.
+
 ## Reminder bubbles
-| GET | `/channels/{id}/reminders` | active reminders for the caller (players: their group's; GM: the Keeper's), minus the ones they dismissed. `{id, kind: forgotten|needed|plan|note, title, why, citations[{event_id, message_id, chat_window_id, scene_id, seq, quotes[]}], scene_id, priority, llm_mode, created_at, expires_at}`. Each quote is a verbatim substring of a line the group can read; a reminder is never stored without a verified quote. Pushed as `reminder.created` on `/ws/context` to the group (or GMs). |
+| GET | `/channels/{id}/reminders` | active reminders for the caller (players: their group's; GM: the Keeper's), minus the ones they dismissed. `{id, version, status, updated_at, status_reason, review_citations[], kind: forgotten|needed|plan|note, title, why, citations[{event_id, message_id, chat_window_id, scene_id, seq, quotes[]}], scene_id, priority, llm_mode, created_at, expires_at}`. Each quote is a verbatim substring of a line the group can read; a reminder is never stored without a verified quote. New entries also emit `reminder.created` for older clients. All changes emit `reminders.changed {channel_id}` on `/ws/context` to the group (or GMs); refetch the list to apply updates and removals while respecting per-user dismissal. |
 | POST | `/channels/{id}/reminders/{rid}/dismiss` | per-user dismissal |
 | GET | `/channels/{id}/reminders/{rid}/context?limit` | the chat log around the first quoted line, viewer-filtered on every call (`events[]` with `cited` and `quotes` on the quoted lines, `anchor_event_id`); 404 for another group |
 
 The group observer raises reminders after each batch of its chat: it reads the group's hidden knowledge index (relationships, clues, open threads, and the story index of per-scenario outlines in `player_scenario_outlines`), the current scenario, the end of the previous one and the newest lines, may fetch more with `get_chat_log`, and proposes at most three "forgotten" or "needed" reminders with quotes. The knowledge index is prepended to player-facing model requests (observer, reminders, consistency, inspiration) and is never shown to players.
+
+The **same reminder planning response** also maintains existing reminders: `{changes: [{reminder_id, expected_version, action, reason, quotes, title?, why?}], reminders: [...]}`. Actions are `update` (refresh/reword an active entry), `resolve` (completed or no longer applicable), `defer` (temporarily irrelevant), and `reactivate` (a deferred entry becomes relevant). Omitted entries remain unchanged. Completion must be established in new chat; intention, speculation and silence are not completion. Topic changes defer rather than resolve. The response is limited to 12 changes and 3 new entries. There is no separate maintenance LLM pass; retrieval/tool calls and schema repair can still take multiple provider calls.
+
+The planner receives up to 8 active, 20 deferred and 12 recently resolved reminders from its own partition. Every change must target an ID/version in that input and quote verified, readable messages from the current batch. The backend rejects stale versions, repeated batches, foreign IDs and invalid evidence, then commits changes and creations together. Original `citations` and `source_event_ids` are preserved; `review_citations`, `status_reason`, `reviewed_through_seq`, `version` and `updated_at` track maintenance separately. `reminder_revisions` records before/after state and evidence. This operation never edits chat, script knowledge or narrative documents.
+
+Only active entries are listed. Active entries expire after 3 days unless reviewed/refreshed; deferred entries are available for review for 30 days. Resolved entries are terminal. The model sees resolved history for 30 days, and database checks additionally suppress exact-title/dedupe-key recreation outside that context window. At most 8 entries stay active; overflow is deferred, not marked completed. Per-user dismissal survives reactivation. The web client refetches after invalidation and reconnect, reconciles every 30 seconds, and prunes expired entries every 15 seconds. Other clients, including mobile, should handle `reminders.changed` by replacing their list from GET, rather than only appending creation events.
+
+Without a configured LLM, maintenance is explicitly rule-based: a chat line exactly equal to `Resolved: <full reminder title>`, `Set aside: <full reminder title>` or `Return to: <full reminder title>` exercises the transitions (`已解决：`, `暂时搁置：`, `重新关注：` also work). Mock mode does not infer semantic completion or topic changes. Live models receive instructions to make these judgments from the conversation; quality still depends on the configured model. Maintenance runs when the observer processes new chat, not while the channel is idle.
 
 ## Keeper script knowledge and the pinned board (GM only)
 | GET | `/channels/{id}/script-knowledge?kind` | the Keeper's knowledge built from the module: `{id, module_id, kind: flow|relationship|clue|foreshadowing|background, title, body, data, citations[{page, excerpt}], node_ids[], position, status: pending|active|done|skipped, status_event_ids[], origin: script|play|gm, gm_edited, llm_mode}`. `flow` entries are the script's stages in order (`data.location, prerequisites[], keeper_actions[], leads_to[], twists[]`). |
@@ -174,7 +186,7 @@ Chat stream: `message.posted {message}` (only to users allowed to read it), `win
 
 Context stream: `document.updated {document_id, doc_type, version, change_count, entry_ids, gm_only, actor, summary}`,
 `highlight.created {highlight}` (scope-filtered), `highlight.expired {highlight_ids}`, `proposal.pending` (GM),
-`module.updated` (GM), `ai.job {job}` (GM), `scene.changed`, `reminder.created {reminder}` (its group, or GMs),
+`module.updated` (GM), `ai.job {job}` (GM), `scene.changed`, `reminder.created {reminder}` and `reminders.changed {channel_id}` (its group, or GMs),
 `kp.board {board}` (GM), `script.changed {payload}` (GM).
 
 Both streams answer `{"type":"ping"}` with `pong`. The upgrade must be the first request on its TCP connection (browsers
@@ -312,3 +324,35 @@ window; the original `chat_window_id` is returned for navigation. Chat-origin ev
 PDFs with memory appendices are private exports bound to KP or the originating player group and version. They cannot be
 published as share links or requested with `pl_public` scope. Group changes invalidate access to old player memory exports.
 Legacy PDFs containing shared-memory appendices become KP-only, and their old publication links are revoked by migration.
+
+## Channel atmosphere backgrounds
+
+Maintainers enable `features.atmosphere` in `PUT /servers/{id}/settings` and configure the independent `image` provider. Each user opts in with `PUT /auth/me {"atmosphere_enabled":true}`; both default off. The account field is a boolean and persists across logins.
+
+`GET /channels/{id}/atmosphere` requires channel membership. Returns `{enabled:false}` when either switch is off; otherwise `{enabled:true,id?,mock?,assets?:{day_landscape,night_landscape,day_portrait,night_portrait}}`. Assets appear only when an entire four-image set is complete. Keys contain media asset IDs, not external provider URLs. A failed/incomplete newer set leaves the previous complete set active. Rejected, deleted or GM-private assets cannot be used as shared backgrounds.
+
+`GET /channels/{id}/atmosphere/assets/{asset_id}` delivers version 1 of a current background with membership and both switches checked on every request. Accepts the normal Authorization header or a short-lived file token; private/no-store. The channel preview is separate from publication approval: generated assets stay candidates in Log Studio until the Keeper approves them for publishing.
+
+`GET /channels/{id}/atmosphere/history` is Keeper-only. Returns the latest 100 sets with their scene label, mood, reason, all four prompts, source event IDs, timestamps and per-variant job status/error/asset ID. The database retains all sets. Prompt and source metadata also accompany each generated media asset. The asset library exposes this history for review and later VN reuse.
+
+A `studio.atmosphere.updated` context WebSocket event invalidates the current set after image completion; clients also refresh on reconnect. Web uses device `prefers-color-scheme` and viewport orientation: light → day, dark → night, wide → landscape, tall → portrait. These are display variants, not assertions about story time. Native clients can use their resolved app theme and orientation with the same keys; their background UI is not added by this change. Web opacity is 0.26.
+
+The Keeper observer invokes a separate structured LLM request with only public Main Chat Keeper narration that every occupied player group witnessed. No private narration, module secrets, player records or retrieval tools enter it. Context includes the previous set's four prompts. After at least three fresh public narrations, reviews are limited to once every two minutes. New sets require at least 30 minutes and 12 public narrations since the preceding request, no pending image jobs, confidence ≥0.85, fresh public source IDs, and a sufficiently established changed setting. Image calls use existing per-server image budgets, concurrency limits and retry handling. Review and generation timestamps persist across restarts.
+
+Mock LLM mode only generates for an explicit public narration beginning `[Atmosphere] ` plus a scene description; three eligible public narrations and the same cooldown rules still apply. Mock images are visibly identified diagnostic patterns. No paid-provider request was made to validate this feature.
+
+## Module import progress and duplicate protection
+
+PDF imports return a saved task immediately. `POST /channels/{ch}/modules/text` accepts `{title,text,async:true}` or `{title,pages,async:true}` for the same background behavior. Omitting `async` retains synchronous text import for existing/native clients. HTTP success acknowledges receipt; inspect `status` before claiming the module is ready.
+
+Module list/detail responses add `import_stage` (`queued`, `extracting`, `structuring`, `knowledge`, `ready`, `failed`), `completed_chunks`, `total_chunks`, and nullable `import_warning`. Chunk progress counts completed structured-text blocks, not elapsed time or a percentage of the whole import. Extraction, queueing and Keeper knowledge preparation have indeterminate progress. WebSocket `module.updated` events carry stage/counts and are Keeper-only; clients should also poll while an import is active and refresh after reconnect. Post-processing failure leaves a usable graph with `status=ready` and a visible warning; rebuild Keeper knowledge separately.
+
+Content fingerprints and a unique per-channel index make concurrent/repeated submissions of the same PDF bytes or the same text section array return the existing module ID with `deduplicated:true`. A changed title alone does not make a new import. Existing records from before migration 0031 have no fingerprint and are not retroactively merged. Different content remains a separate import.
+
+`POST /channels/{ch}/modules/{id}/retry` (Keeper only) restarts a failed saved task without uploading another file. Repeated retries of an active/ready task do not enqueue duplicate work. At backend startup, unfinished tasks are marked failed with an interruption message so they can be retried; this follows the existing single-instance deployment model. Queue saturation is reported as a saved failed task with a retry message. Blank text and non-readable/scanned PDFs cannot silently finish as successful imports.
+
+Output limits are centralized in the LLM gateway: general requests receive at least `LLM_MAX_TOKENS` (default 8192), while `module_structure` and `script_knowledge` use `LLM_MODULE_MAX_TOKENS` (default 32768) and `LLM_MODULE_TIMEOUT_MS` (default 300000). OpenAI-compatible and Anthropic clients share these effective limits. Explicit deployment environment values override defaults; the configured model must support the selected output allowance. Existing token budgets still apply to actual usage. Provider truncation is a failure even if partial JSON appears parseable.
+
+### Background KP knowledge rebuilds
+
+`POST /api/channels/:channel/script-knowledge/rebuild` with `{ "module_id": "…", "async": true }` immediately returns a saved build job. Duplicate requests for an active module return the same job. GM-only `GET /api/channels/:channel/script-knowledge/builds` returns recent jobs with `pending/running/completed/failed`, `completed_batches`, `total_batches`, `error`, and final `result`. Poll until terminal; navigating away does not cancel a job. After a server restart interrupted jobs become failed and can be retried without reimporting the module. Omitting `async` retains the legacy synchronous response, executed on the bounded AI pool with a 90-second HTTP response deadline. Long rebuilds should use jobs.

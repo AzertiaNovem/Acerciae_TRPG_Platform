@@ -71,17 +71,27 @@ const say = (token, win, content, kind = 'ic') => api('POST', `/api/channels/${i
 const docByType = async (token, type) => (await api('GET', `/api/channels/${ids.channel}/documents`, undefined, token)).find((d) => d.doc_type === type);
 const docEntries = async (token, type, sceneId) => (await api('GET', `/api/channels/${ids.channel}/documents/${(await docByType(token, type)).id}${sceneId ? `?scene_id=${sceneId}` : ''}`, undefined, token)).entries;
 
-test('Scenario 2: messages within one scan interval are analysed as ONE batch, bubbles get a change indicator', async () => {
+test('Scenario 2: lines waiting for the observer are analysed as ONE batch, bubbles get a change indicator', async () => {
   const { ws, received } = await openWs('context', U.pl1, ids.channel);
+  const observer = (on) => api('PUT', `/api/channels/${ids.channel}`, { ai_enabled: on }, U.gm);
+  const ticks = async () => (await api('GET', `/api/channels/${ids.channel}/ai/status`, undefined, U.gm)).ticks;
+  let paused = false;
   try {
   const before = await api('GET', `/api/channels/${ids.channel}/ai/jobs`, undefined, U.gm);
-  // Session 1 in the main window — a burst of messages well inside the 5s window.
+  // Each scan takes whatever is waiting, so a scan landing inside the burst would split it in two. Pause this
+  // channel's observer for the burst, then wait for a scan to start: scans run one after another, so no scan that
+  // still saw the channel enabled is running once a new one has begun.
+  await observer(false); paused = true;
+  const pausedAt = await ticks();
+  await waitFor(async () => (await ticks()) > pausedAt, { timeout: observerInterval * 3 + 5000, label: 'a scan after the pause' });
+  // Session 1 in the main window — a burst of messages.
   await say(U.gm, ids.main, 'The investigators arrive at the Sheriff\'s Office on a grey Monday morning. Sheriff Dunmore rises with a careful smile.', 'narration');
   await say(U.pl1, ids.main, '"Sheriff, we would like to see the lighthouse. We understand it has been locked."');
   await say(U.gm, ids.main, 'Dunmore nods. "I\'ve got the only key — somewhere in this mess. I promise I\'ll look for it and bring it to you at the boarding house."', 'narration');
   await say(U.pl2, ids.main, 'I look around the office while they talk. I try to read the papers on the desk.');
   await say(U.gm, ids.main, 'Ben, with a successful Spot Hidden you notice a tarnished badge on the desk. It bears a lantern sigil instead of the county seal.', 'narration');
   await say(U.pl2, ids.main, 'Maybe the Sheriff is hiding something. That badge isn\'t a county badge.');
+  await observer(true); paused = false;
   // Wait for the scheduler (not an explicit trigger) to pick the batch up.
   const job = await waitFor(async () => {
     const jobs = await api('GET', `/api/channels/${ids.channel}/ai/jobs`, undefined, U.gm);
@@ -98,7 +108,7 @@ test('Scenario 2: messages within one scan interval are analysed as ONE batch, b
   assert.ok(clues.some((e) => /badge/i.test(e.summary) && e.status === 'confirmed'));
   const rel = await docEntries(U.pl1, 'relationships');
   assert.ok(rel.some((e) => e.data?.relation === 'promised' && e.status === 'npc_claim'), 'NPC promise recorded as a claim, not a fact');
-  } finally { ws.close(); }
+  } finally { if (paused) await observer(true).catch(() => {}); ws.close(); }
 });
 
 test('Scenario 1: split-party investigation — PL3 cannot read PL1/PL2\'s private clue', async () => {

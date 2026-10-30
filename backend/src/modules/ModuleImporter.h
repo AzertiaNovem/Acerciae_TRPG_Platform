@@ -15,9 +15,11 @@ class ModuleImporter {
 public:
     ModuleImporter(const Config& cfg, Db& db, LlmGateway& llm, Notifier& n) : cfg_(cfg), db_(db), llm_(llm), notifier_(n) {}
 
-    // Creates the module row and runs extraction + structuring synchronously (caller may run on a thread).
+    // Content-addressed within the channel. PDF is queued; text supports opt-in async for newer clients.
     Json::Value importPdf(const ChannelAccess& a, const std::string& fileName, const std::string& bytes, const std::string& title);
-    Json::Value importText(const ChannelAccess& a, const std::string& title, const std::vector<std::string>& pages);
+    Json::Value importText(const ChannelAccess& a, const std::string& title, const std::vector<std::string>& pages, bool async = false);
+    Json::Value retry(const ChannelAccess& a, const std::string& moduleId);
+    void recoverInterrupted();
     void process(const std::string& moduleId);          // extracting → structuring → ready
     // Runs after structuring succeeds (the script knowledge build); failures there never fail the import.
     void setPostProcess(std::function<void(const std::string& channelId, const std::string& moduleId)> f) { postProcess_ = std::move(f); }
@@ -35,6 +37,8 @@ public:
     static std::vector<std::string> extractPdfText(const std::string& bytes);   // one string per page
     static Json::Value structureSchema();
 private:
+    void enqueue(const std::string& id);
+    void progress(const std::string& id, const std::string& stage, int completed = 0, int total = 0);
     void structurePages(const std::string& moduleId, const std::string& channelId, const Json::Value& pages);
     const Config& cfg_; Db& db_; LlmGateway& llm_; Notifier& notifier_;
     std::function<void(const std::string&, const std::string&)> postProcess_;

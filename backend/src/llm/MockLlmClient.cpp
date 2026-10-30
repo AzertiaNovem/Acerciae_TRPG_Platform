@@ -1,3 +1,4 @@
+#include "../documents/NarrativeMemoryPolicy.h"
 #include "MockLlmClient.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
@@ -124,7 +125,21 @@ static std::string objectAfter(const std::string& content, const std::regex& ver
 Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
     Json::Value out; out["proposals"] = Json::Value(Json::arrayValue); out["highlights"] = Json::Value(Json::arrayValue); out["module_hints"] = Json::Value(Json::arrayValue); out["knowledge_suggestions"] = Json::Value(Json::arrayValue);
     std::map<std::string, Json::Value> byDoc;   // doc_type -> ops array
-    auto addOp = [&](const std::string& doc, const Json::Value& op) { if (!byDoc.count(doc)) byDoc[doc] = Json::Value(Json::arrayValue); byDoc[doc].append(op); };
+    auto addOp = [&](const std::string& doc, const Json::Value& op) {
+        if (json::str(op,"op") == "add_entry") {
+            for (const auto& old : ctx["documents"][doc]["entries"]) {
+                if (text::lower(json::str(old,"summary")) != text::lower(json::str(op["fact"],"summary"))) continue;
+                if (old["status"] == op["fact"]["status"] && old["data"] == op["fact"]["data"]) return;
+                Json::Value update; update["op"] = "update_entry"; update["fact_id"] = old["fact_id"];
+                for (auto key : {"summary","status","data","source_event_ids"}) update[key] = op["fact"][key];
+                if (!byDoc.count(doc)) byDoc[doc] = Json::Value(Json::arrayValue);
+                byDoc[doc].append(update); return;
+            }
+            for (const auto& pending : byDoc[doc]) if (pending["fact"] == op["fact"]) return;
+        }
+        if (!byDoc.count(doc) || byDoc[doc].isNull()) byDoc[doc] = Json::Value(Json::arrayValue);
+        byDoc[doc].append(op);
+    };
     auto mkFact = [&](const std::string& summary, const std::string& status, const Json::Value& data, const std::string& eventId, const Json::Value& entities) {
         Json::Value op; op["op"] = "add_entry"; Json::Value f; f["summary"] = summary; f["status"] = status; f["data"] = data;
         f["source_event_ids"] = Json::Value(Json::arrayValue); f["source_event_ids"].append(eventId); f["entities"] = entities; op["fact"] = f; return op;
@@ -152,7 +167,7 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
 
     for (auto& e : ctx["new_events"]) {
         auto content = json::str(e, "content");
-        if (content.empty()) continue;
+        if (content.empty() || narrative_memory::obviousNonNarrative(e) || json::str(e["payload"], "message_kind") == "ooc") continue;
         auto eid = json::str(e, "event_id");
         auto role = json::str(e, "actor_role");
         auto charName = json::str(e, "character_name");

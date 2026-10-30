@@ -10,6 +10,7 @@
 #include "../ws/Notifier.h"
 #include <algorithm>
 #include <set>
+#include <chrono>
 
 namespace acerciae {
 
@@ -202,30 +203,64 @@ Json::Value ScriptKnowledgeService::mockReview(const Json::Value& ctx) {
 
 // ---- build ------------------------------------------------------------------------------------------------
 
-Json::Value ScriptKnowledgeService::buildFromModule(const std::string& channelId, const std::string& moduleId, int& llmCalls) {
+Json::Value ScriptKnowledgeService::buildFromModule(const std::string& channelId, const std::string& moduleId, int& llmCalls, std::function<void(int,int)> progress) {
+    { std::lock_guard<std::mutex> lock(buildMutex_); if(!building_.insert(moduleId).second) throw ApiError(409,"build_running","Script knowledge is already being rebuilt"); }
+    auto release=std::shared_ptr<void>(nullptr,[&](void*){std::lock_guard<std::mutex> lock(buildMutex_);building_.erase(moduleId);});
     auto mod = db_.queryOne("SELECT id, title, llm_mode FROM modules WHERE id=$1 AND channel_id=$2", {moduleId, channelId});
     if (mod.isNull()) throw notFound("module not found");
     Json::Value graph;
     graph["nodes"] = db_.queryJson("SELECT id, node_type, name, description, citations FROM module_nodes WHERE module_id=$1 ORDER BY created_at", {moduleId});
     graph["edges"] = db_.queryJson("SELECT e.from_node_id, e.to_node_id, e.relation, f.name AS from_name, t.name AS to_name FROM module_edges e JOIN module_nodes f ON f.id=e.from_node_id JOIN module_nodes t ON t.id=e.to_node_id WHERE e.module_id=$1 ORDER BY e.created_at", {moduleId});
     std::set<std::string> nodeIds; for (const auto& n : graph["nodes"]) nodeIds.insert(n["id"].asString());
-    std::map<int, std::string> pages; for (const auto& p : db_.queryJson("SELECT page_number, text FROM module_pages WHERE module_id=$1 ORDER BY page_number", {moduleId})) pages[p["page_number"].asInt()] = text::lower(json::str(p, "text"));
+    std::map<int, std::string> pages; for (const auto& p : db_.queryJson("SELECT page_number, text FROM module_pages WHERE module_id=$1 ORDER BY page_number", {moduleId})) pages[p["page_number"].asInt()] = json::str(p, "text");
     Json::Value plan;
     if (llm_.isMock(channelId)) plan = mockBuild(graph);
     else {
-        Json::Value ctx; ctx["module_title"] = mod["title"]; ctx["nodes"] = Json::Value(Json::arrayValue);
-        for (const auto& n : graph["nodes"]) { Json::Value x; x["key"] = n["id"]; x["node_type"] = n["node_type"]; x["name"] = n["name"]; x["description"] = clip(json::str(n, "description"), 600); x["citations"] = n["citations"]; ctx["nodes"].append(x); }
-        ctx["edges"] = graph["edges"];
-        size_t budget = 24000; Json::Value pg(Json::arrayValue);
-        for (const auto& p : db_.queryJson("SELECT page_number AS page, text FROM module_pages WHERE module_id=$1 ORDER BY page_number", {moduleId})) { auto t = json::str(p, "text"); if (t.size() > budget) t = clip(t, budget); budget -= t.size(); Json::Value x; x["page"] = p["page"]; x["text"] = t; pg.append(x); if (budget < 500) break; }
-        ctx["pages"] = pg;
-        LlmRequest req; req.channelId = channelId; req.task = "script_knowledge"; req.responseSchema = buildSchema(); req.temperature = 0.1; req.maxTokens = 6000;
+        // Each call covers a small group of primary nodes. Incident edges keep
+        // cross-batch relationships visible; quotations always retain source pages.
+        std::vector<Json::Value> batches;
+        Json::Value batch(Json::arrayValue);
+        for(const auto& node:graph["nodes"]) {
+            Json::Value x;x["key"]=node["id"];x["node_type"]=node["node_type"];x["name"]=node["name"];
+            x["description"]=clip(json::str(node,"description"),1200);x["citations"]=node["citations"];
+            if(!batch.empty()&&(batch.size()>=6||json::dump(batch).size()+json::dump(x).size()>10000)){batches.push_back(batch);batch=Json::Value(Json::arrayValue);}
+            batch.append(x);
+        }
+        if(!batch.empty())batches.push_back(batch);
+        plan["entries"]=Json::Value(Json::arrayValue);
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::minutes(30);
+        if(progress)progress(0,batches.size());
+        for(size_t i=0;i<batches.size();) {
+            if(std::chrono::steady_clock::now()>deadline)throw std::runtime_error("script knowledge build deadline exceeded; previous knowledge is unchanged");
+            Json::Value ctx;ctx["module_title"]=mod["title"];ctx["nodes"]=batches[i];ctx["batch"]=static_cast<int>(i+1);ctx["total_batches"]=static_cast<int>(batches.size());
+            std::set<std::string> ids;std::set<int> pageNumbers;
+            for(const auto& node:batches[i]){ids.insert(node["key"].asString());for(const auto& cit:node["citations"])pageNumbers.insert(json::toInt(cit,"page",0));}
+            ctx["edges"]=Json::Value(Json::arrayValue);
+            for(const auto& edge:graph["edges"])if(ids.count(json::str(edge,"from_node_id"))||ids.count(json::str(edge,"to_node_id")))ctx["edges"].append(edge);
+            ctx["pages"]=Json::Value(Json::arrayValue);
+            // Citations in the graph supply verbatim extracts from throughout the
+            // module. Add bounded nearby page context, rather than always page one.
+            size_t budget=6000;
+            for(int page:pageNumbers){auto it=pages.find(page);if(it==pages.end()||budget==0)continue;Json::Value p;p["page"]=page;p["text"]=clip(it->second,std::min<size_t>(2000,budget));budget-=p["text"].asString().size();ctx["pages"].append(p);}
+            LlmRequest req;req.channelId=channelId;req.task="script_knowledge";req.responseSchema=buildSchema();req.temperature=.1;
         req.system = "You prepare a Keeper's working knowledge of a tabletop RPG module (Call of Cthulhu / BRP) from its structured graph and page text. Write entries of five kinds. flow: every stage or scene of the script in play order (position 0,1,2…), with body = what happens and what the Keeper does there, data {location, prerequisites[], keeper_actions[], leads_to[], twists[]}; endings last. relationship: who relates to whom among NPCs and investigators, data {from, to, relation}. clue: each clue, handout or item and where it is found. foreshadowing: twists, conditions and planted details, data {payoff_in[]}. background: the truth behind the scenario, locations, history. Every entry cites pages with short verbatim excerpts and lists the node keys it rests on. Never invent content that is not in the module. Return JSON {\"entries\":[{\"kind\",\"title\",\"body\",\"data\",\"citations\":[{\"page\",\"excerpt\"}],\"node_keys\":[...]}]}.";
-        LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
-        auto res = llm_.runStructured(req, nullptr, 2); llmCalls += res.llmCalls;
-        if (!res.ok) throw std::runtime_error("script knowledge build failed: " + res.error);
-        plan = res.data;
+            req.system += " This is one batch: create entries only for the primary nodes in nodes; use edges for context. Keep bodies concise, use original titles, and do not repeat unrelated nodes. Preserve the source order; positions will be assigned across batches.";
+            LlmMessage u;u.role="user";u.content=json::dump(ctx);req.messages.push_back(u);
+            auto res=llm_.runStructured(req,nullptr,2);llmCalls+=res.llmCalls;
+            if(!res.ok&&res.providerStatus==504&&batches[i].size()>1) {
+                Json::Value left(Json::arrayValue),right(Json::arrayValue);auto half=batches[i].size()/2;
+                for(Json::ArrayIndex j=0;j<batches[i].size();++j)(j<half?left:right).append(batches[i][j]);
+                batches[i]=left;batches.insert(batches.begin()+i+1,right);
+                if(progress)progress(i,batches.size());continue;
+            }
+            if(!res.ok)throw std::runtime_error("script knowledge build failed on batch "+std::to_string(i+1)+": "+res.error);
+            for(auto entry:res.data["entries"]) { entry.removeMember("position");plan["entries"].append(entry); }
+            ++i;if(progress)progress(i,batches.size());
+        }
+
     }
+    std::set<std::string> seen;
+    for(const auto& e:db_.queryJson("SELECT kind,title FROM script_knowledge WHERE module_id=$1 AND gm_edited",{moduleId}))seen.insert(json::str(e,"kind")+"|"+text::lower(json::str(e,"title")));
     int n = 0; std::map<std::string, int> byKind; int flowPos = 0;
     const auto llmMode = llm_.mode(channelId);   // resolved before the transaction: it reads server settings
     db_.tx([&](pqxx::work& w) {
@@ -233,15 +268,17 @@ Json::Value ScriptKnowledgeService::buildFromModule(const std::string& channelId
         for (const auto& e : plan["entries"]) {
             auto kind = json::str(e, "kind"); if (std::find(kKinds.begin(), kKinds.end(), kind) == kKinds.end()) continue;
             auto title = clip(text::trim(json::str(e, "title")), 200); if (title.empty()) continue;
+            if(!seen.insert(kind+"|"+text::lower(title)).second)continue;
             std::vector<std::string> ids; for (const auto& k : json::strArray(e["node_keys"])) if (nodeIds.count(k)) ids.push_back(k);
             Json::Value cits(Json::arrayValue);
-            for (const auto& c : e["citations"]) { int page = json::toInt(c, "page", 0); auto ex = json::str(c, "excerpt"); auto it = pages.find(page); if (it == pages.end()) continue; if (!ex.empty() && it->second.find(text::lower(clip(ex, 120))) == std::string::npos) continue; Json::Value x; x["page"] = page; x["excerpt"] = clip(ex, 300); if (cits.size() < 4) cits.append(x); }
+            for (const auto& c : e["citations"]) { int page = json::toInt(c, "page", 0); auto ex = json::str(c, "excerpt"); auto it = pages.find(page); if (it == pages.end()) continue; if (!ex.empty() && text::lower(it->second).find(text::lower(clip(ex, 120))) == std::string::npos) continue; Json::Value x; x["page"] = page; x["excerpt"] = clip(ex, 300); if (cits.size() < 4) cits.append(x); }
             if (cits.empty() && ids.empty()) continue;   // nothing in the module backs it
             int pos = kind == "flow" ? (e.isMember("position") ? json::toInt(e, "position", flowPos) : flowPos) : 0; if (kind == "flow") flowPos = pos + 1;
             Db::exec(w, "INSERT INTO script_knowledge(channel_id, module_id, kind, title, body, data, citations, node_ids, position, llm_mode) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::uuid[],$9,$10)",
                 {channelId, moduleId, kind, title, clip(json::str(e, "body"), 2000), json::dump(e["data"].isObject() ? e["data"] : Json::Value(Json::objectValue)), json::dump(cits), pgArrayLiteral(ids), (int64_t)pos, llmMode});
             ++n; byKind[kind]++;
         }
+        Db::exec(w,"UPDATE modules SET import_warning=NULL,updated_at=now() WHERE id=$1",{moduleId});
     });
     Json::Value out; out["module_id"] = moduleId; out["entries"] = n; for (auto& [k, v] : byKind) out["by_kind"][k] = v;
     Json::Value p; p["module_id"] = moduleId; p["entries"] = n; p["rebuilt"] = true; notifier_.scriptKnowledgeChanged(channelId, p);
@@ -422,12 +459,42 @@ Json::Value ScriptKnowledgeService::update(const ChannelAccess& a, const std::st
     try { refreshBoard(a, "", {}); } catch (const std::exception& e) { ALOG_WARN << "kp board: " << e.what(); }
     return row;
 }
-Json::Value ScriptKnowledgeService::rebuild(const ChannelAccess& a, const std::string& moduleIdIn) {
+Json::Value ScriptKnowledgeService::rebuild(const ChannelAccess& a, const std::string& moduleIdIn, bool async) {
     if (!a.isGm) throw forbidden("GM role required");
     auto moduleId = moduleIdIn;
     if (moduleId.empty()) { auto m = db_.queryOne("SELECT id FROM modules WHERE channel_id=$1 AND status='ready' ORDER BY created_at DESC LIMIT 1", {a.channelId}); if (m.isNull()) throw notFound("no ready module"); moduleId = m["id"].asString(); }
     if (!Visibility::isUuid(moduleId)) throw badRequest("invalid module_id");
+    auto mod=db_.queryOne("SELECT status FROM modules WHERE id=$1 AND channel_id=$2",{moduleId,a.channelId});
+    if(mod.isNull())throw notFound("module not found");
+    if(mod["status"]!="ready")throw ApiError(409,"module_not_ready","Wait for the module import to finish");
+    if(async) {
+        auto job=db_.queryOne("INSERT INTO script_build_jobs(channel_id,module_id) VALUES($1,$2) ON CONFLICT(module_id) WHERE status IN ('pending','running') DO NOTHING RETURNING *",{a.channelId,moduleId});
+        if(job.isNull())return db_.queryOne("SELECT * FROM script_build_jobs WHERE module_id=$1 ORDER BY created_at DESC LIMIT 1",{moduleId});
+        auto id=job["id"].asString();
+        if(!executor_||!executor_([this,id]{runBuild(id);})) {db_.exec("UPDATE script_build_jobs SET status='failed',error='Build queue is full; retry shortly',updated_at=now() WHERE id=$1",{id});return db_.queryOne("SELECT * FROM script_build_jobs WHERE id=$1",{id});}
+        return job;
+    }
     int calls = 0; auto r = buildFromModule(a.channelId, moduleId, calls); r["llm_calls"] = calls; return r;
+}
+void ScriptKnowledgeService::recoverInterrupted() {
+    db_.exec("UPDATE script_build_jobs SET status='failed',error='Build interrupted by server restart; retry the saved module',updated_at=now() WHERE status IN ('pending','running')");
+}
+Json::Value ScriptKnowledgeService::builds(const ChannelAccess& a) {
+    if(!a.isGm)throw forbidden("GM role required");
+    return db_.queryJson("SELECT * FROM script_build_jobs WHERE channel_id=$1 ORDER BY created_at DESC LIMIT 20",{a.channelId});
+}
+void ScriptKnowledgeService::runBuild(const std::string& jobId) {
+    auto job=db_.queryOne("UPDATE script_build_jobs SET status='running',updated_at=now() WHERE id=$1 AND status='pending' RETURNING *",{jobId});
+    if(job.isNull())return;
+    auto channel=job["channel_id"].asString();
+    try {
+        int calls=0;auto result=buildFromModule(channel,job["module_id"].asString(),calls,[&](int done,int total){db_.exec("UPDATE script_build_jobs SET completed_batches=$2,total_batches=$3,updated_at=now() WHERE id=$1",{jobId,(int64_t)done,(int64_t)total});});
+        result["llm_calls"]=calls;
+        db_.exec("UPDATE script_build_jobs SET status='completed',result=$2::jsonb,updated_at=now() WHERE id=$1",{jobId,json::dump(result)});
+    } catch(const std::exception& e) {
+        db_.exec("UPDATE script_build_jobs SET status='failed',error=$2,updated_at=now() WHERE id=$1",{jobId,clip(e.what(),2000)});
+    }
+    Json::Value event;event["build_id"]=jobId;notifier_.scriptKnowledgeChanged(channel,event);
 }
 Json::Value ScriptKnowledgeService::changes(const ChannelAccess& a, int limit) {
     if (!a.isGm) throw forbidden("GM role required");

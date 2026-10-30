@@ -1,12 +1,14 @@
 #include "AnthropicClient.h"
 #include "../core/Json.h"
 #include "HttpTransport.h"
+#include "StreamResponse.h"
 #include "../core/Log.h"
 
 namespace acerciae {
 Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoint& ep) {
     Json::Value b;
     b["model"] = ep.model;
+    b["stream"] = true;
     b["max_tokens"] = req.maxTokens > 0 ? req.maxTokens : ep.maxTokens;
     std::string system = req.system;
     if (!req.responseSchema.isNull())
@@ -53,6 +55,8 @@ Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoin
 LlmResponse AnthropicClient::parseResponse(const Json::Value& b) {
     LlmResponse r;
     if (b["type"] == "error" || !b["content"].isArray()) { r.error = "invalid Anthropic Messages response"; return r; }
+    r.promptTokens = b["usage"].get("input_tokens", 0).asInt();
+    r.completionTokens = b["usage"].get("output_tokens", 0).asInt();
     if (b["stop_reason"] == "max_tokens") { r.error = "the model stopped at its output token limit before finishing"; return r; }
     // A refusal is final: neither its partial text nor any tool_use in the same turn is acted on.
     if (b["stop_reason"] == "refusal") { r.error = "the model declined this request"; return r; }
@@ -77,12 +81,13 @@ LlmResponse AnthropicClient::complete(const LlmRequest& req) {
     auto url = ep_.apiBase; while (!url.empty() && url.back() == '/') url.pop_back();
     url += "/messages";
     auto res = llm::postJson(url, {"Content-Type: application/json", "anthropic-version: 2023-06-01", "x-api-key: " + ep_.apiKey}, body, ep_.timeoutMs);
+    result.providerStatus = res.status;
     if (!res.error.empty()) { result.error = res.error; return result; }
     if (res.status < 200 || res.status >= 300) {
         ALOG_WARN << "Anthropic HTTP " << res.status << " for task " << req.task << ": " << llm::excerpt(res.body);
         result.error = "the AI provider returned HTTP " + std::to_string(res.status); return result;
     }
-    try { return parseResponse(json::parse(res.body)); }
-    catch (...) { result.error = "invalid Anthropic response JSON"; return result; }
+    try { return parseResponse(llm::anthropicResponse(res.body)); }
+    catch (const std::exception& e) { result.error = std::string("invalid Anthropic response: ")+e.what(); return result; }
 }
 }

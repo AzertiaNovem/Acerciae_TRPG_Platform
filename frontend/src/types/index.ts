@@ -1,5 +1,5 @@
 // Shared API types (mirrors backend JSON shapes).
-export interface User { id: string; username: string; display_name: string; ui_language: string; avatar_data: string; avatar_version: number; languages?: string[] }
+export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; avatar_version: number; languages?: string[] }
 export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest' }
 export interface DirectoryServer { id: string; name: string; member_count: number }
 export interface ServerInvite { id: string; code: string; max_uses: number; uses: number; expires_at: string | null; revoked_at: string | null; created_at: string; created_by_name?: string | null; active: boolean }
@@ -69,11 +69,11 @@ export interface Revision { id: string; version: number; actor: string; actor_na
 export interface ReminderCitation { event_id: string; message_id: string | null; chat_window_id: string | null; scene_id: string | null; seq: number; quotes: string[] }
 // A reminder bubble: a short AI note anchored to verbatim quotes from chat lines the reader can see.
 export interface ReminderScriptRef { knowledge_id: string; kind: ScriptKind; title: string; page?: number; excerpt?: string }
-export interface Reminder { id: string; kind: 'forgotten' | 'needed' | 'plan' | 'note'; title: string; why: string; citations: ReminderCitation[]; script_refs?: ReminderScriptRef[]; scene_id: string | null; priority: number; player_group_id: string | null; llm_mode: string; created_at: string; expires_at: string }
+export interface Reminder { id: string; version?: number; status?: 'active' | 'deferred' | 'resolved' | 'dismissed' | 'expired'; updated_at?: string; status_reason?: string; review_citations?: ReminderCitation[]; kind: 'forgotten' | 'needed' | 'plan' | 'note'; title: string; why: string; citations: ReminderCitation[]; script_refs?: ReminderScriptRef[]; scene_id: string | null; priority: number; player_group_id: string | null; llm_mode: string; created_at: string; expires_at: string }
 // The Keeper's script knowledge, built from the module and moved by reviewed changes during play.
 export type ScriptKind = 'flow' | 'relationship' | 'clue' | 'foreshadowing' | 'background';
 export type ScriptStatus = 'pending' | 'active' | 'done' | 'skipped';
-export interface ScriptKnowledge { id: string; module_id: string | null; kind: ScriptKind; title: string; body: string; data: Record<string, any>; citations: { page: number; excerpt: string }[]; node_ids: string[]; position: number; status: ScriptStatus; status_event_ids: string[]; origin: 'script' | 'play' | 'gm'; gm_edited: boolean; llm_mode: string; created_at: string; updated_at: string }
+export interface ScriptKnowledge { id: string; module_id: string | null; kind: ScriptKind; title: string; body: string; data: Record<string, any>; citations: { page: number; excerpt?: string | null }[]; node_ids: string[]; position: number; status: ScriptStatus; status_event_ids: string[]; origin: 'script' | 'play' | 'gm'; gm_edited: boolean; llm_mode: string; created_at: string; updated_at: string }
 export interface ScriptChange { id: string; knowledge_id: string | null; op: 'add' | 'update' | 'status'; proposal: Record<string, any>; evidence: { event_id: string; text: string }[]; source_event_ids: string[]; verdict: 'approved' | 'rejected'; reviewer_reason: string; applied: boolean; llm_mode: string; created_at: string; title: string | null; kind: ScriptKind | null; status: ScriptStatus | null }
 export interface KpStageBrief { id: string; title: string; status: ScriptStatus; position: number; body: string; data: Record<string, any>; citation?: { page: number; excerpt: string } }
 export interface KpBoard {
@@ -86,9 +86,9 @@ export interface ConsistencyConflict { description: string; severity?: string; e
 export interface ConsistencyEvidence { fact_id: string; entry_id: string | null; document_id: string | null; document_type: DocType | null; summary: string; status: string; scene_title: string | null; source_event_ids: string[]; role: 'conflict' | 'support' | 'recommended' }
 export interface ConsistencyResult { id: string; score: number | null; score_label: string; insufficient_evidence: boolean; rationale: string; conflicts: ConsistencyConflict[]; evidence: ConsistencyEvidence[]; highlights: Highlight[]; llm_mode: string }
 export interface InspirationResult { id: string; draft: string; used_fact_ids: string[]; notes?: string; llm_mode: string; editable: boolean; auto_sent: boolean }
-export interface ModuleNode { id: string; module_id: string; node_type: string; name: string; description: string; data: Record<string, unknown>; citations: { page: number; excerpt: string }[]; gm_edited: boolean; progress: string; pending_hints?: number }
+export interface ModuleNode { id: string; module_id: string; node_type: string; name: string; description: string; data: Record<string, unknown>; citations: { page: number; excerpt?: string | null }[]; gm_edited: boolean; progress: string; pending_hints?: number }
 export interface ModuleEdge { id: string; from_node_id: string; to_node_id: string; relation: string; from_name: string; to_name: string }
-export interface ModuleInfo { id: string; title: string; file_name: string; page_count: number; status: string; error: string | null; llm_mode: string; created_at: string; node_count?: number; edge_count?: number; nodes?: ModuleNode[]; edges?: ModuleEdge[] }
+export interface ModuleInfo { import_stage?: string; completed_chunks?: number; total_chunks?: number; import_warning?: string | null; deduplicated?: boolean; id: string; title: string; file_name: string; page_count: number; status: string; error: string | null; llm_mode: string; created_at: string; node_count?: number; edge_count?: number; nodes?: ModuleNode[]; edges?: ModuleEdge[] }
 export interface ModuleHint { id: string; node_id: string | null; node_name: string | null; node_type: string | null; reason: string; source_event_ids: string[]; status: string; created_at: string }
 export interface Proposal { id: string; document_id: string | null; doc_type: DocType | null; ops: any[]; rejection_reason: string | null; source_event_ids: string[]; status: string; created_at: string }
 export interface AiJob { id: string; kind: string; group_key: string; status: string; event_count: number; llm_calls: number; llm_mode: string; error: string | null; started_at: string; finished_at: string | null; result?: any }
@@ -131,7 +131,7 @@ export interface TtsJob { id: string; presentation_id: string | null; kind: stri
 export interface UserLite { id: string; username: string; display_name: string }
 export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member' | 'guest'; joined_at: string }
 export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
-export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'coc7_points';
+export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'coc7_points' | 'atmosphere';
 export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; images_used: number; running: number }
 export interface ServerSettings {
   server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;
@@ -144,3 +144,5 @@ export interface ServerSettings {
 export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: Record<string, string>; updated_at: string; created_by_name?: string | null }
 export interface BuiltinDiceTexts { keys: string[]; en: Record<string, string>; zh: Record<string, string> }
 export interface CharacterAttributes { character_id: string; name: string; kind: 'pc' | 'npc'; attrs: Record<string, number>; editable: boolean }
+
+export interface ScriptBuild { id: string; module_id: string; status: 'pending' | 'running' | 'completed' | 'failed'; completed_batches: number; total_batches: number; error: string | null; result: { entries: number; llm_calls: number } | null; }

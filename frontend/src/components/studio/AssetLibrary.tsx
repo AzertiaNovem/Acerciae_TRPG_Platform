@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useNav } from '../../store/nav';
 import { useUi } from '../../store/ui';
 import type { MediaAsset } from '../../types';
+import AtmosphereHistory from './AtmosphereHistory';
 import CreativePanel from './CreativePanel';
 import VisualStylePanel from './VisualStylePanel';
 
@@ -48,6 +49,7 @@ export default function AssetLibrary() {
         <VisualStylePanel />
       </div>
       {isGm && <CreativePanel onChange={load} />}
+      {isGm && channelId && <AtmosphereHistory channelId={channelId} />}
       <div className="card">
         <div className="row"><h3 style={{ margin: 0 }}>{tr("Assets ")}<span className="pill">{assets.length}</span></h3><span className="grow" />
           <select value={filter.type} onChange={(e) => setFilter({ ...filter, type: e.target.value })}><option value="">{tr("all types")}</option>{TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>

@@ -1,10 +1,12 @@
+import { sessionEpoch } from '../store/session';
+import PageCitations from './PageCitations';
 import { t as tr, currentLocale } from '../i18n';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 import { useKp } from '../store/kp';
-import type { ScriptChange, ScriptKind, ScriptKnowledge, ScriptStatus } from '../types';
+import type { ScriptChange, ScriptKind, ScriptKnowledge, ScriptStatus, ScriptBuild } from '../types';
 
 const KINDS: ScriptKind[] = ['flow', 'relationship', 'clue', 'foreshadowing', 'background'];
 const STATUSES: ScriptStatus[] = ['pending', 'active', 'done', 'skipped'];
@@ -21,9 +23,37 @@ export default function ScriptKnowledgePanel() {
   const [kind, setKind] = useState<ScriptKind>('flow');
   const [editing, setEditing] = useState<ScriptKnowledge | null>(null);
   const [busy, setBusy] = useState(false);
-  const load = async () => { if (!channelId) return; const [e, c] = await Promise.all([api.scriptKnowledge(channelId), api.scriptChanges(channelId, 40)]); setEntries(e); setChanges(c); };
-  useEffect(() => { load().catch(() => undefined); }, [channelId]);
-  const rebuild = async () => { if (!channelId) return; setBusy(true); try { const r = await api.rebuildScriptKnowledge(channelId); toast(`Script knowledge rebuilt: ${r.entries} entries`); await load(); await loadBoard(channelId); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); } };
+  const [build, setBuild] = useState<ScriptBuild | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const sequence = useRef(0), submitting = useRef(false);
+  const load = useCallback(async () => {
+    if (!channelId) return;
+    const request = ++sequence.current, epoch = sessionEpoch();
+    try {
+      const [e, c, jobs] = await Promise.all([api.scriptKnowledge(channelId), api.scriptChanges(channelId, 40), api.scriptBuilds(channelId).catch(error => { if(error.status === 404) return []; throw error; })]);
+      if (request !== sequence.current || epoch !== sessionEpoch()) return;
+      setEntries(e); setChanges(c); setBuild(jobs[0] ?? null); setLoadError('');
+    } catch (error: any) { if (request === sequence.current && epoch === sessionEpoch()) setLoadError(error.message); }
+  }, [channelId]);
+  useEffect(() => { setBuild(null); load(); return () => { ++sequence.current; }; }, [load]);
+  const active = build?.status === 'pending' || build?.status === 'running';
+  useEffect(() => {
+    if (!active && !loadError) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => { await load(); if (!stopped) timer = setTimeout(poll, 2000); };
+    timer = setTimeout(poll, 2000);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [active, loadError, load]);
+  useEffect(() => { if(build?.status === 'completed' && channelId) loadBoard(channelId); }, [build?.id, build?.status, channelId]);
+  const rebuild = async () => {
+    if (!channelId || submitting.current || active) return;
+    submitting.current = true; setBusy(true);
+    const epoch = sessionEpoch();
+    try { const job = await api.rebuildScriptKnowledge(channelId); if(epoch !== sessionEpoch()) return; ++sequence.current; setBuild(job); await load(); await loadBoard(channelId); }
+    catch (e: any) { if(epoch === sessionEpoch()) { toast(e.message, 'error'); await load(); } }
+    finally { submitting.current = false; setBusy(false); }
+  };
   const save = async () => { if (!channelId || !editing) return; try { await api.updateScriptKnowledge(channelId, editing.id, { title: editing.title, body: editing.body, status: editing.status }); setEditing(null); await load(); await loadBoard(channelId); } catch (e: any) { toast(e.message, 'error'); } };
   const setStatus = async (e: ScriptKnowledge, status: ScriptStatus) => { if (!channelId) return; try { await api.updateScriptKnowledge(channelId, e.id, { status }); await load(); await loadBoard(channelId); } catch (err: any) { toast(err.message, 'error'); } };
   const shown = entries.filter((e) => e.kind === kind);
@@ -39,8 +69,14 @@ export default function ScriptKnowledgePanel() {
   return (
     <div className="script-panel">
       <div className="card">
-        <div className="row"><h3 style={{ margin: 0 }}>{tr('Script knowledge')}</h3><span className="pill gm">{tr('Keeper only')}</span><span className="grow" /><button className="small" onClick={rebuild} disabled={busy}>{busy ? tr('Rebuilding…') : tr('Rebuild from module')}</button></div>
+        <div className="row"><h3 style={{ margin: 0 }}>{tr('Script knowledge')}</h3><span className="pill gm">{tr('Keeper only')}</span><span className="grow" /><button className="small" onClick={rebuild} disabled={busy || active}>{busy || active ? tr('Rebuilding…') : tr('Rebuild from module')}</button></div>
         <div className="tiny muted" style={{ marginTop: 4 }}>{tr('Built from the imported module: the flow of the script, who relates to whom, the clues, what is foreshadowed and the background. The model reads this first whenever it works for you. During play it proposes changes (a stage reached, a clue revealed); a second model reviews every proposal before it is applied. Your edits are final and are never overwritten.')}</div>
+        {build && <div role="status" className="small" style={{ marginTop: 8 }}>
+          {tr(build.status)} · {tr('Knowledge batches: {done}/{total}', { done: build.completed_batches, total: build.total_batches })}
+          {build.status === 'completed' && <span> · {build.result?.entries ?? 0} {tr('entries')}</span>}
+          {build.error && <div role="alert" style={{ color: 'var(--danger)' }}>{build.error}</div>}
+        </div>}
+        {loadError && <div role="alert">{loadError}</div>}
         {entries.length === 0 && <div className="muted small" style={{ marginTop: 8 }}>{tr('No script knowledge yet. Import a module in the Module tab; it is built automatically once the module is structured.')}</div>}
         <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>{KINDS.map((k) => <button key={k} className={`small ${kind === k ? 'primary' : ''}`} onClick={() => setKind(k)}>{tr(k)} ({counts(k)})</button>)}</div>
       </div>
@@ -61,7 +97,7 @@ export default function ScriptKnowledgePanel() {
               </div>
               {describe(e) && <div className="tiny muted">{describe(e)}</div>}
               <div className="small muted" style={{ whiteSpace: 'pre-wrap' }}>{e.body.slice(0, 400)}{e.body.length > 400 ? '…' : ''}</div>
-              {e.citations.slice(0, 2).map((c, i) => <div key={i} className="cit">{tr('p.')}{c.page}: “{c.excerpt.slice(0, 140)}”</div>)}
+              <PageCitations citations={e.citations} maxExcerpt={140} />
               {e.status_event_ids.length > 0 && <button className="ghost small" onClick={() => showEvidence(e.status_event_ids)}>{tr('chat lines that moved it')}</button>}
             </div>
           ))}

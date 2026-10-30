@@ -1,3 +1,4 @@
+#include "NarrativeMemoryPolicy.h"
 #include "DocumentService.h"
 #include "../ws/Notifier.h"
 #include "../core/Errors.h"
@@ -180,6 +181,19 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
     }
 
 
+    // Do not let an AI manufacture a story entry from only a placeholder or an unexplained raw roll.
+    // Existing action entries can give a raw roll its missing context; allow the model to judge updates.
+    // Other messages (including semantically irrelevant debugging prose) remain a model editorial decision.
+    if (isAi && (type == "add_entry" || type == "update_entry" || type == "set_status" || type == "append_text")) {
+        const auto sources = mergeSources(op, ctx.defaultSources);
+        if (!sources.empty()) {
+            for (const auto& id : sources) if (!Visibility::isUuid(id)) return reject("invalid source event id");
+            auto evidence = Db::queryJson(w, "SELECT kind,payload FROM events WHERE channel_id=$1 AND id=ANY(" + Visibility::uuidArray(sources) + ")", {ctx.channelId});
+            if (!evidence.empty() && std::all_of(evidence.begin(), evidence.end(), type == "add_entry" ? narrative_memory::obviousNonNarrative : narrative_memory::placeholderOnly))
+                return reject("No narrative evidence: only placeholders or unexplained raw rolls");
+        }
+    }
+
     if (type == "add_entry") {
         Json::Value fact = op["fact"];
         if (!fact.isObject()) return reject("add_entry requires fact");
@@ -268,6 +282,11 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         }
         if (isAi && cur["created_by"].asString() == "gm" && newSummary != cur["summary"].asString()) {
             Json::Value payload = op; payload["previous"] = cur["summary"]; return pending("would alter a GM-authored entry", payload);
+        }
+        // Repetition is not a revision. Evidence still lives in chat and the recorded proposal.
+        if (isAi && !cur["removed"].asBool() && newSummary == cur["summary"].asString() && newStatus == curStatus && newData == cur["data"] &&
+            (!op.isMember("content_md") || json::str(op,"content_md") == json::str(cur,"content_md")) && op["entities"].empty()) {
+            log["decision"] = "skipped"; log["reason"] = "No material change to the existing entry"; res.log.append(log); return;
         }
         Db::exec(w, "UPDATE knowledge_facts SET summary=$2, data=$3::jsonb, status=$4, source_event_ids=$5::uuid[], version=version+1, updated_at=now() WHERE id=$1",
             {factId, newSummary, json::dump(newData), newStatus, pgArrayLiteral(mergedSources)});

@@ -19,6 +19,7 @@ public:
     struct Outcome {
         bool ok = false;
         std::string error;
+        long providerStatus = 0; // HTTP status, separate from transport/schema failures
         Json::Value data;          // validated structured output
         int llmCalls = 0;
         int toolCalls = 0;
@@ -45,7 +46,7 @@ public:
     static std::string languageName(const std::string& code);   // "zh-CN" -> "Simplified Chinese"; "" for English
 private:
     struct Resolved { std::shared_ptr<ILlmClient> client; std::string language; std::string provider; std::string embeddingModel; bool fixed = false; };
-    Resolved clientFor(const std::string& channelId) const;
+    Resolved clientFor(const std::string& channelId, bool moduleTask = false) const;
     static Json::Value extractJson(const std::string& content);
     const Config& cfg_;
     std::shared_ptr<ILlmClient> fixed_;   // tests only

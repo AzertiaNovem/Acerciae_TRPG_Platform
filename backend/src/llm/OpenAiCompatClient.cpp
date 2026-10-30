@@ -2,6 +2,7 @@
 #include "../core/Json.h"
 #include "../core/Log.h"
 #include "HttpTransport.h"
+#include "StreamResponse.h"
 
 namespace acerciae {
 
@@ -15,6 +16,8 @@ std::string OpenAiCompatClient::post(const std::string& path, const std::string&
 LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
     Json::Value body;
     body["model"] = ep_.model;
+    body["stream"] = true;
+    body["stream_options"]["include_usage"] = true;
     int maxTokens = req.maxTokens > 0 ? req.maxTokens : ep_.maxTokens;
     if (!ep_.reasoningEffort.empty()) {
         // Reasoning models take an effort level and max_completion_tokens, and reject a custom temperature.
@@ -52,6 +55,7 @@ LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
     LlmResponse r;
     long status = 0; std::string err;
     auto text = post("/chat/completions", json::dump(body), status, err);
+    r.providerStatus = status;
     if (!err.empty()) { r.error = err; return r; }
     if (status < 200 || status >= 300) {
         // Provider bodies stay in the server log: they can carry account details and anything a host chose to answer.
@@ -59,7 +63,7 @@ LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
         r.error = "the AI provider returned HTTP " + std::to_string(status); return r;
     }
     Json::Value j;
-    try { j = json::parse(text); } catch (const std::exception& e) { r.error = std::string("bad json: ") + e.what(); return r; }
+    try { j = llm::openAiResponse(text); } catch (const std::exception& e) { r.error = std::string("bad json: ") + e.what(); return r; }
     if (!j["choices"].isArray() || j["choices"].empty()) { r.error = "no choices in response"; return r; }
     const auto& msg = j["choices"][0]["message"];
     if (msg["content"].isString()) r.content = msg["content"].asString();
@@ -71,6 +75,9 @@ LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
         }
     }
     r.promptTokens = j["usage"]["prompt_tokens"].asInt(); r.completionTokens = j["usage"]["completion_tokens"].asInt();
+    if (j["choices"][0]["finish_reason"] == "length") {
+        r.error = "the model stopped at its output token limit before finishing"; return r;
+    }
     r.ok = true;
     return r;
 }

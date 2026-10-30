@@ -1,3 +1,4 @@
+import AtmosphereBackdrop from './AtmosphereBackdrop';
 import { t as tr } from '../i18n';
 import { useNav } from '../store/nav';
 import MessageList from './MessageList';
@@ -26,6 +27,7 @@ export default function ChatWindow() {
         <span className="pill" title={tr("Knowledge mode")}>{channel.my_role === 'gm' ? tr("GM only") : `${tr("Player group")}: ${channel.player_group_name ?? "…"}`}</span>
       </div>
       <div className="chat-body">
+        <AtmosphereBackdrop />
         <MessageList />
         <ContextBubbleDock />
       </div>

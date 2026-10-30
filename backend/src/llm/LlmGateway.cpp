@@ -1,4 +1,5 @@
 #include "LlmGateway.h"
+#include <algorithm>
 #include "OpenAiCompatClient.h"
 #include "AnthropicClient.h"
 #include "MockLlmClient.h"
@@ -13,14 +14,15 @@ LlmGateway::LlmGateway(const Config& cfg) : cfg_(cfg), mock_(std::make_shared<Mo
 }
 LlmGateway::LlmGateway(const Config& cfg, std::unique_ptr<ILlmClient> client) : cfg_(cfg), fixed_(std::move(client)), mock_(std::make_shared<MockLlmClient>()) {}
 
-LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId) const {
+LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId, bool moduleTask) const {
     Resolved r; r.client = mock_; r.provider = "mock";
     if (fixed_) { r.client = fixed_; r.fixed = true; return r; }
     if (channelId.empty() || !resolver_) return r;
     auto profile = resolver_(channelId);   // throws when the server's key cannot be unsealed: never fall back silently
     if (!profile) return r;
     r.language = profile->language;
-    const auto& ep = profile->endpoint;
+    auto ep = profile->endpoint;
+    if (moduleTask) ep.timeoutMs = cfg_.llmModuleTimeoutMs;
     if (ep.provider == "mock" || ep.apiKey.empty()) return r;
     r.provider = ep.provider; r.embeddingModel = ep.embeddingModel;
     auto key = ep.provider + "\n" + std::to_string(ep.timeoutMs) + "\n" + std::to_string(ep.maxTokens) + "\n" + ep.apiBase + "\n" + ep.apiKey + "\n" + ep.model + "\n" + ep.reasoningEffort + "\n" + ep.embeddingModel;
@@ -89,11 +91,13 @@ Json::Value LlmGateway::extractJson(const std::string& content) {
 
 LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec, int maxRounds) {
     Outcome out;
-    if (req.maxTokens <= 0) req.maxTokens = cfg_.llmMaxTokens;
+    const bool moduleTask = req.task == "module_structure" || req.task == "script_knowledge";
+    // Central defaults also lift legacy per-task limits; the module limit can be tuned independently.
+    req.maxTokens = moduleTask ? cfg_.llmModuleMaxTokens : std::max(req.maxTokens, cfg_.llmMaxTokens);
     if (req.temperature < 0) req.temperature = cfg_.llmTemperature;
     if (!exec) req.tools.clear();
     Resolved resolved;
-    try { resolved = clientFor(req.channelId); }
+    try { resolved = clientFor(req.channelId, moduleTask); }
     catch (const std::exception& e) { out.error = e.what(); return out; }
     auto& client = *resolved.client;
     // Mock calls cost nothing; live calls spend the server's budget and hold one of its concurrent AI slots.
@@ -113,7 +117,7 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
         if (meter && (resp.promptTokens || resp.completionTokens)) {
             try { meter->recordTokens(req.channelId, req.task, resp.promptTokens, resp.completionTokens); } catch (const std::exception& e) { ALOG_WARN << "AI usage not recorded: " << e.what(); }
         }
-        if (!resp.ok) { out.error = resp.error; return out; }
+        if (!resp.ok) { out.error = resp.error; out.providerStatus = resp.providerStatus; return out; }
         if (resp.toolCalls.isArray() && !resp.toolCalls.empty() && exec) {
             LlmMessage assistant; assistant.role = "assistant"; assistant.content = resp.content; assistant.toolCalls = resp.toolCalls; assistant.providerContent = resp.providerContent;
             req.messages.push_back(assistant);

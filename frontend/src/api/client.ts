@@ -30,12 +30,20 @@ export async function request<R>(method: string, path: string, body?: unknown, r
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const res = await fetch(BASE + path, { method, headers, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
-  const text = await res.text();
-  let data: any = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText);
-  return data as R;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120000);
+  try {
+    const res = await fetch(BASE + path, { method, headers, signal: controller.signal, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
+    const text = await res.text();
+    let data: any = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+    if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText);
+    return data as R;
+  } catch (error) {
+    if (controller.signal.aborted) throw new ApiError(408, 'request_timeout', 'Request timed out. Check the saved task status before retrying.');
+    throw error;
+  } finally { clearTimeout(timer); }
+
 }
 const get = <R,>(p: string) => request<R>('GET', p);
 const post = <R,>(p: string, b?: unknown) => request<R>('POST', p, b);
@@ -49,7 +57,10 @@ export const api = {
   login: (username: string, password: string) => post<{ token: string; user: T.User }>('/api/auth/login', { username, password }),
   logout: () => post('/api/auth/logout'),
   me: () => get<T.User>('/api/auth/me'),
-  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'avatar_data'>>) => put<T.User>('/api/auth/me', body),
+  atmosphere: (ch: string) => get<{ enabled: boolean; id?: string; mock?: boolean; assets?: Record<string,string> }>(`/api/channels/${ch}/atmosphere`),
+  atmosphereHistory: (ch: string) => get<{ id: string; scene_label: string; reason: string; created_at: string; prompts: Record<string,string>; variants: { variant: string; status: string; error?: string }[] }[]>(`/api/channels/${ch}/atmosphere/history`),
+  atmosphereImage: (ch: string, id: string) => `${BASE}/api/channels/${ch}/atmosphere/assets/${id}?token=${encodeURIComponent(fileToken())}`,
+  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
   avatarUrl: (id: string, version: number) => `${BASE}/api/users/${encodeURIComponent(id)}/avatar?v=${version}&token=${encodeURIComponent(fileToken())}`,
   servers: () => get<T.Server[]>('/api/servers'),
   createServer: (name: string) => post<T.Server>('/api/servers', { name }),
@@ -130,7 +141,8 @@ export const api = {
   dismissReminder: (ch: string, id: string) => post<{ dismissed: boolean }>(`/api/channels/${ch}/reminders/${id}/dismiss`),
   scriptKnowledge: (ch: string, kind?: string) => get<T.ScriptKnowledge[]>(`/api/channels/${ch}/script-knowledge${q({ kind })}`),
   updateScriptKnowledge: (ch: string, id: string, body: { title?: string; body?: string; status?: T.ScriptStatus }) => put<T.ScriptKnowledge>(`/api/channels/${ch}/script-knowledge/${id}`, body),
-  rebuildScriptKnowledge: (ch: string, module_id?: string) => post<{ module_id: string; entries: number; by_kind?: Record<string, number> }>(`/api/channels/${ch}/script-knowledge/rebuild`, { module_id }),
+  scriptBuilds: (ch: string) => get<T.ScriptBuild[]>(`/api/channels/${ch}/script-knowledge/builds`),
+  rebuildScriptKnowledge: (ch: string, module_id?: string) => post<T.ScriptBuild>(`/api/channels/${ch}/script-knowledge/rebuild`, { module_id, async: true }),
   scriptChanges: (ch: string, limit = 50) => get<T.ScriptChange[]>(`/api/channels/${ch}/script-knowledge/changes${q({ limit })}`),
   kpBoard: (ch: string) => get<T.KpBoard>(`/api/channels/${ch}/kp/board`),
   reminderContext: (ch: string, id: string, limit = 30) => get<{ reminder: T.Reminder; events: T.ReminderContextEvent[]; anchor_event_id?: string }>(`/api/channels/${ch}/reminders/${id}/context${q({ limit })}`),
@@ -149,7 +161,8 @@ export const api = {
   module: (ch: string, id: string) => get<T.ModuleInfo>(`/api/channels/${ch}/modules/${id}`),
   modulePage: (ch: string, id: string, page: number) => get<{ page_number: number; text: string }>(`/api/channels/${ch}/modules/${id}/pages/${page}`),
   uploadModule: (ch: string, file: File, title: string) => { const fd = new FormData(); fd.append('file', file); fd.append('title', title); return request<T.ModuleInfo>('POST', `/api/channels/${ch}/modules`, undefined, fd); },
-  importModuleText: (ch: string, title: string, text: string) => post<T.ModuleInfo>(`/api/channels/${ch}/modules/text`, { title, text }),
+  importModuleText: (ch: string, title: string, text: string) => post<T.ModuleInfo>(`/api/channels/${ch}/modules/text`, { title, text, async: true }),
+  retryModule: (ch: string, id: string) => post<T.ModuleInfo>(`/api/channels/${ch}/modules/${id}/retry`),
   updateNode: (ch: string, id: string, body: Partial<T.ModuleNode>) => put<T.ModuleNode>(`/api/channels/${ch}/modules/nodes/${id}`, body),
   hints: (ch: string, status = 'potential') => get<T.ModuleHint[]>(`/api/channels/${ch}/modules/hints${q({ status })}`),
   decideHint: (ch: string, id: string, decision: 'accepted' | 'dismissed') => post(`/api/channels/${ch}/modules/hints/${id}/decide`, { decision }),

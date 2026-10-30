@@ -1,0 +1,424 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		068B2EE3DEB3523C793397A4 /* CreationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9FC950E84B9437A84109729 /* CreationViews.swift */; };
+		06B8381C81C89F1E6B918017 /* ServerUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */; };
+		167429C6B0221FBBE5E2EA06 /* AcerciaeCore in Frameworks */ = {isa = PBXBuildFile; productRef = CB999693C894963A109E438A /* AcerciaeCore */; };
+		18330CF4F1B9AEBE2473D895 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC6444ED5044B03D351E38E /* SessionStore.swift */; };
+		1AB79194F4720D82CF94D9FD /* UpdatesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */; };
+		1D156065915D5B9D4759BC08 /* LiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD20B35E61DBF04AC07F32E /* LiveViews.swift */; };
+		338ABC7F7F5110D46FF98A88 /* PointBuyEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D13375635157268425659E /* PointBuyEditor.swift */; };
+		4439570B3956321A6C1F0AF7 /* MobileLocale.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4076670B772E960683FE289B /* MobileLocale.swift */; };
+		593759825ED2354F226F6207 /* demo-campaign.json in Resources */ = {isa = PBXBuildFile; fileRef = 88F5C70043EB6160B449B58C /* demo-campaign.json */; };
+		6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD29F793ED520DE30805D951 /* AcerciaeApp.swift */; };
+		8B7524D9FCF680961BA0ACFA /* ServerBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F0BB20E2F39962964229196 /* ServerBrowser.swift */; };
+		AC85A09514A76069E5F687D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FAC5919B71481D5AC4123308 /* Assets.xcassets */; };
+		B4B48AA53FC159C465B20EA8 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4DAED716228D5F0F309AFF5 /* AvatarView.swift */; };
+		C73D4F68E61D21D11304FCCC /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6939EEBC9E27B78760CC323 /* RootView.swift */; };
+		F22AD2AD42D2D07D68085CBA /* DiceResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 953B6532E71274B94654EDD3 /* DiceResultView.swift */; };
+		FE1C46FC2DEEDA1630E21A46 /* mobile-localizations.json in Resources */ = {isa = PBXBuildFile; fileRef = A30897111065BED1758906FD /* mobile-localizations.json */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0FD20B35E61DBF04AC07F32E /* LiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViews.swift; sourceTree = "<group>"; };
+		2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesViews.swift; sourceTree = "<group>"; };
+		26DDBFB968D5E77BDFF18A05 /* Acerciae.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Acerciae.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4076670B772E960683FE289B /* MobileLocale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLocale.swift; sourceTree = "<group>"; };
+		4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerUpdates.swift; sourceTree = "<group>"; };
+		4F0BB20E2F39962964229196 /* ServerBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBrowser.swift; sourceTree = "<group>"; };
+		88F5C70043EB6160B449B58C /* demo-campaign.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "demo-campaign.json"; sourceTree = "<group>"; };
+		953B6532E71274B94654EDD3 /* DiceResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceResultView.swift; sourceTree = "<group>"; };
+		9FCB2098DEE29344380E6E33 /* AcerciaeCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AcerciaeCore; path = AcerciaeCore; sourceTree = SOURCE_ROOT; };
+		A2D13375635157268425659E /* PointBuyEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointBuyEditor.swift; sourceTree = "<group>"; };
+		A30897111065BED1758906FD /* mobile-localizations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "mobile-localizations.json"; sourceTree = "<group>"; };
+		B6939EEBC9E27B78760CC323 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		C9FC950E84B9437A84109729 /* CreationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreationViews.swift; sourceTree = "<group>"; };
+		CD29F793ED520DE30805D951 /* AcerciaeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcerciaeApp.swift; sourceTree = "<group>"; };
+		DFC6444ED5044B03D351E38E /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		F4DAED716228D5F0F309AFF5 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
+		FAC5919B71481D5AC4123308 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		30AF9B8181123588A23988AD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				167429C6B0221FBBE5E2EA06 /* AcerciaeCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		060A8A4C3F36C4BA24A1C21E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				26DDBFB968D5E77BDFF18A05 /* Acerciae.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		30E47F804F6BA230CC3CA9AA = {
+			isa = PBXGroup;
+			children = (
+				7E0D7065CB891C728E853320 /* App */,
+				483D75676101B19A3DE6A203 /* fixtures */,
+				885B06140E340649B9778362 /* Packages */,
+				060A8A4C3F36C4BA24A1C21E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3B541BCB000426A75CF9C96C /* Localization */ = {
+			isa = PBXGroup;
+			children = (
+				A30897111065BED1758906FD /* mobile-localizations.json */,
+			);
+			path = Localization;
+			sourceTree = "<group>";
+		};
+		483D75676101B19A3DE6A203 /* fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				88F5C70043EB6160B449B58C /* demo-campaign.json */,
+			);
+			name = fixtures;
+			path = ../contracts/fixtures;
+			sourceTree = "<group>";
+		};
+		7E0D7065CB891C728E853320 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				CD29F793ED520DE30805D951 /* AcerciaeApp.swift */,
+				FAC5919B71481D5AC4123308 /* Assets.xcassets */,
+				F4DAED716228D5F0F309AFF5 /* AvatarView.swift */,
+				C9FC950E84B9437A84109729 /* CreationViews.swift */,
+				953B6532E71274B94654EDD3 /* DiceResultView.swift */,
+				0FD20B35E61DBF04AC07F32E /* LiveViews.swift */,
+				4076670B772E960683FE289B /* MobileLocale.swift */,
+				A2D13375635157268425659E /* PointBuyEditor.swift */,
+				B6939EEBC9E27B78760CC323 /* RootView.swift */,
+				4F0BB20E2F39962964229196 /* ServerBrowser.swift */,
+				4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */,
+				DFC6444ED5044B03D351E38E /* SessionStore.swift */,
+				2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */,
+				3B541BCB000426A75CF9C96C /* Localization */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		885B06140E340649B9778362 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				9FCB2098DEE29344380E6E33 /* AcerciaeCore */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F8D0ACD9D0BB601B072BDDB8 /* Acerciae */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3D5A57EF22C3E77E59EBAD65 /* Build configuration list for PBXNativeTarget "Acerciae" */;
+			buildPhases = (
+				1C002B3F72687EDDB45D3E53 /* Sources */,
+				B56A33CBAD884EFA4159E687 /* Resources */,
+				30AF9B8181123588A23988AD /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Acerciae;
+			packageProductDependencies = (
+				CB999693C894963A109E438A /* AcerciaeCore */,
+			);
+			productName = Acerciae;
+			productReference = 26DDBFB968D5E77BDFF18A05 /* Acerciae.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C8F2FF33088E1401E546F29A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					F8D0ACD9D0BB601B072BDDB8 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = BC90D4F11588662E5F9AFB07 /* Build configuration list for PBXProject "Acerciae" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 30E47F804F6BA230CC3CA9AA;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2C5AA999F7CCC86ACAAC35F2 /* XCLocalSwiftPackageReference "AcerciaeCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 060A8A4C3F36C4BA24A1C21E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F8D0ACD9D0BB601B072BDDB8 /* Acerciae */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B56A33CBAD884EFA4159E687 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AC85A09514A76069E5F687D5 /* Assets.xcassets in Resources */,
+				593759825ED2354F226F6207 /* demo-campaign.json in Resources */,
+				FE1C46FC2DEEDA1630E21A46 /* mobile-localizations.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1C002B3F72687EDDB45D3E53 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */,
+				B4B48AA53FC159C465B20EA8 /* AvatarView.swift in Sources */,
+				068B2EE3DEB3523C793397A4 /* CreationViews.swift in Sources */,
+				F22AD2AD42D2D07D68085CBA /* DiceResultView.swift in Sources */,
+				1D156065915D5B9D4759BC08 /* LiveViews.swift in Sources */,
+				4439570B3956321A6C1F0AF7 /* MobileLocale.swift in Sources */,
+				338ABC7F7F5110D46FF98A88 /* PointBuyEditor.swift in Sources */,
+				C73D4F68E61D21D11304FCCC /* RootView.swift in Sources */,
+				8B7524D9FCF680961BA0ACFA /* ServerBrowser.swift in Sources */,
+				06B8381C81C89F1E6B918017 /* ServerUpdates.swift in Sources */,
+				18330CF4F1B9AEBE2473D895 /* SessionStore.swift in Sources */,
+				1AB79194F4720D82CF94D9FD /* UpdatesViews.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		570008470A343A110688CEEB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Debug-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Acerciae;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.acerciae.mobile;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		5E81ECBFD65540EE3580F70E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		5ECAAA4BAC3099C0100FB6E5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6B9BDD41929E83AD2255D2D2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Release-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Acerciae;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.acerciae.mobile;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3D5A57EF22C3E77E59EBAD65 /* Build configuration list for PBXNativeTarget "Acerciae" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				570008470A343A110688CEEB /* Debug */,
+				6B9BDD41929E83AD2255D2D2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BC90D4F11588662E5F9AFB07 /* Build configuration list for PBXProject "Acerciae" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E81ECBFD65540EE3580F70E /* Debug */,
+				5ECAAA4BAC3099C0100FB6E5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		2C5AA999F7CCC86ACAAC35F2 /* XCLocalSwiftPackageReference "AcerciaeCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = AcerciaeCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CB999693C894963A109E438A /* AcerciaeCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AcerciaeCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = C8F2FF33088E1401E546F29A /* Project object */;
+}

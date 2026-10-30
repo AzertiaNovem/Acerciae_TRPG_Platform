@@ -25,6 +25,7 @@ public:
     ObserverScheduler(const Config& cfg, Db& db, EventStore& events, DocumentService& docs, HighlightService& highlights,
                       ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios, ReminderService& reminders, ScriptKnowledgeService& script);
     ~ObserverScheduler();
+    void setAtmosphereHook(std::function<void(const std::string&,const Json::Value&)> hook) { atmosphereHook_=std::move(hook); }
     void start();
     void stop();
 
@@ -57,6 +58,7 @@ private:
     bool tryLock(const std::string& key, bool wait);
     void unlock(const std::string& key);
 
+    std::function<void(const std::string&,const Json::Value&)> atmosphereHook_;
     const Config& cfg_; Db& db_; EventStore& events_; DocumentService& docs_; HighlightService& highlights_;
     ContextRetrievalService& retrieval_; LlmGateway& llm_; Notifier& notifier_; KnowledgeService& knowledge_; ScenarioService& scenarios_; ReminderService& reminders_; ScriptKnowledgeService& script_;
     std::atomic<bool> running_{false};

@@ -41,6 +41,10 @@ add_executable(unit_tests tests/unit/unit_tests.cpp)
 target_link_libraries(unit_tests PRIVATE acerciae_core)
 add_test(NAME unit_tests COMMAND unit_tests)
 
+add_executable(http_transport_tests tests/integration/http_transport_tests.cpp)
+target_link_libraries(http_transport_tests PRIVATE acerciae_core)
+add_test(NAME http_transport_tests COMMAND http_transport_tests)
+
 add_executable(db_tests tests/integration/db_tests.cpp)
 target_link_libraries(db_tests PRIVATE acerciae_core)
 add_test(NAME db_tests COMMAND db_tests WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

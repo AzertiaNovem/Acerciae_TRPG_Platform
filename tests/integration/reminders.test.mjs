@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import WebSocket from "ws";
 // Run against an isolated server with the mock LLM: API_BASE=http://127.0.0.1:8080 node --test tests/integration/reminders.test.mjs
 const base = process.env.API_BASE || "http://localhost:18081";
 async function call(token, method, path, body) {
@@ -10,7 +11,7 @@ async function call(token, method, path, body) {
 }
 const rejects = async (p, status) => { try { await p; } catch (e) { assert.equal(e.status, status, e.message); return; } assert.fail(`expected HTTP ${status}`); };
 
-test("reminder bubbles: raised from readable chat only, quoted verbatim, opened with highlights, invisible to other groups", async () => {
+test("reminder bubbles: raised from readable chat only, quoted verbatim, opened with highlights, invisible to other groups", async (t) => {
   const s = Math.random().toString(36).slice(2); const u = {};
   for (const r of ["gm", "p1", "p2"]) u[r] = await call(null, "POST", "/api/auth/register", { username: r + s, password: "password", display_name: r });
   const gm = u.gm.token, p1 = u.p1.token, p2 = u.p2.token;
@@ -49,7 +50,32 @@ test("reminder bubbles: raised from readable chat only, quoted verbatim, opened 
   assert.ok(!(await call(p2, "GET", `/api/channels/${ch}/reminders`)).some((x) => x.id === r.id));
   await rejects(call(p2, "GET", `/api/channels/${ch}/reminders/${r.id}/context`), 404);
   assert.ok((await call(gm, "GET", `/api/channels/${ch}/reminders`)).every((x) => x.player_group_id === null));
+  // One observer pass maintains existing reminders; invalidation only reaches the affected group.
+  const connect = (token) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(base.replace(/^http/, 'ws') + `/ws/context?token=${token}`), messages = [];
+    t.after(() => ws.close()); const timer = setTimeout(() => reject(Error('socket timeout')), 5000);
+    ws.on('error', reject); ws.on('message', raw => { const m = JSON.parse(raw); messages.push(m);
+      if (m.type === 'hello') ws.send(JSON.stringify({ type: 'subscribe', channel_id: ch }));
+      if (m.type === 'subscribed') { clearTimeout(timer); resolve({ messages }); }
+    });
+  });
+  const ownSocket = await connect(p1), otherSocket = await connect(p2);
+  const state = () => call(p1, "GET", `/api/channels/${ch}/reminders/${r.id}/context`);
+  await say(p1, priv, `Set aside: ${r.title}`, { character_id: ada.id }); await observe();
+  assert.equal((await state()).reminder.status, 'deferred');
+  assert.ok(!(await call(p1, 'GET', `/api/channels/${ch}/reminders`)).some(x => x.id === r.id));
+  assert.ok(ownSocket.messages.some(m => m.type === 'reminders.changed'));
+  assert.ok(!otherSocket.messages.some(m => m.type === 'reminders.changed'));
+  await say(p1, priv, `Return to: ${r.title}`, { character_id: ada.id }); await observe();
+  const restored = (await state()).reminder;
+  assert.equal(restored.status, 'active'); assert.equal(restored.version, r.version + 2);
+  assert.deepEqual(restored.citations, r.citations);
+  assert.ok((await call(p1, 'GET', `/api/channels/${ch}/reminders`)).some(x => x.id === r.id));
   // Dismissal is per user.
   await call(p1, "POST", `/api/channels/${ch}/reminders/${r.id}/dismiss`);
   assert.ok(!(await call(p1, "GET", `/api/channels/${ch}/reminders`)).some((x) => x.id === r.id));
+  await say(p1, priv, `Resolved: ${r.title}`, { character_id: ada.id }); await observe();
+  assert.equal((await state()).reminder.status, 'resolved');
+  await say(p1, priv, `Return to: ${r.title}`, { character_id: ada.id }); await observe();
+  assert.equal((await state()).reminder.status, 'resolved');
 });

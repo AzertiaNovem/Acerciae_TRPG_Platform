@@ -249,6 +249,19 @@ See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.
 [PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the
 shared mobile-facing contracts; `mobile/` development is maintained independently.
 
+## AI Game Master client
+
+[`gm-agent/`](gm-agent/README.md) is an optional Node.js client that sits at the table as the Keeper through the same
+HTTP + WebSocket API the web and mobile apps use. It narrates and voices the NPCs with the Keeper's full context,
+including the platform's AI tips (board, reminders, script knowledge, documents, highlights). It also plays a chosen
+number of **co-players**: AI investigators whose COC7 role cards its LLM writes, and who see only the chat lines their
+character witnessed.
+
+```bash
+cd gm-agent && npm install && cp .env.example .env   # account, ANTHROPIC_API_KEY (or another provider)
+node src/cli.mjs setup --coplayers 3 && CHANNEL_ID=<printed id> npm start
+```
+
 ## Tests
 
 ```bash
@@ -261,6 +274,7 @@ backend/build/unit_tests             # no DB needed
 API_BASE=http://localhost:8080 node --test --test-concurrency=1 tests/integration/*.test.mjs
 npm --prefix pdf-worker test
 npm --prefix frontend test && npm --prefix frontend run build
+npm --prefix gm-agent test
 ```
 
 See [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) for how each mandated scenario is exercised and how to
@@ -268,12 +282,14 @@ reproduce it by hand with the demo campaign.
 
 ## Documentation
 
+* [第十三声雾钟](docs/DEMO_STORY.zh-CN.md) — Chinese demo story and feature walkthrough for the Keeper, with a separate [player handout](docs/DEMO_STORY_PLAYER_HANDOUT.zh-CN.md)
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — modules, data model, permission model, schedulers
 * [docs/DATA_FLOW.md](docs/DATA_FLOW.md) — the vertical flow from message to highlighted document, proposal validation
 * [docs/API.md](docs/API.md) — HTTP and WebSocket reference
 * [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) — the seven scenarios
 * [docs/OPERATIONS.md](docs/OPERATIONS.md) — deployment checklist, TLS, backups and restore, upgrades, housekeeping
 * [docs/SERVER_AI_SETTINGS.zh-CN.md](docs/SERVER_AI_SETTINGS.zh-CN.md) — server AI providers and AI policy
+* [gm-agent/README.md](gm-agent/README.md) — the AI Game Master client: roles, what each role sees, configuration
 
 ## Known limitations (explicitly out of the MVP)
 
@@ -293,3 +309,17 @@ reproduce it by hand with the demo campaign.
 ## License
 
 BSD 3-Clause; see [LICENSE](LICENSE).
+
+### Optional channel atmosphere
+
+Server settings → Channel atmosphere backgrounds enables automatic generation using that server's image provider and budget; User settings → Show channel atmosphere backgrounds enables personal display. Both switches default off. The Keeper-side LLM conservatively evaluates public narration and remembers previous prompts. It generates four images of the same place: landscape day, landscape night, portrait day, portrait night. Web selects day/night by the device light/dark theme, not the story clock, and displays the appropriate orientation at 26% opacity.
+
+A new set requires a 30-minute cooldown and at least 12 further public Keeper narrations; uncertain/minor changes reuse existing art. All four images must finish before switching. Prompts and source references are retained, with Keeper-readable history in Log Studio → Assets; generated images remain candidates for publication review and can be reused after approval. Private Keeper knowledge and split-party chat are excluded from shared background generation. Migration `0030_channel_atmosphere.sql` is additive. [API and native client contract](docs/API.md#channel-atmosphere-backgrounds).
+
+The integration test `tests/integration/atmosphere.test.mjs` exercises opt-in, four-image mock generation, image access, cooldown and privacy against an isolated backend. Database tests cover previous-prompt context, uncertainty, private evidence rejection and fallback to a complete prior set. Frontend tests cover all four theme/orientation combinations. Real image API credentials were not used for this feature's verification; the existing GPT Image adapter is reused.
+
+### Module import feedback
+
+The web GM workspace acknowledges imports immediately, shows extraction/structuring/knowledge-preparation stages and actual completed-block counts, and displays completion or failure persistently. You can leave the panel and return later. Concurrent submissions of identical content share one task; failed tasks can be retried without re-uploading. Interrupted imports are recoverable after restart. Long single-page text is split without breaking UTF-8 or original page references. Keeper-knowledge failures are shown as warnings instead of silently claiming full success.
+
+General LLM output allowance defaults to 8192 tokens; module graph and Keeper knowledge builds use 32768 tokens with a five-minute call timeout. See [operations](docs/OPERATIONS.md#import-output-allowance) for deployment overrides and [API details](docs/API.md#module-import-progress-and-duplicate-protection) for mobile integration. The existing synchronous text API remains compatible; `async:true` opts into the new immediate response.

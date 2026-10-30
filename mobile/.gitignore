@@ -1,0 +1,15 @@
+**/.gradle/
+**/.kotlin/
+**/.build/
+**/.swiftpm/
+**/build/
+**/local.properties
+**/.idea/
+**/*.iml
+**/.DS_Store
+**/xcuserdata/
+**/DerivedData/
+**/*.xcuserstate
+artifacts/
+
+.backend-build/

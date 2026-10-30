@@ -1,6 +1,9 @@
 // Database-backed tests for the validation core. Requires PostgreSQL; set TEST_DATABASE_URL (a
 // database that may be wiped) — defaults to postgresql://postgres@localhost:5432/acerciae_test.
 #include "app/Services.h"
+#include "atmosphere/AtmosphereService.h"
+#include "logstudio/ImageProvider.h"
+#include "logstudio/MediaService.h"
 #include "auth/AuthService.h"
 #include "chat/ChatService.h"
 #include "scenes/SceneManager.h"
@@ -25,6 +28,8 @@
 #include "core/Errors.h"
 #include <iostream>
 #include <cstdlib>
+#include <future>
+#include <mutex>
 
 using namespace acerciae;
 static int failures = 0, passed = 0;
@@ -50,6 +55,38 @@ public:
             return r;
         }
         return mock.complete(req);
+    }
+};
+
+// A controllable real-gateway fixture: tests inspect the exact combined prompt and return one plan.
+class ReminderPlanClient : public ILlmClient {
+public:
+    Json::Value plan, context;
+    int calls = 0;
+    std::function<void()> beforeReturn;
+    std::string mode() const override { return "live"; }
+    std::string modelName() const override { return "reminder-lifecycle-test"; }
+    LlmResponse complete(const LlmRequest& req) override {
+        LlmResponse r; r.ok = true;
+        if (req.task == "scenario_outline") { r.content = R"({"outline":"Fixture outline","key_points":[]})"; return r; }
+        ++calls; context = json::parse(req.messages.back().content);
+        if (beforeReturn) beforeReturn();
+        r.content = json::dump(plan); return r;
+    }
+};
+
+class ModuleProgressClient : public ILlmClient {
+public:
+    bool fail=false;size_t timeoutAbove=0;long failureStatus=0;std::vector<LlmRequest> requests;
+    std::string mode() const override{return "live";}
+    std::string modelName() const override{return "module-progress-fixture";}
+    LlmResponse complete(const LlmRequest& req) override {
+        requests.push_back(req);LlmResponse r;
+        if(fail){r.error="fixture output limit reached";r.providerStatus=failureStatus;return r;}
+        if(timeoutAbove){size_t bytes=0;auto ctx=json::parse(req.messages.back().content);for(const auto& p:ctx["pages"])bytes+=p["text"].asString().size();
+            if(bytes>timeoutAbove){r.providerStatus=504;r.error="upstream deadline";return r;}}
+        r.ok=true;r.content=R"({"nodes":[{"key":"location|harbour","node_type":"location","name":"Harbour","description":"Rainy harbour","citations":[{"page":1,"excerpt":"Scene"}]}],"edges":[]})";
+        return r;
     }
 };
 
@@ -327,6 +364,116 @@ int main() {
         CHECK(!S.db->queryJson("SELECT 1 FROM player_scenario_outlines o JOIN player_group_members pm ON pm.group_id=o.group_id WHERE pm.user_id=$1", {p1User}).empty());
         (void)ask;
     });
+    test("narrative editing rejects placeholder-only evidence, updates one entry and skips repetition", [&] {
+        auto noise = say(gmUser, mainWin, "Narration", "narration");
+        auto noiseId = eventOf(noise["id"].asString())["id"].asString();
+        auto roll = say(gmUser, mainWin, ".r 1d100");
+        auto rollId = eventOf(roll["id"].asString())["id"].asString();
+        auto story = say(gmUser, mainWin, "The courier leaves a sealed violet letter beside the well.", "narration");
+        auto storyId = eventOf(story["id"].asString())["id"].asString();
+        auto evidence = say(gmUser, mainWin, "The violet letter is addressed to the Northwatch curator.", "narration");
+        auto evidenceId = eventOf(evidence["id"].asString())["id"].asString();
+        p1 = S.auth->channelAccess(p1User, channelId);
+        for (bool player : {false,true}) {
+            Proposal p; p.channelId=channelId; p.documentType="current_scene"; p.actor="ai";
+            if(player) {p.playerGroupId=p1.playerGroupId;p.playerGroupVersion=p1.playerGroupVersion;}
+            p.allowedSourceEventIds={noiseId,rollId,storyId,evidenceId};
+            Json::Value op; op["op"]="add_entry";op["fact"]["summary"]="A placeholder narration was sent, with no plot content.";op["fact"]["status"]="confirmed";op["fact"]["source_event_ids"].append(noiseId);p.ops.append(op);
+            auto rejected=S.documents->commit(p);CHECK(rejected.applied==0);CHECK(rejected.rejected==1);
+            op["fact"]["source_event_ids"][0]=rollId;op["fact"]["summary"]="An unexplained dice result was rolled.";p.ops[0]=op;
+            CHECK(S.documents->commit(p).applied==0);
+            op["fact"]["summary"]="The courier left a sealed violet letter by the well.";op["fact"]["source_event_ids"][0]=storyId;p.ops[0]=op;
+            auto added=S.documents->commit(p);CHECK(added.applied==1);auto fid=added.touchedFactIds.at(0);
+            Json::Value upd;upd["op"]="update_entry";upd["fact_id"]=fid;upd["summary"]="The courier's sealed violet letter by the well is addressed to the Northwatch curator.";upd["source_event_ids"].append(evidenceId);p.ops[0]=upd;
+            auto updated=S.documents->commit(p);CHECK(updated.applied==1);CHECK(updated.touchedFactIds.at(0)==fid);
+            auto fact=S.db->queryOne("SELECT * FROM knowledge_facts WHERE id=$1",{fid});CHECK(fact["source_event_ids"].size()==2);
+            CHECK(S.db->queryOne("SELECT count(*) AS n FROM document_entries WHERE document_id=$1 AND fact_id=$2 AND NOT removed",{added.documentId,fid})["n"].asInt()==1);
+            auto repeated=S.documents->commit(p);CHECK(repeated.applied==0);CHECK(repeated.version==updated.version);
+            CHECK(S.db->queryOne("SELECT version FROM knowledge_facts WHERE id=$1",{fid})["version"]==fact["version"]);
+        }
+        CHECK(S.chat->getMessage(gm,noise["id"].asString())["content"]=="Narration");
+        CHECK(S.chat->getMessage(gm,roll["id"].asString())["content"]==".r 1d100");
+    });
+    test("one reminder plan maintains old entries and creates new ones, with evidence, scope and version guards", [&] {
+        auto client = std::make_unique<ReminderPlanClient>(); auto* fixture = client.get();
+        LlmGateway gateway(cfg, std::move(client));
+        ReminderService service(*S.db, gateway, *S.retrieval, *S.notifier);
+        p1 = S.auth->channelAccess(p1User, channelId);
+        auto event = [&](const std::string& text, bool secret = false) {
+            Json::Value b; b["content"] = text; b["kind"] = "narration"; if (secret) b["visibility"] = "gm_only";
+            auto m = S.chat->postMessage(gm, mainWin, b);
+            return S.db->queryOne("SELECT id AS event_id,seq,scene_id,kind,actor_role,payload,payload->>'content' AS content FROM events WHERE message_id=$1", {m["id"].asString()});
+        };
+        auto original = event("Bring the amber compass back to the archivist.");
+        auto insert = [&](const std::string& title, const ChannelAccess& view) {
+            Json::Value q; q["event_id"] = original["event_id"]; q["text"] = original["content"];
+            Json::Value qs(Json::arrayValue); qs.append(q);
+            auto citations = ReminderService::resolveCitations(qs, {{original["event_id"].asString(), original}});
+            return S.db->queryOne("INSERT INTO reminders(channel_id,player_group_id,scene_id,kind,title,why,citations,source_event_ids,dedupe_key,player_group_version) VALUES($1,$2::uuid,$3,'needed',$4,'Return it',$5::jsonb,$6::uuid[],$7,$8) RETURNING *", {channelId, view.isGm ? dbNull() : DbParam(view.playerGroupId), original["scene_id"].asString(), title, json::dump(citations), pgArrayLiteral({original["event_id"].asString()}), title, view.isGm ? dbNull() : DbParam((int64_t)view.playerGroupVersion)});
+        };
+        auto old = insert("Return amber compass", p1);
+        auto kp = insert("Keeper classified compass", gm);
+        auto other = insert("Other group compass", S.auth->channelAccess(p3User, channelId));
+        auto row = [&](const Json::Value& r) { return S.db->queryOne("SELECT * FROM reminders WHERE id=$1", {r["id"].asString()}); };
+        auto change = [&](const Json::Value& r, const std::string& action, const Json::Value& e) {
+            Json::Value c; c["reminder_id"] = r["id"]; c["expected_version"] = r["version"]; c["action"] = action; c["reason"] = "New conversation evidence.";
+            Json::Value q; q["event_id"] = e["event_id"]; q["text"] = e["content"]; c["quotes"].append(q); return c;
+        };
+        auto run = [&](const Json::Value& e, bool keeper = false) {
+            Json::Value batch(Json::arrayValue); batch.append(e); int calls = 0;
+            return keeper ? service.afterBatchKp(gm, batch, "", calls, Json::Value(Json::arrayValue)) : service.afterBatch(p1, batch, "", calls);
+        };
+        auto reset = [&] { fixture->plan = json::parse(R"({"changes":[],"reminders":[]})"); };
+        auto resolved = event("The archivist accepts the amber compass. Now bring the blue ledger to the dock.");
+        reset(); fixture->plan["changes"].append(change(old, "resolve", resolved));
+        auto newReminder = change(old, "update", resolved); newReminder["title"] = "Deliver the blue ledger"; newReminder["kind"] = "needed";
+        fixture->plan["reminders"].append(newReminder);
+        // Attempts to target another partition never enter the planner's managed set.
+        fixture->plan["changes"].append(change(kp, "resolve", resolved)); fixture->plan["changes"].append(change(other, "resolve", resolved));
+        int beforeCalls = fixture->calls; auto result = run(resolved);
+        CHECK(result["created"].asInt() == 1); CHECK(result["changed"].asInt() == 1); CHECK(fixture->calls == beforeCalls + 1);
+        CHECK(row(old)["status"] == "resolved"); CHECK(row(old)["citations"] == old["citations"]); CHECK(row(old)["source_event_ids"] == old["source_event_ids"]);
+        CHECK(row(kp)["status"] == "active"); CHECK(row(other)["status"] == "active");
+        for (const auto& r : fixture->context["managed_reminders"]) { CHECK(r["player_group_id"] == p1.playerGroupId); CHECK(r["id"] != kp["id"]); }
+        auto ledger = S.db->queryOne("SELECT * FROM reminders WHERE channel_id=$1 AND player_group_id=$2 AND title='Deliver the blue ledger'", {channelId, p1.playerGroupId});
+        CHECK(!ledger.isNull());
+        // No duplicate create or stale re-application on retry of the same batch.
+        result = run(resolved); CHECK(result["created"].asInt() == 0); CHECK(result["changed"].asInt() == 0);
+        auto away = event("We leave the docks and spend the night investigating the chapel.");
+        reset(); fixture->plan["changes"].append(change(ledger, "defer", away)); result = run(away);
+        CHECK(row(ledger)["status"] == "deferred"); CHECK(result["changed"].asInt() == 1);
+        for (const auto& r : service.list(p1)) CHECK(r["id"] != ledger["id"]);
+        // A per-user dismissal survives automatic reactivation.
+        S.db->exec("INSERT INTO reminder_dismissals(reminder_id,user_id) VALUES($1,$2)", {ledger["id"].asString(), p1User});
+        auto back = event("We return to the docks with the blue ledger.");
+        reset(); fixture->plan["changes"].append(change(row(ledger), "reactivate", back)); result = run(back);
+        CHECK(row(ledger)["status"] == "active"); CHECK(result["changed"].asInt() == 1);
+        for (const auto& r : service.list(p1)) CHECK(r["id"] != ledger["id"]);
+        // A valid update preserves original source material and records separate review evidence.
+        auto update = event("The dock clerk requests the blue ledger at the east pier.");
+        reset(); auto revised = change(row(ledger), "update", update); revised["title"] = "Deliver ledger at east pier"; fixture->plan["changes"].append(revised); run(update);
+        CHECK(row(ledger)["title"] == "Deliver ledger at east pier"); CHECK(row(ledger)["citations"] == ledger["citations"]);
+        CHECK(row(ledger)["review_citations"][0]["event_id"] == update["event_id"]);
+        // Forged quotes, historical evidence, stale versions and a model's guessed IDs cannot retire it.
+        auto next = event("The party discusses a different route.");
+        auto stable = row(ledger);
+        reset(); auto bad = change(stable, "resolve", next); bad["quotes"][0]["text"] = "The ledger was delivered."; fixture->plan["changes"].append(bad); run(next); CHECK(row(ledger) == stable);
+        reset(); fixture->plan["changes"].append(change(stable, "resolve", original)); run(next); CHECK(row(ledger) == stable);
+        reset(); bad = change(stable, "resolve", next); bad["expected_version"] = 1; fixture->plan["changes"].append(bad); run(next); CHECK(row(ledger) == stable);
+        auto secret = event("The blue ledger conceals the Keeper's private solution.", true);
+        reset(); fixture->plan["changes"].append(change(stable, "resolve", secret)); run(next); CHECK(row(ledger) == stable);
+        // Simulate a concurrent edit between model input and commit.
+        reset(); fixture->plan["changes"].append(change(stable, "resolve", next));
+        fixture->beforeReturn = [&] { S.db->exec("UPDATE reminders SET version=version+1 WHERE id=$1", {ledger["id"].asString()}); };
+        run(next); fixture->beforeReturn = nullptr; CHECK(row(ledger)["status"] == "active");
+        reset(); fixture->plan["changes"].append(change(row(old), "reactivate", next)); run(next); CHECK(row(old)["status"] == "resolved");
+        // The Keeper has the same lifecycle but never receives player reminder state.
+        reset(); fixture->plan["changes"].append(change(kp, "resolve", next)); result = run(next, true);
+        CHECK(result["changed"].asInt() == 1); CHECK(row(kp)["status"] == "resolved");
+        for (const auto& r : fixture->context["managed_reminders"]) CHECK(r["player_group_id"].isNull());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM reminder_revisions WHERE reminder_id=$1", {ledger["id"].asString()})["n"].asInt() == 3);
+        CHECK(S.db->queryOne("SELECT payload->>'content' AS content FROM events WHERE id=$1", {original["event_id"].asString()})["content"] == original["content"]);
+    });
     test("script knowledge: built from the module, moved only by reviewed changes, pinned on the Keeper's board, Keeper-only", [&] {
         std::vector<std::string> pages = {
             "THE LANTERN SOCIETY\nA scenario for Call of Cthulhu set in Arkham, 1925.\n\nChapter 1: The Sheriff's Office\nThe investigators meet Sheriff Dunmore, who holds the only key to the lighthouse. He stalls them politely.\nNPC: Sheriff Dunmore\nA tired lawman who secretly belongs to the Lantern Society.\nItem: The Lighthouse Key\nAn iron key stamped with a lantern sigil.\nIf the investigators obtain the key they may enter the lighthouse at night.",
@@ -449,6 +596,13 @@ int main() {
         LlmGateway gateway(cfg,std::move(recording));
         ObserverScheduler observer(cfg,*S.db,*S.events,*S.documents,*S.highlights,*S.retrieval,gateway,*S.notifier,*S.knowledge,*S.scenarios,*S.reminders,*S.script);
         auto jobs=observer.observeChannel(ch,true); for(const auto& j:jobs) {if(j["status"]!="succeeded")std::cerr<<json::dump(j)<<"\n";CHECK(j["status"]=="succeeded");}
+        for (const auto& req : recorded->requests) if (req.task == "observer_extract") {
+            CHECK(req.system.find("Choose SKIP, UPDATE, or ADD") != std::string::npos);
+            CHECK(req.system.find("Do NOT create a meta-entry") != std::string::npos);
+            Json::Value context;
+            for (const auto& m : req.messages) if (m.role == "user") { try { auto v=json::parse(m.content); if(v.isMember("new_events")) context=v; } catch (...) {} }
+            for (const auto& e : context["new_events"]) if (e["kind"] == "message.posted") CHECK(e["payload"]["message_kind"].isString());
+        }
         int playerCalls=0,deniedToolResponses=0;
         for(const auto& req:recorded->requests) if(req.system.find("ONE player group")!=std::string::npos) {
             playerCalls++;
@@ -598,6 +752,159 @@ int main() {
         CHECK(S.db->queryOne("SELECT 1 AS ok FROM chat_window_members WHERE user_id=$1", {p3User}).isNull());
         bool gone = false; try { S.auth->channelAccess(p3User, channelId); } catch (const ApiError& e) { gone = e.status() == 403; } CHECK(gone);
         CHECK(!S.chat->searchUsers(gmP, "p3" + suffix, 10).empty());
+    });
+    test("channel atmosphere is opt-in, public-only, rate-limited, and remembers all four prompts", [&] {
+        auto srv=S.chat->createServer(gmP,"Atmosphere checks");auto sid=srv["id"].asString();
+        Json::Value cb;cb["name"]="Atmosphere";auto ch=S.chat->createChannel(gmP,sid,cb)["id"].asString();
+        auto a=S.auth->channelAccess(gmUser,ch);S.chat->addChannelMember(a,"p1"+suffix,"player");
+        auto win=S.chat->listWindows(a)[0]["id"].asString();
+        auto client=std::make_unique<ReminderPlanClient>();auto* fixture=client.get();
+        LlmGateway gateway(cfg,std::move(client));AtmosphereService service(*S.db,gateway,*S.settings,*S.media);
+        Json::Value batch(Json::arrayValue);batch.append("trigger");
+        auto post=[&](const std::string& text,bool secret=false){
+            Json::Value b;b["content"]=text;b["kind"]="narration";if(secret)b["visibility"]="gm_only";
+            auto m=S.chat->postMessage(a,win,b);return S.db->queryOne("SELECT id FROM events WHERE message_id=$1",{m["id"].asString()})["id"];
+        };
+        auto fresh=[&](){Json::Value id;for(int i=0;i<12;++i)id=post("Public stone courtyard with ivy "+std::to_string(i));return id;};
+        auto count=[&](){return S.db->queryOne("SELECT count(*) AS n FROM channel_atmospheres WHERE channel_id=$1",{ch})["n"].asInt();};
+        auto due=[&](){S.db->exec("UPDATE channel_atmosphere_state SET next_review_at=now()-interval '1 minute',next_generation_at=now()-interval '1 minute' WHERE channel_id=$1",{ch});};
+        auto plan=[&](Json::Value id,const std::string& label){
+            fixture->plan=json::parse(R"({"generate":true,"confidence":0.95,"reason":"Established new public location","mood":"Quiet","prompts":{}})");
+            fixture->plan["scene_label"]=label;fixture->plan["source_event_ids"].append(id);
+            for(auto key:{"day_landscape","night_landscape","day_portrait","night_portrait"})fixture->plan["prompts"][key]=label+"; "+key;
+        };
+        CHECK(!S.settings->get(gmP,sid)["features"]["atmosphere"].asBool());
+        Json::Value off;off["atmosphere_enabled"]=false;S.auth->updateProfile(gmP,off);
+        auto id=fresh();auto secret=post("PRIVATE hidden monster in courtyard",true);plan(id,"Courtyard");
+        service.afterBatch(ch,batch);CHECK(fixture->calls==0);
+        Json::Value settings;settings["features"]["atmosphere"]=true;settings["image"]["provider"]="mock";S.settings->update(gmP,sid,settings);
+        service.afterBatch(ch,batch);CHECK(fixture->calls==0);
+        Json::Value on;on["atmosphere_enabled"]=true;CHECK(S.auth->updateProfile(gmP,on)["atmosphere_enabled"].asBool());
+        service.afterBatch(ch,batch);CHECK(count()==1);CHECK(fixture->calls==1);
+        CHECK(json::dump(fixture->context).find("PRIVATE")==std::string::npos);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM asset_generation_jobs WHERE channel_id=$1",{ch})["n"].asInt()==4);
+        auto first=service.history(a)[0];CHECK(first["prompts"]==fixture->plan["prompts"]);
+        for(const auto& j:S.db->queryJson("SELECT params FROM asset_generation_jobs WHERE channel_id=$1",{ch})){
+            auto key=j["params"]["attach"]["variant"].asString();
+            CHECK(j["params"]["request"]["size"]==(key.find("portrait")!=std::string::npos?"1024x1536":"1536x1024"));
+        }
+        CHECK(service.current(a)["enabled"].asBool());CHECK(service.current(a)["assets"].isNull());
+        auto oldCalls=fixture->calls;service.afterBatch(ch,batch);CHECK(fixture->calls==oldCalls);
+        // In-flight images prevent another set even after the cooldown.
+        id=fresh();plan(id,"Harbour");due();service.afterBatch(ch,batch);CHECK(fixture->calls==oldCalls);
+        S.db->exec("UPDATE asset_generation_jobs SET status='failed' WHERE channel_id=$1",{ch});
+        service.afterBatch(ch,batch);CHECK(count()==2);CHECK(fixture->context["previous_background"]["prompts"]==first["prompts"]);
+        S.db->exec("UPDATE asset_generation_jobs SET status='failed' WHERE channel_id=$1",{ch});
+        // A private source can never authorize shared art, and uncertain plans create no jobs.
+        fresh();plan(secret,"Secret room");due();service.afterBatch(ch,batch);CHECK(count()==2);
+        id=fresh();plan(id,"Harbour");fixture->plan["confidence"]=0.3;due();service.afterBatch(ch,batch);CHECK(count()==2);
+        // Complete one mock set, preserving candidate publication status and all versioned prompts.
+        logstudio::ImageConfig imageCfg;imageCfg.provider="mock";auto provider=logstudio::makeImageProvider(imageCfg);
+        for(const auto& v:first["variants"]){
+            auto job=S.db->queryOne("SELECT * FROM asset_generation_jobs WHERE id=$1",{v["job_id"].asString()});
+            auto image=provider->generate(job["params"]["request"]);CHECK(image.ok);
+            int w=0,h=0;logstudio::MediaService::probeDimensions(image.bytes,image.mime,w,h);
+            CHECK((h>w)==(v["variant"].asString().find("portrait")!=std::string::npos));
+            Json::Value meta;meta["name"]="Atmosphere";meta["visibility_scope"]="channel";meta["approval_status"]="candidate";meta["prompt"]=job["prompt"];
+            auto asset=S.media->storeInternal(ch,"background","generated",image.bytes,image.mime,meta);
+            S.db->exec("UPDATE asset_generation_jobs SET status='completed',result_asset_id=$2 WHERE id=$1",{v["job_id"].asString(),asset["id"].asString()});
+        }
+        auto current=service.current(a);CHECK(current["id"]==first["id"]);CHECK(current["assets"].size()==4);CHECK(current["mock"].asBool());
+        std::string bytes,mime;auto asset=current["assets"]["night_portrait"].asString();CHECK(service.fetch(a,asset,bytes,mime));
+        S.db->exec("UPDATE media_assets SET approval_status='rejected' WHERE id=$1",{asset});
+        CHECK(service.current(a)["assets"].isNull());CHECK(!service.fetch(a,asset,bytes,mime));
+        S.db->exec("UPDATE media_assets SET approval_status='candidate',visibility_scope='gm' WHERE id=$1",{asset});
+        CHECK(service.current(a)["assets"].isNull());
+        S.db->exec("UPDATE media_assets SET visibility_scope='channel' WHERE id=$1",{asset});
+        auto pl=S.auth->channelAccess(p1User,ch);CHECK(!service.current(pl)["enabled"].asBool());CHECK(!service.fetch(pl,asset,bytes,mime));
+        bool denied=false;try{service.history(pl);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
+        S.auth->updateProfile(gmP,off);CHECK(!service.fetch(a,asset,bytes,mime));
+        on["atmosphere_enabled"]=true;S.auth->updateProfile(gmP,on);
+        settings["features"]["atmosphere"]=false;S.settings->update(gmP,sid,settings);CHECK(!service.fetch(a,asset,bytes,mime));
+        S.auth->updateProfile(gmP,off);
+    });
+    test("module imports persist progress, deduplicate concurrent content, retry failures and preserve UTF-8 chunks", [&] {
+        auto client=std::make_unique<ModuleProgressClient>();auto* fixture=client.get();
+        LlmGateway gateway(cfg,std::move(client));ModuleImporter importer(cfg,*S.db,gateway,*S.notifier);
+        std::vector<std::function<void()>> queued;std::mutex queueMutex;bool queueFull=false;
+        importer.setExecutor([&](auto fn){std::lock_guard<std::mutex> lock(queueMutex);if(queueFull)return false;queued.push_back(fn);return true;});
+        auto srv=S.chat->createServer(gmP,"Module import tests");
+        Json::Value body;body["name"]="Import tests";auto ch=S.chat->createChannel(gmP,srv["id"].asString(),body)["id"].asString();
+        auto access=S.auth->channelAccess(gmUser,ch);
+        std::string text="Scene: 雾港\n";for(int i=0;i<7000;++i)text+="中文剧情";
+        auto first=std::async(std::launch::async,[&]{return importer.importText(access,"Long module",{text},true);});
+        auto second=std::async(std::launch::async,[&]{return importer.importText(access,"Different title",{text},true);});
+        auto one=first.get(),two=second.get();auto id=one["id"].asString();
+        CHECK(one["id"]==two["id"]);CHECK(one["deduplicated"].asBool()!=two["deduplicated"].asBool());CHECK(queued.size()==1);
+        CHECK(importer.get(access,id)["import_stage"]=="queued");
+        importer.setPostProcess([&](const auto&,const auto& module){
+            auto state=importer.get(access,module);CHECK(state["import_stage"]=="knowledge");CHECK(state["completed_chunks"]==state["total_chunks"]);
+            throw std::runtime_error("fixture knowledge failure");
+        });
+        queued.back()();queued.clear();
+        auto complete=importer.get(access,id);CHECK(complete["status"]=="ready");CHECK(!complete["import_warning"].asString().empty());
+        CHECK(complete["total_chunks"].asInt()>1);CHECK(complete["completed_chunks"]==complete["total_chunks"]);
+        std::string joined;
+        for(const auto& req:fixture->requests){
+            CHECK(req.maxTokens==32768);auto ctx=json::parse(req.messages.back().content);size_t bytes=0;
+            for(const auto& page:ctx["pages"]){CHECK(page["page"]==1);auto s=page["text"].asString();joined+=s;bytes+=s.size();CHECK((static_cast<unsigned char>(s[0])&0xc0)!=0x80);}
+            CHECK(bytes<=12000);
+        }
+        CHECK(joined==text);
+        CHECK(importer.importText(access,"Again",{text},true)["deduplicated"].asBool());CHECK(queued.empty());
+        CHECK(importer.retry(access,id)["status"]=="ready");CHECK(queued.empty());
+        importer.setPostProcess({});fixture->fail=true;
+        auto bad=importer.importText(access,"Failing module",{"Scene: Failed garden"},true);
+        queued.back()();queued.clear();CHECK(importer.get(access,bad["id"].asString())["status"]=="failed");
+        fixture->fail=false;auto retry=importer.retry(access,bad["id"].asString());CHECK(retry["id"]==bad["id"]);CHECK(queued.size()==1);
+        importer.retry(access,bad["id"].asString());CHECK(queued.size()==1);queued.back()();queued.clear();
+        CHECK(importer.get(access,bad["id"].asString())["status"]=="ready");
+        queueFull=true;auto full=importer.importText(access,"Queue full",{"Scene: Crowded queue"},true);CHECK(full["status"]=="failed");
+        queueFull=false;importer.retry(access,full["id"].asString());CHECK(queued.size()==1);
+        importer.recoverInterrupted();CHECK(importer.get(access,full["id"].asString())["status"]=="failed");queued.clear();
+        importer.retry(access,full["id"].asString());queued.back()();queued.clear();CHECK(importer.get(access,full["id"].asString())["status"]=="ready");
+        auto pdf=importer.importPdf(access,"broken.pdf","%PDF-broken","Broken");queued.back()();queued.clear();
+        CHECK(importer.get(access,pdf["id"].asString())["status"]=="failed");
+        CHECK(importer.importPdf(access,"renamed.pdf","%PDF-broken","Other")["id"]==pdf["id"]);CHECK(queued.empty());
+        bool denied=false;auto player=access;player.isGm=false;try{importer.retry(player,id);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
+        auto node=complete["nodes"][0]["id"].asString();
+        S.db->exec("UPDATE module_nodes SET citations='[{\"page\":1},{\"page\":2,\"excerpt\":\"Original quote\"}]'::jsonb WHERE id=$1",{node});
+        auto citations=importer.get(access,id)["nodes"][0]["citations"];
+        CHECK(citations[0]["page"]==1);CHECK(citations[0]["excerpt"].isString());CHECK(citations[0]["excerpt"]=="");
+        CHECK(citations[1]["excerpt"]=="Original quote");
+        fixture->requests.clear();fixture->timeoutAbove=3200;
+        const std::vector<std::string> adaptivePages={"Scene: First",text,"尾页证据"};
+        auto adaptive=importer.importText(access,"Adaptive timeout",adaptivePages);
+        CHECK(adaptive["status"]=="ready");CHECK(adaptive["completed_chunks"]==adaptive["total_chunks"]);
+        std::map<int,std::string> recovered;int timeouts=0;
+        for(const auto& req:fixture->requests){auto ctx=json::parse(req.messages.back().content);size_t bytes=0;
+            for(const auto& p:ctx["pages"])bytes+=p["text"].asString().size();
+            if(bytes>3200){++timeouts;continue;}
+            for(const auto& p:ctx["pages"])recovered[p["page"].asInt()]+=p["text"].asString();
+        }
+        CHECK(timeouts==2);CHECK(fixture->requests.size()==adaptive["total_chunks"].asUInt()+2);
+        for(int i=0;i<3;++i)CHECK(recovered[i+1]==adaptivePages[i]);
+        fixture->requests.clear();fixture->fail=true;fixture->failureStatus=504;
+        auto outage=importer.importText(access,"Bounded outage",{text+"Outage"});
+        CHECK(outage["status"]=="failed");CHECK(fixture->requests.size()==3);
+        fixture->requests.clear();fixture->failureStatus=401;
+        auto unauthorized=importer.importText(access,"Invalid key",{text+"Invalid key"});
+        CHECK(unauthorized["status"]=="failed");CHECK(fixture->requests.size()==1);
+        fixture->fail=false;fixture->timeoutAbove=0;fixture->failureStatus=0;
+        LlmRequest normal;normal.task="general";normal.maxTokens=300;normal.responseSchema=ModuleImporter::structureSchema();gateway.runStructured(normal);
+        CHECK(fixture->requests.back().maxTokens==8192);
+        LlmRequest knowledge=normal;knowledge.task="script_knowledge";gateway.runStructured(knowledge);CHECK(fixture->requests.back().maxTokens==32768);
+        ScriptKnowledgeService builds(*S.db,*S.llm,*S.retrieval,*S.reminders,*S.notifier);
+        builds.setExecutor([&](std::function<void()> task){if(queueFull)return false;queued.push_back(std::move(task));return true;});
+        auto job=builds.rebuild(access,id,true);CHECK(job["status"]=="pending");CHECK(queued.size()==1);
+        CHECK(builds.rebuild(access,id,true)["id"]==job["id"]);CHECK(queued.size()==1);
+        queued.back()();queued.clear();CHECK(builds.builds(access)[0]["status"]=="completed");
+        queueFull=true;CHECK(builds.rebuild(access,id,true)["status"]=="failed");
+        queueFull=false;job=builds.rebuild(access,id,true);CHECK(job["status"]=="pending");
+        builds.recoverInterrupted();CHECK(builds.builds(access)[0]["status"]=="failed");
+        queued.back()();queued.clear();CHECK(builds.builds(access)[0]["status"]=="failed");
+        denied=false;try{builds.builds(player);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
+
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();

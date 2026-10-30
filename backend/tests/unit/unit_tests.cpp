@@ -1,3 +1,4 @@
+#include "documents/NarrativeMemoryPolicy.h"
 // Core unit tests: no database required.
 #include "characters/Coc7Rules.h"
 #include "core/NetGuard.h"
@@ -9,6 +10,7 @@
 #include "llm/MockLlmClient.h"
 #include "llm/LlmGateway.h"
 #include "llm/AnthropicClient.h"
+#include "llm/StreamResponse.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
 #include "logstudio/LogAdapters.h"
@@ -34,6 +36,29 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("SSE completion requires terminal events and reconstructs tool arguments and usage", [] {
+        auto event=[](const Json::Value& v){return "data: "+json::dump(v)+"\r\n\r\n";};
+        std::string open=": heartbeat\r\n\r\n";
+        open+=event(json::parse(R"({"choices":[{"index":0,"delta":{"content":"你好","tool_calls":[{"index":0,"id":"call_1","function":{"name":"search","arguments":"{\"q\":"}}]}}]})"));
+        open+=event(json::parse(R"({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"雾港\"}"}}]},"finish_reason":"tool_calls"}]})"));
+        open+=event(json::parse(R"({"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":12}})"));
+        bool incomplete=false;try{llm::openAiResponse(open);}catch(...){incomplete=true;}CHECK(incomplete);
+        auto answer=llm::openAiResponse(open+"data: [DONE]\r\n\r\n");CHECK(answer["choices"][0]["message"]["content"]=="你好");
+        CHECK(answer["usage"]["completion_tokens"]==12);CHECK(json::parse(answer["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"].asString())["q"]=="雾港");
+        std::string anthropic;
+        for(const auto& e:json::parse(R"([
+          {"type":"message_start","message":{"type":"message","usage":{"input_tokens":8,"output_tokens":1}}},
+          {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"search","input":{}}},
+          {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"q\":"}},
+          {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"原文\"}"}},
+          {"type":"content_block_stop","index":0},
+          {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}
+        ])"))anthropic+=event(e);
+        incomplete=false;try{llm::anthropicResponse(anthropic);}catch(...){incomplete=true;}CHECK(incomplete);
+        auto result=AnthropicClient::parseResponse(llm::anthropicResponse(anthropic+event(json::parse(R"({"type":"message_stop"})"))));
+        CHECK(result.ok);CHECK(result.promptTokens==8&&result.completionTokens==9);CHECK(json::parse(result.toolCalls[0]["arguments"].asString())["q"]=="原文");
+        bool failed=false;try{llm::openAiResponse("data: {\"error\":{}}\n\n");}catch(...){failed=true;}CHECK(failed);
+    });
     test("Anthropic Messages preserves tool blocks, schema and parallel result turns", [] {
         LlmEndpoint ep; ep.provider="anthropic"; ep.model="fixture-claude"; ep.reasoningEffort="high";
         LlmRequest req; req.system="Only use authorized records"; req.responseSchema=json::parse(R"({"type":"object","required":["draft"]})");
@@ -452,6 +477,25 @@ int main() {
         CHECK(s["summary"].asString().find("Boarding house") != std::string::npos); CHECK(s["summary"].asString().find("Harvey Walters") != std::string::npos); CHECK(s["summary"].asString().find("Dice rolled: 1") != std::string::npos);
         CHECK(s["key_points"].size() >= 1); CHECK(s["title"] == "Hale opens the door and you");
     });
+    test("narrative memory skips mechanical noise and reuses existing entries", [] {
+        auto e = json::parse(R"({"kind":"message.posted","event_id":"e1","actor_role":"gm","content":"Narration","payload":{"message_kind":"narration"}})");
+        CHECK(narrative_memory::obviousNonNarrative(e));
+        Json::Value ctx; ctx["new_events"].append(e); CHECK(MockLlmClient::observerExtract(ctx)["proposals"].empty());
+        e["content"] = "Anastasia rolled 1d100 = 75"; e["payload"]["dice"]["type"] = "roll";
+        CHECK(narrative_memory::obviousNonNarrative(e));
+        e["payload"]["dice"]["reason"] = "damage to the locked door"; CHECK(!narrative_memory::obviousNonNarrative(e));
+        e["payload"]["dice"]["type"] = "check"; e["payload"]["dice"]["reason"] = ""; CHECK(!narrative_memory::obviousNonNarrative(e));
+        e.removeMember("payload"); e["content"] = "You find a brass key under the mat.";
+        ctx["new_events"][0] = e;
+        auto first = MockLlmClient::observerExtract(ctx); CHECK(!first["proposals"].empty());
+        for (const auto& p : first["proposals"]) for (const auto& op : p["ops"]) { auto f = op["fact"]; f["fact_id"] = "existing-id"; ctx["documents"][p["document_type"].asString()]["entries"].append(f); }
+        CHECK(MockLlmClient::observerExtract(ctx)["proposals"].empty());
+        ctx["documents"]["clue_journal"]["entries"][0]["status"] = "attempted";
+        auto next = MockLlmClient::observerExtract(ctx); CHECK(next["proposals"].size() == 1);
+        CHECK(next["proposals"][0]["ops"][0]["op"] == "update_entry"); CHECK(next["proposals"][0]["ops"][0]["fact_id"] == "existing-id");
+        // A fictional scientific test is not excluded by a broad word blacklist.
+        e["content"] = "The laboratory test reveals poison in the well."; CHECK(!narrative_memory::obviousNonNarrative(e));
+    });
     test("reminders keep only verbatim quotes from readable lines and the mock planner links new lines to earlier ones", [] {
         std::map<std::string, Json::Value> readable;
         Json::Value e1; e1["event_id"] = "e1"; e1["message_id"] = "m1"; e1["chat_window_id"] = "w"; e1["scene_id"] = "s1"; e1["seq"] = 5; e1["content"] = "You find a tarnished badge. It bears a Lantern sigil."; readable["e1"] = e1;
@@ -472,6 +516,18 @@ int main() {
         CHECK(needed && forgotten);
         ctx["existing_titles"].append(plan["reminders"][0]["title"]);
         CHECK(ReminderService::mockPlan(ctx)["reminders"].size() == 1);
+    });
+    test("mock reminder maintenance is explicit, preserves IDs and never treats silence as resolution", [] {
+        auto ctx = json::parse(R"({"managed_reminders":[{"id":"r1","title":"Return compass","status":"active","version":2}],"new_events":[{"event_id":"e1","content":"Maybe the compass has already been returned?"}]})");
+        CHECK(ReminderService::mockPlan(ctx)["changes"].empty());
+        ctx["new_events"][0]["content"] = "Set aside: Return compass";
+        auto c = ReminderService::mockPlan(ctx)["changes"]; CHECK(c.size() == 1); CHECK(c[0]["action"] == "defer"); CHECK(c[0]["expected_version"] == 2); CHECK(c[0]["quotes"][0]["event_id"] == "e1");
+        ctx["managed_reminders"][0]["status"] = "deferred"; ctx["new_events"][0]["content"] = "Return to: Return compass";
+        CHECK(ReminderService::mockPlanKp(ctx)["changes"][0]["action"] == "reactivate");
+        ctx["new_events"][0]["content"] = "已解决：Return compass";
+        CHECK(ReminderService::mockChanges(ctx)[0]["action"] == "resolve");
+        ctx["managed_reminders"][0]["status"] = "resolved";
+        CHECK(ReminderService::mockChanges(ctx).empty());
     });
     test("script knowledge: the mock builds flow, relationships, clues, foreshadowing and background from the module graph; proposals are reviewed", [] {
         Json::Value ctx; Json::Value pg1, pg2, pg3;
