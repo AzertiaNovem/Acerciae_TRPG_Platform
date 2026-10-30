@@ -60,6 +60,7 @@ export function buildConfig(args = {}, env = process.env) {
       timeoutMs: int(pick("llm-timeout-ms", "LLM_TIMEOUT_MS", 600000), 600000),
       stream: bool(pick("llm-stream", "LLM_STREAM"), true),
       trace: pick("llm-trace", "LLM_TRACE", ""),
+      tokenParam: pick("llm-token-param", "LLM_TOKEN_PARAM", ""),
     },
     debounceMs: int(pick("debounce-ms", "DEBOUNCE_MS", 4000), 4000),
     postDelayMs: int(pick("post-delay-ms", "POST_DELAY_MS", 1200), 1200),

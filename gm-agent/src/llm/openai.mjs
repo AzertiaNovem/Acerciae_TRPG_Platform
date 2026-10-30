@@ -1,14 +1,21 @@
 // Any OpenAI-compatible chat-completions endpoint (a hosted service or a self-hosted model).
+// The token limit has two names: OpenAI's newer and reasoning models accept only `max_completion_tokens`, many other
+// servers only `max_tokens`. The client starts with LLM_TOKEN_PARAM (default `max_tokens`) and, when the server refuses
+// that name and names the other one, switches for the rest of the process and retries the request once.
+const TOKEN_PARAMS = ["max_tokens", "max_completion_tokens"];
+
 export class OpenAiCompatLlm {
-  constructor({ apiKey, apiBase, model, maxTokens, timeoutMs, stream = true }) {
+  constructor({ apiKey, apiBase, model, maxTokens, timeoutMs, stream = true, tokenParam }) {
     if (!apiBase) throw new Error("LLM_API_BASE is required for openai_compatible (for example https://api.example.com/v1)");
     if (!model) throw new Error("LLM_MODEL is required for openai_compatible");
+    if (tokenParam && !TOKEN_PARAMS.includes(tokenParam)) throw new Error(`LLM_TOKEN_PARAM must be ${TOKEN_PARAMS.join(" or ")}`);
     this.base = apiBase.replace(/\/+$/, "");
     this.apiKey = apiKey;
     this.model = model;
     this.maxTokens = maxTokens || 16000;
     this.timeoutMs = timeoutMs ?? 600000;
     this.stream = stream;
+    this.tokenParam = tokenParam || "max_tokens";
   }
 
   async complete({ system, messages }) {
@@ -20,15 +27,25 @@ export class OpenAiCompatLlm {
     }
   }
 
-  async request(system, messages) {
+  // The other token-limit name when a 400 says this one is unsupported and asks for the other, else null.
+  otherTokenParam(status, data) {
+    if (status !== 400) return null;
+    const message = String(data?.error?.message ?? JSON.stringify(data ?? ""));
+    const other = TOKEN_PARAMS.find((p) => p !== this.tokenParam);
+    return message.includes(this.tokenParam) && message.includes(other) ? other : null;
+  }
+
+  async request(system, messages, retried = false) {
     const res = await fetch(`${this.base}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}) },
-      body: JSON.stringify({ model: this.model, max_tokens: this.maxTokens, stream: this.stream, messages: [{ role: "system", content: system }, ...messages] }),
+      body: JSON.stringify({ model: this.model, [this.tokenParam]: this.maxTokens, stream: this.stream, messages: [{ role: "system", content: system }, ...messages] }),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
+      const other = retried ? null : this.otherTokenParam(res.status, data);
+      if (other) { this.tokenParam = other; return this.request(system, messages, true); }
       const detail = data?.error?.message ?? (typeof data?.error === "string" ? data.error : null);
       const explanation = res.status === 504
         ? "gateway timed out waiting for the model; increasing the client timeout cannot extend the gateway limit. Retry later or check the model gateway."

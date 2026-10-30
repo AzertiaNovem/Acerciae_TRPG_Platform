@@ -142,6 +142,7 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `LLM_API_BASE`, `LLM_API_KEY` | | | endpoint and key (Claude reads `ANTHROPIC_API_KEY` too) |
 | `LLM_EFFORT` | `--llm-effort` | `medium` | Claude effort (`low` … `max`) |
 | `LLM_FALLBACKS` | | `true` | Claude: re-run a declined request on Anthropic's recommended fallback model |
+| `LLM_TOKEN_PARAM` | `--llm-token-param` | `max_tokens` | OpenAI-compatible: the token-limit parameter to start with (`max_tokens` or `max_completion_tokens`). When the server refuses one and asks for the other, the client switches by itself; set this to skip that first refused request |
 | `LLM_TRACE` | `--llm-trace` | – | append every model request and reply to this JSONL file, to audit what each role was shown |
 | `LLM_STREAM` | `--llm-stream` | `true` | OpenAI-compatible: receive streaming replies; set `false` only if the endpoint does not support streaming |
 | `LLM_TIMEOUT_MS` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a proxy/gateway's own timeout |
