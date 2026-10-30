@@ -26,16 +26,34 @@ test("split, update and merge", () => {
   assert.equal(tl.active().length, 1);
 });
 
-test("a line belongs to its window's timeline when the window is bound, else to its speaker's", () => {
+test("a line belongs to its speaker's timeline at that moment; Keeper and NPC lines to their window's", () => {
   const tl = make();
-  const side = tl.split({ name: "The docks", members: ["cp1"], windowId: "w-side" });
-  assert.equal(tl.ofLine({ chat_window_id: "w-side", character_id: "pc1" }).id, side.id, "bound window wins");
-  assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: "cp1" }).id, side.id, "a side traveller relating events in the Main Chat speaks from its timeline");
-  assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: "pc1" }).id, MAIN);
-  assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: null }).id, MAIN, "Keeper narration in an unbound window");
-  tl.merge(side.id);
-  assert.equal(tl.ofLine({ chat_window_id: "w-side" }).id, side.id, "old side lines keep their (merged) timeline");
+  const side = tl.split({ name: "The docks", members: ["cp1"], windowId: "w-side", fromSeq: 10 });
+  assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: "cp1", seq: 5 }).id, MAIN, "before the split, cp1 spoke from the main story");
+  assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: "cp1", seq: 12 }).id, side.id, "a side traveller relating events in the Main Chat speaks from its timeline");
+  assert.equal(tl.ofLine({ chat_window_id: "w-side", character_id: "pc1", seq: 12 }).id, MAIN, "a visitor writing in the side window still speaks from where it is");
+  assert.equal(tl.ofLine({ chat_window_id: "w-side", character_id: null, seq: 12 }).id, side.id, "Keeper narration takes the window's timeline");
+  assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: null, seq: 12 }).id, MAIN);
+  tl.merge(side.id, MAIN, 20);
+  assert.equal(tl.ofLine({ chat_window_id: "w-side", character_id: "cp1", seq: 15 }).id, side.id, "old side lines keep their (merged) timeline");
+  assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: "cp1", seq: 25 }).id, MAIN);
   assert.equal(tl.byName("the docks").id, side.id);
+  assert.equal(tl.byHandle("T1").id, side.id, "handles are persistent");
+  assert.ok(tl.retired("w-side"));
+});
+
+test("handles are never reused, places match loosely, and the old array shape still loads", () => {
+  const tl = make();
+  const a = tl.split({ name: "A", members: ["cp1"], windowId: "w-a", location: "The Old Harbour" });
+  tl.merge(a.id);
+  const b = tl.split({ name: "B", members: ["cp2"], windowId: "w-b", location: "Lighthouse" });
+  assert.equal(a.handle, 1); assert.equal(b.handle, 2);
+  assert.equal(tl.atPlace("old harbour!"), null, "a merged thread holds no place");
+  assert.equal(tl.atPlace("the lighthouse").id, b.id);
+  const legacy = new Timelines([{ id: "main", name: "Main story", status: "active", members: ["pc1"] }, { id: "t-x", name: "Old", status: "active", members: ["cp1"] }]);
+  assert.equal(legacy.main().handle, 0); assert.equal(legacy.get("t-x").handle, 1); assert.equal(legacy.get("t-x").span, "short");
+  const back = new Timelines(JSON.parse(JSON.stringify(tl)));
+  assert.equal(back.split({ name: "C", members: [] }).handle, 3, "the counter survives a round trip");
 });
 
 test("the shape survives a round trip through JSON", () => {

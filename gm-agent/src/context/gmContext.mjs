@@ -48,7 +48,8 @@ export class GmContext {
   }
 
   // Everything the GM model reads for one turn in `windowId`.
-  async build({ windowId, roster, characters, windows, timelines }) {
+  // `sceneOf(windowId)` gives the active timeline played in a window (the main timeline for the Main Chat), or null.
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null }) {
     const ch = this.channelId;
     const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs] = await Promise.all([
       this.safe("channel", () => this.api.channel(ch)),
@@ -61,7 +62,11 @@ export class GmContext {
       this.safe("proposals", () => this.api.proposals(ch)),
       this.documents(),
     ]);
-    const messages = await this.chat(windowId, windows);
+    // Windows whose scene is over are left out, except the last few merged threads: the Keeper needs what just
+    // happened there when the party reunites.
+    const recentMerged = new Set((timelines?.list ?? []).filter((t) => t.status !== "active" && t.windowId).slice(-3).map((t) => t.windowId));
+    const retired = (w) => w.id !== windowId && timelines?.retired(w.id) && !recentMerged.has(w.id);
+    const messages = await this.chat(windowId, windows.filter((w) => !retired(w)));
     const charName = new Map(characters.map((c) => [c.id, c.name]));
     for (const m of messages) if (m.whisper_to?.length) m.whisper_to_names = m.whisper_to.map((id) => charName.get(id) ?? id);
     const current = (scenes ?? []).find((s) => s.id === channel?.current_scene_id);
@@ -72,7 +77,9 @@ export class GmContext {
     const line = (m) => renderLine(m, { markVisibility: true, timeline: timelines ? timelines.ofLine(m).name : "" });
 
     const sections = [];
-    sections.push(`## Campaign\nname: ${channel?.name ?? ""}\nera: ${channel?.era || "(not set)"}\ndescription: ${clip(channel?.description, 600)}\nstory: ${channel?.story_status ?? "ongoing"}\ncurrent scenario: ${current ? `${current.title}${current.location ? ` @ ${current.location}` : ""}${current.narrative_time ? ` (${current.narrative_time})` : ""}` : "(none)"}`);
+    sections.push(`## Campaign\nname: ${channel?.name ?? ""}\nera: ${channel?.era || "(not set)"}\ndescription: ${clip(channel?.description, 600)}\nstory: ${channel?.story_status ?? "ongoing"}\ncurrent scenario: ${current ? `${current.title}${current.location ? ` @ ${current.location}` : ""}${current.narrative_time ? ` (${current.narrative_time})` : ""}; ${current.event_count ?? 0} events so far` : "(none)"}`);
+    const prepared = (scenes ?? []).filter((s) => s.status === "active" && s.id !== channel?.current_scene_id);
+    if (prepared.length) sections.push(`## Prepared scenarios (enter_scenario)\n${prepared.map((s) => `- ${s.title}${s.location ? ` @ ${s.location}` : ""}${s.narrative_time ? ` (${s.narrative_time})` : ""}${s.summary ? `: ${clip(s.summary, 200)}` : ""}`).join("\n")}`);
     const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-4);
     if (closed.length) sections.push(`## Earlier scenarios\n${closed.map((s) => `- ${s.title}: ${clip(s.summary, 500)}`).join("\n")}`);
     const pcs = characters.filter((c) => c.kind === "pc");
@@ -87,11 +94,12 @@ export class GmContext {
       ...(roster.npcs.length ? roster.npcs.map((c) => `- ${c.name}: ${clip(c.brief, 200)}`) : ["- (none yet; introduce them with new_npc)"]),
     ].join("\n"));
     if (timelines) {
-      const shown = timelines.list.filter((t) => t.status === "active" || t.mergedInto).slice(-8);
+      // Every active thread, always; then the most recent merged ones for context.
+      const shown = [...timelines.active(), ...timelines.list.filter((t) => t.status !== "active" && t.mergedInto).slice(-6)];
       sections.push([
         "## Timelines",
         "Investigators may be living different threads of the story. A line is tagged with the timeline it comes from: a character telling the table about events speaks from its own timeline, so those events happened there, not now in this scene. Knowledge crosses timelines only when a character who was there tells it.",
-        ...shown.map((t) => `- ${t.name} [${t.status}${t.mergedInto ? ` into ${timelines.get(t.mergedInto)?.name ?? t.mergedInto}` : ""}]${t.windowId ? ` in window "${windowName(t.windowId)}"` : ""}: ${t.members.map(nameOf).join(", ") || "(no one now)"}${t.narrativeTime ? `; time: ${t.narrativeTime}` : ""}${t.location ? `; place: ${t.location}` : ""}${t.notes ? `\n    notes: ${clip(t.notes, 600)}` : ""}`),
+        ...shown.map((t) => `- T${t.handle ?? "?"} ${t.name} [${t.status}${t.mergedInto ? ` into ${timelines.get(t.mergedInto)?.name ?? t.mergedInto}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span} split` : ""}]${t.windowId ? ` in window "${windowName(t.windowId)}"` : ""}: ${t.members.map(nameOf).join(", ") || "(no one now)"}${t.narrativeTime ? `; time: ${t.narrativeTime}` : ""}${t.location ? `; place: ${t.location}` : ""}${t.notes ? `\n    notes: ${clip(t.notes, 600)}` : ""}`),
       ].join("\n"));
     }
     if (board && (board.next || board.notes)) sections.push(`## Keeper board (platform AI)\nnext: ${json(board.next, 2500)}\nnotes: ${json(board.notes, 2500)}`);
@@ -106,9 +114,18 @@ export class GmContext {
     if (hints?.length) sections.push(`## Module hints (platform AI)\n${hints.slice(0, 6).map((h) => `- ${clip(h.reason ?? h.description ?? JSON.stringify(h), 200)}`).join("\n")}`);
     if (proposals?.length) sections.push(`## Pending memory proposals\n${proposals.length} waiting for the Keeper's review in the web app.`);
     if (tips.length) sections.push(`## Just pushed by the platform\n${tips.map((t) => `- ${clip(t, 300)}`).join("\n")}`);
-    const seated = (w) => [...(w.members ?? []).filter((m) => m.character_name).map((m) => m.character_name), ...roster.coplayersIn(w.id).map((c) => c.name)];
-    sections.push(`## Chat windows\n${windows.map((w) => `- ${w.name} (${w.kind})${w.id === windowId ? " ← this turn" : ""}: ${seated(w).join(", ") || "(no investigators)"}`).join("\n")}`);
-    const others = windows.filter((w) => w.id !== windowId);
+    // Who is really in each window's scene, who is a member but elsewhere, and which windows' scenes are over.
+    const describe = (w) => {
+      if (timelines?.retired(w.id)) return "(scene over: merged into another thread)";
+      const scene = sceneOf(w.id);
+      const memberChars = (w.members ?? []).filter((m) => m.character_id).map((m) => m.character_id);
+      if (!scene) return [...memberChars.map(nameOf), ...roster.coplayersIn(w.id).map((c) => c.name)].join(", ") || "(no investigators)";
+      const here = scene.members.map(nameOf);
+      const away = memberChars.filter((id) => !scene.members.includes(id)).map((id) => `${nameOf(id)} (in ${timelines.of(id).name})`);
+      return `${here.join(", ") || "(no one)"}${away.length ? `; members elsewhere: ${away.join(", ")}` : ""}`;
+    };
+    sections.push(`## Chat windows\n${windows.map((w) => `- ${w.name} (${w.kind})${w.id === windowId ? " ← this turn" : ""}: ${describe(w)}`).join("\n")}`);
+    const others = windows.filter((w) => w.id !== windowId && !retired(w));
     for (const w of others) {
       const lines = messages.filter((m) => m.chat_window_id === w.id).slice(-8);
       if (lines.length) sections.push(`## Recent lines in "${w.name}"\n${lines.map(line).join("\n")}`);
