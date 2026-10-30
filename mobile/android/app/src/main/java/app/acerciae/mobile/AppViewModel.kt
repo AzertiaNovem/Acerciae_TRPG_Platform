@@ -14,6 +14,7 @@ import java.util.UUID
 private val emptyObject = JsonObject(emptyMap())
 data class AppState(
     val campaign: DemoCampaign? = null, val error: String? = null,
+    val speechMode: String = "ooc", val references: List<Message> = emptyList(), val jumpMessageId: String? = null,
     val draft: String = "", val role: String = tr("场外"),
     val endpoint: String = ServiceConfiguration.BACKEND_ROOT, val connection: String = tr("尚未检查"),
     val checking: Boolean = false, val notice: String? = null,
@@ -62,6 +63,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun update(block: AppState.() -> AppState) { mutableState.value = state.value.block() }
     fun draft(value: String) { update { copy(draft = value) } }
+    fun speechMode(value: String) { if (value in listOf("ic", "narration", "ooc")) update { copy(speechMode = value) } }
+    fun removeReference(id: String) { update { copy(references = references.filterNot { it.id == id }) } }
     fun role(value: String) { update { copy(role = value) } }
     fun chooseRole(id: String) { update { copy(characterId = id, role = playable.find { it.id == id }?.name ?: if (gm) tr("旁白") else tr("场外"), diceHint = "") } }
     fun notice(value: String?) { update { copy(notice = value) } }
@@ -111,6 +114,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!))
         }
     }
+    fun changeAtmosphere(enabled: Boolean) = launch {
+        val auth = session ?: return@launch
+        val value = get(listOf("auth", "me"), buildJsonObject { put("atmosphere_enabled", enabled) }, "PUT")
+        if (session?.token != auth.token) return@launch
+        val user = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<User>(value)
+        session = Session(auth.token, user); update { copy(user = user) }
+        sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!))
+    }
     fun logout() {
         val oldApi = api; val oldToken = session?.token
         epoch++; api = null; session = null; drafts.clear(); catalogUpdated = 0L
@@ -119,7 +130,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (oldApi != null && oldToken != null) viewModelScope.launch { runCatching { oldApi.resource(listOf("auth", "logout"), oldToken, emptyObject) } }
     }
     private fun rememberDraft() { if (state.value.windowId.isNotEmpty()) drafts[state.value.windowId] = state.value.draft }
-    private fun clearChannel() { update { copy(channelId = "", windowId = "", characterId = "", channel = emptyObject, campaign = null, windows = emptyList(), characters = emptyList(), scenes = emptyList(), reminders = emptyList(), draft = "", diceHint = "", result = null, hasOlder = false) } }
+    private fun clearChannel() { update { copy(speechMode = "ooc", references = emptyList(), jumpMessageId = null, channelId = "", windowId = "", characterId = "", channel = emptyObject, campaign = null, windows = emptyList(), characters = emptyList(), scenes = emptyList(), reminders = emptyList(), draft = "", diceHint = "", result = null, hasOlder = false) } }
     suspend fun selectServer(id: String) {
         rememberDraft(); epoch++; val stamp = epoch; clearChannel()
         update { copy(serverId = id, serverSettings = emptyObject, channels = emptyList()) }
@@ -139,7 +150,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     suspend fun selectWindow(id: String) {
         rememberDraft(); epoch++
-        update { copy(windowId = id, draft = drafts[id].orEmpty(), campaign = null, diceHint = "", result = null) }
+        update { copy(speechMode = if (gm) "narration" else "ic", references = emptyList(), jumpMessageId = null, windowId = id, draft = drafts[id].orEmpty(), campaign = null, diceHint = "", result = null) }
         refresh(false)
     }
     suspend fun refresh(merge: Boolean = true) {
@@ -156,7 +167,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val wins = rows(listOf("channels", s.channelId, "windows")); val chars = rows(listOf("channels", s.channelId, "characters")); val scenes = rows(listOf("channels", s.channelId, "scenes"))
             if (stamp != epoch) return
             val permissionsChanged = s.channel["player_group_id"] != info["player_group_id"] || s.channel["player_group_version"] != info["player_group_version"] || s.channel["my_role"] != info["my_role"] || s.channel["my_character_ids"] != info["my_character_ids"] || s.channel["knowledge_mode"] != info["knowledge_mode"] || s.windows.find { it.id == s.windowId }?.get("members") != wins.find { it.id == s.windowId }?.get("members")
-            if (permissionsChanged) update { copy(result = null, diceHint = "") }
+            if (permissionsChanged) update { copy(result = null, diceHint = "", references = emptyList(), jumpMessageId = null, speechMode = if (s.channel["my_role"] != info["my_role"]) if (info.text("my_role") == "gm") "narration" else "ic" else speechMode) }
             val all = ((if (merge && !permissionsChanged) state.value.campaign?.messages.orEmpty() else emptyList()) + messages).associateBy { it.id }.values.sortedBy { it.seq }
             update { copy(campaign = DemoCampaign(info.name, wins.find { it.id == s.windowId }?.text("scene_title").orEmpty(), all, docs, highlights, emptyList()),
                 reminders = reminders, serverSettings = settings, channel = info, windows = wins, characters = chars, scenes = scenes,
@@ -171,7 +182,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val servers = rows(listOf("servers"))
         if (stamp != epoch) return
         val auth = session
-        if (auth != null && profile.uiLanguage != null && (profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.displayName != auth.user.displayName)) {
+        if (auth != null && profile.uiLanguage != null && (profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled)) {
             session = Session(auth.token, profile); update { copy(user = profile) }; MobileLocale.set(profile.uiLanguage)
             runCatching { sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!)) }
         }
@@ -206,17 +217,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val messages = client().messages(token(), s.channelId, s.windowId, before)
         if (stamp == epoch) update { copy(campaign = campaign?.copy(messages = (messages + campaign.messages).distinctBy { it.id }.sortedBy { it.seq }), hasOlder = messages.size == 50) }
     }
+    suspend fun openEvidence(event: JsonObject, quote: Boolean) {
+        val s = state.value; val stamp = epoch
+        val message = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Message>(get(listOf("channels", s.channelId, "messages", event.text("message_id"))))
+        if (stamp != epoch) return
+        if (quote) {
+            if (s.references.size >= 5 && s.references.none { it.id == message.id }) { notice(tr("At most five chat references")); return }
+            update { copy(references = (references + message).distinctBy { it.id }) }
+        }
+        else {
+            if (event.text("chat_window_id") != s.windowId) selectWindow(event.text("chat_window_id"))
+            if (state.value.channelId != s.channelId || state.value.user?.id != s.user?.id || state.value.windowId != event.text("chat_window_id")) return
+            update { copy(campaign = campaign?.copy(messages = (campaign.messages + message).distinctBy { it.id }.sortedBy { it.seq }), jumpMessageId = message.id) }
+        }
+    }
     fun sendDemo() { if (state.value.online) send() }
     private fun send() = launch {
         val s = state.value; val stamp = epoch; val text = s.draft.trim()
         if (text.isEmpty() || s.windowId.isEmpty()) return@launch
         val body = buildJsonObject {
-            put("content", text); put("kind", if (s.characterId.isNotEmpty()) "ic" else if (s.gm) "narration" else "ooc"); put("visibility", "window")
+            put("content", text); put("kind", s.speechMode); put("visibility", "window")
             if (s.characterId.isNotEmpty()) put("character_id", s.characterId)
+            put("reference_ids", JsonArray(s.references.map { JsonPrimitive(it.id) }))
         }
         get(listOf("channels", s.channelId, "windows", s.windowId, "messages"), body)
         if (stamp != epoch) return@launch
-        update { copy(draft = if (draft.trim() == text) "" else draft, diceHint = "") }; refresh()
+        update { copy(draft = if (draft.trim() == text) "" else draft, diceHint = "", references = emptyList()) }; refresh()
     }
     fun assistance(type: String) {
         if (type == "consistency" && state.value.draft.isBlank()) return

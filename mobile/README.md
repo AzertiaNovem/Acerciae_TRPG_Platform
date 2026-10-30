@@ -97,3 +97,11 @@ iOS／Android 已同步职业与技能的 11 种语言、专长购点限制和�
 
 这次 Release 已通过本地签名校验并安装到 Atlas iPhone（app.acerciae.mobile）；正式服务版本也已安装并打开到 iPhone 17 模拟器的中文登录页。Android APK 位于 android/app/build/outputs/apk/debug/app-debug.apk。
 真机自动启动返回 CoreDevice remoteService XPC 连接不可用；安装已成功，尚未验证此次版本的真机启动，需在手机上手动打开。模拟器启动与登录页显示正常。
+
+## 自动背景与提示浮层（2026-10-29）
+
+客户端已跟进后端 bc9e063：服务器开启「频道氛围背景」，用户在个人设置开启显示后，聊天使用服务器自动生成的背景。图片覆盖标题和输入框周围，顶部渐变过渡；GM 可在频道选项查背景历史。输入区支持旁白、角色发言、OOC 三种独立模式；右上角「提示」合并网页泡泡的信息，「灵感」与它并列，展开内容均浮在聊天上。
+
+本机背景验证（仅 loopback、mock 服务）可执行 `python3 mobile/scripts/prepare-atmosphere-demo.py`；再使用 `ACERCIAE_TEST_BASE=http://localhost:18082 ACERCIAE_POINTS_BASE=http://localhost:18083 ACERCIAE_ATMOSPHERE_BASE=http://localhost:18085 swift test --package-path mobile/ios/AcerciaeCore`。两端当前各 22 项测试通过，Android assembleDebug / lintDebug 通过。测试图片明确标为模拟背景，正式安装包继续固定连接 `https://trpg.missazertia.com:15510`。
+
+本次签名 Release 构建及 codesign 校验已通过。模拟器和 Atlas iPhone 真机均已安装正式地址版本；2026-10-29 重新连接数据线后，devicectl 确认安装成功并成功启动 app.acerciae.mobile。

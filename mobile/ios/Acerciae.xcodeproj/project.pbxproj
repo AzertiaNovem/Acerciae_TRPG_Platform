@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		039D1340A645D161408B8F91 /* HintOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC3EB74214B37676E372B35 /* HintOverlay.swift */; };
 		068B2EE3DEB3523C793397A4 /* CreationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9FC950E84B9437A84109729 /* CreationViews.swift */; };
 		06B8381C81C89F1E6B918017 /* ServerUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */; };
 		167429C6B0221FBBE5E2EA06 /* AcerciaeCore in Frameworks */ = {isa = PBXBuildFile; productRef = CB999693C894963A109E438A /* AcerciaeCore */; };
@@ -14,6 +15,7 @@
 		1AB79194F4720D82CF94D9FD /* UpdatesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */; };
 		1D156065915D5B9D4759BC08 /* LiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD20B35E61DBF04AC07F32E /* LiveViews.swift */; };
 		338ABC7F7F5110D46FF98A88 /* PointBuyEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D13375635157268425659E /* PointBuyEditor.swift */; };
+		3AA96D4256D0F43585F1CED5 /* AtmosphereViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */; };
 		4439570B3956321A6C1F0AF7 /* MobileLocale.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4076670B772E960683FE289B /* MobileLocale.swift */; };
 		593759825ED2354F226F6207 /* demo-campaign.json in Resources */ = {isa = PBXBuildFile; fileRef = 88F5C70043EB6160B449B58C /* demo-campaign.json */; };
 		6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD29F793ED520DE30805D951 /* AcerciaeApp.swift */; };
@@ -29,8 +31,10 @@
 		0FD20B35E61DBF04AC07F32E /* LiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViews.swift; sourceTree = "<group>"; };
 		2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesViews.swift; sourceTree = "<group>"; };
 		26DDBFB968D5E77BDFF18A05 /* Acerciae.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Acerciae.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtmosphereViews.swift; sourceTree = "<group>"; };
 		4076670B772E960683FE289B /* MobileLocale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLocale.swift; sourceTree = "<group>"; };
 		4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerUpdates.swift; sourceTree = "<group>"; };
+		4EC3EB74214B37676E372B35 /* HintOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HintOverlay.swift; sourceTree = "<group>"; };
 		4F0BB20E2F39962964229196 /* ServerBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBrowser.swift; sourceTree = "<group>"; };
 		88F5C70043EB6160B449B58C /* demo-campaign.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "demo-campaign.json"; sourceTree = "<group>"; };
 		953B6532E71274B94654EDD3 /* DiceResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceResultView.swift; sourceTree = "<group>"; };
@@ -97,9 +101,11 @@
 			children = (
 				CD29F793ED520DE30805D951 /* AcerciaeApp.swift */,
 				FAC5919B71481D5AC4123308 /* Assets.xcassets */,
+				26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */,
 				F4DAED716228D5F0F309AFF5 /* AvatarView.swift */,
 				C9FC950E84B9437A84109729 /* CreationViews.swift */,
 				953B6532E71274B94654EDD3 /* DiceResultView.swift */,
+				4EC3EB74214B37676E372B35 /* HintOverlay.swift */,
 				0FD20B35E61DBF04AC07F32E /* LiveViews.swift */,
 				4076670B772E960683FE289B /* MobileLocale.swift */,
 				A2D13375635157268425659E /* PointBuyEditor.swift */,
@@ -199,9 +205,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */,
+				3AA96D4256D0F43585F1CED5 /* AtmosphereViews.swift in Sources */,
 				B4B48AA53FC159C465B20EA8 /* AvatarView.swift in Sources */,
 				068B2EE3DEB3523C793397A4 /* CreationViews.swift in Sources */,
 				F22AD2AD42D2D07D68085CBA /* DiceResultView.swift in Sources */,
+				039D1340A645D161408B8F91 /* HintOverlay.swift in Sources */,
 				1D156065915D5B9D4759BC08 /* LiveViews.swift in Sources */,
 				4439570B3956321A6C1F0AF7 /* MobileLocale.swift in Sources */,
 				338ABC7F7F5110D46FF98A88 /* PointBuyEditor.swift in Sources */,

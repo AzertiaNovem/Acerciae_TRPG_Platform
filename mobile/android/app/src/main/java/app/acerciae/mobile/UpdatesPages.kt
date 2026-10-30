@@ -19,52 +19,6 @@ import app.acerciae.mobile.core.*
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.*
 
-@Composable fun ReminderPanel(state: AppState, model: AppViewModel, documents: Boolean) {
-    var context by remember { mutableStateOf<JsonObject?>(null) }
-    var board by remember { mutableStateOf<JsonObject?>(null) }
-    var entries by remember { mutableStateOf(emptyList<JsonObject>()) }
-    val base = listOf("channels", state.channelId)
-    LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text(if (documents) "考据与出处" else tr("当前提醒"), style = MaterialTheme.typography.titleLarge) }
-        if (state.gm) item { TextButton(onClick = { model.launch { board = model.get(base + listOf("kp", "board")); entries = model.rows(base + "script-knowledge") } }) { Text(tr("KP 看板 · 剧本下一步与笔记")) } }
-        board?.let { b ->
-            item { Text(b.obj("next").text("summary")); Text(b.obj("next").obj("next").text("title")); Text(b.obj("next").obj("next").text("body")) }
-            items(b.obj("notes").rows("open_threads")) { Text(it.text("summary")) }
-            items(entries) { entry ->
-                Column {
-                    Text(entry.name, style = MaterialTheme.typography.titleMedium); Text(entry.text("body"))
-                    entry.rows("citations").forEach { Text(tr("Page") + " ${it.number("page")} · ${it.text("excerpt")}", style = MaterialTheme.typography.bodySmall) }
-                    var expanded by remember { mutableStateOf(false) }
-                    TextButton(onClick = { expanded = true }) { Text(tr("Status") + ": ${entry.text("status")}") }
-                    DropdownMenu(expanded, { expanded = false }) {
-                        listOf("pending", "active", "done", "skipped").forEach { status -> DropdownMenuItem(text = { Text(status) }, onClick = { expanded = false; model.launch { model.get(base + listOf("script-knowledge", entry.id), payload("status" to status), "PUT"); entries = model.rows(base + "script-knowledge"); board = model.get(base + listOf("kp", "board")) } }) }
-                    }
-                }
-            }
-        }
-        if (state.reminders.isEmpty()) item { Text(tr("暂时没有需要提醒的内容")) }
-        items(state.reminders, key = { it.id }) { reminder ->
-            Column {
-                Text(reminder.name, style = MaterialTheme.typography.titleMedium); Text(reminder.text("why"))
-                TextButton(onClick = { model.launch { context = null; context = model.get(base + listOf("reminders", reminder.id, "context")) } }, enabled = !state.busy) { Text(tr("查看聊天出处")) }
-                TextButton(onClick = { model.launch { model.get(base + listOf("reminders", reminder.id, "dismiss"), JsonObject(emptyMap())); context = null; model.refresh() } }, enabled = !state.busy) { Text(tr("收起提醒")) }
-            }
-        }
-        context?.let { value -> items(value.rows("events")) { event ->
-            Surface(color = if (event.flag("cited")) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(event.text("character_name").ifEmpty { event.text("author_name") }, style = MaterialTheme.typography.labelMedium)
-                    Text(event.text("content"))
-                    (event["quotes"] as? JsonArray)?.forEach { Text(it.jsonPrimitive.content, color = MaterialTheme.colorScheme.primary) }
-                }
-            }
-        } }
-        if (state.gm && documents) items(state.campaign?.documents.orEmpty()) { doc ->
-            Column { Text(doc.title); Text(doc.preview.orEmpty()); TextButton(onClick = { model.launch { model.notice(model.get(base + listOf("documents", doc.id)).text("markdown")) } }) { Text(tr("阅读全文")) } }
-        }
-    }
-}
-
 @Composable fun ScenarioControls(state: AppState, model: AppViewModel) {
     var title by remember { mutableStateOf("") }; var location by remember { mutableStateOf("") }; var time by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf(false) }

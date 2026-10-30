@@ -53,3 +53,13 @@ GM 频道设置可控制结团前玩家的 Log Studio 权限、结束／重新�
 维护者的所有频道列表使用 /servers/{id}/all-channels。删除频道仅限服务器 owner/admin，删除服务器仅 owner；提交前必须完整输入 Delete Channel 或 Delete Server，GM 身份本身不授予删除权。后端仍执行最终授权。
 
 新版接口回归：先在独立数据库启动 b865e94 本机后端，再执行 ACERCIAE_SYNC_BASE=http://localhost:18084 python3 mobile/scripts/check-current-contract.py。脚本仅允许 loopback，创建并清理自己的临时服务器，覆盖加入策略、访客／旁观、日志开放、邀请撤销、密钥留空／清除／遮蔽和删除权限。不访问正式服务。
+
+## bc9e063 同步与聊天布局（2026-10-29）
+
+自动背景由服务器 `features.atmosphere` 与账号 `atmosphere_enabled` 双开关控制，默认关闭；个人设置经 `/auth/me` 保存，会话恢复和个人资料刷新保留该值。移动端仅显示后端已经生成完成的四图集合，不主动调用图像生成。前台每 30 秒读取 `/channels/{id}/atmosphere`，按应用主题和屏幕方向选择 day/night 与 portrait/landscape，使用专用 Bearer 预览接口 `/atmosphere/assets/{id}`。只在内存保存下采样图片；账号、频道、权限范围改变或关闭后移除，后台停止轮询。图片铺满聊天、标题栏及输入框周围，顶部渐变保持标题可读，文字气泡与输入框保留底色。GM 频道选项提供 `/atmosphere/history`，展示场景、提示词、四幅图的任务状态及失败原因；玩家不请求该历史。
+
+输入区独立选择 narration / ic / ooc，与说话角色分别保存；切换窗口时 GM 默认旁白、玩家默认角色发言。服务端继续自动识别骰子命令，不能手工指定 roll。空白一致性按钮保持禁用。右上角只有「提示」与「灵感」；提示与灵感结果都悬浮于聊天上，详情不弹新窗口，也不遮挡发送栏。灵感需手动插入输入框，不自动发送，并保留已有草稿。
+
+提示遵循网页 ContextBubbleDock 的数据和权限：玩家仅提醒；GM 为剧本下一步、备忘、自己的提醒和文档卡片。文档按当前窗口 active_scene_id 加载 entries，保留状态、版本、高亮及出处；剧本下一步显示行动、前置条件、转折与未公开线索，备忘显示未决线索、时间线、已演阶段和已审阅变更。提醒展开使用 context 原文与逐字引用高亮，版本变化重新加载、撤回自动回到列表。来源可跳转原消息或添加最多五条消息引用，发送携带 reference_ids；接口仍重新检查读取权限。浮层按账号/频道权限范围和窗口重建，禁止跨范围沿用旧内容。
+
+验证使用独立 loopback 18085 / acerciae_mobile_atmosphere_demo 的 mock 后端，不写正式服务器、不产生图像费用。`prepare-atmosphere-demo.py` 准备四图样本；后端 atmosphere 集成测试通过，Swift 与 Kotlin 各 22 项测试通过。iPhone 17 模拟器实际发送三种模式，服务端确认 kind 正确且角色选择保留；确认文档浮层、出处原文及跳转。Android APK 编译与 lint 通过，未连接 Android 真机。
