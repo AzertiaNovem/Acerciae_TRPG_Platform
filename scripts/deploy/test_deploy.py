@@ -1,9 +1,8 @@
 """Exercise release failure boundaries without touching a live server or database."""
 import io
-import hashlib
-import json
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -92,42 +91,41 @@ class DeploymentTests(unittest.TestCase):
             output.addfile(member, io.BytesIO(b'bad'))
         with patch.object(deploy, 'run') as run:
             with self.assertRaises(RuntimeError):
-                deploy.prepare(archive, self.root / 'unpack', self.root, 'b'*40, hashlib.sha256(archive.read_bytes()).hexdigest())
+                deploy.prepare(archive, self.root / 'unpack', self.root)
             run.assert_not_called()
         self.assertFalse((self.root / 'outside').exists())
 
+    def test_source_release_builds_and_tests_before_service_switch(self):
+        archive = self.root / 'source.tar.gz'
+        with tarfile.open(archive, 'w:gz') as output:
+            output.add(self.new / 'backend', arcname='backend')
+            member = tarfile.TarInfo('pdf-worker/package.json')
+            member.size = 2
+            output.addfile(member, io.BytesIO(b'{}'))
+        release = self.root / 'unpack'
+        with patch.object(deploy, 'run', side_effect=self.command):
+            deploy.prepare(archive, release, self.root)
+        self.assertEqual(self.commands[0][0], 'cmake')
+        self.assertEqual(self.commands[1][:2], ['cmake', '--build'])
+        self.assertEqual(self.commands[2][0], release / 'backend/build/unit_tests')
+        self.assertEqual(self.commands[3][:2], ['npm', 'ci'])
+        self.assertEqual(self.commands[4], ['npm', 'test'])
+        self.assertEqual((self.root / 'current').resolve(), self.old)
+        self.assertEqual((release / 'backend/uploads').resolve(), self.root / 'uploads')
 
-    def release_archive(self, tree='b'*40):
-        root = self.root / 'package'
-        (root / 'backend/build').mkdir(parents=True)
-        (root / 'backend/migrations').mkdir()
-        (root / 'backend/build/acerciae-server').write_bytes(b'\x7fELFfixture')
-        (root / 'backend/build/acerciae-server').chmod(0o755)
-        (root / 'pdf-worker/node_modules').mkdir(parents=True)
-        (root / 'build.json').write_text(json.dumps({'schema': 1, 'tree': tree, 'platform': 'ubuntu-24.04-x86_64'}))
-        archive = self.root / 'release.tar.gz'
-        with tarfile.open(archive, 'w:gz') as out:
-            for path in root.iterdir():
-                out.add(path, arcname=path.name)
-        return archive
-
-    def test_prebuilt_release_never_compiles_or_installs_dependencies(self):
-        archive = self.release_archive()
-        with patch.object(deploy.platform, 'system', return_value='Linux'), patch.object(deploy.platform, 'machine', return_value='x86_64'), patch.object(deploy, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='libraries resolved')) as run:
-            deploy.prepare(archive, self.root / 'unpack', self.root, 'b'*40, hashlib.sha256(archive.read_bytes()).hexdigest())
-        commands = [c.args[0] for c in run.call_args_list]
-        self.assertEqual(len(commands), 3)
-        self.assertEqual(commands[0][0], 'ldd')
-        self.assertEqual(commands[1][1], '--help')
-        self.assertEqual(commands[2], ['npm', 'test'])
-
-    def test_wrong_tree_or_archive_checksum_never_runs_binary(self):
-        archive = self.release_archive()
-        for tree, checksum in [('c'*40, hashlib.sha256(archive.read_bytes()).hexdigest()), ('b'*40, '0'*64)]:
-            with patch.object(deploy, 'run') as run:
-                with self.assertRaises(RuntimeError):
-                    deploy.prepare(archive, self.root / tree, self.root, tree, checksum)
-                run.assert_not_called()
+    def test_build_failure_never_activates_or_stops_live_services(self):
+        args = ['deploy.py', '--archive', str(self.root / 'source.tar.gz'),
+                '--commit', 'a' * 40, '--release-id', 'a' * 40 + '-42-1', '--run-number', '10']
+        with patch.object(sys, 'argv', args), patch.object(deploy, 'ROOT', self.root), \
+                patch.dict(deploy.os.environ), patch.object(deploy.os, 'umask'), \
+                patch.object(deploy, 'preflight'), \
+                patch.object(deploy, 'prepare', side_effect=subprocess.CalledProcessError(1, ['cmake'])), \
+                patch.object(deploy, 'activate') as activate, patch.object(deploy, 'run') as run:
+            with self.assertRaises(subprocess.CalledProcessError):
+                deploy.main()
+            activate.assert_not_called()
+            run.assert_not_called()
+        self.assertEqual((self.root / 'current').resolve(), self.old)
 
 
 if __name__ == '__main__':
