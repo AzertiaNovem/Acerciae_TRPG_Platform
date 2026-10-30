@@ -101,7 +101,7 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     auto imageProvider = str(image, "provider", cur["image_provider"].asString());
     if (imageProvider != "disabled" && imageProvider != "mock" && imageProvider != "gpt_image") throw badRequest("unsupported image provider");
     auto ttsProvider = str(tts, "provider", cur["tts_provider"].asString());
-    if (ttsProvider != "disabled" && ttsProvider != "mock" && ttsProvider != "qwen") throw badRequest("unsupported speech provider");
+    if (ttsProvider != "disabled" && ttsProvider != "mock" && ttsProvider != "qwen" && ttsProvider != "openai") throw badRequest("unsupported speech provider");
     auto embeddingModel = str(llm, "embedding_model", cur["llm_embedding_model"].asString()); checkLen(embeddingModel, 120, "embedding model");
     auto imageBase = str(image, "api_base", cur["image_api_base"].asString()); checkUrl(imageBase);
     auto imageModel = str(image, "model", cur["image_model"].asString()); checkLen(imageModel, 120, "image model");
@@ -134,6 +134,7 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     if (imageProvider == "gpt_image" && imageModel.empty()) throw badRequest("image model is required for GPT Image");
     if (imageProvider == "gpt_image" && imageKey.empty()) throw badRequest("an API key is required for GPT Image");
     if (ttsProvider == "qwen" && ttsKey.empty()) throw badRequest("an API key is required for Qwen speech");
+    if (ttsProvider == "openai" && ttsKey.empty()) throw badRequest("an API key is required for OpenAI speech");
 
     // AI policy
     const Json::Value& pol = b["ai_policy"];
@@ -221,7 +222,7 @@ ServerSettingsService::TtsConfig ServerSettingsService::ttsConfig(const std::str
     t.provider = r["tts_provider"].asString();
     t.apiBase = r["tts_api_base"].asString(); t.model = r["tts_model"].asString(); t.voice = r["tts_voice"].asString(); t.language = r["language"].asString();
     auto sealed = r["tts_api_key_sealed"].asString();
-    if (t.provider == "qwen") {
+    if (t.provider == "qwen" || t.provider == "openai") {
         if (sealed.empty()) t.provider = "disabled";
         else t.apiKey = crypto::openSecret(cfg_.authSecret, sealed);   // throws rather than falling back
     }

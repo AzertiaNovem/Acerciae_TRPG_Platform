@@ -29,8 +29,8 @@ std::shared_ptr<TtsProvider> TtsService::providerFor(const std::string& channelI
     if(ch.isNull()) throw notFound("channel not found");
     auto c=settings_.ttsConfig(ch["server_id"].asString());
     if(c.provider=="disabled") throw ApiError(403,"tts_disabled","Speech is turned off on this server (Server settings → AI)");
-    if(c.provider!="qwen") return provider_;
-    Json::Value v; v["provider"]="qwen"; v["api_key"]=c.apiKey; if(!c.apiBase.empty())v["api_base"]=c.apiBase; if(!c.model.empty())v["model"]=c.model;
+    if(c.provider!="qwen"&&c.provider!="openai") return provider_;
+    Json::Value v; v["provider"]=c.provider; v["api_key"]=c.apiKey; if(!c.apiBase.empty())v["api_base"]=c.apiBase; if(!c.model.empty())v["model"]=c.model; if(!c.voice.empty())v["voice"]=c.voice;
     auto key=crypto::sha256Hex(json::dump(v));std::lock_guard<std::mutex> guard(providersMu_);
     auto it=providers_.find(key);if(it!=providers_.end())return it->second;
     auto made=std::shared_ptr<TtsProvider>(makeTtsProvider(v));if(providers_.size()>32)providers_.clear();providers_[key]=made;return made;
@@ -42,7 +42,7 @@ void TtsService::stop() { if (!running_.exchange(false)) return; cv_.notify_all(
 Json::Value TtsService::status(const ChannelAccess& a) {
     auto provider = providerFor(a.channelId);
     Json::Value s; s["provider"] = provider->name(); s["mock"] = provider->isMock(); s["official_model"] = provider->officialModel(); s["preview_model"] = provider->previewModel(); s["capabilities"] = provider->capabilities(); s["concurrency"] = concurrency_;
-    s["note"] = provider->isMock() ? "MOCK TTS MODE: audio files are synthetic tones labelled as mock. Set QWEN_API_KEY to use Qwen." : "live"; return s;
+    s["note"] = provider->isMock() ? "MOCK TTS MODE: audio files are synthetic tones labelled as mock. A server maintainer picks a speech provider in Server settings → AI." : "live"; return s;
 }
 Json::Value TtsService::availableVoices(const ChannelAccess& a) {
     auto provider = providerFor(a.channelId); Json::Value v(Json::arrayValue); for (auto& x : provider->listAvailableVoices()) { Json::Value j; j["id"] = x.id; j["name"] = x.name; j["language"] = x.language; j["gender"] = x.gender; j["description"] = x.description; j["type"] = x.type; v.append(j); } return v; }

@@ -14038,5 +14038,29 @@
     "Сервер, на котором вы были, удалён.",
     "O servidor em que você estava foi excluído.",
     "Il server in cui eri è stato eliminato."
+  ],
+  "OpenAI speech (gpt-4o-mini-tts)": [
+    "OpenAI 语音（gpt-4o-mini-tts）",
+    "OpenAI 語音（gpt-4o-mini-tts）",
+    "OpenAI 音声（gpt-4o-mini-tts）",
+    "OpenAI 음성 (gpt-4o-mini-tts)",
+    "Voz de OpenAI (gpt-4o-mini-tts)",
+    "Voix OpenAI (gpt-4o-mini-tts)",
+    "OpenAI-Sprachausgabe (gpt-4o-mini-tts)",
+    "Речь OpenAI (gpt-4o-mini-tts)",
+    "Voz da OpenAI (gpt-4o-mini-tts)",
+    "Voce OpenAI (gpt-4o-mini-tts)"
+  ],
+  "Leave the model empty for gpt-4o-mini-tts, or name a newer model that uses the same /audio/speech API. OpenAI offers preset voices only (no voice design or cloning).": [
+    "模型留空即使用 gpt-4o-mini-tts，也可填写使用相同 /audio/speech 接口的更新模型。OpenAI 只提供预设音色（不支持音色设计或克隆）。",
+    "模型留空即使用 gpt-4o-mini-tts，也可填寫使用相同 /audio/speech 介面的更新模型。OpenAI 只提供預設音色（不支援音色設計或複製）。",
+    "モデルを空欄にすると gpt-4o-mini-tts を使います。同じ /audio/speech API を使う新しいモデル名も指定できます。OpenAI はプリセット音声のみです（音声デザインやクローンは不可）。",
+    "모델을 비워 두면 gpt-4o-mini-tts를 사용합니다. 같은 /audio/speech API를 쓰는 더 새로운 모델을 지정할 수도 있습니다. OpenAI는 프리셋 음성만 제공합니다(음성 디자인·복제 불가).",
+    "Deja el modelo vacío para gpt-4o-mini-tts, o indica un modelo más reciente que use la misma API /audio/speech. OpenAI solo ofrece voces predefinidas (sin diseño ni clonación de voz).",
+    "Laissez le modèle vide pour gpt-4o-mini-tts, ou indiquez un modèle plus récent utilisant la même API /audio/speech. OpenAI ne propose que des voix prédéfinies (ni conception ni clonage de voix).",
+    "Modell leer lassen für gpt-4o-mini-tts oder ein neueres Modell mit derselben /audio/speech-API angeben. OpenAI bietet nur vordefinierte Stimmen (kein Stimmdesign, kein Klonen).",
+    "Оставьте модель пустой для gpt-4o-mini-tts или укажите более новую модель с тем же API /audio/speech. OpenAI предлагает только готовые голоса (без дизайна и клонирования голоса).",
+    "Deixe o modelo vazio para gpt-4o-mini-tts ou informe um modelo mais novo que use a mesma API /audio/speech. A OpenAI oferece apenas vozes predefinidas (sem design nem clonagem de voz).",
+    "Lascia vuoto il modello per gpt-4o-mini-tts, oppure indica un modello più recente che usi la stessa API /audio/speech. OpenAI offre solo voci predefinite (niente progettazione o clonazione della voce)."
   ]
 }
