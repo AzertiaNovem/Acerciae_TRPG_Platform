@@ -37,15 +37,13 @@ target="$DEPLOY_USER@$DEPLOY_HOST"
 release_id="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 incoming="$DEPLOY_ROOT/incoming/$release_id"
 
-test -s release-artifact/release.tar.gz
-test -s release-artifact/build.json
-archive_sha="$(python3 -c 'import json; print(json.load(open("release-artifact/build.json"))["archive_sha256"])')"
-[[ "$archive_sha" =~ ^[0-9a-f]{64}$ ]]
-release_tree="$(git rev-parse "$GITHUB_SHA^{tree}")"
+git archive --format=tar.gz --output="$work/source.tar.gz" "$GITHUB_SHA" backend pdf-worker
+echo "Uploading source archive: $(wc -c < "$work/source.tar.gz") bytes ($GITHUB_SHA)"
 ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$target" "mkdir -p '$incoming'"
-scp "${ssh_options[@]}" -P "$DEPLOY_PORT" release-artifact/release.tar.gz scripts/deploy/deploy.py "$target:$incoming/"
+scp "${ssh_options[@]}" -P "$DEPLOY_PORT" "$work/source.tar.gz" scripts/deploy/deploy.py "$target:$incoming/"
+echo 'Source uploaded; building and testing on the server before switching services.'
 ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$target" \
-  "bash -o pipefail -c 'python3 -u $incoming/deploy.py --archive $incoming/release.tar.gz --archive-sha256 $archive_sha --tree $release_tree --commit $GITHUB_SHA --release-id $release_id --run-number $GITHUB_RUN_NUMBER 2>&1 | tee $incoming/deploy.log'"
+  "bash -o pipefail -c 'python3 -u $incoming/deploy.py --archive $incoming/source.tar.gz --commit $GITHUB_SHA --release-id $release_id --run-number $GITHUB_RUN_NUMBER 2>&1 | tee $incoming/deploy.log'"
 
 # Check the public route from outside the server too; a failure here leaves the
 # locally healthy deployment running and is visible as a failed Actions job.

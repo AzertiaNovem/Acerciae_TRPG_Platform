@@ -25,6 +25,10 @@ import AcerciaeCore
     @Published var channelId = ""
     @Published var windowId = ""
     @Published var characterId = ""
+    @Published var speechMode = "ooc"
+    @Published var resultType = ""
+    @Published var references: [Message] = []
+    @Published var jumpMessageId: String?
     @Published var channel: JSONValue = .null
     @Published var serverSettings: JSONValue = .null
     @Published var busy = false
@@ -101,6 +105,16 @@ import AcerciaeCore
             try SessionStore.save(SavedLogin(endpoint: self.endpoint, session: updated))
         }
     }
+    func changeAtmosphere(_ enabled: Bool) async {
+        await run {
+            guard let api = self.client, let auth = self.session else { return }
+            let user: User = try await api.request(["auth", "me"], token: auth.token, body: JSONEncoder().encode(["atmosphere_enabled": enabled]), method: "PUT")
+            guard self.session?.token == auth.token else { return }
+            let updated = Session(token: auth.token, user: user)
+            self.session = updated
+            try SessionStore.save(SavedLogin(endpoint: self.endpoint, session: updated))
+        }
+    }
     func logout() {
         let api = client; let token = session?.token
         do { try SessionStore.clear() } catch { notice = tr("设备未能清除登录记录，请保持联网完成退出") }
@@ -110,7 +124,7 @@ import AcerciaeCore
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
     }
     private func clearChannel() {
-        channelId = ""; windowId = ""; characterId = ""; channel = .null
+        channelId = ""; windowId = ""; characterId = ""; channel = .null; speechMode = "ooc"; references = []; jumpMessageId = nil
         windows = []; characters = []; scenes = []; reminders = []; campaign = nil; hasOlder = false; diceHint = ""; result = nil
     }
     func selectServer(_ id: String) async throws {
@@ -138,7 +152,7 @@ import AcerciaeCore
     }
     func selectWindow(_ id: String) async throws {
         if !windowId.isEmpty { drafts[windowId] = draft }
-        epoch = UUID(); windowId = id; draft = drafts[id] ?? ""; campaign = nil; diceHint = ""; result = nil
+        epoch = UUID(); references = []; jumpMessageId = nil; speechMode = gm ? "narration" : "ic"; windowId = id; draft = drafts[id] ?? ""; campaign = nil; diceHint = ""; result = nil
         try await refresh(merge: false)
     }
     func typed<T: Decodable>(_ path: [String], query: [String: String] = [:]) async throws -> T {
@@ -173,7 +187,7 @@ import AcerciaeCore
         let stages: [Resource] = try await typed(["channels", c, "scenes"])
         guard stamp == epoch else { return }
         let permissionsChanged = channel["player_group_id"] != info["player_group_id"] || channel["player_group_version"] != info["player_group_version"] || channel["my_role"] != info["my_role"] || channel["my_character_ids"] != info["my_character_ids"] || channel["knowledge_mode"] != info["knowledge_mode"] || windows.first { $0.id == w }?["members"] != wins.first { $0.id == w }?["members"]
-        if permissionsChanged { result = nil; diceHint = "" }
+        if permissionsChanged { result = nil; diceHint = ""; references = []; jumpMessageId = nil; if channel["my_role"] != info["my_role"] { speechMode = info["my_role"].text == "gm" ? "narration" : "ic" } }
         var all = merge && !permissionsChanged ? campaign?.messages ?? [] : []
         for message in messages { all.removeAll { $0.id == message.id }; all.append(message) }
         all.sort { $0.seq < $1.seq }
@@ -194,7 +208,7 @@ import AcerciaeCore
         let profile: User = try await typed(["auth", "me"])
         let fetched: [Resource] = try await typed(["servers"])
         guard stamp == epoch else { return }
-        if let auth = session, profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.displayName != auth.user.displayName {
+        if let auth = session, profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled {
             session = Session(token: auth.token, user: profile); if let code = profile.uiLanguage { MobileLocale.shared.set(code) }
             try? SessionStore.save(SavedLogin(endpoint: endpoint, session: session!))
         }
@@ -234,6 +248,22 @@ import AcerciaeCore
             self.hasOlder = rows.count == 50
         }
     }
+    func openEvidence(_ event: JSONValue, quote: Bool) async throws {
+        let stamp = epoch; let sourceChannel = channelId; let sourceToken = session?.token
+        let message: Message = try await typed(["channels", channelId, "messages", event["message_id"].text])
+        guard stamp == epoch else { return }
+        if quote {
+            if !references.contains(where: { $0.id == message.id }) {
+                guard references.count < 5 else { notice = tr("At most five chat references"); return }
+                references.append(message)
+            }
+        } else {
+            if event["chat_window_id"].text != windowId { try await selectWindow(event["chat_window_id"].text) }
+            guard channelId == sourceChannel, session?.token == sourceToken, windowId == event["chat_window_id"].text else { return }
+            if campaign?.messages.contains(where: { $0.id == message.id }) == false { campaign?.messages.append(message); campaign?.messages.sort { $0.seq < $1.seq } }
+            jumpMessageId = message.id
+        }
+    }
     func chooseRole(_ id: String) { characterId = id; role = playable.first { $0.id == id }?.name ?? (gm ? tr("旁白") : tr("场外")); diceHint = "" }
     func sendDemo() { guard online else { return }; Task { await send() } }
     func send() async {
@@ -241,12 +271,13 @@ import AcerciaeCore
         guard !text.isEmpty, !windowId.isEmpty else { return }
         await run {
             let stamp = self.epoch
-            var body: [String: JSONValue] = ["content": .string(text), "kind": .string(self.characterId.isEmpty ? (self.gm ? "narration" : "ooc") : "ic"), "visibility": .string("window")]
+            var body: [String: JSONValue] = ["content": .string(text), "kind": .string(self.speechMode), "visibility": .string("window")]
             if !self.characterId.isEmpty { body["character_id"] = .string(self.characterId) }
+            body["reference_ids"] = .array(self.references.map { .string($0.id) })
             _ = try await self.get(["channels", self.channelId, "windows", self.windowId, "messages"], body: .object(body))
             guard stamp == self.epoch else { return }
             if self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
-            self.diceHint = ""
+            self.diceHint = ""; self.references = []
             try await self.refresh()
         }
     }
@@ -260,6 +291,7 @@ import AcerciaeCore
             body[type == "consistency" ? "draft" : "hint"] = .string(original)
             let value = try await self.get(["channels", self.channelId, type], body: .object(body))
             guard stamp == self.epoch else { return }
+            self.resultType = type
             if type == "inspiration" {
                 // Keep existing typing intact; the sheet requires explicit adoption.
                 self.result = value["draft"].text

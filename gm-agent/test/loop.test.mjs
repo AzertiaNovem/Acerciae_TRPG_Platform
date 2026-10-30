@@ -14,9 +14,12 @@ class FakeApi {
     this.posts = [];
     this.created = [];
     this.characters_ = [
-      { id: "c-alice", name: "Alice Hale", kind: "pc", user_id: "u-alice", player_name: "alice" },
-      { id: "c-harriet", name: "Harriet Vance", kind: "npc", user_id: null, speaking_style: markStyle("dry wit"), bio: "A sharp antiquarian." },
-      { id: "c-butler", name: "Mr. Grimsby", kind: "npc", user_id: null, speaking_style: "", bio: "The butler; knows where the key is." },
+      { id: "c-alice", name: "Alice Hale", kind: "pc", user_id: "u-alice", player_name: "alice", bio: "ALICE-BIO: raised above a print shop",
+        role_card: { basic: { occupation: "ALICE-JOB journalist", age: "31" }, background: { significant_people: "ALICE-TIES: her editor, Mr. Byrne" } } },
+      { id: "c-harriet", name: "Harriet Vance", kind: "npc", user_id: null, speaking_style: markStyle("dry wit"), bio: "A sharp antiquarian.",
+        role_card: { basic: { occupation: "HARRIET-JOB antiquarian" }, background: { ideology: "HARRIET-IDEOLOGY: the past teaches" } } },
+      { id: "c-butler", name: "Mr. Grimsby", kind: "npc", user_id: null, speaking_style: "", bio: "The butler; knows where the key is.",
+        role_card: { background: { arcane: "SECRET-NPC: serves the Society" } } },
     ];
     this.windows_ = [
       { id: "w-main", name: "Main Chat", kind: "main", members: [{ user_id: "u-bot" }, { user_id: "u-alice", character_id: "c-alice", character_name: "Alice Hale" }] },
@@ -43,6 +46,7 @@ class FakeApi {
   async characterSpace(_ch, cid) { return { character: { id: cid, role_card: { characteristics: { INT: 70 }, skills: { "Spot Hidden": 60 } } } }; }
   async createCharacter(_ch, body) { const c = { id: `c-new${this.created.length}`, user_id: null, ...body }; this.created.push(c); this.characters_.push(c); return c; }
   async putCard() { return {}; }
+  async putAppearance() { return {}; }
   async scenes() { return [{ id: "sc1", title: "The study", status: "active" }]; }
   async kpBoard() { return { next: { current: "SECRET-BOARD: the key is under the clock" }, notes: {} }; }
   async reminders() { return [{ kind: "forgotten", title: "SECRET-REMINDER", why: "the badge from the docks" }]; }
@@ -56,8 +60,9 @@ class FakeApi {
 
 const SECRETS = ["SECRET-ONE", "SECRET-TWO", "SECRET-THREE", "SECRET-BOARD", "SECRET-REMINDER", "SECRET-SCRIPT", "SECRET-DOC"];
 
-async function table({ llm = new MockLlm(), cfg: over = {} } = {}) {
+async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [] } = {}) {
   const api = new FakeApi();
+  api.characters_.push(...extraCharacters);
   api.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "KEEPER NOTE SECRET-ONE: the clock hides the key", visibility: "gm_only" });
   api.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "SECRET-TWO: you alone hear a whisper", visibility: "whisper", whisper_to: ["c-alice"] });
   api.add({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "SECRET-THREE in Alice's own window" });
@@ -160,4 +165,26 @@ test("lines in quick succession make one turn, and every caller learns when it r
   await Promise.all([a, b]);
   assert.equal(t.turns, 1);
   assert.ok(llm.calls.find((c) => c.purpose === "director").messages[0].content.includes("NEWEST LINE: Alice Hale: Second thought."));
+});
+
+test("the investigators' basic details and backgrounds reach the Keeper and the co-players, real NPCs' details only the Keeper", async () => {
+  const tomas = { id: "c-tomas", name: "Tomas Leclerc", kind: "npc", user_id: null, speaking_style: markStyle("eager"), bio: "TOMAS-BIO: a reporter who owes Alice",
+    role_card: { basic: { occupation: "TOMAS-JOB photographer" }, background: { traits: "TOMAS-TRAITS: never sits still" } } };
+  const { t, api, llm } = await table({ extraCharacters: [tomas] });
+  await playerSays(t, api, "Who here has been to the docks?");
+  const gm = llm.calls.find((c) => c.purpose === "director").messages[0].content;
+  for (const s of ["ALICE-BIO", "ALICE-JOB", "ALICE-TIES", "HARRIET-JOB", "HARRIET-IDEOLOGY", "TOMAS-BIO", "TOMAS-JOB", "TOMAS-TRAITS"]) assert.ok(gm.includes(s), `the Keeper reads ${s}`);
+  const turns = llm.calls.filter((c) => c.purpose === "coplayer_turn");
+  assert.equal(turns.length, 2);
+  const prompt = (name) => turns.map((c) => c.messages[0].content).find((u) => u.startsWith(`YOU ARE: ${name}`));
+  const harriet = prompt("Harriet Vance");
+  const companions = (u) => u.slice(u.indexOf("THE OTHER INVESTIGATORS"), u.indexOf("CHAT LOG"));
+  for (const s of ["ALICE-BIO", "ALICE-JOB", "ALICE-TIES", "TOMAS-BIO", "TOMAS-JOB", "TOMAS-TRAITS"]) assert.ok(companions(harriet).includes(s), `Harriet knows ${s}`);
+  assert.ok(!companions(harriet).includes("HARRIET-"), "a co-player is not listed among its own companions");
+  const tomasPrompt = prompt("Tomas Leclerc");
+  for (const s of ["ALICE-TIES", "HARRIET-JOB", "HARRIET-IDEOLOGY"]) assert.ok(companions(tomasPrompt).includes(s), `Tomas knows ${s}`);
+  for (const c of turns) {
+    const text = c.system + c.messages.map((m) => m.content).join("\n");
+    for (const s of [...SECRETS, "SECRET-NPC", "Mr. Grimsby", "knows where the key is"]) assert.ok(!text.includes(s), `no co-player reads ${s}`);
+  }
 });

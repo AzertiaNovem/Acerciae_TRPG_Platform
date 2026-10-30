@@ -67,6 +67,7 @@ export class Api {
   createCharacter(ch, body) { return this.post(`/api/channels/${ch}/characters`, body); }
   characterSpace(ch, cid) { return this.get(`/api/channels/${ch}/characters/${cid}/space`); }
   putCard(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/card`, body); }
+  putAppearance(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/appearance`, body); }
   coc7Rules() { return this.get("/api/coc7/rules"); }
 
   // ---- chat

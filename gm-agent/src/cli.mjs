@@ -7,10 +7,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Api } from "./api.mjs";
 import { buildConfig, loadEnvFile, parseArgs } from "./config.mjs";
-import { createLlm, completeJson } from "./llm/index.mjs";
+import { createLlm } from "./llm/index.mjs";
+import { withProgress } from "./llm/progress.mjs";
 import { Realtime } from "./realtime.mjs";
 import { Roster } from "./roles/roster.mjs";
 import { generateCoplayer, saveCharacter } from "./roles/cardgen.mjs";
+import { completeExistingCharacter } from "./roles/complete.mjs";
 import { loadState, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 
@@ -55,30 +57,30 @@ function seatWindows(cfg, windows) {
 async function setup(cfg) {
   const api = await signIn(cfg);
   const { channel } = await resolveChannel(api, cfg, { create: true });
-  const llm = createLlm(cfg.llm);
-  const settings = await api.serverSettings(channel.server_id).catch(() => null);
+  const llm = withProgress(createLlm(cfg.llm), log);
+  const settings = await api.serverSettings(channel.server_id);
   const language = languageName(cfg.language || settings?.language || "en");
   const pointsMode = Boolean(settings?.features?.coc7_points);
-  const rules = await api.coc7Rules().catch(() => null);
+  const rules = await api.coc7Rules();
   const windows = await api.windows(channel.id);
   const seats = seatWindows(cfg, windows);
   const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
   const roster = new Roster(state).reconcile(await api.characters(channel.id), seats);
 
+  for (const existing of roster.coplayers) {
+    await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, log });
+  }
+
   const missing = cfg.coplayers - roster.coplayers.length;
   if (missing < 0) log(`the channel already has ${roster.coplayers.length} co-players (asked for ${cfg.coplayers}); keeping them`);
   for (let i = 0; i < missing; i++) {
+    log(`preparing co-player ${roster.coplayers.length + 1}/${cfg.coplayers} with ${cfg.llm.provider} / ${cfg.llm.model || "mock"}`);
     const characters = await api.characters(channel.id);
     const takenNames = characters.map((c) => c.name);
     const partyNotes = characters.map((c) => `- ${c.name}${c.kind === "pc" ? " (player character)" : roster.isCoplayer(c.id) ? " (co-player)" : " (NPC)"}`).join("\n");
     const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers };
     const generated = await generateCoplayer(llm, args);
-    const retry = (violations) => completeJson(llm, {
-      system: `Fix this COC7 point-buy role card so the platform accepts it. Reply with only the corrected JSON object of the same shape.`,
-      user: `PLATFORM SAYS: ${violations}\nCARD: ${JSON.stringify(generated)}`,
-      purpose: "coplayer_card",
-    }, (x) => (x?.role_card ? x : { ...generated, role_card: x }));
-    const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, retry });
+    const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, llm, language, pointsMode });
     roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, windows: [...seats] });
     saveState(cfg.stateDir, { ...state, ...roster.toJSON() });
     log(`co-player ${roster.coplayers.length}/${cfg.coplayers}: ${saved.name} (${saved.card.basic.occupation || "investigator"})`);
@@ -95,7 +97,7 @@ async function run(cfg) {
   const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
   const roster = new Roster(state);
   const table = await new Table({
-    api, llm: createLlm(cfg.llm), cfg, channelId: channel.id, roster, log,
+    api, llm: withProgress(createLlm(cfg.llm), log), cfg, channelId: channel.id, roster, log,
     persist: (r) => saveState(cfg.stateDir, { ...state, ...r.toJSON() }),
   }).init();
   saveState(cfg.stateDir, { ...state, ...roster.toJSON() });

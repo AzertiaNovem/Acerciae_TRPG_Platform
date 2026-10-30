@@ -3,6 +3,7 @@
 // Lines this client posts never start a turn, so it cannot talk to itself.
 import { GmContext } from "./context/gmContext.mjs";
 import { coplayerLog } from "./context/coplayerContext.mjs";
+import { investigatorsFor } from "./context/profiles.mjs";
 import { directTurn } from "./director.mjs";
 import { coplayerTurn } from "./coplayer.mjs";
 import { generateNpc, saveCharacter } from "./roles/cardgen.mjs";
@@ -172,14 +173,15 @@ export class Table {
     return this.cards.get(characterId);
   }
 
-  // A co-player's move, from its own witnessed chat only.
+  // A co-player's move, from its own witnessed chat and its companions' profiles.
   async coplayerAct(windowId, coplayer, spotlight) {
     const messages = [];
     for (const w of coplayer.windows) messages.push(...((await this.api.messages(this.channelId, w, this.cfg.contextLines).catch(() => [])) ?? []));
     const log = coplayerLog(coplayer, messages, this.cfg.contextLines);
     let move;
     try {
-      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(coplayer.characterId), log, spotlight });
+      const companions = investigatorsFor(this.characters, this.roster, { except: coplayer.characterId });
+      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(coplayer.characterId), companions, log, spotlight });
     } catch (e) { this.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
     if (move.action === "speak") return this.post(windowId, { content: move.text, kind: move.kind, character_id: coplayer.characterId });
     if (move.action === "roll") {

@@ -7,7 +7,7 @@ HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile app
 |---|---|---|---|
 | **GM (Keeper)** | the client's account, channel role `gm` | – | everything the Keeper may read (below) |
 | **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the Keeper by hand) | **the same context as the GM** |
-| **Co-player** | an `npc` character | **the LLM writes its COC7 role card** at setup | **only the chat log its character witnessed**, plus its own card and persona |
+| **Co-player** | an `npc` character | **the LLM writes its COC7 role card** at setup | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
 Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
 platform they are NPCs like any other, because only a GM may create characters without a player. Inside this client
@@ -22,7 +22,9 @@ never get them.
 **GM and real NPCs** (one shared context, built per turn by `src/context/gmContext.mjs`):
 
 - every line in every chat window, including Keeper-only notes, whispers and hidden rolls;
-- the cast (player characters, co-players, real NPCs), the current scenario and the summaries of earlier ones;
+- the cast: every player character and co-player with its basic details (occupation, age, sex, residence, birthplace),
+  bio and background from its role card, and each real NPC with its brief;
+- the current scenario and the summaries of earlier ones;
 - the platform's AI tips:
   - `GET /kp/board`
   - `/reminders` and `/script-knowledge`
@@ -37,7 +39,14 @@ it applies the platform's player filter itself. A co-player gets only:
 - lines with `window` visibility, and whispers addressed to its own character.
 
 It never gets `gm_only` lines (Keeper notes, hidden roll results), whispers to anyone else, other windows, or any
-platform AI tip. Its role card and persona are added to its prompt.
+platform AI tip.
+
+Besides the log, its prompt holds:
+- its own role card and persona;
+- the other investigators' basic details, bio and background (`src/context/profiles.mjs`): the player characters and
+  the other co-players, as a human player can read any player character's page.
+
+It never gets a real NPC's details, or another investigator's characteristics and skills.
 
 ## How a turn runs
 
@@ -91,8 +100,21 @@ node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2
 ```
 
 `setup` prints the channel id and, when it can, an invite code. Players join the server with that code. Then add them to
-the channel in the web app, or with `POST /api/channels/{id}/members`. Running `setup` again only adds co-players that
-are still missing.
+the channel in the web app, or with `POST /api/channels/{id}/members`. Every setup first checks existing co-players on the
+platform: it fills missing appearance prompts, basic information, characteristics and background fields while preserving
+filled values (including current HP/SAN). Complete characters are skipped without a model call. It then creates only
+the additional co-players needed to reach `COPLAYERS`. It never recreates existing characters or fills human players' cards.
+
+Appearance prompts are generated alongside new role cards (also for new NPCs during play) and saved under Appearance &
+images. Saving the prompt does not change uploaded/generated image mode or automatically spend image-generation credits.
+Missing injury, phobia, magic and Mythos-experience fields use an explicit "None" when applicable.
+
+With the server's `coc7_points` feature enabled, setup also checks career and skill purchases. The model chooses a career,
+then receives that career's complete point formula, fixed skills, choice groups, free specialties, Credit Rating range and
+skill bases. It allocates career/hobby increments; the platform computes the final skill values. Existing growth points
+are retained. Missing/invalid allocations are repaired, including older co-players with only handwritten skill totals.
+The platform's validation errors get up to two allocation repairs; setup fails visibly if they still cannot be saved,
+instead of discarding the career and points. Corrections to allocations recalculate the affected skill totals.
 
 ```bash
 CHANNEL_ID=<id> npm start          # or: node src/cli.mjs run --channel <id> [--kickoff]
@@ -121,12 +143,19 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `LLM_EFFORT` | `--llm-effort` | `medium` | Claude effort (`low` … `max`) |
 | `LLM_FALLBACKS` | | `true` | Claude: re-run a declined request on Anthropic's recommended fallback model |
 | `LLM_TRACE` | `--llm-trace` | – | append every model request and reply to this JSONL file, to audit what each role was shown |
+| `LLM_STREAM` | `--llm-stream` | `true` | OpenAI-compatible: receive streaming replies; set `false` only if the endpoint does not support streaming |
+| `LLM_TIMEOUT_MS` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a proxy/gateway's own timeout |
 | `DEBOUNCE_MS`, `POST_DELAY_MS` | | `4000`, `1200` | quiet time before a turn; pause between posted lines |
 | `MAX_ACTIONS_PER_TURN`, `CONTEXT_LINES` | | `6`, `60` | lines per turn; chat lines per prompt |
 | `STATE_DIR` | `--state-dir` | `./.state` | the roster file (which NPC characters are co-players, and where they sit) |
 
 **Mock mode.** `LLM_PROVIDER=mock` writes labelled placeholder text (`[mock Keeper] …`). It exercises every pipeline
 without a provider. It is for tests and demos, not for play.
+
+During setup, the CLI prints which co-player it is generating and reports elapsed time every 15 seconds while waiting
+for the model. HTTP 504 means the model gateway timed out, even if the client's deadline has not expired. Streaming
+can keep an idle-timeout gateway connection active once the model starts sending data, but cannot fix an unavailable
+upstream or a gateway's absolute request deadline. After a failure, run setup again; it keeps previously saved co-players.
 
 **Recovering a lost roster.** Co-players carry a `[co-player]` prefix in their character's speaking style. If the state
 file is lost, the roster is rebuilt from the channel's characters: marked NPCs become co-players and every other NPC is a

@@ -1,5 +1,6 @@
-// What a co-player may know: only the chat log its own character could have witnessed. Nothing else reaches a
-// co-player's model: no documents, reminders, board, script knowledge, highlights or other platform AI tips.
+// What a co-player may read of the chat: only the lines its own character could have witnessed. Besides this log, a
+// co-player gets its own card and its companions' profiles (profiles.mjs), never documents, reminders, board, script
+// knowledge, highlights or other platform AI tips.
 //
 // The client signs in as the Keeper, and the Keeper's API view includes every line. So the filter is applied here,
 // the same way the platform filters for a player (backend knowledge/Visibility):
