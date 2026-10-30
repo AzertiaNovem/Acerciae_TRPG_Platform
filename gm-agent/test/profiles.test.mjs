@@ -21,7 +21,7 @@ test("a blank card gives just the name; long fields are clipped", () => {
 
 test("investigators are the player characters, then the co-players, never real NPCs", () => {
   const characters = [{ id: "cp1", kind: "npc" }, { id: "npc", kind: "npc" }, { id: "cp2", kind: "npc" }, { id: "pc", kind: "pc" }];
-  const roster = new Roster({ coplayers: [{ characterId: "cp1", windows: [] }, { characterId: "cp2", windows: [] }], npcs: [{ characterId: "npc" }] });
+  const roster = new Roster({ coplayers: [{ characterId: "cp1", seats: [] }, { characterId: "cp2", seats: [] }], npcs: [{ characterId: "npc" }] });
   assert.deepEqual(investigatorsFor(characters, roster).map((c) => c.id), ["pc", "cp1", "cp2"]);
   assert.deepEqual(investigatorsFor(characters, roster, { except: "cp1" }).map((c) => c.id), ["pc", "cp2"]);
 });

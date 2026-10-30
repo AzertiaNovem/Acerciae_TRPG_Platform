@@ -24,6 +24,14 @@ Json::Value OpenAiCompatClient::requestBody(const LlmRequest& req, const LlmEndp
     else body["temperature"] = req.temperature;
     if (!req.system.empty()) body["instructions"] = req.system;
     Json::Value input(Json::arrayValue);
+    if (!req.responseSchema.isNull()) {
+        // Some Responses gateways validate JSON mode against input only, ignoring instructions.
+        // Keep this explicit even on tool-result turns; serialized JSON data is not an instruction.
+        Json::Value format;
+        format["role"] = "system";
+        format["content"] = "Return the final answer as a JSON object matching the requested schema.";
+        input.append(format);
+    }
     for (auto& m : req.messages) {
         if (m.role == "tool") {
             Json::Value j; j["type"] = "function_call_output"; j["call_id"] = m.toolCallId; j["output"] = m.content; input.append(j);

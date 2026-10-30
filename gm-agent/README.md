@@ -61,15 +61,59 @@ It never gets a real NPC's details, or another investigator's characteristics an
    | `whisper` | posts a whisper to one character |
    | `request_roll` | asks a player to roll; for the client's own characters, the platform rolls against their sheet |
    | `note` | posts a Keeper-only line |
+   | `split` | sends some co-players off on a timeline of their own: a new window only they sit in |
+   | `rejoin` | brings a side timeline's co-players back and merges the timeline |
+   | `timeline` | records a timeline's narrative time, place and the Keeper's private notes; moves investigators between timelines |
 
    The same call says whether co-players may act now. A line the GM model writes for a co-player is dropped.
 3. **Co-players' moves** (`src/coplayer.mjs`). Each co-player seated in the window gets its own model call with its
    own context. It speaks (in character or out of character), rolls (`.ra`, `.rc`, `.r` or `.sc`, rolled by the
    platform's dice against its own sheet), or passes.
-4. At most `MAX_ACTIONS_PER_TURN` lines are posted per turn. Lines the client posted never start a turn.
+4. **The Keeper answers the co-players at once.** If any co-player acted, a follow-up GM round runs in the same turn,
+   so a co-player's choice gets its consequence now, not at the next human line. The GM prompt says every player,
+   co-players included, needs an immediate response that propels the story.
+5. At most `MAX_ACTIONS_PER_TURN` lines are posted per turn. Lines the client posted never start a turn by themselves.
 
 The client never opens scenarios or decides memory proposals; those stay with the human Keeper in the web app. When the
 story should move on, the GM model leaves a Keeper-only note.
+
+## Timelines and autonomy
+
+The table does not always wait for a human.
+
+**Timelines.** Investigators may be living different threads of the story. The client keeps timelines in its state
+file (the platform has none): every player character and co-player is in exactly one, and the main timeline always
+exists. A timeline can be bound to a window: a **side window** that only co-players sit in (the Keeper account is its
+only user member, so players never see it). Timelines are not windows, though: even in the Main Chat, a co-player back
+from a side trip speaks from what it lived there. The GM context has a Timelines section and every chat line is tagged
+with the timeline it comes from, with the rule that a line from another timeline is a story *about* that thread, not
+something happening in this scene, and that knowledge crosses timelines only when someone who was there tells it.
+
+A co-player's seat in a window has a start and an end. It hears a window's lines only while it sits there. After a
+side trip it remembers the side window and the Main Chat from its return, so it can tell the party what it saw, and
+only that. It is told its own timeline's name, time and place; never the Keeper's notes.
+
+The GM model splits and rejoins by itself (`split`, `rejoin`, `timeline` actions). You can also do it by hand, even
+while `run` is running (it reloads the state file):
+
+```bash
+node src/cli.mjs split --channel <id> --name "The docks" --coplayers "Harriet Vance,Tomas Leclerc" --location "Old Harbour" --time "Tuesday night" --opening "Fog hangs over the harbour."
+node src/cli.mjs rejoin --channel <id> --timeline "The docks"
+node src/cli.mjs status --channel <id>        # timelines, seats, autonomy settings
+```
+
+**Autonomy.** On its own clock (`AUTONOMY_TICK_MS`) the table also runs:
+
+- **side** turns: a side window moves on, turn after turn, every `AUTONOMY_SIDE_INTERVAL_MS`, with no human line. The
+  co-players drive the thread; the GM runs the world and answers them at once;
+- **quiet** turns: a window with human players that has been silent for `AUTONOMY_QUIET_MS` moves on a little: the
+  world, the NPCs, a question to a named player, the co-players. The GM is told never to decide, speak or roll for a
+  player character; the client enforces it too. After `AUTONOMY_QUIET_TURNS` quiet turns the window waits for a human
+  again. Only windows where a human spoke recently are moved.
+
+Autonomy pauses when no human has posted in the channel for `AUTONOMY_IDLE_MINUTES`, is capped at
+`AUTONOMY_MAX_TURNS_PER_HOUR`, never runs while a human's turn is pending, and any human line wakes the table up.
+`AUTONOMY=false` turns it off.
 
 ## Setup
 
@@ -148,7 +192,12 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `LLM_TIMEOUT_MS` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a proxy/gateway's own timeout |
 | `DEBOUNCE_MS`, `POST_DELAY_MS` | | `4000`, `1200` | quiet time before a turn; pause between posted lines |
 | `MAX_ACTIONS_PER_TURN`, `CONTEXT_LINES` | | `6`, `60` | lines per turn; chat lines per prompt |
-| `STATE_DIR` | `--state-dir` | `./.state` | the roster file (which NPC characters are co-players, and where they sit) |
+| `AUTONOMY` | `--autonomy` | `true` | side timelines and quiet windows move on the table's own clock |
+| `AUTONOMY_TICK_MS` | | `30000` | how often the table looks for a window that should move |
+| `AUTONOMY_SIDE_INTERVAL_MS` | | `90000` | pause between turns in a side window |
+| `AUTONOMY_QUIET_MS`, `AUTONOMY_QUIET_TURNS` | | `180000`, `2` | silence before a shared window moves on, and how many such turns until a human posts again |
+| `AUTONOMY_MAX_TURNS_PER_HOUR`, `AUTONOMY_IDLE_MINUTES` | | `20`, `30` | hourly cap on autonomous turns; no autonomy once nobody has posted for this long |
+| `STATE_DIR` | `--state-dir` | `./.state` | the state file: co-players, real NPCs, seats and timelines |
 
 **Mock mode.** `LLM_PROVIDER=mock` writes labelled placeholder text (`[mock Keeper] …`). It exercises every pipeline
 without a provider. It is for tests and demos, not for play.
@@ -182,5 +231,8 @@ The tests need no backend and no model. They cover:
   co-player's in-character guess may be recorded as established. Co-player lines are posted under an NPC character, which
   the chronicler's instructions treat as an NPC claim, but nothing enforces that. A platform-side `co-player` character
   flag would fix this.
-- Co-players sit in fixed windows (`COPLAYER_WINDOWS`). A new private window does not seat them automatically.
+- Co-players start in the windows of `COPLAYER_WINDOWS` and move only through `split` and `rejoin`. A private window
+  the Keeper creates in the web app does not seat them automatically.
+- Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side
+  thread's events reach the Keeper documents like any other lines.
 - One client process keeps one channel.

@@ -72,6 +72,7 @@ export class Api {
 
   // ---- chat
   windows(ch) { return this.get(`/api/channels/${ch}/windows`); }
+  createWindow(ch, body) { return this.post(`/api/channels/${ch}/windows`, body); }
   messages(ch, w, limit = 60) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}`); }
   postMessage(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/messages`, body); }
 

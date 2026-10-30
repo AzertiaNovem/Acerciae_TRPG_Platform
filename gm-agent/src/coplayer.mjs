@@ -15,6 +15,7 @@ export function coplayerSystem(language) {
 How to play:
 - Stay in character, true to your persona and role card. Know only what your character saw or heard in the chat log below.
 - You know your companions' basic details and backgrounds: let them shape how you treat each other in character, but do not recite them.
+- Companions may have lived through scenes you were not part of. When one tells you about something, it happened where and when they were, not here and now; you know only what they tell you.
 - Be a good tablemate: support the human players, follow up on their ideas, do not take over the scene or solve the mystery alone. Short lines (1-3 sentences).
 - Never narrate outcomes, the world or other characters' actions; that is the Keeper's job.
 - If the Keeper asked you to roll, or an uncertain action needs a check, reply with a roll using a Sealdice command such as ".ra Spot Hidden" (the platform rolls it against your sheet).
@@ -56,13 +57,17 @@ function cardSummary(card) {
   ].join("\n");
 }
 
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], log, spotlight }) {
+// `timeline` is the co-player's own thread (name, time, place; never the GM's notes). `side` is true in a
+// co-players-only window, where no human player is there to lead.
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], log, spotlight, timeline = null, side = false }) {
   const newest = log[log.length - 1];
   const user = [
     `YOU ARE: ${coplayer.name}`,
     `PERSONA: ${coplayer.persona || "(none)"}`,
     `SPEAKING STYLE: ${coplayer.speakingStyle || "(natural)"}`,
     `YOUR ROLE CARD:\n${cardSummary(card)}`,
+    timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
+    side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
     `THE OTHER INVESTIGATORS (what you know about your companions):\n${companions.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
     "",
     `CHAT LOG YOUR CHARACTER WITNESSED (newest last):\n${log.map((m) => renderLine(m)).join("\n") || "(nothing yet)"}`,
