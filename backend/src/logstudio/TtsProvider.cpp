@@ -69,6 +69,16 @@ public:
 // Qwen-Audio 3.1 non-streaming HTTP contract verified against official documentation on 2026-10-26.
 // Use a workspace-specific regional API base; a real account/key is still required for live verification.
 static size_t wcb(char* p, size_t s, size_t n, void* u) { auto& out=*static_cast<std::string*>(u); if(s*n>50*1024*1024-out.size()) return 0; out.append(p, s*n); return s*n; }
+// JSON POST with a bearer key to a pinned (SSRF-checked) address; the body is returned whatever the status.
+static std::string postJson(const std::string& url, const std::string& apiKey, const std::string& body, long timeoutMs, long& st, std::string& err) {
+    std::unique_ptr<net::PinnedRequest> pinned;
+    try { pinned = std::make_unique<net::PinnedRequest>(url); } catch (const std::exception& e) { err = e.what(); st = 0; return ""; }
+    CURL* c = curl_easy_init(); std::string out; struct curl_slist* h = nullptr;
+    h = curl_slist_append(h, "Content-Type: application/json"); h = curl_slist_append(h, ("Authorization: Bearer " + apiKey).c_str());
+    pinned->apply(c, 50u * 1024 * 1024); curl_easy_setopt(c, CURLOPT_HTTPHEADER, h); curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str()); curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)body.size());
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, wcb); curl_easy_setopt(c, CURLOPT_WRITEDATA, &out); curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, timeoutMs);
+    auto rc = curl_easy_perform(c); if (rc != CURLE_OK) err = curl_easy_strerror(rc); curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &st); curl_slist_free_all(h); curl_easy_cleanup(c); return out;
+}
 class QwenTtsProvider : public TtsProvider {
 public:
     QwenTtsProvider(const Json::Value& config) {
@@ -143,15 +153,7 @@ public:
     double estimateSynthesisCost(const std::string&, int chars) override { return pricePer10k_ * chars / 10000.0; }
     Json::Value capabilities() const override { Json::Value c; c["word_timestamps"] = "only if returned by the API (not assumed)"; c["voice_design"] = true; c["voice_clone"] = true; c["phoneme_hints"] = true; c["api_base"] = base_; c["synth_endpoint"] = synthPath_; c["enroll_endpoint"] = enrollPath_; c["instruction_field"] = instructionField_; c["note"] = "Qwen-Audio 3.1 HTTP contract checked 2026-10-26; preset availability depends on model and region. Live account validation still required."; return c; }
 private:
-    std::string post(const std::string& path, const std::string& body, long& st, std::string& err) {
-        std::unique_ptr<net::PinnedRequest> pinned;
-        try { pinned = std::make_unique<net::PinnedRequest>(base_ + path); } catch (const std::exception& e) { err = e.what(); st = 0; return ""; }
-        CURL* c = curl_easy_init(); std::string out; struct curl_slist* h = nullptr;
-        h = curl_slist_append(h, "Content-Type: application/json"); h = curl_slist_append(h, ("Authorization: Bearer " + apiKey_).c_str());
-        pinned->apply(c, 50u * 1024 * 1024); curl_easy_setopt(c, CURLOPT_HTTPHEADER, h); curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str()); curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)body.size());
-        curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, wcb); curl_easy_setopt(c, CURLOPT_WRITEDATA, &out); curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, timeoutMs_);
-        auto rc = curl_easy_perform(c); if (rc != CURLE_OK) err = curl_easy_strerror(rc); curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &st); curl_slist_free_all(h); curl_easy_cleanup(c); return out;
-    }
+    std::string post(const std::string& path, const std::string& body, long& st, std::string& err) { return postJson(base_ + path, apiKey_, body, timeoutMs_, st, err); }
     std::string getUrl(const std::string& url, long& st, std::string& err) {
         // SSRF guard: only follow https URLs on the vendor's result hosts.
         CURLU* parsed = curl_url(); char* host = nullptr; char* scheme = nullptr; char* user = nullptr;
@@ -170,8 +172,65 @@ private:
     std::string apiKey_, base_, official_, preview_, synthPath_, enrollPath_, enrollModel_, designModel_, instructionField_; double pricePer10k_ = 0; long timeoutMs_ = 60000;
 };
 
+// ---- OpenAI speech: POST {api_base}/audio/speech ---------------------------------------------------
+// gpt-4o-mini-tts unless the server names another model with the same contract (a later gpt-*-tts, tts-1, tts-1-hd).
+// The audio is requested as raw 24 kHz 16-bit mono PCM and wrapped as WAV here, so every clip has a measured duration.
+// Preset voices only: the API has no voice design or cloning.
+class OpenAiTtsProvider : public TtsProvider {
+public:
+    OpenAiTtsProvider(const Json::Value& config) {
+        apiKey_ = json::str(config, "api_key", ""); base_ = json::str(config, "api_base", ""); if (base_.empty()) base_ = "https://api.openai.com/v1";
+        while (!base_.empty() && base_.back() == '/') base_.pop_back();
+        model_ = json::str(config, "model", ""); if (model_.empty()) model_ = "gpt-4o-mini-tts";
+        voice_ = json::str(config, "voice", ""); if (voice_.empty()) voice_ = "alloy";
+        pricePer10k_ = std::atof(env("TTS_PRICE_PER_10K_CHARS", "0").c_str()); timeoutMs_ = std::atol(env("OPENAI_TTS_TIMEOUT_MS", "60000").c_str());
+    }
+    std::string name() const override { return "openai"; }
+    std::string cacheNamespace() const override { return "openai:" + crypto::sha256Hex(base_ + apiKey_); }
+    bool isMock() const override { return false; }
+    std::string officialModel() const override { return model_; }
+    std::string previewModel() const override { return model_; }
+    TtsSynthesisResult synthesize(const TtsSynthesisRequest& req) override {
+        TtsSynthesisResult r;
+        int chars = 0; for (unsigned char c : req.text) if ((c & 0xc0) != 0x80) ++chars;
+        if (chars > 4096) { r.error = "the line is longer than the 4096 characters OpenAI speech accepts"; return r; }
+        Json::Value body; body["model"] = req.modelId.empty() ? model_ : req.modelId;
+        body["input"] = req.text; body["voice"] = req.voiceId.empty() ? voice_ : req.voiceId; body["response_format"] = "pcm";
+        // tts-1 and tts-1-hd ignore delivery instructions; the gpt-*-tts models take them.
+        if (!req.instruction.empty() && body["model"].asString().rfind("tts-1", 0) != 0) body["instructions"] = req.instruction;
+        if (req.parameters.isMember("speed") && req.parameters["speed"].isNumeric()) body["speed"] = std::min(4.0, std::max(0.25, req.parameters["speed"].asDouble()));
+        long st = 0; std::string err; auto resp = postJson(base_ + "/audio/speech", apiKey_, json::dump(body), timeoutMs_, st, err);
+        if (!err.empty()) { r.error = "transport: " + err; r.retryable = true; return r; }
+        if (st < 200 || st >= 300) {
+            ALOG_WARN << "OpenAI speech HTTP " << st << ": " << resp.substr(0, 300);
+            r.error = "the speech provider returned HTTP " + std::to_string(st); r.retryable = st == 429 || st >= 500; return r;
+        }
+        if (resp.size() < 2 || resp[0] == '{') { ALOG_WARN << "OpenAI speech without audio: " << resp.substr(0, 300); r.error = "the speech provider returned no audio"; return r; }
+        std::vector<int16_t> samples(resp.size() / 2);
+        for (size_t i = 0; i < samples.size(); ++i) samples[i] = (int16_t)((unsigned char)resp[2 * i] | ((unsigned char)resp[2 * i + 1] << 8));
+        r.audioBytes = makeWav(samples, 24000); r.mime = "audio/wav"; r.durationMs = wavDurationMs(r.audioBytes);
+        r.providerMeta["model"] = body["model"]; r.providerMeta["voice"] = body["voice"];
+        r.ok = true; return r;
+    }
+    std::vector<TtsVoice> listAvailableVoices() override {
+        // The API has no voice listing; OPENAI_TTS_VOICES="id,id,…" overrides the documented presets.
+        std::vector<TtsVoice> v; std::string cur;
+        auto add = [&] { if (!cur.empty()) { auto label = cur; label[0] = (char)std::toupper((unsigned char)label[0]); v.push_back({cur, label, "multi", "", "OpenAI preset"}); } cur.clear(); };
+        for (char c : env("OPENAI_TTS_VOICES", "alloy,ash,ballad,coral,echo,fable,nova,onyx,sage,shimmer,verse,marin,cedar")) { if (c == ',') add(); else if (!std::isspace((unsigned char)c)) cur += c; }
+        add(); return v;
+    }
+    VoiceProfileCreateResult createVoiceProfile(const VoiceProfileCreateRequest&) override {
+        VoiceProfileCreateResult r; r.error = "OpenAI speech has preset voices only; voice design and cloning need the Qwen provider"; return r;
+    }
+    double estimateSynthesisCost(const std::string&, int chars) override { return pricePer10k_ * chars / 10000.0; }
+    Json::Value capabilities() const override { Json::Value c; c["word_timestamps"] = false; c["voice_design"] = false; c["voice_clone"] = false; c["phoneme_hints"] = false; c["instructions"] = model_.rfind("tts-1", 0) != 0; c["api_base"] = base_; c["model"] = model_; c["note"] = "OpenAI /audio/speech: preset voices, delivery instructions on gpt-*-tts models, 24 kHz PCM wrapped as WAV."; return c; }
+private:
+    std::string apiKey_, base_, model_, voice_; double pricePer10k_ = 0; long timeoutMs_ = 60000;
+};
+
 std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& config) {
     if (json::str(config, "provider") == "qwen") return std::make_unique<QwenTtsProvider>(config);
+    if (json::str(config, "provider") == "openai") return std::make_unique<OpenAiTtsProvider>(config);
     return std::make_unique<MockTtsProvider>();
 }
 

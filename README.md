@@ -206,13 +206,13 @@ live in separate stores so highlight traffic never re-renders document text; the
 
 The production workspace now supports SealDice/native import previews, alias mapping, source-preserving Canonical Logs,
 versioned snapshots, styled HTML/JSON/text export, existing manually edited performances, character speech profiles,
-Qwen HTTP and explicit Mock TTS, pronunciation dictionaries, selective audio cache invalidation, budgets and queued jobs.
+Qwen HTTP, OpenAI speech (`gpt-4o-mini-tts` or a newer model with the same API) and explicit Mock TTS, pronunciation dictionaries, selective audio cache invalidation, budgets and queued jobs.
 Vivliostyle renders Classic Log, Investigation Dossier and Novel PDFs with Chinese text, covers, illustrations, configurable
 page styles and permission-filtered document appendices. Published styled logs, existing performances and PDFs freeze their
 content/resources and support revocable sharing. Style/character profiles, uploaded assets, candidate image generation and
 reviewed delivery suggestions reuse the same campaign context without modifying historical facts.
 
-Real Qwen speech and GPT-Image-compatible image adapters are implemented and exercised against local protocol fixtures,
+Real Qwen and OpenAI speech and GPT-Image-compatible image adapters are implemented and exercised against local protocol fixtures,
 but paid-service credentials were not available for live verification. Mock TTS produces labelled tone WAVs; Mock images are
 labelled procedural test patterns. They do not pretend to be real voices/artwork. Local Qwen3 inference, video/FFmpeg export
 and pixel-perfect generated identity are not implemented. Docker/MinIO deployment has not been executed here; the local

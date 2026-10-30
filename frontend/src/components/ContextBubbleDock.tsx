@@ -1,4 +1,5 @@
 import { t as tr } from '../i18n';
+import { useEffect, useRef } from 'react';
 import { useDocuments } from '../store/documents';
 import { useHighlights } from '../store/highlights';
 import { useNav } from '../store/nav';
@@ -9,13 +10,21 @@ import ContextDocumentViewer from './ContextDocumentViewer';
 import ReminderViewer from './ReminderViewer';
 import type { DocumentSummary, KpStageBrief, Reminder } from '../types';
 
+// A bubble that just changed scrolls into view when the list is longer than the dock.
+function useRevealOnPulse(pulsing: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (pulsing) ref.current?.scrollIntoView({ block: 'nearest' }); }, [pulsing]);
+  return ref;
+}
+
 function Bubble({ d }: { d: DocumentSummary }) {
   const { seenVersion, pulse, expand } = useDocuments();
   const hlCount = useHighlights((s) => Object.values(s.byId).filter((h) => h.document_id === d.id).length);
   const unseen = Math.max(0, d.version - (seenVersion[d.id] ?? d.version));
-  const pulsing = pulse[d.id] && Date.now() - pulse[d.id] < 1500;
+  const pulsing = !!pulse[d.id] && Date.now() - pulse[d.id] < 1500;
+  const ref = useRevealOnPulse(pulsing);
   return (
-    <div className={`bubble ${pulsing ? 'pulse' : ''} ${hlCount ? 'has-highlight' : ''}`} onClick={() => expand(d.id)} title={`${d.entry_count} entries · v${d.version}`}>
+    <div ref={ref} className={`bubble ${pulsing ? 'pulse' : ''} ${hlCount ? 'has-highlight' : ''}`} onClick={() => expand(d.id)} title={`${d.entry_count} entries · v${d.version}`}>
       <div className="title"><span>{tr(d.title)}{d.gm_only && <span className="pill gm" style={{ marginLeft: 6 }}>{tr("GM")}</span>}</span>
         <span className="row" style={{ gap: 4 }}>{hlCount > 0 && <span className="badge hl" title={tr("active highlights")}>✦{hlCount}</span>}{unseen > 0 && <span className="badge" title={tr("new changes since you looked")}>{d.recent_changes || unseen}</span>}</span></div>
       <div className="preview">{d.preview ?? `${d.entry_count} entries`}</div>
@@ -26,10 +35,11 @@ function Bubble({ d }: { d: DocumentSummary }) {
 // A reminder bubble: what the players most likely forgot or need, anchored to quoted chat lines.
 function ReminderBubble({ r }: { r: Reminder }) {
   const { open, pulse } = useReminders();
-  const pulsing = pulse[r.id] && Date.now() - pulse[r.id] < 1500;
+  const pulsing = !!pulse[r.id] && Date.now() - pulse[r.id] < 1500;
+  const ref = useRevealOnPulse(pulsing);
   const kind = r.kind === 'needed' ? tr('still open') : r.kind === 'plan' ? tr('plan') : r.kind === 'note' ? tr('note') : tr('you may have forgotten');
   return (
-    <div className={`bubble reminder ${r.kind} ${pulsing ? 'pulse' : ''}`} onClick={() => open(r.id)} title={r.why}>
+    <div ref={ref} className={`bubble reminder ${r.kind} ${pulsing ? 'pulse' : ''}`} onClick={() => open(r.id)} title={r.why}>
       <div className="title"><span>{r.title}</span><span className="tiny muted">{kind}</span></div>
       <div className="preview">{r.citations[0]?.quotes?.[0] ?? r.why}</div>
     </div>

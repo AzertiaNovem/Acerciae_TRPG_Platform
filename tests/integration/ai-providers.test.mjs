@@ -37,6 +37,11 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
       ], usage: { input_tokens: 12, output_tokens: 6 } });
       return send({ type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ draft: '我先核对聊天中的原始证词。', used_fact_ids: [] }) }], usage: { input_tokens: 25, output_tokens: 12 } });
     }
+    if (req.url.endsWith('/audio/speech')) {
+      if (json?.model === 'rate-limited-tts') { res.statusCode = 429; return send({ error: { message: 'fixture rate limit' } }); }
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return res.end(Buffer.alloc(24000 * 2 / 2));   // half a second of 24 kHz 16-bit PCM silence
+    }
     if (req.url.endsWith('/chat/completions')) return send({ choices: [{ message: { content: JSON.stringify({ draft: 'I check the original statement.', used_fact_ids: [] }) } }] });
     if (req.url.endsWith('/images/generations') || req.url.endsWith('/images/edits')) {
       if (json?.model === 'held-image') await new Promise(resolve => { releaseImage = resolve; });
@@ -197,6 +202,30 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     const dependent = await finish(failedBatch.jobs[1].id);
     assert.equal(dependent.status, 'failed'); assert.match(dependent.error, /main portrait generation failed/);
     assert.equal(requests.slice(beforeFailedPortrait).length, 1, 'failed main portrait must not trigger text-only poses');
+
+    // OpenAI speech: /audio/speech with gpt-4o-mini-tts by default, or any model of the same contract.
+    await rejects(call(gm.token, 'PUT', settings, { tts: { provider: 'openai', clear_api_key: true } }), 400);   // needs its own key
+    await call(gm.token, 'PUT', settings, { tts: { provider: 'openai', api_base: endpoint + '/openai/v1', api_key: 'speech-secret-A', model: '', voice: 'coral' } });
+    await call(gm.token, 'PUT', root + '/settings', { studio_cloud_allowed: true });
+    const ttsStatus = await call(gm.token, 'GET', root + '/tts/status');
+    assert.equal(ttsStatus.provider, 'openai'); assert.equal(ttsStatus.mock, false); assert.equal(ttsStatus.official_model, 'gpt-4o-mini-tts');
+    assert.equal(ttsStatus.capabilities.voice_design, false); assert.equal(ttsStatus.capabilities.voice_clone, false);
+    assert.ok((await call(gm.token, 'GET', root + '/tts/available-voices')).some(v => v.id === 'marin'));
+    await rejects(call(gm.token, 'POST', root + '/voices', { name: 'Designed', voice_type: 'design', design_prompt: 'A calm old sailor' }), 502);
+    const sailor = await call(gm.token, 'POST', root + '/voices', { name: 'Sailor', voice_type: 'preset', voice_id: 'ash', language: 'en', style_instruction: 'gravelly, unhurried' });
+    assert.equal(sailor.provider, 'openai'); assert.equal(sailor.model_id, 'gpt-4o-mini-tts');
+    const speak = extra => call(gm.token, 'POST', root + '/tts/preview', { voice_profile_id: sailor.id, text: 'The tide is turning.', ...extra });
+    const clip = await speak({ style_instruction: 'whispered' });
+    assert.equal(clip.mime, 'audio/wav'); assert.equal(clip.duration_ms, 500); assert.equal(clip.is_mock, false);
+    const speech = requests.filter(r => r.url === '/openai/v1/audio/speech');
+    assert.equal(speech.length, 1); assert.equal(speech[0].headers.authorization, 'Bearer speech-secret-A');
+    assert.deepEqual(speech[0].json, { model: 'gpt-4o-mini-tts', input: 'The tide is turning.', voice: 'ash', response_format: 'pcm', instructions: 'gravelly, unhurried; whispered' });
+    await speak({ style_instruction: 'whispered' });   // cached: no second call
+    assert.equal(requests.filter(r => r.url === '/openai/v1/audio/speech').length, 1);
+    await speak({ model_id: 'tts-1-hd', text: 'Older model.' });   // the same contract; tts-1 models take no instructions
+    assert.deepEqual(requests.filter(r => r.url === '/openai/v1/audio/speech').at(-1).json, { model: 'tts-1-hd', input: 'Older model.', voice: 'ash', response_format: 'pcm' });
+    await rejects(speak({ model_id: 'rate-limited-tts', text: 'Busy.' }), 502);
+    await call(gm.token, 'PUT', settings, { tts: { provider: 'mock', clear_api_key: true } });
 
     await call(gm.token, 'PUT', settings, { image: { provider: 'disabled' } });
     assert.equal((await call(gm.token, 'GET', root + '/images/status')).enabled, false);

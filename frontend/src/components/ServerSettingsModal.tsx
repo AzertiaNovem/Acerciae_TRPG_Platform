@@ -150,15 +150,17 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'access' | 'ai'
             <option value="disabled">{tr("Disabled")}</option>
             <option value="mock">{tr("Mock speech")}</option>
             <option value="qwen">{tr("Qwen speech")}</option>
+            <option value="openai">{tr("OpenAI speech (gpt-4o-mini-tts)")}</option>
           </select>
         </label>
-        {form.tts.provider === 'qwen' && <>
-          <label className="field"><span>{tr("API base URL")}</span><input value={form.tts.api_base} onChange={(e) => setForm({ ...form, tts: { ...form.tts, api_base: e.target.value } })} placeholder={tr("https://…")} /></label>
+        {(form.tts.provider === 'qwen' || form.tts.provider === 'openai') && <>
+          <label className="field"><span>{tr("API base URL")}</span><input value={form.tts.api_base} onChange={(e) => setForm({ ...form, tts: { ...form.tts, api_base: e.target.value } })} placeholder={form.tts.provider === 'openai' ? 'https://api.openai.com/v1' : tr("https://…")} /></label>
           {keyField('tts', tts, tr("required"))}
           <div className="row">
-            <label className="field grow"><span>{tr("Model")}</span><input value={form.tts.model} onChange={(e) => setForm({ ...form, tts: { ...form.tts, model: e.target.value } })} /></label>
-            <label className="field grow"><span>{tr("Voice")}</span><input value={form.tts.voice} onChange={(e) => setForm({ ...form, tts: { ...form.tts, voice: e.target.value } })} /></label>
+            <label className="field grow"><span>{tr("Model")}</span><input value={form.tts.model} onChange={(e) => setForm({ ...form, tts: { ...form.tts, model: e.target.value } })} placeholder={form.tts.provider === 'openai' ? 'gpt-4o-mini-tts' : 'qwen-audio-3.1-tts-plus'} /></label>
+            <label className="field grow"><span>{tr("Voice")}</span><input value={form.tts.voice} onChange={(e) => setForm({ ...form, tts: { ...form.tts, voice: e.target.value } })} placeholder={form.tts.provider === 'openai' ? 'alloy' : ''} /></label>
           </div>
+          {form.tts.provider === 'openai' && <div className="tiny muted">{tr("Leave the model empty for gpt-4o-mini-tts, or name a newer model that uses the same /audio/speech API. OpenAI offers preset voices only (no voice design or cloning).")}</div>}
         </>}
         <div className="tiny muted">{tr("Keys are encrypted on the server and never sent back to the browser.")}</div>
         {!settings.private_endpoints_allowed && <div className="tiny muted">{tr("Endpoints must use https and a public address.")}</div>}

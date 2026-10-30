@@ -42,7 +42,7 @@ struct VoiceProfileCreateResult { bool ok = false; std::string error; std::strin
 class TtsProvider {
 public:
     virtual ~TtsProvider() = default;
-    virtual std::string name() const = 0;                        // qwen | mock
+    virtual std::string name() const = 0;                        // qwen | openai | mock
     virtual bool isMock() const = 0;
     virtual std::string cacheNamespace() const { return name(); }
     virtual std::string officialModel() const = 0;
@@ -57,7 +57,7 @@ public:
     virtual Json::Value capabilities() const = 0;
 };
 
-// {provider: "qwen", api_key, api_base?, model?} makes the Qwen provider; anything else the labelled mock provider.
+// {provider: "qwen" | "openai", api_key, api_base?, model?, voice?} makes that provider; anything else the labelled mock.
 std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& config = Json::Value());
 int wavDurationMs(const std::string& bytes);        // 0 if not a PCM WAV
 std::string makeWav(const std::vector<int16_t>& samples, int sampleRate);

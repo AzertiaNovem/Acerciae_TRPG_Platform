@@ -12,6 +12,23 @@ The HTTP contracts were checked against Alibaba's [synthesis reference](https://
 
 Synthesis uses `/api/v1/services/audio/tts/SpeechSynthesizer` with `{model,input:{text,voice,format:"wav",language_hints?,instruction?,rate?,pitch?,volume?,sample_rate?,hot_fix?}}`. `speed` in application parameters maps to `rate`. Voice identity instruction and per-line delivery instruction are stored separately and combined only when requesting synthesis. Customization uses `/api/v1/services/audio/tts/customization`, model `voice-enrollment`, action `create_voice`, target model and an alphanumeric prefix. Design sends a description and preview text. Cloning sends a validated audio data URI and requires recorded consent, rights holder and statement. Returned voice IDs are stored; no local ID is substituted for a provider result.
 
+## Configure OpenAI
+
+Pick **OpenAI speech** in Server settings → AI and enter the server's own OpenAI key. The API base defaults to
+`https://api.openai.com/v1`, the model to `gpt-4o-mini-tts` and the voice to `alloy`. Any newer model with the same
+contract can be named instead (a later `gpt-*-tts`, or `tts-1` / `tts-1-hd`); a voice profile's `model_id` can also
+override it per voice or per request. The campaign still needs Log Studio cloud processing enabled.
+
+Synthesis is `POST {api_base}/audio/speech` with `{model, input, voice, response_format:"pcm", instructions?, speed?}`.
+The combined identity and delivery instruction goes to `instructions` (omitted for `tts-1` models, which ignore it);
+`speed` is clamped to 0.25–4. The raw 24 kHz 16-bit mono PCM answer is wrapped as WAV, so durations are measured, not
+estimated. A line longer than 4096 characters is refused before any call. Voices are the documented presets
+(`alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer, verse, marin, cedar`; override with
+`OPENAI_TTS_VOICES=id,id,…`). OpenAI has no voice design or cloning: Voice Studio offers presets only with this
+provider. HTTP 429 and 5xx answers are retried by the job worker; `OPENAI_TTS_TIMEOUT_MS` (default 60000) bounds a call.
+Live OpenAI requests are covered by a local protocol fixture in `tests/integration/ai-providers.test.mjs`, not by a
+paid account.
+
 ## Dictionary and cache
 
 Dictionary entries have `{term,reading,mode:"replace"|"phoneme",language}`. Replacement changes only the separately stored spoken text. With Qwen, phoneme entries become `hot_fix.pronunciation:[{"term":"pin1 yin1"}]`; providers without phoneme support use the supplied reading as a controlled replacement. The UI currently edits replacement entries; phoneme entries can be submitted through the API. Original dialogue remains unchanged.
