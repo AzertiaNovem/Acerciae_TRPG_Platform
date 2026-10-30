@@ -12,7 +12,7 @@ export interface Channel {
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean; studio_player_access?: boolean;
   story_status?: 'ongoing' | 'ended'; story_ended_at?: string | null; story_reveal_all?: boolean;
-  ai_enabled: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
+  ai_enabled: boolean; consistency_enabled?: boolean; inspiration_enabled?: boolean; atmosphere_enabled?: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }
 export interface WindowMember { user_id: string; character_id: string | null; display_name: string; character_name: string | null }

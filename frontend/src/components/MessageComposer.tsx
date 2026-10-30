@@ -93,8 +93,8 @@ export default function MessageComposer() {
           <select value={whisperTo} onChange={(e) => setWhisperTo(e.target.value)}><option value="">{tr("choose character…")}</option>{characters.filter((c) => c.kind === 'pc').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         )}
         <span className="spacer" />
-        {features?.consistency !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
-        {features?.inspiration !== false && <InspirationButton characterId={activeCharacter} />}
+        {features?.consistency !== false && channel?.consistency_enabled !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
+        {features?.inspiration !== false && channel?.inspiration_enabled !== false && <InspirationButton characterId={activeCharacter} />}
         <button className="primary" onClick={send} disabled={!canPost || !text.trim() || sending}>{tr("Send")}</button>
       </div>
     </div>

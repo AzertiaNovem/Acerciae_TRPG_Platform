@@ -10,8 +10,9 @@ import { atmosphereVariant } from '../lib/atmosphere';
 export default function AtmosphereBackdrop() {
   const channel = useNav(s => s.channelId);
   const serverEnabled = useNav(s => !!s.serverSettings?.features.atmosphere);
+  const channelEnabled = useNav(s => s.channel?.atmosphere_enabled !== false);
   const personalEnabled = useAuth(s => !!s.user?.atmosphere_enabled);
-  const enabled = serverEnabled && personalEnabled;
+  const enabled = serverEnabled && channelEnabled && personalEnabled;
   const [backdrop, setBackdrop] = useState<{ channel: string; url: string; mock: boolean } | null>(null);
   const [portrait, setPortrait] = useState(() => matchMedia('(orientation: portrait)').matches);
   const [dark, setDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);

@@ -10,7 +10,7 @@ A multiplayer online table for Call of Cthulhu and other Basic Roleplaying games
 | Backend | C++20, [Drogon](https://github.com/drogonframework/drogon) (HTTP + WebSocket), [libpqxx](https://github.com/jtv/libpqxx), jsoncpp, libcurl, poppler-cpp |
 | Database | PostgreSQL 16 with full-text search, `pg_trgm`, optional `pgvector` |
 | Frontend | React 18 + TypeScript + Vite, zustand, react-markdown |
-| AI | Per-server LLM gateway (OpenAI- or Anthropic-compatible), image and speech providers set by each server's maintainers, or a clearly labelled **Mock mode** |
+| AI | Per-server LLM gateway (OpenAI Responses API or Anthropic Messages API), image and speech providers set by each server's maintainers, or a clearly labelled **Mock mode** |
 | Deployment | Docker Compose (db / backend / frontend / PDF worker; optional MinIO) |
 
 Screenshots (taken from the running app in mock mode):
@@ -179,6 +179,11 @@ difficulty, bonus/penalty dice, sanity loss written back to SAN, hidden rolls wh
 a gray hint follows the command (`.ra research —— Alice's research is 53`). Reply wording comes from built-in English/中文 texts
 or server-defined text groups; each channel's GM picks one. GMs maintain NPC sheets by speaking as the NPC or in the character sheet. Checks follow 7e: a fumble is 100, or 96–100 when the number needed (after Hard/Extreme) is below 50; `.en` cannot
 improve Cthulhu Mythos, and a skill improved to 90+ grants 2D6 SAN. `.st fast-talk 50` and `.sc 1 / 1d6` are accepted.
+
+**Per-channel AI switches** — in GM workspace → Channel the GM turns the background chronicler (the observer behind the
+reminder and document bubbles), the consistency check, inspiration and atmosphere backgrounds on or off for that channel,
+under the server maintainer's feature switches. With all four off a channel is a plain chat room — a lobby or a large
+hub — that makes no model calls and costs no tokens; dice and the Log Studio still work.
 
 **Server maintainers** — the server owner and admins ("maintainers") set the server's language, its AI providers (language model with
 thinking effort and embedding model, images, speech) and AI policy — a token and an image budget for the whole server (per month or

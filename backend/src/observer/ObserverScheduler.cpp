@@ -113,6 +113,7 @@ bool ObserverScheduler::recordFailure(const std::string& channelId, const std::s
 
 Json::Value ObserverScheduler::observeChannel(const std::string& channelId, bool waitForInflight) {
     Json::Value out(Json::arrayValue);
+    if (!aiEnabled(channelId)) return out;   // the GM switched the chronicler off: no model call, however the run was asked for
     const int64_t safe = safeSeq(channelId);
     auto groups = db_.queryJson(
         "SELECT coalesce(e.chat_window_id::text,'') AS window_id, coalesce(e.scene_id::text,'') AS scene_id, count(*) AS pending, min(e.seq) AS from_seq, max(e.seq) AS to_seq "
@@ -365,7 +366,12 @@ void ObserverScheduler::applyExtraction(const ChannelAccess& sys, const std::str
     }
 }
 
+bool ObserverScheduler::aiEnabled(const std::string& channelId) {
+    auto r = db_.queryOne("SELECT ai_enabled FROM channels WHERE id=$1", {channelId});
+    return !r.isNull() && r["ai_enabled"].asBool();
+}
 Json::Value ObserverScheduler::consolidateChannel(const std::string& channelId) {
+    if (!aiEnabled(channelId)) return Json::Value();
     std::string lockKey = channelId + "/consolidate";
     if (!tryLock(lockKey, false)) return Json::Value();
     struct Unlock { ObserverScheduler* s; std::string k; ~Unlock() { s->unlock(k); } } ul{this, lockKey};

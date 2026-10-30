@@ -15,6 +15,7 @@ static const std::vector<std::string> variants = {
 bool AtmosphereService::enabled(const std::string &ch) {
   return !db_.queryOne("SELECT 1 FROM channels c JOIN server_settings s ON "
                        "s.server_id=c.server_id WHERE c.id=$1 AND "
+                       "c.atmosphere_enabled AND "
                        "s.feature_atmosphere AND s.image_provider<>'disabled' "
                        "AND EXISTS(SELECT 1 FROM channel_members m JOIN users "
                        "u ON u.id=m.user_id WHERE m.channel_id=c.id AND "
@@ -236,7 +237,7 @@ Json::Value AtmosphereService::current(const ChannelAccess &a) {
   Json::Value out;
   out["enabled"] = false;
   auto flags = db_.queryOne(
-      "SELECT u.atmosphere_enabled AND s.feature_atmosphere AS enabled FROM "
+      "SELECT u.atmosphere_enabled AND s.feature_atmosphere AND c.atmosphere_enabled AS enabled FROM "
       "users u CROSS JOIN channels c JOIN server_settings s ON "
       "s.server_id=c.server_id WHERE u.id=$1 AND c.id=$2",
       {a.userId, a.channelId});

@@ -236,6 +236,11 @@ Json::Value ChatService::createChannel(const Principal& p, const std::string& se
     });
     return ch;
 }
+// The GM's per-channel AI switches (consistency_enabled, inspiration_enabled, …): 403 feature_disabled when off.
+void ChatService::requireChannelAi(const ChannelAccess& a, const std::string& column) {
+    auto r = db_.queryOne("SELECT " + column + " AS on FROM channels WHERE id=$1", {a.channelId});
+    if (r.isNull() || !r["on"].asBool()) throw ApiError(403, "feature_disabled", "The GM turned this off for this channel");
+}
 Json::Value ChatService::getChannel(const ChannelAccess& a) {
     auto c = db_.queryOne("SELECT c.*, s.title AS current_scene_title FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
     if(!a.isGm) c["current_scene_title"]=Json::Value();
@@ -256,8 +261,11 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
         if (!Visibility::isUuid(group) || db_.queryOne("SELECT 1 AS ok FROM dice_text_groups WHERE id=$1 AND server_id=$2", {group, a.serverId}).isNull())
             throw badRequest("unknown dice text group");
     }
-    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10 WHERE id=$1",
-        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, json::toBool(body, "ai_enabled", cur["ai_enabled"].asBool()), group, json::toBool(body, "auto_scenarios", cur["auto_scenarios"].asBool()), json::str(body, "era", cur["era"].asString()).substr(0, 80), json::toBool(body, "studio_visible", cur["studio_visible"].asBool()), json::toBool(body, "studio_player_access", cur["studio_player_access"].asBool())});
+    auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
+    db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
+             "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
+        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), json::str(body, "era", cur["era"].asString()).substr(0, 80), flag("studio_visible"), flag("studio_player_access"),
+         flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled")});
     notifier_.channelUpdated(a.channelId);
     return getChannel(a);
 }

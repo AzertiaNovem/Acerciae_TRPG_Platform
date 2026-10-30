@@ -86,7 +86,7 @@ function ChannelSettings() {
   const toast = useUi((s) => s.toast);
   const [groups, setGroups] = useState<DiceTextGroup[]>([]);
   const [members, setMembers] = useState<ChannelMember[]>([]);
-  const blank = { name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, dice_text_group: '', era: '', studio_visible: true, studio_player_access: true };
+  const blank = { name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, consistency_enabled: true, inspiration_enabled: true, atmosphere_enabled: true, dice_text_group: '', era: '', studio_visible: true, studio_player_access: true };
   const [form, setFormState] = useState(blank);
   const [dirty, setDirty] = useState(false);
   const setForm = (f: typeof blank) => { setFormState(f); setDirty(true); };
@@ -96,7 +96,7 @@ function ChannelSettings() {
   useEffect(() => {
     if (!channel || (dirty && loadedFor.current === channel.id)) return;
     loadedFor.current = channel.id; setDirty(false);
-    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false });
+    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, consistency_enabled: channel.consistency_enabled !== false, inspiration_enabled: channel.inspiration_enabled !== false, atmosphere_enabled: channel.atmosphere_enabled !== false, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false });
   }, [channel, dirty]);
   useEffect(() => {
     if (serverId) api.diceTextGroups(serverId).then(setGroups).catch(() => undefined);
@@ -126,7 +126,12 @@ function ChannelSettings() {
         <label className="field"><span>{tr("Knowledge mode")}</span>
           <select value={form.knowledge_mode} onChange={(e) => setForm({ ...form, knowledge_mode: e.target.value })}><option value="isolated">{tr("New players: separate groups")}</option><option value="public">{tr("New players: shared group")}</option></select>
         </label>
-        <label className="row small"><input type="checkbox" checked={form.ai_enabled} onChange={(e) => setForm({ ...form, ai_enabled: e.target.checked })} />{tr("Background chronicler enabled")}</label>
+        <div className="section-label">{tr("AI in this channel")}</div>
+        <label className="row small"><input type="checkbox" checked={form.ai_enabled} onChange={(e) => setForm({ ...form, ai_enabled: e.target.checked })} />{tr("Background chronicler (the observer behind the reminder and document bubbles)")}</label>
+        <label className="row small"><input type="checkbox" checked={form.consistency_enabled} disabled={serverSettings?.features?.consistency === false} onChange={(e) => setForm({ ...form, consistency_enabled: e.target.checked })} />{tr("Consistency check")}</label>
+        <label className="row small"><input type="checkbox" checked={form.inspiration_enabled} disabled={serverSettings?.features?.inspiration === false} onChange={(e) => setForm({ ...form, inspiration_enabled: e.target.checked })} />{tr("Inspiration")}</label>
+        <label className="row small"><input type="checkbox" checked={form.atmosphere_enabled} disabled={serverSettings?.features?.atmosphere === false} onChange={(e) => setForm({ ...form, atmosphere_enabled: e.target.checked })} />{tr("Atmosphere backgrounds")}</label>
+        <div className="tiny muted">{tr("Turn all four off for a plain chat room that costs no tokens: no model calls are made for this channel. Features the server maintainer turned off are greyed out.")}</div>
         <label className="field"><span>{tr("Dice reply texts")}</span>
           <select value={form.dice_text_group} onChange={(e) => setForm({ ...form, dice_text_group: e.target.value })} disabled={!diceOn}>
             <option value="">{tr("Follow server language (")}{LANGUAGE_LABELS[lang] ?? lang})</option>

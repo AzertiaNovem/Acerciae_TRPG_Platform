@@ -25,6 +25,7 @@ public:
     ObserverScheduler(const Config& cfg, Db& db, EventStore& events, DocumentService& docs, HighlightService& highlights,
                       ContextRetrievalService& retrieval, LlmGateway& llm, Notifier& notifier, KnowledgeService& knowledge, ScenarioService& scenarios, ReminderService& reminders, ScriptKnowledgeService& script);
     ~ObserverScheduler();
+    bool aiEnabled(const std::string& channelId);   // the channel's ai_enabled switch
     void setAtmosphereHook(std::function<void(const std::string&,const Json::Value&)> hook) { atmosphereHook_=std::move(hook); }
     void start();
     void stop();

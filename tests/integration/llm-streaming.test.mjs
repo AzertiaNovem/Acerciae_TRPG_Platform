@@ -4,7 +4,7 @@ import http from 'node:http';
 const base=process.env.API_BASE||'http://127.0.0.1:18087';
 async function call(token,method,path,body){const r=await fetch(base+path,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(5000)});const data=await r.json();if(!r.ok)throw Object.assign(Error(JSON.stringify(data)),{status:r.status});return data;}
 async function until(fn){for(let n=0;n<100;n++){const value=await fn();if(value)return value;await new Promise(r=>setTimeout(r,100));}throw Error('timed out');}
-const userText=b=>{const m=b.messages.find(m=>m.role==='user').content;return typeof m==='string'?m:m.map(x=>x.text||'').join('');};
+const userText=b=>{const m=(b.input??b.messages).find(m=>m.role==='user').content;return typeof m==='string'?m:m.map(x=>x.text||'').join('');};
 test('streaming KP builds run off network threads, deduplicate, report progress, preserve old knowledge on stream errors',async(t)=>{
  let release,hold=true,holdAll=false,broken=false,timeoutNodes=0;const releases=[];const calls=[];
  const fixture=http.createServer(async(req,res)=>{
@@ -23,9 +23,11 @@ test('streaming KP builds run off network threads, deduplicate, report progress,
    for(const part of [content.slice(0,half),content.slice(half)])send({type:'content_block_delta',index:0,delta:{type:'text_delta',text:part}});
    if(!cut){send({type:'content_block_stop',index:0});send({type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:10}});send({type:'message_stop'});}
   }else{
-   assert.equal(body.stream_options.include_usage,true);
-   for(const part of [content.slice(0,half),content.slice(half)])send({choices:[{index:0,delta:{content:part},finish_reason:null}]});
-   if(!cut){send({choices:[{index:0,delta:{},finish_reason:'stop'}]});send({choices:[],usage:{prompt_tokens:5,completion_tokens:10}});res.write('data: [DONE]\r\n\r\n');}
+   // OpenAI Responses API: text deltas, the finished item, then the terminal event with the whole response.
+   assert.ok(req.url.endsWith('/responses'));assert.equal(body.store,false);
+   send({type:'response.created',response:{status:'in_progress',output:[]}});
+   for(const part of [content.slice(0,half),content.slice(half)])send({type:'response.output_text.delta',output_index:0,delta:part});
+   if(!cut){const item={type:'message',role:'assistant',content:[{type:'output_text',text:content}]};send({type:'response.output_item.done',output_index:0,item});send({type:'response.completed',response:{status:'completed',output:[item],usage:{input_tokens:5,output_tokens:10}}});}
   }
   res.end();
  });
