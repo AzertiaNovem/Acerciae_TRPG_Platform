@@ -66,7 +66,9 @@ class MainActivity : ComponentActivity() {
         return
     }
     var page by rememberSaveable { mutableIntStateOf(0) }
-    var panel by rememberSaveable { mutableStateOf<String?>(null) }
+    var hintsOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.scopeKey, state.windowId, page) { hintsOpen = false }
+    LaunchedEffect(state.result) { if (state.result != null) hintsOpen = false }
     var detail by rememberSaveable { mutableStateOf<String?>(null) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -92,9 +94,15 @@ class MainActivity : ComponentActivity() {
                 close = { scope.launch { drawer.close() } })
         }
     }) {
+    Box(Modifier.fillMaxSize()) {
+    if (page == 0) {
+        AtmosphereBackdrop(state, model)
+        Box(Modifier.fillMaxWidth().height(190.dp).background(Brush.verticalGradient(listOf(Ink.copy(alpha = 0.9f), Ink.copy(alpha = 0.4f), Color.Transparent))))
+    }
     Scaffold(
+        containerColor = if (page == 0) Color.Transparent else Ink,
         topBar = {
-            TopAppBar(navigationIcon = {
+            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = if (page == 0) Color.Transparent else Ink, scrolledContainerColor = if (page == 0) Color.Transparent else Ink), navigationIcon = {
                 IconButton(onClick = { keyboard?.hide(); scope.launch { drawer.open() } },
                     modifier = Modifier.semantics { contentDescription = tr("打开侧栏") }) {
                     Canvas(Modifier.size(22.dp)) {
@@ -109,15 +117,15 @@ class MainActivity : ComponentActivity() {
                 }
             }, actions = {
                 if (page == 0) {
-                    TextButton(onClick = { panel = "documents" }) { Text(tr("考据")) }
-                    TextButton(onClick = { panel = "hints" }) { Text(tr("Reminders") + " ${if (state.online) state.reminders.size else campaign?.highlights?.size ?: 0}") }
+                    TextButton(onClick = { hintsOpen = !hintsOpen; model.result(null) }) { Text(tr("提示") + " ${state.reminders.size + if (state.gm) campaign?.documents.orEmpty().size + 2 else 0}") }
+                    TextButton(onClick = { hintsOpen = false; model.assistance("inspiration") }, enabled = !state.busy && state.enabled("inspiration") && state.windowId.isNotEmpty()) { Text(tr("灵感")) }
                 }
             })
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (page) {
-                0 -> if (campaign != null) ChatPage(campaign, state, model) else Text(if (state.servers.isEmpty()) tr("尚未加入服务器") + "\n" + tr("Ask a server administrator to invite your account: {username}").replace("{username}", state.user?.username.orEmpty()) else tr("从侧栏选择频道和聊天窗口"), Modifier.padding(24.dp))
+                0 -> if (campaign != null) ChatPage(campaign, state, model, hintsOpen) { hintsOpen = false } else Text(if (state.servers.isEmpty()) tr("尚未加入服务器") + "\n" + tr("Ask a server administrator to invite your account: {username}").replace("{username}", state.user?.username.orEmpty()) else tr("从侧栏选择频道和聊天窗口"), Modifier.padding(24.dp))
                 1 -> if (state.online) key(state.scopeKey, state.studioAccess, state.channel.text("story_status"), state.channel.flag("story_reveal_all")) { StudioPage(state, model) } else if (campaign != null) ReplayPage(campaign)
                 5 -> ServerBrowser(state, model) { page = 0 }
                 3 -> key(state.serverId) { LiveServerPage(state, model) }
@@ -125,6 +133,7 @@ class MainActivity : ComponentActivity() {
                 else -> SettingsPage(state, model)
             }
         }
+    }
     }
     }
     }
@@ -150,46 +159,6 @@ class MainActivity : ComponentActivity() {
                 Text(sidebarDetail(title, campaign), style = MaterialTheme.typography.bodyLarge)
                 TextButton(onClick = { detail = null }) { Text(tr("完成")) }
                 Spacer(Modifier.height(16.dp))
-            }
-        }
-    }
-    if (panel != null && campaign != null) {
-        ModalBottomSheet(onDismissRequest = { panel = null }) {
-            if (state.online) key(state.channelId, state.channel["player_group_id"], state.channel["player_group_version"], state.gm) { ReminderPanel(state, model, panel == "documents") }
-            else LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item { Text(if (panel == "documents") tr("考据") else tr("提示"), style = MaterialTheme.typography.headlineSmall) }
-                item { Text(if (state.online) tr("按当前账号权限显示") else "本地演示 · 当前以 GM 视角浏览", style = MaterialTheme.typography.labelMedium) }
-                if (panel == "documents") items(campaign.documents, key = { it.id }) { doc ->
-                    Surface(shape = RoundedCornerShape(16.dp), color = Panel) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(doc.title + if (doc.gmOnly) " · GM" else "", fontWeight = FontWeight.SemiBold)
-                            Text(doc.preview.orEmpty(), style = MaterialTheme.typography.bodyMedium)
-                            Text("v${doc.version}", style = MaterialTheme.typography.labelSmall, color = Accent)
-                            if (state.online) TextButton(onClick = { model.launch { model.notice(model.get(listOf("channels", state.channelId, "documents", doc.id)).text("markdown")) } }) { Text(tr("阅读全文")) }
-                        }
-                    }
-                } else items(campaign.highlights, key = { it.id }) { hint ->
-                    Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF383725)) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(hint.reason, color = Color(0xFFE4D98E))
-                            Text(campaign.documents.find { it.id == hint.documentId }?.title.orEmpty(), style = MaterialTheme.typography.labelMedium)
-                            hint.sourceEventIds.forEach { id ->
-                                campaign.messages.find { it.id == id }?.let { Text(tr("Source") + ": ${it.content}", style = MaterialTheme.typography.bodySmall) }
-                            }
-                        }
-                    }
-                }
-                item { Spacer(Modifier.height(28.dp)) }
-            }
-        }
-    }
-    state.result?.let { result ->
-        ModalBottomSheet(onDismissRequest = { model.result(null) }) {
-            LazyColumn(Modifier.padding(24.dp)) {
-                item { Text(if (state.resultType == "inspiration") tr("灵感草稿") else tr("一致性检查"), style = MaterialTheme.typography.titleLarge) }
-                item { Text(result, Modifier.padding(vertical = 16.dp)) }
-                if (state.resultType == "inspiration") item { Button(onClick = { model.draft(result); model.result(null) }) { Text(tr("采用草稿")) } }
-                item { TextButton(onClick = { model.result(null) }) { Text(tr("关闭")) } }
             }
         }
     }
@@ -276,17 +245,33 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     else -> campaign?.documents?.find { it.docType == "current_scene" }?.preview ?: "第三幕 · 调查员重聚"
 }
 
-@Composable private fun ChatPage(campaign: DemoCampaign, state: AppState, model: AppViewModel) {
+@Composable private fun ChatPage(campaign: DemoCampaign, state: AppState, model: AppViewModel, hintsOpen: Boolean, closeHints: () -> Unit) {
     val scroll = rememberLazyListState()
+    LaunchedEffect(state.jumpMessageId) {
+        val index = campaign.messages.indexOfFirst { it.id == state.jumpMessageId }
+        if (index >= 0) scroll.animateScrollToItem(index + if (state.hasOlder) 2 else 1)
+    }
+    BackHandler(enabled = hintsOpen || state.result != null) { closeHints(); model.result(null) }
     LaunchedEffect(campaign.messages.lastOrNull()?.id) { if (campaign.messages.isNotEmpty()) scroll.animateScrollToItem(campaign.messages.lastIndex + if (state.online && state.hasOlder) 2 else 1) }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().imePadding()) {
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = scroll, contentPadding = PaddingValues(16.dp),
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item { Text(campaign.scene, Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelSmall, color = Accent) }
             if (state.online && state.hasOlder) item { TextButton(onClick = model::older, enabled = !state.busy) { Text(tr("加载更早消息")) } }
             items(campaign.messages, key = { it.id }) { message -> MessageBubble(message, state, model) }
         }
+        if (hintsOpen || state.result != null) Surface(
+            Modifier.align(Alignment.TopEnd).padding(12.dp).widthIn(max = 420.dp).fillMaxWidth().height(maxHeight * 0.78f),
+            shape = RoundedCornerShape(22.dp), color = Panel, shadowElevation = 12.dp,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))) {
+            if (hintsOpen) key(state.scopeKey, state.windowId) { HintOverlay(state, model, closeHints) }
+            else AssistanceOverlay(state, model)
+        }
+        }
         Composer(state, model)
+    }
     }
 }
 
@@ -300,7 +285,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         verticalAlignment = Alignment.Top) {
         if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0); Spacer(Modifier.width(8.dp)) }
         Column(Modifier.widthIn(max = 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-            Text(name + if (mine) " · " + tr("Me") else if (message.kind == "narration") " · GM" else "",
+            Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
             Spacer(Modifier.height(6.dp))
             if (message.dice != null) DiceResult(message) else Surface(shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
@@ -322,9 +307,14 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun Composer(state: AppState, model: AppViewModel) {
     var rolesOpen by remember { mutableStateOf(false) }
+    var modesOpen by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         shape = RoundedCornerShape(26.dp), color = Panel, tonalElevation = 2.dp) {
         Column(Modifier.padding(12.dp)) {
+            state.references.forEach { message -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(message.content, Modifier.weight(1f), maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { model.removeReference(message.id) }) { Text(tr("Remove reference")) }
+            } }
             BasicTextField(value = state.draft, onValueChange = model::draft, minLines = 1, maxLines = 5,
                 modifier = Modifier.fillMaxWidth().padding(8.dp), textStyle = TextStyle(color = Color(0xFFF1EEE7), fontSize = 16.sp),
                 cursorBrush = Brush.verticalGradient(listOf(Accent, Accent)), decorationBox = { input ->
@@ -333,16 +323,23 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
             if (state.diceHint.isNotEmpty()) Text(state.diceHint, style = MaterialTheme.typography.labelSmall)
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box {
-                    TextButton(onClick = { rolesOpen = true }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (state.characterId.isEmpty()) if (state.gm) tr("旁白") else tr("场外") else state.role) }
+                    TextButton(onClick = { modesOpen = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text(tr(when (state.speechMode) { "narration" -> "Narration"; "ic" -> "In character"; else -> "Out of character" })) }
+                    DropdownMenu(modesOpen, { modesOpen = false }) {
+                        listOf("narration" to "Narration", "ic" to "In character", "ooc" to "Out of character").forEach { (value, label) ->
+                            DropdownMenuItem(text = { Text(tr(label)) }, onClick = { model.speechMode(value); modesOpen = false })
+                        }
+                    }
+                }
+                Box {
+                    TextButton(onClick = { rolesOpen = true }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (state.characterId.isEmpty()) if (state.gm) tr("Keeper") else tr("Me") else state.role) }
                     DropdownMenu(expanded = rolesOpen, onDismissRequest = { rolesOpen = false }) {
                         if (state.online) {
                             state.playable.forEach { role -> DropdownMenuItem(text = { Text(role.name) }, onClick = { model.chooseRole(role.id); rolesOpen = false }) }
-                            DropdownMenuItem(text = { Text(if (state.gm) tr("旁白") else tr("场外")) }, onClick = { model.chooseRole(""); rolesOpen = false })
+                            DropdownMenuItem(text = { Text(if (state.gm) tr("— as GM —") else state.user?.displayName.orEmpty()) }, onClick = { model.chooseRole(""); rolesOpen = false })
                         } else listOf("哈维", tr("旁白")).forEach { role -> DropdownMenuItem(text = { Text(role) }, onClick = { model.role(role); rolesOpen = false }) }
                     }
                 }
                 TextButton(onClick = { model.assistance("consistency") }, enabled = !state.busy && state.enabled("consistency") && state.draft.isNotBlank(), contentPadding = PaddingValues(6.dp)) { Text(tr("一致性"), fontSize = 12.sp) }
-                TextButton(onClick = { model.assistance("inspiration") }, enabled = !state.busy && state.enabled("inspiration"), contentPadding = PaddingValues(6.dp)) { Text(tr("灵感"), fontSize = 12.sp) }
                 FilledTonalButton(onClick = model::sendDemo, enabled = state.draft.isNotBlank() && !state.busy, contentPadding = PaddingValues(horizontal = 14.dp)) { Text(tr("发送")) }
             }
         }
@@ -382,6 +379,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { ProfileAvatar(state.user?.displayName.orEmpty(), state, model, ownerId = state.user?.id.orEmpty(), ownerVersion = state.user?.avatarVersion ?: 0, size = 48.dp); Text(state.user?.displayName.orEmpty(), style = MaterialTheme.typography.titleLarge) }; Text(state.user?.username.orEmpty()) }
         item { Button(onClick = model::logout, enabled = !state.busy) { Text(tr("退出登录")) } }
         item { LanguagePicker(state, model); Text(tr("This changes your interface only. Server AI output language stays unchanged."), style = MaterialTheme.typography.bodySmall) }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Text(tr("Show channel atmosphere backgrounds"), Modifier.weight(1f)); Switch(state.user?.atmosphereEnabled == true, model::changeAtmosphere, enabled = !state.busy) }; Text(tr("Backgrounds follow the app theme and screen orientation. The server must also enable this feature."), style = MaterialTheme.typography.bodySmall) }
         item { Text(tr("内容同步"), style = MaterialTheme.typography.titleMedium) }
         item { TextButton(onClick = { scope.launch { model.poll(forceCatalog = true) } }, enabled = !state.busy) { Text(tr("立即刷新")) } }
         item { Text(tr(state.connection), color = Accent) }

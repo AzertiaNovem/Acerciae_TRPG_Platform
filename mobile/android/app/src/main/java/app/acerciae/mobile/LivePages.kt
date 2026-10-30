@@ -91,6 +91,7 @@ import java.io.File
     val maintainer = state.serverSettings.flag("is_maintainer")
     if (!state.online || !maintainer) { Text(tr("仅服务器管理员可访问"), Modifier.padding(20.dp)); return }
     var points by remember(state.serverId) { mutableStateOf(state.enabled("coc7_points")) }
+    var atmosphere by remember(state.serverId) { mutableStateOf(state.serverSettings.obj("features").flag("atmosphere")) }
     var studio by remember(state.serverId) { mutableStateOf(state.enabled("log_studio")) }
     var dice by remember(state.serverId) { mutableStateOf(state.enabled("dice")) }
     var consistency by remember(state.serverId) { mutableStateOf(state.enabled("consistency")) }
@@ -101,6 +102,7 @@ import java.io.File
         items(listOf("Access", "AI", "Channels")) { item -> TextButton(onClick = { area = item }) { Text(tr(item)) } }
         item { Text(if (maintainer) tr("服务器管理员") else tr("服务器成员")) }
         if (state.serverSettings.obj("features").containsKey("coc7_points")) item { SettingToggle(tr("CoC7 购点规则"), points, maintainer && !state.busy) { points = it } }
+        item { SettingToggle(tr("Channel atmosphere backgrounds"), atmosphere, !state.busy) { atmosphere = it }; Text(tr("Allow automatic image generation from public Keeper narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display."), style = MaterialTheme.typography.bodySmall) }
         item { SettingToggle(tr("日志制作"), studio, maintainer && !state.busy) { studio = it } }
         item { SettingToggle(tr("骰子"), dice, maintainer && !state.busy) { dice = it } }
         item { SettingToggle(tr("一致性检查"), consistency, maintainer && !state.busy) { consistency = it } }
@@ -108,7 +110,7 @@ import java.io.File
         if (maintainer) {
             item { Choice(tr("Language"), language, InterfaceLanguage.codes.zip(InterfaceLanguage.names), !state.busy) { language = it } }
             item { Button(onClick = { model.launch {
-                model.get(listOf("servers", state.serverId, "settings"), buildJsonObject { put("language", language); put("features", buildJsonObject { state.serverSettings.obj("features").forEach { (k,v) -> put(k,v) }; if (state.serverSettings.obj("features").containsKey("coc7_points")) put("coc7_points", points); put("log_studio", studio); put("dice", dice); put("consistency", consistency); put("inspiration", inspiration) }) }, "PUT")
+                model.get(listOf("servers", state.serverId, "settings"), buildJsonObject { put("language", language); put("features", buildJsonObject { state.serverSettings.obj("features").forEach { (k,v) -> put(k,v) }; if (state.serverSettings.obj("features").containsKey("coc7_points")) put("coc7_points", points); put("atmosphere", atmosphere); put("log_studio", studio); put("dice", dice); put("consistency", consistency); put("inspiration", inspiration) }) }, "PUT")
                 model.refreshCatalog(); model.notice(tr("服务器设置已保存"))
             } }, enabled = !state.busy) { Text(tr("保存服务器设置")) } }
         }
@@ -116,6 +118,8 @@ import java.io.File
 }
 
 @Composable fun LiveChannelPage(state: AppState, model: AppViewModel) {
+    var history by remember(state.channelId) { mutableStateOf(false) }
+    if (history && state.gm) { AtmosphereHistory(state, model) { history = false }; return }
     if (!state.online || !state.gm) { Text(tr("仅当前频道的 GM 可访问"), Modifier.padding(20.dp)); return }
     var playerAccess by remember(state.channelId) { mutableStateOf(state.channel.flag("studio_player_access")) }
     var visible by remember(state.channelId) { mutableStateOf(state.channel.flag("studio_visible")) }
@@ -155,6 +159,7 @@ import java.io.File
             item { SettingToggle(tr("根据叙述建议新阶段"), autoScenarios, !state.busy) { autoScenarios = it } }
             item { ScenarioControls(state, model) }
             item { StoryControls(state, model) }
+            item { TextButton(onClick = { history = true }) { Text(tr("Atmosphere background history")) } }
             item { SettingToggle(tr("Players may open the Log Studio before the story ends"), playerAccess, !state.busy) { playerAccess = it } }
             item { Button(onClick = { model.launch {
                 model.get(listOf("channels", state.channelId), buildJsonObject { put("name", channelName.trim()); put("description", channelDescription); put("era", era); put("knowledge_mode", knowledgeMode); put("dice_text_group", diceGroup); put("ai_enabled", ai); put("studio_visible", visible); put("studio_player_access", playerAccess); put("auto_scenarios", autoScenarios) }, "PUT"); model.refreshCatalog(); model.refresh(); model.notice(tr("守密人设置已保存"))

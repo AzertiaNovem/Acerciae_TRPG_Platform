@@ -243,10 +243,9 @@ private struct SidebarView: View {
     }
 }
 
-private enum ContextPanel: String, Identifiable { case documents = "documents", hints = "hints"; var id: String { rawValue } }
 private struct ChatView: View {
     @ObservedObject var model: AppModel
-    @State private var contextPanel: ContextPanel?
+    @State private var hintsOpen = false
     var body: some View {
         Group {
             if let campaign = model.campaign {
@@ -258,9 +257,17 @@ private struct ChatView: View {
                             ForEach(campaign.messages) { MessageBubble(message: $0, model: model).id($0.id) }
                         }.padding(16)
                     }
+                    .onChange(of: model.jumpMessageId) { _, id in if let id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
                     .onAppear { if let id = campaign.messages.last?.id { proxy.scrollTo(id, anchor: .bottom) } }
                     .refreshable { await model.poll() }
                     .scrollDismissesKeyboard(.interactively)
+                    .chatScrollEdge()
+                    .mask {
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 28)
+                            Color.black
+                        }
+                    }
                     .onChange(of: campaign.messages.last?.id) { _, _ in
                         if let id = campaign.messages.last?.id { withAnimation { proxy.scrollTo(id, anchor: .bottom) } }
                     }
@@ -268,18 +275,50 @@ private struct ChatView: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) { Composer(model: model) }
                 .navigationTitle(model.online ? model.windowName : campaign.title)
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button(tr("考据")) { contextPanel = .documents }
-                        Button(tr("Reminders") + " \(model.online ? model.reminders.count : campaign.highlights.count)") { contextPanel = .hints }
+                        Button(tr("提示") + " \(model.reminders.count + (model.gm ? campaign.documents.count + 2 : 0))") { hintsOpen.toggle(); model.result = nil }
+                        Button(tr("灵感")) { hintsOpen = false; Task { await model.assistance("inspiration") } }.disabled(model.busy || !model.enabled("inspiration") || model.windowId.isEmpty)
                     }
                 }
-                .sheet(item: $contextPanel) { panel in ContextSheet(model: model, campaign: campaign, panel: panel).id(model.channelId + model.channel["player_group_id"].text + String(model.channel["player_group_version"].int) + String(model.gm)) }
+                .overlay(alignment: .topTrailing) {
+                    GeometryReader { geometry in
+                        if hintsOpen || model.result != nil {
+                            VStack {
+                                if hintsOpen { HintOverlay(model: model, close: { hintsOpen = false }).id(model.scopeKey + model.windowId) }
+                                else { AssistanceOverlay(model: model) }
+                            }
+                            .frame(width: min(420, max(0, geometry.size.width - 24)), height: max(0, geometry.size.height * 0.67))
+                            .background(panelColor, in: RoundedRectangle(cornerRadius: 22))
+                            .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.15)))
+                            .shadow(color: .black.opacity(0.3), radius: 14, y: 6)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing).padding(12)
+                        }
+                    }
+                }
+                .onChange(of: model.scopeKey) { _, _ in hintsOpen = false }
+                .onChange(of: model.windowId) { _, _ in hintsOpen = false }
+                .onChange(of: model.result) { _, value in if value != nil { hintsOpen = false } }
+
             } else { ContentUnavailableView(model.servers.isEmpty ? tr("尚未加入服务器") : tr("从侧栏选择频道和聊天窗口"), systemImage: "bubble.left", description: Text(model.servers.isEmpty ? tr("Ask a server administrator to invite your account: {username}").replacingOccurrences(of: "{username}", with: model.session?.user.username ?? "") : tr("选择一个频道开始聊天"))) }
         }
-        .background(ink)
+        .background {
+            ZStack {
+                ink
+                AtmosphereBackdrop(model: model)
+                VStack { LinearGradient(colors: [ink.opacity(0.9), ink.opacity(0.4), .clear], startPoint: .top, endPoint: .bottom).frame(height: 190); Spacer(minLength: 0) }.allowsHitTesting(false)
+            }.ignoresSafeArea()
+        }
     }
 }
+
+private extension View {
+    @ViewBuilder func chatScrollEdge() -> some View {
+        if #available(iOS 26.0, *) { self.scrollEdgeEffectHidden(true, for: .top) } else { self }
+    }
+}
+
 
 private struct MessageBubble: View {
     let message: Message
@@ -290,7 +329,7 @@ private struct MessageBubble: View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 36) } else { avatar }
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
-                Text(name + (mine ? " · " + tr("Me") : message.kind == "narration" ? " · GM" : ""))
+                Text(name + (mine ? " · " + tr("Me") : "") + (message.kind == "narration" ? " · " + tr("Narration") : message.kind == "ooc" ? " · OOC" : ""))
                     .font(.caption).foregroundStyle(.secondary)
                 if message.dice != nil { DiceResultView(message: message) } else {
                 Text(message.displayText)
@@ -314,16 +353,19 @@ private struct MessageBubble: View {
 
 private struct Composer: View {
     @ObservedObject var model: AppModel
-    @State private var assistanceType = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            ForEach(model.references) { message in
+                HStack { Text(message.content).font(.caption).lineLimit(2); Spacer(); Button { model.references.removeAll { $0.id == message.id } } label: { Image(systemName: "xmark") }.accessibilityLabel(tr("Remove reference")) }
+            }
             TextField(tr("What does your character do or say?"), text: $model.draft, axis: .vertical)
                 .lineLimit(1...5).padding(.horizontal, 6).padding(.top, 6)
             if !model.diceHint.isEmpty { Text(model.diceHint).font(.caption).foregroundStyle(.secondary) }
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { roleMenu; assistance; Spacer(minLength: 0); sendButton }
+                HStack(spacing: 12) { modeMenu; roleMenu; assistance; Spacer(minLength: 0); sendButton }
                 VStack(spacing: 10) {
-                    HStack { roleMenu; Spacer(); sendButton }
+                    HStack { modeMenu; roleMenu; Spacer(); sendButton }
                     HStack { assistance; Spacer() }
                 }
             }
@@ -331,35 +373,26 @@ private struct Composer: View {
         .task(id: "\(model.draft)-\(model.characterId)") {
             do { try await Task.sleep(for: .milliseconds(400)); await model.previewDice() } catch {}
         }
-        .sheet(isPresented: Binding(get: { model.result != nil }, set: { if !$0 { model.result = nil } })) {
-            NavigationStack {
-                ScrollView { Text(model.result ?? "").frame(maxWidth: .infinity, alignment: .leading).padding(24) }
-                    .navigationTitle(assistanceType == "inspiration" ? tr("灵感草稿") : tr("一致性检查"))
-                    .toolbar {
-                        if assistanceType == "inspiration" { Button(tr("采用草稿")) { model.draft = model.result ?? ""; model.result = nil } }
-                        Button(tr("关闭")) { model.result = nil }
-                    }
-            }
-        }
         .padding(14).background(panelColor, in: RoundedRectangle(cornerRadius: 26))
-        .padding(.horizontal, 12).padding(.vertical, 8).background(ink)
+        .padding(.horizontal, 12).padding(.vertical, 8)
+    }
+    private var modeMenu: some View {
+        Menu {
+            Picker(tr("Message kind"), selection: $model.speechMode) {
+                Text(tr("Narration")).tag("narration")
+                Text(tr("In character")).tag("ic")
+                Text(tr("Out of character")).tag("ooc")
+            }
+        } label: { Label(tr(model.speechMode == "narration" ? "Narration" : model.speechMode == "ic" ? "In character" : "Out of character"), systemImage: "chevron.down").font(.subheadline) }
     }
     private var roleMenu: some View {
         Menu {
-            if model.online {
-                ForEach(model.playable) { item in Button(item.name) { model.chooseRole(item.id) } }
-                Button(model.gm ? tr("旁白") : tr("场外")) { model.chooseRole("") }
-            } else {
-                Button("哈维") { model.role = "哈维" }
-                Button(tr("旁白")) { model.role = tr("旁白") }
-            }
-        } label: { Label(model.characterId.isEmpty ? (model.gm ? tr("旁白") : tr("场外")) : model.role, systemImage: "chevron.down").font(.subheadline) }
+            ForEach(model.playable) { item in Button(item.name) { model.chooseRole(item.id) } }
+            Button(model.gm ? tr("— as GM —") : model.session?.user.displayName ?? tr("Me")) { model.chooseRole("") }
+        } label: { Text(model.characterId.isEmpty ? (model.gm ? tr("Keeper") : tr("Me")) : model.role).font(.subheadline).lineLimit(1) }
     }
     private var assistance: some View {
-        Group {
-            Button(tr("一致性")) { assistanceType = "consistency"; Task { await model.assistance("consistency") } }.disabled(model.busy || !model.enabled("consistency") || model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            Button(tr("灵感")) { assistanceType = "inspiration"; Task { await model.assistance("inspiration") } }.disabled(model.busy || !model.enabled("inspiration"))
-        }.font(.subheadline).frame(minHeight: 44)
+        Button(tr("一致性")) { Task { await model.assistance("consistency") } }.disabled(model.busy || !model.enabled("consistency") || model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).font(.subheadline).frame(minHeight: 44)
     }
     private var sendButton: some View {
         Button(action: model.sendDemo) { Image(systemName: "arrow.up").font(.body.bold()).frame(width: 44, height: 44) }
@@ -367,53 +400,6 @@ private struct Composer: View {
             .disabled(model.busy || model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .opacity(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
             .accessibilityLabel(tr("发送"))
-    }
-}
-
-private struct ContextSheet: View {
-    @ObservedObject var model: AppModel
-    @State private var fullDocument = ""
-    let campaign: DemoCampaign
-    let panel: ContextPanel
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        NavigationStack {
-            List {
-                Text(model.online ? tr("按当前账号权限显示") : "本地演示 · 当前以 GM 视角浏览").font(.caption).foregroundStyle(.secondary)
-                if model.online {
-                    ReminderList(model: model)
-                    if model.gm { NavigationLink(tr("KP 看板 · 剧本下一步与笔记")) { KeeperBoard(model: model) } }
-                }
-                if panel == .documents && (!model.online || model.gm) {
-                    ForEach(campaign.documents) { document in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(document.title + (document.gmOnly == true ? " · GM" : "")).font(.headline)
-                            Text(document.preview ?? "").font(.body)
-                            Text("v\(document.version)").font(.caption).foregroundStyle(accent)
-                            if model.online { Button(tr("阅读全文")) { Task { await model.run {
-                                let value = try await model.get(["channels", model.channelId, "documents", document.id]); fullDocument = value["markdown"].text
-                            } } } }
-                        }.padding(.vertical, 6)
-                    }
-                } else if !model.online || model.gm {
-                    ForEach(campaign.highlights) { hint in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(hint.reason).foregroundStyle(Color(red: 0.89, green: 0.85, blue: 0.56))
-                            Text(campaign.documents.first { $0.id == hint.documentId }?.title ?? "").font(.caption)
-                            ForEach(hint.sourceEventIds, id: \.self) { id in
-                                if let message = campaign.messages.first(where: { $0.id == id }) {
-                                    Text(tr("Source") + ": " + message.content).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }.padding(.vertical, 6)
-                    }
-                }
-            }
-            .sheet(isPresented: Binding(get: { !fullDocument.isEmpty }, set: { if !$0 { fullDocument = "" } })) { ScrollView { Text(fullDocument).textSelection(.enabled).padding(24) } }
-            .navigationTitle(panel == .documents ? tr("考据") : tr("提示")).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button(tr("完成")) { dismiss() } } }
-        }
-        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
 }
 
@@ -461,6 +447,10 @@ private struct SettingsView: View {
                 Button(tr("退出登录"), role: .destructive) { model.logout() }.disabled(model.busy)
             }
             Section { LanguagePicker(model: model); Text(tr("This changes your interface only. Server AI output language stays unchanged.")).font(.caption) }
+            Section(tr("Channel atmosphere backgrounds")) {
+                Toggle(tr("Show channel atmosphere backgrounds"), isOn: Binding(get: { model.session?.user.atmosphereEnabled == true }, set: { value in Task { await model.changeAtmosphere(value) } })).disabled(model.busy)
+                Text(tr("Backgrounds follow the app theme and screen orientation. The server must also enable this feature.")).font(.caption)
+            }
             Section(tr("内容同步")) {
                 Button(tr("立即刷新")) { Task { await model.poll(forceCatalog: true) } }.disabled(model.busy)
                 Text(tr(model.connection)).foregroundStyle(accent)

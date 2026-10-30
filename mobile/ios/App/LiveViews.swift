@@ -105,6 +105,7 @@ struct SceneView: View {
 struct LiveServerView: View {
     @ObservedObject var model: AppModel
     @State private var points = false
+    @State private var atmosphere = false
     @State private var studio = false
     @State private var dice = false
     @State private var consistency = false
@@ -120,6 +121,8 @@ struct LiveServerView: View {
             Section(model.serverName) {
                 Text(model.serverSettings["is_maintainer"].bool ? tr("服务器管理员") : tr("服务器成员"))
                 if model.serverSettings["features"]["coc7_points"] != .null { Toggle(tr("CoC7 购点规则"), isOn: $points) }
+                Toggle(tr("Channel atmosphere backgrounds"), isOn: $atmosphere)
+                Text(tr("Allow automatic image generation from public Keeper narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display.")).font(.caption)
                 Toggle(tr("日志制作"), isOn: $studio)
                 Toggle(tr("骰子"), isOn: $dice)
                 Toggle(tr("一致性检查"), isOn: $consistency)
@@ -128,7 +131,7 @@ struct LiveServerView: View {
                 if model.serverSettings["is_maintainer"].bool {
                     Button(tr("保存服务器设置")) { Task { await model.run {
                         var features = model.serverSettings["features"].object
-                        features["log_studio"] = .bool(studio); features["dice"] = .bool(dice); features["consistency"] = .bool(consistency); features["inspiration"] = .bool(inspiration)
+                        features["atmosphere"] = .bool(atmosphere); features["log_studio"] = .bool(studio); features["dice"] = .bool(dice); features["consistency"] = .bool(consistency); features["inspiration"] = .bool(inspiration)
                         if features["coc7_points"] != nil { features["coc7_points"] = .bool(points) }
                         model.serverSettings = try await model.get(["servers", model.serverId, "settings"], body: .object(["language": .string(language), "features": .object(features)]), method: "PUT")
                     } } }
@@ -139,6 +142,7 @@ struct LiveServerView: View {
             } else { ContentUnavailableView(tr("仅服务器管理员可访问"), systemImage: "lock") }
         }.navigationTitle(tr("服务器选项")).navigationBarTitleDisplayMode(.inline)
             .task(id: model.serverId) {
+                atmosphere = model.serverSettings["features"]["atmosphere"].bool
                 points = model.enabled("coc7_points"); studio = model.enabled("log_studio")
                 dice = model.enabled("dice"); consistency = model.enabled("consistency"); inspiration = model.enabled("inspiration")
                 language = InterfaceLanguage.supported(model.serverSettings["language"].text)
@@ -206,6 +210,7 @@ struct LiveChannelView: View {
                 }
                 ScenarioControls(model: model)
                 StoryControls(model: model)
+                NavigationLink(tr("Atmosphere background history")) { AtmosphereHistory(model: model).id(model.scopeKey) }
 
                 }
             } else { ContentUnavailableView(tr("仅当前频道的 GM 可访问"), systemImage: "lock") }

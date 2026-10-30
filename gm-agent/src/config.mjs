@@ -58,6 +58,7 @@ export function buildConfig(args = {}, env = process.env) {
       maxTokens: int(pick("llm-max-tokens", "LLM_MAX_TOKENS", 16000), 16000),
       fallbacks: bool(pick("llm-fallbacks", "LLM_FALLBACKS"), true),
       timeoutMs: int(pick("llm-timeout-ms", "LLM_TIMEOUT_MS", 600000), 600000),
+      stream: bool(pick("llm-stream", "LLM_STREAM"), true),
       trace: pick("llm-trace", "LLM_TRACE", ""),
       tokenParam: pick("llm-token-param", "LLM_TOKEN_PARAM", ""),
     },

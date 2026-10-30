@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
 @Serializable data class Health(val status: String, @SerialName("llm_mode") val llmMode: String = "", val db: String = "")
-@Serializable data class User(val id: String, val username: String, @SerialName("display_name") val displayName: String, @SerialName("ui_language") val uiLanguage: String? = null, @SerialName("avatar_data") val avatarData: String? = null, @SerialName("avatar_version") val avatarVersion: Int? = null)
+@Serializable data class User(val id: String, val username: String, @SerialName("display_name") val displayName: String, @SerialName("ui_language") val uiLanguage: String? = null, @SerialName("atmosphere_enabled") val atmosphereEnabled: Boolean = false, @SerialName("avatar_data") val avatarData: String? = null, @SerialName("avatar_version") val avatarVersion: Int? = null)
 // Deliberately not a data class: never include a token in generated toString() output.
 @Serializable class Session(val token: String, val user: User)
 @Serializable data class Server(val id: String, val name: String)
