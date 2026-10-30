@@ -60,7 +60,7 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     const ch = (await call(gm.token, 'POST', `/api/servers/${server.id}/channels`, { name: 'Protocol test', knowledge_mode: 'isolated' })).id;
     await call(gm.token, 'POST', `/api/channels/${ch}/members`, { username: pl.user.username, role: 'player' });
     const root = `/api/channels/${ch}/studio`;
-    const imageConfig = { provider: 'gpt_image', api_base: endpoint + '/image/v1', api_key: 'image-secret-A', model: 'fixture-image', size: '1536x1024', quality: 'low' };
+    const imageConfig = { provider: 'gpt_image', api_base: endpoint + '/image/v1', api_key: 'image-secret-A', model: 'gpt-image-2.5-sunburst', size: '1536x1024', quality: 'low' };
     const saved = await call(gm.token, 'PUT', settings, { llm: { provider: 'anthropic', api_base: endpoint + '/anthropic/v1', api_key: 'anthropic-secret-A', model: 'fixture-claude', reasoning_effort: 'high' }, image: imageConfig });
     assert.equal(saved.llm.provider, 'anthropic'); assert.equal(saved.image.api_key_set, true);
     assert.ok(!JSON.stringify(saved).includes('secret-A'));
@@ -96,7 +96,7 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     assert.equal(generated.status, 'completed', generated.error);
     const img = requests.find(r => r.url.endsWith('/images/generations'));
     assert.equal(img.url, '/image/v1/images/generations'); assert.equal(img.headers.authorization, 'Bearer image-secret-A');
-    assert.equal(img.json.model, 'fixture-image'); assert.equal(img.json.output_format, 'png'); assert.equal(img.json.response_format, undefined);
+    assert.equal(img.json.model, 'gpt-image-2.5-sunburst'); assert.equal(img.json.background, undefined); assert.equal(img.json.output_format, 'png'); assert.equal(img.json.response_format, undefined);
     assert.equal(img.json.size, '1536x1024'); assert.equal(img.json.quality, 'low'); assert.ok(img.json.prompt.includes('blue-grey'));
     assert.ok(!img.body.includes('anthropic-secret-A'));
     await call(gm.token, 'PUT', `/api/channels/${ch}/media/${generated.result_asset_id}`, { approval_status: 'approved', visibility_scope: 'channel' });
@@ -105,6 +105,7 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     assert.equal(edited.status, 'completed', edited.error);
     const edit = requests.find(r => r.url.endsWith('/images/edits'));
     assert.ok(edit.headers['content-type'].startsWith('multipart/form-data;'));
+    assert.ok(!edit.body.includes('name="background"'));
     assert.ok(edit.body.includes('name="image[]"')); assert.ok(edit.body.includes('name="prompt"')); assert.ok(!edit.body.includes('name="reference_images"'));
 
     // Character art belongs to the character page, not the Log Studio: it works with Studio cloud processing off.
@@ -129,6 +130,13 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     const poseRequests = requests.slice(beforePose);
     assert.equal(poseRequests.length, 2); assert.ok(poseRequests.every(r => r.url.endsWith('/images/edits')));
     assert.ok(poseRequests.every(r => r.body.includes('name="image[]"') && r.body.includes('identity_instruction')));
+    for (const request of poseRequests) {
+      assert.match(request.body, /name="background"\r\n\r\ntransparent\r\n/);
+      assert.match(request.body, /name="output_format"\r\n\r\npng\r\n/);
+      assert.match(request.body, /name="model"\r\n\r\ngpt-image-2.5-sunburst\r\n/);
+      assert.match(request.body, /transparent background with a real alpha channel/);
+      assert.ok(!request.body.includes('standee on a plain background'));
+    }
     // Generating a new main portrait and poses together waits for the new portrait, not the old upload.
     await call(pl.token, 'PUT', pcRoot + '/appearance', { appearance_prompt: 'Grey coat and round spectacles' });
     const beforeBatch = requests.length;
@@ -143,6 +151,8 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     }
     const batchRequests = requests.slice(beforeBatch);
     assert.deepEqual(batchRequests.map(r => r.url.split('/').at(-1)), ['generations', 'edits', 'edits']);
+    assert.equal(batchRequests[0].json.background, undefined);
+    for (const request of batchRequests.slice(1)) assert.match(request.body, /name="background"\r\n\r\ntransparent\r\n/);
 
     await call(gm.token, 'PUT', root + '/settings', { studio_cloud_allowed: true });
 

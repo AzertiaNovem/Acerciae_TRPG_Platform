@@ -25,6 +25,7 @@
 #include "script/ScriptKnowledgeService.h"
 #include "characters/CharacterSpaceService.h"
 #include "logstudio/ImageProvider.h"
+#include <zlib.h>
 #include <iostream>
 #include <map>
 #include <functional>
@@ -644,7 +645,31 @@ int main() {
         CHECK(CharacterSpaceService::normalizeSubtitle(" say loud ") == "SAY_LOUD"); CHECK(CharacterSpaceService::normalizeSubtitle("fight!") == "FIGHT");
         auto p = CharacterSpaceService::buildPrompt("A gaunt woman in a grey coat", "1920s", "Thursday night", "subtitle", "FIGHT");
         CHECK(p.find("grey coat") != std::string::npos && p.find("1920s") != std::string::npos && p.find("Thursday night") != std::string::npos && p.find("FIGHT") != std::string::npos && p.find("standee") != std::string::npos);
+        CHECK(p.find("transparent background") != std::string::npos && p.find("plain background") == std::string::npos);
         CHECK(CharacterSpaceService::buildPrompt("x", "", "", "avatar", "").find("head-and-shoulders") != std::string::npos);
+    });
+    test("mock standees have real transparent pixels while backgrounds remain RGB", [] {
+        logstudio::ImageConfig config; config.provider = "mock";
+        auto provider = logstudio::makeImageProvider(config);
+        Json::Value request; request["kind"] = "standee";
+        const auto result = provider->generate(request);
+        CHECK(result.ok && result.mime == "image/png");
+        CHECK(static_cast<unsigned char>(result.bytes.at(25)) == 6); // RGBA
+        CHECK(result.bytes.find("MOCK test pattern") != std::string::npos);
+        std::string compressed;
+        for (size_t offset = 8; offset + 12 <= result.bytes.size();) {
+            uint32_t size = 0;
+            for (int i = 0; i < 4; ++i) size = (size << 8) | static_cast<unsigned char>(result.bytes[offset+i]);
+            if (result.bytes.substr(offset+4, 4) == "IDAT") compressed += result.bytes.substr(offset+8, size);
+            offset += size+12;
+        }
+        std::string pixels(180*(320*4+1), '\0'); uLongf length = pixels.size();
+        CHECK(uncompress(reinterpret_cast<Bytef*>(pixels.data()), &length,
+            reinterpret_cast<const Bytef*>(compressed.data()), compressed.size()) == Z_OK);
+        CHECK(pixels[4] == 0); // First pixel is transparent, not a painted checkerboard backdrop.
+        CHECK(static_cast<unsigned char>(pixels[90*(320*4+1)+1+160*4+3]) == 255);
+        request["kind"] = "background";
+        CHECK(static_cast<unsigned char>(provider->generate(request).bytes.at(25)) == 2);
     });
     test("mock speech produces measurable audio and dictionary never alters its source", [] {
         setenv("TTS_PROVIDER","mock",1);auto provider=logstudio::makeTtsProvider();logstudio::TtsSynthesisRequest req;req.text="调查员打开了门。";req.voiceId="mock-cherry";auto r=provider->synthesize(req);CHECK(r.ok&&r.mime=="audio/wav");CHECK(logstudio::wavDurationMs(r.audioBytes)==r.durationMs);CHECK(logstudio::wavDurationMs("RIFFtruncated")==0);

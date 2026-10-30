@@ -16,6 +16,14 @@
 #include <set>
 #include <ctime>
 namespace acerciae::logstudio {
+static void setImageKind(Json::Value &request, const std::string &kind) {
+  request["kind"] = kind;
+  // Persist the cutout requirement in the job and its cache key, including VN-script poses.
+  if (kind == "standee") {
+    request["background"] = "transparent";
+    request["output_format"] = "png";
+  }
+}
 static DbParam opt(const std::string &s) {
   return s.empty() ? dbNull() : DbParam(s);
 }
@@ -99,7 +107,7 @@ Json::Value CreativeService::create(const ChannelAccess &a,
   params["provider_configuration"] = provider_->configurationId();
   params["style"] = style;
   params["style_profile_version"] = style["version"];
-  params["request"]["kind"] = kind;
+  setImageKind(params["request"], kind);
   params["request"]["style"] = style;
   params["request"]["prompt"] = json::requireStr(b, "prompt");
   if (params["request"]["prompt"].asString().size() > 6000)
@@ -202,7 +210,7 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   params["provider_configuration"] = provider_->configurationId();
   params["style"] = style.isNull() ? Json::Value(Json::objectValue) : style;
   if (!style.isNull()) params["style_profile_version"] = style["version"];
-  params["request"]["kind"] = kind;
+  setImageKind(params["request"], kind);
   params["request"]["style"] = params["style"];
   params["request"]["prompt"] = prompt;
   params["request"]["character"]["name"] = character["name"];
@@ -245,7 +253,7 @@ Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::
   params["provider_configuration"] = provider_->configurationId();
   params["style"] = style.isNull() ? Json::Value(Json::objectValue) : style;
   if (!style.isNull()) params["style_profile_version"] = style["version"];
-  params["request"]["kind"] = kind;
+  setImageKind(params["request"], kind);
   params["request"]["style"] = params["style"];
   params["request"]["prompt"] = prompt;
   if (!cid.empty()) {
