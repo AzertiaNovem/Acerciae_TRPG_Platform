@@ -1,21 +1,15 @@
-// Any OpenAI-compatible chat-completions endpoint (a hosted service or a self-hosted model).
-// The token limit has two names: OpenAI's newer and reasoning models accept only `max_completion_tokens`, many other
-// servers only `max_tokens`. The client starts with LLM_TOKEN_PARAM (default `max_tokens`) and, when the server refuses
-// that name and names the other one, switches for the rest of the process and retries the request once.
-const TOKEN_PARAMS = ["max_tokens", "max_completion_tokens"];
-
+// Any endpoint implementing the OpenAI Responses API (POST {LLM_API_BASE}/responses), streamed by default.
+// Nothing is stored on the provider (store: false): each request carries its whole conversation.
 export class OpenAiCompatLlm {
-  constructor({ apiKey, apiBase, model, maxTokens, timeoutMs, stream = true, tokenParam }) {
-    if (!apiBase) throw new Error("LLM_API_BASE is required for openai_compatible (for example https://api.example.com/v1)");
+  constructor({ apiKey, apiBase, model, maxTokens, timeoutMs, stream = true }) {
+    if (!apiBase) throw new Error("LLM_API_BASE is required for openai_compatible (for example https://api.openai.com/v1)");
     if (!model) throw new Error("LLM_MODEL is required for openai_compatible");
-    if (tokenParam && !TOKEN_PARAMS.includes(tokenParam)) throw new Error(`LLM_TOKEN_PARAM must be ${TOKEN_PARAMS.join(" or ")}`);
     this.base = apiBase.replace(/\/+$/, "");
     this.apiKey = apiKey;
     this.model = model;
     this.maxTokens = maxTokens || 16000;
     this.timeoutMs = timeoutMs ?? 600000;
     this.stream = stream;
-    this.tokenParam = tokenParam || "max_tokens";
   }
 
   async complete({ system, messages }) {
@@ -27,25 +21,22 @@ export class OpenAiCompatLlm {
     }
   }
 
-  // The other token-limit name when a 400 says this one is unsupported and asks for the other, else null.
-  otherTokenParam(status, data) {
-    if (status !== 400) return null;
-    const message = String(data?.error?.message ?? JSON.stringify(data ?? ""));
-    const other = TOKEN_PARAMS.find((p) => p !== this.tokenParam);
-    return message.includes(this.tokenParam) && message.includes(other) ? other : null;
-  }
-
-  async request(system, messages, retried = false) {
-    const res = await fetch(`${this.base}/chat/completions`, {
+  async request(system, messages) {
+    const res = await fetch(`${this.base}/responses`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}) },
-      body: JSON.stringify({ model: this.model, [this.tokenParam]: this.maxTokens, stream: this.stream, messages: [{ role: "system", content: system }, ...messages] }),
+      body: JSON.stringify({
+        model: this.model,
+        instructions: system,
+        input: messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+        max_output_tokens: this.maxTokens,
+        stream: this.stream,
+        store: false,
+      }),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      const other = retried ? null : this.otherTokenParam(res.status, data);
-      if (other) { this.tokenParam = other; return this.request(system, messages, true); }
       const detail = data?.error?.message ?? (typeof data?.error === "string" ? data.error : null);
       const explanation = res.status === 504
         ? "gateway timed out waiting for the model; increasing the client timeout cannot extend the gateway limit. Retry later or check the model gateway."
@@ -55,25 +46,39 @@ export class OpenAiCompatLlm {
       throw error;
     }
     if (res.headers.get("content-type")?.includes("text/event-stream")) return readStream(res.body);
-    // Some compatible gateways ignore stream=true and still return a JSON completion.
-    const data = await res.json();
-    if (data.error) throw new Error(`LLM: ${data.error.message ?? data.error}`);
-    return checkedText(data?.choices?.[0]?.message?.content, data?.choices?.[0]?.finish_reason);
+    // Some compatible gateways ignore stream=true and still return the whole response as JSON.
+    return checkedText(await res.json());
   }
 }
 
-function checkedText(text, finishReason) {
-  if (finishReason === "length") throw new Error("LLM output was truncated by the token limit; increase LLM_MAX_TOKENS or request a shorter response.");
+// The reply text of a finished response object; truncation, refusals and failures are errors.
+function checkedText(response, streamedText = "") {
+  if (response?.error) throw new Error(`LLM: ${response.error.message ?? response.error}`);
+  if (response?.status === "failed") throw new Error("LLM: the provider reported a failed response.");
+  if (response?.status === "incomplete") {
+    const reason = response.incomplete_details?.reason;
+    if (reason === "max_output_tokens") throw new Error("LLM output was truncated by the token limit; increase LLM_MAX_TOKENS or request a shorter response.");
+    throw new Error(`LLM response was incomplete${reason ? ` (${reason})` : ""}.`);
+  }
+  let text = "";
+  for (const item of response?.output ?? []) {
+    if (item.type !== "message") continue;
+    for (const part of item.content ?? []) {
+      if (part.type === "refusal") throw new Error("LLM: the model declined this request.");
+      if (part.type === "output_text" && typeof part.text === "string") text += part.text;
+    }
+  }
+  if (!text) text = streamedText;   // a gateway that trims the final response object
   if (typeof text !== "string" || !text.trim()) throw new Error("LLM returned no text; check the model response and token budget.");
   return text;
 }
 
-// Decode SSE across arbitrary network chunks, including split UTF-8 characters.
-// Do not accept a dropped connection as a complete role card.
+// Decode the Responses SSE stream across arbitrary network chunks, including split UTF-8 characters. Only a terminal
+// event (response.completed / .incomplete / .failed) ends it: a dropped connection is never accepted as a reply.
 async function readStream(body) {
   if (!body) throw new Error("LLM returned an empty stream");
   const decoder = new TextDecoder();
-  let buffer = "", text = "", finishReason = null;
+  let buffer = "", text = "";
   for await (const bytes of body) {
     buffer += decoder.decode(bytes, { stream: true });
     let boundary;
@@ -82,16 +87,12 @@ async function readStream(body) {
       buffer = buffer.slice(boundary.index + boundary[0].length);
       const data = block.split(/\r?\n/).filter((line) => line.startsWith("data:"))
         .map((line) => line.slice(5).trimStart()).join("\n");
-      if (!data) continue; // Includes gateway keepalive comments.
-      if (data.trim() === "[DONE]") return checkedText(text, finishReason);
+      if (!data) continue; // Includes gateway keepalive comments and bare `event:` lines.
       const event = JSON.parse(data);
-      if (event.error) throw new Error(`LLM stream: ${event.error.message ?? event.error}`);
-      const choice = event.choices?.[0];
-      if (typeof choice?.delta?.content === "string") text += choice.delta.content;
-      if (choice?.finish_reason) finishReason = choice.finish_reason;
+      if (event.type === "error") throw new Error(`LLM stream: ${event.message ?? event.error?.message ?? "provider error"}`);
+      if (event.type === "response.output_text.delta" && typeof event.delta === "string") text += event.delta;
+      if (event.type === "response.completed" || event.type === "response.incomplete" || event.type === "response.failed") return checkedText(event.response, text);
     }
   }
-  // A final finish_reason is also an explicit completion signal on compatible servers.
-  if (buffer.trim() || !finishReason) throw new Error("LLM stream ended before completion; retry the request.");
-  return checkedText(text, finishReason);
+  throw new Error("LLM stream ended before completion; retry the request.");
 }

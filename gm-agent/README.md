@@ -86,7 +86,8 @@ In `.env`, set:
 - `ACERCIAE_API_BASE`;
 - the account (`GM_USERNAME` and `GM_PASSWORD`; `GM_REGISTER=true` creates it if it does not exist);
 - the model: `ANTHROPIC_API_KEY` for Claude, or `LLM_PROVIDER=openai_compatible` with `LLM_API_BASE`, `LLM_MODEL` and
-  `LLM_API_KEY`.
+  `LLM_API_KEY`. `openai_compatible` talks to the OpenAI Responses API (`{LLM_API_BASE}/responses`), so the endpoint must
+  implement it; servers that only offer Chat Completions do not work.
 
 ```bash
 # a new server and channel with three co-players
@@ -137,14 +138,13 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `COPLAYERS` | `--coplayers` | `2` | number of co-players (0–8) |
 | `COPLAYER_WINDOWS` | `--coplayer-windows` | Main Chat | comma-separated window ids or names the co-players sit in |
 | `GM_LANGUAGE` | `--language` | server language | language of everything the client writes |
-| `LLM_PROVIDER` | `--llm-provider` | `anthropic` if `ANTHROPIC_API_KEY` is set, else `mock` | `anthropic`, `openai_compatible` or `mock` |
+| `LLM_PROVIDER` | `--llm-provider` | `anthropic` if `ANTHROPIC_API_KEY` is set, else `mock` | `anthropic`, `openai_compatible` (the OpenAI Responses API) or `mock` |
 | `LLM_MODEL` | `--llm-model` | `claude-opus-5-5` for Claude | model id |
 | `LLM_API_BASE`, `LLM_API_KEY` | | | endpoint and key (Claude reads `ANTHROPIC_API_KEY` too) |
 | `LLM_EFFORT` | `--llm-effort` | `medium` | Claude effort (`low` … `max`) |
 | `LLM_FALLBACKS` | | `true` | Claude: re-run a declined request on Anthropic's recommended fallback model |
-| `LLM_TOKEN_PARAM` | `--llm-token-param` | `max_tokens` | OpenAI-compatible: the token-limit parameter to start with (`max_tokens` or `max_completion_tokens`). When the server refuses one and asks for the other, the client switches by itself; set this to skip that first refused request |
 | `LLM_TRACE` | `--llm-trace` | – | append every model request and reply to this JSONL file, to audit what each role was shown |
-| `LLM_STREAM` | `--llm-stream` | `true` | OpenAI-compatible: receive streaming replies; set `false` only if the endpoint does not support streaming |
+| `LLM_STREAM` | `--llm-stream` | `true` | OpenAI Responses: receive streaming replies; set `false` only if the endpoint does not support streaming |
 | `LLM_TIMEOUT_MS` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a proxy/gateway's own timeout |
 | `DEBOUNCE_MS`, `POST_DELAY_MS` | | `4000`, `1200` | quiet time before a turn; pause between posted lines |
 | `MAX_ACTIONS_PER_TURN`, `CONTEXT_LINES` | | `6`, `60` | lines per turn; chat lines per prompt |
@@ -173,7 +173,7 @@ The tests need no backend and no model. They cover:
 - the co-player filter (Keeper notes, other characters' whispers, other windows and AI tips never reach a co-player);
 - role-card checks;
 - a whole turn against an in-memory platform, with the mock model recording every prompt;
-- the request shape of the Claude and OpenAI-compatible providers.
+- the request shape of the Claude and OpenAI Responses providers.
 
 ## Known limitations
 

@@ -22,26 +22,24 @@ std::vector<std::string> events(const std::string& body) {
 int index(const Json::Value& v) { if(!v.isInt()||v.asInt()<0||v.asInt()>128)throw std::runtime_error("invalid AI stream index");return v.asInt(); }
 void append(Json::Value& dest,const Json::Value& value) { if(value.isString())dest=(dest.isString()?dest.asString():"")+value.asString(); }
 }
-Json::Value openAiResponse(const std::string& body) {
+Json::Value responsesResponse(const std::string& body) {
     if(isJson(body))return json::parse(body);
-    Json::Value out,msg,usage;std::map<int,Json::Value> tools;std::string finish;bool done=false;
-    msg["content"]="";
+    // OpenAI Responses stream: typed events, ending with response.completed / .incomplete / .failed, which carry the
+    // whole response. Finished output items also arrive one by one, in case a gateway trims the terminal object.
+    Json::Value out,items(Json::arrayValue);bool done=false;
     for(const auto& data:events(body)) {
+        auto e=json::parse(data);auto type=e["type"].asString();
         if(done)throw std::runtime_error("AI stream continued after completion");
-        if(data=="[DONE]"){done=true;continue;}
-        auto e=json::parse(data);if(e.isMember("error"))throw std::runtime_error("AI provider returned a stream error");
-        if(e["usage"].isObject())usage=e["usage"];
-        for(const auto& c:e["choices"]) {
-            if(c.get("index",0).asInt()!=0)continue;
-            append(msg["content"],c["delta"]["content"]);
-            if(c["delta"]["refusal"].isString()&&!c["delta"]["refusal"].asString().empty())throw std::runtime_error("the model declined this request");
-            for(const auto& t:c["delta"]["tool_calls"]) { auto& tool=tools[index(t["index"])];append(tool["id"],t["id"]);tool["type"]="function";append(tool["function"]["name"],t["function"]["name"]);append(tool["function"]["arguments"],t["function"]["arguments"]); }
-            if(c["finish_reason"].isString())finish=c["finish_reason"].asString();
+        if(type=="error"||type=="response.failed")throw std::runtime_error("AI provider returned a stream error");
+        if(type=="response.output_item.done"&&e["item"].isObject())items.append(e["item"]);
+        else if(type=="response.completed"||type=="response.incomplete") {
+            if(!e["response"].isObject())throw std::runtime_error("AI stream completion carried no response");
+            out=e["response"];done=true;
         }
     }
-    if(!done||finish.empty())throw std::runtime_error("AI stream ended before completion");
-    for(auto& [i,t]:tools){if(!t["id"].isString()||!t["function"]["name"].isString())throw std::runtime_error("incomplete streamed tool call");msg["tool_calls"].append(t);}
-    out["choices"][0]["message"]=msg;out["choices"][0]["finish_reason"]=finish;out["usage"]=usage;return out;
+    if(!done)throw std::runtime_error("AI stream ended before completion");
+    if(!out["output"].isArray()||out["output"].empty())out["output"]=items;
+    return out;
 }
 Json::Value anthropicResponse(const std::string& body) {
     if(isJson(body))return json::parse(body);

@@ -48,50 +48,25 @@ test("Claude: a refusal is an error, not an empty reply", async () => {
   } finally { s.close(); }
 });
 
-test("OpenAI-compatible: chat completions with the system prompt first", async () => {
-  const s = await stub({ choices: [{ message: { content: "{}" } }] });
-  try {
-    const llm = createLlm({ provider: "openai_compatible", apiKey: "k", apiBase: `${s.base}/v1`, model: "local-model", timeoutMs: 5000 });
-    assert.equal(await llm.complete({ system: "sys", messages: [{ role: "user", content: "hi" }] }), "{}");
-    assert.equal(s.seen[0].url, "/v1/chat/completions");
-    assert.equal(s.seen[0].body.stream, true);
-    assert.deepEqual(s.seen[0].body.messages[0], { role: "system", content: "sys" });
-  } finally { s.close(); }
-});
+// A finished OpenAI Responses object holding one text reply.
+const responseObject = (text, extra = {}) => ({ status: "completed", output: [{ type: "reasoning", summary: [] }, { type: "message", role: "assistant", content: [{ type: "output_text", text }] }], usage: { input_tokens: 1, output_tokens: 1 }, ...extra });
+const request = { system: "sys", messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "not JSON" }, { role: "user", content: "again" }] };
 
-// What OpenAI answers a newer or reasoning model sent `max_tokens`.
-const reasoningModel = (body) => body.max_tokens !== undefined
-  ? { status: 400, body: { error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.", type: "invalid_request_error", param: "max_tokens", code: "unsupported_parameter" } } }
-  : { status: 200, body: { choices: [{ message: { content: "{\"ok\":true}" } }] } };
-const openai = (base, extra = {}) => createLlm({ provider: "openai_compatible", apiKey: "k", apiBase: `${base}/v1`, model: "gpt-x", maxTokens: 16000, timeoutMs: 5000, ...extra });
-
-test("OpenAI-compatible: a model that refuses max_tokens gets max_completion_tokens, from then on directly", async () => {
-  const s = await stub(reasoningModel);
+test("OpenAI-compatible: the Responses API with instructions, input items and no stored state", async () => {
+  const s = await stub(responseObject("{}"));
   try {
-    const llm = openai(s.base);
-    assert.equal(await llm.complete({ system: "s", messages: [{ role: "user", content: "a" }] }), "{\"ok\":true}");
-    assert.deepEqual(s.seen.map((r) => [r.body.max_tokens, r.body.max_completion_tokens]), [[16000, undefined], [undefined, 16000]]);
-    await llm.complete({ system: "s", messages: [{ role: "user", content: "b" }] });
-    assert.equal(s.seen.length, 3, "no refused request the second time");
-    assert.equal(s.seen[2].body.max_completion_tokens, 16000);
-  } finally { s.close(); }
-});
-
-test("OpenAI-compatible: LLM_TOKEN_PARAM picks the name from the first request", async () => {
-  const s = await stub(reasoningModel);
-  try {
-    await openai(s.base, { tokenParam: "max_completion_tokens" }).complete({ system: "s", messages: [{ role: "user", content: "a" }] });
-    assert.equal(s.seen.length, 1);
-    assert.equal(s.seen[0].body.max_completion_tokens, 16000);
-    assert.throws(() => openai(s.base, { tokenParam: "max_output" }), /LLM_TOKEN_PARAM/);
-  } finally { s.close(); }
-});
-
-test("OpenAI-compatible: any other 400 is an error after one request", async () => {
-  const s = await stub(() => ({ status: 400, body: { error: { message: "The model 'gpt-x' does not exist" } } }));
-  try {
-    await assert.rejects(openai(s.base).complete({ system: "s", messages: [{ role: "user", content: "a" }] }), /LLM 400: The model 'gpt-x' does not exist/);
-    assert.equal(s.seen.length, 1);
+    const llm = createLlm({ provider: "openai_compatible", apiKey: "k", apiBase: `${s.base}/v1`, model: "gpt-x", maxTokens: 1234, timeoutMs: 5000 });
+    assert.equal(await llm.complete(request), "{}");
+    const [r] = s.seen;
+    assert.equal(r.url, "/v1/responses");
+    assert.equal(r.headers.authorization, "Bearer k");
+    assert.equal(r.body.model, "gpt-x");
+    assert.equal(r.body.instructions, "sys");
+    assert.deepEqual(r.body.input, [{ role: "user", content: "hi" }, { role: "assistant", content: "not JSON" }, { role: "user", content: "again" }]);
+    assert.equal(r.body.max_output_tokens, 1234);
+    assert.equal(r.body.store, false);
+    assert.equal(r.body.stream, true);
+    for (const old of ["messages", "max_tokens", "max_completion_tokens"]) assert.equal(r.body[old], undefined, `no Chat Completions field ${old}`);
   } finally { s.close(); }
 });
 
@@ -107,12 +82,18 @@ function streamingLlm(t, wire) {
   return createLlm({ provider: "openai_compatible", apiBase: "https://fixture.invalid/v1", model: "test", timeoutMs: 5000 });
 }
 
-const delta = (content, finish_reason = null) => `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason }] })}\r\n\r\n`;
-const request = { system: "test", messages: [{ role: "user", content: "test" }] };
+const sse = (event) => `event: ${event.type}\r\ndata: ${JSON.stringify(event)}\r\n\r\n`;
+const delta = (text) => sse({ type: "response.output_text.delta", output_index: 1, delta: text });
+const finished = (text, extra) => sse({ type: "response.completed", response: responseObject(text, extra) });
 
-test("OpenAI stream: split Chinese UTF-8, keepalives and DONE produce one full reply", async (t) => {
-  const llm = streamingLlm(t, ': keepalive\r\n\r\n' + delta('{"name":"') + delta('调查员"}') + delta('', 'stop') + 'data: [DONE]\r\n\r\n');
+test("OpenAI stream: split Chinese UTF-8 and keepalives end in one full reply at response.completed", async (t) => {
+  const llm = streamingLlm(t, ': keepalive\r\n\r\n' + sse({ type: "response.created", response: { status: "in_progress" } }) + delta('{"name":"') + delta('调查员"}') + finished('{"name":"调查员"}'));
   assert.equal(await llm.complete(request), '{"name":"调查员"}');
+});
+
+test("OpenAI stream: a gateway that trims the final response still yields the streamed text", async (t) => {
+  const llm = streamingLlm(t, delta('{"ok":') + delta("true}") + sse({ type: "response.completed", response: { status: "completed" } }));
+  assert.equal(await llm.complete(request), '{"ok":true}');
 });
 
 test("OpenAI stream: an interrupted response is never accepted as a role card", async (t) => {
@@ -121,18 +102,17 @@ test("OpenAI stream: an interrupted response is never accepted as a role card", 
 });
 
 test("OpenAI stream: token exhaustion is actionable, even when the text is valid JSON", async (t) => {
-  const llm = streamingLlm(t, delta('{}', 'length') + 'data: [DONE]\r\n\r\n');
+  const llm = streamingLlm(t, delta("{}") + sse({ type: "response.incomplete", response: responseObject("{}", { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } }) }));
   await assert.rejects(llm.complete(request), /truncated.*LLM_MAX_TOKENS/);
 });
 
-test("OpenAI stream: provider errors inside a 200 response are surfaced", async (t) => {
-  const llm = streamingLlm(t, 'data: {"error":{"message":"upstream unavailable"}}\n\n');
-  await assert.rejects(llm.complete(request), /upstream unavailable/);
-});
-
-test("OpenAI stream: compatible endpoints may end after an explicit finish_reason", async (t) => {
-  const llm = streamingLlm(t, delta('{}', 'stop'));
-  assert.equal(await llm.complete(request), '{}');
+test("OpenAI stream: provider errors and refusals inside a 200 response are surfaced", async (t) => {
+  await assert.rejects(streamingLlm(t, sse({ type: "error", code: "server_error", message: "upstream unavailable" })).complete(request), /upstream unavailable/);
+  t.mock.restoreAll();
+  await assert.rejects(streamingLlm(t, sse({ type: "response.failed", response: { status: "failed", error: { message: "model overloaded" } } })).complete(request), /model overloaded/);
+  t.mock.restoreAll();
+  const refusal = { type: "response.completed", response: { status: "completed", output: [{ type: "message", content: [{ type: "refusal", refusal: "no" }] }] } };
+  await assert.rejects(streamingLlm(t, sse(refusal)).complete(request), /declined/);
 });
 
 test("OpenAI-compatible: HTML 504 explains the gateway timeout instead of null", async (t) => {
@@ -141,13 +121,22 @@ test("OpenAI-compatible: HTML 504 explains the gateway timeout instead of null",
   await assert.rejects(llm.complete(request), (error) => error.status === 504 && /gateway timed out/.test(error.message) && !/null/.test(error.message));
 });
 
-test("OpenAI-compatible: streaming can be disabled for older gateways", async (t) => {
+test("OpenAI-compatible: streaming can be disabled; the JSON response object is read from its output", async (t) => {
   let body;
   t.mock.method(globalThis, "fetch", async (_url, options) => {
     body = JSON.parse(options.body);
-    return Response.json({ choices: [{ message: { content: '{}' }, finish_reason: 'stop' }] });
+    return Response.json(responseObject("{}"));
   });
   const llm = createLlm({ provider: "openai_compatible", apiBase: "https://fixture.invalid/v1", model: "test", stream: false });
-  assert.equal(await llm.complete(request), '{}');
+  assert.equal(await llm.complete(request), "{}");
   assert.equal(body.stream, false);
+});
+
+test("OpenAI-compatible: a 400 is an error after one request", async () => {
+  const s = await stub(() => ({ status: 400, body: { error: { message: "The model 'gpt-x' does not exist" } } }));
+  try {
+    const llm = createLlm({ provider: "openai_compatible", apiKey: "k", apiBase: `${s.base}/v1`, model: "gpt-x", timeoutMs: 5000 });
+    await assert.rejects(llm.complete(request), /LLM 400: The model 'gpt-x' does not exist/);
+    assert.equal(s.seen.length, 1);
+  } finally { s.close(); }
 });

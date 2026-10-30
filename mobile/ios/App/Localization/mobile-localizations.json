@@ -5256,17 +5256,17 @@
       "Evidências relacionadas: abra a entrada ou os eventos originais.",
       "Prove correlate: apri la voce o gli eventi originali."
     ],
-    "A custom base URL is only used together with this server’s own key. Any OpenAI-compatible chat-completions endpoint works.": [
-      "自定义基础地址需搭配本服务器密钥，可使用兼容 OpenAI Chat Completions 的端点。",
-      "自訂基礎網址需搭配本伺服器金鑰，可使用相容 OpenAI Chat Completions 的端點。",
-      "独自 URL はこのサーバーのキーと併用します。OpenAI 互換 Chat Completions に対応。",
-      "사용자 URL은 이 서버의 키와 함께 사용합니다. OpenAI 호환 Chat Completions를 지원합니다.",
-      "La URL propia requiere la clave del servidor. Admite Chat Completions compatible con OpenAI.",
-      "L’URL personnalisée exige la clé du serveur. Compatible avec Chat Completions OpenAI.",
-      "Eigene Basis-URL nur mit eigenem Serverschlüssel. OpenAI-kompatible Chat Completions werden unterstützt.",
-      "Свой URL требует ключ сервера. Поддерживается OpenAI-совместимый Chat Completions.",
-      "A URL própria exige a chave do servidor. Compatível com Chat Completions OpenAI.",
-      "L’URL personalizzato richiede la chiave del server. Supporta Chat Completions compatibili OpenAI."
+    "A custom base URL is only used together with this server’s own key. Any endpoint implementing the OpenAI Responses API works.": [
+      "自定义基础地址需搭配本服务器密钥，可使用实现 OpenAI Responses API 的端点。",
+      "自訂基礎網址需搭配本伺服器金鑰，可使用實作 OpenAI Responses API 的端點。",
+      "独自 URL はこのサーバーのキーと併用します。OpenAI Responses API を実装したエンドポイントに対応。",
+      "사용자 URL은 이 서버의 키와 함께 사용합니다. OpenAI Responses API를 구현한 엔드포인트를 지원합니다.",
+      "La URL propia requiere la clave del servidor. Admite endpoints que implementen la API Responses de OpenAI.",
+      "L’URL personnalisée exige la clé du serveur. Compatible avec les endpoints qui implémentent l’API Responses d’OpenAI.",
+      "Eigene Basis-URL nur mit eigenem Serverschlüssel. Endpunkte mit der OpenAI Responses API werden unterstützt.",
+      "Свой URL требует ключ сервера. Поддерживаются эндпоинты с OpenAI Responses API.",
+      "A URL própria exige a chave do servidor. Compatível com endpoints que implementam a API Responses da OpenAI.",
+      "L’URL personalizzato richiede la chiave del server. Supporta endpoint che implementano l’API Responses di OpenAI."
     ],
     "Maintainers can change server settings and manage members": [
       "管理员可修改服务器设置和管理成员",
@@ -15754,7 +15754,7 @@
     "仅使用角色已知信息，提供建议而不决定结果。": "Uses only what your character knows; it proposes, it does not decide outcomes.",
     "依据角色可访问记录给出的启发式一致性评分，并非真实性概率。": "Heuristic consistency score against records your character can access — not a probability of truth.",
     "相关依据：点击查看文档条目或原始事件。": "Associated evidence — click to open the document entry, or view the original events.",
-    "自定义基础地址需搭配本服务器密钥，可使用兼容 OpenAI Chat Completions 的端点。": "A custom base URL is only used together with this server’s own key. Any OpenAI-compatible chat-completions endpoint works.",
+    "自定义基础地址需搭配本服务器密钥，可使用实现 OpenAI Responses API 的端点。": "A custom base URL is only used together with this server’s own key. Any endpoint implementing the OpenAI Responses API works.",
     "管理员可修改服务器设置和管理成员": "Maintainers can change server settings and manage members",
     "从侧栏“邀请玩家”添加成员，使用聊天窗口旁的 ⚇ 按钮管理参与者。": "Invite people with “Invite player” in the sidebar; manage who is in each chat window with the ⚇ button next to it.",
     "文案组用于自定义骰点回复。各频道守秘人可在工作台的设置中选择文案组。": "Text groups change how dice replies are worded (Sealdice “custom texts”). Each channel’s GM picks the group their channel uses in the GM workspace → Settings.",
