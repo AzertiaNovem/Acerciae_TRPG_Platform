@@ -29,7 +29,7 @@ struct LlmEndpoint {
     std::string apiBase;
     std::string apiKey;            // empty => mock mode
     std::string model;
-    std::string reasoningEffort;   // '' | minimal | low | medium | high (sent as reasoning_effort)
+    std::string reasoningEffort;   // '' | minimal | low | medium | high (OpenAI Responses: reasoning.effort)
     std::string embeddingModel;
     int timeoutMs = 60000;
     int maxTokens = 2048;

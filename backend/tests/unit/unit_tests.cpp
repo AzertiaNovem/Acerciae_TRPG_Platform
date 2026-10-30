@@ -10,6 +10,7 @@
 #include "llm/MockLlmClient.h"
 #include "llm/LlmGateway.h"
 #include "llm/AnthropicClient.h"
+#include "llm/OpenAiCompatClient.h"
 #include "llm/StreamResponse.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
@@ -37,15 +38,21 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
-    test("SSE completion requires terminal events and reconstructs tool arguments and usage", [] {
+    test("SSE completion requires terminal events and reconstructs tool calls and usage (Responses and Messages)", [] {
         auto event=[](const Json::Value& v){return "data: "+json::dump(v)+"\r\n\r\n";};
-        std::string open=": heartbeat\r\n\r\n";
-        open+=event(json::parse(R"({"choices":[{"index":0,"delta":{"content":"你好","tool_calls":[{"index":0,"id":"call_1","function":{"name":"search","arguments":"{\"q\":"}}]}}]})"));
-        open+=event(json::parse(R"({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"雾港\"}"}}]},"finish_reason":"tool_calls"}]})"));
-        open+=event(json::parse(R"({"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":12}})"));
-        bool incomplete=false;try{llm::openAiResponse(open);}catch(...){incomplete=true;}CHECK(incomplete);
-        auto answer=llm::openAiResponse(open+"data: [DONE]\r\n\r\n");CHECK(answer["choices"][0]["message"]["content"]=="你好");
-        CHECK(answer["usage"]["completion_tokens"]==12);CHECK(json::parse(answer["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"].asString())["q"]=="雾港");
+        std::string open=": heartbeat\r\n\r\nevent: response.created\r\n";
+        open+=event(json::parse(R"({"type":"response.created","response":{"status":"in_progress","output":[]}})"));
+        open+=event(json::parse(R"({"type":"response.output_text.delta","output_index":0,"delta":"你"})"));
+        open+=event(json::parse(R"({"type":"response.output_text.delta","output_index":0,"delta":"好"})"));
+        open+=event(json::parse(R"({"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"你好"}]}})"));
+        open+=event(json::parse(R"({"type":"response.function_call_arguments.delta","output_index":1,"delta":"{\"q\":"})"));
+        open+=event(json::parse(R"({"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","call_id":"call_1","name":"search","arguments":"{\"q\":\"雾港\"}"}})"));
+        bool incomplete=false;try{llm::responsesResponse(open);}catch(...){incomplete=true;}CHECK(incomplete);
+        // A gateway that trims the terminal response still yields the finished items.
+        auto answer=OpenAiCompatClient::parseResponse(llm::responsesResponse(open+event(json::parse(R"({"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":8,"output_tokens":12}}})"))));
+        CHECK(answer.ok);CHECK(answer.content=="你好");CHECK(answer.promptTokens==8&&answer.completionTokens==12);
+        CHECK(answer.toolCalls.size()==1&&answer.toolCalls[0]["id"]=="call_1");CHECK(json::parse(answer.toolCalls[0]["arguments"].asString())["q"]=="雾港");
+        bool continued=false;try{llm::responsesResponse(open+event(json::parse(R"({"type":"response.completed","response":{"status":"completed"}})"))+event(json::parse(R"({"type":"response.output_text.delta","delta":"x"})")));}catch(...){continued=true;}CHECK(continued);
         std::string anthropic;
         for(const auto& e:json::parse(R"([
           {"type":"message_start","message":{"type":"message","usage":{"input_tokens":8,"output_tokens":1}}},
@@ -58,7 +65,38 @@ int main() {
         incomplete=false;try{llm::anthropicResponse(anthropic);}catch(...){incomplete=true;}CHECK(incomplete);
         auto result=AnthropicClient::parseResponse(llm::anthropicResponse(anthropic+event(json::parse(R"({"type":"message_stop"})"))));
         CHECK(result.ok);CHECK(result.promptTokens==8&&result.completionTokens==9);CHECK(json::parse(result.toolCalls[0]["arguments"].asString())["q"]=="原文");
-        bool failed=false;try{llm::openAiResponse("data: {\"error\":{}}\n\n");}catch(...){failed=true;}CHECK(failed);
+        bool failed=false;try{llm::responsesResponse("data: {\"type\":\"error\",\"message\":\"x\"}\n\n");}catch(...){failed=true;}CHECK(failed);
+        failed=false;try{llm::responsesResponse("data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n");}catch(...){failed=true;}CHECK(failed);
+    });
+    test("OpenAI Responses requests replay tool calls as items and parse status, refusals and usage", [] {
+        LlmEndpoint ep; ep.provider="openai_compatible"; ep.model="fixture-gpt"; ep.maxTokens=4000;
+        LlmRequest req; req.system="Only use authorized records"; req.maxTokens=900; req.temperature=0.3; req.responseSchema=json::parse(R"({"type":"object"})");
+        req.messages.push_back({"user", "Find my clue"});
+        req.tools.push_back({"search_events", "Authorized chat", json::parse(R"({"type":"object","properties":{"q":{"type":"string"}}})")});
+        LlmMessage assistant; assistant.role="assistant"; assistant.toolCalls=json::parse(R"([{"id":"call_7","name":"search_events","arguments":"{\"q\":\"badge\"}"}])"); req.messages.push_back(assistant);
+        LlmMessage tool; tool.role="tool"; tool.toolCallId="call_7"; tool.name="search_events"; tool.content="{\"events\":[]}"; req.messages.push_back(tool);
+        auto b=OpenAiCompatClient::requestBody(req, ep);
+        CHECK(b["model"]=="fixture-gpt"); CHECK(b["instructions"]=="Only use authorized records"); CHECK(b["store"]==false); CHECK(b["stream"]==true);
+        CHECK(b["max_output_tokens"]==900); CHECK(b["temperature"].asDouble()==0.3); CHECK(!b.isMember("reasoning")); CHECK(!b.isMember("messages"));
+        CHECK(b["text"]["format"]["type"]=="json_object");
+        CHECK(b["tools"][0]["type"]=="function"); CHECK(b["tools"][0]["name"]=="search_events"); CHECK(b["tools"][0]["strict"]==false); CHECK(!b["tools"][0].isMember("function"));
+        CHECK(b["input"].size()==4); CHECK(b["input"][0]["role"]=="system");
+        CHECK(b["input"][0]["content"].asString().find("JSON")!=std::string::npos);
+        CHECK(b["input"][1]["role"]=="user"); CHECK(b["input"][1]["content"]=="Find my clue");
+        CHECK(b["input"][2]["type"]=="function_call"); CHECK(b["input"][2]["call_id"]=="call_7"); CHECK(b["input"][2]["arguments"]=="{\"q\":\"badge\"}");
+        CHECK(b["input"][3]["type"]=="function_call_output"); CHECK(b["input"][3]["call_id"]=="call_7"); CHECK(b["input"][3]["output"]=="{\"events\":[]}");
+        ep.reasoningEffort="high"; b=OpenAiCompatClient::requestBody(req, ep);
+        CHECK(b["reasoning"]["effort"]=="high"); CHECK(!b.isMember("temperature"));
+        req.responseSchema=Json::Value(); b=OpenAiCompatClient::requestBody(req, ep);
+        CHECK(!b.isMember("text")); CHECK(b["input"].size()==3); CHECK(b["input"][0]["role"]=="user");
+        auto ok=OpenAiCompatClient::parseResponse(json::parse(R"({"status":"completed","output":[{"type":"reasoning","summary":[]},{"type":"message","content":[{"type":"output_text","text":"{\"draft\":"},{"type":"output_text","text":"\"x\"}"}]}],"usage":{"input_tokens":5,"output_tokens":7}})"));
+        CHECK(ok.ok); CHECK(ok.content=="{\"draft\":\"x\"}"); CHECK(ok.toolCalls.empty()); CHECK(ok.completionTokens==7);
+        auto cut=OpenAiCompatClient::parseResponse(json::parse(R"({"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","content":[{"type":"output_text","text":"{"}]}]})"));
+        CHECK(!cut.ok); CHECK(cut.error.find("output token limit")!=std::string::npos);
+        auto refused=OpenAiCompatClient::parseResponse(json::parse(R"({"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"no"}]}]})"));
+        CHECK(!refused.ok); CHECK(refused.error.find("declined")!=std::string::npos);
+        CHECK(!OpenAiCompatClient::parseResponse(json::parse(R"({"status":"failed","error":{"message":"x"}})")).ok);
+        CHECK(!OpenAiCompatClient::parseResponse(json::parse(R"({"status":"completed","output":[]})")).ok);
     });
     test("Anthropic Messages preserves tool blocks, schema and parallel result turns", [] {
         LlmEndpoint ep; ep.provider="anthropic"; ep.model="fixture-claude"; ep.reasoningEffort="high";

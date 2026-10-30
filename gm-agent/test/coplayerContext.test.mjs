@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { coplayerLog, visibleToCoplayer, renderLine } from "../src/context/coplayerContext.mjs";
 
-const me = { characterId: "c-me", name: "Harriet", windows: ["w-main", "w-private"] };
+const me = { characterId: "c-me", name: "Harriet", seats: [{ windowId: "w-main", fromSeq: 0, toSeq: null }, { windowId: "w-private", fromSeq: 0, toSeq: null }] };
 let seq = 0;
 const line = (over) => ({ id: `m${++seq}`, seq, chat_window_id: "w-main", visibility: "window", kind: "ic", content: "hello", author_role: "player", character_name: "Alice", ...over });
 
@@ -36,4 +36,21 @@ test("the newest lines are kept, oldest first", () => {
 test("roll lines show the platform's dice text; narration is attributed to the Keeper", () => {
   assert.match(renderLine(line({ kind: "roll", content: ".ra Spot Hidden", dice: { text: "Alice rolled 23/60: Success" } })), /\.ra Spot Hidden → Alice rolled 23\/60/);
   assert.match(renderLine(line({ kind: "narration", character_name: null, author_role: "gm", content: "Rain." })), /Keeper \(narration\): Rain\./);
+});
+
+test("a seat has a start and an end: a co-player hears a window only while it sits there", () => {
+  const traveller = { characterId: "c-me", name: "Harriet", seats: [{ windowId: "w-main", fromSeq: 0, toSeq: 10 }, { windowId: "w-side", fromSeq: 11, toSeq: 20 }, { windowId: "w-main", fromSeq: 21, toSeq: null }] };
+  const lines = [
+    { seq: 5, chat_window_id: "w-main", visibility: "window", content: "before leaving" },
+    { seq: 12, chat_window_id: "w-main", visibility: "window", content: "MAIN-WHILE-AWAY" },
+    { seq: 15, chat_window_id: "w-side", visibility: "window", content: "on the side trip" },
+    { seq: 16, chat_window_id: "w-other-side", visibility: "window", content: "OTHER-SIDE" },
+    { seq: 25, chat_window_id: "w-side", visibility: "window", content: "SIDE-AFTER-RETURN" },
+    { seq: 30, chat_window_id: "w-main", visibility: "window", content: "after returning" },
+  ];
+  assert.deepEqual(coplayerLog(traveller, lines).map((m) => m.content), ["before leaving", "on the side trip", "after returning"]);
+});
+
+test("a line can carry its timeline for the Keeper", () => {
+  assert.match(renderLine(line({ content: "We found a badge." }), { timeline: "The docks" }), /Alice \[timeline: The docks\]: We found a badge\./);
 });

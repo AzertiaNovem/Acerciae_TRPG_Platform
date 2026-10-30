@@ -10,7 +10,7 @@ A multiplayer online table for Call of Cthulhu and other Basic Roleplaying games
 | Backend | C++20, [Drogon](https://github.com/drogonframework/drogon) (HTTP + WebSocket), [libpqxx](https://github.com/jtv/libpqxx), jsoncpp, libcurl, poppler-cpp |
 | Database | PostgreSQL 16 with full-text search, `pg_trgm`, optional `pgvector` |
 | Frontend | React 18 + TypeScript + Vite, zustand, react-markdown |
-| AI | Per-server LLM gateway (OpenAI- or Anthropic-compatible), image and speech providers set by each server's maintainers, or a clearly labelled **Mock mode** |
+| AI | Per-server LLM gateway (OpenAI Responses API or Anthropic Messages API), image and speech providers set by each server's maintainers, or a clearly labelled **Mock mode** |
 | Deployment | Docker Compose (db / backend / frontend / PDF worker; optional MinIO) |
 
 Screenshots (taken from the running app in mock mode):

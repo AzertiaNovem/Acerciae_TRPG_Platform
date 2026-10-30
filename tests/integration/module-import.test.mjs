@@ -1,7 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-const userText=body=>{const c=body.messages.find(m=>m.role==='user').content;return typeof c==='string'?c:c.filter(b=>b.type==='text').map(b=>b.text).join('');};
+// OpenAI Responses carries the system prompt in `instructions` and the turns in `input`; Anthropic in `system` and `messages`.
+const userText=body=>{const c=(body.input??body.messages).find(m=>m.role==='user').content;return typeof c==='string'?c:c.filter(b=>b.type==='text').map(b=>b.text).join('');};
+const systemText=body=>body.instructions??body.system;
 const base=process.env.API_BASE||'http://127.0.0.1:18081';
 async function call(token,method,path,body) {
  const r=await fetch(base+path,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
@@ -15,12 +17,12 @@ test('module import accepts promptly, reports durable progress, deduplicates ret
   let raw='';for await(const b of req)raw+=b;
   const body=JSON.parse(raw);requests.push(body);
   if(hold){hold=false;await new Promise(resolve=>{releaseFirst=resolve;});}
-  const module=(body.system||body.messages[0].content).includes('conditional knowledge graph');
+  const module=systemText(body).includes('conditional knowledge graph');
   if(module&&timeoutAbove){const ctx=JSON.parse(userText(body));if(ctx.pages.reduce((n,p)=>n+Buffer.byteLength(p.text),0)>timeoutAbove){res.writeHead(504,{'Retry-After':'0'});return res.end('{}');}}
   const content=module?{nodes:[{key:'location|harbour',node_type:'location',name:'Harbour',description:'Rainy stone harbour',citations:[{page:1}]}],edges:[]}:{entries:[]};
   res.setHeader('Content-Type','application/json');
   if(req.url.endsWith('/messages'))return res.end(JSON.stringify({content:[{type:'text',text:JSON.stringify(content)}],stop_reason:'end_turn',usage:{input_tokens:20,output_tokens:30}}));
-  res.end(JSON.stringify({choices:[{finish_reason:truncated?'length':'stop',message:{role:'assistant',content:JSON.stringify(content)}}],usage:{prompt_tokens:20,completion_tokens:30}}));
+  res.end(JSON.stringify({status:truncated?'incomplete':'completed',incomplete_details:truncated?{reason:'max_output_tokens'}:null,output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(content)}]}],usage:{input_tokens:20,output_tokens:30}}));
  });
  await new Promise(r=>fixture.listen(0,'127.0.0.1',r));
  t.after(()=>{releaseFirst?.();fixture.closeAllConnections();fixture.close();});
@@ -37,17 +39,17 @@ test('module import accepts promptly, reports durable progress, deduplicates ret
  await until(()=>releaseFirst);
  const progress=await call(gm,'GET',root+'/'+a.id);
  assert.equal(progress.status,'structuring');assert.ok(progress.total_chunks>1);assert.equal(progress.completed_chunks,0);
- assert.equal(requests[0].max_tokens,32768);
+ assert.equal(requests[0].max_output_tokens,32768);
  await assert.rejects(call(pl,'GET',root+'/'+a.id),e=>e.status===403);
  await assert.rejects(call(pl,'POST',root+'/'+a.id+'/retry'),e=>e.status===403);
  releaseFirst();
  const ready=await until(async()=>{const m=await call(gm,'GET',root+'/'+a.id);assert.notEqual(m.status,'failed',m.error);return m.status==='ready'&&m;});
  assert.equal(ready.nodes[0].citations[0].excerpt,'','old clients receive a string even for page-only model citations');
  assert.equal(ready.import_stage,'ready');assert.equal(ready.completed_chunks,ready.total_chunks);assert.equal(ready.import_warning,null);
- const moduleCalls=requests.filter(b=>b.messages[0].content.includes('conditional knowledge graph'));
+ const moduleCalls=requests.filter(b=>systemText(b).includes('conditional knowledge graph'));
  assert.equal(moduleCalls.length,ready.total_chunks);
- assert.ok(requests.filter(b=>b.messages[0].content.includes("Keeper's working knowledge")).every(b=>b.max_tokens===32768));
- const restored=moduleCalls.flatMap(b=>JSON.parse(b.messages[1].content).pages).map(p=>p.text).join('');
+ assert.ok(requests.filter(b=>systemText(b).includes("Keeper's working knowledge")).every(b=>b.max_output_tokens===32768));
+ const restored=moduleCalls.flatMap(b=>JSON.parse(userText(b)).pages).map(p=>p.text).join('');
  assert.equal(restored,text);
  assert.equal((await call(gm,'POST',root+'/text',{text,async:true})).id,a.id);
  assert.equal((await call(gm,'GET',root)).length,1);
@@ -66,7 +68,7 @@ test('module import accepts promptly, reports durable progress, deduplicates ret
   const source=provider+'\n'+'雾中的灯塔。'.repeat(1800);
   const imported=await call(gm,'POST',root+'/text',{text:source,async:true});
   const done=await until(async()=>{const m=await call(gm,'GET',root+'/'+imported.id);assert.notEqual(m.status,'failed',m.error);return m.status==='ready'&&m;});
-  const contexts=requests.filter(b=>(b.system||b.messages[0].content).includes('conditional knowledge graph')).map(b=>JSON.parse(userText(b)));
+  const contexts=requests.filter(b=>systemText(b).includes('conditional knowledge graph')).map(b=>JSON.parse(userText(b)));
   const accepted=contexts.filter(c=>c.pages.reduce((n,p)=>n+Buffer.byteLength(p.text),0)<=3200);
   assert.equal(contexts.length-accepted.length,6,'two reductions, three HTTP attempts per timed-out chunk');
   assert.equal(accepted.length,done.total_chunks);assert.equal(done.completed_chunks,done.total_chunks);

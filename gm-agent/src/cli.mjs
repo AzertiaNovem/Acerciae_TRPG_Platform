@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // acerciae-gm: an AI Game Master for an Acerciae channel.
 //   setup   sign in, create or attach to a channel the account is GM of, and create the co-players (role cards by the LLM)
-//   run     play: the GM and real NPCs answer the table, then the co-players act
-//   status  show the channel, the cast and how each role is fed
+//   run     play: the GM and real NPCs answer the table, then the co-players act; side timelines and quiet windows
+//           move on their own clock
+//   split   send co-players off on a timeline of their own (a window only they sit in); rejoin brings them back
+//   status  show the channel, the cast, the timelines and how each role is fed
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Api } from "./api.mjs";
@@ -10,11 +13,12 @@ import { buildConfig, loadEnvFile, parseArgs } from "./config.mjs";
 import { createLlm } from "./llm/index.mjs";
 import { withProgress } from "./llm/progress.mjs";
 import { Realtime } from "./realtime.mjs";
-import { Roster } from "./roles/roster.mjs";
+import { Roster, openSeat, openWindows } from "./roles/roster.mjs";
 import { generateCoplayer, saveCharacter } from "./roles/cardgen.mjs";
 import { completeExistingCharacter } from "./roles/complete.mjs";
-import { loadState, saveState } from "./state.mjs";
+import { loadState, saveState, statePath } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
+import { Timelines } from "./timelines.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -81,7 +85,7 @@ async function setup(cfg) {
     const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers };
     const generated = await generateCoplayer(llm, args);
     const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, llm, language, pointsMode });
-    roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, windows: [...seats] });
+    roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
     saveState(cfg.stateDir, { ...state, ...roster.toJSON() });
     log(`co-player ${roster.coplayers.length}/${cfg.coplayers}: ${saved.name} (${saved.card.basic.occupation || "investigator"})`);
   }
@@ -91,41 +95,78 @@ async function setup(cfg) {
   console.log(`\nchannel: ${channel.name}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  LLM: ${cfg.llm.provider}${cfg.llm.model ? ` ${cfg.llm.model}` : ""}${cfg.llm.provider === "mock" ? " (placeholder text, for testing only)" : ""}\n\nInvite players to the channel in the web app, then: CHANNEL_ID=${channel.id} npm start`);
 }
 
-async function run(cfg) {
+// The table for a channel: the roster and timelines from the state file, saved back whenever they change.
+async function openTable(cfg, { llm = null } = {}) {
   const api = await signIn(cfg);
   const { channel } = await resolveChannel(api, cfg, { create: false });
   const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
-  const roster = new Roster(state);
-  const table = await new Table({
-    api, llm: withProgress(createLlm(cfg.llm), log), cfg, channelId: channel.id, roster, log,
-    persist: (r) => saveState(cfg.stateDir, { ...state, ...r.toJSON() }),
-  }).init();
-  saveState(cfg.stateDir, { ...state, ...roster.toJSON() });
+  let written = "";
+  const persist = (t) => { const next = { ...state, ...t.roster.toJSON(), timelines: t.timelines.toJSON() }; written = JSON.stringify(next, null, 2); saveState(cfg.stateDir, next); };
+  const table = await new Table({ api, llm, cfg, channelId: channel.id, roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), log, persist }).init();
+  persist(table);
+  return { api, channel, table, state, persist, lastWritten: () => written };
+}
+
+async function run(cfg) {
+  const { api, channel, table, lastWritten } = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log) });
+  const roster = table.roster;
   const rt = new Realtime({ apiBase: cfg.apiBase, token: api.token, channelId: channel.id, log });
   rt.on("event", (ev) => table.onEvent(ev));
   rt.on("reconnected", () => table.refresh().catch(() => {}));
   rt.start();
-  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; LLM: ${cfg.llm.provider}`);
+  table.startTicker();
+  // A `split`, `rejoin` or `setup` run beside this process changes the state file: pick it up.
+  const file = statePath(cfg.stateDir, channel.id);
+  fs.watchFile(file, { interval: 2000 }, () => {
+    let text; try { text = fs.readFileSync(file, "utf8"); } catch { return; }
+    if (text === lastWritten()) return;
+    try { table.reload(JSON.parse(text)).then(() => log("state file changed: roster and timelines reloaded")); } catch (e) { log(`state file unreadable: ${e.message}`); }
+  });
+  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; LLM: ${cfg.llm.provider}; autonomy: ${cfg.autonomy ? `on (side every ${cfg.autonomySideIntervalMs / 1000}s, quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}`);
   if (cfg.kickoff) {
-    const main = table.windows.find((w) => w.kind === "main") ?? table.windows[0];
+    const main = table.mainWindow();
     if (main) table.schedule(main.id, { kickoff: true, delay: 0 });
   }
-  const stop = () => { rt.stop(); process.exit(0); };
+  const stop = () => { table.stopTicker(); fs.unwatchFile(file); rt.stop(); process.exit(0); };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 }
 
+// `split --name "The docks" --coplayers "Harriet Vance,Tomas Leclerc" [--location …] [--time …] [--opening …]`
+async function split(cfg, args) {
+  const { table } = await openTable(cfg);
+  const names = String(args.coplayers ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (!args.name || !names.length) throw new Error("split needs --name <thread> and --coplayers <names, comma-separated>");
+  const from = (args.from && table.windows.find((w) => w.name.toLowerCase() === String(args.from).toLowerCase() || w.id === args.from)) ?? table.mainWindow();
+  const n = await table.split(from.id, { name: args.name, coplayers: names, location: args.location ?? "", narrative_time: args.time ?? "", opening: args.opening ?? "" });
+  const t = table.timelines.byName(args.name);
+  if (!t) throw new Error("no co-player matched; nothing was split");
+  console.log(`timeline "${t.name}" opened in window "${table.windows.find((w) => w.id === t.windowId)?.name}" with ${t.members.length} co-player(s)${n ? "; opening posted" : ""}. A running \`run\` picks this up within seconds.`);
+}
+
+// `rejoin --timeline "The docks" [--into "Main Chat"] [--text …]`
+async function rejoin(cfg, args) {
+  const { table } = await openTable(cfg);
+  if (!args.timeline) throw new Error("rejoin needs --timeline <thread name>");
+  const t = table.timelines.byName(args.timeline);
+  if (!t || t.status !== "active") throw new Error(`no active timeline named "${args.timeline}"`);
+  await table.rejoin({ timeline: args.timeline, into: args.into, text: args.text });
+  console.log(`timeline "${t.name}" merged into ${table.timelines.get(t.mergedInto)?.name ?? "the main story"}; its co-players are back.`);
+}
+
 async function status(cfg) {
-  const api = await signIn(cfg);
-  const { channel } = await resolveChannel(api, cfg, { create: false });
-  const windows = await api.windows(channel.id);
-  const roster = new Roster(loadState(cfg.stateDir, channel.id) ?? {}).reconcile(await api.characters(channel.id), seatWindows(cfg, windows));
+  const { channel, table } = await openTable(cfg);
+  const { roster, timelines, windows } = table;
   const wname = (id) => windows.find((w) => w.id === id)?.name ?? id;
+  const cname = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}`);
   console.log("GM and real NPCs share the Keeper's context: all chat, the Keeper board, reminders, script knowledge, documents, highlights.");
   console.log(`real NPCs: ${roster.npcs.map((n) => n.name).join(", ") || "(none)"}`);
-  console.log("co-players see only the chat lines their character witnessed:");
-  for (const c of roster.coplayers) console.log(`  ${c.name} — seated in ${c.windows.map(wname).join(", ")}`);
+  console.log("co-players see only the chat lines their character witnessed, during their seats:");
+  for (const c of roster.coplayers) console.log(`  ${c.name} — now in ${openWindows(c).map(wname).join(", ") || "(nowhere)"}; ${c.seats.length} seat(s) so far`);
+  console.log("timelines:");
+  for (const t of timelines.list) console.log(`  ${t.name} [${t.status}${t.mergedInto ? ` → ${timelines.get(t.mergedInto)?.name}` : ""}]${t.windowId ? ` in "${wname(t.windowId)}"` : ""}: ${t.members.map(cname).join(", ") || "(no one)"}${t.narrativeTime ? `; ${t.narrativeTime}` : ""}${t.location ? ` @ ${t.location}` : ""}`);
+  console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -133,9 +174,9 @@ loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
 loadEnvFile(path.join(here, "..", ".env"));
 const cfg = buildConfig(args);
 const command = args._[0] ?? "run";
-const commands = { setup, run, status };
+const commands = { setup, run, status, split, rejoin };
 if (!commands[command]) {
-  console.error(`usage: acerciae-gm <setup|run|status> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
   process.exit(2);
 }
-commands[command](cfg).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });
+commands[command](cfg, args).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });

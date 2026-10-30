@@ -19,7 +19,7 @@ const wait = async fn => {
   throw Error('timed out');
 };
 
-test('maintainer AI settings: separate image credentials, GPT images/edits, Anthropic tool loop, isolation and failure handling', async () => {
+test('maintainer AI settings: separate image credentials, GPT images/edits, Anthropic and OpenAI Responses tool loops, isolation and failure handling', async () => {
   const requests = [];
   let imageFailures = 0, releaseImage;
   const fixture = http.createServer(async (req, res) => {
@@ -42,7 +42,14 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
       res.setHeader('Content-Type', 'application/octet-stream');
       return res.end(Buffer.alloc(24000 * 2 / 2));   // half a second of 24 kHz 16-bit PCM silence
     }
-    if (req.url.endsWith('/chat/completions')) return send({ choices: [{ message: { content: JSON.stringify({ draft: 'I check the original statement.', used_fact_ids: [] }) } }] });
+    if (req.url.endsWith('/responses')) {
+      // OpenAI Responses API: a function call first, then the final answer once its output comes back.
+      if (!json.input.some(i => i.type === 'function_call_output')) return send({ status: 'completed', output: [
+        { type: 'reasoning', summary: [] },
+        { type: 'function_call', call_id: 'call_oa_1', name: 'get_knowledge_scope', arguments: '{}' }
+      ], usage: { input_tokens: 10, output_tokens: 4 } });
+      return send({ status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ draft: 'I check the original statement.', used_fact_ids: [] }) }] }], usage: { input_tokens: 20, output_tokens: 9 } });
+    }
     if (req.url.endsWith('/images/generations') || req.url.endsWith('/images/edits')) {
       if (json?.model === 'held-image') await new Promise(resolve => { releaseImage = resolve; });
       if (json?.model === 'retry-image' && imageFailures++ === 0) { res.statusCode = 429; return send({ error: { message: 'fixture rate limit' } }); }
@@ -175,8 +182,16 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
 
     await call(gm.token, 'PUT', settings, { llm: { provider: 'openai_compatible', api_base: endpoint + '/openai/v1', api_key: 'openai-secret-A', model: 'fixture-openai', reasoning_effort: '' } });
     assert.equal((await call(pl.token, 'POST', `/api/channels/${ch}/inspiration`, { chat_window_id: w })).draft, 'I check the original statement.');
-    const oa = requests.find(r => r.url.endsWith('/chat/completions'));
-    assert.equal(oa.headers.authorization, 'Bearer openai-secret-A'); assert.equal(oa.json.model, 'fixture-openai');
+    const oa = requests.filter(r => r.url === '/openai/v1/responses');
+    assert.equal(oa.length, 2, 'one function call round, then the answer');
+    assert.ok(!requests.some(r => r.url.endsWith('/chat/completions')), 'Chat Completions is no longer used');
+    assert.equal(oa[0].headers.authorization, 'Bearer openai-secret-A'); assert.equal(oa[0].json.model, 'fixture-openai');
+    assert.equal(oa[0].json.store, false); assert.ok(oa[0].json.instructions); assert.equal(oa[0].json.messages, undefined);
+    assert.ok(oa[0].json.tools.every(t => t.type === 'function' && t.name && t.strict === false && !t.function));
+    const replay = oa[1].json.input;
+    const callAt = replay.findIndex(i => i.type === 'function_call' && i.call_id === 'call_oa_1');
+    assert.ok(callAt >= 0, 'the function call is replayed');
+    assert.ok(replay.slice(callAt).some(i => i.type === 'function_call_output' && i.call_id === 'call_oa_1' && typeof i.output === 'string'), 'its output follows with the same call_id');
     await call(gm.token, 'PUT', root + `/styles/${style.id}`, { reference_asset_ids: [] });
     // One running request may finish; a pending request must not move to a new provider configuration.
     await call(gm.token, 'PUT', settings, { image: { model: 'held-image' } });

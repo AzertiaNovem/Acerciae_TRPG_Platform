@@ -6,13 +6,13 @@
 
 ## 语言模型
 
-API 协议可以选“OpenAI 兼容”或“Anthropic 兼容”。基础地址需包含 `/v1`，例如 `https://api.openai.com/v1` 或 `https://api.anthropic.com/v1`；使用中转服务时填写该服务提供的基础地址，不附加 `/chat/completions` 或 `/messages`。模型名填写服务商实际提供的模型 ID。
+API 协议可以选“OpenAI 兼容”或“Anthropic 兼容”。“OpenAI 兼容”使用 OpenAI Responses API（`POST {基础地址}/responses`），服务商或中转服务必须实现该接口；只支持 Chat Completions 的服务无法使用。基础地址需包含 `/v1`，例如 `https://api.openai.com/v1` 或 `https://api.anthropic.com/v1`；使用中转服务时填写该服务提供的基础地址，不附加 `/responses` 或 `/messages`。模型名填写服务商实际提供的模型 ID。
 
 选择 OpenAI 或 Anthropic 协议时必须填写本服务器自己的密钥和模型；选择“模拟（无模型）”则不发出任何请求。已有密钥不会返回浏览器；留空表示保留，勾选移除才会删除。
 
 服务地址必须是 https 的公网地址；后端解析一次域名并固定连接到该地址，不跟随重定向，也不会把服务商的错误正文回显给浏览器。部署方为可信的内网自建模型设置 `AI_ALLOW_PRIVATE_ENDPOINTS=true` 后，才允许内网地址或 http。
 
-OpenAI 模式调用 Chat Completions；Anthropic 模式调用 Messages，支持多轮工具调用及 JSON 结果校验，原有知识权限检查继续生效。Anthropic 模式不发送 OpenAI 的 `reasoning_effort`，也不启用扩展思考参数。OpenAI 兼容模式可另填嵌入模型，用于聊天记录的语义检索；留空则只按关键词检索。Anthropic Messages 不提供该项目的 embedding 调用。
+OpenAI 模式调用 Responses API（流式、`store: false`，思考力度以 `reasoning.effort` 发送）；Anthropic 模式调用 Messages。两者都支持多轮工具调用及 JSON 结果校验，原有知识权限检查继续生效。Anthropic 模式不发送 OpenAI 的 `reasoning.effort`，也不启用扩展思考参数。OpenAI 兼容模式可另填嵌入模型，用于聊天记录的语义检索；留空则只按关键词检索。Anthropic Messages 不提供该项目的 embedding 调用。
 
 ## 独立的图像服务
 
