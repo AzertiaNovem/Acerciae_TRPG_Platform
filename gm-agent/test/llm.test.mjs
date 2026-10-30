@@ -51,6 +51,64 @@ test("OpenAI-compatible: chat completions with the system prompt first", async (
     const llm = createLlm({ provider: "openai_compatible", apiKey: "k", apiBase: `${s.base}/v1`, model: "local-model", timeoutMs: 5000 });
     assert.equal(await llm.complete({ system: "sys", messages: [{ role: "user", content: "hi" }] }), "{}");
     assert.equal(s.seen[0].url, "/v1/chat/completions");
+    assert.equal(s.seen[0].body.stream, true);
     assert.deepEqual(s.seen[0].body.messages[0], { role: "system", content: "sys" });
   } finally { s.close(); }
+});
+
+function streamingLlm(t, wire) {
+  const bytes = new TextEncoder().encode(wire);
+  t.mock.method(globalThis, "fetch", async () => new Response(new ReadableStream({
+    start(controller) {
+      // Deliberately split inside UTF-8 code points, JSON, and CRLF boundaries.
+      for (const byte of bytes) controller.enqueue(Uint8Array.of(byte));
+      controller.close();
+    },
+  }), { headers: { "Content-Type": "text/event-stream" } }));
+  return createLlm({ provider: "openai_compatible", apiBase: "https://fixture.invalid/v1", model: "test", timeoutMs: 5000 });
+}
+
+const delta = (content, finish_reason = null) => `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason }] })}\r\n\r\n`;
+const request = { system: "test", messages: [{ role: "user", content: "test" }] };
+
+test("OpenAI stream: split Chinese UTF-8, keepalives and DONE produce one full reply", async (t) => {
+  const llm = streamingLlm(t, ': keepalive\r\n\r\n' + delta('{"name":"') + delta('调查员"}') + delta('', 'stop') + 'data: [DONE]\r\n\r\n');
+  assert.equal(await llm.complete(request), '{"name":"调查员"}');
+});
+
+test("OpenAI stream: an interrupted response is never accepted as a role card", async (t) => {
+  const llm = streamingLlm(t, delta('{"name":"partial"}'));
+  await assert.rejects(llm.complete(request), /ended before completion/);
+});
+
+test("OpenAI stream: token exhaustion is actionable, even when the text is valid JSON", async (t) => {
+  const llm = streamingLlm(t, delta('{}', 'length') + 'data: [DONE]\r\n\r\n');
+  await assert.rejects(llm.complete(request), /truncated.*LLM_MAX_TOKENS/);
+});
+
+test("OpenAI stream: provider errors inside a 200 response are surfaced", async (t) => {
+  const llm = streamingLlm(t, 'data: {"error":{"message":"upstream unavailable"}}\n\n');
+  await assert.rejects(llm.complete(request), /upstream unavailable/);
+});
+
+test("OpenAI stream: compatible endpoints may end after an explicit finish_reason", async (t) => {
+  const llm = streamingLlm(t, delta('{}', 'stop'));
+  assert.equal(await llm.complete(request), '{}');
+});
+
+test("OpenAI-compatible: HTML 504 explains the gateway timeout instead of null", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response('<html>Gateway timeout</html>', { status: 504 }));
+  const llm = createLlm({ provider: "openai_compatible", apiBase: "https://fixture.invalid/v1", model: "test" });
+  await assert.rejects(llm.complete(request), (error) => error.status === 504 && /gateway timed out/.test(error.message) && !/null/.test(error.message));
+});
+
+test("OpenAI-compatible: streaming can be disabled for older gateways", async (t) => {
+  let body;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    body = JSON.parse(options.body);
+    return Response.json({ choices: [{ message: { content: '{}' }, finish_reason: 'stop' }] });
+  });
+  const llm = createLlm({ provider: "openai_compatible", apiBase: "https://fixture.invalid/v1", model: "test", stream: false });
+  assert.equal(await llm.complete(request), '{}');
+  assert.equal(body.stream, false);
 });
