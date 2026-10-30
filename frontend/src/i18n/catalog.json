@@ -14434,5 +14434,65 @@
     "Оставьте модель пустой для gpt-4o-mini-tts или укажите более новую модель с тем же API /audio/speech. OpenAI предлагает только готовые голоса (без дизайна и клонирования голоса).",
     "Deixe o modelo vazio para gpt-4o-mini-tts ou informe um modelo mais novo que use a mesma API /audio/speech. A OpenAI oferece apenas vozes predefinidas (sem design nem clonagem de voz).",
     "Lascia vuoto il modello per gpt-4o-mini-tts, oppure indica un modello più recente che usi la stessa API /audio/speech. OpenAI offre solo voci predefinite (niente progettazione o clonazione della voce)."
+  ],
+  "AI in this channel": [
+    "本频道的 AI",
+    "本頻道的 AI",
+    "このチャンネルの AI",
+    "이 채널의 AI",
+    "IA en este canal",
+    "IA dans ce canal",
+    "KI in diesem Kanal",
+    "ИИ в этом канале",
+    "IA neste canal",
+    "IA in questo canale"
+  ],
+  "Background chronicler (the observer behind the reminder and document bubbles)": [
+    "后台记录者（提醒与文档气泡背后的观察者）",
+    "後台記錄者（提醒與文件氣泡背後的觀察者）",
+    "バックグラウンドの記録係（リマインダーと資料バブルの背後にある観察者）",
+    "백그라운드 기록자(리마인더·문서 버블 뒤의 관찰자)",
+    "Cronista de fondo (el observador detrás de las burbujas de recordatorios y documentos)",
+    "Chroniqueur d’arrière-plan (l’observateur derrière les bulles de rappels et de documents)",
+    "Hintergrund-Chronist (der Beobachter hinter den Erinnerungs- und Dokumentblasen)",
+    "Фоновый летописец (наблюдатель за пузырями напоминаний и документов)",
+    "Cronista de fundo (o observador por trás das bolhas de lembretes e documentos)",
+    "Cronista in background (l’osservatore dietro le bolle di promemoria e documenti)"
+  ],
+  "Consistency check": [
+    "一致性检查",
+    "一致性檢查",
+    "整合性チェック",
+    "일관성 검사",
+    "Comprobación de coherencia",
+    "Vérification de cohérence",
+    "Konsistenzprüfung",
+    "Проверка согласованности",
+    "Verificação de consistência",
+    "Controllo di coerenza"
+  ],
+  "Atmosphere backgrounds": [
+    "氛围背景",
+    "氛圍背景",
+    "雰囲気の背景",
+    "분위기 배경",
+    "Fondos de ambiente",
+    "Fonds d’ambiance",
+    "Atmosphären-Hintergründe",
+    "Фоны атмосферы",
+    "Fundos de atmosfera",
+    "Sfondi d’atmosfera"
+  ],
+  "Turn all four off for a plain chat room that costs no tokens: no model calls are made for this channel. Features the server maintainer turned off are greyed out.": [
+    "四项全部关闭即为不消耗 token 的普通聊天室：本频道不会发起任何模型调用。服务器维护者已关闭的功能显示为灰色。",
+    "四項全部關閉即為不消耗 token 的普通聊天室：本頻道不會發起任何模型呼叫。伺服器維護者已關閉的功能顯示為灰色。",
+    "4つすべてをオフにすると、トークンを消費しない普通のチャットルームになります。このチャンネルではモデル呼び出しが行われません。サーバー管理者がオフにした機能はグレー表示です。",
+    "네 가지를 모두 끄면 토큰이 들지 않는 일반 채팅방이 됩니다. 이 채널에서는 모델 호출이 일어나지 않습니다. 서버 관리자가 끈 기능은 회색으로 표시됩니다.",
+    "Desactiva las cuatro para una sala de chat simple sin coste de tokens: no se hacen llamadas al modelo en este canal. Las funciones desactivadas por el mantenedor del servidor aparecen en gris.",
+    "Désactivez les quatre pour un simple salon de discussion sans coût en jetons : aucun appel au modèle n’est fait pour ce canal. Les fonctions désactivées par le mainteneur du serveur sont grisées.",
+    "Alle vier ausschalten für einen einfachen Chatraum ohne Token-Kosten: für diesen Kanal werden keine Modellaufrufe gemacht. Vom Server-Betreuer abgeschaltete Funktionen sind ausgegraut.",
+    "Выключите все четыре для обычного чата без расхода токенов: для этого канала модель не вызывается. Функции, отключённые сопровождающим сервера, показаны серым.",
+    "Desligue as quatro para uma sala de chat simples sem custo de tokens: nenhuma chamada ao modelo é feita neste canal. Recursos desligados pelo mantenedor do servidor ficam acinzentados.",
+    "Disattiva tutte e quattro per una semplice chat senza costo di token: nessuna chiamata al modello viene fatta per questo canale. Le funzioni disattivate dal manutentore del server sono in grigio."
   ]
 }

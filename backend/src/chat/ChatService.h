@@ -40,6 +40,7 @@ public:
     Json::Value allChannels(const Principal& p, const std::string& serverId);
     Json::Value getChannel(const ChannelAccess& a);
     Json::Value updateChannel(const ChannelAccess& a, const Json::Value& body);
+    void requireChannelAi(const ChannelAccess& a, const std::string& column);   // consistency_enabled | inspiration_enabled
     // The Keeper ends the story: every member can then read the whole story in the campaign log, Keeper-only lines
     // included when `reveal_keeper_lines` is set. Reopening returns to the Keeper's own visibility rules.
     Json::Value endStory(const ChannelAccess& a, const Json::Value& body);

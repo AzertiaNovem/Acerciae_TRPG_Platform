@@ -81,6 +81,7 @@ export default function ContextBubbleDock() {
   const openSlotSet = useKp((s) => s.open);
   const channel = useNav((s) => s.channel);
   const isGm = channel?.my_role === 'gm';
+  if (channel?.ai_enabled === false) return null;   // the GM switched the chronicler off: nothing feeds the bubbles
   const docs = isGm ? list : [];
   const count = reminders.length + docs.length + (isGm ? 2 : 0);
   const viewerOpen = !!openReminder || (isGm && !!openSlot);
