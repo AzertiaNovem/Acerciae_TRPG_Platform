@@ -95,7 +95,7 @@ std::string CharacterSpaceService::buildPrompt(const std::string& appearance, co
     if (!when.empty()) p += ". Moment in the story: " + when;
     if (slot == "avatar") p += ". Framing: head-and-shoulders avatar, square, centred face, plain background.";
     else if (slot == "portrait") p += ". Framing: main character portrait, waist-up, neutral expression, consistent identity.";
-    else p += ". Framing: full-body visual-novel standee on a plain background, expression/pose: " + (subtitle.empty() ? std::string("IDLE") : subtitle) + ". Keep the same face, hair and attire as the main portrait.";
+    else p += ". Framing: full-body visual-novel standee isolated on a transparent background with a real alpha channel, expression/pose: " + (subtitle.empty() ? std::string("IDLE") : subtitle) + ". Keep the same face, hair and attire as the main portrait. Keep the entire silhouette, hands and feet inside the frame. No scenery, solid backdrop, checkerboard pattern or ground shadow.";
     return clip(p, 5000);
 }
 
