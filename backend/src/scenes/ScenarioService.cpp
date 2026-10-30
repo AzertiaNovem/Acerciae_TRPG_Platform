@@ -228,7 +228,7 @@ Json::Value ScenarioService::advance(const ChannelAccess& a, const Json::Value& 
     if (!out["previous"].isNull()) notifier_.sceneChanged(a.channelId, out["previous"]);
     notifier_.sceneChanged(a.channelId, out["scene"]);
     for (auto& win : out["windows"]) notifier_.windowChanged(a.channelId, win);
-    if (!out["previous"].isNull()) { summarizeClosed(a.channelId, out["previous"]["id"].asString()); out["previous"] = db_.queryOne("SELECT * FROM scenes WHERE id=$1", {out["previous"]["id"].asString()}); }
+    if (!out["previous"].isNull()) { scenes_.notifyClosed(a.channelId, out["previous"]["id"].asString(), a.userId); summarizeClosed(a.channelId, out["previous"]["id"].asString()); out["previous"] = db_.queryOne("SELECT * FROM scenes WHERE id=$1", {out["previous"]["id"].asString()}); }
     return out;
 }
 Json::Value ScenarioService::enter(const ChannelAccess& a, const std::string& sceneId) {

@@ -14494,5 +14494,17 @@
     "Выключите все четыре для обычного чата без расхода токенов: для этого канала модель не вызывается. Функции, отключённые сопровождающим сервера, показаны серым.",
     "Desligue as quatro para uma sala de chat simples sem custo de tokens: nenhuma chamada ao modelo é feita neste canal. Recursos desligados pelo mantenedor do servidor ficam acinzentados.",
     "Disattiva tutte e quattro per una semplice chat senza costo di token: nessuna chiamata al modello viene fatta per questo canale. Le funzioni disattivate dal manutentore del server sono in grigio."
+  ],
+  "system": [
+    "系统",
+    "系統",
+    "システム",
+    "시스템",
+    "Sistema",
+    "Système",
+    "System",
+    "Система",
+    "Sistema",
+    "Sistema"
   ]
 }

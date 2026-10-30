@@ -31,6 +31,7 @@
 #include "../logstudio/VnScriptService.h"
 #include "../servers/ServerSettingsService.h"
 #include "../servers/DeletionService.h"
+#include "../characters/GrowthService.h"
 #include "../servers/AiPolicyService.h"
 #include "../core/WorkPool.h"
 #include "../core/NetGuard.h"
@@ -81,6 +82,8 @@ Services& Services::build(const Config& cfg) {
     s.vnScripts = std::make_unique<logstudio::VnScriptService>(*s.db,*s.auth,*s.studio,*s.presentations,*s.creative,*s.llm,*s.notifier);
     s.characterSpace = std::make_unique<CharacterSpaceService>(*s.db, *s.media, *s.creative, *s.settings, *s.notifier);
     s.scenarios = std::make_unique<ScenarioService>(*s.db, *s.events, *s.scenes, *s.llm, *s.notifier);
+    s.growth = std::make_unique<GrowthService>(*s.db, *s.chat, *s.dice, *s.notifier);
+    s.scenes->setClosedHook([&s](const std::string& ch, const std::string& scene, const std::string& actor) { s.growth->runForClosedScene(ch, scene, actor); });
     s.reminders = std::make_unique<ReminderService>(*s.db, *s.llm, *s.retrieval, *s.notifier);
     s.script = std::make_unique<ScriptKnowledgeService>(*s.db, *s.llm, *s.retrieval, *s.reminders, *s.notifier);
     s.modules->setPostProcess([&s](const std::string& channelId, const std::string& moduleId) { int calls = 0; s.script->buildFromModule(channelId, moduleId, calls); });

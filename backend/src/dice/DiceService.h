@@ -42,6 +42,7 @@ public:
 
     dice::TextSet textsForChannel(pqxx::work& w, const std::string& channelId, std::string* language = nullptr);
     void setRng(std::unique_ptr<dice::Rng> rng) { rng_ = std::move(rng); }   // tests
+    dice::Rng& rng() { return *rng_; }                                        // shared with the growth check
 private:
     Json::Value characterFor(const ChannelAccess& a, const std::string& characterId, bool forWrite);
     std::string displayName(const std::string& userId);

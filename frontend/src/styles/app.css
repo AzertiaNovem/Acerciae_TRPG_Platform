@@ -56,6 +56,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); paddi
 .message .content { white-space: pre-wrap; word-break: break-word; }
 .message.narration .content { color: var(--fg-1); font-style: italic; }
 .message.ooc .content { color: var(--fg-2); }
+.message.system { background: var(--bg-2); border-left: 3px solid var(--ok); } .message.system .content { color: var(--fg-1); font-size: 13px; }
 .message.gm_only { border-left: 3px solid var(--warn); } .message.whisper { border-left: 3px solid var(--accent-2); }
 .composer { border-top: 1px solid var(--bg-3); background: var(--bg-1); padding: 10px 16px 12px; position: relative; }
 .composer textarea { width: 100%; min-height: 64px; max-height: 220px; resize: vertical; }

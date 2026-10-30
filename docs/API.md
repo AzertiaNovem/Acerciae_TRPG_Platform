@@ -91,7 +91,7 @@ Chat messages carry `character_avatar_asset_id` and `character_avatar_version`; 
 | GET/PUT | `/channels/{id}/scenes/{sid}` | PUT (GM): a changed `summary` is marked `gm_edited` and is never overwritten by the model |
 | POST | `/channels/{id}/scenes/{sid}/close` | |
 | POST | `/channels/{id}/scenes/{sid}/summarize` | (GM) write or rewrite the AI summary of a scenario from its chat log |
-| POST | `/channels/{id}/scenarios/advance` | (GM) `{title?, location?, narrative_time?}` opens the next scenario for the whole campaign: every window moves there, the current scenario closes and is summarized, and it can only be consulted from then on. Returns `{scene, previous, windows}`. |
+| POST | `/channels/{id}/scenarios/advance` | (GM) `{title?, location?, narrative_time?}` opens the next scenario for the whole campaign: every window moves there, the current scenario closes and is summarized, and it can only be consulted from then on. On a COC7 channel the closed scenario's investigator development runs first (also on `scenarios/enter` and `scenes/{id}/close`): every skill a player character succeeded with (`.ra`/`.rc` at Regular or better) gets a growth check as `.en` does, the sheet and role card take the improvements, and a `kind: system` message in the Main Chat lists the results. Returns `{scene, previous, windows}`. |
 | POST | `/channels/{id}/scenarios/enter` | (GM) `{scene_id}` enters a prepared (never closed) scenario the same way; 409 for a closed one |
 | PUT | `/channels/{id}/scenario-settings` | (GM) `{auto_scenarios: bool}` |
 | GET | `/channels/{id}/scenes/{sid}/log?limit&after_seq` | viewer-filtered raw log |
