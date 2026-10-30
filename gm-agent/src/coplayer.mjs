@@ -1,8 +1,10 @@
-// A co-player's turn. Its model is given its own role card and persona, and the chat log its character witnessed
-// (coplayerContext.mjs). It gets nothing from the Keeper's side: no Keeper notes, no platform AI tips, no other
-// window and no other character's whispers.
+// A co-player's turn. Its model is given its own role card and persona, its companions' basic details and
+// backgrounds (profiles.mjs), and the chat log its character witnessed (coplayerContext.mjs). It gets nothing from the
+// Keeper's side: no Keeper notes, no platform AI tips, no real NPC's details, no other window and no other character's
+// whispers.
 import { completeJson } from "./llm/index.mjs";
 import { renderLine } from "./context/coplayerContext.mjs";
+import { renderProfile } from "./context/profiles.mjs";
 
 // Co-players may roll checks and sanity against their own sheet; they never edit sheets (.st / .en) or roll hidden.
 const ROLL = /^\.(ra|rc|r|sc)(\s|$)/i;
@@ -12,6 +14,7 @@ export function coplayerSystem(language) {
 
 How to play:
 - Stay in character, true to your persona and role card. Know only what your character saw or heard in the chat log below.
+- You know your companions' basic details and backgrounds: let them shape how you treat each other in character, but do not recite them.
 - Be a good tablemate: support the human players, follow up on their ideas, do not take over the scene or solve the mystery alone. Short lines (1-3 sentences).
 - Never narrate outcomes, the world or other characters' actions; that is the Keeper's job.
 - If the Keeper asked you to roll, or an uncertain action needs a check, reply with a roll using a Sealdice command such as ".ra Spot Hidden" (the platform rolls it against your sheet).
@@ -53,13 +56,14 @@ function cardSummary(card) {
   ].join("\n");
 }
 
-export async function coplayerTurn(llm, { language, coplayer, card, log, spotlight }) {
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], log, spotlight }) {
   const newest = log[log.length - 1];
   const user = [
     `YOU ARE: ${coplayer.name}`,
     `PERSONA: ${coplayer.persona || "(none)"}`,
     `SPEAKING STYLE: ${coplayer.speakingStyle || "(natural)"}`,
     `YOUR ROLE CARD:\n${cardSummary(card)}`,
+    `THE OTHER INVESTIGATORS (what you know about your companions):\n${companions.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
     "",
     `CHAT LOG YOUR CHARACTER WITNESSED (newest last):\n${log.map((m) => renderLine(m)).join("\n") || "(nothing yet)"}`,
     newest ? `NEWEST LINE: ${renderLine(newest)}` : "",

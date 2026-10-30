@@ -2,6 +2,7 @@
 // platform's AI tips (the pinned board, Keeper reminders, script knowledge, the six documents, highlights, module
 // hints), and every chat line in every window. Co-players never get this (see coplayerContext.mjs).
 import { renderLine } from "./coplayerContext.mjs";
+import { renderProfile } from "./profiles.mjs";
 
 const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const json = (v, n) => clip(JSON.stringify(v ?? null), n);
@@ -71,12 +72,13 @@ export class GmContext {
     const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-4);
     if (closed.length) sections.push(`## Earlier scenarios\n${closed.map((s) => `- ${s.title}: ${clip(s.summary, 500)}`).join("\n")}`);
     const pcs = characters.filter((c) => c.kind === "pc");
+    const coplayers = characters.filter((c) => roster.isCoplayer(c.id));
     sections.push([
       "## Cast",
-      "Player characters (real people play them; never speak or decide for them):",
-      ...(pcs.length ? pcs.map((c) => `- ${c.name} (played by ${c.player_name ?? "a player"})`) : ["- (none yet)"]),
-      "Co-players (AI investigators that play alongside the players; they act on their own turn, so never speak or decide for them either):",
-      ...(roster.coplayers.length ? roster.coplayers.map((c) => `- ${c.name}`) : ["- (none)"]),
+      "Player characters (real people play them; never speak or decide for them), with their basic details and background:",
+      ...(pcs.length ? pcs.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`)) : ["- (none yet)"]),
+      "Co-players (AI investigators that play alongside the players; they act on their own turn, so never speak or decide for them either), with their basic details and background:",
+      ...(coplayers.length ? coplayers.map((c) => renderProfile(c)) : ["- (none)"]),
       "Real NPCs (you voice them):",
       ...(roster.npcs.length ? roster.npcs.map((c) => `- ${c.name}: ${clip(c.brief, 200)}`) : ["- (none yet; introduce them with new_npc)"]),
     ].join("\n"));
