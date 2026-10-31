@@ -26,6 +26,9 @@
 #include "script/ScriptKnowledgeService.h"
 #include "characters/CharacterSpaceService.h"
 #include "logstudio/ImageProvider.h"
+#include "logstudio/ObjectStore.h"
+#include <filesystem>
+#include <cstdlib>
 #include <zlib.h>
 #include <iostream>
 #include <map>
@@ -753,6 +756,40 @@ int main() {
             CHECK(chemRefused); CHECK(!bioRefused);
             CHECK(!card["skills"].isMember("Credit Rating"));   // reading the range never inserts a null Credit Rating
         }
+    });
+    test("object store: images go to the image backend, reads fall back, copies are idempotent", [] {
+        namespace fs = std::filesystem;
+        auto root = fs::temp_directory_path() / ("acerciae-objects-" + crypto::randomHex(6));
+        Config ca; ca.uploadDir = (root / "media").string(); Config cb; cb.uploadDir = (root / "images").string();
+        std::shared_ptr<logstudio::ObjectStore> media = logstudio::makeBackend("local", ca), images = logstudio::makeBackend("local", cb);
+        logstudio::RoutingObjectStore r(media, images);
+        CHECK(r.kind() == "local+images:local");
+        const std::string png = "channels/c/portrait/a.png", mp3 = "channels/c/tts/b.mp3", odd = "channels/c/portrait/c.bin";
+        r.put(png, "PNG", "image/png"); r.put(mp3, "MP3", "audio/mpeg"); r.put(odd, "JPG", "image/jpeg");
+        CHECK(images->exists(png) && !media->exists(png));
+        CHECK(media->exists(mp3) && !images->exists(mp3));
+        CHECK(images->exists(odd));                       // routed by content type even with a non-image extension
+        CHECK(r.get(odd).value_or("") == "JPG");          // read prefers the media backend for ".bin", then falls back
+        CHECK(r.exists(png) && r.get(png).value_or("") == "PNG" && !r.get("channels/c/portrait/none.png"));
+        // Switching IMAGE_STORE back: images written before remain readable through the fallback.
+        logstudio::RoutingObjectStore back(media, media, {images});
+        CHECK(back.get(png).value_or("") == "PNG");
+        back.put("channels/c/portrait/new.png", "NEW", "image/png"); CHECK(media->exists("channels/c/portrait/new.png"));
+        // Copy images across, then a second run copies nothing.
+        auto rep = logstudio::copyObjects(*images, *media, {{png, "image/png"}, {odd, "image/jpeg"}, {"channels/c/portrait/gone.png", "image/png"}});
+        CHECK(rep.copied == 2 && rep.missingAtSource == 1 && rep.failed == 0);
+        CHECK(logstudio::copyObjects(*images, *media, {{png, "image/png"}}).alreadyPresent == 1);
+        CHECK(media->get(png).value_or("") == "PNG");
+        back.remove(png); CHECK(!media->exists(png) && !images->exists(png));   // remove clears every backend
+        CHECK(logstudio::isImageObject("a/b.WEBP") && logstudio::isImageObject("a/b.bin", "image/png") && !logstudio::isImageObject("a/b.mp3") && !logstudio::isImageObject("a.png/b"));
+        for (auto* k : {"R2_ACCOUNT_ID", "R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}) unsetenv(k);
+        std::string why; try { logstudio::makeBackend("r2", ca); } catch (const std::exception& e) { why = e.what(); }
+        CHECK(why.find("R2_BUCKET") != std::string::npos && why.find("R2_ACCOUNT_ID") != std::string::npos);
+        setenv("R2_ACCOUNT_ID", "acct123", 1); setenv("R2_BUCKET", "b", 1); setenv("R2_ACCESS_KEY_ID", "k", 1); setenv("R2_SECRET_ACCESS_KEY", "s", 1);
+        CHECK(logstudio::makeBackend("r2", ca)->kind() == "r2");
+        for (auto* k : {"R2_ACCOUNT_ID", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}) unsetenv(k);
+        bool unknown = false; try { logstudio::makeBackend("ftp", ca); } catch (const std::exception&) { unknown = true; } CHECK(unknown);
+        std::error_code ec; fs::remove_all(root, ec);
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;

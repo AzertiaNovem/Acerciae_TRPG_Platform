@@ -29,4 +29,28 @@ Live Log Studio jobs (backgrounds, standees, visual-novel art) require both the 
 
 Performance suggestions use the existing LLM gateway, with 1–30 explicitly selected presentation event IDs. They save candidate delivery instructions and reasons only. Accepting a suggestion updates presentation data; neither images nor suggested emotion are written into the Canonical Log or narrative memory. Visual novels are generated from the campaign log; see [VISUAL_NOVEL.md](VISUAL_NOVEL.md).
 
+### Storing images in Cloudflare R2
+
+Media bytes go to the object store chosen by `OBJECT_STORE` (`local`, `s3` or `r2`). `IMAGE_STORE` (same values,
+defaulting to `OBJECT_STORE`) overrides it for images only, so `IMAGE_STORE=r2` keeps portraits, avatars, backgrounds and
+generated art in R2 while speech and PDFs stay where `OBJECT_STORE` puts them. Configure R2 in `.env` with
+`R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` (an R2 API token limited to Object Read & Write
+on that private bucket); `R2_ENDPOINT` overrides the endpoint, e.g. for the EU jurisdiction. The backend signs requests
+with AWS Signature V4 (region `auto`) and refuses to start when R2 is selected but incomplete.
+
+Images are never served from R2 directly: browsers keep fetching `/api/channels/{id}/media/{asset}`, which checks
+channel membership, GM-only visibility and approval before streaming the bytes, so the bucket stays private.
+
+Switching back is a single setting: `IMAGE_STORE=local`. Reads try the configured backend first and then every other
+one that is configured (the local directory always, R2 while its variables remain), so images written under either
+setting stay readable. To move them for good, copy them with the backend binary and then remove the old settings:
+
+```bash
+acerciae-server --copy-images local r2     # existing local images → R2
+acerciae-server --copy-images r2 local     # back from R2
+```
+
+The copy covers every version of every image asset, skips objects the destination already has, never deletes, and
+can be re-run safely. With Docker Compose: `docker compose run --rm backend /app/acerciae-server --copy-images local r2`.
+
 For MinIO development, set S3 variables in `.env`, use `docker compose --profile s3 up`, create a private bucket and provision a bucket-scoped access key. The profile has a development-only fallback password; configure a strong `S3_SECRET_KEY` before using shared infrastructure. The local object-store path was integration-tested; Docker/MinIO were not run in this environment.

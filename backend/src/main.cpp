@@ -1,6 +1,7 @@
 #include "modules/ModuleImporter.h"
 #include "script/ScriptKnowledgeService.h"
 #include "app/Services.h"
+#include "logstudio/ObjectStore.h"
 #include "api/Api.h"
 #include "ws/WsGateway.h"
 #include "observer/ObserverScheduler.h"
@@ -21,12 +22,18 @@ using namespace acerciae;
 
 int main(int argc, char** argv) {
     bool seedOnly = false, migrateOnly = false, noSeed = false;
+    std::string copyFrom, copyTo;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--seed-demo") seedOnly = true;
         else if (a == "--migrate-only") migrateOnly = true;
         else if (a == "--no-seed") noSeed = true;
-        else if (a == "--help") { std::cout << "acerciae-server [--migrate-only] [--seed-demo] [--no-seed]\n"; return 0; }
+        else if (a == "--copy-images") {
+            if (i + 2 >= argc) { std::cerr << "--copy-images needs FROM and TO (local, s3 or r2)\n"; return 2; }
+            copyFrom = argv[++i]; copyTo = argv[++i];
+        }
+        else if (a == "--help") { std::cout << "acerciae-server [--migrate-only] [--seed-demo] [--no-seed] [--copy-images FROM TO]\n"
+                                               "  --copy-images local r2   copy stored images to Cloudflare R2 (or r2 local to bring them back; also s3)\n"; return 0; }
     }
     curl_global_init(CURL_GLOBAL_DEFAULT);
     auto cfg = Config::fromEnv();
@@ -46,10 +53,29 @@ int main(int argc, char** argv) {
     }
     if (const char* w = std::getenv("PDF_WORKER_TOKEN"); !w || std::string(w).size() < 32)
         std::cerr << "warning: PDF_WORKER_TOKEN is unset or shorter than 32 characters; the PDF worker cannot connect and PDF jobs will stay pending.\n";
-    auto& S = Services::build(cfg);
+    Services* built = nullptr;
+    // Construction validates configuration that needs no database (e.g. the object/image store settings).
+    try { built = &Services::build(cfg); }
+    catch (const std::exception& e) { std::cerr << "refusing to start: " << e.what() << "\n"; Services::shutdown(); curl_global_cleanup(); return 1; }
+    auto& S = *built;
     try { S.db->runMigrations(cfg.migrationsDir); }
     catch (const std::exception& e) { std::cerr << "migration failed: " << e.what() << "\n"; Services::shutdown(); curl_global_cleanup(); return 1; }
     if (migrateOnly) { Services::shutdown(); curl_global_cleanup(); return 0; }
+    if (!copyFrom.empty()) {
+        // Copies every stored image (all versions of image assets) that the destination does not have yet.
+        int rc = 0;
+        try {
+            auto from = logstudio::makeBackend(copyFrom, cfg), to = logstudio::makeBackend(copyTo, cfg);
+            std::vector<std::pair<std::string, std::string>> keys;
+            for (auto& r : S.db->queryJson("SELECT object_key, mime FROM asset_versions UNION SELECT object_key, mime FROM media_assets"))
+                if (logstudio::isImageObject(r["object_key"].asString(), r["mime"].asString())) keys.emplace_back(r["object_key"].asString(), r["mime"].asString());
+            auto rep = logstudio::copyObjects(*from, *to, keys);
+            std::cout << "images: " << keys.size() << " known, " << rep.copied << " copied " << copyFrom << " -> " << copyTo << ", " << rep.alreadyPresent
+                      << " already there, " << rep.missingAtSource << " missing at the source, " << rep.failed << " failed\n";
+            rc = rep.failed ? 1 : 0;
+        } catch (const std::exception& e) { std::cerr << "copy failed: " << e.what() << "\n"; rc = 1; }
+        Services::shutdown(); curl_global_cleanup(); return rc;
+    }
     if (seedOnly) { std::cerr << "Seeding demo accounts with the published password \"password\": local development only.\n"; DemoSeed::run(S, true); Services::shutdown(); curl_global_cleanup(); return 0; }
     if (cfg.seedDemo && !noSeed) { try { DemoSeed::run(S, false); } catch (const std::exception& e) { ALOG_ERROR << "demo seed failed: " << e.what(); } }
 
