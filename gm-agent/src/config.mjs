@@ -74,6 +74,17 @@ export function buildConfig(args = {}, env = process.env) {
     autonomyQuietTurns: Math.max(0, int(pick("autonomy-quiet-turns", "AUTONOMY_QUIET_TURNS", 2), 2)),
     autonomyMaxTurnsPerHour: Math.max(0, int(pick("autonomy-max-turns-per-hour", "AUTONOMY_MAX_TURNS_PER_HOUR", 20), 20)),
     autonomyIdleMinutes: Math.max(1, int(pick("autonomy-idle-minutes", "AUTONOMY_IDLE_MINUTES", 30), 30)),
+    // Proactive timelines: the GM reports where investigators are; the table splits and reunites them.
+    timelineAuto: bool(pick("timeline-auto", "TIMELINE_AUTO"), true),
+    timelineGuardTurns: Math.max(0, int(pick("timeline-guard-turns", "TIMELINE_GUARD_TURNS", 2), 2)),
+    timelineGuardMs: Math.max(0, int(pick("timeline-guard-ms", "TIMELINE_GUARD_MS", 180000), 180000)),
+    timelineMaxActive: Math.max(1, int(pick("timeline-max-active", "TIMELINE_MAX_ACTIVE", 4), 4)),
+    timelinePcCooldownMs: Math.max(0, int(pick("timeline-pc-cooldown-ms", "TIMELINE_PC_COOLDOWN_MS", 300000), 300000)),
+    timelineMaxArrivalsPerHour: Math.max(0, int(pick("timeline-max-arrivals-per-hour", "TIMELINE_MAX_ARRIVALS_PER_HOUR", 12), 12)),
+    // Scenario changes decided by the GM, from the Main Chat only.
+    scenarioAuto: bool(pick("scenario-auto", "SCENARIO_AUTO"), true),
+    scenarioMinMinutes: Math.max(0, int(pick("scenario-min-minutes", "SCENARIO_MIN_MINUTES", 20), 20)),
+    scenarioMinLines: Math.max(0, int(pick("scenario-min-lines", "SCENARIO_MIN_LINES", 30), 30)),
     stateDir: path.resolve(pick("state-dir", "STATE_DIR", path.join(process.cwd(), ".state"))),
     verbose: bool(pick("verbose", "VERBOSE"), false),
   };

@@ -77,13 +77,23 @@ export class MockLlm {
     return { career: { name: rules.career.name, choices, specialties }, skill_points: points };
   }
 
+  // Deterministic stand-ins for the Keeper's judgement: "I go to the X" sends the speaker to a new place, "I go back"
+  // brings them back to the main story, "next morning" asks for the next scenario.
   director(user) {
     const last = field(user, "NEWEST LINE") || "the silence";
     if (field(user, "KICKOFF")) return { actions: [{ type: "narrate", text: "[mock Keeper] The rain drums on the station roof as your train pulls in. What do you do?" }], coplayers_may_act: true };
-    return {
-      actions: [{ type: "narrate", text: `[mock Keeper] You consider ${JSON.stringify(last.slice(0, 80))}. The lamp flickers; something waits in the dark.` }],
-      coplayers_may_act: true,
-    };
+    const actions = [{ type: "narrate", text: `[mock Keeper] You consider ${JSON.stringify(last.slice(0, 80))}. The lamp flickers; something waits in the dark.` }];
+    const whereabouts = [];
+    const m = last.match(/^(.+?): (.*)$/);
+    const mode = (user.match(/^MODE: (\w+)/m) ?? [])[1] ?? "human";
+    if (m && ["human", "relay"].includes(mode)) {
+      const [, speaker, text] = m;
+      const going = text.match(/\bI (?:go|head|walk|drive|run) to (?:the )?([^.,!?]+)/i);
+      if (/\bI (?:go|head|walk) back\b|\bback to the others\b/i.test(text)) whereabouts.push({ who: [speaker], thread: "T0" });
+      else if (going) whereabouts.push({ who: [speaker], thread: "new", place: going[1].trim(), own_scene: true, span: /\bcity|train|abroad\b/i.test(text) ? "long" : "short", opening: `[mock Keeper] ${going[1].trim()}: fog, and a single lamp.` });
+      if (/\bnext morning\b/i.test(text)) actions.push({ type: "advance_scenario", title: "The next morning", location: "", narrative_time: "next morning", reason: "a night passes" });
+    }
+    return { actions, coplayers_may_act: true, ...(whereabouts.length ? { whereabouts } : {}) };
   }
 
   coplayer(user) {

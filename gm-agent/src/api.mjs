@@ -61,6 +61,8 @@ export class Api {
   createChannel(serverId, body) { return this.post(`/api/servers/${serverId}/channels`, body); }
   channel(ch) { return this.get(`/api/channels/${ch}`); }
   updateChannel(ch, body) { return this.put(`/api/channels/${ch}`, body); }
+  channelMembers(ch) { return this.get(`/api/channels/${ch}/members`); }
+  playerGroups(ch) { return this.get(`/api/channels/${ch}/player-groups`); }
 
   // ---- characters
   characters(ch) { return this.get(`/api/channels/${ch}/characters`); }
@@ -78,6 +80,8 @@ export class Api {
 
   // ---- the Keeper's context and the platform's AI tips (GM only)
   scenes(ch) { return this.get(`/api/channels/${ch}/scenes`); }
+  advanceScenario(ch, body) { return this.post(`/api/channels/${ch}/scenarios/advance`, body); }
+  enterScenario(ch, sceneId) { return this.post(`/api/channels/${ch}/scenarios/enter`, { scene_id: sceneId }); }
   kpBoard(ch) { return this.get(`/api/channels/${ch}/kp/board`); }
   reminders(ch) { return this.get(`/api/channels/${ch}/reminders`); }
   scriptKnowledge(ch) { return this.get(`/api/channels/${ch}/script-knowledge`); }

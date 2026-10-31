@@ -61,11 +61,11 @@ It never gets a real NPC's details, or another investigator's characteristics an
    | `whisper` | posts a whisper to one character |
    | `request_roll` | asks a player to roll; for the client's own characters, the platform rolls against their sheet |
    | `note` | posts a Keeper-only line |
-   | `split` | sends some co-players off on a timeline of their own: a new window only they sit in |
-   | `rejoin` | brings a side timeline's co-players back and merges the timeline |
-   | `timeline` | records a timeline's narrative time, place and the Keeper's private notes; moves investigators between timelines |
+   | `timeline` | records a thread's narrative time, place, span and the Keeper's private notes |
+   | `advance_scenario`, `enter_scenario` | opens the next scenario, or enters a prepared one (see below) |
 
-   The same call says whether co-players may act now. A line the GM model writes for a co-player is dropped.
+   The same call says whether co-players may act now, and reports **whereabouts**: who is now where (see
+   [Timelines](#timelines-proactive-splitting)). A line the GM model writes for a co-player or a player is dropped.
 3. **Co-players' moves** (`src/coplayer.mjs`). Each co-player seated in the window gets its own model call with its
    own context. It speaks (in character or out of character), rolls (`.ra`, `.rc`, `.r` or `.sc`, rolled by the
    platform's dice against its own sheet), or passes.
@@ -74,46 +74,110 @@ It never gets a real NPC's details, or another investigator's characteristics an
    co-players included, needs an immediate response that propels the story.
 5. At most `MAX_ACTIONS_PER_TURN` lines are posted per turn. Lines the client posted never start a turn by themselves.
 
-The client never opens scenarios or decides memory proposals; those stay with the human Keeper in the web app. When the
-story should move on, the GM model leaves a Keeper-only note.
+The client never decides memory proposals; those stay with the human Keeper in the web app.
 
 ## Timelines and autonomy
 
-The table does not always wait for a human.
+The table does not always wait for a human, and it does not keep everyone in one room.
 
-**Timelines.** Investigators may be living different threads of the story. The client keeps timelines in its state
-file (the platform has none): every player character and co-player is in exactly one, and the main timeline always
-exists. A timeline can be bound to a window: a **side window** that only co-players sit in (the Keeper account is its
-only user member, so players never see it). Timelines are not windows, though: even in the Main Chat, a co-player back
-from a side trip speaks from what it lived there. The GM context has a Timelines section and every chat line is tagged
-with the timeline it comes from, with the rule that a line from another timeline is a story *about* that thread, not
-something happening in this scene, and that knowledge crosses timelines only when someone who was there tells it.
+### Timelines: proactive splitting
 
-A co-player's seat in a window has a start and an end. It hears a window's lines only while it sits there. After a
-side trip it remembers the side window and the Main Chat from its return, so it can tell the party what it saw, and
-only that. It is told its own timeline's name, time and place; never the Keeper's notes.
+The client keeps **timelines** (threads of the story) in its state file; the platform has none. Every player
+character and co-player is in exactly one. The main timeline (handle `T0`) always exists and is played in the Main
+Chat; every other thread has a window of its own, a persistent handle (`T1`, `T2`, … never reused), a place, a
+narrative time and a **span**: *short* when the party is briefly apart (two rooms of one house), *long* when it is far
+apart (two cities).
 
-The GM model splits and rejoins by itself (`split`, `rejoin`, `timeline` actions). You can also do it by hand, even
-while `run` is running (it reloads the state file):
+Each Keeper round may report **whereabouts**: who is now where, and whether a group is out of reach of the others and
+can explore on its own. The client decides what that means (`src/whereabouts.mjs`, a pure, tested planner):
+
+- **A player goes elsewhere** → a new window `Scene: <place>` with that player (and any co-players who went too) and
+  the GM. Everyone stays a member of the Main Chat. The player is whispered a pointer to the new window, the opening
+  is posted there, and an **arrival** turn opens the scene at once.
+- **Co-players go elsewhere** → a `Side: <place>` window only they sit in, which moves on by itself (side turns).
+- **Everyone in a scene goes to one place** → the thread just moves there; no new window.
+- **A lone player leaves the co-players behind** → the Main Chat goes with the player (it is relocated); the co-players
+  who stayed get a side window.
+- **They meet again** → reunions always land in the main timeline, in the Main Chat, where every player already is.
+  The old window gets a pointer `→ "Main Chat"` and is closed for autonomy; the reunion gets its own arrival turn.
+- **Going where you already are** is no move; **going to another thread's place** joins that thread.
+
+The rules that keep this safe:
+
+- **Only a player moves their character.** A player character moves only when its own player said so, in this turn's
+  lines in that window (not an old line, not an out-of-character one, not another player's or a co-player's
+  suggestion). Co-players move only after their own lines. The Keeper decides for no one.
+- **No flip-flopping.** A co-player's move that would undo a recent change needs two agreeing turns after it
+  (`TIMELINE_GUARD_TURNS`, `TIMELINE_GUARD_MS`). Players' own moves are never deferred.
+- **No history leaks.** Nobody is ever added to an existing window (its whole past would open to them). A player
+  joining a thread whose window they are not in regroups the thread into a fresh window. A window is reused only for
+  exactly the same people at the same place.
+- **Bounded.** At most `TIMELINE_MAX_ACTIVE` threads at once; a new window for a player at most once per
+  `TIMELINE_PC_COOLDOWN_MS`; at most `TIMELINE_MAX_ARRIVALS_PER_HOUR` arrival turns; arrivals never start further
+  splits.
+- **Relay.** A split-off player who keeps writing in the Main Chat is answered in their own scene; the Main Chat only
+  gets a whisper pointer. A roll asked of an away player is asked in their window.
+- **Crash-safe.** A split in progress is journaled; `run` finishes it on restart, and a thread whose first scene never
+  played gets its arrival turn.
+
+Lines carry the timeline their speaker was in **when they wrote them**, so a story told in the Main Chat by someone back
+from a side trip is tagged with that trip, and a player's lines from before a split keep the old tag. A co-player
+hears a window only while it sits there (its seats have a start and an end), knows which companions are **with it
+here** and which are elsewhere, and never sees lines a player wrote from another scene.
+
+> **Public channels.** In a channel whose knowledge mode is *public* (what `setup` creates), every player can read
+> every window a member of their group sits in, so **split scenes are readable by every player**. In an *isolated*
+> channel, players who share a player group can still read each other's split scenes. `run` and `status` warn in
+> either case. Use an isolated channel with one player per group if split scenes must stay private.
+
+You can split and rejoin by hand too. While `run` keeps the channel, these commands are queued for it (it is the only
+process that writes the state file); otherwise they are applied directly and their opening turn waits for `run`. If
+`run` finds the state file changed by another writer anyway, it stops rather than act on a stale table; start it again
+to continue from the file. A command refuses to run while a split is half-finished; `run` finishes it first:
 
 ```bash
-node src/cli.mjs split --channel <id> --name "The docks" --coplayers "Harriet Vance,Tomas Leclerc" --location "Old Harbour" --time "Tuesday night" --opening "Fog hangs over the harbour."
-node src/cli.mjs rejoin --channel <id> --timeline "The docks"
-node src/cli.mjs status --channel <id>        # timelines, seats, autonomy settings
+node src/cli.mjs split --channel <id> --who "Alice Hale,Harriet Vance" --place "Old Harbour" [--span long] [--time "Tuesday night"] [--opening "Fog hangs over the harbour."]
+node src/cli.mjs rejoin --channel <id> --timeline "Old Harbour"      # or a handle: --timeline T2
+node src/cli.mjs advance --channel <id> --title "The next morning"    # open the next scenario now
+node src/cli.mjs status --channel <id>                                # read-only: threads, seats, settings
 ```
 
-**Autonomy.** On its own clock (`AUTONOMY_TICK_MS`) the table also runs:
+`TIMELINE_AUTO=false` goes back to the older, model-led `split`/`rejoin` actions for co-players only.
 
-- **side** turns: a side window moves on, turn after turn, every `AUTONOMY_SIDE_INTERVAL_MS`, with no human line. The
-  co-players drive the thread; the GM runs the world and answers them at once;
-- **quiet** turns: a window with human players that has been silent for `AUTONOMY_QUIET_MS` moves on a little: the
+### Scenarios
+
+Scenarios are the platform's story stages, for the whole campaign: opening the next one moves every window there and
+closes and summarises the old one. The GM model opens it (`advance_scenario`) or enters a prepared one
+(`enter_scenario`) when the story as a whole moves on: a jump in time, the party reaching a new place for good, a module
+stage done, or the platform's own "New scenario?" reminder. The client refuses, with a Keeper-only note saying why,
+unless:
+
+- the turn is in the **Main Chat**, never in a split window;
+- it is a turn after a player's or co-player's line, never an autonomous or arrival turn;
+- **no short split** is active (a long one carries on into the new scenario);
+- at least `SCENARIO_MIN_MINUTES` have passed since the current scenario began and it has at least
+  `SCENARIO_MIN_LINES` events.
+
+Each turn the GM is told whether a change is possible now. `SCENARIO_AUTO=false` leaves scenarios to you (`advance`).
+
+### Autonomy
+
+On its own clock (`AUTONOMY_TICK_MS`) the table also runs:
+
+- **side** turns: a co-players-only window moves on, turn after turn, every `AUTONOMY_SIDE_INTERVAL_MS`, with no human
+  line. The co-players drive the thread; the GM runs the world and answers them at once;
+- **quiet** turns: a scene with human players that has been silent for `AUTONOMY_QUIET_MS` moves on a little: the
   world, the NPCs, a question to a named player, the co-players. The GM is told never to decide, speak or roll for a
   player character; the client enforces it too. After `AUTONOMY_QUIET_TURNS` quiet turns the window waits for a human
-  again. Only windows where a human spoke recently are moved.
+  again. Only windows where a human spoke recently are moved; the Main Chat never runs side turns.
 
 Autonomy pauses when no human has posted in the channel for `AUTONOMY_IDLE_MINUTES`, is capped at
-`AUTONOMY_MAX_TURNS_PER_HOUR`, never runs while a human's turn is pending, and any human line wakes the table up.
+`AUTONOMY_MAX_TURNS_PER_HOUR`, never runs while another turn is pending, and any human line wakes the table up.
 `AUTONOMY=false` turns it off.
+
+**Costs.** Every player split creates a window with that player as a member; the platform then rebuilds that player
+group's derived memory (journals, reminders) and web clients refresh. Every split or reunion also costs an arrival turn
+(a GM call, the co-players and a follow-up).
 
 ## Setup
 
@@ -197,7 +261,14 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `AUTONOMY_SIDE_INTERVAL_MS` | | `90000` | pause between turns in a side window |
 | `AUTONOMY_QUIET_MS`, `AUTONOMY_QUIET_TURNS` | | `180000`, `2` | silence before a shared window moves on, and how many such turns until a human posts again |
 | `AUTONOMY_MAX_TURNS_PER_HOUR`, `AUTONOMY_IDLE_MINUTES` | | `20`, `30` | hourly cap on autonomous turns; no autonomy once nobody has posted for this long |
-| `STATE_DIR` | `--state-dir` | `./.state` | the state file: co-players, real NPCs, seats and timelines |
+| `TIMELINE_AUTO` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: model-led co-player splits |
+| `TIMELINE_GUARD_TURNS`, `TIMELINE_GUARD_MS` | | `2`, `180000` | a co-player's move that undoes a recent change waits for two agreeing turns within this window |
+| `TIMELINE_MAX_ACTIVE` | | `4` | at most this many threads at once (the main one included) |
+| `TIMELINE_PC_COOLDOWN_MS` | | `300000` | a player gets a new window at most this often |
+| `TIMELINE_MAX_ARRIVALS_PER_HOUR` | | `12` | arrival turns (opening a new or changed scene) per hour |
+| `SCENARIO_AUTO` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the Main Chat only) |
+| `SCENARIO_MIN_MINUTES`, `SCENARIO_MIN_LINES` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it |
+| `STATE_DIR` | `--state-dir` | `./.state` | the state file (co-players, real NPCs, seats, timelines, guard, scenario), its lock and the command inbox |
 
 **Mock mode.** `LLM_PROVIDER=mock` writes labelled placeholder text (`[mock Keeper] …`). It exercises every pipeline
 without a provider. It is for tests and demos, not for play.
@@ -231,8 +302,13 @@ The tests need no backend and no model. They cover:
   co-player's in-character guess may be recorded as established. Co-player lines are posted under an NPC character, which
   the chronicler's instructions treat as an NPC claim, but nothing enforces that. A platform-side `co-player` character
   flag would fix this.
-- Co-players start in the windows of `COPLAYER_WINDOWS` and move only through `split` and `rejoin`. A private window
-  the Keeper creates in the web app does not seat them automatically.
+- Co-players start in the windows of `COPLAYER_WINDOWS` and move only through whereabouts (or `split` and `rejoin`). A
+  private window the Keeper creates in the web app does not seat them automatically and is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side
   thread's events reach the Keeper documents like any other lines.
+- A split-off player stays a member of the Main Chat (as intended), so the platform keeps delivering the Main Chat's
+  lines to them and its chronicler credits their character with them. A player who leaves a thread's window can still
+  read it.
+- Windows accumulate over a campaign: the platform has no way to rename, archive or delete one. Retired windows are
+  reused only for the same people at the same place.
 - One client process keeps one channel.
