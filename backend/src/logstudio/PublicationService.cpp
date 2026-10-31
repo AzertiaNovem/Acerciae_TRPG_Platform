@@ -513,7 +513,7 @@ std::string PublicationService::bundle(const ChannelAccess &a, const std::string
   files.insert(files.begin(), {"index.html", renderStandaloneVn(data)});
   files.push_back({"script.json", json::dump(data, true)});
   std::string base; for (unsigned char c : p["title"].asString()) base += (isalnum(c) || c >= 0x80) ? (char)c : '_';
-  if (base.size() > 40) { base.resize(40); while (!base.empty() && ((unsigned char)base.back() & 0xC0) == 0x80) base.pop_back(); if (!base.empty() && (unsigned char)base.back() >= 0xC0) base.pop_back(); }   // whole characters only
+  base = text::utf8Prefix(base, 40);   // whole characters only: the name also ends the storage key
   fileName = (base.empty() ? "visual-novel" : base) + ".zip";
   logs_.audit(a, "presentation.bundle", Json::Value(presentationId));
   return zip::build(files);
