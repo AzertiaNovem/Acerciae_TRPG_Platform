@@ -76,7 +76,7 @@ public:
     Json::Value body;
     body["model"] = model(); body["n"] = 1; body["output_format"] = "png";
     const bool standee = json::str(request, "kind") == "standee";
-    // GPT Image 2.5 needs an explicit API option, not just a prompt saying "transparent".
+    // Send both the API option and a standalone text requirement: gateways may drop optional fields.
     // Applies to JSON generations and multipart edits, including older queued pose jobs.
     if (standee) body["background"] = "transparent";
     auto size=json::str(request,"size",config_.size);
@@ -88,7 +88,9 @@ public:
       "Preserve the specified character identity and style. Do not invent narrative facts or add text/watermarks. "
       "Use attached images as visual references when present.\n" + json::dump(context);
     if (standee) body["prompt"] = body["prompt"].asString() +
-      "\nOutput one isolated full-body character cutout on a transparent background with a real alpha channel. "
+      "\nMandatory image requirement, even if the gateway omits the background option: output a PNG with a true transparent alpha background. "
+      "Every pixel outside the character silhouette must have alpha=0; never simulate transparency with white, a solid color or a checkerboard. "
+      "Output one isolated full-body character cutout on a transparent background with a real alpha channel. "
       "Use the main profile portrait as the identity reference, retaining the face, hairstyle, clothing and art style "
       "while applying the requested gesture and expression. Keep hands, feet and the entire silhouette inside the frame. "
       "Do not copy the reference background or add scenery, a solid backdrop, a checkerboard pattern or a ground shadow.";

@@ -43,6 +43,7 @@ public:
   Json::Value create(const ChannelAccess &a, const Json::Value &body);
   Json::Value cancel(const ChannelAccess &a, const std::string &id);
   Json::Value retry(const ChannelAccess &a, const std::string &id, const Json::Value &body);
+  Json::Value retryBackgrounds(const ChannelAccess &a, const std::string &id, const Json::Value &body);
   // Synchronous run of one pending job (tests and the worker).
   bool processNext();
 

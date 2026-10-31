@@ -147,6 +147,8 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
       assert.match(request.body, /name="output_format"\r\n\r\npng\r\n/);
       assert.match(request.body, /name="model"\r\n\r\ngpt-image-2.5-sunburst\r\n/);
       assert.match(request.body, /transparent background with a real alpha channel/);
+      assert.match(request.body, /Mandatory image requirement, even if the gateway omits the background option/);
+      assert.match(request.body, /alpha=0/);
       assert.ok(!request.body.includes('standee on a plain background'));
     }
     // Generating a new main portrait and poses together waits for the new portrait, not the old upload.

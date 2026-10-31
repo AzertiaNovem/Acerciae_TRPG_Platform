@@ -36,6 +36,8 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   const [cloudOk, setCloudOk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [retryFailedChunks, setRetryFailedChunks] = useState(true);
+  const [imageStatus, setImageStatus] = useState<{ enabled: boolean; mock: boolean } | null>(null);
+  const [artCloudOk, setArtCloudOk] = useState(false);
   // Cast step
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [presets, setPresets] = useState<{ id: string; name: string; language: string; gender: string }[]>([]);
@@ -58,6 +60,10 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     if (m.type === 'studio.vnscript.progress') { loadJobs(); if (jobId && m.payload?.job_id === jobId) loadJob(jobId).catch(() => undefined); }
     if ((m.type === 'asset.generated' || m.type === 'module.updated') && jobId && pres && (m.payload?.presentation_id === pres.id)) loadJob(jobId).catch(() => undefined);
   }), [channelId, jobId, pres?.id]);
+  useEffect(() => {
+    setArtCloudOk(false); setImageStatus(null);
+    if (step === 'art' && channelId) api.vnImageStatus(channelId).then(setImageStatus).catch((e) => toast(e.message, 'error'));
+  }, [channelId, jobId, step]);
   // Polling covers reconnects while the script or the art is still on its way.
   const running = jobs.some((j) => j.status === 'pending' || j.status === 'running');
   const artPending = !!pres && ((pres.scenes ?? []).some((s) => !s.background_asset_id) || (pres.events ?? []).some((e) => (e.character_asset_ids ?? []).some((p) => !p.asset_id)));
@@ -81,6 +87,16 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
       const j = await api.createVnScript(channelId, { scope, scope_character_id: scope === 'character' ? scopeChar : undefined, title: title.trim() || undefined, template: { base }, retry_failed_chunks: retryFailedChunks, instructions: direction.trim() || undefined, allow_cloud: status?.mock ? undefined : cloudOk });
       toast(tr('Script job started'), 'ai'); setJobId(j.id); loadJobs();
     } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  const retryBackgrounds = async (sceneKey?: string) => {
+    if (!channelId || !jobId) return;
+    setBusy(true);
+    try {
+      setJob(await api.retryVnBackgrounds(channelId, jobId, sceneKey, artCloudOk));
+      await loadJob(jobId);
+      toast(tr('Missing backgrounds queued; completed images are kept.'), 'ai');
+    } catch (e: any) { toast(e.message, 'error'); await loadJob(jobId).catch(() => undefined); }
+    finally { setBusy(false); }
   };
   const quickVoice = async (key: string, presetId: string) => {
     if (!channelId || !presetId) return;
@@ -107,6 +123,9 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   const done = job?.status === 'completed' && !!pres;
   const stepIndex = STEPS.findIndex((s) => s.id === step);
   const gen = job?.script?.generation;
+  const artNeedsCloud = !!imageStatus?.enabled && !imageStatus.mock && !job?.params?.cloud_authorized;
+  const artRetryBlocked = busy || !pres?.can_edit || !imageStatus?.enabled || (artNeedsCloud && !artCloudOk);
+  const retryableBackgrounds = (job?.background_jobs ?? []).some((b) => ['missing', 'failed', 'cancelled'].includes(b.status));
 
   return (
     <div className="card" style={{ marginTop: 10 }}>
@@ -162,15 +181,22 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
 
       {step === 'art' && pres && (
         <div>
-          <div className="tiny muted">{gen?.enabled === false ? tr('Image generation is off on this server: upload backgrounds in Assets and portraits in each character space, then assign them in the editor.') : tr('Backgrounds the log needs and portraits for characters in generated mode are being painted. Characters in uploaded mode use only the portraits their players uploaded.')}</div>
+          <div className="tiny muted">{imageStatus?.enabled === false ? tr('Image generation is off on this server: upload backgrounds in Assets and portraits in each character space, then assign them in the editor.') : tr('Backgrounds the log needs and portraits for characters in generated mode are being painted. Characters in uploaded mode use only the portraits their players uploaded.')}</div>
           <div className="wizard-art">
-            {(pres.scenes ?? []).map((s) => (
-              <div key={s.id} className="wizard-tile">
-                {s.background_asset_id ? <img src={api.mediaUrl(channelId!, s.background_asset_id, s.background_asset_version)} alt="" /> : <div className="placeholder">{tr('painting…')}</div>}
+            {(pres.scenes ?? []).map((s) => {
+              const bg = job?.background_jobs?.find((b) => b.scene_id === s.id);
+              const state = s.background_asset_id ? 'completed' : bg?.status ?? 'missing';
+              const label = state === 'running' ? tr('painting…') : state === 'pending' ? tr('Queued') : state === 'missing' ? tr('Background not generated') : tr(state);
+              return <div key={s.id} className="wizard-tile">
+                {s.background_asset_id ? <img src={api.mediaUrl(channelId!, s.background_asset_id, s.background_asset_version)} alt="" /> : <div className="placeholder">{label}</div>}
                 <div className="tiny"><b>{s.title}</b></div>
-              </div>
-            ))}
+                {!s.background_asset_id && bg?.error && <div className="tiny" style={{ color: 'var(--danger)', overflowWrap: 'anywhere' }}>{bg.error}</div>}
+                {!s.background_asset_id && ['missing', 'failed', 'cancelled'].includes(state) && <button className="small" disabled={artRetryBlocked} onClick={() => retryBackgrounds(s.canonical_scene_key)}>{tr('Retry background')}</button>}
+              </div>;
+            })}
           </div>
+          {artNeedsCloud && <label className="tiny"><input type="checkbox" checked={artCloudOk} onChange={(e) => setArtCloudOk(e.target.checked)} /> {tr('Send background prompts to the configured image model')}</label>}
+          {retryableBackgrounds && <div className="row" style={{ marginTop: 8 }}><button className="small" disabled={artRetryBlocked} onClick={() => retryBackgrounds()}>{tr('Generate missing backgrounds')}</button><span className="tiny muted">{tr('Completed images are kept. Queued and running images are not submitted again.')}</span></div>}
           {(gen?.portraits?.length ?? 0) > 0 && <div className="tiny" style={{ marginTop: 6 }}><b>{tr('Portraits requested')}</b>: {gen!.portraits.map((p) => `${names[p.character_id] ?? '?'} · ${p.subtitle}`).join(', ')}</div>}
           <div className="row" style={{ marginTop: 8 }}>
             <span className="tiny muted">{artPending ? tr('Some art is still missing; you can continue and it will appear when ready.') : tr('All art is in place.')}</span><span className="grow" />
