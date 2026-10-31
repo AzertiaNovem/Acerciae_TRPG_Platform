@@ -320,6 +320,21 @@ int main() {
         auto* nat = reg.detect(json::dump(j)); CHECK(nat && nat->name() == "native_json");
         auto back = nat->parse(json::dump(j)); CHECK(back.events.size() == log.events.size()); CHECK(back.events[1].content == log.events[1].content);
     });
+    test("log studio: the native 2.0 export (names, players, characters, messages) imports back", [] {
+        using namespace logstudio; AdapterRegistry reg;
+        std::string v2 = R"({"format":"acerciae-log","schemaVersion":"2.0","campaign":{"name":"Harbour","era":"1920s"},"players":[{"username":"ann","display_name":"Ann","role":"player","avatar_url":null}],
+          "characters":[{"name":"Ada","kind":"pc","player":"ann","role_card":{"basic":{"occupation":"Librarian"}},"poses":{}}],"windows":[{"name":"Main Chat","kind":"main"}],
+          "scenarios":[{"sequence":1,"title":"The pier","status":"closed"}],
+          "messages":[{"time":"2026-10-02T21:41:06Z","window":"Main Chat","scenario":1,"speaker":"Keeper","character":null,"player":"kp","role":"gm","type":"narration","content":"Rain.","dice":null,"visibility":"public"},
+                      {"time":"2026-10-02T21:43:45Z","window":"Main Chat","scenario":1,"speaker":"Ada","character":"Ada","player":"ann","role":"pc","type":"dice_roll","content":".ra spot 60","dice":{"expression":"1d100","total":37,"outcome":"hard success","check_name":"spot","text":"Ada: 37/60"},"visibility":"private"}]})";
+        auto* a = reg.detect(v2); CHECK(a && a->name() == "native_json");
+        auto log = a->parse(v2);
+        CHECK(log.formatVersion == "2.0"); CHECK(log.events.size() == 2);
+        CHECK(log.events[0].speakerRole == "gm"); CHECK(log.events[0].eventType == "narration"); CHECK(log.events[0].sceneTitle == "The pier");
+        CHECK(log.events[0].occurredAtUnix && *log.events[0].occurredAtUnix == 1790977266);
+        CHECK(log.events[1].speakerDisplayName == "Ada"); CHECK(log.events[1].dice && log.events[1].dice->total == 37); CHECK(log.events[1].visibilityScope == "character");
+        CHECK(json::str(log.events[1].sourceReference, "player") == "ann"); CHECK(json::str(log.events[1].metadata, "window") == "Main Chat");
+    });
     test("log studio: SealDice JSON, rendered and QQ export detection", [] {
         using namespace logstudio; AdapterRegistry reg;
         std::string sj = R"({"version":105,"items":[{"nickname":"KP","IMUserId":"QQ:1","time":1683375072,"message":"门开了。\r\n里面一片漆黑。","isDice":false,"commandId":0},{"nickname":"海豹","IMUserId":"QQ:2","time":1683375080,"message":"KP的侦查检定结果为: D100=90/50 失败","isDice":true,"commandId":1,"commandInfo":{"rule":"coc7","items":[{"expr1":"D100","checkVal":90,"attr":"侦查","rank":-1}]}}]})";

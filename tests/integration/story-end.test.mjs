@@ -39,8 +39,8 @@ test('story end and Log Studio access: hidden or locked before the end, the whol
   const asP1 = JSON.stringify(await exportJson(p1.token, root));
   assert.ok(asP1.includes('Ward checks the hotel register.'));
   for (const hidden of ['KP_ONLY_line', 'SIDE_WINDOW_prep', 'TITLE_', 'LOC_']) assert.ok(!asP1.includes(hidden), 'player export leaks ' + hidden);
-  assert.ok(!(await exportJson(p1.token, root)).events.some(e => e.content.startsWith('.rh')), "another player's hidden roll stays theirs");
-  assert.ok((await exportJson(p2.token, root)).events.some(e => e.content.startsWith('.rh')));
+  assert.ok(!(await exportJson(p1.token, root)).messages.some(e => e.content.startsWith('.rh')), "another player's hidden roll stays theirs");
+  assert.ok((await exportJson(p2.token, root)).messages.some(e => e.content.startsWith('.rh')));
   const plLog = await request(p1.token, 'GET', root + '/log');
   assert.ok(!plLog.windows.some(w => w.id === side), 'a window with nothing readable is not even named');
   assert.deepEqual(plLog.scenarios.map(s => s.title), ['Scenario 1']);

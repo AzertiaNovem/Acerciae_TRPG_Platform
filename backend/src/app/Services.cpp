@@ -79,6 +79,7 @@ Services& Services::build(const Config& cfg) {
     { const char* d = std::getenv("MEDIA_MIGRATION_DELETE_LOCAL"); bool del = d && (std::string(d) == "true" || std::string(d) == "1");
       s.mediaMigrator = std::make_unique<logstudio::MediaMigrator>(*s.db, static_cast<logstudio::RoutingObjectStore&>(*s.objectStore), del); }
     s.media = std::make_unique<logstudio::MediaService>(s.cfg, *s.db, *s.objectStore);
+    s.studio->setObjectStore(s.objectStore.get());   // public links in the native log export
     s.storageCleanup = std::make_unique<logstudio::StorageCleanup>(*s.db, static_cast<logstudio::RoutingObjectStore&>(*s.objectStore), *s.media);
     s.deletion = std::make_unique<DeletionService>(*s.db, *s.objectStore, *s.notifier);
     s.presentations = std::make_unique<logstudio::PresentationService>(s.cfg, *s.db, *s.notifier, *s.studio);

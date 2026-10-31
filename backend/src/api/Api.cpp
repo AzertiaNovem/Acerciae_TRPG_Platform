@@ -81,6 +81,16 @@ std::string attachmentHeader(const std::string& name) {
     }
     return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + enc;
 }
+// The site's own address for absolute links: PUBLIC_URL, else the scheme and host the request came in on.
+std::string siteOrigin(const HttpRequestPtr& req) {
+    const auto& cfg = services().cfg;
+    if (!cfg.publicUrl.empty()) return cfg.publicUrl;
+    auto host = req->getHeader("X-Forwarded-Host"); if (host.empty()) host = req->getHeader("Host");
+    if (host.empty() || host.find_first_of(" /\\\"<>") != std::string::npos) return "";
+    auto proto = req->getHeader("X-Forwarded-Proto");
+    if (proto != "http" && proto != "https") proto = host.rfind("localhost", 0) == 0 || host.rfind("127.", 0) == 0 ? "http" : "https";
+    return proto + "://" + host;
+}
 bool mayRedirect(const HttpRequestPtr& req) { return req->getHeader("Authorization").empty(); }
 HttpResponsePtr redirectTo(const std::string& url, const char* cacheControl) {
     auto r = HttpResponse::newRedirectionResponse(url, k302Found);
@@ -482,7 +492,7 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/studio/log/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch) {
         try {
             auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
-            std::string mime, name; auto data = S.studio->exportLog(studioAccess(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name);
+            std::string mime, name; auto data = S.studio->exportLog(studioAccess(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name, siteOrigin(req));
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
@@ -501,7 +511,7 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/studio/snapshots/{2}/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string snap) {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
-            std::string mime, name; auto data = S.studio->exportSnapshot(studioAccess(*pr, ch), snap, req->getParameter("format").empty() ? "json" : req->getParameter("format"), mime, name);
+            std::string mime, name; auto data = S.studio->exportSnapshot(studioAccess(*pr, ch), snap, req->getParameter("format").empty() ? "json" : req->getParameter("format"), mime, name, siteOrigin(req));
             auto r = HttpResponse::newHttpResponse(); r->setBody(data); r->setContentTypeString(mime);
             if (req->getParameter("download") == "1") r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
             cb(r);

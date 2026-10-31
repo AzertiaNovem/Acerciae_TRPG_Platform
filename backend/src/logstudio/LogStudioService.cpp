@@ -436,11 +436,116 @@ Json::Value LogStudioService::toSealDiceJson(const std::vector<LogEvent>& events
     }
     return j;
 }
-std::string LogStudioService::exportLog(const ChannelAccess& a, const std::string& format, const std::string& chatWindowId, std::string& mime, std::string& fileName) {
+// ---- the native export (acerciae-log 2.0) -------------------------------------------------------------------
+Json::Value LogStudioService::nativeExport(const ChannelAccess& a, const std::vector<LogEvent>& events, const std::string& origin) {
+    auto story = storyState(db_, a.channelId);
+    auto ch = db_.queryOne("SELECT name, era, description FROM channels WHERE id=$1", {a.channelId});
+    // A link anyone can open for objects in the public bucket; otherwise the API route (it asks for a sign-in).
+    auto link = [&](const std::string& key, const std::string& apiPath) -> Json::Value {
+        if (store_ && !key.empty()) { auto u = store_->publicUrl(key); if (!u.empty()) return u; }
+        return apiPath.empty() ? Json::Value() : Json::Value(origin + apiPath);
+    };
+    std::map<std::string, Json::Value> mediaLink;
+    auto media = [&](const Json::Value& id) -> Json::Value {
+        if (!id.isString() || id.asString().empty()) return Json::Value();
+        auto k = id.asString();
+        if (!mediaLink.count(k)) {
+            auto m = db_.queryOne("SELECT object_key, version, approval_status, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2", {k, a.channelId});
+            mediaLink[k] = m.isNull() || m["approval_status"].asString() != "approved" || (!a.isGm && m["visibility_scope"].asString() == "gm") ? Json::Value()
+                : link(m["object_key"].asString(), "/api/channels/" + a.channelId + "/media/" + k + "?v=" + std::to_string(m["version"].asInt()));
+        }
+        return mediaLink[k];
+    };
+
+    Json::Value out;
+    out["format"] = "acerciae-log"; out["schemaVersion"] = "2.0"; out["generator"] = "acerciae"; out["exported_at"] = text::nowIso();
+    out["campaign"]["name"] = ch.isNull() ? "" : ch["name"].asString();
+    out["campaign"]["era"] = ch.isNull() ? "" : ch["era"].asString();
+    out["campaign"]["description"] = ch.isNull() ? "" : ch["description"].asString();
+    out["campaign"]["viewer"] = a.isGm ? "gm" : "player";
+
+    // Who took part: usernames (the public handle), never internal ids.
+    std::map<std::string, std::string> usernameOf;   // user id → username
+    out["players"] = Json::Value(Json::arrayValue);
+    for (auto& u : db_.queryJson("SELECT u.id, u.username, u.display_name, u.avatar_key, (u.avatar_data<>'' OR u.avatar_key IS NOT NULL) AS has_avatar, u.avatar_version, cm.role "
+                                 "FROM channel_members cm JOIN users u ON u.id=cm.user_id WHERE cm.channel_id=$1 ORDER BY cm.role, u.username", {a.channelId})) {
+        usernameOf[u["id"].asString()] = u["username"].asString();
+        Json::Value p; p["username"] = u["username"]; p["display_name"] = u["display_name"]; p["role"] = u["role"].asString() == "gm" ? "gm" : "player";
+        p["avatar_url"] = u["has_avatar"].asBool() ? link(json::str(u, "avatar_key"), "/api/users/" + u["id"].asString() + "/avatar?v=" + std::to_string(u["avatar_version"].asInt())) : Json::Value();
+        out["players"].append(p);
+    }
+
+    // The cast: names, who plays them, role cards and art. Players get player characters (and, once the story ended,
+    // the NPCs' names and art); NPC cards and appearance notes stay with the Keeper.
+    std::map<std::string, std::string> characterName;   // character id → name
+    out["characters"] = Json::Value(Json::arrayValue);
+    for (auto& c : db_.queryJson("SELECT c.id, c.name, c.kind, c.user_id, c.bio, c.speaking_style, c.appearance_prompt, c.role_card, c.avatar_asset_id, c.portrait_asset_id, cv.expressions "
+                                 "FROM characters c LEFT JOIN character_visual_profiles cv ON cv.character_id=c.id WHERE c.channel_id=$1 ORDER BY c.created_at", {a.channelId})) {
+        bool npc = c["kind"].asString() == "npc";
+        characterName[c["id"].asString()] = c["name"].asString();
+        if (npc && !a.isGm && !story.ended) continue;
+        bool secret = npc && !a.isGm;
+        Json::Value x; x["name"] = c["name"]; x["kind"] = npc ? "npc" : "pc";
+        x["player"] = c["user_id"].isString() && usernameOf.count(c["user_id"].asString()) ? Json::Value(usernameOf[c["user_id"].asString()]) : Json::Value();
+        x["bio"] = secret ? Json::Value("") : c["bio"]; x["speaking_style"] = secret ? Json::Value("") : c["speaking_style"];
+        x["appearance_prompt"] = secret ? Json::Value("") : c["appearance_prompt"];
+        x["role_card"] = secret || !c["role_card"].isObject() || c["role_card"].empty() ? Json::Value() : c["role_card"];
+        x["avatar_url"] = media(c["avatar_asset_id"]); x["portrait_url"] = media(c["portrait_asset_id"]);
+        x["poses"] = Json::Value(Json::objectValue);
+        if (c["expressions"].isObject()) for (auto& k : c["expressions"].getMemberNames()) { auto u = media(c["expressions"][k]); if (!u.isNull()) x["poses"][k] = u; }
+        out["characters"].append(x);
+    }
+
+    // Windows: the Keeper's all; a player's those with a line they may read.
+    std::set<std::string> usedWindows, usedScenes;
+    for (auto& e : events) { if (!e.chatWindowId.empty()) usedWindows.insert(e.chatWindowId); if (!e.sceneId.empty()) usedScenes.insert(e.sceneId); }
+    std::map<std::string, Json::Value> windowName;
+    out["windows"] = Json::Value(Json::arrayValue);
+    for (auto& w : db_.queryJson("SELECT id, name, kind FROM chat_windows WHERE channel_id=$1 ORDER BY created_at", {a.channelId})) {
+        windowName[w["id"].asString()] = w["name"];
+        if (a.isGm || usedWindows.count(w["id"].asString())) { Json::Value x; x["name"] = w["name"]; x["kind"] = w["kind"]; out["windows"].append(x); }
+    }
+
+    // Scenarios by sequence; players see titles and places only once the story is over (or revealed).
+    std::map<std::string, int> scenarioSeq;
+    out["scenarios"] = Json::Value(Json::arrayValue);
+    bool full = a.isGm || story.revealAll;
+    for (auto& s : db_.queryJson("SELECT id, sequence, title, location, narrative_time, summary, status FROM scenes WHERE channel_id=$1 ORDER BY sequence", {a.channelId})) {
+        scenarioSeq[s["id"].asString()] = s["sequence"].asInt();
+        if (!a.isGm && !usedScenes.count(s["id"].asString())) continue;
+        Json::Value x; x["sequence"] = s["sequence"];
+        x["title"] = full || story.ended ? s["title"] : Json::Value("Scenario " + std::to_string(s["sequence"].asInt()));
+        x["location"] = full || story.ended ? s["location"] : Json::Value(""); x["narrative_time"] = full || story.ended ? s["narrative_time"] : Json::Value("");
+        x["summary"] = full ? s["summary"] : Json::Value(""); x["status"] = s["status"];
+        out["scenarios"].append(x);
+    }
+
+    // Who wrote each message (the player's username, also for lines spoken as a character).
+    std::map<std::string, std::string> authorOf;
+    for (auto& m : db_.queryJson("SELECT m.id, u.username FROM messages m JOIN users u ON u.id=m.author_id WHERE m.channel_id=$1", {a.channelId})) authorOf[m["id"].asString()] = m["username"].asString();
+    out["messages"] = Json::Value(Json::arrayValue);
+    for (auto& e : events) {
+        Json::Value m;
+        if (e.occurredAtUnix) { std::time_t t = *e.occurredAtUnix; std::tm tm{}; gmtime_r(&t, &tm); char buf[32]; std::strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%SZ", &tm); m["time"] = buf; } else m["time"] = Json::Value();
+        m["time_text"] = e.timeText;
+        m["window"] = windowName.count(e.chatWindowId) ? windowName[e.chatWindowId] : Json::Value();
+        m["scenario"] = scenarioSeq.count(e.sceneId) ? Json::Value(scenarioSeq[e.sceneId]) : Json::Value();
+        m["speaker"] = e.speakerDisplayName;
+        m["character"] = characterName.count(e.speakerCharacterId) ? Json::Value(characterName[e.speakerCharacterId]) : Json::Value();
+        m["player"] = authorOf.count(e.sourceMessageId) ? Json::Value(authorOf[e.sourceMessageId]) : Json::Value();
+        m["role"] = e.speakerRole; m["type"] = e.eventType; m["content"] = e.content;
+        if (e.dice) { Json::Value d; d["expression"] = e.dice->expression; d["total"] = e.dice->total ? Json::Value(*e.dice->total) : Json::Value(); d["outcome"] = e.dice->outcome; d["check_name"] = e.dice->checkName; d["text"] = e.dice->raw; m["dice"] = d; }
+        else m["dice"] = Json::Value();
+        m["visibility"] = e.visibilityScope == "gm" ? "gm" : e.visibilityScope == "character" ? "private" : "public";
+        out["messages"].append(m);
+    }
+    return out;
+}
+
+std::string LogStudioService::exportLog(const ChannelAccess& a, const std::string& format, const std::string& chatWindowId, std::string& mime, std::string& fileName, const std::string& origin) {
     auto pid = campaignProjectId(a.channelId); syncCampaign(a.channelId, pid);
     auto proj = db_.queryOne("SELECT title, character_map FROM log_projects WHERE id=$1", {pid});
     auto ch = db_.queryOne("SELECT name, era FROM channels WHERE id=$1", {a.channelId});
-    auto story = storyState(db_, a.channelId);
     // Players' exports name only the windows they are in or have a readable line from.
     auto windows = db_.queryJson("SELECT w.id, w.name, w.kind FROM chat_windows w WHERE w.channel_id=$1" + std::string(a.isGm ? "" :
         " AND (EXISTS (SELECT 1 FROM chat_window_members wm WHERE wm.chat_window_id=w.id AND wm.user_id=$3) OR EXISTS (SELECT 1 FROM log_events le WHERE le.project_id=$2 AND le.chat_window_id=w.id" + scopeSql(a, "le") + "))") + " ORDER BY w.created_at",
@@ -449,16 +554,7 @@ std::string LogStudioService::exportLog(const ChannelAccess& a, const std::strin
     auto slug = [](std::string s) { std::string o; for (unsigned char c : s) o += (isalnum(c) || c >= 0x80) ? (char)c : '_'; return text::utf8Prefix(o, 40); };
     std::string base = slug(ch.isNull() ? "campaign" : ch["name"].asString());
     Json::Value target; target["format"] = format; target["chat_window_id"] = chatWindowId; audit(a, "log.export", target);
-    auto meta = [&](const std::vector<LogEvent>& events) {
-        Json::Value m; m["campaign"] = ch.isNull() ? Json::Value("") : ch["name"]; m["era"] = ch.isNull() ? Json::Value("") : ch["era"]; m["channel_id"] = a.channelId; m["viewer"] = a.isGm ? "gm" : "player";
-        m["windows"] = windows; m["character_map"] = snapshotMap(events, proj["character_map"]);
-        std::string cols = a.isGm || story.revealAll ? "s.title, s.location, s.narrative_time, s.summary" : story.ended ? "s.title, s.location, s.narrative_time" : "'Scenario '||s.sequence AS title";
-        // Players' exports list only scenarios with a line they may read.
-        m["scenarios"] = db_.queryJson("SELECT s.id, s.sequence, " + cols + ", s.status FROM scenes s WHERE s.channel_id=$1" + std::string(a.isGm ? "" : " AND EXISTS (SELECT 1 FROM log_events le WHERE le.project_id=$2 AND le.scene_id=s.id" + scopeSql(a, "le") + ")") + " ORDER BY s.sequence", a.isGm ? DbParams{a.channelId} : DbParams{a.channelId, pid});
-        m["characters"] = db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1" + std::string(a.isGm || story.ended ? "" : " AND kind='pc'") + " ORDER BY created_at", {a.channelId});
-        m["exported_at"] = text::nowIso(); return m;
-    };
-    if (format == "json") { auto events = campaignEvents(a, pid, chatWindowId); mime = "application/json; charset=utf-8"; fileName = base + (chatWindowId.empty() ? "" : "-" + slug(windowName[chatWindowId])) + ".acerciae-log.json"; return json::dump(toNativeJson(events, meta(events)), true); }
+    if (format == "json") { auto events = campaignEvents(a, pid, chatWindowId); mime = "application/json; charset=utf-8"; fileName = base + (chatWindowId.empty() ? "" : "-" + slug(windowName[chatWindowId])) + ".acerciae-log.json"; return json::dump(nativeExport(a, events, origin), true); }
     if (format == "txt") { auto events = campaignEvents(a, pid, chatWindowId); mime = "text/plain; charset=utf-8"; fileName = base + ".txt"; return toPlainText(events); }
     if (format == "html") { auto events = campaignEvents(a, pid, chatWindowId); mime = "text/html; charset=utf-8"; fileName = base + ".html"; Json::Value snap; snap["project_title"] = proj["title"]; snap["title"] = proj["title"]; snap["version"] = 0; snap["scope"] = a.isGm ? "gm_full" : "player"; return renderStyledHtml(snap, events, Json::Value(Json::objectValue), snapshotMap(events, proj["character_map"])); }
     if (format == "sealdice") {
@@ -468,7 +564,7 @@ std::string LogStudioService::exportLog(const ChannelAccess& a, const std::strin
     if (format == "zip") {
         auto all = campaignEvents(a, pid, "");
         std::vector<std::pair<std::string, std::string>> files;
-        files.push_back({base + ".acerciae-log.json", json::dump(toNativeJson(all, meta(all)), true)});
+        files.push_back({base + ".acerciae-log.json", json::dump(nativeExport(a, all, origin), true)});
         files.push_back({base + ".txt", toPlainText(all)});
         for (auto& w : windows) {
             std::vector<LogEvent> part; for (auto& e : all) if (e.chatWindowId == w["id"].asString()) part.push_back(e);
@@ -480,13 +576,13 @@ std::string LogStudioService::exportLog(const ChannelAccess& a, const std::strin
     throw badRequest("unknown export format (json|txt|html|sealdice|zip)");
 }
 
-std::string LogStudioService::exportSnapshot(const ChannelAccess& a, const std::string& snapshotId, const std::string& format, std::string& mime, std::string& fileName) {
+std::string LogStudioService::exportSnapshot(const ChannelAccess& a, const std::string& snapshotId, const std::string& format, std::string& mime, std::string& fileName, const std::string& origin) {
     Json::Value snap; auto events = snapshotEvents(a, snapshotId, &snap);
     auto proj = db_.queryOne("SELECT title, character_map FROM log_projects WHERE id=$1", {snap["project_id"].asString()});
     snap["project_title"] = proj["title"];
     std::string base = "log-" + snapshotId.substr(0, 8) + "-v" + std::to_string(snap["version"].asInt());
     Json::Value target; target["snapshot_id"] = snapshotId; target["format"] = format; audit(a, "snapshot.export", target);
-    if (format == "json") { mime = "application/json; charset=utf-8"; fileName = base + ".json"; Json::Value meta; meta["project"] = snap["frozen_metadata"]["project_title"]; meta["snapshot_version"] = snap["version"]; meta["scope"] = snap["scope"]; meta["character_map"] = snapshotMap(events,snap["frozen_metadata"]["character_map"]); return json::dump(toNativeJson(events, meta), true); }
+    if (format == "json") { mime = "application/json; charset=utf-8"; fileName = base + ".acerciae-log.json"; auto j = nativeExport(a, events, origin); j["campaign"]["snapshot"] = snap["frozen_metadata"]["project_title"]; j["campaign"]["snapshot_version"] = snap["version"]; return json::dump(j, true); }
     if (format == "txt") { mime = "text/plain; charset=utf-8"; fileName = base + ".txt"; return toPlainText(events); }
     if (format == "sealdice_txt") { mime = "text/plain; charset=utf-8"; fileName = base + ".sealdice.txt"; return makeSealDiceTextAdapter()->exportText(events); }
     if (format == "sealdice") { mime = "application/json; charset=utf-8"; fileName = base + ".sealdice.json"; return json::dump(toSealDiceJson(events), true); }

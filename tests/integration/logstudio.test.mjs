@@ -85,12 +85,22 @@ test("Log Studio A–I: the campaign log and its exports, immutable snapshots, s
   assert.equal((await call(gm, "GET", root + "/log")).project.id, log.project.id, "one log per channel");
   const dl = async (token, fmt, win) => { const r = await fetch(base + root + `/log/export?format=${fmt}${win ? `&chat_window_id=${win}` : ""}`, { headers: { Authorization: `Bearer ${token}` } }); assert.ok(r.ok, `${fmt}: ${r.status}`); return r; };
   const full = await (await dl(gm, "json")).json();
-  assert.equal(full.schemaVersion, "1.0"); assert.ok(full.events.some((e) => e.content.includes("幕后主使"))); assert.ok(full.meta.windows.length >= 1);
+  assert.equal(full.schemaVersion, "2.0"); assert.equal(full.format, "acerciae-log");
+  assert.ok(full.messages.some((e) => e.content.includes("幕后主使"))); assert.ok(full.windows.length >= 1);
+  // Readable on its own: usernames, names, role cards and links instead of database ids.
+  assert.ok(!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/.test(JSON.stringify({ ...full, players: [], characters: full.characters.map((c) => ({ ...c, avatar_url: null, portrait_url: null, poses: {} })) })), "no internal ids outside links");
+  assert.deepEqual(full.players.map((p) => p.username).sort(), [u.gm.user.username, u.p1.user.username, u.p2.user.username].sort());
+  assert.ok(full.players.every((p) => "avatar_url" in p && (p.role === "gm" || p.role === "player")));
+  const lin = full.characters.find((c) => c.name === "林调查员");
+  assert.equal(lin.kind, "pc"); assert.equal(lin.player, u.p1.user.username); assert.ok("role_card" in lin && "poses" in lin);
+  const door = full.messages.find((m) => m.content === "我去检查那扇门。");
+  assert.equal(door.character, "林调查员"); assert.equal(door.player, u.p1.user.username); assert.equal(door.window, windows[0].name); assert.match(door.time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  assert.ok(full.messages.some((m) => m.type === "dice_roll" && m.dice && m.content === ".ra 侦查 55"));
   const plJson = await (await dl(pl, "json")).json();
   assert.ok(!JSON.stringify(plJson).includes("幕后主使"), "players export only what they can read");
-  assert.ok(plJson.events.some((e) => e.content.startsWith(".rh")), "the roller keeps their own hidden roll");
+  assert.ok(plJson.messages.some((e) => e.content.startsWith(".rh")), "the roller keeps their own hidden roll");
   const otherJson = await (await dl(other, "json")).json();
-  assert.ok(!otherJson.events.some((e) => e.content.startsWith(".rh")), "nobody else gets the hidden roll");
+  assert.ok(!otherJson.messages.some((e) => e.content.startsWith(".rh")), "nobody else gets the hidden roll");
   const sd = await (await dl(pl, "sealdice", w)).json();
   assert.equal(sd.version, 105); assert.ok(sd.items.some((i) => i.message === "我去检查那扇门。" && i.nickname === "林调查员")); assert.ok(sd.items.some((i) => i.isDice && i.message === ".ra 侦查 55"));
   await assert.rejects(dl(pl, "sealdice"), /400/);
