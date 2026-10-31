@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { readStorage, writeStorage } from '../lib/storage';
 import type { Message } from '../types';
 
-// In-channel message banners (top-right, macOS style). Each one is a message posted in another window of the channel
+// In-channel message banners (top-right, under the header). Each one is a message posted in another window of the channel
 // being viewed; banners of the same window stack into one. They leave on their own after a few seconds, on a click,
 // or when the channel changes.
 export interface MessageNotice { id: string; message: Message; windowName: string; avatar: string; at: number }

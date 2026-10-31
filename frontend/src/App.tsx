@@ -36,7 +36,12 @@ function Shell() {
       <ChannelSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main">
         {llmMode === 'mock' && <div className="mode-banner">{tr("MOCK LLM MODE — this server has no language model configured (a maintainer sets one in Server settings → AI); the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.")}</div>}
-        {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
+        {/* Banners and toasts hang just under the header, below the mode banner when there is one. */}
+        <div className="corner-anchor"><div className="corner-stack">
+          {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
+          <MessageNotifications />
+          <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{tr(t.text)}</div>)}</div>
+        </div></div>
         <Suspense fallback={<div style={{ padding: 40 }} className="muted">{tr('Loading…')}</div>}>
         <ErrorBoundary resetKey={[spectateChannelId, channelId, windowId, characterSpaceId, studioOpen, gmWorkspaceOpen].join('|')}>
         {spectateChannelId ? <SpectatorView key={spectateChannelId} channelId={spectateChannelId} /> : channelId && characterSpaceId ? <CharacterSpace key={characterSpaceId} characterId={characterSpaceId} /> : channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
@@ -46,10 +51,6 @@ function Shell() {
         </Suspense>
       </div>
       <EvidenceModal />
-      <div className="corner-stack">
-        <MessageNotifications />
-        <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{tr(t.text)}</div>)}</div>
-      </div>
     </div>
   );
 }

@@ -13,24 +13,35 @@ function openMessage(n: MessageNotice) {
   setTimeout(() => useChat.getState().requestJump(m.id), 150);
 }
 
-// One card: the sender's picture, the window and the time on top, then who wrote and two lines of what.
-function Card({ n, onClick }: { n: MessageNotice; onClick: () => void }) {
+const WINDOW_GLYPH: Record<string, string> = { main: '◎', group: '○', private: '◌' };
+
+// One card, in the chat's own terms: the window (with its sidebar glyph) and the time, then the speaker as the chat
+// names them — the character, or the player out of character, "(GM)" for the Keeper — and two lines of what was said.
+function Card({ n, count, inList, onClick, onClose }: { n: MessageNotice; count?: number; inList?: boolean; onClick: () => void; onClose?: (e: React.SyntheticEvent) => void }) {
   const m = n.message;
-  const sender = m.kind === 'system' ? tr('System') : m.character_name ?? m.author_name;
-  const body = m.dice?.text ? `${m.content}\n${m.dice.text}` : m.content;
+  const kind = useNav((s) => s.windows.find((w) => w.id === m.chat_window_id)?.kind ?? 'group');
+  const gm = m.author_role === 'gm';
+  const speaker = m.kind === 'system' ? tr('System') : (m.kind === 'ooc' ? null : m.character_name) ?? (gm ? `${m.author_name} (GM)` : m.author_name);
   return (
-    <div className="notice-card" onClick={onClick}>
-      {n.avatar ? <img className="notice-icon" src={n.avatar} alt="" /> : <div className="notice-icon">{(sender || '?').slice(0, 1).toUpperCase()}</div>}
+    <div className={`notice-card ${gm ? 'gm' : ''}`} onClick={onClick}>
+      <div className={`notice-icon ${gm ? 'gm' : ''}`}>{n.avatar ? <img src={n.avatar} alt="" /> : (speaker || '?').slice(0, 2).toUpperCase()}</div>
       <div className="notice-main">
-        <div className="notice-head"><span className="notice-title">{n.windowName}</span><span className="notice-time">{tr('now')}</span></div>
-        <div className="notice-body"><b>{sender}</b>: {body}</div>
+        <div className="notice-head">
+          {!inList && <><span className="notice-glyph" aria-hidden>{WINDOW_GLYPH[kind] ?? '○'}</span>
+            <span className="notice-title">{n.windowName}</span></>}
+          {count && count > 1 ? <span className="notice-count">{tr('{n} new', { n: count })}</span> : null}
+          <span className="notice-time">{new Date(n.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+          {onClose && <button className="notice-x" aria-label={tr('Close')} title={tr('Close')} onClick={onClose}>×</button>}
+        </div>
+        <div className="notice-speaker">{speaker}{m.kind !== 'ic' && m.kind !== 'system' && !m.dice && <span className="notice-kind">{tr(m.kind)}</span>}</div>
+        {m.dice?.text ? <div className="notice-dice">🎲 {m.dice.text}</div> : <div className={`notice-body ${m.kind}`}>{m.content}</div>}
       </div>
     </div>
   );
 }
 
-// The banners of one window, stacked like macOS: the newest on top, up to two edges of older ones peeking out below.
-// A click on a stack opens it into a list; a click on a single banner (or on one in the list) opens that message.
+// The banners of one window share one card: the newest message, with "n new" when more arrived. A click on such a card
+// opens it into a list; a click on a single banner (or on one in the list) opens that message.
 function Stack({ windowId, notices }: { windowId: string; notices: MessageNotice[] }) {
   const dismissWindow = useNotifications((s) => s.dismissWindow);
   const dismiss = useNotifications((s) => s.dismiss);
@@ -51,11 +62,10 @@ function Stack({ windowId, notices }: { windowId: string; notices: MessageNotice
   const open = (n: MessageNotice) => { openMessage(n); dismissWindow(windowId); };
   const many = notices.length > 1;
   return (
-    <div className={`notice ${leaving ? 'leaving' : ''} ${expanded ? 'expanded' : ''} ${many && !expanded ? `stacked depth-${Math.min(2, notices.length - 1)}` : ''}`}
+    <div className={`notice ${leaving ? 'leaving' : ''} ${expanded ? 'expanded' : ''} ${hover ? 'paused' : ''}`}
       role="status" tabIndex={0} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       onKeyDown={(e) => { if (e.key === 'Escape') close(e); if (e.key === 'Enter' && !expanded) (many ? setExpanded(true) : open(top)); }}
       aria-label={many ? tr('{n} messages in {window}', { n: notices.length, window: top.windowName }) : undefined}>
-      {!expanded && <button className="notice-close" aria-label={tr('Close')} onClick={close}>×</button>}
       {expanded ? (
         <>
           <div className="notice-group-head"><span className="name">{top.windowName}</span>
@@ -63,15 +73,15 @@ function Stack({ windowId, notices }: { windowId: string; notices: MessageNotice
             <button aria-label={tr('Close')} title={tr('Close')} onClick={close}>×</button></div>
           {notices.map((n) => (
             <div key={n.id} className="notice-item">
-              <Card n={n} onClick={() => open(n)} />
-              <button className="notice-close" aria-label={tr('Close')} onClick={(e) => { e.stopPropagation(); dismiss(n.id); }}>×</button>
+              <Card n={n} inList onClick={() => open(n)} onClose={(e) => { e.stopPropagation(); dismiss(n.id); }} />
             </div>
           ))}
         </>
       ) : (
-        <div key={top.id} className="notice-top"><Card n={top} onClick={() => (many ? setExpanded(true) : open(top))} /></div>
+        <div key={top.id} className="notice-top" style={{ ['--notice-life' as string]: `${SHOW_MS}ms` }}>
+          <Card n={top} count={notices.length} onClick={() => (many ? setExpanded(true) : open(top))} onClose={close} />
+        </div>
       )}
-      {many && !expanded && <><div className="notice-peek peek-1" />{notices.length > 2 && <div className="notice-peek peek-2" />}</>}
     </div>
   );
 }

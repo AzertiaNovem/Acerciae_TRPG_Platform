@@ -15430,5 +15430,17 @@
     "{n} сообщений в «{window}»",
     "{n} mensagens em {window}",
     "{n} messaggi in {window}"
+  ],
+  "{n} new": [
+    "{n} 条新消息",
+    "{n} 則新訊息",
+    "新着 {n} 件",
+    "새 메시지 {n}개",
+    "{n} nuevos",
+    "{n} nouveaux",
+    "{n} neu",
+    "новых: {n}",
+    "{n} novas",
+    "{n} nuove"
   ]
 }
