@@ -500,6 +500,41 @@ int main() {
         CHECK(plan["scenes"][0]["lines"][1]["stage"][0]["expr"] == "default");   // FIGHT is not in Mo's uploaded list
         CHECK(plan["asset_needs"].size() == 3);   // Ada's FIGHT portrait, the harbour and the lighthouse, not Mo's
         CHECK(plan["excluded"].size() == 1); CHECK(plan["excluded"][0]["ref"] == "L3");
+        CHECK(!plan["scenes"][1]["lines"][0].isMember("text"));   // a line matched by its copied text keeps its words
+    });
+    test("visual-novel wording: narration is reworded, short questions and answers fold into narration, the log stays", [] {
+        using logstudio::VnScriptService; using logstudio::LogEvent;
+        logstudio::ScriptInputs in;
+        auto ev = [&](std::string id, std::string win, std::string type, std::string who, std::string role, std::string text, std::string scope = "public") {
+            LogEvent e; e.eventId = id; e.chatWindowId = win; e.sceneKey = "s1"; e.sceneTitle = "Cellar"; e.eventType = type; e.speakerCharacterId = who; e.speakerDisplayName = who.empty() ? "Keeper" : who; e.speakerRole = role; e.content = text; e.visibilityScope = scope; e.occurredAtUnix = 1700000000; return e; };
+        in.events = {ev("e1","wA","narration","","gm","the cellar is dark. smells of damp. a door at the end"), ev("e2","wA","dialogue","c1","pc","is door locked?"),
+                     ev("e3","wA","narration","","gm","yes"), ev("e4","wA","dice_roll","c1","pc","Ada's Spot Hidden check: D100=12/60 — Hard Success"),
+                     ev("e5","wB","narration","","gm","no"), ev("e6","wA","narration","","gm","only you notice the key","character"), ev("e7","wA","dialogue","c1","pc","Who's there?")};
+        in.windowNames = {{"wA","Main"},{"wB","Side"}};
+        in.cast = json::parse(R"([{"ref":"C1","character_id":"c1","name":"Ada","kind":"pc","default_asset_id":null,"asset_mode":"uploaded","subtitles":["IDLE"],"appearance_prompt":""}])");
+        in.assets = Json::Value(Json::arrayValue);
+        auto llm = json::parse(R"({"script":[
+            {"ref":"L1","background":"Cellar","text":"The cellar is dark and smells of damp; a door waits at the far end."},
+            {"ref":"L2","background":"Cellar","kind":"narration","fold":["L3","L5","L6"],"text":"The door is locked."},
+            {"ref":"L4","speaker":"C1","background":"Cellar","text":"Ada finds nothing."},
+            {"ref":"L7","speaker":"C1","background":"Cellar","portrait":"IDLE"}]})");
+        auto plan = VnScriptService::fromFlat(in, {llm});
+        const auto& lines = plan["scenes"][0]["lines"];
+        CHECK(lines.size() == 4);
+        CHECK(lines[0]["text"] == "The cellar is dark and smells of damp; a door waits at the far end.");
+        CHECK(lines[1]["ref"] == "L2"); CHECK(lines[1]["text"] == "The door is locked."); CHECK(lines[1]["kind"] == "narration"); CHECK(!lines[1].isMember("speaker"));
+        CHECK(!lines[2].isMember("text"));   // dice lines are never reworded
+        CHECK(!lines[3].isMember("text"));
+        // L3 folds in; L5 (another window) and L6 (other readers) do not, and stay in the script.
+        CHECK(plan["excluded"].size() == 1); CHECK(plan["excluded"][0]["ref"] == "L3"); CHECK(plan["excluded"][0]["reason"] == "folded into narration (L2)");
+        auto script = VnScriptService::normalize(in, {plan}, "llm");
+        int hidden = 0; std::string l2Text, l2Kind; std::set<std::string> ids;
+        for (const auto& s : script["scenes"]) for (const auto& l : s["lines"]) {
+            ids.insert(l["event_id"].asString()); if (l["hidden"].asBool()) ++hidden;
+            if (l["event_id"] == "e2") { l2Text = l["text"].asString(); l2Kind = l["display_kind"].asString(); }
+        }
+        CHECK(ids.size() == 7);   // every log line is still in the script
+        CHECK(hidden == 1); CHECK(l2Text == "The door is locked."); CHECK(l2Kind == "narration");
     });
     test("scenario detection fires only on Keeper time or place shifts with enough history; summaries use only the log", [] {
         Json::Value ctx; ctx["current"]["event_count"] = 10; ctx["current"]["manual_move"] = false;

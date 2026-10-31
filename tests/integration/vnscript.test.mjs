@@ -73,13 +73,21 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   const [first, second] = pres.scenes.map(byScene);
   assert.deepEqual(first.filter((t) => t !== "brb, coffee"), ["Fog rolls over the harbour.", "I keep watch on the pier.", "A lantern moves on the water."]);
   assert.deepEqual(second, ["The archive smells of old paper.", "I pull the 1923 ledger.", "Someone tore out a page."]);
-  // Text is verbatim and nothing was dropped; the OOC line is hidden, not deleted.
+  // The mock composer keeps the log's wording; nothing was dropped and the OOC line is hidden, not deleted.
   const snapEvents = (await call(gm, "GET", root + `/snapshots/${job.snapshot_id}`)).events;
   assert.equal(pres.events.length, snapEvents.length);
   for (const e of pres.events) assert.ok(snapEvents.some((s) => s.content === e.display_text), e.display_text);
   assert.equal(pres.events.find((e) => e.display_text === "brb, coffee").hidden, true);
   // Mo is staged on the pier with an IDLE-less uploaded profile → default (no art yet).
   const pier = pres.events.find((e) => e.display_text === "I keep watch on the pier.");
+  // The presentation's own wording: shown instead of the log's words, while the log and the raw view keep the original.
+  const fog = pres.events.find((e) => e.display_text === "Fog rolls over the harbour.");
+  await call(gm, "PUT", root + `/pevents/${fog.id}`, { script_text: "A thick fog rolls in over the harbour." });
+  let again = (await call(gm, "GET", root + `/presentations/${done.presentation_id}`)).events.find((e) => e.id === fog.id);
+  assert.equal(again.display_text, "A thick fog rolls in over the harbour."); assert.equal(again.content, "Fog rolls over the harbour.");
+  await call(gm, "PUT", root + `/pevents/${fog.id}`, { script_text: null });
+  again = (await call(gm, "GET", root + `/presentations/${done.presentation_id}`)).events.find((e) => e.id === fog.id);
+  assert.equal(again.display_text, "Fog rolls over the harbour."); assert.equal(again.script_text, null);
   assert.equal(pier.character_asset_ids[0].character_id, mo.id);
   // Ada speaks in generated mode: a SAY portrait is requested for her, none for Mo; both scene backgrounds are requested.
   const gen = done.script.generation;

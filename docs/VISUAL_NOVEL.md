@@ -5,7 +5,18 @@ A visual novel in Log Studio is a presentation over one frozen snapshot. Two fea
 - **Look templates** decide how the player draws every line.
 - **Script jobs** have the LLM read the campaign log in the requester's scope and organise it into scenes, backgrounds and portraits. The job then builds a draft presentation in a chosen template, asks the image AI for missing art, and the author casts voices and downloads a standalone zip.
 
-Neither feature changes canonical text. A script references log events by id, and the player shows those events verbatim.
+Neither feature changes canonical text. A script references log events by id. The script composer may give a line its
+own wording for the visual novel, stored on the presentation (`script_text`) while the log keeps the original:
+
+- the Keeper's narration and action lines are rewritten as fluent, grammatical prose in the log's language;
+- short question-and-answer exchanges ("Is the door locked?" / "Yes.") fold into one narration line ("The door is
+  locked."); the folded lines stay in the presentation, hidden with the reason `folded into narration (L<n>)`;
+- in-character dialogue keeps its words apart from obvious typos, and dice lines are never reworded.
+
+Exact wording is not kept, but facts, names, numbers and decisions are. Only consecutive lines of one chat window with
+the same readers can fold together, so a reworded line never carries text its viewer could not read. The editor shows
+the wording with the log's original beside it ("Use the log's wording" restores it), and the player's raw log view
+always shows the canonical text.
 
 ![The four look templates](screenshots/vn-templates.png)
 

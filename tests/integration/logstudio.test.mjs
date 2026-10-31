@@ -441,7 +441,12 @@ test("Log Studio A–I: the campaign log and its exports, immutable snapshots, s
       model: "qwen-audio-3.1-tts-plus",
     },
   });
-  assert.equal((await call(gm, "GET", root + "/tts/status")).provider, "qwen");
+  const qwenStatus = await call(gm, "GET", root + "/tts/status");
+  assert.equal(qwenStatus.provider, "qwen");
+  // Qwen's own features in the Voice Studio: design, cloning, language hints, dialects, rate/pitch/volume, pinyin.
+  assert.equal(qwenStatus.features.voice_design, true); assert.equal(qwenStatus.features.voice_clone, true); assert.equal(qwenStatus.features.phoneme_dictionary, true);
+  assert.deepEqual(qwenStatus.features.params.map((p) => p.key), ["rate", "pitch", "volume"]);
+  assert.equal(qwenStatus.features.dialect.label, "Dialect"); assert.deepEqual(qwenStatus.features.models, []);
   const cloudVoice = await call(gm, "POST", root + "/voices", {
     name: "Policy test",
     voice_type: "preset",

@@ -80,3 +80,14 @@ test('careers: named and described in the server language, picked by any of its 
   assert.equal(formulaLabel(acrobat, rules, 'ja'), '教育×2 + 筋力/敏捷性×2');
   assert.equal(formulaLabel(acrobat, rules, 'zh-CN'), '教育×2＋敏捷×2');
 });
+
+test('voice studio: dictionary lines carry phonetic readings only where the service takes them; params fill defaults', () => {
+  const { parseDictionary, formatDictionary, paramValues } = load('components/studio/voiceFeatures.ts');
+  const text = 'Cthulhu=克苏鲁\n行=[xing2]\n  \nbad line\nR\'lyeh = 拉莱耶';
+  assert.deepEqual(parseDictionary(text, true).map((e) => [e.term, e.reading, e.mode]), [['Cthulhu', '克苏鲁', 'replace'], ['行', 'xing2', 'phoneme'], ["R'lyeh", '拉莱耶', 'replace']]);
+  assert.deepEqual(parseDictionary(text, false).map((e) => e.mode), ['replace', 'replace', 'replace']);
+  assert.equal(formatDictionary(parseDictionary(text, true)), "Cthulhu=克苏鲁\n行=[xing2]\nR'lyeh=拉莱耶");
+  const f = { params: [{ key: 'rate', min: 0.5, max: 2, step: 0.05, default: 1 }, { key: 'volume', min: 0, max: 100, step: 1, default: 50 }] };
+  assert.deepEqual(paramValues(f, { rate: 1.4, speed: 3 }), { rate: 1.4, volume: 50 });
+  assert.deepEqual(paramValues(f, undefined), { rate: 1, volume: 50 });
+});
