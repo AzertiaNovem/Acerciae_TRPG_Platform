@@ -26,6 +26,7 @@ interface NavState {
   setStudioOpen: (o: boolean) => void;
   openCharacter: (id: string | null) => void;
   applyWindowChange: (w: ChatWindow) => void;
+  setUnread: (windowId: string, unread: number | ((n: number) => number)) => void;
   applySceneChange: (s: Scene) => void;
   reset: () => void;
   loadServerSettings: () => Promise<void>;
@@ -105,6 +106,7 @@ export const useNav = create<NavState>((set, get) => ({
   setStudioOpen: (o) => set({ studioOpen: o, gmWorkspaceOpen: o ? false : get().gmWorkspaceOpen, characterSpaceId: o ? null : get().characterSpaceId }),
   openCharacter: (id) => set({ characterSpaceId: id, gmWorkspaceOpen: id ? false : get().gmWorkspaceOpen, studioOpen: id ? false : get().studioOpen }),
   applyWindowChange: (w) => set((s) => ({ windows: s.windows.some((x) => x.id === w.id) ? s.windows.map((x) => (x.id === w.id ? { ...x, ...w } : x)) : s.windows })),
+  setUnread: (id, unread) => set((s) => ({ windows: s.windows.map((x) => (x.id === id ? { ...x, unread: Math.max(0, typeof unread === 'function' ? unread(x.unread ?? 0) : unread) } : x)) })),
   loadServerSettings: async () => { const id = get().serverId; if (!id) return; const e = sessionEpoch(); const st = await api.serverSettings(id); if (!isStale(e) && get().serverId === id) set({ serverSettings: st }); },
   // Pushed settings carry only the public view; keep the maintainer-only parts already loaded.
   applyServerSettings: (st) => set((s) => (s.serverId === st.server_id ? { serverSettings: { ...(s.serverSettings ?? {}), ...st } as ServerSettings, servers: st.name ? s.servers.map((x) => (x.id === st.server_id ? { ...x, name: st.name! } : x)) : s.servers } : s)),

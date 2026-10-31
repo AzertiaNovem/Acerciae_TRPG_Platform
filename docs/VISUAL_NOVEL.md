@@ -42,6 +42,7 @@ A presentation stores its template in `settings.template`: a base preset plus op
 | `color_grade` | `none` · `sepia` · `mono` · `cold` · `warm` | Filter on background and standees, never on text |
 | `letterbox` | boolean | Black bars above and below |
 | `dim_inactive` | boolean | Darken standees that are not speaking |
+| `portrait_framing` | `upper` · `full` | `upper` (every preset's default): standees sit lower and only their upper half shows; `full`: the whole figure |
 | `dice_style` | `burst` · `stamp` · `inline` · `hide` | How a roll's total and outcome appear |
 | `scene_card` | `fade` · `caption` · `none` | How a new scene's title appears |
 | `character_colors` | character id → `#RRGGBB` (≤ 200) | Name colours |
@@ -124,11 +125,28 @@ The system prompt forbids writing, rewriting, translating, shortening or merging
 - **Portraits.** A speaker is staged with the subtitle given (at most two on stage). For a character in uploaded mode a
   subtitle not in their list falls back to their default art. Portrait requests for uploaded-mode characters are dropped.
 - **Art requests.** New backgrounds and generated-mode portraits become image jobs (`asset_needs`, at most 24 per script).
-  Background jobs attach to their scene; portrait jobs attach to every placement of that character with that subtitle,
-  replacing a stand-in, and are added to the character space.
+  Background jobs attach to their scene; portrait jobs are added to the character space (when the Keeper or the
+  character's actor asked) and show on every placement of that character with that subtitle at once.
 
-`PresentationService::applyScript` writes the result over a fresh presentation. It re-checks each asset (approved, same
-channel, right type, visible to the presentation's audience) and freezes asset versions.
+`PresentationService::applyScript` writes the result over a fresh presentation. It re-checks each background and BGM
+(approved, same channel, right type, visible to the presentation's audience).
+
+### Character images: one per character and subtitle
+- **A stage names a character and a subtitle, never an image.** A placement is stored as
+  `{character_id, expression, position, …}`; when the presentation is read (editor, player, publication, zip) each one
+  gets `asset_id`/`asset_version` of the character's current image for that subtitle: the character space's image,
+  else the newest approved library standee filed under that character and subtitle, else the main portrait. Updating
+  a pose updates every visual novel that uses it. Migration `0039` converted older placements.
+- **A new image deletes the older one.** Uploading or generating a character's avatar, main portrait or a subtitle pose
+  (in the character space, by a script's art request, or a library upload with that character and subtitle by the
+  Keeper or the character's actor) replaces the slot and deletes the previous image of the same character and subtitle
+  (subtitles compare without case), its database rows and its stored files, locally and in R2. Generation references
+  follow to the new image. An image a live publication still shows is kept, marked superseded and hidden from the
+  library, until that publication is revoked. A library upload by anyone else is kept and only fills a subtitle the
+  character has no image for.
+- **Deleting a visual novel** (`DELETE /presentations/{p}`, the editor or the Drafts list) removes its scenes, lines,
+  staging and prepared downloads (their zips are deleted from storage). What it generated stays for reuse:
+  backgrounds and character images in the asset library, voice lines in the speech cache.
 
 ### Mock mode and cloud policy
 

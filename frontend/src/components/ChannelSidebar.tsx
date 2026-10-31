@@ -105,6 +105,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
                 <span className="muted">{w.kind === 'main' ? '◎' : w.kind === 'private' ? '◌' : '○'}</span><span className="name">{w.name}</span>
                 {isGm ? <button className="ghost small member-count" title={tr("Invite or remove members")} onClick={(e) => { e.stopPropagation(); setManageWindow(w.id); }}>{(w.members ?? []).length} ⚇</button>
                   : <span className="tiny muted">{(w.members ?? []).length}</span>}
+                {(w.unread ?? 0) > 0 && <span className="unread-badge" title={tr('{n} unread messages', { n: w.unread! })}>{w.unread! > 99 ? '99+' : w.unread}</span>}
               </div>
             ))}
             <div className="section"><span>{tr("Scenarios")}</span>{isGm && <button className="ghost small" title={tr("Open the next scenario for the whole campaign")} onClick={() => setConfirmScenario(true)}>▶</button>}</div>

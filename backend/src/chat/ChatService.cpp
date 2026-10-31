@@ -298,6 +298,8 @@ Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::str
     db_.tx([&](pqxx::work& w) {
         if (!serverRoleForNew.empty()) Db::exec(w, "INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", {a.serverId, uid, serverRoleForNew});
         Db::exec(w, "INSERT INTO channel_members(channel_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT (channel_id,user_id) DO UPDATE SET role=EXCLUDED.role", {a.channelId, uid, role});
+        // A newcomer starts with the history read: the unread counters count what is posted from now on.
+        Db::exec(w, "INSERT INTO chat_window_reads(chat_window_id, user_id, last_read_seq) SELECT cw.id, $2, coalesce((SELECT max(seq) FROM messages m WHERE m.chat_window_id=cw.id), 0) FROM chat_windows cw WHERE cw.channel_id=$1 ON CONFLICT DO NOTHING", {a.channelId, uid});
         // Everyone joins the main window by default.
         auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {a.channelId});
         if (!main.isNull()) { mainId = main["id"].asString(); Db::exec(w, "INSERT INTO chat_window_members(chat_window_id, user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {mainId, uid}); }
@@ -418,11 +420,15 @@ Json::Value ChatService::listWindows(const ChannelAccess& a) {
         "SELECT w.*, " + std::string(a.isGm ? "s.title" : "NULL::text") + " AS scene_title, "
         "(SELECT json_agg(json_build_object('user_id', wm.user_id, 'character_id', wm.character_id, 'display_name', u.display_name, 'character_name', ch.name)) "
         " FROM chat_window_members wm JOIN users u ON u.id=wm.user_id LEFT JOIN characters ch ON ch.id=wm.character_id WHERE wm.chat_window_id=w.id) AS members, "
-        "(SELECT max(seq) FROM messages m WHERE m.chat_window_id=w.id) AS last_seq "
+        "(SELECT max(seq) FROM messages m WHERE m.chat_window_id=w.id) AS last_seq, "
+        // Messages this viewer may read, posted by someone else after what they last read (counted up to 100).
+        "(SELECT count(*) FROM (SELECT 1 FROM messages m WHERE m.chat_window_id=w.id AND m.author_id IS DISTINCT FROM $2::uuid "
+        "   AND m.seq > coalesce((SELECT r.last_read_seq FROM chat_window_reads r WHERE r.chat_window_id=w.id AND r.user_id=$2::uuid), 0) "
+        "   AND " + Visibility::messageFilter(a) + " LIMIT 100) u) AS unread "
         "FROM chat_windows w LEFT JOIN scenes s ON s.id=w.active_scene_id WHERE w.channel_id=$1";
-    if (!a.isGm) sql += " AND EXISTS (SELECT 1 FROM chat_window_members wm2 JOIN player_group_members pm ON pm.user_id=wm2.user_id WHERE pm.channel_id=w.channel_id AND pm.group_id=$2::uuid AND wm2.chat_window_id=w.id) AND " + Visibility::groupGuard(a);
+    if (!a.isGm) sql += " AND EXISTS (SELECT 1 FROM chat_window_members wm2 JOIN player_group_members pm ON pm.user_id=wm2.user_id WHERE pm.channel_id=w.channel_id AND pm.group_id=$3::uuid AND wm2.chat_window_id=w.id) AND " + Visibility::groupGuard(a);
     sql += " ORDER BY w.created_at";
-    DbParams p{a.channelId}; if (!a.isGm) p.push_back(a.playerGroupId.empty()?dbNull():DbParam(a.playerGroupId));
+    DbParams p{a.channelId, a.userId}; if (!a.isGm) p.push_back(a.playerGroupId.empty()?dbNull():DbParam(a.playerGroupId));
     return db_.queryJson(sql, p);
 }
 Json::Value ChatService::createWindow(const ChannelAccess& a, const Json::Value& body) {
@@ -497,6 +503,13 @@ Json::Value ChatService::listMessages(const ChannelAccess& a, const std::string&
     sql += " ORDER BY m.seq DESC LIMIT " + std::to_string(std::max(1, std::min(limit, 200)));
     auto rows = db_.queryJson("SELECT * FROM (" + sql + ") x ORDER BY seq ASC", p);
     return rows;
+}
+Json::Value ChatService::markRead(const ChannelAccess& a, const std::string& windowId, int64_t seq) {
+    listMessages(a, windowId, 1, 0);   // the same access check as reading the window
+    auto row = db_.queryOne("INSERT INTO chat_window_reads(chat_window_id, user_id, last_read_seq) VALUES($1,$2,LEAST($3, coalesce((SELECT max(seq) FROM messages WHERE chat_window_id=$1), 0))) "
+        "ON CONFLICT (chat_window_id, user_id) DO UPDATE SET last_read_seq=GREATEST(chat_window_reads.last_read_seq, EXCLUDED.last_read_seq), updated_at=now() RETURNING last_read_seq",
+        {windowId, a.userId, seq});
+    Json::Value v; v["last_read_seq"] = row["last_read_seq"]; return v;
 }
 Json::Value ChatService::getMessage(const ChannelAccess& a, const std::string& messageId) {
     auto m = db_.queryOne(MSG_SELECT + "WHERE m.id=$1 AND m.channel_id=$2 AND " + Visibility::messageFilter(a), {messageId, a.channelId});

@@ -12,6 +12,7 @@
 #include "logstudio/VnScriptService.h"
 #include "seed/DemoSeed.h"
 #include "app/Maintenance.h"
+#include "logstudio/StorageCleanup.h"
 #include "core/Log.h"
 #include <drogon/drogon.h>
 #include <curl/curl.h>
@@ -23,7 +24,7 @@ using namespace acerciae;
 
 int main(int argc, char** argv) {
     bool seedOnly = false, migrateOnly = false, noSeed = false;
-    std::string copyFrom, copyTo; bool copyAll = false, migrateMedia = false;
+    std::string copyFrom, copyTo; bool copyAll = false, migrateMedia = false, cleanStorage = false, dryRun = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--seed-demo") seedOnly = true;
@@ -34,8 +35,12 @@ int main(int argc, char** argv) {
             copyAll = a == "--copy-media"; copyFrom = argv[++i]; copyTo = argv[++i];
         }
         else if (a == "--migrate-media") migrateMedia = true;
-        else if (a == "--help") { std::cout << "acerciae-server [--migrate-only] [--seed-demo] [--no-seed] [--migrate-media] [--copy-images FROM TO] [--copy-media FROM TO]\n"
+        else if (a == "--clean-storage") cleanStorage = true;
+        else if (a == "--dry-run") dryRun = true;
+        else if (a == "--help") { std::cout << "acerciae-server [--migrate-only] [--seed-demo] [--no-seed] [--migrate-media] [--clean-storage [--dry-run]] [--copy-images FROM TO] [--copy-media FROM TO]\n"
                                                "  --migrate-media          run the media migration now (also runs in the background at every start)\n"
+                                               "  --clean-storage          delete stored media nothing uses any more (also runs at every start and daily);\n"
+                                               "                           with --dry-run, only count what would go\n"
                                                "  --copy-images local r2   copy stored images to Cloudflare R2 (or r2 local to bring them back; also s3)\n"
                                                "  --copy-media r2public local   copy every stored object, e.g. out of the public bucket before turning it off\n"; return 0; }
     }
@@ -89,6 +94,11 @@ int main(int argc, char** argv) {
         std::cout << "media migration: " << logstudio::MediaMigrator::describe(rep) << "\n";
         Services::shutdown(); curl_global_cleanup(); return rep.failed ? 1 : 0;
     }
+    if (cleanStorage) {
+        auto rep = S.storageCleanup->runOnce(dryRun);
+        std::cout << "storage cleanup: " << logstudio::StorageCleanup::describe(rep, dryRun) << "\n";
+        Services::shutdown(); curl_global_cleanup(); return rep.failed ? 1 : 0;
+    }
     if (seedOnly) { std::cerr << "Seeding demo accounts with the published password \"password\": local development only.\n"; DemoSeed::run(S, true); Services::shutdown(); curl_global_cleanup(); return 0; }
     if (cfg.seedDemo && !noSeed) { try { DemoSeed::run(S, false); } catch (const std::exception& e) { ALOG_ERROR << "demo seed failed: " << e.what(); } }
 
@@ -104,7 +114,9 @@ int main(int argc, char** argv) {
         .enableGzip(false);
     drogon::app().registerBeginningAdvice([&] { S.observer->start(); S.tts->start(); S.creative->start(); S.vnScripts->start(); S.maintenance->start();
         // Sends local media to object storage (and non-secret media to the public bucket) whenever that is configured.
-        if (const char* m = std::getenv("MEDIA_MIGRATION"); !m || (std::string(m) != "false" && std::string(m) != "0")) S.mediaMigrator->start(); });
+        if (const char* m = std::getenv("MEDIA_MIGRATION"); !m || (std::string(m) != "false" && std::string(m) != "0")) S.mediaMigrator->start();
+        // Deletes stored media nothing uses any more, now and once a day.
+        if (const char* c = std::getenv("STORAGE_CLEANUP"); !c || (std::string(c) != "false" && std::string(c) != "0")) S.storageCleanup->start(); });
     std::signal(SIGTERM, [](int) { drogon::app().quit(); });
     std::signal(SIGINT, [](int) { drogon::app().quit(); });
     ALOG_INFO << "Acerciae TRPG backend listening on :" << cfg.httpPort << " (AI providers: per server)";

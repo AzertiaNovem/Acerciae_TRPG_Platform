@@ -123,7 +123,49 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 50; display: grid; place-items: center; }
 .modal { background: var(--bg-2); border: 1px solid var(--bg-4); border-radius: 14px; padding: 16px 18px; width: min(560px, 92vw); max-height: 85vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
 .modal h3 { margin: 0 0 10px; }
-.toasts { position: fixed; top: 12px; right: 16px; z-index: 60; display: flex; flex-direction: column; gap: 6px; }
+/* Top-right corner: message banners first, then toasts. */
+.corner-stack { position: fixed; top: 12px; right: 16px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; max-width: calc(100vw - 32px); }
+.corner-stack > * { pointer-events: auto; }
+.toasts { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+/* In-channel message banners, in the manner of macOS notifications; banners of one window stack. */
+.notices { display: flex; flex-direction: column; gap: 10px; width: 356px; max-width: 100%; }
+.notice { --notice-bg: rgba(36, 38, 44, .78); position: relative; isolation: isolate; border-radius: 18px; cursor: pointer;
+  animation: notice-in .32s cubic-bezier(.2, .9, .25, 1.15); transition: opacity .2s, transform .2s, margin .2s; }
+.notice.stacked.depth-1 { margin-bottom: 7px; } .notice.stacked.depth-2 { margin-bottom: 13px; }
+.notice-top, .notice-item, .notice.expanded { border-radius: 18px; }
+.notice-top, .notice-item { position: relative; z-index: 2; background: var(--notice-bg); -webkit-backdrop-filter: blur(26px) saturate(170%); backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, .1); box-shadow: 0 10px 30px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .05); }
+.notice-top { animation: notice-swap .25s ease-out; }
+.notice-top:hover, .notice-item:hover { background: rgba(48, 51, 59, .84); }
+.notice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.notice.leaving { opacity: 0; transform: translateX(24px); }
+/* Older banners of the stack: two narrower edges peeking out under the newest. */
+.notice-peek { position: absolute; z-index: 1; height: 28px; bottom: -7px; left: 10px; right: 10px; border-radius: 0 0 16px 16px; background: rgba(32, 34, 40, .72);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, .07); border-top: none; box-shadow: 0 6px 16px rgba(0, 0, 0, .35); }
+.notice-peek.peek-2 { z-index: 0; bottom: -13px; left: 20px; right: 20px; background: rgba(28, 30, 36, .62); }
+.notice-card { display: flex; gap: 12px; align-items: center; padding: 11px 14px; }
+.notice-icon { width: 40px; height: 40px; flex: none; border-radius: 10px; object-fit: cover; background: var(--bg-4); display: grid; place-items: center; font-weight: 700; color: var(--fg-1); }
+.notice-main { min-width: 0; flex: 1; }
+.notice-head { display: flex; gap: 8px; align-items: baseline; }
+.notice-title { flex: 1; min-width: 0; font-weight: 600; font-size: 14px; color: var(--fg-0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notice-time { flex: none; font-size: 12px; color: var(--fg-2); }
+.notice-body { font-size: 13px; color: var(--fg-1); line-height: 1.35; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; overflow-wrap: anywhere; }
+.notice-body b { font-weight: 600; color: var(--fg-0); }
+.notice-close { position: absolute; z-index: 3; top: -7px; left: -7px; width: 22px; height: 22px; padding: 0; border-radius: 50%; font-size: 14px; line-height: 20px; text-align: center;
+  background: rgba(70, 72, 80, .95); border: 1px solid rgba(255, 255, 255, .14); color: var(--fg-0); opacity: 0; transition: opacity .15s; }
+.notice:hover > .notice-close, .notice:focus-within > .notice-close, .notice-item:hover > .notice-close { opacity: 1; }
+.notice.expanded { display: flex; flex-direction: column; gap: 6px; cursor: default; }
+.notice-group-head { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; border-radius: 14px; font-weight: 600; font-size: 13px; color: var(--fg-0);
+  background: rgba(30, 32, 38, .7); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, .08); }
+.notice-group-head .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notice-group-head button { background: rgba(70, 72, 80, .9); border: 1px solid rgba(255, 255, 255, .12); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--fg-0); }
+.notice-item { cursor: pointer; }
+@keyframes notice-in { from { opacity: 0; transform: translateX(110%); } to { opacity: 1; transform: none; } }
+@keyframes notice-swap { from { opacity: .4; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .notice, .notice-top { animation: none; transition: none; } }
+@media (max-width: 480px) { .corner-stack { left: 8px; right: 8px; top: 8px; max-width: none; } .notices { width: 100%; } }
+/* Unread messages next to a chat window. */
+.unread-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; flex: none; }
 .toast { background: var(--bg-3); border: 1px solid var(--bg-4); padding: 8px 12px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,.4); font-size: 13px; animation: rise .2s; }
 .toast.error { border-color: var(--danger); } .toast.ai { border-color: var(--accent-2); }
 .ai-activity { position: absolute; top: 52px; right: 16px; font-size: 12px; color: var(--accent-2); background: var(--bg-2); border: 1px solid #1f4a55; padding: 3px 10px; border-radius: 999px; z-index: 5; animation: rise .2s; }

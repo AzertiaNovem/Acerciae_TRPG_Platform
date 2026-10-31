@@ -58,6 +58,9 @@ public:
   // Maintenance: deletes expired bundles from every storage backend, fails jobs a restart interrupted, forgets old
   // rows. Returns how many bundles were deleted.
   int expireBundles();
+  // Deletes a visual novel (its scenes, lines, staging and prepared downloads). What it generated stays in the
+  // channel for reuse: backgrounds and character images in the asset library, voice lines in the speech cache.
+  Json::Value deletePresentation(const ChannelAccess &a, const std::string &presentationId);
   static int bundleTtlHours();
 
 private:

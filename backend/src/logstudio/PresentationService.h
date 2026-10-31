@@ -3,6 +3,7 @@
 #include "../core/Db.h"
 #include "../auth/AuthService.h"
 #include <json/json.h>
+#include <map>
 
 namespace acerciae { class Notifier; }
 namespace acerciae::logstudio {
@@ -42,6 +43,15 @@ public:
     // regroups and reorders events into the script's scenes, applies staging, hiding and delivery.
     // Canonical text is untouched; every asset is re-checked against the presentation's scope.
     void applyScript(const ChannelAccess& a, const std::string& presentationId, const Json::Value& script);
+    // The image each character shows now: per subtitle (lower-cased) the image its character space holds for it,
+    // else the newest approved library standee filed under it; under "" its main portrait (the default).
+    // Values: {id, version, expression}. Keeper-only images only when gmOnly.
+    std::map<std::string, std::map<std::string, Json::Value>> currentStandees(const std::string& channelId, bool gmOnly);
+    // A stage placement names a character and a subtitle, never an image. These fill in the image each placement
+    // shows now (asset_id/asset_version, the default when the subtitle has none) for reading.
+    static void resolveStage(Json::Value& events, const std::map<std::string, std::map<std::string, Json::Value>>& images);
+    // What may be stored for one placement: character, subtitle, position and display flags.
+    static Json::Value placement(const Json::Value& in);
     // Bumps the version and tells viewers what changed (also used when generated art lands in a draft).
     void touch(const std::string& presentationId, const std::string& channelId, const std::string& what);
 private:
