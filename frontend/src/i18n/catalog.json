@@ -15082,5 +15082,29 @@
     "В журнале:",
     "No registro:",
     "Nel registro:"
+  ],
+  "Keep completed parts when retrying": [
+    "重试时保留已完成分段",
+    "重試時保留已完成分段",
+    "再試行時に完了済みの部分を保持",
+    "재시도 시 완료된 부분 유지",
+    "Conservar las partes completadas al reintentar",
+    "Conserver les parties terminées lors des nouvelles tentatives",
+    "Abgeschlossene Teile beim Wiederholen behalten",
+    "Сохранять готовые части при повторе",
+    "Manter partes concluídas ao tentar novamente",
+    "Conserva le parti completate al riprovare"
+  ],
+  "Retry script": [
+    "重试剧本生成",
+    "重試劇本生成",
+    "脚本生成を再試行",
+    "대본 생성 재시도",
+    "Reintentar guion",
+    "Réessayer le script",
+    "Skript erneut versuchen",
+    "Повторить создание сценария",
+    "Tentar gerar o roteiro novamente",
+    "Riprova la generazione del copione"
   ]
 }

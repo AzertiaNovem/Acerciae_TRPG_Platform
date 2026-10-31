@@ -44,6 +44,11 @@ Config Config::fromEnv() {
     c.llmMaxTokens = envInt("LLM_MAX_TOKENS", c.llmMaxTokens);
     c.llmModuleMaxTokens = envInt("LLM_MODULE_MAX_TOKENS", c.llmModuleMaxTokens);
     c.llmModuleTimeoutMs = envInt("LLM_MODULE_TIMEOUT_MS", c.llmModuleTimeoutMs);
+    c.llmVnMaxTokens = envInt("LLM_VN_MAX_TOKENS", c.llmVnMaxTokens);
+    c.llmVnTimeoutMs = envInt("LLM_VN_TIMEOUT_MS", c.llmVnTimeoutMs);
+    c.vnScriptRetryFailedChunks = envBool("VN_SCRIPT_RETRY_FAILED_CHUNKS", c.vnScriptRetryFailedChunks);
+    if (c.llmVnMaxTokens < 1 || c.llmVnTimeoutMs < 1000)
+        throw std::runtime_error("LLM_VN_MAX_TOKENS must be positive and LLM_VN_TIMEOUT_MS at least 1000 ms");
     if(c.llmMaxTokens<1 || c.llmModuleMaxTokens<1 || c.llmModuleTimeoutMs<1000)
         throw std::runtime_error("LLM output limits must be positive and module timeout at least 1000 ms");
     c.llmTemperature = envDouble("LLM_TEMPERATURE", c.llmTemperature);

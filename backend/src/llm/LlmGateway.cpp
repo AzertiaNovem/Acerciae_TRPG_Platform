@@ -14,7 +14,13 @@ LlmGateway::LlmGateway(const Config& cfg) : cfg_(cfg), mock_(std::make_shared<Mo
 }
 LlmGateway::LlmGateway(const Config& cfg, std::unique_ptr<ILlmClient> client) : cfg_(cfg), fixed_(std::move(client)), mock_(std::make_shared<MockLlmClient>()) {}
 
-LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId, bool moduleTask) const {
+LlmGateway::Limits LlmGateway::limitsForTask(const std::string& task) const {
+    if (task == "vn_script") return {cfg_.llmVnMaxTokens, cfg_.llmVnTimeoutMs};
+    if (task == "module_structure" || task == "script_knowledge") return {cfg_.llmModuleMaxTokens, cfg_.llmModuleTimeoutMs};
+    return {cfg_.llmMaxTokens, cfg_.llmTimeoutMs};
+}
+
+LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId, const std::string& task) const {
     Resolved r; r.client = mock_; r.provider = "mock";
     if (fixed_) { r.client = fixed_; r.fixed = true; return r; }
     if (channelId.empty() || !resolver_) return r;
@@ -22,7 +28,9 @@ LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId, bool mo
     if (!profile) return r;
     r.language = profile->language;
     auto ep = profile->endpoint;
-    if (moduleTask) ep.timeoutMs = cfg_.llmModuleTimeoutMs;
+    auto limits = limitsForTask(task);
+    ep.timeoutMs = limits.timeoutMs;
+    ep.maxTokens = limits.maxTokens;
     if (ep.provider == "mock" || ep.apiKey.empty()) return r;
     r.provider = ep.provider; r.embeddingModel = ep.embeddingModel;
     auto key = ep.provider + "\n" + std::to_string(ep.timeoutMs) + "\n" + std::to_string(ep.maxTokens) + "\n" + ep.apiBase + "\n" + ep.apiKey + "\n" + ep.model + "\n" + ep.reasoningEffort + "\n" + ep.embeddingModel;
@@ -93,11 +101,11 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
     Outcome out;
     const bool moduleTask = req.task == "module_structure" || req.task == "script_knowledge";
     // Central defaults also lift legacy per-task limits; the module limit can be tuned independently.
-    req.maxTokens = moduleTask ? cfg_.llmModuleMaxTokens : std::max(req.maxTokens, cfg_.llmMaxTokens);
+    req.maxTokens = (moduleTask || req.task == "vn_script") ? limitsForTask(req.task).maxTokens : std::max(req.maxTokens, cfg_.llmMaxTokens);
     if (req.temperature < 0) req.temperature = cfg_.llmTemperature;
     if (!exec) req.tools.clear();
     Resolved resolved;
-    try { resolved = clientFor(req.channelId, moduleTask); }
+    try { resolved = clientFor(req.channelId, req.task); }
     catch (const std::exception& e) { out.error = e.what(); return out; }
     auto& client = *resolved.client;
     // Mock calls cost nothing; live calls spend the server's budget and hold one of its concurrent AI slots.

@@ -44,9 +44,12 @@ public:
     bool embeddingsAvailable(const std::string& channelId) const;
     Json::Value status(const std::string& channelId) const;
     static std::string languageName(const std::string& code);   // "zh-CN" -> "Simplified Chinese"; "" for English
+    struct Limits { int maxTokens; int timeoutMs; };
+    Limits limitsForTask(const std::string& task) const;
+    bool retryFailedVnChunks() const { return cfg_.vnScriptRetryFailedChunks; }
 private:
     struct Resolved { std::shared_ptr<ILlmClient> client; std::string language; std::string provider; std::string embeddingModel; bool fixed = false; };
-    Resolved clientFor(const std::string& channelId, bool moduleTask = false) const;
+    Resolved clientFor(const std::string& channelId, const std::string& task = "") const;
     static Json::Value extractJson(const std::string& content);
     const Config& cfg_;
     std::shared_ptr<ILlmClient> fixed_;   // tests only
