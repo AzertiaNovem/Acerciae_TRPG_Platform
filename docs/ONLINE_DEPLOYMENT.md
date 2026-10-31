@@ -89,7 +89,7 @@ Pages Git 集成的 Production branch 设为 `online`，Root directory 为 `fron
 
 ```dotenv
 NODE_VERSION=22
-VITE_API_BASE=https://trpg.missazertia.com:15510
+VITE_API_BASE=https://trpg.missazertia.com
 ```
 
 建议关闭其他分支的 Preview builds，正式域名沿用 `trpg-platform.azertia.org`。无需在 GitHub 配置 CF token。

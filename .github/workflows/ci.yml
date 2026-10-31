@@ -91,7 +91,7 @@ jobs:
     timeout-minutes: 60
     environment:
       name: production
-      url: https://trpg.missazertia.com:15510/api/health
+      url: https://trpg.missazertia.com/api/health
     concurrency:
       group: production-backend
       cancel-in-progress: false
