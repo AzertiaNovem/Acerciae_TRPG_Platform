@@ -5,9 +5,25 @@
 #include "../knowledge/Visibility.h"
 #include "../logstudio/ObjectStore.h"
 #include "../ws/Notifier.h"
+#include <thread>
+#include <chrono>
 
 namespace acerciae {
 namespace {
+// The cascade can collide with background AI work on the same channel (the observer updating its job rows); PostgreSQL
+// then aborts one side. Deletion is the side that retries: the whole transaction again, a few times, with a short pause.
+template <typename F> void retryOnDeadlock(F&& attempt) {
+    for (int i = 0;; ++i) {
+        try { attempt(); return; }
+        catch (const std::exception& e) {
+            std::string m = e.what();
+            bool transient = m.find("deadlock detected") != std::string::npos || m.find("could not serialize") != std::string::npos;
+            if (!transient || i >= 4) throw;
+            ALOG_WARN << "delete: retrying after a lock conflict (" << i + 1 << ")";
+            std::this_thread::sleep_for(std::chrono::milliseconds(100 * (i + 1)));
+        }
+    }
+}
 void requirePhrase(const Json::Value& body, const char* phrase) {
     if (json::str(body, "confirm") != phrase) throw ApiError(400, "confirmation_required", std::string("type \"") + phrase + "\" to confirm");
 }
@@ -47,12 +63,12 @@ Json::Value DeletionService::deleteServer(const Principal& p, const std::string&
     if (s["owner_id"].asString() != p.userId) throw forbidden("only the server owner can delete the server");
     requirePhrase(body, kServerPhrase);
     std::vector<std::string> members, channels, keys;
-    db_.tx([&](pqxx::work& w) {
+    retryOnDeadlock([&] { db_.tx([&](pqxx::work& w) {
         members = column(Db::queryJson(w, "SELECT user_id FROM server_members WHERE server_id=$1", {serverId}), "user_id");
         channels = column(Db::queryJson(w, "SELECT id FROM channels WHERE server_id=$1", {serverId}), "id");
         keys = objectKeys(w, "IN (SELECT id FROM channels WHERE server_id=$1)", serverId);
         Db::exec(w, "DELETE FROM servers WHERE id=$1", {serverId});
-    });
+    }); });
     int files = channels.empty() ? 0 : removeObjects(channels, keys);
     notifier_.serverDeleted(serverId, channels, members);
     Json::Value v; v["ok"] = true; v["channels"] = (int)channels.size(); v["files"] = files;
@@ -68,11 +84,11 @@ Json::Value DeletionService::deleteChannel(const Principal& p, const std::string
     requirePhrase(body, kChannelPhrase);
     auto serverId = c["server_id"].asString();
     std::vector<std::string> members, keys;
-    db_.tx([&](pqxx::work& w) {
+    retryOnDeadlock([&] { db_.tx([&](pqxx::work& w) {
         members = column(Db::queryJson(w, "SELECT user_id FROM server_members WHERE server_id=$1", {serverId}), "user_id");
         keys = objectKeys(w, "= $1::uuid", channelId);
         Db::exec(w, "DELETE FROM channels WHERE id=$1", {channelId});
-    });
+    }); });
     int files = removeObjects({channelId}, keys);
     notifier_.channelDeleted(serverId, channelId, members);
     Json::Value v; v["ok"] = true; v["files"] = files;
