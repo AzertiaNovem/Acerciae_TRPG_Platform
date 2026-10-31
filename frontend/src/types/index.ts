@@ -18,7 +18,7 @@ export interface Channel {
 export interface WindowMember { user_id: string; character_id: string | null; display_name: string; character_name: string | null }
 export interface ChatWindow {
   id: string; channel_id: string; name: string; kind: 'main' | 'group' | 'private'; active_scene_id: string | null;
-  scene_title?: string | null; members: WindowMember[] | null; last_seq: number | null;
+  scene_title?: string | null; members: WindowMember[] | null; last_seq: number | null; unread?: number;
 }
 export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean }
 // The COC7-styled role card. Numbers are mirrored into sheet.attrs for the dice.

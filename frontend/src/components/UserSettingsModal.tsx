@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
+import { useNotifications } from '../store/notifications';
 import { sessionEpoch } from '../store/session';
 import { LANGUAGE_LABELS, t, useLocale } from '../i18n';
 
@@ -25,6 +26,8 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const [name, setName] = useState(user.display_name);
   const [language, setLanguage] = useState(user.ui_language || 'en');
   const [atmosphere, setAtmosphere] = useState(!!user.atmosphere_enabled);
+  const notifyOn = useNotifications((s) => s.enabled);
+  const setNotify = useNotifications((s) => s.setEnabled);
   const [avatar, setAvatarState] = useState(api.ownAvatarUrl(user));
   // avatar_data is sent only when the picture changed: a data URI replaces it, '' removes it.
   const [avatarChanged, setAvatarChanged] = useState(false);
@@ -80,6 +83,8 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
           <p className="tiny muted">{t('This changes your interface only. Server AI output language stays unchanged.')}</p>
           <label className="row"><input type="checkbox" checked={atmosphere} onChange={e => setAtmosphere(e.target.checked)} />{t('Show channel atmosphere backgrounds')}</label>
           <p className="tiny muted">{t('Requires the server atmosphere feature. Follows your device’s light/dark theme and screen orientation; displayed translucently.')}</p>
+          <label className="row"><input type="checkbox" checked={notifyOn} onChange={e => setNotify(e.target.checked)} />{t('Show message notifications')}</label>
+          <p className="tiny muted">{t('A banner in the top-right corner when someone posts in another window you joined in the channel you are viewing. Applies on this device at once.')}</p>
         </fieldset>
         {error && <div role="alert" className="profile-error">{error}</div>}
         <div className="row"><button className="primary" disabled={busy || reading || !name.trim()}>{t(busy ? 'Saving…' : 'Save')}</button><button type="button" className="ghost" disabled={busy} onClick={close}>{t('Cancel')}</button></div>

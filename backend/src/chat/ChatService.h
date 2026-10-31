@@ -69,6 +69,8 @@ public:
     Json::Value addWindowMember(const ChannelAccess& a, const std::string& windowId, const std::string& userId, const std::string& characterId);
     Json::Value removeWindowMember(const ChannelAccess& a, const std::string& windowId, const std::string& userId);
     Json::Value windowMembers(const ChannelAccess& a, const std::string& windowId);
+    // Records that the viewer has read a window up to `seq` (never backwards); the window list's `unread` counts after it.
+    Json::Value markRead(const ChannelAccess& a, const std::string& windowId, int64_t seq);
     // messages
     Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq);
     Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body);

@@ -116,6 +116,7 @@ export const api = {
   createWindow: (ch: string, body: { name: string; kind: string; members: { user_id: string; character_id?: string }[]; scene_id?: string }) => post<T.ChatWindow>(`/api/channels/${ch}/windows`, body),
   addWindowMember: (ch: string, w: string, user_id: string, character_id?: string) => post(`/api/channels/${ch}/windows/${w}/members`, { user_id, character_id }),
   removeWindowMember: (ch: string, w: string, user_id: string) => del(`/api/channels/${ch}/windows/${w}/members/${user_id}`),
+  markRead: (ch: string, w: string, seq: number) => post<{ last_read_seq: number }>(`/api/channels/${ch}/windows/${w}/read`, { seq }),
   messages: (ch: string, w: string, beforeSeq?: number, limit = 80) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ before_seq: beforeSeq, limit })}`),
   postMessage: (ch: string, w: string, body: { content: string; kind?: string; character_id?: string; visibility?: string; whisper_to?: string[]; reference_ids?: string[] }) => post<T.Message>(`/api/channels/${ch}/windows/${w}/messages`, body),
   message: (ch: string, id: string) => get<T.Message>(`/api/channels/${ch}/messages/${id}`),

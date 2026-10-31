@@ -9,6 +9,7 @@ import { useReminders } from '../store/reminders';
 import { useKp } from '../store/kp';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
+import { onIncomingMessage } from './useUnread';
 
 // Wires WebSocket events to the stores. Chat and context streams are handled independently.
 export function useRealtime() {
@@ -29,7 +30,7 @@ export function useRealtime() {
       }
       const ch = useNav.getState().channelId;
       if (m.channel_id && m.channel_id !== ch) return;
-      if (m.type === 'message.posted') useChat.getState().push(m.message);
+      if (m.type === 'message.posted') { useChat.getState().push(m.message); onIncomingMessage(m.message); }
       else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows(); }
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
       else if (m.type === 'character.updated') useNav.getState().refreshCharacters();

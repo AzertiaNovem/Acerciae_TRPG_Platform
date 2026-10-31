@@ -15346,5 +15346,65 @@
     "{subtitle} (изображения пока нет)",
     "{subtitle} (sem imagem ainda)",
     "{subtitle} (ancora nessuna immagine)"
+  ],
+  "now": [
+    "现在",
+    "現在",
+    "今",
+    "지금",
+    "ahora",
+    "maintenant",
+    "jetzt",
+    "сейчас",
+    "agora",
+    "ora"
+  ],
+  "System": [
+    "系统",
+    "系統",
+    "システム",
+    "시스템",
+    "Sistema",
+    "Système",
+    "System",
+    "Система",
+    "Sistema",
+    "Sistema"
+  ],
+  "{n} unread messages": [
+    "{n} 条未读消息",
+    "{n} 則未讀訊息",
+    "未読メッセージ {n} 件",
+    "읽지 않은 메시지 {n}개",
+    "{n} mensajes sin leer",
+    "{n} messages non lus",
+    "{n} ungelesene Nachrichten",
+    "Непрочитанных сообщений: {n}",
+    "{n} mensagens não lidas",
+    "{n} messaggi non letti"
+  ],
+  "Show message notifications": [
+    "显示消息通知",
+    "顯示訊息通知",
+    "メッセージ通知を表示",
+    "메시지 알림 표시",
+    "Mostrar notificaciones de mensajes",
+    "Afficher les notifications de messages",
+    "Nachrichtenbenachrichtigungen anzeigen",
+    "Показывать уведомления о сообщениях",
+    "Mostrar notificações de mensagens",
+    "Mostra le notifiche dei messaggi"
+  ],
+  "A banner in the top-right corner when someone posts in another window you joined in the channel you are viewing. Applies on this device at once.": [
+    "当有人在你正在查看的频道中、你已加入的其他窗口发言时，在右上角显示横幅。立即在本设备生效。",
+    "當有人在你正在查看的頻道中、你已加入的其他視窗發言時，在右上角顯示橫幅。立即在本裝置生效。",
+    "表示中のチャンネルで、参加している別のウィンドウに誰かが投稿すると、右上にバナーを表示します。この端末ですぐに反映されます。",
+    "보고 있는 채널에서 참여한 다른 창에 누군가 글을 올리면 오른쪽 위에 배너를 표시합니다. 이 기기에 바로 적용됩니다.",
+    "Un aviso en la esquina superior derecha cuando alguien escribe en otra ventana a la que te uniste, en el canal que estás viendo. Se aplica al instante en este dispositivo.",
+    "Une bannière en haut à droite quand quelqu’un écrit dans une autre fenêtre que vous avez rejointe, dans le salon affiché. S’applique tout de suite sur cet appareil.",
+    "Ein Banner oben rechts, wenn jemand in einem anderen Fenster schreibt, dem du beigetreten bist, im Kanal, den du gerade ansiehst. Gilt sofort auf diesem Gerät.",
+    "Баннер в правом верхнем углу, когда кто-то пишет в другом окне, к которому вы присоединились, в просматриваемом канале. Действует сразу на этом устройстве.",
+    "Um aviso no canto superior direito quando alguém escreve em outra janela da qual você participa, no canal que está vendo. Vale na hora neste dispositivo.",
+    "Un banner in alto a destra quando qualcuno scrive in un’altra finestra a cui partecipi, nel canale che stai guardando. Si applica subito su questo dispositivo."
   ]
 }

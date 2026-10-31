@@ -5,6 +5,8 @@ import { useAuth } from './store/auth';
 import { useNav } from './store/nav';
 import { useUi } from './store/ui';
 import { useRealtime } from './hooks/useRealtime';
+import { useReadTracking } from './hooks/useUnread';
+import MessageNotifications from './components/MessageNotifications';
 import LoginScreen from './components/LoginScreen';
 import ServerSidebar from './components/ServerSidebar';
 import ChannelSidebar from './components/ChannelSidebar';
@@ -21,6 +23,7 @@ const SharedPublication = lazy(() => import('./components/studio/PublicationView
 
 function Shell() {
   useRealtime();
+  useReadTracking();
   const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers, spectateChannelId } = useNav();
   const toasts = useUi((s) => s.toasts);
   const aiActivity = useUi((s) => s.aiActivity);
@@ -43,7 +46,10 @@ function Shell() {
         </Suspense>
       </div>
       <EvidenceModal />
-      <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{tr(t.text)}</div>)}</div>
+      <div className="corner-stack">
+        <MessageNotifications />
+        <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{tr(t.text)}</div>)}</div>
+      </div>
     </div>
   );
 }
