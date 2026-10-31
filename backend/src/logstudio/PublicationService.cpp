@@ -570,10 +570,9 @@ void PublicationService::runBundle(const std::string &jobId) {
       last = std::chrono::steady_clock::now();
       db_.exec("UPDATE vn_bundle_jobs SET progress=$2::jsonb WHERE id=$1", {jobId, json::dump(prog)});
     });
-    // Keeper-only presentations never go to the public bucket.
-    auto scope = db_.queryOne("SELECT s.scope FROM log_presentations p JOIN log_snapshots s ON s.id=p.snapshot_id WHERE p.id=$1", {pid});
-    bool secret = scope.isNull() || scope["scope"].asString() == "gm_full";
-    auto key = secret ? safeObjectKey(a.channelId, "bundles", "zip") : publicObjectKey(store_, a.channelId, "bundles", "zip");
+    // Every bundle, Keeper-only ones included, goes to the public bucket when one is configured: the key is
+    // unguessable, only the requester is handed the link, and the file is deleted when it expires.
+    auto key = publicObjectKey(store_, a.channelId, "bundles", "zip");
     key = key.substr(0, key.size() - 4) + "/" + fileName;   // ".../bundles/<uuid>/<Title>.zip": the download keeps its name
     store_.put(key, bytes, "application/zip");
     auto stored = db_.queryOne("UPDATE vn_bundle_jobs SET status='ready', object_key=$2, file_name=$3, bytes=$4, expires_at=now() + make_interval(hours => $5), finished_at=now(), progress=$6::jsonb WHERE id=$1 AND status='running' RETURNING id",

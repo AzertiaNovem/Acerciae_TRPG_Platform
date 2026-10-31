@@ -65,7 +65,7 @@ The **Make a visual novel** card on the Visual novel tab has four steps.
    (`POST /presentations/{p}/cast`) and starts a TTS job (Qwen TTS, or the mock provider).
 4. **Export.** Preview the draft, open it in the advanced editor, or prepare a download: the zip is packed in the
    background (`POST /presentations/{p}/bundle`), stored for `VN_BUNDLE_TTL_HOURS` (default 24; in the public R2
-   bucket when one is configured, except Keeper-only presentations) and deleted when it expires. It holds `index.html`, `script.json`, every image under `assets/` and every
+   bucket when one is configured, Keeper-only presentations included) and deleted when it expires. It holds `index.html`, `script.json`, every image under `assets/` and every
    voice line under `audio/`. The page plays offline in any browser: click, space or arrow keys advance; `A` auto-plays
    with the voices, `M` mutes, `F` goes fullscreen, and a menu jumps between scenes.
 

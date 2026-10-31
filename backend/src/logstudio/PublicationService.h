@@ -45,9 +45,9 @@ public:
                      const std::function<void(int, int)> &progress = nullptr);
 
   // Background bundles: built off the request on the background pool, stored for VN_BUNDLE_TTL_HOURS (default 24)
-  // and deleted when they expire. A bundle goes to the public R2 bucket when one is configured, under an unguessable
-  // key, so the download comes straight from Cloudflare; a Keeper-only (gm_full) presentation stays in private
-  // storage and is streamed through the permission-checked route. Each bundle is the requester's own view.
+  // and deleted when they expire. Every bundle goes to the public R2 bucket when one is configured, under an
+  // unguessable key, so the download comes straight from Cloudflare; without one it stays in private storage and is
+  // streamed through the permission-checked route. Each bundle is the requester's own view.
   void setExecutor(std::function<bool(std::function<void()>)> f) { executor_ = std::move(f); }
   void setAccessResolver(std::function<ChannelAccess(const std::string &userId, const std::string &channelId)> f) { accessFor_ = std::move(f); }
   // body {force?}: reuses the requester's ready, unexpired bundle unless the presentation changed since, or force.

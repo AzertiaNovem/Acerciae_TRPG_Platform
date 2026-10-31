@@ -843,7 +843,7 @@ int main() {
         auto ready = S.publication->bundleJobs(gm, pid)[0];
         CHECK(ready["status"] == "ready"); CHECK(ready["file_name"].asString().find(".zip") != std::string::npos); CHECK(ready["bytes"].asInt64() > 100);
         CHECK(ready["progress"]["lines_total"].asInt() >= 1 && ready["progress"]["lines_done"] == ready["progress"]["lines_total"]);
-        CHECK(ready["public"] == false);   // a Keeper-only (gm_full) presentation never goes to the public bucket
+        CHECK(ready["public"] == false);   // no public bucket in this test: private storage
         auto key = S.db->queryOne("SELECT object_key FROM vn_bundle_jobs WHERE id=$1", {ready["id"].asString()})["object_key"].asString();
         CHECK(key.rfind("channels/" + channelId + "/bundles/", 0) == 0 && key.size() > 4 && key.substr(key.size() - 4) == ".zip");
         std::string url, bytes, name;
