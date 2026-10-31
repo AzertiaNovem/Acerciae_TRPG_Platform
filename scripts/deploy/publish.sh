@@ -48,6 +48,6 @@ ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$target" \
 # Check the public route from outside the server too; a failure here leaves the
 # locally healthy deployment running and is visible as a failed Actions job.
 curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
-  --connect-timeout 10 --max-time 20 https://trpg.missazertia.com:15510/api/health \
+  --connect-timeout 10 --max-time 20 https://trpg.missazertia.com/api/health \
   | python3 -c 'import json,sys; h=json.load(sys.stdin); assert h.get("status")=="ok" and h.get("db")=="ok", h'
 echo "Backend deployment verified: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
