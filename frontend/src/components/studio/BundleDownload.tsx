@@ -3,10 +3,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { useUi } from '../../store/ui';
 import type { BundleJob } from '../../types';
+import { isDesktop } from '../../lib/platform';
+import { lazy, Suspense } from 'react';
+const DesktopVnTools = lazy(() => import('./DesktopVnTools'));
 
 // The standalone visual novel is packed in the background: prepare it, follow the progress, then download it until
 // it expires (the server deletes it afterwards). Each bundle is the requester's own view of the presentation.
-export default function BundleDownload({ channelId, presentationId, primary }: { channelId: string; presentationId: string; primary?: boolean }) {
+function ZipDownload({ channelId, presentationId, primary }: { channelId: string; presentationId: string; primary?: boolean }) {
   const toast = useUi((s) => s.toast);
   const [job, setJob] = useState<BundleJob | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,14 +37,24 @@ export default function BundleDownload({ channelId, presentationId, primary }: {
     );
   }
   if (active) {
-    const done = job!.progress?.lines_done ?? 0, total = job!.progress?.lines_total ?? 0;
-    return <span className="tiny muted">{total ? tr('Packing the visual novel… {done}/{total} lines', { done, total }) : tr('Packing the visual novel…')}</span>;
+    const done = job!.progress?.files_done ?? 0, total = job!.progress?.files_total ?? 0;
+    return <span className="tiny muted">{total ? tr('Packing the visual novel… {done}/{total} files', { done, total }) : tr('Packing the visual novel…')}</span>;
   }
   return (
     <span className="row" style={{ gap: 6 }}>
       <button className={`small ${primary ? 'primary' : ''}`} onClick={() => prepare(job?.status === 'failed' || !!expired || job?.status === 'expired')} disabled={busy}>{tr('Prepare the download (zip)')}</button>
       {job?.status === 'failed' && <span className="tiny" style={{ color: 'var(--danger)' }}>{job.error}</span>}
       {(job?.status === 'expired' || expired) && <span className="tiny muted">{tr('The last download expired.')}</span>}
+    </span>
+  );
+}
+
+export default function BundleDownload(props: { channelId: string; presentationId: string; primary?: boolean }) {
+  if (!isDesktop) return <ZipDownload {...props} />;
+  return (
+    <span className="col" style={{ gap: 6, alignItems: 'flex-start' }}>
+      <ZipDownload {...props} />
+      <Suspense fallback={null}><DesktopVnTools channelId={props.channelId} presentationId={props.presentationId} /></Suspense>
     </span>
   );
 }

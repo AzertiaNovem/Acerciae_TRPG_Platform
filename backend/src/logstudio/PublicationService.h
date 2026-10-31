@@ -43,6 +43,11 @@ public:
   // `progress(done, total)` follows the lines as their images and voices are gathered.
   std::string bundle(const ChannelAccess &a, const std::string &presentationId, std::string &fileName,
                      const std::function<void(int, int)> &progress = nullptr);
+  // The same standalone visual novel as a list of files, for clients that save it file by file (the desktop app):
+  // {title, folder, files: [{path, content} for index.html and script.json, {path, url, bytes} for each image and
+  // voice line]}. URLs are API paths the client authenticates; paths carry the asset version, so a client can skip
+  // files it already has.
+  Json::Value bundleManifest(const ChannelAccess &a, const std::string &presentationId);
 
   // Background bundles: built off the request on the background pool, stored for VN_BUNDLE_TTL_HOURS (default 24)
   // and deleted when they expire. Every bundle goes to the public R2 bucket when one is configured, under an
@@ -58,12 +63,15 @@ public:
   // Maintenance: deletes expired bundles from every storage backend, fails jobs a restart interrupted, forgets old
   // rows. Returns how many bundles were deleted.
   int expireBundles();
+  struct BundleFile { std::string path, kind, id, mime; int version = 0; long long bytes = 0; };   // kind: media | audio
+  struct BundlePlan { Json::Value data; std::vector<BundleFile> files; std::string fileBase; };
   // Deletes a visual novel (its scenes, lines, staging and prepared downloads). What it generated stays in the
   // channel for reuse: backgrounds and character images in the asset library, voice lines in the speech cache.
   Json::Value deletePresentation(const ChannelAccess &a, const std::string &presentationId);
   static int bundleTtlHours();
 
 private:
+  BundlePlan bundlePlan(const ChannelAccess &a, const std::string &presentationId, const std::function<void(int, int)> &progress);
   std::string frozenFile(const Json::Value &row, const std::string &id,
                          std::string &mime);
   void snapshotAccess(const ChannelAccess &a, const std::string &id);

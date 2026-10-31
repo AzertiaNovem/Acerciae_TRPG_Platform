@@ -42,6 +42,7 @@
 #include "../core/Text.h"
 #include <drogon/drogon.h>
 #include <drogon/MultiPart.h>
+#include <set>
 
 using namespace drogon;
 
@@ -579,7 +580,6 @@ void registerRoutes() {
     route2("/api/channels/{1}/studio/presentations/{2}/tts/estimate", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->estimate(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->createJob(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listJobs(studioAccess(p, a[0]), a[1]); });
-    // Every placement takes its character's current image (for presentations built before an image was updated).
     // Dubbing cast: which voice reads each character and the narration.
     route2("/api/channels/{1}/studio/presentations/{2}/cast", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->applyCast(studioAccess(p, a[0]), a[1], body(req)["cast"]); });
     // Standalone visual novel: index.html plus every image and voice line, as one ZIP.
@@ -590,6 +590,8 @@ void registerRoutes() {
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
+    // The same, file by file (the desktop app saves it into a folder and skips files it already has).
+    route2("/api/channels/{1}/studio/presentations/{2}/files", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->bundleManifest(studioAccess(p, a[0]), a[1]); });
     // Background bundles: prepared off the request, kept for VN_BUNDLE_TTL_HOURS, then deleted.
     route2("/api/channels/{1}/studio/presentations/{2}/bundle", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->requestBundle(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/bundles", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->bundleJobs(studioAccess(p, a[0]), a[1]); });
@@ -613,12 +615,16 @@ void registerRoutes() {
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 
-    // CORS only for the origins listed in CORS_ORIGINS (the bundled frontend is same-origin and needs none).
+    // CORS only for the origins listed in CORS_ORIGINS and the desktop app (the bundled frontend is same-origin).
     static std::vector<std::string> origins = [] { std::vector<std::string> v; std::string cur; for (char c : services().cfg.corsOrigins + ",") { if (c == ',') { cur = text::trim(cur); if (!cur.empty()) v.push_back(cur); cur.clear(); } else cur += c; } return v; }();
     auto allowedOrigin = [](const HttpRequestPtr& req) -> std::string {
         auto o = req->getHeader("Origin");
         if (o.empty()) return "";
         for (auto& a : origins) if (a == "*" || a == o) return o;
+        // The desktop app (Tauri) loads its pages from these origins on macOS/Linux and Windows. Requests carry a
+        // bearer token, never cookies, so allowing them exposes nothing a token holder could not already reach.
+        static const std::set<std::string> desktop = {"tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"};
+        if (desktop.count(o)) return o;
         return "";
     };
     app().registerPreRoutingAdvice([allowedOrigin](const HttpRequestPtr& req, AdviceCallback&& acb, AdviceChainCallback&& ccb) {

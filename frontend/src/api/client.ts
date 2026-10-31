@@ -1,7 +1,7 @@
 import type * as T from '../types';
 import { readStorage, writeStorage } from '../lib/storage';
+import { apiBase } from '../lib/platform';
 
-const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '';
 let token: string | null = readStorage('acerciae.token');
 
 export function setToken(t: string | null) { token = t; fileTok = null; writeStorage('acerciae.token', t); }
@@ -33,7 +33,7 @@ export async function request<R>(method: string, path: string, body?: unknown, r
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120000);
   try {
-    const res = await fetch(BASE + path, { method, headers, signal: controller.signal, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
+    const res = await fetch(apiBase() + path, { method, headers, signal: controller.signal, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
     const text = await res.text();
     let data: any = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
@@ -59,12 +59,12 @@ export const api = {
   me: () => get<T.User>('/api/auth/me'),
   atmosphere: (ch: string) => get<{ enabled: boolean; id?: string; mock?: boolean; assets?: Record<string,string> }>(`/api/channels/${ch}/atmosphere`),
   atmosphereHistory: (ch: string) => get<{ id: string; scene_label: string; reason: string; created_at: string; prompts: Record<string,string>; variants: { variant: string; status: string; error?: string }[] }[]>(`/api/channels/${ch}/atmosphere/history`),
-  atmosphereImage: (ch: string, id: string) => `${BASE}/api/channels/${ch}/atmosphere/assets/${id}?token=${encodeURIComponent(fileToken())}`,
+  atmosphereImage: (ch: string, id: string) => `${apiBase()}/api/channels/${ch}/atmosphere/assets/${id}?token=${encodeURIComponent(fileToken())}`,
   updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
-  avatarUrl: (id: string, version: number) => `${BASE}/api/users/${encodeURIComponent(id)}/avatar?v=${version}&token=${encodeURIComponent(fileToken())}`,
+  avatarUrl: (id: string, version: number) => `${apiBase()}/api/users/${encodeURIComponent(id)}/avatar?v=${version}&token=${encodeURIComponent(fileToken())}`,
   // The signed-in user's avatar: an inline data URI from older servers, otherwise the avatar route (which may redirect
   // to the public media bucket).
-  ownAvatarUrl: (u: Pick<T.User, 'id' | 'avatar_data' | 'has_avatar' | 'avatar_version'>) => u.avatar_data || (u.has_avatar ? `${BASE}/api/users/${encodeURIComponent(u.id)}/avatar?v=${u.avatar_version}&token=${encodeURIComponent(fileToken())}` : ''),
+  ownAvatarUrl: (u: Pick<T.User, 'id' | 'avatar_data' | 'has_avatar' | 'avatar_version'>) => u.avatar_data || (u.has_avatar ? `${apiBase()}/api/users/${encodeURIComponent(u.id)}/avatar?v=${u.avatar_version}&token=${encodeURIComponent(fileToken())}` : ''),
   servers: () => get<T.Server[]>('/api/servers'),
   createServer: (name: string) => post<T.Server>('/api/servers', { name }),
   joinServer: (id: string, invite_code?: string) => post<T.Server>(`/api/servers/${id}/join`, { invite_code }),
@@ -176,7 +176,7 @@ export const api = {
   gmWorkspace: (ch: string) => get<any>(`/api/channels/${ch}/gm/workspace`),
   // ---- Log Studio ----
   campaignLog: (ch: string) => get<T.CampaignLog>(`/api/channels/${ch}/studio/log`),
-  logExportUrl: (ch: string, format: string, chat_window_id?: string) => `${BASE}/api/channels/${ch}/studio/log/export${q({ format, chat_window_id })}&token=${encodeURIComponent(fileToken())}`,
+  logExportUrl: (ch: string, format: string, chat_window_id?: string) => `${apiBase()}/api/channels/${ch}/studio/log/export${q({ format, chat_window_id })}&token=${encodeURIComponent(fileToken())}`,
   studioProjects: (ch: string) => get<T.LogProject[]>(`/api/channels/${ch}/studio/projects`),
   studioCreateProject: (ch: string, body: { title: string; description?: string; source_kind?: string }) => post<T.LogProject>(`/api/channels/${ch}/studio/projects`, body),
   studioProject: (ch: string, id: string) => get<T.LogProject>(`/api/channels/${ch}/studio/projects/${id}`),
@@ -193,7 +193,7 @@ export const api = {
   mediaUpload: (ch: string, file: File, meta: Record<string, string>) => { const fd = new FormData(); fd.append('file', file); for (const [k, v] of Object.entries(meta)) fd.append(k, v); return request<T.MediaAsset>('POST', `/api/channels/${ch}/media`, undefined, fd); },
   mediaUpdate: (ch: string, id: string, body: Partial<T.MediaAsset>) => put<T.MediaAsset>(`/api/channels/${ch}/media/${id}`, body),
   mediaDelete: (ch: string, id: string) => del(`/api/channels/${ch}/media/${id}`),
-  mediaUrl: (ch: string, id: string, version?: number | null) => `${BASE}/api/channels/${ch}/media/${id}?token=${encodeURIComponent(fileToken())}${version ? `&v=${version}` : ''}`,
+  mediaUrl: (ch: string, id: string, version?: number | null) => `${apiBase()}/api/channels/${ch}/media/${id}?token=${encodeURIComponent(fileToken())}${version ? `&v=${version}` : ''}`,
   presentations: (ch: string, projectId?: string) => get<T.Presentation[]>(`/api/channels/${ch}/studio/presentations${q({ project_id: projectId })}`),
   vnScriptStatus: (ch: string) => get<{ mock: boolean; model: string; cloud_allowed: boolean; max_lines: number; max_tokens: number; timeout_ms: number; retry_failed_chunks: boolean; note: string; images: boolean }>(`/api/channels/${ch}/studio/vn-scripts/status`),
   vnScripts: (ch: string) => get<T.VnScriptJob[]>(`/api/channels/${ch}/studio/vn-scripts`),
@@ -209,8 +209,10 @@ export const api = {
   applyCast: (ch: string, id: string, cast: Record<string, string>) => post<T.Presentation>(`/api/channels/${ch}/studio/presentations/${id}/cast`, { cast }),
   requestBundle: (ch: string, id: string, force = false) => post<T.BundleJob>(`/api/channels/${ch}/studio/presentations/${id}/bundle`, { force }),
   bundleJobs: (ch: string, id: string) => get<T.BundleJob[]>(`/api/channels/${ch}/studio/presentations/${id}/bundles`),
-  bundleDownloadUrl: (path: string) => `${BASE}${path}?token=${encodeURIComponent(fileToken())}`,
-  bundleUrl: (ch: string, id: string) => `${BASE}/api/channels/${ch}/studio/presentations/${id}/bundle.zip?token=${encodeURIComponent(fileToken())}`,
+  // The standalone visual novel as a file list (the desktop app saves it into a folder or turns it into a video).
+  vnFiles: (ch: string, id: string) => get<T.VnFileManifest>(`/api/channels/${ch}/studio/presentations/${id}/files`),
+  bundleDownloadUrl: (path: string) => `${apiBase()}${path}?token=${encodeURIComponent(fileToken())}`,
+  bundleUrl: (ch: string, id: string) => `${apiBase()}/api/channels/${ch}/studio/presentations/${id}/bundle.zip?token=${encodeURIComponent(fileToken())}`,
   updatePresentation: (ch: string, id: string, body: Partial<T.Presentation>) => put<T.Presentation>(`/api/channels/${ch}/studio/presentations/${id}`, body),
   deletePresentation: (ch: string, id: string) => del(`/api/channels/${ch}/studio/presentations/${id}`),
   updatePScene: (ch: string, id: string, body: Partial<T.PresentationScene>) => put<T.PresentationScene>(`/api/channels/${ch}/studio/pscenes/${id}`, body),
@@ -236,11 +238,11 @@ export const api = {
   dictionaries: (ch: string) => get<T.PronunciationDictionary[]>(`/api/channels/${ch}/studio/dictionaries`),
   saveDictionary: (ch: string, id: string | null, body: { name: string; entries: T.PronunciationDictionary['entries'] }) => id ? put<T.PronunciationDictionary>(`/api/channels/${ch}/studio/dictionaries/${id}`, body) : post<T.PronunciationDictionary>(`/api/channels/${ch}/studio/dictionaries`, body),
   ttsPreview: (ch: string, body: { voice_profile_id: string; text: string; style_instruction?: string; model_id?: string }) => post<{ id: string; mime: string; duration_ms: number; is_mock: boolean; spoken_text: string; spoken_text_note: string }>(`/api/channels/${ch}/studio/tts/preview`, body),
-  ttsAudioUrl: (ch: string, id: string) => `${BASE}/api/channels/${ch}/studio/tts/audio/${id}?token=${encodeURIComponent(fileToken())}`,
+  ttsAudioUrl: (ch: string, id: string) => `${apiBase()}/api/channels/${ch}/studio/tts/audio/${id}?token=${encodeURIComponent(fileToken())}`,
   ttsEstimate: (ch: string, presId: string, scope: Record<string, unknown>) => post<any>(`/api/channels/${ch}/studio/presentations/${presId}/tts/estimate`, scope),
   ttsCreateJob: (ch: string, presId: string, body: { scope?: Record<string, unknown>; force?: boolean; retry?: boolean; model_id?: string }) => post<T.TtsJob>(`/api/channels/${ch}/studio/presentations/${presId}/tts/jobs`, body),
   ttsJobs: (ch: string, presId: string) => get<T.TtsJob[]>(`/api/channels/${ch}/studio/presentations/${presId}/tts/jobs`),
   ttsJob: (ch: string, id: string) => get<T.TtsJob>(`/api/channels/${ch}/studio/tts/jobs/${id}`),
   ttsCancel: (ch: string, id: string) => post<T.TtsJob>(`/api/channels/${ch}/studio/tts/jobs/${id}/cancel`),
-  studioExportUrl: (ch: string, snapshotId: string, format: string) => `${BASE}/api/channels/${ch}/studio/snapshots/${snapshotId}/export?format=${format}&download=1&token=${encodeURIComponent(fileToken())}`,
+  studioExportUrl: (ch: string, snapshotId: string, format: string) => `${apiBase()}/api/channels/${ch}/studio/snapshots/${snapshotId}/export?format=${format}&download=1&token=${encodeURIComponent(fileToken())}`,
 };
