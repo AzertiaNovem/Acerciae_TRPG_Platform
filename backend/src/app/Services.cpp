@@ -24,6 +24,7 @@
 #include "../logstudio/LogStudioService.h"
 #include "../logstudio/ObjectStore.h"
 #include "../logstudio/MediaMigrator.h"
+#include "../logstudio/StorageCleanup.h"
 #include "../logstudio/MediaService.h"
 #include "../logstudio/PresentationService.h"
 #include "../logstudio/StyleService.h"
@@ -78,6 +79,7 @@ Services& Services::build(const Config& cfg) {
     { const char* d = std::getenv("MEDIA_MIGRATION_DELETE_LOCAL"); bool del = d && (std::string(d) == "true" || std::string(d) == "1");
       s.mediaMigrator = std::make_unique<logstudio::MediaMigrator>(*s.db, static_cast<logstudio::RoutingObjectStore&>(*s.objectStore), del); }
     s.media = std::make_unique<logstudio::MediaService>(s.cfg, *s.db, *s.objectStore);
+    s.storageCleanup = std::make_unique<logstudio::StorageCleanup>(*s.db, static_cast<logstudio::RoutingObjectStore&>(*s.objectStore), *s.media);
     s.deletion = std::make_unique<DeletionService>(*s.db, *s.objectStore, *s.notifier);
     s.presentations = std::make_unique<logstudio::PresentationService>(s.cfg, *s.db, *s.notifier, *s.studio);
     s.styles = std::make_unique<logstudio::StyleService>(*s.db);
@@ -110,6 +112,7 @@ Services& Services::build(const Config& cfg) {
 void Services::shutdown() {
     if (!g_services) return;
     if (g_services->mediaMigrator) g_services->mediaMigrator->stop();
+    if (g_services->storageCleanup) g_services->storageCleanup->stop();
     if (g_services->maintenance) g_services->maintenance->stop();
     if (g_services->apiRequests) g_services->apiRequests->stop();
     if (g_services->aiRequests) g_services->aiRequests->stop();

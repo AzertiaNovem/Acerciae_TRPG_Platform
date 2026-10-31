@@ -34,6 +34,8 @@
 #include "core/Json.h"
 #include "core/Text.h"
 #include "core/Errors.h"
+#include "logstudio/StorageCleanup.h"
+#include <filesystem>
 #include <iostream>
 #include <cstdlib>
 #include <future>
@@ -1046,6 +1048,61 @@ int main() {
         S.presentations->updateEvent(gm, pe["id"].asString(), edit);
         CHECK(S.db->queryOne("SELECT script_text FROM presentation_events WHERE id=$1", {pe["id"].asString()})["script_text"] == repeat("😀", 1000));
     });
+    test("storage cleanup deletes replaced character images, unpinned old versions and unreferenced objects, and keeps the rest", [&] {
+        const std::string png = drogon::utils::base64Decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+        auto p2 = S.auth->channelAccess(p2User, channelId);
+        auto age = [&](const std::string& id, int hours) { S.db->exec("UPDATE media_assets SET created_at=now() - make_interval(hours => $2), updated_at=now() - make_interval(hours => $2) WHERE id=$1", {id, (int64_t)hours}); };
+        auto exists = [&](const std::string& id) { return !S.db->queryOne("SELECT 1 AS x FROM media_assets WHERE id=$1", {id}).isNull(); };
+        auto keyOf = [&](const std::string& id) { return S.db->queryOne("SELECT object_key FROM media_assets WHERE id=$1", {id})["object_key"].asString(); };
+        auto portrait = S.characterSpace->uploadAsset(p2, c2, "portrait", "", "p.png", png)["portrait"]["id"].asString();
+        age(portrait, 72);
+        Json::Value lib; lib["asset_type"] = "standee"; lib["character_id"] = c2; lib["expression"] = "IDLE";
+        auto older = S.media->upload(gm, "idle1.png", png, "image/png", lib)["id"].asString(); age(older, 72);   // replaced by `newer`
+        auto newer = S.media->upload(gm, "idle2.png", png, "image/png", lib)["id"].asString(); age(newer, 48);   // the stage's fallback for IDLE
+        lib["expression"] = "SAD"; auto rejected = S.media->upload(gm, "sad.png", png, "image/png", lib)["id"].asString(); age(rejected, 48);
+        S.db->exec("UPDATE media_assets SET approval_status='rejected' WHERE id=$1", {rejected});
+        lib["asset_type"] = "portrait"; lib["expression"] = ""; auto loose = S.media->upload(gm, "loose.png", png, "image/png", lib)["id"].asString(); age(loose, 48);
+        lib["expression"] = "fresh"; auto young = S.media->upload(gm, "young.png", png, "image/png", lib)["id"].asString();   // younger than a day
+        auto olderKey = keyOf(older);
+        // A background with an unpinned old version, and one whose old version a scene still shows.
+        Json::Value bg; bg["asset_type"] = "background";
+        auto plain = S.media->upload(gm, "bg1.png", png, "image/png", bg)["id"].asString();
+        auto v1Key = keyOf(plain);
+        S.media->newVersion(gm, plain, "bg2.png", png, "", "redo");
+        S.db->exec("UPDATE media_assets SET approval_status='approved' WHERE id=$1", {plain});
+        S.db->exec("UPDATE asset_versions SET created_at=now() - interval '3 days' WHERE asset_id=$1 AND version=1", {plain});
+        auto pinned = S.media->upload(gm, "bg3.png", png, "image/png", bg)["id"].asString();
+        auto pinnedV1 = keyOf(pinned);
+        S.media->newVersion(gm, pinned, "bg4.png", png, "", "redo");
+        S.db->exec("UPDATE media_assets SET approval_status='approved' WHERE id=$1", {pinned});
+        S.db->exec("UPDATE asset_versions SET created_at=now() - interval '3 days' WHERE asset_id=$1 AND version=1", {pinned});
+        auto log = S.studio->campaignLog(gm); auto snap = S.studio->createSnapshot(gm, log["project"]["id"].asString(), Json::Value(Json::objectValue));
+        auto pid = S.presentations->create(gm, snap["id"].asString(), Json::Value(Json::objectValue))["id"].asString();
+        S.db->exec("UPDATE presentation_scenes SET background_asset_id=$2, background_asset_version=1 WHERE presentation_id=$1", {pid, pinned});
+        // Stored objects: one nothing names (old), the same but young, and an old one of a channel this database does not know.
+        namespace fs = std::filesystem;
+        auto root = fs::path(cfg.uploadDir) / "objects";
+        std::string orphan = "channels/" + channelId + "/background/orphan.png", youngOrphan = "channels/" + channelId + "/background/young.png", foreign = std::string("pub/channels/00000000-0000-4000-8000-000000000000/standee/x.png");
+        for (auto& k : {orphan, youngOrphan, foreign}) S.objectStore->put(k, png, "image/png");
+        for (auto& k : {orphan, foreign}) fs::last_write_time(root / k, fs::file_time_type::clock::now() - std::chrono::hours(48));
+
+        auto& cleanup = *S.storageCleanup;
+        auto dry = cleanup.runOnce(true);
+        CHECK(dry.characterImages >= 3); CHECK(dry.oldVersions >= 1); CHECK(dry.orphans >= 1);
+        CHECK(exists(older)); CHECK(S.objectStore->exists(orphan));   // a dry run deletes nothing
+        auto rep = cleanup.runOnce();
+        CHECK(rep.characterImages == dry.characterImages); CHECK(rep.failed == 0);
+        CHECK(!exists(older)); CHECK(!S.objectStore->exists(olderKey)); CHECK(!exists(rejected)); CHECK(!exists(loose));
+        CHECK(exists(newer)); CHECK(exists(portrait)); CHECK(exists(young));
+        CHECK(S.db->queryOne("SELECT 1 AS x FROM asset_versions WHERE asset_id=$1 AND version=1", {plain}).isNull()); CHECK(!S.objectStore->exists(v1Key));
+        CHECK(!S.db->queryOne("SELECT 1 AS x FROM asset_versions WHERE asset_id=$1 AND version=1", {pinned}).isNull()); CHECK(S.objectStore->exists(pinnedV1));
+        CHECK(!S.objectStore->exists(orphan)); CHECK(S.objectStore->exists(youngOrphan)); CHECK(S.objectStore->exists(foreign));
+        CHECK(S.objectStore->exists(keyOf(newer))); CHECK(S.objectStore->exists(keyOf(portrait)));
+        auto again = cleanup.runOnce(true);
+        CHECK(again.characterImages == 0); CHECK(again.oldVersions == 0); CHECK(again.orphans == 0);
+        S.objectStore->remove(youngOrphan); S.objectStore->remove(foreign);
+    });
+
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();
     return failures == 0 ? 0 : 1;

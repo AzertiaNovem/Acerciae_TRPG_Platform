@@ -66,6 +66,19 @@ int main() {
         CHECK(text::truncate(summary, 80) == prefix + "…");
         CHECK(llm::excerpt(summary, 80) == prefix);
     });
+    test("object listings: S3 ListObjectsV2 pages are parsed with keys, times, sizes and the next token", [] {
+        std::string next;
+        auto page = logstudio::parseListObjects(R"(<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>b</Name><IsTruncated>true</IsTruncated>)"
+            R"(<Contents><Key>channels/a/x&amp;y.png</Key><LastModified>2024-05-01T12:00:00.000Z</LastModified><Size>42</Size></Contents>)"
+            R"(<Contents><Key>pub/users/u/avatar/z.png</Key><LastModified>2024-05-02T00:00:00.000Z</LastModified><Size>7</Size></Contents>)"
+            R"(<NextContinuationToken>tok+/=</NextContinuationToken></ListBucketResult>)", next);
+        CHECK(page.size() == 2); CHECK(page[0].key == "channels/a/x&y.png"); CHECK(page[0].modified == 1714564800); CHECK(page[0].size == 42);
+        CHECK(page[1].key == "pub/users/u/avatar/z.png"); CHECK(next == "tok+/=");
+        page = logstudio::parseListObjects(R"(<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>)", next);
+        CHECK(page.empty()); CHECK(next.empty());
+        bool threw = false; try { logstudio::parseListObjects("<Error><Code>AccessDenied</Code></Error>", next); } catch (const std::exception&) { threw = true; }
+        CHECK(threw);   // a failed listing is never read as an empty bucket
+    });
     test("visual novel request limits remain independent from daily and module limits", [] {
         struct Recorder : ILlmClient {
             int tokens = 0;
