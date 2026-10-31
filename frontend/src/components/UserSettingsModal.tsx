@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 import { useNotifications } from '../store/notifications';
+import { isDesktop } from '../lib/platform';
 import { sessionEpoch } from '../store/session';
 import { LANGUAGE_LABELS, t, useLocale } from '../i18n';
 
@@ -84,7 +85,7 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
           <label className="row"><input type="checkbox" checked={atmosphere} onChange={e => setAtmosphere(e.target.checked)} />{t('Show channel atmosphere backgrounds')}</label>
           <p className="tiny muted">{t('Requires the server atmosphere feature. Follows your device’s light/dark theme and screen orientation; displayed translucently.')}</p>
           <label className="row"><input type="checkbox" checked={notifyOn} onChange={e => setNotify(e.target.checked)} />{t('Show message notifications')}</label>
-          <p className="tiny muted">{t('A banner in the top-right corner when someone posts in another window you joined in the channel you are viewing. Applies on this device at once.')}</p>
+          <p className="tiny muted">{t('A banner in the top-right corner when someone posts in another window you joined in the channel you are viewing. Applies on this device at once.')}{isDesktop ? ' ' + t('In the background, the desktop app shows a system notification instead.') : ''}</p>
         </fieldset>
         {error && <div role="alert" className="profile-error">{error}</div>}
         <div className="row"><button className="primary" disabled={busy || reading || !name.trim()}>{t(busy ? 'Saving…' : 'Save')}</button><button type="button" className="ghost" disabled={busy} onClick={close}>{t('Cancel')}</button></div>

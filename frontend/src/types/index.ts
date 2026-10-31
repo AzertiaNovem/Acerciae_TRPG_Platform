@@ -149,4 +149,6 @@ export interface CharacterAttributes { character_id: string; name: string; kind:
 export interface ScriptBuild { id: string; module_id: string; status: 'pending' | 'running' | 'completed' | 'failed'; completed_batches: number; total_batches: number; error: string | null; result: { entries: number; llm_calls: number } | null; }
 
 // A visual-novel bundle packed in the background; downloadable until expires_at, then deleted by the server.
-export interface BundleJob { id: string; presentation_id: string; status: 'pending' | 'running' | 'ready' | 'failed' | 'expired'; progress: { lines_done?: number; lines_total?: number }; file_name: string; bytes: number | null; error: string | null; expires_at: string | null; created_at: string; finished_at: string | null; download_path: string | null; public: boolean; reused?: boolean }
+export interface BundleJob { id: string; presentation_id: string; status: 'pending' | 'running' | 'ready' | 'failed' | 'expired'; progress: { files_done?: number; files_total?: number }; file_name: string; bytes: number | null; error: string | null; expires_at: string | null; created_at: string; finished_at: string | null; download_path: string | null; public: boolean; reused?: boolean }
+
+export interface VnFileManifest { title: string; folder: string; total_bytes: number; files: { path: string; url?: string; content?: string; bytes?: number; mime?: string }[] }

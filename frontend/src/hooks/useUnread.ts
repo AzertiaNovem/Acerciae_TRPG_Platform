@@ -5,12 +5,18 @@ import { useChat } from '../store/chat';
 import { useNav } from '../store/nav';
 import { useNotifications } from '../store/notifications';
 import type { Message } from '../types';
+import { isDesktop } from '../lib/platform';
 
 // Whether the user is looking at this window right now: its chat is on screen and the page is visible.
 export function isViewing(windowId: string): boolean {
   const nav = useNav.getState();
-  return nav.windowId === windowId && !nav.gmWorkspaceOpen && !nav.studioOpen && !nav.characterSpaceId && !nav.spectateChannelId
-    && typeof document !== 'undefined' && document.visibilityState === 'visible';
+  return nav.windowId === windowId && !nav.gmWorkspaceOpen && !nav.studioOpen && !nav.characterSpaceId && !nav.spectateChannelId && attending();
+}
+// The page is in front of the user: visible, and in the desktop app also the focused window (an app in the
+// background notifies instead).
+function attending(): boolean {
+  if (typeof document === 'undefined' || document.visibilityState !== 'visible') return false;
+  return !isDesktop || document.hasFocus();
 }
 
 // A message arrived over the socket. If it is not on screen it counts as unread and, for a window the user has
@@ -24,7 +30,11 @@ export function onIncomingMessage(m: Message) {
   nav.setUnread(win.id, (n) => n + 1);
   const notes = useNotifications.getState();
   const joined = win.kind === 'main' || (win.members ?? []).some((x) => x.user_id === me);
-  if (!notes.enabled || !joined || document.visibilityState !== 'visible') return;
+  if (!notes.enabled || !joined) return;
+  const sender = m.kind === 'system' ? 'System' : m.character_name ?? m.author_name;
+  // In the background, the desktop app notifies through the system instead of the in-app banner.
+  if (isDesktop && !attending()) { import('../lib/desktop').then((d) => d.notifySystem(win.name, `${sender}: ${m.dice?.text ? `${m.content} ${m.dice.text}` : m.content}`)).catch(() => undefined); return; }
+  if (document.visibilityState !== 'visible') return;
   const avatar = m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined)
     : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
   notes.push({ id: m.id, message: m, windowName: win.name, avatar, at: Date.now() });
@@ -40,11 +50,12 @@ export function useReadTracking() {
   // A window list fetched before the read was recorded may bring the count back: the window on screen clears it again.
   const shownUnread = useNav((s) => s.windows.find((w) => w.id === s.windowId)?.unread ?? 0);
   const lastSeq = useChat((s) => { const list = windowId ? s.byWindow[windowId] : undefined; return list?.length ? list[list.length - 1].seq : 0; });
-  const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible');
+  const [visible, setVisible] = useState(() => attending());
   useEffect(() => {
-    const on = () => setVisible(document.visibilityState === 'visible');
+    const on = () => setVisible(attending());
     document.addEventListener('visibilitychange', on);
-    return () => document.removeEventListener('visibilitychange', on);
+    window.addEventListener('focus', on); window.addEventListener('blur', on);
+    return () => { document.removeEventListener('visibilitychange', on); window.removeEventListener('focus', on); window.removeEventListener('blur', on); };
   }, []);
   useEffect(() => {
     if (!channelId || !windowId || overlay || !visible) return;

@@ -1,0 +1,78 @@
+name: Desktop
+
+# Installers of the desktop app (Tauri: the system web view, no bundled Chromium) for macOS, Windows and Linux.
+# Every push that touches the app or the web frontend builds them; a tag "desktop-v*" also publishes them to a draft
+# GitHub release.
+on:
+  push:
+    branches: [main]
+    paths: ['desktop/**', 'frontend/**', '.github/workflows/desktop.yml']
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: '${{ matrix.target }}' }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: 'desktop/src-tauri -> target' }
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+      - run: npm ci --prefix frontend
+      - run: npm ci --prefix desktop
+      - name: Frontend tests
+        run: npm test --prefix frontend
+      - name: Desktop unit tests
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y ffmpeg && cargo test --manifest-path desktop/src-tauri/Cargo.toml
+      # FFmpeg for "Export video": bundled when it can be fetched; otherwise the app uses one on PATH.
+      - name: Fetch FFmpeg
+        id: ffmpeg
+        continue-on-error: true
+        run: node desktop/scripts/fetch-ffmpeg.mjs ${{ matrix.target }}
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional signing; unsigned builds work but macOS and Windows warn on first launch.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: desktop
+          tauriScript: npx tauri
+          args: --target ${{ matrix.target }} ${{ steps.ffmpeg.outcome == 'success' && '--config src-tauri/tauri.ffmpeg.conf.json' || '' }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && format('Acerciae desktop {0}', github.ref_name) || '' }}
+          releaseDraft: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acerciae-desktop-${{ matrix.target }}
+          path: |
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*-setup.exe
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
+          if-no-files-found: warn

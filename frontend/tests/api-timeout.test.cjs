@@ -9,7 +9,7 @@ function client(fetch) {
   const module = {exports: {}}, timers = new Map(); let next = 0;
   const setTimer = (fn, ms) => { assert.equal(ms, 120000); timers.set(++next, fn); return next; };
   new Function('require', 'module', 'exports', 'fetch', 'setTimeout', 'clearTimeout', js)(
-    () => ({readStorage: () => null, writeStorage: () => {}}), module, module.exports, fetch, setTimer, id => timers.delete(id));
+    () => ({readStorage: () => null, writeStorage: () => {}, apiBase: () => ''}), module, module.exports, fetch, setTimer, id => timers.delete(id));
   return {...module.exports, timers, expire: () => { for (const fn of timers.values()) fn(); }};
 }
 function stalled(signal) {
