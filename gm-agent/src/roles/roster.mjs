@@ -34,11 +34,17 @@ export class Roster {
   coplayersIn(windowId) { return this.coplayers.filter((c) => openWindows(c).includes(windowId)); }
 
   // Moves co-players: their open seats close after `atSeq`, and new seats open in `windowIds` from `openFrom`
-  // (the next line by default; the line that called them back, when they rejoin in answer to it).
-  moveSeats(coplayers, windowIds, atSeq, openFrom = atSeq + 1) {
+  // (the next line by default; the line that called them back, when they rejoin in answer to it). `atSeq` and
+  // `openFrom` may be functions of the window, for per-window cut points. A co-player already seated only in the
+  // target windows is left alone, so a repeated move changes nothing.
+  moveSeats(coplayers, windowIds, atSeq, openFrom = null) {
+    const cut = (w) => (typeof atSeq === "function" ? atSeq(w) : atSeq);
+    const from = (w) => (typeof openFrom === "function" ? openFrom(w) : openFrom ?? cut(w) + 1);
     for (const c of coplayers) {
-      for (const s of c.seats) if (s.toSeq === null) s.toSeq = atSeq;
-      for (const w of windowIds) c.seats.push(openSeat(w, openFrom));
+      const open = openWindows(c);
+      if (open.length === windowIds.length && open.every((w) => windowIds.includes(w))) continue;
+      for (const s of c.seats) if (s.toSeq === null) s.toSeq = Math.max(s.fromSeq - 1, cut(s.windowId));
+      for (const w of windowIds) c.seats.push(openSeat(w, from(w)));
     }
   }
   coplayerByName(name) { return this.coplayers.find((c) => norm(c.name) === norm(name)); }

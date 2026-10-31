@@ -7,6 +7,7 @@
 #include <optional>
 
 namespace acerciae {
+namespace logstudio { class ObjectStore; }
 
 struct Principal {
     std::string userId;
@@ -35,7 +36,12 @@ public:
     Json::Value login(const std::string& username, const std::string& password);   // {token, user}
     Json::Value profile(const std::string& userId);
     Json::Value updateProfile(const Principal& principal, const Json::Value& body);
-    std::pair<std::string, std::string> avatar(const Principal& principal, const std::string& userId);
+    // A user's avatar for a viewer who shares a server with them: either `url` (the public object, when redirecting is
+    // allowed) or the bytes with their mime type. Throws 404 when there is none.
+    struct Avatar { std::string mime, bytes, url; };
+    Avatar avatar(const Principal& principal, const std::string& userId, bool allowRedirect = false);
+    // Avatars are objects in the media store; without one (unit tests) they stay inline in users.avatar_data.
+    void setObjectStore(logstudio::ObjectStore* store) { store_ = store; }
     void logout(const std::string& token);
     std::optional<Principal> authenticate(const std::string& token);
     // Short-lived tokens for URLs a browser loads by itself (images, audio, downloads, the WebSocket), so the session
@@ -55,6 +61,7 @@ public:
     std::optional<std::string> windowCharacter(const std::string& userId, const std::string& chatWindowId);
 
 private:
+    logstudio::ObjectStore* store_ = nullptr;
     std::string tokenHash(const std::string& token) const;
     Db& db_;
     const Config& cfg_;

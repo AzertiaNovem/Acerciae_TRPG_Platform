@@ -1,5 +1,5 @@
 // Shared API types (mirrors backend JSON shapes).
-export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; avatar_version: number; languages?: string[] }
+export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; languages?: string[] }
 export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest' }
 export interface DirectoryServer { id: string; name: string; member_count: number }
 export interface ServerInvite { id: string; code: string; max_uses: number; uses: number; expires_at: string | null; revoked_at: string | null; created_at: string; created_by_name?: string | null; active: boolean }
@@ -116,7 +116,7 @@ export interface PresentationScene { id: string; presentation_id: string; positi
 export interface PresentationEvent {
   id: string; scene_id: string | null; position: number; canonical_event_id: string; merged_event_ids: string[]; segment_index: number; segment_text: string | null;
   display_kind: 'dialogue' | 'narration' | 'action' | 'ooc' | 'dice' | 'scene_change' | 'system' | 'media'; hidden: boolean; speaker_character_id: string | null; speaker_name_override: string | null;
-  tts_text: string | null; character_asset_ids: CharacterPlacement[]; expression_ids: Record<string, string>; dialogue_style: Record<string, any>; voice_profile_id: string | null; audio_asset_id: string | null;
+  tts_text: string | null; script_text?: string | null; character_asset_ids: CharacterPlacement[]; expression_ids: Record<string, string>; dialogue_style: Record<string, any>; voice_profile_id: string | null; audio_asset_id: string | null;
   style_instruction: string; transition: string; effect: string; estimated_duration_ms: number; actual_audio_duration_ms: number | null; ai_suggestion?: Record<string, any> | null;
   content: string; display_text: string; event_type: LogEventType; speaker_display_name: string; speaker_role: string; dice: LogEvent['dice']; media: LogEvent['media']; sequence_number: number;
   audio_duration_ms: number | null; word_timestamps: { word: string; start_ms: number; end_ms: number }[] | null; audio_is_mock: boolean | null; audio_mime: string | null; character_name: string | null;

@@ -68,6 +68,7 @@ Json::Value SceneManager::close(const ChannelAccess& a, const std::string& scene
         return row;
     });
     notifier_.sceneChanged(a.channelId, s);
+    if (s["status"].asString() == "closed") notifyClosed(a.channelId, sceneId, a.userId);
     return s;
 }
 std::string SceneManager::moveChannel(pqxx::work& w, const std::string& channelId, const std::string& sceneId, const std::string& actorUserId, const std::string& note) {
@@ -106,6 +107,7 @@ Json::Value SceneManager::enterScene(const ChannelAccess& a, const std::string& 
     if (!out["previous"].isNull()) notifier_.sceneChanged(a.channelId, out["previous"]);
     notifier_.sceneChanged(a.channelId, out["scene"]);
     for (auto& win : out["windows"]) notifier_.windowChanged(a.channelId, win);
+    if (!out["previous"].isNull()) notifyClosed(a.channelId, out["previous"]["id"].asString(), a.userId);
     return out;
 }
 std::string SceneManager::resolveSceneForWindow(pqxx::work& w, const std::string& channelId, const std::string& chatWindowId) {

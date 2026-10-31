@@ -41,7 +41,7 @@ void TtsService::stop() { if (!running_.exchange(false)) return; cv_.notify_all(
 
 Json::Value TtsService::status(const ChannelAccess& a) {
     auto provider = providerFor(a.channelId);
-    Json::Value s; s["provider"] = provider->name(); s["mock"] = provider->isMock(); s["official_model"] = provider->officialModel(); s["preview_model"] = provider->previewModel(); s["capabilities"] = provider->capabilities(); s["concurrency"] = concurrency_;
+    Json::Value s; s["provider"] = provider->name(); s["mock"] = provider->isMock(); s["official_model"] = provider->officialModel(); s["preview_model"] = provider->previewModel(); s["capabilities"] = provider->capabilities(); s["features"] = provider->features(); s["concurrency"] = concurrency_;
     s["note"] = provider->isMock() ? "MOCK TTS MODE: audio files are synthetic tones labelled as mock. A server maintainer picks a speech provider in Server settings → AI." : "live"; return s;
 }
 Json::Value TtsService::availableVoices(const ChannelAccess& a) {
@@ -82,13 +82,14 @@ Json::Value TtsService::createVoice(const ChannelAccess& a, const Json::Value& b
         VoiceProfileCreateRequest r; r.kind = "clone"; r.targetModel = model; r.preferredName = json::str(body, "name", "voice"); r.referenceAudio = refAudio; r.referenceMime = MediaService::sniffMime(refAudio, "voice.wav"); r.language = json::str(body, "language", "zh");
         auto res = provider->createVoiceProfile(r); if (!res.ok) throw ApiError(502, "tts_error", res.error); voiceId = res.voiceId; meta = res.providerMeta;
     } else if (voiceId.empty()) throw badRequest("voice_id required for preset voices");
-    Json::Value params = body["synthesis_parameters"].isObject() ? body["synthesis_parameters"] : Json::Value(Json::objectValue);
+    Json::Value params = sanitizeSynthesisParameters(provider->features(), body["synthesis_parameters"]);
     auto row = db_.queryOne("INSERT INTO voice_profiles(channel_id, character_id, name, provider, model_id, voice_id, voice_type, language, dialect, style_instruction, pronunciation_dictionary_id, synthesis_parameters, consent_metadata, design_prompt, created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15) RETURNING *",
         {a.channelId, opt(charId), json::str(body, "name", voiceId), provider->name(), model, voiceId, type, json::str(body, "language", "zh"), json::str(body, "dialect"), json::str(body, "style_instruction"), opt(json::str(body, "pronunciation_dictionary_id")), json::dump(params), consent.isObject() ? DbParam(json::dump(consent)) : dbNull(), opt(json::str(body, "design_prompt")), a.userId});
     row["provider_meta"] = meta; return row;
 }
 Json::Value TtsService::updateVoice(const ChannelAccess& a, const std::string& id, const Json::Value& body) {
     auto cur = voiceRow(a.channelId, id);
+    auto params = body["synthesis_parameters"].isObject() ? sanitizeSynthesisParameters(providerFor(a.channelId)->features(), body["synthesis_parameters"]) : cur["synthesis_parameters"];
     if (!a.isGm && cur["created_by"].asString() != a.userId) throw forbidden("not your voice profile");
     auto charId=json::str(body,"character_id",json::str(cur,"character_id"));
     if(!charId.empty()) { auto c=db_.queryOne("SELECT user_id FROM characters WHERE id=$1 AND channel_id=$2",{charId,a.channelId});if(c.isNull()||(!a.isGm&&c["user_id"]!=a.userId))throw forbidden("not your character"); }
@@ -96,7 +97,7 @@ Json::Value TtsService::updateVoice(const ChannelAccess& a, const std::string& i
     // Any change to identity/instruction/parameters bumps the version → new cache keys for affected lines only.
     return db_.queryOne("UPDATE voice_profiles SET name=$3, character_id=$4, voice_id=$5, language=$6, dialect=$7, style_instruction=$8, pronunciation_dictionary_id=$9, synthesis_parameters=$10::jsonb, model_id=$11, version=version+1, updated_at=now() WHERE id=$1 AND channel_id=$2 RETURNING *",
         {id, a.channelId, json::str(body, "name", cur["name"].asString()), opt(json::str(body, "character_id", cur["character_id"].isNull() ? "" : cur["character_id"].asString())), json::str(body, "voice_id", cur["voice_id"].asString()), json::str(body, "language", cur["language"].asString()), json::str(body, "dialect", cur["dialect"].asString()), json::str(body, "style_instruction", cur["style_instruction"].asString()),
-         opt(json::str(body, "pronunciation_dictionary_id", cur["pronunciation_dictionary_id"].isNull() ? "" : cur["pronunciation_dictionary_id"].asString())), json::dump(body["synthesis_parameters"].isObject() ? body["synthesis_parameters"] : cur["synthesis_parameters"]), json::str(body, "model_id", cur["model_id"].asString())});
+         opt(json::str(body, "pronunciation_dictionary_id", cur["pronunciation_dictionary_id"].isNull() ? "" : cur["pronunciation_dictionary_id"].asString())), json::dump(params), json::str(body, "model_id", cur["model_id"].asString())});
 }
 Json::Value TtsService::deleteVoice(const ChannelAccess& a, const std::string& id) { auto cur = voiceRow(a.channelId, id); if (!a.isGm && cur["created_by"].asString() != a.userId) throw forbidden("not your voice profile"); db_.exec("DELETE FROM voice_profiles WHERE id=$1", {id}); Json::Value v; v["deleted"] = true; return v; }
 
@@ -218,7 +219,8 @@ std::string TtsService::synthesizeLine(const std::string& channelId, const LineP
         db_.exec("DELETE FROM tts_usage_records WHERE id=$1", {usage["id"].asString()});
         error = res.error; retryable = res.retryable; return "";
     }
-    auto key = safeObjectKey(channelId, "tts", res.mime == "audio/wav" ? "wav" : "mp3");
+    // Voice clips are not secret: they go to the public bucket when there is one (access is still checked per request).
+    auto key = publicObjectKey(store_, channelId, "tts", res.mime == "audio/wav" ? "wav" : "mp3");
     store_.put(key, res.audioBytes, res.mime);
     int dur = res.durationMs ? res.durationMs : (res.mime == "audio/wav" ? wavDurationMs(res.audioBytes) : 0);
     auto row = db_.queryOne("INSERT INTO tts_audio_assets(channel_id, cache_key, provider, model_id, voice_id, voice_profile_id, voice_profile_version, spoken_text, style_instruction, dictionary_version, synthesis_parameters, object_key, mime, bytes, duration_ms, word_timestamps, is_mock, created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18) ON CONFLICT (cache_key) DO UPDATE SET bytes=EXCLUDED.bytes RETURNING id",
@@ -278,7 +280,7 @@ Json::Value TtsService::getJob(const ChannelAccess& a, const std::string& jobId)
 Json::Value TtsService::listJobs(const ChannelAccess& a, const std::string& presentationId) { pres_.presentationRow(a,presentationId); return db_.queryJson("SELECT * FROM tts_jobs WHERE channel_id=$1 AND ($2::text = '' OR presentation_id::text=$2) ORDER BY created_at DESC LIMIT 50", {a.channelId, presentationId}); }
 Json::Value TtsService::cancelJob(const ChannelAccess& a, const std::string& jobId) { auto j=getJob(a, jobId); if (!a.isGm && j["created_by"] != a.userId) throw forbidden("not your job"); return db_.queryOne("UPDATE tts_jobs SET status=CASE WHEN status IN ('pending','running') THEN 'cancelled' ELSE status END, updated_at=now() WHERE id=$1 RETURNING *", {jobId}); }
 
-bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime) {
+bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime, std::string* redirectUrl) {
     auto row = db_.queryOne("SELECT * FROM tts_audio_assets WHERE id=$1 AND channel_id=$2", {audioId, a.channelId});
     if (row.isNull()) return false;
     if (!a.isGm) {
@@ -294,8 +296,10 @@ bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, 
         }
         if(!allowed) return false;
     }
+    mime = row["mime"].asString();
+    if (redirectUrl) { *redirectUrl = store_.publicUrl(row["object_key"].asString()); if (!redirectUrl->empty()) return true; }
     auto data = store_.get(row["object_key"].asString()); if (!data) return false;
-    bytes = std::move(*data); mime = row["mime"].asString(); return true;
+    bytes = std::move(*data); return true;
 }
 
 // ---- worker -------------------------------------------------------------------------------------------

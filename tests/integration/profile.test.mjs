@@ -33,7 +33,8 @@ test('Personal profile: all server languages, atomic rename, persistent avatar a
   await request(a.token, 'PUT', '/api/auth/me', {avatar_data: 'data:image/png;base64,'+'A'.repeat(180001)}, 400);
   const renamed = 'renamed_' + suffix;
   const profile = await request(a.token, 'PUT', '/api/auth/me', {username:renamed,display_name:'夜雨调查员',avatar_data:png,ui_language:'zh-CN'});
-  assert.equal(profile.avatar_data, png); assert.equal(profile.avatar_version, 1); assert.equal(profile.id, me.id);
+  // The avatar is a media object now: the profile says it exists, the picture comes from the avatar route.
+  assert.equal(profile.avatar_data, ''); assert.equal(profile.has_avatar, true); assert.equal(profile.avatar_version, 1); assert.equal(profile.id, me.id);
   const avatarPath = `/api/users/${me.id}/avatar`;
   assert.equal((await fetch(base+avatarPath)).status,401);
   assert.equal((await fetch(base+avatarPath,{headers:{Authorization:`Bearer ${b.token}`}})).status,404);
@@ -44,7 +45,7 @@ test('Personal profile: all server languages, atomic rename, persistent avatar a
   assert.equal(Buffer.from(await image.arrayBuffer()).toString('base64'),png.split(',')[1]);
   await request(null,'POST','/api/auth/login',{username:me.username,password:'password'},401);
   const login = await request(null,'POST','/api/auth/login',{username:renamed,password:'password'});
-  assert.equal(login.user.ui_language,'zh-CN'); assert.equal(login.user.avatar_data,png); assert.equal(login.user.display_name,'夜雨调查员');
+  assert.equal(login.user.ui_language,'zh-CN'); assert.equal(login.user.has_avatar,true); assert.equal(login.user.display_name,'夜雨调查员');
   const retained = await request(a.token,'GET',`/api/servers/${server.id}/settings`);
   assert.equal(retained.language,settings.language); assert.equal(retained.is_maintainer,true);
   const other = await request(b.token,'GET','/api/auth/me'); assert.equal(other.username,b.user.username); assert.equal(other.avatar_data,''); assert.equal(other.ui_language,'en');

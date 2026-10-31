@@ -89,7 +89,7 @@ Json::Value MediaService::upload(const ChannelAccess& a, const std::string& file
 }
 Json::Value MediaService::storeInternal(const std::string& channelId, const std::string& assetType, const std::string& sourceType, const std::string& bytes, const std::string& mime, const Json::Value& meta) {
     auto ext = mime == "image/png" ? "png" : mime == "image/jpeg" ? "jpg" : mime == "image/svg+xml" ? "svg" : mime == "audio/wav" ? "wav" : mime == "audio/mpeg" ? "mp3" : "bin";
-    auto key = safeObjectKey(channelId, assetType, ext);
+    auto key = publicEligible(sourceType, mime) ? publicObjectKey(store_, channelId, assetType, ext) : safeObjectKey(channelId, assetType, ext);
     store_.put(key, bytes, mime);
     int w = 0, h = 0; probeDimensions(bytes, mime, w, h);
     auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, license_metadata, created_by) "
@@ -139,14 +139,20 @@ Json::Value MediaService::remove(const ChannelAccess& a, const std::string& id) 
     db_.exec("DELETE FROM media_assets WHERE id=$1", {id});
     Json::Value out; out["deleted"] = true; return out;
 }
-bool MediaService::fetch(const ChannelAccess& a, const std::string& id, int version, std::string& bytes, std::string& mime, std::string& fileName) {
+bool MediaService::publicEligible(const std::string& sourceType, const std::string& mime) {
+    // SVG can carry script, so it is never served from a public origin; uploads and imports stay private.
+    return (sourceType == "generated" || sourceType == "mock") && mime.rfind("image/", 0) == 0 && mime != "image/svg+xml";
+}
+bool MediaService::fetch(const ChannelAccess& a, const std::string& id, int version, std::string& bytes, std::string& mime, std::string& fileName, std::string* redirectUrl) {
     auto cur = db_.queryOne("SELECT * FROM media_assets WHERE id=$1 AND channel_id=$2", {id, a.channelId});
     if (cur.isNull()) return false;
     if (!a.isGm && (cur["visibility_scope"].asString() == "gm" || cur["approval_status"] != "approved")) return false;
     std::string key = cur["object_key"].asString(); mime = cur["mime"].asString();
     if (version > 0 && version != cur["version"].asInt()) { auto v = db_.queryOne("SELECT object_key, mime FROM asset_versions WHERE asset_id=$1 AND version=$2", {id, (int64_t)version}); if (v.isNull()) return false; key = v["object_key"].asString(); mime = v["mime"].asString(); }
+    fileName = cur["name"].asString();
+    if (redirectUrl) { *redirectUrl = store_.publicUrl(key); if (!redirectUrl->empty()) return true; }
     auto data = store_.get(key); if (!data) return false;
-    bytes = std::move(*data); fileName = cur["name"].asString(); return true;
+    bytes = std::move(*data); return true;
 }
 
 } // namespace

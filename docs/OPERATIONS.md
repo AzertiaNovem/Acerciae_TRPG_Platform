@@ -31,7 +31,7 @@ The Docker instructions below apply to Compose installations.
 
 ## Backups and restore
 
-Two things hold state: PostgreSQL and the media/object store (`uploads` volume, or the S3 bucket with `OBJECT_STORE=s3`).
+Two things hold state: PostgreSQL and the media/object store (`uploads` volume, the S3 bucket with `OBJECT_STORE=s3`, or the R2 buckets with `OBJECT_STORE=r2` / `IMAGE_STORE=r2` / `R2_PUBLIC_BUCKET`). Back up R2 with Cloudflare's tools (or `acerciae-server --copy-media r2 local` and `--copy-media r2public local` before a volume backup); the commands below cover the volume.
 
 ```bash
 # backup (consistent dump while running)

@@ -7,9 +7,9 @@ namespace acerciae {
 
 class AuthService; class EventStore; class ChatService; class SceneManager; class KnowledgeService;
 class DocumentService; class HighlightService; class ContextRetrievalService; class LlmGateway;
-class ScenarioService; class ReminderService; class ScriptKnowledgeService; class CharacterSpaceService; class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
+class ScenarioService; class ReminderService; class ScriptKnowledgeService; class CharacterSpaceService; class GrowthService; class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
 class Notifier;
-namespace logstudio { class LogStudioService; class ObjectStore; class MediaService; class PresentationService; class StyleService; class TtsService; class PublicationService; class CreativeService; class VnScriptService; }
+namespace logstudio { class LogStudioService; class ObjectStore; class MediaMigrator; class MediaService; class PresentationService; class StyleService; class TtsService; class PublicationService; class CreativeService; class VnScriptService; }
 class AtmosphereService; class ServerSettingsService; class DeletionService; class DiceService; class AiPolicyService; class WorkPool; class Maintenance;
 
 // Composition root: every module gets its dependencies through here (constructed once in main).
@@ -24,6 +24,7 @@ struct Services {
     std::unique_ptr<ReminderService> reminders;
     std::unique_ptr<ScriptKnowledgeService> script;
     std::unique_ptr<CharacterSpaceService> characterSpace;
+    std::unique_ptr<GrowthService> growth;   // COC7 investigator development when a scenario closes
     std::unique_ptr<KnowledgeService> knowledge;
     std::unique_ptr<DocumentService> documents;
     std::unique_ptr<HighlightService> highlights;
@@ -41,6 +42,7 @@ struct Services {
     std::unique_ptr<AtmosphereService> atmosphere;
     std::unique_ptr<logstudio::LogStudioService> studio;
     std::unique_ptr<logstudio::ObjectStore> objectStore;
+    std::unique_ptr<logstudio::MediaMigrator> mediaMigrator;   // started by main (MEDIA_MIGRATION)
     std::unique_ptr<logstudio::MediaService> media;
     std::unique_ptr<logstudio::PresentationService> presentations;
     std::unique_ptr<logstudio::StyleService> styles;

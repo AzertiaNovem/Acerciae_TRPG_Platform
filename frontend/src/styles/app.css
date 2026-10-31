@@ -56,6 +56,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); paddi
 .message .content { white-space: pre-wrap; word-break: break-word; }
 .message.narration .content { color: var(--fg-1); font-style: italic; }
 .message.ooc .content { color: var(--fg-2); }
+.message.system { background: var(--bg-2); border-left: 3px solid var(--ok); } .message.system .content { color: var(--fg-1); font-size: 13px; }
 .message.gm_only { border-left: 3px solid var(--warn); } .message.whisper { border-left: 3px solid var(--accent-2); }
 .composer { border-top: 1px solid var(--bg-3); background: var(--bg-1); padding: 10px 16px 12px; position: relative; }
 .composer textarea { width: 100%; min-height: 64px; max-height: 220px; resize: vertical; }
@@ -282,3 +283,9 @@ table.simple tr.selected td {background:rgba(127,127,127,.08)}
 .character-save-bar { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 16px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--bg-3); background: var(--bg-1); }
 .character-save-bar .grow { min-width: 0; overflow-wrap: anywhere; }
 .character-save-bar > button { flex-shrink: 0; }
+
+/* Voice Studio: one card per voice; its settings follow the configured speech service */
+.voice-card { border: 1px solid var(--bg-4); border-radius: 10px; padding: 8px 10px; margin-top: 8px; background: var(--bg-2); }
+.voice-card.foreign { border-color: var(--danger); opacity: .85; }
+.voice-card details summary { cursor: pointer; color: var(--fg-2); margin-top: 4px; }
+.voice-param { display: flex; flex-direction: column; gap: 2px; min-width: 140px; }

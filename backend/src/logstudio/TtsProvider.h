@@ -55,7 +55,14 @@ public:
     virtual bool cancelPendingJob(const std::string& providerJobId) { (void)providerJobId; return false; }
     virtual bool supportsPhonemeHints() const { return false; }
     virtual Json::Value capabilities() const = 0;
+    // What the Voice Studio offers with this provider; every provider casts one voice per character. Shape:
+    // {label, voice_design, voice_clone, languages:[{id,label}] (empty = not offered), language_note, dialect:
+    //  {label, placeholder}|null, instructions, instruction_note, params:[{key,label,min,max,step,default}],
+    //  phoneme_dictionary, models:[ids] (per-voice model choice; empty = the server's model only), highlights:[text]}
+    virtual Json::Value features() const = 0;
 };
+// Keeps only the provider's own synthesis parameters, clamped to their ranges.
+Json::Value sanitizeSynthesisParameters(const Json::Value& features, const Json::Value& params);
 
 // {provider: "qwen" | "openai", api_key, api_base?, model?, voice?} makes that provider; anything else the labelled mock.
 std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& config = Json::Value());

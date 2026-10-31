@@ -14,7 +14,7 @@
 namespace acerciae {
 
 static const std::string MSG_SELECT =
-    "SELECT m.*, c.name AS character_name, c.avatar_asset_id AS character_avatar_asset_id, ca.version AS character_avatar_version, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' THEN u.avatar_version ELSE 0 END AS author_avatar_version FROM messages m "
+    "SELECT m.*, c.name AS character_name, c.avatar_asset_id AS character_avatar_asset_id, ca.version AS character_avatar_version, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_version ELSE 0 END AS author_avatar_version FROM messages m "
     "LEFT JOIN characters c ON c.id=m.character_id LEFT JOIN media_assets ca ON ca.id=c.avatar_asset_id LEFT JOIN users u ON u.id=m.author_id ";
 
 // ---- servers ---------------------------------------------------------------------------------
@@ -508,6 +508,17 @@ Json::Value ChatService::searchMessages(const ChannelAccess& a, const std::strin
     return db_.queryJson(MSG_SELECT + "WHERE m.channel_id=$1 AND " + Visibility::messageFilter(a) +
         " AND (m.search @@ plainto_tsquery('english', $2) OR m.content ILIKE '%' || $2 || '%') ORDER BY m.seq DESC LIMIT " + std::to_string(std::max(1, std::min(limit, 100))),
         {a.channelId, query});
+}
+Json::Value ChatService::postSystemMessage(pqxx::work& w, const std::string& channelId, const std::string& windowId, const std::string& authorId, const std::string& content) {
+    auto sceneId = scenes_.resolveSceneForWindow(w, channelId, windowId);
+    auto id = Db::queryOne(w,
+        "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, kind, content, visibility, whisper_to) VALUES($1,$2,$3,$4,'gm','system',$5,'window','{}'::uuid[]) RETURNING id",
+        {channelId, windowId, sceneId, authorId, content})["id"].asString();
+    NewEvent e; e.channelId = channelId; e.chatWindowId = windowId; e.sceneId = sceneId; e.messageId = id; e.actorUserId = authorId; e.actorRole = "system"; e.kind = "message.posted";
+    for (auto& r : Db::queryJson(w, "SELECT character_id FROM chat_window_members WHERE chat_window_id=$1 AND character_id IS NOT NULL", {windowId})) e.audience.push_back(r["character_id"].asString());
+    e.payload["content"] = content; e.payload["message_kind"] = "system";
+    events_.append(w, e);
+    return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {id});
 }
 Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body) {
     auth_.requireWindowMember(a, windowId);

@@ -18,7 +18,10 @@ public:
     Json::Value newVersion(const ChannelAccess& a, const std::string& assetId, const std::string& fileName, const std::string& bytes, const std::string& contentType, const std::string& note);
     Json::Value remove(const ChannelAccess& a, const std::string& assetId);
     // Returns bytes + mime for streaming; enforces channel membership and GM-only visibility. version 0 = current.
-    bool fetch(const ChannelAccess& a, const std::string& assetId, int version, std::string& bytes, std::string& mime, std::string& fileName);
+    // With `redirectUrl`, a version stored in the public bucket is not read: its URL is returned there instead.
+    bool fetch(const ChannelAccess& a, const std::string& assetId, int version, std::string& bytes, std::string& mime, std::string& fileName, std::string* redirectUrl = nullptr);
+    // AI-generated raster art (and its mock stand-in) is not secret: it may live in the public bucket.
+    static bool publicEligible(const std::string& sourceType, const std::string& mime);
     // Internal: store a generated/derived asset (TTS audio, generated images).
     Json::Value storeInternal(const std::string& channelId, const std::string& assetType, const std::string& sourceType, const std::string& bytes, const std::string& mime, const Json::Value& meta);
     static std::string sniffMime(const std::string& bytes, const std::string& fileName);

@@ -26,6 +26,10 @@
 #include "script/ScriptKnowledgeService.h"
 #include "characters/CharacterSpaceService.h"
 #include "logstudio/ImageProvider.h"
+#include "logstudio/ObjectStore.h"
+#include "logstudio/MediaService.h"
+#include <filesystem>
+#include <cstdlib>
 #include <zlib.h>
 #include <iostream>
 #include <map>
@@ -497,6 +501,41 @@ int main() {
         CHECK(plan["scenes"][0]["lines"][1]["stage"][0]["expr"] == "default");   // FIGHT is not in Mo's uploaded list
         CHECK(plan["asset_needs"].size() == 3);   // Ada's FIGHT portrait, the harbour and the lighthouse, not Mo's
         CHECK(plan["excluded"].size() == 1); CHECK(plan["excluded"][0]["ref"] == "L3");
+        CHECK(!plan["scenes"][1]["lines"][0].isMember("text"));   // a line matched by its copied text keeps its words
+    });
+    test("visual-novel wording: narration is reworded, short questions and answers fold into narration, the log stays", [] {
+        using logstudio::VnScriptService; using logstudio::LogEvent;
+        logstudio::ScriptInputs in;
+        auto ev = [&](std::string id, std::string win, std::string type, std::string who, std::string role, std::string text, std::string scope = "public") {
+            LogEvent e; e.eventId = id; e.chatWindowId = win; e.sceneKey = "s1"; e.sceneTitle = "Cellar"; e.eventType = type; e.speakerCharacterId = who; e.speakerDisplayName = who.empty() ? "Keeper" : who; e.speakerRole = role; e.content = text; e.visibilityScope = scope; e.occurredAtUnix = 1700000000; return e; };
+        in.events = {ev("e1","wA","narration","","gm","the cellar is dark. smells of damp. a door at the end"), ev("e2","wA","dialogue","c1","pc","is door locked?"),
+                     ev("e3","wA","narration","","gm","yes"), ev("e4","wA","dice_roll","c1","pc","Ada's Spot Hidden check: D100=12/60 — Hard Success"),
+                     ev("e5","wB","narration","","gm","no"), ev("e6","wA","narration","","gm","only you notice the key","character"), ev("e7","wA","dialogue","c1","pc","Who's there?")};
+        in.windowNames = {{"wA","Main"},{"wB","Side"}};
+        in.cast = json::parse(R"([{"ref":"C1","character_id":"c1","name":"Ada","kind":"pc","default_asset_id":null,"asset_mode":"uploaded","subtitles":["IDLE"],"appearance_prompt":""}])");
+        in.assets = Json::Value(Json::arrayValue);
+        auto llm = json::parse(R"({"script":[
+            {"ref":"L1","background":"Cellar","text":"The cellar is dark and smells of damp; a door waits at the far end."},
+            {"ref":"L2","background":"Cellar","kind":"narration","fold":["L3","L5","L6"],"text":"The door is locked."},
+            {"ref":"L4","speaker":"C1","background":"Cellar","text":"Ada finds nothing."},
+            {"ref":"L7","speaker":"C1","background":"Cellar","portrait":"IDLE"}]})");
+        auto plan = VnScriptService::fromFlat(in, {llm});
+        const auto& lines = plan["scenes"][0]["lines"];
+        CHECK(lines.size() == 4);
+        CHECK(lines[0]["text"] == "The cellar is dark and smells of damp; a door waits at the far end.");
+        CHECK(lines[1]["ref"] == "L2"); CHECK(lines[1]["text"] == "The door is locked."); CHECK(lines[1]["kind"] == "narration"); CHECK(!lines[1].isMember("speaker"));
+        CHECK(!lines[2].isMember("text"));   // dice lines are never reworded
+        CHECK(!lines[3].isMember("text"));
+        // L3 folds in; L5 (another window) and L6 (other readers) do not, and stay in the script.
+        CHECK(plan["excluded"].size() == 1); CHECK(plan["excluded"][0]["ref"] == "L3"); CHECK(plan["excluded"][0]["reason"] == "folded into narration (L2)");
+        auto script = VnScriptService::normalize(in, {plan}, "llm");
+        int hidden = 0; std::string l2Text, l2Kind; std::set<std::string> ids;
+        for (const auto& s : script["scenes"]) for (const auto& l : s["lines"]) {
+            ids.insert(l["event_id"].asString()); if (l["hidden"].asBool()) ++hidden;
+            if (l["event_id"] == "e2") { l2Text = l["text"].asString(); l2Kind = l["display_kind"].asString(); }
+        }
+        CHECK(ids.size() == 7);   // every log line is still in the script
+        CHECK(hidden == 1); CHECK(l2Text == "The door is locked."); CHECK(l2Kind == "narration");
     });
     test("scenario detection fires only on Keeper time or place shifts with enough history; summaries use only the log", [] {
         Json::Value ctx; ctx["current"]["event_count"] = 10; ctx["current"]["manual_move"] = false;
@@ -753,6 +792,62 @@ int main() {
             CHECK(chemRefused); CHECK(!bioRefused);
             CHECK(!card["skills"].isMember("Credit Rating"));   // reading the range never inserts a null Credit Rating
         }
+    });
+    test("object store: images go to the image backend, reads fall back, copies are idempotent", [] {
+        namespace fs = std::filesystem;
+        auto root = fs::temp_directory_path() / ("acerciae-objects-" + crypto::randomHex(6));
+        Config ca; ca.uploadDir = (root / "media").string(); Config cb; cb.uploadDir = (root / "images").string();
+        std::shared_ptr<logstudio::ObjectStore> media = logstudio::makeBackend("local", ca), images = logstudio::makeBackend("local", cb);
+        logstudio::RoutingObjectStore r(media, images);
+        CHECK(r.kind() == "local+images:local");
+        const std::string png = "channels/c/portrait/a.png", mp3 = "channels/c/tts/b.mp3", odd = "channels/c/portrait/c.bin";
+        r.put(png, "PNG", "image/png"); r.put(mp3, "MP3", "audio/mpeg"); r.put(odd, "JPG", "image/jpeg");
+        CHECK(images->exists(png) && !media->exists(png));
+        CHECK(media->exists(mp3) && !images->exists(mp3));
+        CHECK(images->exists(odd));                       // routed by content type even with a non-image extension
+        CHECK(r.get(odd).value_or("") == "JPG");          // read prefers the media backend for ".bin", then falls back
+        CHECK(r.exists(png) && r.get(png).value_or("") == "PNG" && !r.get("channels/c/portrait/none.png"));
+        // Switching IMAGE_STORE back: images written before remain readable through the fallback.
+        logstudio::RoutingObjectStore back(media, media, {images});
+        CHECK(back.get(png).value_or("") == "PNG");
+        back.put("channels/c/portrait/new.png", "NEW", "image/png"); CHECK(media->exists("channels/c/portrait/new.png"));
+        // Copy images across, then a second run copies nothing.
+        auto rep = logstudio::copyObjects(*images, *media, {{png, "image/png"}, {odd, "image/jpeg"}, {"channels/c/portrait/gone.png", "image/png"}});
+        CHECK(rep.copied == 2 && rep.missingAtSource == 1 && rep.failed == 0);
+        CHECK(logstudio::copyObjects(*images, *media, {{png, "image/png"}}).alreadyPresent == 1);
+        CHECK(media->get(png).value_or("") == "PNG");
+        back.remove(png); CHECK(!media->exists(png) && !images->exists(png));   // remove clears every backend
+        CHECK(logstudio::isImageObject("a/b.WEBP") && logstudio::isImageObject("a/b.bin", "image/png") && !logstudio::isImageObject("a/b.mp3") && !logstudio::isImageObject("a.png/b"));
+        for (auto* k : {"R2_ACCOUNT_ID", "R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}) unsetenv(k);
+        std::string why; try { logstudio::makeBackend("r2", ca); } catch (const std::exception& e) { why = e.what(); }
+        CHECK(why.find("R2_BUCKET") != std::string::npos && why.find("R2_ACCOUNT_ID") != std::string::npos);
+        setenv("R2_ACCOUNT_ID", "acct123", 1); setenv("R2_BUCKET", "b", 1); setenv("R2_ACCESS_KEY_ID", "k", 1); setenv("R2_SECRET_ACCESS_KEY", "s", 1);
+        CHECK(logstudio::makeBackend("r2", ca)->kind() == "r2");
+        for (auto* k : {"R2_ACCOUNT_ID", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}) unsetenv(k);
+        bool unknown = false; try { logstudio::makeBackend("ftp", ca); } catch (const std::exception&) { unknown = true; } CHECK(unknown);
+        std::error_code ec; fs::remove_all(root, ec);
+    });
+    test("object store: non-secret media goes to the public bucket under pub/ keys with a direct URL", [] {
+        namespace fs = std::filesystem;
+        auto root = fs::temp_directory_path() / ("acerciae-public-" + crypto::randomHex(6));
+        Config cm; cm.uploadDir = (root / "media").string(); Config cp; cp.uploadDir = (root / "public").string();
+        std::shared_ptr<logstudio::ObjectStore> media = logstudio::makeBackend("local", cm), pub = logstudio::makeBackend("local", cp);
+        logstudio::RoutingObjectStore r(media, media);
+        CHECK(!r.publicAvailable() && logstudio::publicObjectKey(r, "c", "tts", "mp3").rfind("channels/c/tts/", 0) == 0);
+        r.setPublic(pub, "https://media.example.com/");
+        CHECK(r.publicAvailable() && r.kind() == "local+public:local");
+        auto key = logstudio::publicObjectKey(r, "c", "portrait", "png");
+        CHECK(key.rfind("pub/channels/c/portrait/", 0) == 0 && logstudio::isPublicKey(key));
+        r.put(key, "PNG", "image/png"); r.put("channels/c/upload/x.png", "UP", "image/png");
+        CHECK(pub->exists(key) && !media->exists(key) && media->exists("channels/c/upload/x.png"));
+        CHECK(r.publicUrl(key) == "https://media.example.com/" + key);
+        CHECK(r.publicUrl("channels/c/upload/x.png").empty());                  // private media is never linked
+        CHECK(r.publicUrl("pub/a b/ü.png") == "https://media.example.com/pub/a%20b/%C3%BC.png");
+        CHECK(&r.targetFor(key) == pub.get() && r.localBackend() == media.get() && r.backends().size() == 2);
+        auto av = logstudio::avatarObjectKey(r, "u1", "jpg"); CHECK(av.rfind("pub/users/u1/avatar/", 0) == 0 && av.size() > 30);
+        CHECK(logstudio::MediaService::publicEligible("generated", "image/png") && logstudio::MediaService::publicEligible("mock", "image/jpeg"));
+        CHECK(!logstudio::MediaService::publicEligible("upload", "image/png") && !logstudio::MediaService::publicEligible("generated", "image/svg+xml") && !logstudio::MediaService::publicEligible("generated", "audio/wav"));
+        std::error_code ec; fs::remove_all(root, ec);
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;

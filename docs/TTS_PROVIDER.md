@@ -29,6 +29,24 @@ provider. HTTP 429 and 5xx answers are retried by the job worker; `OPENAI_TTS_TI
 Live OpenAI requests are covered by a local protocol fixture in `tests/integration/ai-providers.test.mjs`, not by a
 paid account.
 
+## Voice Studio per service
+
+Every provider casts one voice per character (and the narrator); lines are voiced with their speaker's voice. The rest
+of the Voice Studio follows `GET /studio/tts/status` → `features`, which each provider declares:
+
+| | Qwen | OpenAI | Mock |
+|---|---|---|---|
+| Voices | presets, voice design, voice cloning (consent recorded) | 13 presets | presets, simulated design/clone |
+| Language | language hint (Mandarin, English, auto, Chinese dialect) | spoken language asked for in the instructions | — |
+| Dialect / accent | dialect | accent | — |
+| Instructions | identity + delivery | free-form identity + delivery (not on `tts-1`) | slow/fast changes the tone tempo |
+| Per-voice parameters | rate 0.5–2, pitch 0.5–2, volume 0–100 | speed 0.25–4 | speed 0.5–2 |
+| Model per voice | — | the server's model, `gpt-4o-mini-tts`, `tts-1-hd`, `tts-1` | — |
+| Dictionary | replacements and pinyin readings (`term=[pin1 yin1]`) | replacements | replacements |
+
+Voice profiles store only the parameters the current service accepts, clamped to its ranges. A profile made for another
+service is shown with a warning and cannot be auditioned or synthesized: create a new voice for that character.
+
 ## Dictionary and cache
 
 Dictionary entries have `{term,reading,mode:"replace"|"phoneme",language}`. Replacement changes only the separately stored spoken text. With Qwen, phoneme entries become `hot_fix.pronunciation:[{"term":"pin1 yin1"}]`; providers without phoneme support use the supplied reading as a controlled replacement. The UI currently edits replacement entries; phoneme entries can be submitted through the API. Original dialogue remains unchanged.

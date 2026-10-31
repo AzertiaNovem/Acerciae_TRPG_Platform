@@ -180,6 +180,12 @@ a gray hint follows the command (`.ra research —— Alice's research is 53`). 
 or server-defined text groups; each channel's GM picks one. GMs maintain NPC sheets by speaking as the NPC or in the character sheet. Checks follow 7e: a fumble is 100, or 96–100 when the number needed (after Hard/Extreme) is below 50; `.en` cannot
 improve Cthulhu Mythos, and a skill improved to 90+ grants 2D6 SAN. `.st fast-talk 50` and `.sc 1 / 1d6` are accepted.
 
+**Investigator development between scenarios** — on a COC7 channel, when a scenario closes (the Keeper opens the next
+one, enters a prepared one or closes the current one), every skill a player character succeeded with in it is checked
+as the rulebook says: D100 above the skill or above 95 improves it by 1D10, Cthulhu Mythos and Credit Rating are never
+checked, a skill reaching 90 grants 2D6 SAN. The sheet and the role card take the improvements, and a system tip in the
+Main Chat shows every check.
+
 **Per-channel AI switches** — in GM workspace → Channel the GM turns the background chronicler (the observer behind the
 reminder and document bubbles), the consistency check, inspiration and atmosphere backgrounds on or off for that channel,
 under the server maintainer's feature switches. With all four off a channel is a plain chat room — a lobby or a large

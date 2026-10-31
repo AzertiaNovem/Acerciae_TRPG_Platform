@@ -67,6 +67,17 @@ std::string bearer(const HttpRequestPtr& req) {
     return "";
 }
 // Files a browser loads by itself (images, audio, downloads) also accept a short-lived file token in ?token=.
+// Browsers load media with <img>/<audio> and a short-lived file token in the query. Their requests for an object in
+// the public bucket are answered with a redirect, so the bytes come straight from Cloudflare instead of this server.
+// Requests with an Authorization header (native apps, API clients) still get the bytes: some HTTP stacks would carry
+// the bearer token along to the other host.
+bool mayRedirect(const HttpRequestPtr& req) { return req->getHeader("Authorization").empty(); }
+HttpResponsePtr redirectTo(const std::string& url, const char* cacheControl) {
+    auto r = HttpResponse::newRedirectionResponse(url, k302Found);
+    r->addHeader("Cache-Control", cacheControl);
+    r->addHeader("Referrer-Policy", "no-referrer");   // the backend URL carries the file token
+    return r;
+}
 std::optional<Principal> fileAuth(const HttpRequestPtr& req) {
     auto h = bearer(req);
     if (!h.empty()) return services().auth->authenticate(h);
@@ -234,10 +245,11 @@ void registerRoutes() {
         try {
             auto principal = fileAuth(req);
             if (!principal) throw unauthorized("missing or invalid token");
-            auto [mime, bytes] = services().auth->avatar(*principal, userId);
+            auto av = services().auth->avatar(*principal, userId, mayRedirect(req));
+            if (!av.url.empty()) { cb(redirectTo(av.url, "private, max-age=600")); return; }
             auto response = HttpResponse::newHttpResponse();
-            response->setContentTypeString(mime);
-            response->setBody(bytes);
+            response->setContentTypeString(av.mime);
+            response->setBody(std::move(av.bytes));
             response->addHeader("X-Content-Type-Options", "nosniff");
             response->addHeader("Cache-Control", "private, no-store");
             cb(response);
@@ -502,7 +514,9 @@ void registerRoutes() {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             auto ac = access(*pr, ch); std::string bytes, mime, name; int v = qint(req, "v", 0);
-            if (!S.media->fetch(ac, id, v, bytes, mime, name)) { cb(errResp(404, "not_found", "asset not found")); return; }
+            std::string direct;
+            if (!S.media->fetch(ac, id, v, bytes, mime, name, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "asset not found")); return; }
+            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=3600")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=3600"); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
             if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
             cb(r);
@@ -566,7 +580,8 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/studio/tts/audio/{2}", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string id) {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
-            std::string bytes, mime; if (!S.tts->fetchAudio(studioAccess(*pr, ch), id, bytes, mime)) { cb(errResp(404, "not_found", "audio not found")); return; }
+            std::string bytes, mime, direct; if (!S.tts->fetchAudio(studioAccess(*pr, ch), id, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "audio not found")); return; }
+            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=86400")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=86400"); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
