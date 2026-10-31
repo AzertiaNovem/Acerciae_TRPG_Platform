@@ -9,6 +9,7 @@ export type VnNameStyle = 'tag' | 'inline' | 'hidden';
 export type VnColorGrade = 'none' | 'sepia' | 'mono' | 'cold' | 'warm';
 export type VnDiceStyle = 'burst' | 'stamp' | 'inline' | 'hide';
 export type VnSceneCard = 'fade' | 'caption' | 'none';
+export type VnPortraitFraming = 'upper' | 'full';
 
 export interface VnTemplate {
   base: VnBase;
@@ -20,6 +21,7 @@ export interface VnTemplate {
   color_grade: VnColorGrade;
   letterbox: boolean;
   dim_inactive: boolean;   // darken standees that are not speaking
+  portrait_framing: VnPortraitFraming;   // upper: standees sit low, only their upper half shows; full: the whole figure
   dice_style: VnDiceStyle;
   scene_card: VnSceneCard;
   character_colors: Record<string, string>;  // character id → #RRGGBB name colour
@@ -38,10 +40,10 @@ export const VN_BASE_INFO: Record<VnBase, { label: string; blurb: string }> = {
 };
 
 export const VN_PRESETS: Record<VnBase, Omit<VnTemplate, 'base' | 'character_colors'>> = {
-  adv: { font: 'sans', text_scale: 1, box_opacity: 0.82, accent_color: '#7c9cff', name_style: 'tag', color_grade: 'none', letterbox: false, dim_inactive: true, dice_style: 'burst', scene_card: 'fade' },
-  nvl: { font: 'serif', text_scale: 1, box_opacity: 0.72, accent_color: '#e8c987', name_style: 'inline', color_grade: 'none', letterbox: false, dim_inactive: true, dice_style: 'inline', scene_card: 'caption' },
-  dossier: { font: 'mono', text_scale: 0.95, box_opacity: 0.96, accent_color: '#9b2226', name_style: 'tag', color_grade: 'sepia', letterbox: false, dim_inactive: true, dice_style: 'stamp', scene_card: 'caption' },
-  cinematic: { font: 'serif', text_scale: 1.1, box_opacity: 0, accent_color: '#f2e6c9', name_style: 'inline', color_grade: 'cold', letterbox: true, dim_inactive: true, dice_style: 'inline', scene_card: 'fade' },
+  adv: { font: 'sans', text_scale: 1, box_opacity: 0.82, accent_color: '#7c9cff', name_style: 'tag', color_grade: 'none', letterbox: false, dim_inactive: true, portrait_framing: 'upper', dice_style: 'burst', scene_card: 'fade' },
+  nvl: { font: 'serif', text_scale: 1, box_opacity: 0.72, accent_color: '#e8c987', name_style: 'inline', color_grade: 'none', letterbox: false, dim_inactive: true, portrait_framing: 'upper', dice_style: 'inline', scene_card: 'caption' },
+  dossier: { font: 'mono', text_scale: 0.95, box_opacity: 0.96, accent_color: '#9b2226', name_style: 'tag', color_grade: 'sepia', letterbox: false, dim_inactive: true, portrait_framing: 'upper', dice_style: 'stamp', scene_card: 'caption' },
+  cinematic: { font: 'serif', text_scale: 1.1, box_opacity: 0, accent_color: '#f2e6c9', name_style: 'inline', color_grade: 'cold', letterbox: true, dim_inactive: true, portrait_framing: 'upper', dice_style: 'inline', scene_card: 'fade' },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -69,6 +71,7 @@ export function resolveVnTemplate(input: unknown): VnTemplate {
     color_grade: pick(t.color_grade, ['none', 'sepia', 'mono', 'cold', 'warm'] as const, p.color_grade),
     letterbox: bool(t.letterbox, p.letterbox),
     dim_inactive: bool(t.dim_inactive, p.dim_inactive),
+    portrait_framing: pick(t.portrait_framing, ['upper', 'full'] as const, p.portrait_framing),
     dice_style: pick(t.dice_style, ['burst', 'stamp', 'inline', 'hide'] as const, p.dice_style),
     scene_card: pick(t.scene_card, ['fade', 'caption', 'none'] as const, p.scene_card),
     character_colors: colors,

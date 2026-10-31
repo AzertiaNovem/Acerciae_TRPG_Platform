@@ -1,3 +1,4 @@
+#include "../core/Text.h"
 #include "HttpTransport.h"
 #include "../core/NetGuard.h"
 #include <curl/curl.h>
@@ -190,7 +191,7 @@ HttpResult postJson(const std::string& url, const std::vector<std::string>& head
     return postJsonAsync(url, headers, body, timeoutMs, maxResponseBytes).get();
 }
 std::string excerpt(const std::string& body, std::size_t n) {
-    std::string s = body.substr(0, n);
+    std::string s = text::utf8Prefix(body, n);
     for (auto& ch : s) if ((unsigned char)ch < 0x20) ch = ' ';
     return s;
 }

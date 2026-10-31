@@ -1,9 +1,12 @@
 // Database-backed tests for the validation core. Requires PostgreSQL; set TEST_DATABASE_URL (a
 // database that may be wiped) — defaults to postgresql://postgres@localhost:5432/acerciae_test.
+#include <drogon/utils/Utilities.h>
 #include "logstudio/ObjectStore.h"
 #include "logstudio/LogStudioService.h"
 #include "logstudio/PresentationService.h"
 #include "logstudio/PublicationService.h"
+#include "characters/CharacterSpaceService.h"
+#include "logstudio/MediaService.h"
 #include "app/Services.h"
 #include "atmosphere/AtmosphereService.h"
 #include "logstudio/ImageProvider.h"
@@ -29,7 +32,10 @@
 #include "retrieval/ContextRetrievalService.h"
 #include "events/EventStore.h"
 #include "core/Json.h"
+#include "core/Text.h"
 #include "core/Errors.h"
+#include "logstudio/StorageCleanup.h"
+#include <filesystem>
 #include <iostream>
 #include <cstdlib>
 #include <future>
@@ -843,7 +849,7 @@ int main() {
         auto ready = S.publication->bundleJobs(gm, pid)[0];
         CHECK(ready["status"] == "ready"); CHECK(ready["file_name"].asString().find(".zip") != std::string::npos); CHECK(ready["bytes"].asInt64() > 100);
         CHECK(ready["progress"]["lines_total"].asInt() >= 1 && ready["progress"]["lines_done"] == ready["progress"]["lines_total"]);
-        CHECK(ready["public"] == false);   // a Keeper-only (gm_full) presentation never goes to the public bucket
+        CHECK(ready["public"] == false);   // no public bucket in this test: private storage
         auto key = S.db->queryOne("SELECT object_key FROM vn_bundle_jobs WHERE id=$1", {ready["id"].asString()})["object_key"].asString();
         CHECK(key.rfind("channels/" + channelId + "/bundles/", 0) == 0 && key.size() > 4 && key.substr(key.size() - 4) == ".zip");
         std::string url, bytes, name;
@@ -860,10 +866,63 @@ int main() {
         CHECK(!S.objectStore->exists(key));
         CHECK(S.db->queryOne("SELECT status FROM vn_bundle_jobs WHERE id=$1", {ready["id"].asString()})["status"] == "expired");
         CHECK(!S.publication->bundleDownload(gm, ready["id"].asString(), false, url, bytes, name));
+        // Character images: one per character and subtitle. A new one deletes the older (row and stored file); a
+        // stage names the character and subtitle and shows whatever image is current, the main portrait by default.
+        const std::string png = drogon::utils::base64Decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+        auto keyOf = [&](const std::string& id) { return S.db->queryOne("SELECT object_key FROM media_assets WHERE id=$1", {id})["object_key"].asString(); };
+        auto gone = [&](const std::string& id) { return S.db->queryOne("SELECT 1 AS x FROM media_assets WHERE id=$1", {id}).isNull(); };
+        auto poseId = [&] { return S.db->queryOne("SELECT expressions->>'SAY' AS id FROM character_visual_profiles WHERE character_id=$1", {c1})["id"].asString(); };
+        auto portrait = S.characterSpace->uploadAsset(p1, c1, "portrait", "", "p.png", png)["portrait"]["id"].asString();
+        S.characterSpace->uploadAsset(p1, c1, "subtitle", "SAY", "say1.png", png);
+        auto pose1 = poseId(), pose1Key = keyOf(pose1);
+        auto cur = S.presentations->currentStandees(channelId, true);
+        CHECK(cur[c1][""]["id"].asString() == portrait); CHECK(cur[c1]["say"]["id"].asString() == pose1);
+        S.characterSpace->uploadAsset(p1, c1, "subtitle", "say", "say2.png", png);   // the same subtitle, other case
+        auto pose2 = poseId();
+        CHECK(pose2 != pose1); CHECK(gone(pose1)); CHECK(!S.objectStore->exists(pose1Key));
+        auto portrait2 = S.characterSpace->uploadAsset(p1, c1, "portrait", "", "p2.png", png)["portrait"]["id"].asString();
+        CHECK(gone(portrait)); CHECK(S.db->queryOne("SELECT portrait_asset_id FROM characters WHERE id=$1", {c1})["portrait_asset_id"].asString() == portrait2);
+        // A library upload filed under the character and subtitle: by the actor it replaces the pose; by anyone else
+        // it stays a library image, used only for a subtitle the character has no image for.
+        Json::Value lib; lib["asset_type"] = "standee"; lib["character_id"] = c1; lib["expression"] = "Say";
+        auto pose3 = S.media->upload(p1, "say3.png", png, "image/png", lib); S.characterSpace->adoptLibraryUpload(p1, pose3);
+        CHECK(poseId() == pose3["id"].asString()); CHECK(gone(pose2));
+        auto other = S.media->upload(p3, "say4.png", png, "image/png", lib); S.characterSpace->adoptLibraryUpload(p3, other);
+        CHECK(poseId() == pose3["id"].asString()); CHECK(!gone(other["id"].asString()));
+        lib["expression"] = "angry"; auto angry = S.media->upload(p3, "angry.png", png, "image/png", lib)["id"].asString();
+        cur = S.presentations->currentStandees(channelId, true);
+        CHECK(cur[c1]["say"]["id"].asString() == pose3["id"].asString()); CHECK(cur[c1]["angry"]["id"].asString() == angry);
+        auto ev = S.presentations->get(gm, pid)["events"][0]["id"].asString();
+        Json::Value stage(Json::arrayValue);
+        Json::Value a1; a1["character_id"] = c1; a1["expression"] = "SAY"; a1["position"] = "left"; a1["asset_id"] = pose1; stage.append(a1);   // an image id is not kept
+        Json::Value a2; a2["character_id"] = c1; a2["expression"] = "FIGHT"; a2["position"] = "right"; stage.append(a2);
+        Json::Value patch; patch["character_asset_ids"] = stage;
+        auto stored = S.presentations->updateEvent(gm, ev, patch)["character_asset_ids"];
+        CHECK(stored.size() == 2); CHECK(!stored[0].isMember("asset_id")); CHECK(stored[0]["expression"] == "SAY");
+        auto shownEv = [&] { auto pres = S.presentations->get(gm, pid); for (auto& e : pres["events"]) if (e["id"].asString() == ev) return Json::Value(e); return Json::Value(); };
+        auto shown = shownEv()["character_asset_ids"];
+        CHECK(shown[0]["asset_id"].asString() == pose3["id"].asString()); CHECK(shown[1]["asset_id"].asString() == portrait2);   // no FIGHT image: the default
+        S.characterSpace->uploadAsset(p1, c1, "subtitle", "FIGHT", "fight.png", png);   // a new pose shows at once
+        CHECK(shownEv()["character_asset_ids"][1]["asset_id"].asString() == S.db->queryOne("SELECT expressions->>'FIGHT' AS id FROM character_visual_profiles WHERE character_id=$1", {c1})["id"].asString());
+        CHECK(S.presentations->get(gm, pid)["character_images"][c1].size() >= 4);
+        // An image a live publication shows is kept until the publication is revoked.
+        auto pub = S.db->queryOne("INSERT INTO published_logs(channel_id, project_id, snapshot_id, kind, title, frozen_asset_versions) SELECT channel_id, project_id, snapshot_id, 'vn', 't', jsonb_build_object($2::text, 1) FROM log_presentations WHERE id=$1 RETURNING id", {pid, pose3["id"].asString()})["id"].asString();
+        S.characterSpace->uploadAsset(p1, c1, "subtitle", "SAY", "say5.png", png);
+        CHECK(!gone(pose3["id"].asString())); CHECK(poseId() != pose3["id"].asString());
+        CHECK(S.presentations->currentStandees(channelId, true)[c1]["say"]["id"].asString() == poseId());
+        S.publication->revoke(gm, pub);
+        CHECK(gone(pose3["id"].asString()));
         // A build a restart dropped is failed after an hour.
         S.db->exec("UPDATE vn_bundle_jobs SET created_at=now() - interval '2 hours' WHERE status='pending'");
         S.publication->expireBundles();
         CHECK(S.db->queryJson("SELECT 1 FROM vn_bundle_jobs WHERE status='pending'").empty());
+        // Deleting the visual novel removes its prepared downloads; the art it used stays for reuse.
+        S.db->exec("UPDATE vn_bundle_jobs SET status='ready', object_key='pub/channels/' || channel_id || '/bundles/x/a.zip', expires_at=now() + interval '1 hour' WHERE presentation_id=$1", {pid});
+        auto zip = S.db->queryOne("SELECT object_key FROM vn_bundle_jobs WHERE presentation_id=$1 LIMIT 1", {pid})["object_key"].asString();
+        S.objectStore->put(zip, "zip", "application/zip");
+        CHECK(S.publication->deletePresentation(gm, pid)["deleted"].asBool());
+        CHECK(!S.objectStore->exists(zip)); CHECK(S.db->queryOne("SELECT 1 AS x FROM log_presentations WHERE id=$1", {pid}).isNull());
+        CHECK(!gone(poseId())); CHECK(!gone(portrait2));
     });
     test("module imports persist progress, deduplicate concurrent content, retry failures and preserve UTF-8 chunks", [&] {
         auto client=std::make_unique<ModuleProgressClient>();auto* fixture=client.get();
@@ -948,6 +1007,102 @@ int main() {
         denied=false;try{builds.builds(player);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
 
     });
+    test("Chinese fallback clue and thread titles survive the 80-byte PostgreSQL boundary", [&] {
+        std::string prefix; for (int i = 0; i < 26; ++i) prefix += "线";
+        auto summary = prefix + "密室里发现了调查线索";
+        const auto message = say(gmUser, mainWin, summary, "narration");
+        const auto event = eventOf(message["id"].asString());
+        for (const auto &doc : {"clue_journal", "open_threads"}) {
+            Proposal proposal; proposal.channelId = channelId; proposal.documentType = doc;
+            Json::Value op; op["op"] = "add_entry"; op["fact"]["summary"] = summary;
+            op["fact"]["status"] = "confirmed"; op["fact"]["source_event_ids"].append(event["id"]);
+            proposal.ops.append(op); // no explicit title: exercise DocumentService's real fallback
+            const auto result = S.documents->commit(proposal);
+            CHECK(result.applied == 1);
+            const auto table = std::string(doc) == "clue_journal" ? "clues" : "narrative_threads";
+            const auto row = S.db->queryOne("SELECT title FROM " + std::string(table) + " WHERE fact_id=$1", {result.log[0]["fact_id"].asString()});
+            CHECK(row["title"] == prefix + "…");
+        }
+    });
+    test("Visual novel titles, instructions and rewritten lines retain valid UTF-8 at byte limits", [&] {
+        const auto repeat = [](const std::string &point, size_t n) { std::string out; while (n--) out += point; return out; };
+        const auto log = S.studio->campaignLog(gm);
+        const auto snap = S.studio->createSnapshot(gm, log["project"]["id"].asString(), Json::Value(Json::objectValue));
+        const auto pres = S.presentations->create(gm, snap["id"].asString(), Json::Value(Json::objectValue));
+        const auto pid = pres["id"].asString();
+        const auto event = pres["events"][0]["canonical_event_id"];
+        CHECK(event.isString());
+        Json::Value script, scene, line;
+        scene["key"] = "scene-utf8"; scene["title"] = repeat("密", 80); scene["summary"] = repeat("密", 140);
+        scene["background_brief"] = repeat("景", 140);
+        line["event_id"] = event; line["kind"] = "narration"; line["text"] = repeat("话", 1400); line["delivery"] = repeat("缓", 140);
+        scene["lines"].append(line); script["scenes"].append(scene);
+        S.presentations->applyScript(gm, pid, script);
+        const auto stored = S.db->queryOne("SELECT title,metadata FROM presentation_scenes WHERE presentation_id=$1 AND canonical_scene_key='scene-utf8'", {pid});
+        CHECK(stored["title"] == repeat("密", 66));
+        CHECK(stored["metadata"]["summary"] == repeat("密", 133));
+        CHECK(stored["metadata"]["background_brief"] == repeat("景", 133));
+        auto pe = S.db->queryOne("SELECT id,script_text,style_instruction FROM presentation_events WHERE presentation_id=$1 AND canonical_event_id=$2", {pid, event.asString()});
+        CHECK(pe["script_text"] == repeat("话", 1333)); CHECK(pe["style_instruction"] == repeat("缓", 133));
+        Json::Value edit; edit["script_text"] = repeat("😀", 1001);
+        S.presentations->updateEvent(gm, pe["id"].asString(), edit);
+        CHECK(S.db->queryOne("SELECT script_text FROM presentation_events WHERE id=$1", {pe["id"].asString()})["script_text"] == repeat("😀", 1000));
+    });
+    test("storage cleanup deletes replaced character images, unpinned old versions and unreferenced objects, and keeps the rest", [&] {
+        const std::string png = drogon::utils::base64Decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+        auto p2 = S.auth->channelAccess(p2User, channelId);
+        auto age = [&](const std::string& id, int hours) { S.db->exec("UPDATE media_assets SET created_at=now() - make_interval(hours => $2), updated_at=now() - make_interval(hours => $2) WHERE id=$1", {id, (int64_t)hours}); };
+        auto exists = [&](const std::string& id) { return !S.db->queryOne("SELECT 1 AS x FROM media_assets WHERE id=$1", {id}).isNull(); };
+        auto keyOf = [&](const std::string& id) { return S.db->queryOne("SELECT object_key FROM media_assets WHERE id=$1", {id})["object_key"].asString(); };
+        auto portrait = S.characterSpace->uploadAsset(p2, c2, "portrait", "", "p.png", png)["portrait"]["id"].asString();
+        age(portrait, 72);
+        Json::Value lib; lib["asset_type"] = "standee"; lib["character_id"] = c2; lib["expression"] = "IDLE";
+        auto older = S.media->upload(gm, "idle1.png", png, "image/png", lib)["id"].asString(); age(older, 72);   // replaced by `newer`
+        auto newer = S.media->upload(gm, "idle2.png", png, "image/png", lib)["id"].asString(); age(newer, 48);   // the stage's fallback for IDLE
+        lib["expression"] = "SAD"; auto rejected = S.media->upload(gm, "sad.png", png, "image/png", lib)["id"].asString(); age(rejected, 48);
+        S.db->exec("UPDATE media_assets SET approval_status='rejected' WHERE id=$1", {rejected});
+        lib["asset_type"] = "portrait"; lib["expression"] = ""; auto loose = S.media->upload(gm, "loose.png", png, "image/png", lib)["id"].asString(); age(loose, 48);
+        lib["expression"] = "fresh"; auto young = S.media->upload(gm, "young.png", png, "image/png", lib)["id"].asString();   // younger than a day
+        auto olderKey = keyOf(older);
+        // A background with an unpinned old version, and one whose old version a scene still shows.
+        Json::Value bg; bg["asset_type"] = "background";
+        auto plain = S.media->upload(gm, "bg1.png", png, "image/png", bg)["id"].asString();
+        auto v1Key = keyOf(plain);
+        S.media->newVersion(gm, plain, "bg2.png", png, "", "redo");
+        S.db->exec("UPDATE media_assets SET approval_status='approved' WHERE id=$1", {plain});
+        S.db->exec("UPDATE asset_versions SET created_at=now() - interval '3 days' WHERE asset_id=$1 AND version=1", {plain});
+        auto pinned = S.media->upload(gm, "bg3.png", png, "image/png", bg)["id"].asString();
+        auto pinnedV1 = keyOf(pinned);
+        S.media->newVersion(gm, pinned, "bg4.png", png, "", "redo");
+        S.db->exec("UPDATE media_assets SET approval_status='approved' WHERE id=$1", {pinned});
+        S.db->exec("UPDATE asset_versions SET created_at=now() - interval '3 days' WHERE asset_id=$1 AND version=1", {pinned});
+        auto log = S.studio->campaignLog(gm); auto snap = S.studio->createSnapshot(gm, log["project"]["id"].asString(), Json::Value(Json::objectValue));
+        auto pid = S.presentations->create(gm, snap["id"].asString(), Json::Value(Json::objectValue))["id"].asString();
+        S.db->exec("UPDATE presentation_scenes SET background_asset_id=$2, background_asset_version=1 WHERE presentation_id=$1", {pid, pinned});
+        // Stored objects: one nothing names (old), the same but young, and an old one of a channel this database does not know.
+        namespace fs = std::filesystem;
+        auto root = fs::path(cfg.uploadDir) / "objects";
+        std::string orphan = "channels/" + channelId + "/background/orphan.png", youngOrphan = "channels/" + channelId + "/background/young.png", foreign = std::string("pub/channels/00000000-0000-4000-8000-000000000000/standee/x.png");
+        for (auto& k : {orphan, youngOrphan, foreign}) S.objectStore->put(k, png, "image/png");
+        for (auto& k : {orphan, foreign}) fs::last_write_time(root / k, fs::file_time_type::clock::now() - std::chrono::hours(48));
+
+        auto& cleanup = *S.storageCleanup;
+        auto dry = cleanup.runOnce(true);
+        CHECK(dry.characterImages >= 3); CHECK(dry.oldVersions >= 1); CHECK(dry.orphans >= 1);
+        CHECK(exists(older)); CHECK(S.objectStore->exists(orphan));   // a dry run deletes nothing
+        auto rep = cleanup.runOnce();
+        CHECK(rep.characterImages == dry.characterImages); CHECK(rep.failed == 0);
+        CHECK(!exists(older)); CHECK(!S.objectStore->exists(olderKey)); CHECK(!exists(rejected)); CHECK(!exists(loose));
+        CHECK(exists(newer)); CHECK(exists(portrait)); CHECK(exists(young));
+        CHECK(S.db->queryOne("SELECT 1 AS x FROM asset_versions WHERE asset_id=$1 AND version=1", {plain}).isNull()); CHECK(!S.objectStore->exists(v1Key));
+        CHECK(!S.db->queryOne("SELECT 1 AS x FROM asset_versions WHERE asset_id=$1 AND version=1", {pinned}).isNull()); CHECK(S.objectStore->exists(pinnedV1));
+        CHECK(!S.objectStore->exists(orphan)); CHECK(S.objectStore->exists(youngOrphan)); CHECK(S.objectStore->exists(foreign));
+        CHECK(S.objectStore->exists(keyOf(newer))); CHECK(S.objectStore->exists(keyOf(portrait)));
+        auto again = cleanup.runOnce(true);
+        CHECK(again.characterImages == 0); CHECK(again.oldVersions == 0); CHECK(again.orphans == 0);
+        S.objectStore->remove(youngOrphan); S.objectStore->remove(foreign);
+    });
+
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();
     return failures == 0 ? 0 : 1;

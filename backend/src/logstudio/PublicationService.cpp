@@ -1,3 +1,4 @@
+#include "../core/Text.h"
 #include "PublicationService.h"
 #include "VnBundle.h"
 #include "../core/Zip.h"
@@ -290,7 +291,7 @@ Json::Value PublicationService::finishPdf(const std::string &id,
                           "at=now(),updated_at=now(),lease_token=NULL WHERE "
                           "id=$1 AND lease_token=$2 RETURNING id,status",
                           {id, lease, status, opt(key), (int64_t)bytes.size(),
-                           opt(error.substr(0, 1000))});
+                           opt(text::utf8Prefix(error, 1000))});
   notifier_.studioEvent(j["channel_id"].asString(), "pdf.updated", out, true);
   return out;
 }
@@ -426,6 +427,8 @@ Json::Value PublicationService::revoke(const ChannelAccess &a,
   if (r.isNull())
     throw notFound("publication not found");
   logs_.audit(a, "publication.revoke", r);
+  // Character images replaced while this publication still showed them can go now.
+  try { media_.purgeSuperseded(a.channelId); } catch (const std::exception &e) { ALOG_WARN << "superseded images: " << e.what(); }
   return r;
 }
 std::string PublicationService::sharedFile(const std::string &token,
@@ -512,7 +515,7 @@ std::string PublicationService::bundle(const ChannelAccess &a, const std::string
   files.insert(files.begin(), {"index.html", renderStandaloneVn(data)});
   files.push_back({"script.json", json::dump(data, true)});
   std::string base; for (unsigned char c : p["title"].asString()) base += (isalnum(c) || c >= 0x80) ? (char)c : '_';
-  if (base.size() > 40) { base.resize(40); while (!base.empty() && ((unsigned char)base.back() & 0xC0) == 0x80) base.pop_back(); if (!base.empty() && (unsigned char)base.back() >= 0xC0) base.pop_back(); }   // whole characters only
+  base = text::utf8Prefix(base, 40);   // whole characters only: the name also ends the storage key
   fileName = (base.empty() ? "visual-novel" : base) + ".zip";
   logs_.audit(a, "presentation.bundle", Json::Value(presentationId));
   return zip::build(files);
@@ -570,10 +573,9 @@ void PublicationService::runBundle(const std::string &jobId) {
       last = std::chrono::steady_clock::now();
       db_.exec("UPDATE vn_bundle_jobs SET progress=$2::jsonb WHERE id=$1", {jobId, json::dump(prog)});
     });
-    // Keeper-only presentations never go to the public bucket.
-    auto scope = db_.queryOne("SELECT s.scope FROM log_presentations p JOIN log_snapshots s ON s.id=p.snapshot_id WHERE p.id=$1", {pid});
-    bool secret = scope.isNull() || scope["scope"].asString() == "gm_full";
-    auto key = secret ? safeObjectKey(a.channelId, "bundles", "zip") : publicObjectKey(store_, a.channelId, "bundles", "zip");
+    // Every bundle, Keeper-only ones included, goes to the public bucket when one is configured: the key is
+    // unguessable, only the requester is handed the link, and the file is deleted when it expires.
+    auto key = publicObjectKey(store_, a.channelId, "bundles", "zip");
     key = key.substr(0, key.size() - 4) + "/" + fileName;   // ".../bundles/<uuid>/<Title>.zip": the download keeps its name
     store_.put(key, bytes, "application/zip");
     auto stored = db_.queryOne("UPDATE vn_bundle_jobs SET status='ready', object_key=$2, file_name=$3, bytes=$4, expires_at=now() + make_interval(hours => $5), finished_at=now(), progress=$6::jsonb WHERE id=$1 AND status='running' RETURNING id",
@@ -581,7 +583,7 @@ void PublicationService::runBundle(const std::string &jobId) {
     if (stored.isNull()) store_.remove(key);   // the channel or job went away meanwhile
   } catch (const std::exception &e) {
     ALOG_WARN << "visual-novel bundle " << jobId << ": " << e.what();
-    try { db_.exec("UPDATE vn_bundle_jobs SET status='failed', error=$2, finished_at=now() WHERE id=$1", {jobId, std::string(e.what()).substr(0, 300)}); } catch (...) {}
+    try { db_.exec("UPDATE vn_bundle_jobs SET status='failed', error=$2, finished_at=now() WHERE id=$1", {jobId, text::utf8Prefix(e.what(), 300)}); } catch (...) {}
   }
 }
 bool PublicationService::bundleDownload(const ChannelAccess &a, const std::string &jobId, bool preferUrl, std::string &url, std::string &bytes, std::string &fileName) {
@@ -595,6 +597,14 @@ bool PublicationService::bundleDownload(const ChannelAccess &a, const std::strin
   if (!data) return false;
   bytes = std::move(*data);
   return true;
+}
+Json::Value PublicationService::deletePresentation(const ChannelAccess &a, const std::string &presentationId) {
+  auto keys = db_.queryJson("SELECT object_key FROM vn_bundle_jobs WHERE presentation_id=$1 AND channel_id=$2 AND object_key IS NOT NULL", {presentationId, a.channelId});
+  auto out = pres_.remove(a, presentationId);   // checks the right to edit it; the bundle rows go with it
+  int files = 0;
+  for (const auto &k : keys) { try { store_.remove(k["object_key"].asString()); ++files; } catch (const std::exception &e) { ALOG_WARN << "visual-novel bundle cleanup: " << e.what(); } }
+  out["bundles_removed"] = files;
+  return out;
 }
 int PublicationService::expireBundles() {
   int deleted = 0;

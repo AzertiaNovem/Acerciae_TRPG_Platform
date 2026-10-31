@@ -1,3 +1,4 @@
+#include "../core/Text.h"
 #include "CreativeService.h"
 #include "../core/Crypto.h"
 #include "../core/Errors.h"
@@ -470,15 +471,9 @@ void CreativeService::run(const Json::Value &j) {
       return;
     }
     if (updatesProfile) {
-      auto cid = json::str(attachTo, "character_id"), slot = json::str(attachTo, "slot"), subtitle = json::str(attachTo, "subtitle"), aid = asset["id"].asString();
-      if (slot == "avatar") db_.exec("UPDATE characters SET avatar_asset_id=$2, updated_at=now() WHERE id=$1", {cid, aid});
-      else if (slot == "portrait") {
-        db_.exec("UPDATE characters SET portrait_asset_id=$2, updated_at=now() WHERE id=$1", {cid, aid});
-        db_.exec("INSERT INTO character_visual_profiles(character_id, channel_id, default_asset_id) VALUES($1,$2,$3) ON CONFLICT (character_id) DO UPDATE SET default_asset_id=$3, version=character_visual_profiles.version+1, updated_at=now()", {cid, j["channel_id"].asString(), aid});
-      } else {
-        Json::Value e(Json::objectValue); e[subtitle] = aid;
-        db_.exec("INSERT INTO character_visual_profiles(character_id, channel_id, expressions) VALUES($1,$2,$3::jsonb) ON CONFLICT (character_id) DO UPDATE SET expressions=character_visual_profiles.expressions || $3::jsonb, version=character_visual_profiles.version+1, updated_at=now()", {cid, j["channel_id"].asString(), json::dump(e)});
-      }
+      auto cid = json::str(attachTo, "character_id"), slot = json::str(attachTo, "slot"), subtitle = json::str(attachTo, "subtitle");
+      // The character's one image for this slot: the older one is deleted.
+      media_.adoptCharacterImage(j["channel_id"].asString(), cid, slot.empty() ? "subtitle" : slot, subtitle, asset["id"].asString());
       auto row = db_.queryOne("SELECT * FROM characters WHERE id=$1", {cid});
       if (!row.isNull()) notifier_.characterUpdated(j["channel_id"].asString(), row);
     }
@@ -488,22 +483,8 @@ void CreativeService::run(const Json::Value &j) {
       if (j["kind"].asString() == "background") {
         db_.exec("UPDATE presentation_scenes SET background_asset_id=$2, background_asset_version=$3 WHERE presentation_id=$1 AND canonical_scene_key=$4 AND background_asset_id IS NULL",
                  {pid, aid, ver, json::str(attachTo, "scene_key")});
-      } else if (forCharacter) {
-        // Every placement of this character with this subtitle takes the new art (it may have shown a stand-in);
-        // placements without art take it as well.
-        auto cid = json::str(attachTo, "character_id"), subtitle = json::str(attachTo, "subtitle");
-        for (const auto &ev : db_.queryJson("SELECT id, character_asset_ids FROM presentation_events WHERE presentation_id=$1 AND character_asset_ids::text LIKE '%' || $2 || '%'", {pid, cid})) {
-          Json::Value stage = ev["character_asset_ids"]; bool changed = false;
-          for (auto &pl : stage) {
-            if (json::str(pl, "character_id") != cid) continue;
-            auto expr = json::str(pl, "expression");
-            std::transform(expr.begin(), expr.end(), expr.begin(), ::toupper);
-            if (expr != subtitle && pl["asset_id"].isString()) continue;
-            pl["asset_id"] = aid; pl["asset_version"] = (Json::Int64)ver; changed = true;
-          }
-          if (changed) db_.exec("UPDATE presentation_events SET character_asset_ids=$2::jsonb, updated_at=now() WHERE id=$1", {ev["id"].asString(), json::dump(stage)});
-        }
       }
+      // Character art needs no stage update: a stage names the character and subtitle, and shows its current image.
       pres_.touch(pid, j["channel_id"].asString(), "art");
     }
     Json::Value out;
@@ -520,7 +501,7 @@ void CreativeService::run(const Json::Value &j) {
     db_.exec("UPDATE asset_generation_jobs SET "
              "status='failed',error=$2,updated_at=now() WHERE id=$1 AND "
              "status='running'",
-             {id, std::string(e.what()).substr(0, 1000)});
+             {id, text::utf8Prefix(e.what(), 1000)});
   }
 }
 Json::Value CreativeService::suggest(const ChannelAccess &a,
@@ -584,8 +565,8 @@ Json::Value CreativeService::suggest(const ChannelAccess &a,
       continue;
     Json::Value candidate;
     candidate["style_instruction"] =
-        json::str(s, "style_instruction").substr(0, 1200);
-    candidate["reason"] = json::str(s, "reason").substr(0, 1200);
+        text::utf8Prefix(json::str(s, "style_instruction"), 1200);
+    candidate["reason"] = text::utf8Prefix(json::str(s, "reason"), 1200);
     candidate["source"] = llm_.mode(a.channelId);
     db_.exec("UPDATE presentation_events SET ai_suggestion=$2::jsonb WHERE "
              "id=$1 AND presentation_id=$3",

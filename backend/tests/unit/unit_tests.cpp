@@ -12,6 +12,7 @@
 #include "llm/AnthropicClient.h"
 #include "llm/OpenAiCompatClient.h"
 #include "llm/StreamResponse.h"
+#include "llm/HttpTransport.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
 #include "logstudio/LogAdapters.h"
@@ -42,6 +43,42 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("UTF-8 text limits keep complete Chinese, accented and four-byte characters", [] {
+        const std::vector<std::string> points = {"A", "é", "密", "😀", "e", "\xcc\x81", "Z"};
+        const auto input = text::join(points, "");
+        for (size_t limit = 0; limit <= input.size() + 1; ++limit) {
+            std::string expected;
+            for (const auto &point : points) {
+                if (expected.size() + point.size() > limit) break;
+                expected += point;
+            }
+            CHECK(text::utf8Prefix(input, limit) == expected);
+            CHECK(text::truncate(input, limit) == (input.size() <= limit ? input : expected + "…"));
+        }
+        CHECK(text::utf8Prefix("", 0).empty());
+        CHECK(text::utf8Prefix(input, std::string::npos) == input);
+        CHECK(text::truncate("abc", 2) == "ab…");
+        // The reported e5 af e2 sequence: a Chinese character cut after two bytes, followed by the ellipsis.
+        const auto prefix = std::string(78, 'a');
+        const auto summary = prefix + "密室中的线索";
+        const auto broken = summary.substr(0, 80) + "…";
+        CHECK(broken.substr(78, 3) == std::string("\xe5\xaf\xe2", 3));
+        CHECK(text::truncate(summary, 80) == prefix + "…");
+        CHECK(llm::excerpt(summary, 80) == prefix);
+    });
+    test("object listings: S3 ListObjectsV2 pages are parsed with keys, times, sizes and the next token", [] {
+        std::string next;
+        auto page = logstudio::parseListObjects(R"(<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>b</Name><IsTruncated>true</IsTruncated>)"
+            R"(<Contents><Key>channels/a/x&amp;y.png</Key><LastModified>2024-05-01T12:00:00.000Z</LastModified><Size>42</Size></Contents>)"
+            R"(<Contents><Key>pub/users/u/avatar/z.png</Key><LastModified>2024-05-02T00:00:00.000Z</LastModified><Size>7</Size></Contents>)"
+            R"(<NextContinuationToken>tok+/=</NextContinuationToken></ListBucketResult>)", next);
+        CHECK(page.size() == 2); CHECK(page[0].key == "channels/a/x&y.png"); CHECK(page[0].modified == 1714564800); CHECK(page[0].size == 42);
+        CHECK(page[1].key == "pub/users/u/avatar/z.png"); CHECK(next == "tok+/=");
+        page = logstudio::parseListObjects(R"(<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>)", next);
+        CHECK(page.empty()); CHECK(next.empty());
+        bool threw = false; try { logstudio::parseListObjects("<Error><Code>AccessDenied</Code></Error>", next); } catch (const std::exception&) { threw = true; }
+        CHECK(threw);   // a failed listing is never read as an empty bucket
+    });
     test("visual novel request limits remain independent from daily and module limits", [] {
         struct Recorder : ILlmClient {
             int tokens = 0;
@@ -453,11 +490,11 @@ int main() {
         CHECK(lib["lines"][1]["hidden"].asBool()); CHECK(lib["lines"][1]["exclusion_reason"] == "out-of-character");
         CHECK(!lib["lines"][2]["hidden"].asBool()); CHECK(!lib["lines"][2].isMember("display_kind"));
         CHECK(lib["lines"][2]["stage"][0]["character_id"] == "c1");           // stage carries forward
-        CHECK(lib["lines"][0]["stage"][0]["asset_id"] == "std-ada");           // default standee
+        CHECK(lib["lines"][0]["stage"][0]["expression"] == "calm"); CHECK(!lib["lines"][0]["stage"][0].isMember("asset_id"));   // a stage names subtitles, not images
         // L4 was excluded without a reason, so it stays visible next to its neighbour.
         CHECK(dock["lines"].size() == 2); CHECK(dock["lines"][1]["event_id"] == "e4"); CHECK(!dock["lines"][1]["hidden"].asBool());
         CHECK(dock["background_asset_id"].isNull()); CHECK(dock["background_brief"] == "foggy pier"); CHECK(dock["environment"] == "fog");
-        CHECK(dock["lines"][0]["stage"].size() == 1); CHECK(dock["lines"][0]["stage"][0]["asset_id"] == "std-mo-fear"); CHECK(dock["lines"][0]["delivery"] == "hushed");
+        CHECK(dock["lines"][0]["stage"].size() == 1); CHECK(dock["lines"][0]["stage"][0]["expression"] == "afraid"); CHECK(dock["lines"][0]["delivery"] == "hushed");
         CHECK(script["stats"]["hidden"] == 1); CHECK(script["stats"]["shown"] == 4);
         // Mock: parallel windows become separate scenes; OOC is excluded with a reason.
         auto mock = VnScriptService::normalize(in, {VnScriptService::mockPlan(in)}, "mock");
@@ -509,8 +546,8 @@ int main() {
         CHECK(script["scenes"].size() == 1); CHECK(script["scenes"][0]["title"] == "Harbour"); CHECK(script["scenes"][0]["background_asset_id"].isNull());
         CHECK(script["scenes"][0]["lines"].size() == 6); CHECK(script["scenes"][0]["lines"][2]["hidden"].asBool());
         CHECK(script["scenes"][0]["lines"][4]["stage"].size() == 2);   // Mo stays beside Ada
-        CHECK(script["scenes"][0]["lines"][4]["stage"][1]["asset_id"] == "std-ada-idle");   // Ada's IDLE art is already there
-        CHECK(script["scenes"][0]["lines"][5]["stage"][1]["expression"] == "SAY"); CHECK(script["scenes"][0]["lines"][5]["stage"][1]["asset_id"] == "std-ada-idle");   // stand-in until SAY art lands
+        CHECK(script["scenes"][0]["lines"][4]["stage"][1]["expression"] == "IDLE");   // Ada's IDLE art is already there
+        CHECK(script["scenes"][0]["lines"][5]["stage"][1]["expression"] == "SAY"); CHECK(!script["scenes"][0]["lines"][5]["stage"][1].isMember("asset_id"));   // the default shows until SAY art lands
         CHECK(script["asset_needs"].size() == 2); CHECK(script["asset_needs"][0]["kind"] == "standee"); CHECK(script["asset_needs"][0]["subtitle"] == "SAY");
         CHECK(script["asset_needs"][1]["kind"] == "background"); CHECK(script["asset_needs"][1]["name"] == "Harbour"); CHECK(script["asset_needs"][1]["scene_key"] == "harbour");
         // A model answer: a background change opens a new scene; an uploaded-mode portrait request is refused; copied text resolves to its line.

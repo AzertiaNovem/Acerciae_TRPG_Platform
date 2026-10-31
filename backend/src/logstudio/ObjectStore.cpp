@@ -1,3 +1,4 @@
+#include "../core/Text.h"
 #include "ObjectStore.h"
 #include "../core/Crypto.h"
 #include "../core/Log.h"
@@ -13,7 +14,9 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <cstring>
 #include <cstdlib>
+#include <sys/stat.h>
 
 namespace acerciae::logstudio {
 namespace fs = std::filesystem;
@@ -41,6 +44,18 @@ public:
         std::error_code ec; fs::remove_all(fs::path(root_) / prefix, ec);
     }
     std::string kind() const override { return "local"; }
+    void list(const std::string& prefix, const std::function<void(const Listed&)>& fn) override {
+        if (prefix.find("..") != std::string::npos || (!prefix.empty() && prefix[0] == '/')) return;
+        auto base = fs::path(root_) / prefix;
+        std::error_code ec;
+        if (!fs::exists(base, ec)) return;
+        for (auto it = fs::recursive_directory_iterator(base, fs::directory_options::skip_permission_denied, ec); it != fs::recursive_directory_iterator(); it.increment(ec)) {
+            if (ec) throw std::runtime_error("local listing failed: " + ec.message());
+            if (!it->is_regular_file(ec)) continue;
+            struct stat st{}; if (::stat(it->path().c_str(), &st) != 0) continue;
+            fn(Listed{fs::relative(it->path(), root_).generic_string(), st.st_mtime, (long long)st.st_size});
+        }
+    }
 private:
     std::string root_;
 };
@@ -59,27 +74,40 @@ public:
     S3ObjectStore(std::string kind, std::string endpoint, std::string region, std::string bucket, std::string ak, std::string sk, bool pathStyle, bool useProxy)
         : kind_(std::move(kind)), endpoint_(std::move(endpoint)), region_(std::move(region)), bucket_(std::move(bucket)), ak_(std::move(ak)), sk_(std::move(sk)), pathStyle_(pathStyle), useProxy_(useProxy) { if (!endpoint_.empty() && endpoint_.back() == '/') endpoint_.pop_back(); }
     // "pub/" keys are content-addressed by a fresh uuid per version, so browsers and Cloudflare may cache them for good.
-    void put(const std::string& key, const std::string& bytes, const std::string& ct) override { long st; auto r = request("PUT", key, bytes, ct, st, isPublicKey(key) ? "Cache-Control: public, max-age=31536000, immutable" : ""); if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " put failed: http " + std::to_string(st) + " " + r.substr(0, 200)); }
+    void put(const std::string& key, const std::string& bytes, const std::string& ct) override { long st; auto r = request("PUT", key, bytes, ct, st, isPublicKey(key) ? "Cache-Control: public, max-age=31536000, immutable" : ""); if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " put failed: http " + std::to_string(st) + " " + text::utf8Prefix(r, 200)); }
     std::optional<std::string> get(const std::string& key) override { long st; auto r = request("GET", key, "", "", st); if (st == 404) return std::nullopt; if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " get failed: http " + std::to_string(st)); return r; }
     bool exists(const std::string& key) override { long st; request("HEAD", key, "", "", st); return st >= 200 && st < 300; }
     void remove(const std::string& key) override { long st; request("DELETE", key, "", "", st); }
     std::string kind() const override { return kind_; }
+    void list(const std::string& prefix, const std::function<void(const Listed&)>& fn) override {
+        std::string token;
+        for (int page = 0; page < 100000; ++page) {
+            // The canonical query: parameters sorted by name, names and values URI-encoded.
+            std::string q = (token.empty() ? "" : "continuation-token=" + uriEncode(token, false) + "&") + "list-type=2&max-keys=1000&prefix=" + uriEncode(prefix, false);
+            long st; auto xml = request("GET", "", "", "", st, "", q);
+            if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " list failed: http " + std::to_string(st) + " " + text::utf8Prefix(xml, 200));
+            std::string next;
+            for (auto& o : parseListObjects(xml, next)) fn(o);
+            if (next.empty()) return;
+            token = next;
+        }
+    }
 private:
-    std::string request(const std::string& method, const std::string& key, const std::string& body, const std::string& ct, long& status, const std::string& extraHeader = "") {
+    std::string request(const std::string& method, const std::string& key, const std::string& body, const std::string& ct, long& status, const std::string& extraHeader = "", const std::string& query = "") {
         std::string host, scheme = "https"; { auto e = endpoint_; auto p = e.find("://"); if (p != std::string::npos) { scheme = e.substr(0, p); e = e.substr(p + 3); } host = e; }
-        std::string canonicalUri = pathStyle_ ? "/" + bucket_ + "/" + uriEncode(key, true) : "/" + uriEncode(key, true);
+        std::string canonicalUri = key.empty() ? (pathStyle_ ? "/" + bucket_ : "/") : pathStyle_ ? "/" + bucket_ + "/" + uriEncode(key, true) : "/" + uriEncode(key, true);
         std::string hostHeader = pathStyle_ ? host : bucket_ + "." + host;
         std::time_t now = std::time(nullptr); std::tm tm{}; gmtime_r(&now, &tm); char amz[32], date[16]; std::strftime(amz, sizeof amz, "%Y%m%dT%H%M%SZ", &tm); std::strftime(date, sizeof date, "%Y%m%d", &tm);
         std::string payloadHash = sha256hex(body);
         std::string canonicalHeaders = "host:" + hostHeader + "\nx-amz-content-sha256:" + payloadHash + "\nx-amz-date:" + std::string(amz) + "\n";
         std::string signedHeaders = "host;x-amz-content-sha256;x-amz-date";
-        std::string canonicalRequest = method + "\n" + canonicalUri + "\n\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash;
+        std::string canonicalRequest = method + "\n" + canonicalUri + "\n" + query + "\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash;
         std::string scope = std::string(date) + "/" + region_ + "/s3/aws4_request";
         std::string sts = "AWS4-HMAC-SHA256\n" + std::string(amz) + "\n" + scope + "\n" + sha256hex(canonicalRequest);
         auto kDate = hmacRaw("AWS4" + sk_, date); auto kRegion = hmacRaw(kDate, region_); auto kService = hmacRaw(kRegion, "s3"); auto kSigning = hmacRaw(kService, "aws4_request");
         auto sigRaw = hmacRaw(kSigning, sts); std::string signature = hexOf((const unsigned char*)sigRaw.data(), sigRaw.size());
         std::string auth = "AWS4-HMAC-SHA256 Credential=" + ak_ + "/" + scope + ", SignedHeaders=" + signedHeaders + ", Signature=" + signature;
-        std::string url = scheme + "://" + hostHeader + canonicalUri;
+        std::string url = scheme + "://" + hostHeader + canonicalUri + (query.empty() ? "" : "?" + query);
         CURL* c = curl_easy_init(); std::string out; struct curl_slist* h = nullptr;
         h = curl_slist_append(h, ("Authorization: " + auth).c_str()); h = curl_slist_append(h, ("x-amz-date: " + std::string(amz)).c_str()); h = curl_slist_append(h, ("x-amz-content-sha256: " + payloadHash).c_str());
         if (!ct.empty()) h = curl_slist_append(h, ("Content-Type: " + ct).c_str());
@@ -258,6 +286,33 @@ std::unique_ptr<ObjectStore> makeObjectStore(const Config& cfg) {
 }
 
 std::string urlEncodeKey(const std::string& key) { return uriEncode(key, true); }
+
+static std::string xmlUnescape(std::string s) {
+    static const std::pair<const char*, const char*> ents[] = {{"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&amp;", "&"}};
+    for (auto& [from, to] : ents) for (size_t p = 0; (p = s.find(from, p)) != std::string::npos; p += std::strlen(to)) s.replace(p, std::strlen(from), to);
+    return s;
+}
+static std::string xmlTag(const std::string& xml, const std::string& tag, size_t from = 0, size_t to = std::string::npos) {
+    auto open = "<" + tag + ">", close = "</" + tag + ">";
+    auto a = xml.find(open, from); if (a == std::string::npos || a >= to) return "";
+    auto b = xml.find(close, a); if (b == std::string::npos || b > to) return "";
+    return xml.substr(a + open.size(), b - a - open.size());
+}
+std::vector<ObjectStore::Listed> parseListObjects(const std::string& xml, std::string& nextToken) {
+    std::vector<ObjectStore::Listed> out;
+    if (xml.find("<ListBucketResult") == std::string::npos) throw std::runtime_error("unexpected listing answer");
+    for (size_t p = 0; (p = xml.find("<Contents>", p)) != std::string::npos;) {
+        auto end = xml.find("</Contents>", p); if (end == std::string::npos) throw std::runtime_error("truncated listing answer");
+        ObjectStore::Listed o; o.key = xmlUnescape(xmlTag(xml, "Key", p, end));
+        std::tm tm{}; auto when = xmlTag(xml, "LastModified", p, end);   // 2024-05-01T12:34:56.000Z
+        if (strptime(when.c_str(), "%Y-%m-%dT%H:%M:%S", &tm)) o.modified = timegm(&tm);
+        try { o.size = std::stoll(xmlTag(xml, "Size", p, end)); } catch (...) {}
+        if (!o.key.empty()) out.push_back(o);
+        p = end;
+    }
+    nextToken = xmlTag(xml, "IsTruncated") == "true" ? xmlUnescape(xmlTag(xml, "NextContinuationToken")) : "";
+    return out;
+}
 std::string publicObjectKey(const ObjectStore& store, const std::string& channelId, const std::string& category, const std::string& ext) {
     auto key = safeObjectKey(channelId, category, ext);
     return store.publicAvailable() ? kPublicPrefix + key : key;

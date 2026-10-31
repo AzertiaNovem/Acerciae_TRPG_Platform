@@ -1,5 +1,7 @@
 #pragma once
 #include "../core/Config.h"
+#include <ctime>
+#include <functional>
 #include <string>
 #include <memory>
 #include <optional>
@@ -33,7 +35,14 @@ public:
     // Deletes every object under a folder-like prefix ("channels/<id>/"). The local directory removes the folder;
     // S3/R2 cannot list here and do nothing (their objects are removed key by key).
     virtual void removePrefix(const std::string& prefix) { (void)prefix; }
+    // Every stored object under a prefix with its last modification time (local: the directory tree; S3/R2:
+    // ListObjectsV2). Throws when the listing fails part-way, so a caller never mistakes a failed listing for an
+    // empty one.
+    struct Listed { std::string key; std::time_t modified = 0; long long size = 0; };
+    virtual void list(const std::string& prefix, const std::function<void(const Listed&)>& fn) { (void)prefix; (void)fn; }
 };
+// One page of an S3 ListObjectsV2 answer: the objects, and the token for the next page ("" on the last one).
+std::vector<ObjectStore::Listed> parseListObjects(const std::string& xml, std::string& nextToken);
 
 constexpr const char* kPublicPrefix = "pub/";
 inline bool isPublicKey(const std::string& key) { return key.rfind(kPublicPrefix, 0) == 0; }

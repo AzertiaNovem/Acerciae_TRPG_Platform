@@ -156,9 +156,16 @@ std::vector<std::string> sentences(const std::string& s) {
     auto t = trim(cur); if (!t.empty()) out.push_back(t);
     return out;
 }
+std::string utf8Prefix(const std::string& s, size_t maxBytes) {
+    if (s.size() <= maxBytes) return s;
+    size_t end = maxBytes;
+    // end points at the first excluded byte; continuation bytes belong to an incomplete final code point.
+    while (end > 0 && (static_cast<unsigned char>(s[end]) & 0xC0) == 0x80) --end;
+    return s.substr(0, end);
+}
 std::string truncate(const std::string& s, size_t n) {
     if (s.size() <= n) return s;
-    return s.substr(0, n) + "…";
+    return utf8Prefix(s, n) + "…";
 }
 std::string join(const std::vector<std::string>& xs, const std::string& sep) {
     std::string out;

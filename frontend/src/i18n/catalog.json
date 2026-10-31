@@ -13427,18 +13427,6 @@
     "Dividir após quantos caracteres? (1–{max})",
     "Dividere dopo quanti caratteri? (1–{max})"
   ],
-  "Delete this presentation?": [
-    "删除此演出？",
-    "刪除此演出？",
-    "このプレゼンテーションを削除しますか？",
-    "이 프레젠테이션을 삭제할까요?",
-    "¿Eliminar esta presentación?",
-    "Supprimer cette présentation ?",
-    "Diese Präsentation löschen?",
-    "Удалить эту презентацию?",
-    "Excluir esta apresentação?",
-    "Eliminare questa presentazione?"
-  ],
   "Delete voice": [
     "删除音色",
     "刪除音色",
@@ -15274,5 +15262,89 @@
     "Срок прошлой загрузки истёк.",
     "O último download expirou.",
     "L’ultimo download è scaduto."
+  ],
+  "Portraits": [
+    "立绘",
+    "立繪",
+    "立ち絵",
+    "스탠딩 일러스트",
+    "Retratos",
+    "Portraits",
+    "Porträts",
+    "Портреты",
+    "Retratos",
+    "Ritratti"
+  ],
+  "Upper half (lower on the stage)": [
+    "上半身（位置更低）",
+    "上半身（位置更低）",
+    "上半身（画面の下寄り）",
+    "상반신(화면 아래쪽)",
+    "Medio cuerpo (más abajo)",
+    "Buste (plus bas)",
+    "Oberkörper (tiefer)",
+    "По пояс (ниже)",
+    "Meio corpo (mais abaixo)",
+    "Mezzo busto (più in basso)"
+  ],
+  "Full figure": [
+    "全身",
+    "全身",
+    "全身",
+    "전신",
+    "Cuerpo entero",
+    "En pied",
+    "Ganze Figur",
+    "В полный рост",
+    "Corpo inteiro",
+    "Figura intera"
+  ],
+  "Delete this visual novel? The backgrounds, character images and voice lines it used stay in the library for reuse.": [
+    "删除这部视觉小说？它用到的背景、角色图片和配音会保留在素材库中，可再次使用。",
+    "刪除這部視覺小說？它用到的背景、角色圖片和配音會保留在素材庫中，可再次使用。",
+    "このビジュアルノベルを削除しますか？使用した背景・キャラクター画像・音声はライブラリに残り、再利用できます。",
+    "이 비주얼 노벨을 삭제할까요? 사용한 배경, 캐릭터 이미지, 음성은 라이브러리에 남아 다시 쓸 수 있습니다.",
+    "¿Eliminar esta novela visual? Los fondos, imágenes de personajes y voces que usó se quedan en la biblioteca para reutilizarlos.",
+    "Supprimer ce visual novel ? Les décors, images de personnages et voix utilisés restent dans la bibliothèque pour être réutilisés.",
+    "Diese Visual Novel löschen? Die verwendeten Hintergründe, Charakterbilder und Sprachaufnahmen bleiben zur Wiederverwendung in der Bibliothek.",
+    "Удалить эту визуальную новеллу? Использованные фоны, изображения персонажей и озвучка останутся в библиотеке для повторного использования.",
+    "Excluir esta visual novel? Os cenários, imagens de personagens e vozes usados ficam na biblioteca para reutilização.",
+    "Eliminare questa visual novel? Sfondi, immagini dei personaggi e voci usati restano nella libreria per essere riutilizzati."
+  ],
+  "Shows the character's current image for this subtitle": [
+    "显示该角色此子标题的当前图片",
+    "顯示該角色此子標題的目前圖片",
+    "このサブタイトルのキャラクターの現在の画像を表示します",
+    "이 서브타이틀에 해당하는 캐릭터의 현재 이미지를 표시합니다",
+    "Muestra la imagen actual del personaje para este subtítulo",
+    "Affiche l’image actuelle du personnage pour ce sous-titre",
+    "Zeigt das aktuelle Bild der Figur für diesen Untertitel",
+    "Показывает текущее изображение персонажа для этого подзаголовка",
+    "Mostra a imagem atual do personagem para este subtítulo",
+    "Mostra l’immagine attuale del personaggio per questo sottotitolo"
+  ],
+  "default (main portrait)": [
+    "默认（主立绘）",
+    "預設（主立繪）",
+    "デフォルト（メイン立ち絵）",
+    "기본 (메인 초상)",
+    "predeterminado (retrato principal)",
+    "par défaut (portrait principal)",
+    "Standard (Hauptporträt)",
+    "по умолчанию (основной портрет)",
+    "padrão (retrato principal)",
+    "predefinito (ritratto principale)"
+  ],
+  "{subtitle} (no image yet)": [
+    "{subtitle}（暂无图片）",
+    "{subtitle}（暫無圖片）",
+    "{subtitle}（画像なし）",
+    "{subtitle} (이미지 없음)",
+    "{subtitle} (sin imagen aún)",
+    "{subtitle} (pas encore d’image)",
+    "{subtitle} (noch kein Bild)",
+    "{subtitle} (изображения пока нет)",
+    "{subtitle} (sem imagem ainda)",
+    "{subtitle} (ancora nessuna immagine)"
   ]
 }
