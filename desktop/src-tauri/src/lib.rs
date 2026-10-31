@@ -3,6 +3,8 @@
 //! video with FFmpeg.
 
 mod files;
+mod projects;
+mod secrets;
 mod video;
 
 use tauri::Manager;
@@ -12,6 +14,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_http::init())
         .manage(video::Jobs::default())
         .invoke_handler(tauri::generate_handler![
             files::download_file,
@@ -21,6 +24,20 @@ pub fn run() {
             video::video_frame,
             video::video_finish,
             video::video_cancel,
+            projects::project_list,
+            projects::project_load,
+            projects::project_save,
+            projects::project_delete,
+            projects::asset_write,
+            projects::asset_import,
+            projects::asset_read,
+            projects::asset_path,
+            projects::export_files,
+            projects::print_html,
+            projects::save_text,
+            secrets::secret_set,
+            secrets::secret_get,
+            secrets::secret_delete,
         ])
         .setup(|app| {
             // Leftover video work folders from a crash are removed at start.

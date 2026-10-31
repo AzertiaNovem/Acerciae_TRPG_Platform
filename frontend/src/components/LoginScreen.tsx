@@ -2,6 +2,7 @@ import { t as tr } from '../i18n';
 import { useState } from 'react';
 import { useAuth } from '../store/auth';
 import { isDesktop, normalizeServer, serverUrl, setServerUrl } from '../lib/platform';
+import { useOpenStudio } from '../openstudio/ui/state';
 
 export default function LoginScreen() {
   const { login, register, error } = useAuth();
@@ -29,6 +30,7 @@ export default function LoginScreen() {
         <button className="primary" type="submit">{mode === 'login' ? tr("Sign in") : tr("Create account")}</button>
         <button type="button" className="ghost small" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? tr("Need an account? Register") : tr("Have an account? Sign in")}</button>
         <div className="tiny muted">{tr("Demo accounts (when the server seeds them): keeper / alice / bob / carol — password “password”.")}</div>
+        {isDesktop && <button type="button" className="ghost small" onClick={() => useOpenStudio.getState().setOpen(true)} title={tr('Make HTML, PDF and visual novels from game logs on this computer, without an account')}>{tr('Open Log Studio (offline, no account) →')}</button>}
       </form>
     </div>
   );

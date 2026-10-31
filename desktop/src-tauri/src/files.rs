@@ -23,14 +23,14 @@ pub(crate) fn disposition_name(header: &str) -> Option<String> {
 }
 
 /// A name safe on every file system: no separators, no reserved characters, not empty.
-pub(crate) fn safe_name(name: &str) -> String {
+pub fn safe_name(name: &str) -> String {
     let cleaned: String = name.chars().map(|c| if "/\\:*?\"<>|".contains(c) || c.is_control() { '_' } else { c }).collect();
     let trimmed = cleaned.trim().trim_matches('.').to_string();
     if trimmed.is_empty() { "download".into() } else { trimmed.chars().take(120).collect() }
 }
 
 /// A relative path from the server, kept only if it stays inside the target folder.
-pub(crate) fn safe_relative(path: &str) -> Option<PathBuf> {
+pub fn safe_relative(path: &str) -> Option<PathBuf> {
     let p = Path::new(path);
     let mut out = PathBuf::new();
     for c in p.components() {

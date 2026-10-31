@@ -85,7 +85,7 @@ pub fn video_cancel(job: String, jobs: State<Jobs>) {
 #[derive(Deserialize)]
 pub struct Segment { frame: u32, ms: u64 }
 #[derive(Deserialize)]
-pub struct Voice { url: String, start_ms: u64 }
+pub struct Voice { #[serde(default)] url: String, #[serde(default)] path: Option<String>, start_ms: u64 }   // a URL, or a local file (Open Log Studio)
 #[derive(Deserialize)]
 pub struct Spec { output: String, quality: String, segments: Vec<Segment>, audio: Vec<Voice>, total_ms: u64 }
 
@@ -126,10 +126,14 @@ async fn fetch_voices(dir: &Path, audio: &[Voice], progress: &impl Fn(&'static s
     let mut out = Vec::new();
     for (i, v) in voices.iter().enumerate() {
         progress("voices", i as u64, voices.len() as u64);
+        let name = format!("voice_{i:05}.src");
+        if let Some(path) = &v.path {
+            if tokio::fs::copy(path, dir.join(&name)).await.is_ok() { out.push((name, v.start_ms)); }
+            continue;
+        }
         let Ok(resp) = client.get(&v.url).send().await else { continue };
         if !resp.status().is_success() { continue; }
         let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-        let name = format!("voice_{i:05}.src");
         tokio::fs::write(dir.join(&name), &bytes).await.map_err(|e| e.to_string())?;
         out.push((name, v.start_ms));
     }

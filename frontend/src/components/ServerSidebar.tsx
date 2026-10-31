@@ -6,6 +6,8 @@ import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 import { api } from '../api/client';
 import type { DirectoryServer, InvitePreview } from '../types';
+import { isDesktop } from '../lib/platform';
+import { useOpenStudio } from '../openstudio/ui/state';
 
 // An invite link is `…?invite=CODE`; people may also paste the bare code.
 const codeOf = (text: string) => { const t = text.trim(); try { return new URL(t).searchParams.get('invite') ?? t; } catch { return t.split('invite=').pop() ?? t; } };
@@ -82,6 +84,7 @@ export default function ServerSidebar({ onPick }: { onPick: () => void }) {
         <div key={s.id} className={`server-icon ${s.id === serverId ? 'active' : ''}`} title={s.my_role === 'guest' ? `${s.name} (${tr("guest")})` : s.name} aria-label={s.name} {...activate(() => { selectServer(s.id); onPick(); })}>{s.name.slice(0, 2).toUpperCase()}</div>
       ))}
       <div className="server-icon add" title={tr("Create or join a server")} aria-label={tr("Create or join a server")} {...activate(() => setDialog('create'))}>+</div>
+      {isDesktop && <div className="server-icon studio" title={tr('Open Log Studio')} aria-label={tr('Open Log Studio')} {...activate(() => useOpenStudio.getState().setOpen(true))}>✎</div>}
       {dialog && (
         <div className="modal-backdrop" onClick={() => setDialog(null)}>
           <div className="modal col" role="dialog" aria-modal="true" aria-label={tr("Create or join a server")} onClick={(e) => e.stopPropagation()}>

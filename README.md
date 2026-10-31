@@ -263,8 +263,9 @@ shared mobile-facing contracts; `mobile/` development is maintained independentl
 ## Desktop app
 
 `desktop/` is the web frontend in a Tauri shell, using the system web view with no bundled Chromium. It adds native
-downloads, visual novels saved file by file or exported as video, and system notifications. See
-[desktop/README.md](desktop/README.md).
+downloads, visual novels saved file by file or exported as video, and system notifications, plus **Open Log
+Studio**: the Log Studio on your own computer without an account (SealDice/QQ/Acerciae logs → HTML, PDF, visual novel
+player or video, with your own AI keys). See [desktop/README.md](desktop/README.md).
 
 ## AI Game Master client
 

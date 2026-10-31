@@ -8,7 +8,7 @@ import { apiBase } from '../../../lib/platform';
 export type VideoQuality = 'lossless' | 'compatible';
 interface Stage { name: string; position: string; active: boolean; image: string | null }
 interface Line { id: string; scene_id: string; kind: string; text: string; speaker: string | null; stage: Stage[]; dice?: { total: number; outcome?: string }; audio?: string; audio_ms?: number }
-interface Script { title: string; template: Record<string, any>; scenes: { id: string; title: string; background: string | null }[]; events: Line[] }
+export interface Script { title: string; template: Record<string, any>; scenes: { id: string; title: string; background: string | null }[]; events: Line[] }
 export interface VideoProgress { phase: 'prepare' | 'frames' | 'voices' | 'encode'; done: number; total: number }
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
@@ -126,25 +126,43 @@ async function loadImage(url: string): Promise<ImageBitmap | null> {
   } catch { return null; }
 }
 
-// Renders and encodes; returns the saved path, or null when the user cancelled the save dialog.
+// Where a video's pictures and voices come from: a server visual novel (its file list) or a local project.
+export interface VideoSource {
+  folder: string;                                             // the suggested file name
+  script: Script;                                             // the standalone player's script data
+  image: (path: string) => Promise<ImageBitmap | null>;       // a picture named in the script
+  voice: (path: string) => Promise<{ url: string } | { path: string } | null>;   // a voice line named in the script
+}
+
+// Renders and encodes a server visual novel; returns the saved path, or null when the user cancelled the dialog.
 export async function exportVideo(channelId: string, presentationId: string, quality: VideoQuality, height: 720 | 1080, onProgress: (p: VideoProgress) => void): Promise<string | null> {
-  const [{ invoke }, { save }, { listen }] = await Promise.all([import('@tauri-apps/api/core'), import('@tauri-apps/plugin-dialog'), import('@tauri-apps/api/event')]);
-  const status = await invoke<{ available: boolean }>('ffmpeg_status');
-  if (!status.available) throw new Error('FFmpeg was not found. Install FFmpeg (or use an installer that includes it) to export videos.');
   onProgress({ phase: 'prepare', done: 0, total: 1 });
   const manifest = await api.vnFiles(channelId, presentationId);
-  const ext = quality === 'lossless' ? 'mkv' : 'mp4';
-  const output = await save({ defaultPath: `${manifest.folder}.${ext}`, filters: [{ name: quality === 'lossless' ? 'Matroska video (lossless)' : 'MP4 video', extensions: [ext] }] });
-  if (!output) return null;
   const script: Script = JSON.parse(manifest.files.find((f) => f.path === 'script.json')?.content ?? '{}');
   const urlOf = new Map(manifest.files.filter((f) => f.url).map((f) => [f.path, apiBase() + f.url!]));
   const fileToken = await ensureFileToken();
+  return renderVideo({
+    folder: manifest.folder, script,
+    image: async (p) => (urlOf.has(p) ? loadImage(urlOf.get(p)!) : null),
+    voice: async (p) => { const u = urlOf.get(p); return u ? { url: `${u}${u.includes('?') ? '&' : '?'}token=${encodeURIComponent(fileToken)}` } : null; },
+  }, quality, height, onProgress);
+}
+
+// Draws every line once, holds each for its voice or reading time, and has the native side encode the video.
+export async function renderVideo(source: VideoSource, quality: VideoQuality, height: 720 | 1080, onProgress: (p: VideoProgress) => void): Promise<string | null> {
+  const [{ invoke }, { save }, { listen }] = await Promise.all([import('@tauri-apps/api/core'), import('@tauri-apps/plugin-dialog'), import('@tauri-apps/api/event')]);
+  const status = await invoke<{ available: boolean }>('ffmpeg_status');
+  if (!status.available) throw new Error('FFmpeg was not found. Install FFmpeg (or use an installer that includes it) to export videos.');
+  const ext = quality === 'lossless' ? 'mkv' : 'mp4';
+  const output = await save({ defaultPath: `${source.folder}.${ext}`, filters: [{ name: quality === 'lossless' ? 'Matroska video (lossless)' : 'MP4 video', extensions: [ext] }] });
+  if (!output) return null;
+  const script = source.script;
   const images = new Map<string, ImageBitmap | null>();
   const wanted = new Set<string>();
   for (const s of script.scenes) if (s.background) wanted.add(s.background);
   for (const e of script.events) for (const st of e.stage) if (st.image) wanted.add(st.image);
   let loaded = 0;
-  await Promise.all([...wanted].map(async (p) => { images.set(p, urlOf.has(p) ? await loadImage(urlOf.get(p)!) : null); onProgress({ phase: 'prepare', done: ++loaded, total: wanted.size }); }));
+  await Promise.all([...wanted].map(async (p) => { images.set(p, await source.image(p).catch(() => null)); onProgress({ phase: 'prepare', done: ++loaded, total: wanted.size }); }));
   const img = (p: string | null) => (p ? images.get(p) ?? null : null);
 
   const W = Math.round((height * 16) / 9 / 2) * 2, H = height;
@@ -152,7 +170,7 @@ export async function exportVideo(channelId: string, presentationId: string, qua
   const ctx = canvas.getContext('2d')!;
   const job = await invoke<string>('video_begin');
   const segments: { frame: number; ms: number }[] = [];
-  const audio: { url: string; start_ms: number }[] = [];
+  const audio: { url?: string; path?: string; start_ms: number }[] = [];
   let clock = 0, frame = 0;
   const emit = async (ms: number) => {
     const blob = await new Promise<Blob>((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('Could not draw a frame.'))), 'image/png'));
@@ -175,7 +193,7 @@ export async function exportVideo(channelId: string, presentationId: string, qua
       }
       if (e.kind === 'scene_change') { drawTitleCard(ctx, W, H, bg, e.text || sc?.title || ''); await emit(2200); continue; }
       drawLine(ctx, W, H, bg, e, img, script.template ?? {});
-      if (e.audio && urlOf.has(e.audio)) audio.push({ url: `${urlOf.get(e.audio)}${urlOf.get(e.audio)!.includes('?') ? '&' : '?'}token=${encodeURIComponent(fileToken)}`, start_ms: clock + 200 });
+      if (e.audio) { const v = await source.voice(e.audio).catch(() => null); if (v) audio.push({ ...v, start_ms: clock + 200 }); }
       await emit(lineDuration(e));
       onProgress({ phase: 'frames', done: i + 1, total: script.events.length });
     }

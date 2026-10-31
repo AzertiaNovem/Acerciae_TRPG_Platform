@@ -26,6 +26,41 @@ web and mobile apps use.
   channel you have open) becomes a system notification, and the taskbar or Dock icon asks for attention. In front,
   the in-app banners show instead. Both follow the "Show message notifications" setting.
 
+## Open Log Studio (local, no account)
+
+The Log Studio on your own computer, for logs from anywhere. Open it from the sign-in screen ("Open Log Studio") or
+the ✎ button in the server bar. Projects live in the app's data folder (`projects/<id>/project.json` plus `assets/`);
+nothing goes through the Acerciae server.
+
+- **Import:**
+  - SealDice text (`Name(12345) 2026/10/02 21:41:06` headers) and JSON, QQ chat exports, story-painter rendered
+    text, and Acerciae exports (native 2.0 and 1.0).
+  - Several files of one campaign are joined in time order, and the lines where they overlap are dropped once.
+  - Platform ids (QQ numbers) are dropped everywhere, including the kept source text.
+  - UTF-8, UTF-16 and GBK/GB18030 files are read.
+- **Supplement:**
+  - The background: era, special settings, summary.
+  - Who each speaker is: role, and which character they are.
+  - Each character's appearance prompt, avatar, main portrait, poses (SAY, ANGRY, …) and voice.
+  - Art is uploaded, or generated from the appearance prompt with your image service. Poses use the main portrait
+    as the identity reference.
+- **Export:**
+  - Log files: the Acerciae log (JSON 2.0), SealDice text, plain text.
+  - A styled HTML page saved as a folder with its pictures.
+  - A PDF: the print-ready book opens in its own window with the system print dialog. On Linux the paper size is the
+    one chosen in the dialog's Page Setup.
+  - A visual novel:
+    - The script is composed by rules (free, offline) or by your language model.
+    - Your image service can paint the backgrounds and poses it asks for, and your speech service voices the lines.
+    - It plays in the app, with the same look templates as the server.
+    - It saves as a player folder or as a lossless MKV / compatible MP4 video.
+- **AI services**, with your own keys, which are kept in the system keychain (or a user-only file where there is
+  none):
+  - Language model: OpenAI or any OpenAI-compatible address, or Anthropic.
+  - Images: OpenAI `gpt-image-*` or a compatible service.
+  - Speech: OpenAI or Qwen (DashScope).
+  - Requests go from this computer straight to the provider.
+
 ## Develop
 
 Requires Node 22+, Rust (stable) and, on Linux, `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev

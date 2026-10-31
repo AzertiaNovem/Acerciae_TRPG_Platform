@@ -9,6 +9,11 @@
 html, body, #root { height: 100%; margin: 0; }
 body { font-family: var(--font); background: var(--bg-0); color: var(--fg-0); font-size: 14px; line-height: 1.45; }
 button, input, select, textarea { font: inherit; color: inherit; }
+.button { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: 1px solid var(--bg-4); background: var(--bg-3); color: var(--fg-0); border-radius: 8px; padding: 6px 10px; text-decoration: none; font: inherit; }
+.button:hover { background: var(--bg-4); }
+.button.primary { background: var(--accent); border-color: var(--accent); color: #0b0e14; font-weight: 600; }
+.button.ghost { background: transparent; border-color: transparent; color: var(--fg-1); }
+.button.ghost:hover { background: var(--bg-3); }
 button { cursor: pointer; border: 1px solid var(--bg-4); background: var(--bg-3); color: var(--fg-0); border-radius: 8px; padding: 6px 10px; }
 button:hover { background: var(--bg-4); }
 button:disabled { opacity: .5; cursor: default; }
@@ -17,9 +22,13 @@ button.danger { background: #3a1b1f; border-color: var(--danger); color: var(--d
 button.primary:hover { filter: brightness(1.08); }
 button.ghost { background: transparent; border-color: transparent; color: var(--fg-1); }
 button.ghost:hover { background: var(--bg-3); }
-button.small { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
+button.small, .button.small { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
 input, select, textarea { background: var(--bg-1); border: 1px solid var(--bg-4); border-radius: 8px; padding: 7px 9px; color: var(--fg-0); outline: none; }
 input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+/* Selects drawn by the app, not the platform: WebKitGTK (the Linux desktop app) otherwise shows light native boxes. */
+:root { color-scheme: dark; }
+select { -webkit-appearance: none; appearance: none; padding-right: 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23b8bfcc' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px; }
+select:disabled { opacity: .6; }
 a { color: var(--accent); }
 code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); padding: 1px 4px; border-radius: 4px; }
 .muted { color: var(--fg-2); } .tiny { font-size: 11px; } .small { font-size: 12px; }
@@ -343,3 +352,28 @@ table.simple tr.selected td {background:rgba(127,127,127,.08)}
 .voice-card.foreign { border-color: var(--danger); opacity: .85; }
 .voice-card details summary { cursor: pointer; color: var(--fg-2); margin-top: 4px; }
 .voice-param { display: flex; flex-direction: column; gap: 2px; min-width: 140px; }
+
+/* Open Log Studio (desktop app) */
+.server-icon.studio { font-size: 18px; color: var(--accent-2); border: 2px dashed var(--bg-4); background: transparent; }
+.open-studio { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg-0); z-index: 40; }
+.open-studio-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--bg-3); background: var(--bg-1); }
+.open-studio-main { flex: 1; overflow: auto; padding: 16px; }
+.open-studio-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; gap: 8px; }
+.open-studio-item:hover { background: var(--bg-3); }
+.open-studio-title { font-size: 18px; font-weight: 600; min-width: 280px; }
+.open-studio-tabs { gap: 6px; flex-wrap: wrap; }
+.open-studio-log { display: flex; flex-direction: column; gap: 2px; max-width: 980px; }
+.open-studio-line { display: grid; grid-template-columns: 150px 140px 90px 1fr; gap: 8px; align-items: baseline; padding: 4px 6px; border-radius: 6px; font-size: 13px; }
+.open-studio-line:nth-child(odd) { background: var(--bg-1); }
+.open-studio-line .content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.open-studio-line.kind-ooc, .open-studio-line.kind-secret { opacity: .6; }
+.open-studio-line.kind-narration .content { font-style: italic; }
+@media (max-width: 860px) { .open-studio-line { grid-template-columns: 1fr; } }
+.open-studio-art { display: flex; flex-direction: column; gap: 4px; align-items: center; width: 140px; }
+.open-studio-art .thumb { width: 140px; height: 180px; border-radius: 10px; background: var(--bg-3); display: grid; place-items: center; overflow: hidden; border: 1px solid var(--bg-4); }
+.open-studio-art .thumb img { width: 100%; height: 100%; object-fit: contain; }
+.open-studio-card { max-height: 280px; overflow: auto; background: var(--bg-1); padding: 8px; border-radius: 8px; font-size: 11px; }
+.open-studio-vn { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .open-studio-vn { grid-template-columns: 1fr; } }
+fieldset { border: 1px solid var(--bg-4); border-radius: 10px; padding: 8px 12px 12px; }
+fieldset legend { font-size: 12px; color: var(--fg-1); padding: 0 6px; }

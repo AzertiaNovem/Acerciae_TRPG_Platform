@@ -1,14 +1,36 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the app's own pages may call: dialogs, notifications, opening links in the browser, events.",
-  "windows": ["main"],
+  "description": "What the app's own pages may call: dialogs, notifications, opening links in the browser, events, and HTTPS requests to AI providers chosen by the user (Open Log Studio).",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-request-user-attention",
     "dialog:default",
     "notification:default",
     "opener:default",
-    "opener:allow-reveal-item-in-dir"
+    "opener:allow-reveal-item-in-dir",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "https://*/*"
+        },
+        {
+          "url": "https://*:*/*"
+        },
+        {
+          "url": "http://localhost:*/*"
+        },
+        {
+          "url": "http://127.0.0.1:*/*"
+        }
+      ]
+    }
   ]
 }
