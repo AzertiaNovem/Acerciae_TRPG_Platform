@@ -124,7 +124,7 @@ Json::Value VnScriptService::mockPlan(const ScriptInputs &in) {
       continue;
     }
     // Parallel chat windows become separate scenes, so each thread reads continuously.
-    std::string key = (manyWindows ? e.chatWindowId.substr(0, 8) + "-" : "") + (e.sceneKey.empty() ? "unscened" : e.sceneKey.substr(0, 36));
+    std::string key = (manyWindows ? e.chatWindowId.substr(0, 8) + "-" : "") + (e.sceneKey.empty() ? "unscened" : text::utf8Prefix(e.sceneKey, 36));
     if (!sceneIndex.count(key)) {
       Json::Value s;
       s["key"] = key;
@@ -276,7 +276,7 @@ Json::Value VnScriptService::mockFlat(const ScriptInputs &in, size_t begin, size
     const auto &e = in.events[i];
     if (e.eventType == "ooc" || e.eventType == "system" || e.unrecognised) continue;
     if (manyWindows && e.chatWindowId.empty()) continue;   // scene markers are seated by normalize()
-    std::string key = (manyWindows ? e.chatWindowId.substr(0, 8) + "-" : "") + (e.sceneKey.empty() ? "unscened" : e.sceneKey.substr(0, 36));
+    std::string key = (manyWindows ? e.chatWindowId.substr(0, 8) + "-" : "") + (e.sceneKey.empty() ? "unscened" : text::utf8Prefix(e.sceneKey, 36));
     if (!nameOfKey.count(key)) {
       auto wn = in.windowNames.count(e.chatWindowId) ? in.windowNames.at(e.chatWindowId) : "";
       std::string title = !e.sceneTitle.empty() ? e.sceneTitle : e.eventType == "scene_change" ? e.content : "";

@@ -29,6 +29,7 @@
 #include "retrieval/ContextRetrievalService.h"
 #include "events/EventStore.h"
 #include "core/Json.h"
+#include "core/Text.h"
 #include "core/Errors.h"
 #include <iostream>
 #include <cstdlib>
@@ -947,6 +948,47 @@ int main() {
         queued.back()();queued.clear();CHECK(builds.builds(access)[0]["status"]=="failed");
         denied=false;try{builds.builds(player);}catch(const ApiError& e){denied=e.status()==403;}CHECK(denied);
 
+    });
+    test("Chinese fallback clue and thread titles survive the 80-byte PostgreSQL boundary", [&] {
+        std::string prefix; for (int i = 0; i < 26; ++i) prefix += "线";
+        auto summary = prefix + "密室里发现了调查线索";
+        const auto message = say(gmUser, mainWin, summary, "narration");
+        const auto event = eventOf(message["id"].asString());
+        for (const auto &doc : {"clue_journal", "open_threads"}) {
+            Proposal proposal; proposal.channelId = channelId; proposal.documentType = doc;
+            Json::Value op; op["op"] = "add_entry"; op["fact"]["summary"] = summary;
+            op["fact"]["status"] = "confirmed"; op["fact"]["source_event_ids"].append(event["id"]);
+            proposal.ops.append(op); // no explicit title: exercise DocumentService's real fallback
+            const auto result = S.documents->commit(proposal);
+            CHECK(result.applied == 1);
+            const auto table = std::string(doc) == "clue_journal" ? "clues" : "narrative_threads";
+            const auto row = S.db->queryOne("SELECT title FROM " + std::string(table) + " WHERE fact_id=$1", {result.log[0]["fact_id"].asString()});
+            CHECK(row["title"] == prefix + "…");
+        }
+    });
+    test("Visual novel titles, instructions and rewritten lines retain valid UTF-8 at byte limits", [&] {
+        const auto repeat = [](const std::string &point, size_t n) { std::string out; while (n--) out += point; return out; };
+        const auto log = S.studio->campaignLog(gm);
+        const auto snap = S.studio->createSnapshot(gm, log["project"]["id"].asString(), Json::Value(Json::objectValue));
+        const auto pres = S.presentations->create(gm, snap["id"].asString(), Json::Value(Json::objectValue));
+        const auto pid = pres["id"].asString();
+        const auto event = pres["events"][0]["canonical_event_id"];
+        CHECK(event.isString());
+        Json::Value script, scene, line;
+        scene["key"] = "scene-utf8"; scene["title"] = repeat("密", 80); scene["summary"] = repeat("密", 140);
+        scene["background_brief"] = repeat("景", 140);
+        line["event_id"] = event; line["kind"] = "narration"; line["text"] = repeat("话", 1400); line["delivery"] = repeat("缓", 140);
+        scene["lines"].append(line); script["scenes"].append(scene);
+        S.presentations->applyScript(gm, pid, script);
+        const auto stored = S.db->queryOne("SELECT title,metadata FROM presentation_scenes WHERE presentation_id=$1 AND canonical_scene_key='scene-utf8'", {pid});
+        CHECK(stored["title"] == repeat("密", 66));
+        CHECK(stored["metadata"]["summary"] == repeat("密", 133));
+        CHECK(stored["metadata"]["background_brief"] == repeat("景", 133));
+        auto pe = S.db->queryOne("SELECT id,script_text,style_instruction FROM presentation_events WHERE presentation_id=$1 AND canonical_event_id=$2", {pid, event.asString()});
+        CHECK(pe["script_text"] == repeat("话", 1333)); CHECK(pe["style_instruction"] == repeat("缓", 133));
+        Json::Value edit; edit["script_text"] = repeat("😀", 1001);
+        S.presentations->updateEvent(gm, pe["id"].asString(), edit);
+        CHECK(S.db->queryOne("SELECT script_text FROM presentation_events WHERE id=$1", {pe["id"].asString()})["script_text"] == repeat("😀", 1000));
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();

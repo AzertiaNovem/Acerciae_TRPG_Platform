@@ -1,3 +1,4 @@
+#include "../core/Text.h"
 #include "PublicationService.h"
 #include "VnBundle.h"
 #include "../core/Zip.h"
@@ -290,7 +291,7 @@ Json::Value PublicationService::finishPdf(const std::string &id,
                           "at=now(),updated_at=now(),lease_token=NULL WHERE "
                           "id=$1 AND lease_token=$2 RETURNING id,status",
                           {id, lease, status, opt(key), (int64_t)bytes.size(),
-                           opt(error.substr(0, 1000))});
+                           opt(text::utf8Prefix(error, 1000))});
   notifier_.studioEvent(j["channel_id"].asString(), "pdf.updated", out, true);
   return out;
 }
@@ -581,7 +582,7 @@ void PublicationService::runBundle(const std::string &jobId) {
     if (stored.isNull()) store_.remove(key);   // the channel or job went away meanwhile
   } catch (const std::exception &e) {
     ALOG_WARN << "visual-novel bundle " << jobId << ": " << e.what();
-    try { db_.exec("UPDATE vn_bundle_jobs SET status='failed', error=$2, finished_at=now() WHERE id=$1", {jobId, std::string(e.what()).substr(0, 300)}); } catch (...) {}
+    try { db_.exec("UPDATE vn_bundle_jobs SET status='failed', error=$2, finished_at=now() WHERE id=$1", {jobId, text::utf8Prefix(e.what(), 300)}); } catch (...) {}
   }
 }
 bool PublicationService::bundleDownload(const ChannelAccess &a, const std::string &jobId, bool preferUrl, std::string &url, std::string &bytes, std::string &fileName) {

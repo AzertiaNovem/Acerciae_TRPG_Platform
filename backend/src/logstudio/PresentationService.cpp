@@ -211,10 +211,10 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
             auto bg = asset(s["background_asset_id"], {"background"});
             auto bgm = asset(s["bgm_asset_id"], {"bgm","audio"});
             Json::Value env; auto e = json::str(s, "environment", "none"); env["effect"] = envs.count(e) ? e : "none";
-            Json::Value meta; for (auto k : {"location","time_of_day","mood","summary","background_brief"}) meta[k] = json::str(s, k).substr(0, 400);
+            Json::Value meta; for (auto k : {"location","time_of_day","mood","summary","background_brief"}) meta[k] = text::utf8Prefix(json::str(s, k), 400);
             meta["generated"] = true; meta["script_key"] = json::str(s, "key");
             auto sc = Db::queryOne(w, "INSERT INTO presentation_scenes(presentation_id, position, title, canonical_scene_key, background_asset_id, background_asset_version, bgm_asset_id, environment, metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb) RETURNING id",
-                {id, (int64_t)scenePos++, json::str(s, "title").substr(0, 200), json::str(s, "key").substr(0, 64), bg.isNull() ? dbNull() : DbParam(bg["id"].asString()), bg.isNull() ? dbNull() : DbParam((int64_t)bg["version"].asInt()), bgm.isNull() ? dbNull() : DbParam(bgm["id"].asString()), json::dump(env), json::dump(meta)});
+                {id, (int64_t)scenePos++, text::utf8Prefix(json::str(s, "title"), 200), text::utf8Prefix(json::str(s, "key"), 64), bg.isNull() ? dbNull() : DbParam(bg["id"].asString()), bg.isNull() ? dbNull() : DbParam((int64_t)bg["version"].asInt()), bgm.isNull() ? dbNull() : DbParam(bgm["id"].asString()), json::dump(env), json::dump(meta)});
             auto sceneId = sc["id"].asString();
             bool first = true;
             for (const auto& l : s["lines"]) {
@@ -239,10 +239,10 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
                 auto speakerId = json::str(l, "speaker_character_id");
                 if (!speakerId.empty() && Db::queryOne(w, "SELECT 1 AS ok FROM characters WHERE id=$1 AND channel_id=$2", {speakerId, a.channelId}).isNull()) speakerId.clear();
                 auto effect = json::str(l, "effect", "none"); if (!effects.count(effect)) effect = "none";
-                auto wording = json::str(l, "text").substr(0, 4000);
+                auto wording = text::utf8Prefix(json::str(l, "text"), 4000);
                 Db::exec(w, "UPDATE presentation_events SET scene_id=$2, position=$3, display_kind=$4, hidden=$5, speaker_character_id=COALESCE($6::uuid, speaker_character_id), character_asset_ids=$7::jsonb, effect=$8, style_instruction=$9, transition=$10, "
                             "script_text=$11, audio_asset_id = CASE WHEN script_text IS DISTINCT FROM $11 THEN NULL ELSE audio_asset_id END, updated_at=now() WHERE id=$1",
-                    {ev["id"].asString(), sceneId, (int64_t)pos++, kind, json::toBool(l, "hidden"), speakerId.empty() ? dbNull() : DbParam(speakerId), json::dump(stage), effect, json::str(l, "delivery").substr(0, 400), first ? "fade" : (kind == "scene_change" ? "fade" : "none"), wording.empty() ? dbNull() : DbParam(wording)});
+                    {ev["id"].asString(), sceneId, (int64_t)pos++, kind, json::toBool(l, "hidden"), speakerId.empty() ? dbNull() : DbParam(speakerId), json::dump(stage), effect, text::utf8Prefix(json::str(l, "delivery"), 400), first ? "fade" : (kind == "scene_change" ? "fade" : "none"), wording.empty() ? dbNull() : DbParam(wording)});
                 first = false;
             }
         }
@@ -313,7 +313,7 @@ Json::Value PresentationService::updateEvent(const ChannelAccess& a, const std::
     // tts_text is the separately stored speech adaptation; it never replaces display text.
     bool clearAudio = body.isMember("tts_text") || body.isMember("voice_profile_id") || body.isMember("style_instruction") || body.isMember("script_text");
     // script_text: the presentation's wording of the line (null or "" = the log's own words).
-    auto scriptText = body.isMember("script_text") ? json::str(body, "script_text").substr(0, 4000) : json::str(e, "script_text");
+    auto scriptText = body.isMember("script_text") ? text::utf8Prefix(json::str(body, "script_text"), 4000) : json::str(e, "script_text");
     auto out = db_.queryOne("UPDATE presentation_events SET display_kind=$2, hidden=$3, speaker_character_id=$4, speaker_name_override=$5, tts_text=$6, character_asset_ids=$7::jsonb, expression_ids=$8::jsonb, dialogue_style=$9::jsonb, voice_profile_id=$10, style_instruction=$11, transition=$12, effect=$13, scene_id=$14, audio_asset_id = CASE WHEN $15 THEN NULL ELSE audio_asset_id END, actual_audio_duration_ms = CASE WHEN $15 THEN NULL ELSE actual_audio_duration_ms END, script_text=$16, updated_at=now() WHERE id=$1 RETURNING *",
         {eventId, kind, json::toBool(body, "hidden", e["hidden"].asBool()), opt(json::str(body, "speaker_character_id", e["speaker_character_id"].isNull() ? "" : e["speaker_character_id"].asString())), opt(json::str(body, "speaker_name_override", e["speaker_name_override"].isNull() ? "" : e["speaker_name_override"].asString())),
          body.isMember("tts_text") ? opt(json::str(body, "tts_text")) : (e["tts_text"].isNull() ? dbNull() : DbParam(e["tts_text"].asString())), json::dump(assets), json::dump(body.isMember("expression_ids") ? body["expression_ids"] : e["expression_ids"]), json::dump(body.isMember("dialogue_style") ? body["dialogue_style"] : e["dialogue_style"]),

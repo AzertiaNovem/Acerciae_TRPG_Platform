@@ -1,3 +1,4 @@
+#include "../core/Text.h"
 #include "ObjectStore.h"
 #include "../core/Crypto.h"
 #include "../core/Log.h"
@@ -59,7 +60,7 @@ public:
     S3ObjectStore(std::string kind, std::string endpoint, std::string region, std::string bucket, std::string ak, std::string sk, bool pathStyle, bool useProxy)
         : kind_(std::move(kind)), endpoint_(std::move(endpoint)), region_(std::move(region)), bucket_(std::move(bucket)), ak_(std::move(ak)), sk_(std::move(sk)), pathStyle_(pathStyle), useProxy_(useProxy) { if (!endpoint_.empty() && endpoint_.back() == '/') endpoint_.pop_back(); }
     // "pub/" keys are content-addressed by a fresh uuid per version, so browsers and Cloudflare may cache them for good.
-    void put(const std::string& key, const std::string& bytes, const std::string& ct) override { long st; auto r = request("PUT", key, bytes, ct, st, isPublicKey(key) ? "Cache-Control: public, max-age=31536000, immutable" : ""); if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " put failed: http " + std::to_string(st) + " " + r.substr(0, 200)); }
+    void put(const std::string& key, const std::string& bytes, const std::string& ct) override { long st; auto r = request("PUT", key, bytes, ct, st, isPublicKey(key) ? "Cache-Control: public, max-age=31536000, immutable" : ""); if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " put failed: http " + std::to_string(st) + " " + text::utf8Prefix(r, 200)); }
     std::optional<std::string> get(const std::string& key) override { long st; auto r = request("GET", key, "", "", st); if (st == 404) return std::nullopt; if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " get failed: http " + std::to_string(st)); return r; }
     bool exists(const std::string& key) override { long st; request("HEAD", key, "", "", st); return st >= 200 && st < 300; }
     void remove(const std::string& key) override { long st; request("DELETE", key, "", "", st); }

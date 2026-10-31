@@ -117,7 +117,7 @@ static std::string objectAfter(const std::string& content, const std::regex& ver
     std::smatch s;
     if (std::regex_match(rest, s, stop)) obj = s[1]; else obj = rest;
     obj = trim(obj);
-    if (obj.size() > 80) obj = obj.substr(0, 80);
+    if (obj.size() > 80) obj = text::utf8Prefix(obj, 80);
     return obj;
 }
 
