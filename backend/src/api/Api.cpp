@@ -437,6 +437,7 @@ void registerRoutes() {
     route1("/api/channels/{1}/studio/vn-scripts", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->create(studioAccess(p,a[0]),body(req)); });
     route2("/api/channels/{1}/studio/vn-scripts/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->get(studioAccess(p,a[0]),a[1]); });
     route2("/api/channels/{1}/studio/vn-scripts/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.vnScripts->cancel(studioAccess(p,a[0]),a[1]); });
+    route2("/api/channels/{1}/studio/vn-scripts/{2}/backgrounds/retry", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->retryBackgrounds(studioAccess(p,a[0]),a[1],body(req)); });
     route2("/api/channels/{1}/studio/vn-scripts/{2}/retry", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->retry(studioAccess(p,a[0]),a[1],body(req)); });
     ai2("/api/channels/{1}/studio/presentations/{2}/suggest", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->suggest(studioAccess(p,a[0]),a[1],body(req)); });
     route1("/api/channels/{1}/studio/pdf/templates", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->templates(studioAccess(p,a[0])); });

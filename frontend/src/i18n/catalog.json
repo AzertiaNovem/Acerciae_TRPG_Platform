@@ -15106,5 +15106,89 @@
     "Повторить создание сценария",
     "Tentar gerar o roteiro novamente",
     "Riprova la generazione del copione"
+  ],
+  "Missing backgrounds queued; completed images are kept.": [
+    "缺失背景已加入队列，已完成的图片会保留。",
+    "缺失背景已加入佇列，已完成的圖片會保留。",
+    "未生成の背景をキューに追加しました。完成済みの画像は保持されます。",
+    "누락된 배경을 대기열에 추가했습니다. 완성된 이미지는 유지됩니다.",
+    "Fondos pendientes en cola; se conservan las imágenes terminadas.",
+    "Fonds manquants mis en file ; les images terminées sont conservées.",
+    "Fehlende Hintergründe eingereiht; fertige Bilder bleiben erhalten.",
+    "Недостающие фоны добавлены в очередь; готовые изображения сохранены.",
+    "Fundos ausentes na fila; imagens concluídas preservadas.",
+    "Sfondi mancanti in coda; immagini completate conservate."
+  ],
+  "Background not generated": [
+    "背景尚未生成",
+    "背景尚未生成",
+    "背景は未生成です",
+    "배경이 아직 생성되지 않았습니다",
+    "Fondo sin generar",
+    "Fond non généré",
+    "Hintergrund noch nicht erzeugt",
+    "Фон ещё не создан",
+    "Fundo ainda não gerado",
+    "Sfondo non ancora generato"
+  ],
+  "Retry background": [
+    "重新生成此背景",
+    "重新生成此背景",
+    "背景を再試行",
+    "배경 다시 생성",
+    "Reintentar fondo",
+    "Réessayer ce fond",
+    "Hintergrund erneut versuchen",
+    "Повторить генерацию фона",
+    "Tentar gerar fundo novamente",
+    "Riprova lo sfondo"
+  ],
+  "Send background prompts to the configured image model": [
+    "将背景提示词发送给已配置的图像模型",
+    "將背景提示詞傳送給已設定的圖像模型",
+    "背景プロンプトを設定済みの画像モデルに送信",
+    "배경 프롬프트를 설정된 이미지 모델로 전송",
+    "Enviar indicaciones al modelo de imagen configurado",
+    "Envoyer les consignes au modèle d’image configuré",
+    "Hintergrund-Prompts an das konfigurierte Bildmodell senden",
+    "Отправить описания фонов настроенной модели изображений",
+    "Enviar instruções ao modelo de imagem configurado",
+    "Invia le istruzioni al modello di immagini configurato"
+  ],
+  "Generate missing backgrounds": [
+    "补生成缺失背景",
+    "補生成缺失背景",
+    "未生成の背景を生成",
+    "누락된 배경 생성",
+    "Generar fondos faltantes",
+    "Générer les fonds manquants",
+    "Fehlende Hintergründe erzeugen",
+    "Создать недостающие фоны",
+    "Gerar fundos ausentes",
+    "Genera gli sfondi mancanti"
+  ],
+  "Completed images are kept. Queued and running images are not submitted again.": [
+    "保留已成功的图片，排队中和生成中的任务不会重复提交。",
+    "保留已成功的圖片，排隊中和生成中的任務不會重複提交。",
+    "完成済みの画像を保持し、待機中・生成中の画像は重複送信しません。",
+    "완성된 이미지는 유지하며 대기 중이거나 생성 중인 작업은 다시 제출하지 않습니다.",
+    "Se conservan las imágenes terminadas y no se duplican las tareas activas.",
+    "Les images terminées sont conservées et les tâches en cours ne sont pas dupliquées.",
+    "Fertige Bilder bleiben erhalten; wartende und laufende Aufträge werden nicht erneut gesendet.",
+    "Готовые изображения сохраняются; задания в очереди и в работе не дублируются.",
+    "Imagens concluídas são mantidas; tarefas em andamento não são duplicadas.",
+    "Le immagini completate sono conservate e le attività in corso non vengono duplicate."
+  ],
+  "Queued": [
+    "排队中",
+    "排隊中",
+    "待機中",
+    "대기 중",
+    "En cola",
+    "En attente",
+    "In Warteschlange",
+    "В очереди",
+    "Na fila",
+    "In coda"
   ]
 }

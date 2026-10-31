@@ -232,7 +232,7 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   cv_.notify_all();
   return j;
 }
-Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud) {
+Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud, bool retryFailed) {
   auto provider_ = providerFor(a.channelId);
   if (provider_ && provider_->name() != "mock") policy_.checkImages(a.channelId);
   if (!provider_)
@@ -273,13 +273,36 @@ Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::
   params["cloud_authorized"] = allowCloud;
   params["visibility_scope"] = "channel";
   auto idem = crypto::sha256Hex(a.channelId + provider_->name() + provider_->model() + json::dump(params));
-  auto old = db_.queryOne("SELECT id,status FROM asset_generation_jobs WHERE idempotency_key=$1", {idem});
-  if (!old.isNull())
-    return old;
-  auto j = db_.queryOne(
-      "INSERT INTO asset_generation_jobs(channel_id,kind,provider,prompt,params,style_profile_id,character_id,created_by,idempotency_key) "
-      "VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) RETURNING id,status,kind,params->'attach' AS attach",
-      {a.channelId, kind, provider_->name(), prompt, json::dump(params), style.isNull() ? dbNull() : DbParam(style["id"].asString()), opt(cid), a.userId, idem});
+  // Lock the target scene so simultaneous resume requests (including changed provider settings)
+  // cannot schedule duplicate images, and never replace a background already chosen by the author.
+  auto j = db_.tx([&](pqxx::work &w) -> Json::Value {
+    const auto pid = json::str(attach, "presentation_id"), sceneKey = json::str(attach, "scene_key");
+    if (kind == "background") {
+      auto scene = Db::queryOne(w, "SELECT s.background_asset_id FROM presentation_scenes s JOIN log_presentations p ON p.id=s.presentation_id JOIN log_projects lp ON lp.id=p.project_id WHERE s.presentation_id=$1 AND s.canonical_scene_key=$2 AND lp.channel_id=$3 FOR UPDATE OF s", {pid, sceneKey, a.channelId});
+      if (scene.isNull()) throw notFound("background scene not found");
+      if (!scene["background_asset_id"].isNull()) { scene["status"] = "completed"; return scene; }
+      auto active = Db::queryOne(w, "SELECT id,status FROM asset_generation_jobs WHERE channel_id=$1 AND kind='background' AND params->'attach'->>'presentation_id'=$2 AND params->'attach'->>'scene_key'=$3 AND status IN ('pending','running') ORDER BY created_at DESC LIMIT 1", {a.channelId, pid, sceneKey});
+      if (!active.isNull()) return active;
+    }
+    auto old = Db::queryOne(w, "SELECT id,status,result_asset_id FROM asset_generation_jobs WHERE idempotency_key=$1 FOR UPDATE", {idem});
+    if (!old.isNull()) {
+      // A worker may have saved the asset just before it was interrupted while attaching it.
+      if (retryFailed && kind == "background" && old["status"] == "completed") {
+        auto asset = Db::queryOne(w, "SELECT id,version FROM media_assets WHERE id=$1 AND channel_id=$2 AND approval_status='approved'", {old["result_asset_id"].isNull() ? dbNull() : DbParam(old["result_asset_id"].asString()), a.channelId});
+        if (!asset.isNull()) {
+          Db::exec(w, "UPDATE presentation_scenes SET background_asset_id=$2,background_asset_version=$3 WHERE presentation_id=$1 AND canonical_scene_key=$4 AND background_asset_id IS NULL", {pid, asset["id"].asString(), (int64_t)asset["version"].asInt(), sceneKey});
+          return old;
+        }
+      }
+      if (retryFailed && (old["status"] == "failed" || old["status"] == "cancelled" || (kind == "background" && old["status"] == "completed")))
+        return Db::queryOne(w, "UPDATE asset_generation_jobs SET status='pending',attempts=0,error=NULL,finished_at=NULL,result_asset_id=NULL,created_by=$2,updated_at=now() WHERE id=$1 RETURNING id,status", {old["id"].asString(), a.userId});
+      return old;
+    }
+    return Db::queryOne(w,
+        "INSERT INTO asset_generation_jobs(channel_id,kind,provider,prompt,params,style_profile_id,character_id,created_by,idempotency_key) "
+        "VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key RETURNING id,status,kind,params->'attach' AS attach",
+        {a.channelId, kind, provider_->name(), prompt, json::dump(params), style.isNull() ? dbNull() : DbParam(style["id"].asString()), opt(cid), a.userId, idem});
+  });
   logs_.audit(a, "image.request", j);
   cv_.notify_all();
   return j;

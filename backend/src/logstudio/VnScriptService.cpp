@@ -861,6 +861,17 @@ Json::Value VnScriptService::get(const ChannelAccess &a, const std::string &id) 
   auto own = ownerClause(a, p);
   auto j = db_.queryOne("SELECT j.* FROM vn_script_jobs j WHERE j.id=$1 AND j.channel_id=$2" + own, p);
   if (j.isNull()) throw notFound("script job not found");
+  j["background_jobs"] = Json::Value(Json::arrayValue);
+  if (j["presentation_id"].isString()) {
+    j["background_jobs"] = db_.queryJson(
+        "SELECT s.id AS scene_id,s.canonical_scene_key AS scene_key,g.id AS job_id,"
+        "CASE WHEN s.background_asset_id IS NOT NULL THEN 'completed' WHEN g.status='completed' OR g.status IS NULL THEN 'missing' ELSE g.status END AS status,"
+        "CASE WHEN s.background_asset_id IS NULL THEN g.error END AS error "
+        "FROM presentation_scenes s LEFT JOIN LATERAL (SELECT id,status,error FROM asset_generation_jobs "
+        "WHERE channel_id=$2 AND kind='background' AND params->'attach'->>'presentation_id'=s.presentation_id::text AND params->'attach'->>'scene_key'=s.canonical_scene_key "
+        "ORDER BY (status IN ('pending','running')) DESC,updated_at DESC,created_at DESC LIMIT 1) g ON true WHERE s.presentation_id=$1 ORDER BY s.position",
+        {j["presentation_id"].asString(), a.channelId});
+  }
   return j;
 }
 Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b) {
@@ -920,6 +931,36 @@ Json::Value VnScriptService::retry(const ChannelAccess &a, const std::string &id
   logs_.audit(a, "vnscript.retry", result);
   cv_.notify_all();
   return result;
+}
+
+// Resume only missing backgrounds in this draft. The script and successful images stay intact.
+Json::Value VnScriptService::retryBackgrounds(const ChannelAccess &a, const std::string &id, const Json::Value &body) {
+  auto job = get(a, id);
+  if (job["status"] != "completed" || !job["presentation_id"].isString()) throw badRequest("complete the script before generating backgrounds");
+  const auto pid = job["presentation_id"].asString();
+  auto presentation = pres_.get(a, pid); // rechecks snapshot visibility as well as draft ownership
+  if (!json::toBool(presentation, "can_edit")) throw forbidden("only the draft author or GM can retry backgrounds");
+  if (body.isMember("scene_key") && (!body["scene_key"].isString() || body["scene_key"].asString().empty())) throw badRequest("scene_key must be a nonempty string");
+  if (body.isMember("allow_cloud") && !body["allow_cloud"].isBool()) throw badRequest("allow_cloud must be a boolean");
+  const auto selected = json::str(body, "scene_key");
+  bool found = selected.empty();
+  for (const auto &scene : presentation["scenes"]) if (scene["canonical_scene_key"] == selected) found = true;
+  if (!found) throw notFound("background scene not found");
+  const bool cloud = json::toBool(body, "allow_cloud") || json::toBool(job["params"], "cloud_authorized");
+  for (const auto &scene : presentation["scenes"]) {
+    const auto key = json::str(scene, "canonical_scene_key");
+    if ((!selected.empty() && key != selected) || !scene["background_asset_id"].isNull()) continue;
+    std::string prompt;
+    for (const auto &need : job["script"]["asset_needs"])
+      if (need["kind"] == "background" && need["scene_key"] == key) { prompt = json::str(need, "brief"); break; }
+    if (prompt.empty()) prompt = json::str(scene["metadata"], "background_brief");
+    if (prompt.empty()) prompt = json::str(scene, "title") + ", visual-novel background, no people";
+    Json::Value attach; attach["presentation_id"] = pid; attach["scene_key"] = key;
+    creative_.createForScript(a, "background", prompt, attach, cloud, true);
+  }
+  Json::Value audit; audit["job_id"] = id; audit["scene_key"] = selected;
+  logs_.audit(a, "vnscript.retry_backgrounds", audit);
+  return get(a, id);
 }
 
 // ---- worker ---------------------------------------------------------------------------------------
