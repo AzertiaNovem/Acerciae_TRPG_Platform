@@ -81,9 +81,25 @@ def prepare(archive, release, root):
                 raise RuntimeError(f'Unexpected archive path: {member.name}')
         source.extractall(release, filter='data')
     (release / 'backend/uploads').symlink_to(root / 'uploads')
-    run(['cmake', '-S', release / 'backend', '-B', release / 'backend/build',
-         '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release'])
-    run(['cmake', '--build', release / 'backend/build', '--parallel', '2'])
+    # Keep immutable releases while sharing compiler outputs across their different absolute paths.
+    # CMake/Ninja still configure a fresh build and relink each release; unchanged C++ units hit ccache.
+    build_env = os.environ.copy()
+    configure = ['cmake', '-S', release / 'backend', '-B', release / 'backend/build',
+                 '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release']
+    ccache = shutil.which('ccache')
+    if ccache:
+        cache = root / 'cache/ccache'
+        cache.mkdir(parents=True, exist_ok=True)
+        build_env.update(CCACHE_DIR=str(cache.resolve()), CCACHE_BASEDIR=str(release.resolve()),
+                         CCACHE_COMPILERCHECK='content', CCACHE_MAXSIZE='1G')
+        configure.append('-DCMAKE_CXX_COMPILER_LAUNCHER=' + ccache)
+        print(f'Compiler cache enabled: {cache} (limit 1G)', flush=True)
+    else:
+        print('ccache is not installed; building without compiler cache.', flush=True)
+    run(configure, env=build_env)
+    run(['cmake', '--build', release / 'backend/build', '--parallel', '2'], env=build_env)
+    if ccache:
+        run([ccache, '--show-stats'], env=build_env)
     run([release / 'backend/build/unit_tests'], cwd=release / 'backend')
     # Production already supplies Chromium; do not download a second browser.
     npm_env = {**os.environ, 'PUPPETEER_SKIP_DOWNLOAD': 'true', 'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD': '1'}

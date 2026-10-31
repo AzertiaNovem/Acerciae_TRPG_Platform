@@ -1,5 +1,8 @@
 """Exercise release failure boundaries without touching a live server or database."""
 import io
+import json
+import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -103,7 +106,7 @@ class DeploymentTests(unittest.TestCase):
             member.size = 2
             output.addfile(member, io.BytesIO(b'{}'))
         release = self.root / 'unpack'
-        with patch.object(deploy, 'run', side_effect=self.command):
+        with patch.object(deploy.shutil, 'which', return_value=None), patch.object(deploy, 'run', side_effect=self.command):
             deploy.prepare(archive, release, self.root)
         self.assertEqual(self.commands[0][0], 'cmake')
         self.assertEqual(self.commands[1][:2], ['cmake', '--build'])
@@ -112,6 +115,27 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.commands[4], ['npm', 'test'])
         self.assertEqual((self.root / 'current').resolve(), self.old)
         self.assertEqual((release / 'backend/uploads').resolve(), self.root / 'uploads')
+
+    def test_cache_shared_across_releases_without_changing_process_environment(self):
+        archive = self.root / 'source.tar.gz'
+        with tarfile.open(archive, 'w:gz') as output:
+            output.add(self.new / 'backend', arcname='backend')
+        original = os.environ.copy()
+        with patch.object(deploy.shutil, 'which', return_value='/usr/bin/ccache'), patch.object(deploy, 'run') as run:
+            for name in ('cached-a', 'cached-b'):
+                release = self.root / name
+                deploy.prepare(archive, release, self.root)
+                configure, build, stats = run.call_args_list[-6:-3]
+                self.assertIn('-DCMAKE_CXX_COMPILER_LAUNCHER=/usr/bin/ccache', configure.args[0])
+                self.assertEqual(configure.kwargs['env'], build.kwargs['env'])
+                env = build.kwargs['env']
+                self.assertEqual(env['CCACHE_DIR'], str(self.root / 'cache/ccache'))
+                self.assertEqual(env['CCACHE_BASEDIR'], str(release))
+                self.assertEqual(env['CCACHE_COMPILERCHECK'], 'content')
+                self.assertEqual(env['CCACHE_MAXSIZE'], '1G')
+                self.assertEqual(stats.args[0], ['/usr/bin/ccache', '--show-stats'])
+        self.assertEqual(os.environ.copy(), original)
+        self.assertEqual((self.root / 'current').resolve(), self.old)
 
     def test_build_failure_never_activates_or_stops_live_services(self):
         args = ['deploy.py', '--archive', str(self.root / 'source.tar.gz'),
@@ -126,6 +150,47 @@ class DeploymentTests(unittest.TestCase):
             activate.assert_not_called()
             run.assert_not_called()
         self.assertEqual((self.root / 'current').resolve(), self.old)
+
+
+@unittest.skipUnless(all(shutil.which(tool) for tool in ('ccache', 'cmake', 'ninja', 'node', 'npm')), 'compiler cache integration needs ccache, CMake, Ninja and Node')
+class CompilerCacheIntegrationTests(unittest.TestCase):
+    def test_new_release_reuses_cache_but_header_changes_recompile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / 'uploads').mkdir()
+            old = root / 'old'
+            old.mkdir()
+            (root / 'current').symlink_to(old)
+            package = {'name': 'cache-fixture', 'version': '1.0.0', 'scripts': {'test': 'node -e "process.exit(0)"'}}
+            files = {
+                'backend/CMakeLists.txt': 'cmake_minimum_required(VERSION 3.20)\nproject(cache_fixture LANGUAGES CXX)\nadd_executable(unit_tests main.cpp)\n',
+                'backend/main.cpp': '#include "value.h"\n#include <iostream>\nint main() { std::cout << VALUE << " " << __FILE__; }\n',
+                'pdf-worker/package.json': json.dumps(package),
+                'pdf-worker/package-lock.json': json.dumps({'name': 'cache-fixture', 'version': '1.0.0', 'lockfileVersion': 3, 'packages': {'': package}}),
+            }
+            stats_env = {**os.environ, 'CCACHE_DIR': str(root / 'cache/ccache')}
+            def stats():
+                text = subprocess.check_output(['ccache', '--print-stats'], env=stats_env, text=True)
+                return {key: int(value) for key, value in (line.split() for line in text.splitlines())}
+            snapshots = []
+            for name, value in [('release-a', 1), ('release-b', 1), ('release-c', 2)]:
+                archive = root / (name + '.tar.gz')
+                files['backend/value.h'] = f'#define VALUE {value}\n'
+                with tarfile.open(archive, 'w:gz') as output:
+                    for path, text in files.items():
+                        member = tarfile.TarInfo(path)
+                        data = text.encode(); member.size = len(data)
+                        output.addfile(member, io.BytesIO(data))
+                release = root / name
+                deploy.prepare(archive, release, root)
+                result = subprocess.check_output([release / 'backend/build/unit_tests'], text=True)
+                self.assertTrue(result.startswith(str(value) + ' '), result)
+                self.assertNotIn(str(root), result, 'source paths should be relative across releases')
+                snapshots.append(stats())
+            hits = lambda s: s['direct_cache_hit'] + s['preprocessed_cache_hit']
+            self.assertGreater(hits(snapshots[1]), hits(snapshots[0]), 'the second release must reuse compiled output')
+            self.assertGreater(snapshots[2]['cache_miss'], snapshots[1]['cache_miss'], 'a changed header must invalidate the cache')
+            self.assertEqual((root / 'current').resolve(), old)
 
 
 if __name__ == '__main__':
