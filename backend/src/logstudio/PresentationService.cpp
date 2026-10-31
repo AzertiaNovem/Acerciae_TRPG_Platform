@@ -91,7 +91,9 @@ Json::Value PresentationService::list(const ChannelAccess& a, const std::string&
     DbParams params{a.channelId};
     if (!projectId.empty()) { params.push_back(projectId); sql += " AND p.project_id=$2"; }
     if (!a.isGm) sql += " AND (s.scope='pl_public' OR (s.scope='character' AND s.scope_character_id = ANY(" + Visibility::uuidArray(a.characterIds) + ")))";
-    return db_.queryJson(sql + " ORDER BY p.updated_at DESC", params);
+    auto rows = db_.queryJson(sql + " ORDER BY p.updated_at DESC", params);
+    for (auto& r : rows) r["can_edit"] = canEdit(a, r);
+    return rows;
 }
 
 Json::Value PresentationService::create(const ChannelAccess& a, const std::string& snapshotId, const Json::Value& body) {
@@ -104,9 +106,6 @@ Json::Value PresentationService::create(const ChannelAccess& a, const std::strin
         auto p = Db::queryOne(w, "INSERT INTO log_presentations(project_id, snapshot_id, channel_id, title, settings, style_profile_id, created_by) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING *",
             {snap["project_id"].asString(), snapshotId, a.channelId, json::str(body, "title", json::str(snap, "title", "Presentation")), json::dump(settings), opt(json::str(body, "style_profile_id")), a.userId});
         auto pid = p["id"].asString();
-        // Character visual defaults (standee per character) for auto-placement.
-        std::map<std::string, std::string> defaultStandee;
-        for (auto& r : Db::queryJson(w, "SELECT character_id, default_asset_id FROM character_visual_profiles WHERE channel_id=$1 AND default_asset_id IS NOT NULL", {a.channelId})) defaultStandee[r["character_id"].asString()] = r["default_asset_id"].asString();
         std::string curSceneKey = "\x01"; std::string curSceneId; int scenePos = 0, pos = 0;
         std::map<std::string, std::string> sceneByKey;   // a canonical scene revisited later reuses its presentation scene
         std::vector<std::string> onStage;   // speaker character ids currently placed (max 3: left/center/right)
@@ -126,7 +125,7 @@ Json::Value PresentationService::create(const ChannelAccess& a, const std::strin
             if (!e.speakerCharacterId.empty() && (displayKind == "dialogue" || displayKind == "action")) {
                 if (std::find(onStage.begin(), onStage.end(), e.speakerCharacterId) == onStage.end()) { if (onStage.size() >= 3) onStage.erase(onStage.begin()); onStage.push_back(e.speakerCharacterId); }
                 static const char* slots2[] = {"left", "right"}; static const char* slots3[] = {"left", "center", "right"};
-                for (size_t i = 0; i < onStage.size(); ++i) { Json::Value c; c["character_id"] = onStage[i]; c["position"] = onStage.size() == 1 ? "center" : onStage.size() == 2 ? slots2[i] : slots3[i]; c["active"] = onStage[i] == e.speakerCharacterId; c["asset_id"] = defaultStandee.count(onStage[i]) ? Json::Value(defaultStandee[onStage[i]]) : Json::Value(); c["expression"] = "default"; placement.append(c); }
+                for (size_t i = 0; i < onStage.size(); ++i) { Json::Value c; c["character_id"] = onStage[i]; c["position"] = onStage.size() == 1 ? "center" : onStage.size() == 2 ? slots2[i] : slots3[i]; c["active"] = onStage[i] == e.speakerCharacterId; c["expression"] = "default"; placement.append(c); }
             }
             int est = 1200 + (int)text::words(e.content).size() * 320 + (int)e.content.size() * 20; if (est > 20000) est = 20000;
             Db::exec(w, "INSERT INTO presentation_events(presentation_id, scene_id, position, canonical_event_id, display_kind, hidden, speaker_character_id, character_asset_ids, transition, estimated_duration_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)",
@@ -164,9 +163,15 @@ Json::Value PresentationService::get(const ChannelAccess& a, const std::string& 
         if (!a.isGm) r.removeMember("ai_suggestion");
         visible.append(r);
     }
+    // Each placement shows its character's current image for its subtitle; the stored stage names no image.
+    auto images = currentStandees(a.channelId, p["snapshot_scope"].asString() == "gm_full");
+    resolveStage(visible, images);
     p["events"] = visible;
     p["can_edit"] = canEdit(a, p);
     p["character_visuals"] = db_.queryJson("SELECT cv.*, c.name, c.kind FROM character_visual_profiles cv JOIN characters c ON c.id=cv.character_id WHERE cv.channel_id=$1", {a.channelId});
+    // The subtitles each character has an image for (the editor's choices); "default" is the main portrait.
+    p["character_images"] = Json::Value(Json::objectValue);
+    for (auto& [cid, slots] : images) { Json::Value list(Json::arrayValue); for (auto& [k, img] : slots) list.append(k.empty() ? "default" : img["expression"].asString()); p["character_images"][cid] = list; }
     if (!a.isGm) limitVisuals(p);
     return p;
 }
@@ -175,8 +180,14 @@ void PresentationService::limitVisuals(Json::Value& p) {
     std::set<std::string> speakers;
     for (const auto& e : p["events"]) if (e["speaker_character_id"].isString()) speakers.insert(e["speaker_character_id"].asString());
     Json::Value kept(Json::arrayValue);
-    for (const auto& v : p["character_visuals"]) if (json::str(v, "kind") == "pc" || speakers.count(json::str(v, "character_id"))) kept.append(v);
+    std::set<std::string> shown;
+    for (const auto& v : p["character_visuals"]) if (json::str(v, "kind") == "pc" || speakers.count(json::str(v, "character_id"))) { kept.append(v); shown.insert(json::str(v, "character_id")); }
     p["character_visuals"] = kept;
+    if (p["character_images"].isObject()) {
+        Json::Value images(Json::objectValue);
+        for (const auto& cid : p["character_images"].getMemberNames()) if (shown.count(cid) || speakers.count(cid)) images[cid] = p["character_images"][cid];
+        p["character_images"] = images;
+    }
 }
 Json::Value PresentationService::update(const ChannelAccess& a, const std::string& id, const Json::Value& body) {
     auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
@@ -230,9 +241,8 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
                     stage = Json::Value(Json::arrayValue);
                     auto speaker = json::str(l, "speaker_character_id", ev["speaker_character_id"].isNull() ? "" : ev["speaker_character_id"].asString());
                     for (const auto& c : l["stage"]) {
-                        Json::Value x; x["character_id"] = c["character_id"]; x["position"] = c["position"]; x["expression"] = c["expression"]; x["active"] = c["character_id"].asString() == speaker;
-                        auto st = asset(c["asset_id"], {"standee", "portrait"});   // the main portrait is the default image
-                        x["asset_id"] = st.isNull() ? Json::Value() : st["id"]; x["asset_version"] = st.isNull() ? Json::Value() : st["version"];
+                        auto x = placement(c); if (x.isNull()) continue;
+                        x["active"] = c["character_id"].asString() == speaker;
                         stage.append(x);
                     }
                 }
@@ -260,46 +270,60 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
 }
 std::map<std::string, std::map<std::string, Json::Value>> PresentationService::currentStandees(const std::string& channelId, bool gmOnly) {
     std::map<std::string, std::map<std::string, Json::Value>> out;
-    std::map<std::string, std::pair<std::string, std::string>> poseOf;   // asset id → (character, subtitle) from the character space
+    // Every usable character image of the channel, newest first.
+    std::map<std::string, Json::Value> usable; std::vector<std::string> newest;
+    for (auto& r : db_.queryJson("SELECT id, version, asset_type, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type IN ('standee','portrait') AND NOT (source_reference ? 'superseded_by') ORDER BY updated_at DESC, created_at DESC", {channelId})) {
+        if (!gmOnly && r["visibility_scope"].asString() == "gm") continue;
+        auto id = r["id"].asString(); newest.push_back(id); usable[id] = r;
+    }
+    auto image = [&](const std::string& id, const std::string& expression) { Json::Value v; v["id"] = id; v["version"] = usable[id]["version"]; v["expression"] = expression; return v; };
+    // The character space first: its main portrait is the default, its poses are filed under their subtitles.
     for (auto& r : db_.queryJson("SELECT c.id, c.portrait_asset_id, cv.default_asset_id, cv.expressions FROM characters c LEFT JOIN character_visual_profiles cv ON cv.character_id=c.id WHERE c.channel_id=$1", {channelId})) {
         auto cid = r["id"].asString();
-        if (r["expressions"].isObject()) for (auto& k : r["expressions"].getMemberNames()) if (r["expressions"][k].isString()) poseOf[r["expressions"][k].asString()] = {cid, k};
         auto def = r["default_asset_id"].isString() ? r["default_asset_id"].asString() : r["portrait_asset_id"].isString() ? r["portrait_asset_id"].asString() : "";
-        if (def.empty()) continue;
-        auto d = db_.queryOne("SELECT id, version, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2 AND approval_status='approved' AND asset_type IN ('standee','portrait')", {def, channelId});
-        if (!d.isNull() && (gmOnly || d["visibility_scope"].asString() != "gm")) { d["expression"] = "default"; out[cid][""] = d; }
+        if (!def.empty() && usable.count(def)) out[cid][""] = image(def, "default");
+        if (r["expressions"].isObject()) for (auto& k : r["expressions"].getMemberNames()) {
+            auto id = r["expressions"][k].isString() ? r["expressions"][k].asString() : "";
+            if (!text::trim(k).empty() && usable.count(id)) out[cid][text::lower(text::trim(k))] = image(id, text::trim(k));
+        }
     }
-    for (auto& r : db_.queryJson("SELECT id, version, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type='standee' ORDER BY updated_at DESC", {channelId})) {
-        if (!gmOnly && r["visibility_scope"].asString() == "gm") continue;
-        auto cid = r["character_id"].isString() ? r["character_id"].asString() : ""; auto expr = r["expression"].asString();
-        auto pose = poseOf.find(r["id"].asString());
-        if (pose != poseOf.end()) { cid = pose->second.first; expr = pose->second.second; }   // filed under its subtitle
-        if (cid.empty() || text::trim(expr).empty()) continue;
-        auto& slot = out[cid][text::lower(expr)];
-        if (slot.isNull()) { r["expression"] = expr; slot = r; }   // newest first
+    // Library standees filed under a character and subtitle fill what the character space leaves open.
+    for (auto& id : newest) {
+        auto& r = usable[id];
+        if (r["asset_type"].asString() != "standee" || !r["character_id"].isString()) continue;
+        auto expr = text::trim(r["expression"].asString()); auto key = text::lower(expr);
+        if (expr.empty() || key == "default") continue;
+        auto& slots = out[r["character_id"].asString()];
+        if (!slots.count(key)) slots[key] = image(id, expr);
     }
     return out;
 }
-Json::Value PresentationService::refreshStandees(const ChannelAccess& a, const std::string& id) {
-    auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
-    auto current = currentStandees(a.channelId, p["snapshot_scope"].asString() == "gm_full");
-    int changed = 0;
-    for (auto& ev : db_.queryJson("SELECT id, character_asset_ids FROM presentation_events WHERE presentation_id=$1 AND jsonb_array_length(character_asset_ids) > 0", {id})) {
-        Json::Value stage = ev["character_asset_ids"]; bool touched = false;
-        for (auto& pl : stage) {
-            auto c = current.find(json::str(pl, "character_id"));
-            if (c == current.end()) continue;
-            auto expr = text::lower(json::str(pl, "expression"));
-            auto img = c->second.find(expr == "default" ? "" : expr);
+void PresentationService::resolveStage(Json::Value& events, const std::map<std::string, std::map<std::string, Json::Value>>& images) {
+    for (auto& e : events) {
+        if (!e["character_asset_ids"].isArray()) continue;
+        for (auto& pl : e["character_asset_ids"]) {
+            pl["asset_id"] = Json::Value(); pl["asset_version"] = Json::Value();
+            auto c = images.find(json::str(pl, "character_id"));
+            if (c == images.end()) continue;
+            auto key = text::lower(text::trim(json::str(pl, "expression")));
+            auto img = c->second.find(key == "default" ? "" : key);
             if (img == c->second.end()) img = c->second.find("");
             if (img == c->second.end()) continue;
-            if (json::str(pl, "asset_id") == img->second["id"].asString() && json::toInt(pl, "asset_version", 0) == img->second["version"].asInt()) continue;
-            pl["asset_id"] = img->second["id"]; pl["asset_version"] = img->second["version"]; touched = true; ++changed;
+            pl["asset_id"] = img->second["id"]; pl["asset_version"] = img->second["version"];
         }
-        if (touched) db_.exec("UPDATE presentation_events SET character_asset_ids=$2::jsonb, updated_at=now() WHERE id=$1", {ev["id"].asString(), json::dump(stage)});
     }
-    if (changed) touch(id, a.channelId, "art");
-    Json::Value v; v["changed"] = changed; return v;
+}
+Json::Value PresentationService::placement(const Json::Value& in) {
+    auto cid = json::str(in, "character_id");
+    if (!Visibility::isUuid(cid)) return Json::Value();
+    static const std::set<std::string> positions = {"left", "center", "right"};
+    Json::Value x; x["character_id"] = cid;
+    auto pos = json::str(in, "position", "center"); x["position"] = positions.count(pos) ? pos : "center";
+    auto expr = text::utf8Prefix(text::trim(json::str(in, "expression")), 32); x["expression"] = expr.empty() ? "default" : expr;
+    if (in.isMember("active")) x["active"] = json::toBool(in, "active");
+    if (in["scale"].isNumeric()) x["scale"] = std::min(2.0, std::max(0.3, in["scale"].asDouble()));
+    if (in.isMember("flip")) x["flip"] = json::toBool(in, "flip");
+    return x;
 }
 Json::Value PresentationService::applyCast(const ChannelAccess& a, const std::string& id, const Json::Value& castIn) {
     auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
@@ -353,7 +377,8 @@ Json::Value PresentationService::updateEvent(const ChannelAccess& a, const std::
     static const std::set<std::string> kinds = {"dialogue","narration","action","ooc","dice","scene_change","system","media"};
     auto kind = json::str(body, "display_kind", e["display_kind"].asString()); if (!kinds.count(kind)) throw badRequest("invalid display_kind");
     Json::Value assets = body.isMember("character_asset_ids") && body["character_asset_ids"].isArray() ? body["character_asset_ids"] : e["character_asset_ids"];
-    for (auto& c : assets) if (c.isMember("asset_id") && c["asset_id"].isString() && !c["asset_id"].asString().empty()) { auto as = db_.queryOne("SELECT version, approval_status, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2", {c["asset_id"].asString(), a.channelId}); if (as.isNull()) throw badRequest("standee asset not found"); if (as["approval_status"].asString() != "approved") throw badRequest("asset is not approved yet"); if(p["snapshot_scope"]!="gm_full"&&as["visibility_scope"]=="gm")throw forbidden("private image requires a GM presentation"); c["asset_version"] = as["version"]; }
+    // A placement names a character and a subtitle; the image is looked up when the presentation is read.
+    { Json::Value stage(Json::arrayValue); for (const auto& c : assets) { auto x = placement(c); if (x.isNull()) continue; if (db_.queryOne("SELECT 1 AS ok FROM characters WHERE id=$1 AND channel_id=$2", {x["character_id"].asString(), a.channelId}).isNull()) throw badRequest("character not in channel"); stage.append(x); } assets = stage; }
     // tts_text is the separately stored speech adaptation; it never replaces display text.
     bool clearAudio = body.isMember("tts_text") || body.isMember("voice_profile_id") || body.isMember("style_instruction") || body.isMember("script_text");
     // script_text: the presentation's wording of the line (null or "" = the log's own words).

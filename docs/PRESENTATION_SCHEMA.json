@@ -238,18 +238,21 @@
             "type": "array",
             "items": {
               "type": "object",
+              "description": "A placement names a character and a subtitle (expression), never an image. Reads add asset_id/asset_version: the character's current image for that subtitle, else its main portrait.",
               "required": [
-                "asset_id"
+                "character_id"
               ],
               "properties": {
                 "character_id": {
                   "type": "string"
                 },
                 "asset_id": {
-                  "type": "string"
+                  "type": ["string", "null"],
+                  "readOnly": true
                 },
                 "asset_version": {
-                  "type": "integer"
+                  "type": ["integer", "null"],
+                  "readOnly": true
                 },
                 "position": {
                   "type": "string"

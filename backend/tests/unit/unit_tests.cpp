@@ -477,11 +477,11 @@ int main() {
         CHECK(lib["lines"][1]["hidden"].asBool()); CHECK(lib["lines"][1]["exclusion_reason"] == "out-of-character");
         CHECK(!lib["lines"][2]["hidden"].asBool()); CHECK(!lib["lines"][2].isMember("display_kind"));
         CHECK(lib["lines"][2]["stage"][0]["character_id"] == "c1");           // stage carries forward
-        CHECK(lib["lines"][0]["stage"][0]["asset_id"] == "std-ada");           // default standee
+        CHECK(lib["lines"][0]["stage"][0]["expression"] == "calm"); CHECK(!lib["lines"][0]["stage"][0].isMember("asset_id"));   // a stage names subtitles, not images
         // L4 was excluded without a reason, so it stays visible next to its neighbour.
         CHECK(dock["lines"].size() == 2); CHECK(dock["lines"][1]["event_id"] == "e4"); CHECK(!dock["lines"][1]["hidden"].asBool());
         CHECK(dock["background_asset_id"].isNull()); CHECK(dock["background_brief"] == "foggy pier"); CHECK(dock["environment"] == "fog");
-        CHECK(dock["lines"][0]["stage"].size() == 1); CHECK(dock["lines"][0]["stage"][0]["asset_id"] == "std-mo-fear"); CHECK(dock["lines"][0]["delivery"] == "hushed");
+        CHECK(dock["lines"][0]["stage"].size() == 1); CHECK(dock["lines"][0]["stage"][0]["expression"] == "afraid"); CHECK(dock["lines"][0]["delivery"] == "hushed");
         CHECK(script["stats"]["hidden"] == 1); CHECK(script["stats"]["shown"] == 4);
         // Mock: parallel windows become separate scenes; OOC is excluded with a reason.
         auto mock = VnScriptService::normalize(in, {VnScriptService::mockPlan(in)}, "mock");
@@ -533,8 +533,8 @@ int main() {
         CHECK(script["scenes"].size() == 1); CHECK(script["scenes"][0]["title"] == "Harbour"); CHECK(script["scenes"][0]["background_asset_id"].isNull());
         CHECK(script["scenes"][0]["lines"].size() == 6); CHECK(script["scenes"][0]["lines"][2]["hidden"].asBool());
         CHECK(script["scenes"][0]["lines"][4]["stage"].size() == 2);   // Mo stays beside Ada
-        CHECK(script["scenes"][0]["lines"][4]["stage"][1]["asset_id"] == "std-ada-idle");   // Ada's IDLE art is already there
-        CHECK(script["scenes"][0]["lines"][5]["stage"][1]["expression"] == "SAY"); CHECK(script["scenes"][0]["lines"][5]["stage"][1]["asset_id"] == "std-ada-idle");   // stand-in until SAY art lands
+        CHECK(script["scenes"][0]["lines"][4]["stage"][1]["expression"] == "IDLE");   // Ada's IDLE art is already there
+        CHECK(script["scenes"][0]["lines"][5]["stage"][1]["expression"] == "SAY"); CHECK(!script["scenes"][0]["lines"][5]["stage"][1].isMember("asset_id"));   // the default shows until SAY art lands
         CHECK(script["asset_needs"].size() == 2); CHECK(script["asset_needs"][0]["kind"] == "standee"); CHECK(script["asset_needs"][0]["subtitle"] == "SAY");
         CHECK(script["asset_needs"][1]["kind"] == "background"); CHECK(script["asset_needs"][1]["name"] == "Harbour"); CHECK(script["asset_needs"][1]["scene_key"] == "harbour");
         // A model answer: a background change opens a new scene; an uploaded-mode portrait request is refused; copied text resolves to its line.

@@ -444,21 +444,9 @@ Json::Value VnScriptService::fromFlat(const ScriptInputs &in, const std::vector<
 Json::Value VnScriptService::normalize(const ScriptInputs &in, const std::vector<Json::Value> &plans, const std::string &provider) {
   const size_t n = in.events.size();
   std::map<std::string, std::string> castByRef;              // ref → character id
-  std::map<std::string, std::string> defaultStandee;         // character id → asset id
-  for (const auto &c : in.cast) {
-    castByRef[c["ref"].asString()] = c["character_id"].asString();
-    if (c["default_asset_id"].isString()) defaultStandee[c["character_id"].asString()] = c["default_asset_id"].asString();
-  }
+  for (const auto &c : in.cast) castByRef[c["ref"].asString()] = c["character_id"].asString();
   std::map<std::string, Json::Value> assetByRef;
   for (const auto &a : in.assets) assetByRef[a["ref"].asString()] = a;
-  auto standeeFor = [&](const std::string &cid, const std::string &expr) -> Json::Value {
-    for (const auto &a : in.assets)
-      if (a["type"] == "standee" && a["character_id"].asString() == cid && !expr.empty() && text::lower(a["expression"].asString()) == text::lower(expr)) return a["id"];
-    if (defaultStandee.count(cid)) return defaultStandee[cid];
-    for (const auto &a : in.assets)
-      if (a["type"] == "standee" && a["character_id"].asString() == cid) return a["id"];
-    return Json::Value();
-  };
 
   struct Scene { Json::Value meta; std::vector<size_t> lines; };
   std::vector<Scene> scenes;
@@ -523,8 +511,7 @@ Json::Value VnScriptService::normalize(const ScriptInputs &in, const std::vector
               c["character_id"] = cid;
               c["position"] = ps;
               auto expr = clip(json::str(st, "expr", "default"), 32);
-              c["expression"] = expr.empty() ? "default" : expr;
-              c["asset_id"] = standeeFor(cid, expr);
+              c["expression"] = expr.empty() ? "default" : expr;   // the stage names the subtitle; its current image shows
               stage.append(c);
             }
             p["stage"] = stage;

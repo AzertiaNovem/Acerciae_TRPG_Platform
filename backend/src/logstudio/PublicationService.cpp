@@ -427,6 +427,8 @@ Json::Value PublicationService::revoke(const ChannelAccess &a,
   if (r.isNull())
     throw notFound("publication not found");
   logs_.audit(a, "publication.revoke", r);
+  // Character images replaced while this publication still showed them can go now.
+  try { media_.purgeSuperseded(a.channelId); } catch (const std::exception &e) { ALOG_WARN << "superseded images: " << e.what(); }
   return r;
 }
 std::string PublicationService::sharedFile(const std::string &token,
@@ -595,6 +597,14 @@ bool PublicationService::bundleDownload(const ChannelAccess &a, const std::strin
   if (!data) return false;
   bytes = std::move(*data);
   return true;
+}
+Json::Value PublicationService::deletePresentation(const ChannelAccess &a, const std::string &presentationId) {
+  auto keys = db_.queryJson("SELECT object_key FROM vn_bundle_jobs WHERE presentation_id=$1 AND channel_id=$2 AND object_key IS NOT NULL", {presentationId, a.channelId});
+  auto out = pres_.remove(a, presentationId);   // checks the right to edit it; the bundle rows go with it
+  int files = 0;
+  for (const auto &k : keys) { try { store_.remove(k["object_key"].asString()); ++files; } catch (const std::exception &e) { ALOG_WARN << "visual-novel bundle cleanup: " << e.what(); } }
+  out["bundles_removed"] = files;
+  return out;
 }
 int PublicationService::expireBundles() {
   int deleted = 0;

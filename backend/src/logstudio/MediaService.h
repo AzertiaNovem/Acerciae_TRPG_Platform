@@ -26,6 +26,13 @@ public:
     Json::Value storeInternal(const std::string& channelId, const std::string& assetType, const std::string& sourceType, const std::string& bytes, const std::string& mime, const Json::Value& meta);
     static std::string sniffMime(const std::string& bytes, const std::string& fileName);
     static bool allowedMime(const std::string& mime, const std::string& assetType);
+    // One image per character and slot ("avatar", "portrait" or a subtitle such as SAY): the new asset takes the slot
+    // and every older image of that slot (the one it held, library images filed under it) is deleted with its stored
+    // files. An image a live publication still shows is kept, marked superseded, until that publication is revoked.
+    // Returns how many images were deleted.
+    int adoptCharacterImage(const std::string& channelId, const std::string& characterId, const std::string& slot, const std::string& subtitle, const std::string& assetId);
+    // Deletes superseded images no live publication shows any more.
+    int purgeSuperseded(const std::string& channelId);
     ObjectStore& store() { return store_; }
     static void probeDimensions(const std::string& bytes, const std::string& mime, int& w, int& h);
 private:

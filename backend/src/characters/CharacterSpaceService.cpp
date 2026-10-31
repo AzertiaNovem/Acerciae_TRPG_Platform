@@ -177,14 +177,19 @@ Json::Value CharacterSpaceService::updateAppearance(const ChannelAccess& a, cons
 }
 
 void CharacterSpaceService::attach(const std::string& channelId, const std::string& characterId, const std::string& slot, const std::string& subtitle, const std::string& assetId) {
-    if (slot == "avatar") db_.exec("UPDATE characters SET avatar_asset_id=$2, updated_at=now() WHERE id=$1", {characterId, assetId});
-    else if (slot == "portrait") {
-        db_.exec("UPDATE characters SET portrait_asset_id=$2, updated_at=now() WHERE id=$1", {characterId, assetId});
-        db_.exec("INSERT INTO character_visual_profiles(character_id, channel_id, default_asset_id) VALUES($1,$2,$3) ON CONFLICT (character_id) DO UPDATE SET default_asset_id=$3, version=character_visual_profiles.version+1, updated_at=now()", {characterId, channelId, assetId});
-    } else {
-        Json::Value e(Json::objectValue); e[subtitle] = assetId;
-        db_.exec("INSERT INTO character_visual_profiles(character_id, channel_id, expressions) VALUES($1,$2,$3::jsonb) ON CONFLICT (character_id) DO UPDATE SET expressions=character_visual_profiles.expressions || $3::jsonb, version=character_visual_profiles.version+1, updated_at=now()", {characterId, channelId, json::dump(e)});
-    }
+    media_.adoptCharacterImage(channelId, characterId, slot, subtitle, assetId);   // the older image of the slot is deleted
+}
+
+void CharacterSpaceService::adoptLibraryUpload(const ChannelAccess& a, const Json::Value& asset) {
+    auto cid = json::str(asset, "character_id"), type = json::str(asset, "asset_type");
+    if (cid.empty() || (type != "standee" && type != "portrait") || json::str(asset, "approval_status") != "approved") return;
+    auto c = db_.queryOne("SELECT user_id FROM characters WHERE id=$1 AND channel_id=$2", {cid, a.channelId});
+    if (c.isNull() || !(a.isGm || json::str(c, "user_id") == a.userId)) return;
+    auto expr = text::lower(text::trim(json::str(asset, "expression")));
+    if (expr == "avatar" || (type == "portrait" && (expr.empty() || expr == "portrait" || expr == "default"))) attach(a.channelId, cid, expr == "avatar" ? "avatar" : "portrait", "", asset["id"].asString());
+    else if (auto sub = normalizeSubtitle(expr); !sub.empty() && expr != "default") attach(a.channelId, cid, "subtitle", sub, asset["id"].asString());
+    else return;
+    notifier_.characterUpdated(a.channelId, db_.queryOne("SELECT * FROM characters WHERE id=$1", {cid}));
 }
 
 Json::Value CharacterSpaceService::uploadAsset(const ChannelAccess& a, const std::string& characterId, const std::string& slotIn, const std::string& subtitleIn, const std::string& fileName, const std::string& bytes) {

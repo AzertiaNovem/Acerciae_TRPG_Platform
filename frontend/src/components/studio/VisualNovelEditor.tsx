@@ -43,13 +43,23 @@ export default function VisualNovelEditor() {
     let list = [...(e.character_asset_ids ?? [])];
     if (patch === null) list = list.filter((p) => p.character_id !== charId);
     else { const i = list.findIndex((p) => p.character_id === charId); if (i >= 0) list[i] = { ...list[i], ...patch }; else list.push({ character_id: charId, position: 'center', ...patch }); }
-    await patchEvent(e, { character_asset_ids: list });
+    // A placement names the character and subtitle; the server shows that subtitle's current image.
+    await patchEvent(e, { character_asset_ids: list.map(({ asset_id: _a, asset_version: _v, ...rest }) => rest) });
   };
   const split = async (e: PresentationEvent) => { const text = e.display_text; const at = prompt(tr('Split after how many characters? (1–{max})', { max: [...text].length - 1 }), String(Math.floor([...text].length / 2))); if (!at) return; const n = +at; const bytes = new TextEncoder().encode([...text].slice(0, n).join('')).length; if (!channelId || !pres) return; try { await api.splitPEvent(channelId, e.id, [bytes]); await loadPres(pres.id); } catch (err: any) { toast(err.message, 'error'); } };
   const merge = async () => { if (!channelId || !pres || selected.length < 2) return; try { await api.mergePEvents(channelId, pres.id, selected); setSelected([]); await loadPres(pres.id); } catch (err: any) { toast(err.message, 'error'); } };
   const scene = cur?.scene_id ? pres?.scenes?.find((s) => s.id === cur.scene_id) : undefined;
   const bgAssets = assets.filter((a) => a.asset_type === 'background' && a.approval_status === 'approved');
-  const standees = (cid: string) => assets.filter((a) => a.asset_type === 'standee' && a.character_id === cid && a.approval_status === 'approved');
+  // The subtitles a character has an image for; a placement may also name one that has none yet (the default shows).
+  const subtitles = (p: CharacterPlacement) => {
+    const have = (pres?.character_images?.[p.character_id] ?? []).filter((s) => s.toLowerCase() !== 'default');
+    const cur = p.expression && p.expression.toLowerCase() !== 'default' && !have.some((s) => s.toLowerCase() === p.expression!.toLowerCase()) ? [p.expression] : [];
+    return { have, missing: cur };
+  };
+  const removePres = async (id: string) => {
+    if (!channelId || !confirm(tr('Delete this visual novel? The backgrounds, character images and voice lines it used stay in the library for reuse.'))) return;
+    try { await api.deletePresentation(channelId, id); if (pres?.id === id) setPresentation(null); loadList(); } catch (e: any) { toast(e.message, 'error'); }
+  };
   const bgmAssets = assets.filter((a) => (a.asset_type === 'bgm' || a.asset_type === 'audio') && a.approval_status === 'approved');
 
   if (!pres) {
@@ -60,7 +70,7 @@ export default function VisualNovelEditor() {
           <div className="card">
             <h3>{tr("Drafts")}</h3>
             <div className="tiny muted">{tr("Open a draft in the advanced editor to adjust scenes, staging, art and timing line by line. The campaign log itself is never modified from here.")}</div>
-            <table className="simple" style={{ marginTop: 8 }}><tbody>{list.map((p) => <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setPresentation(p.id)}><td><b>{p.title}</b><div className="tiny muted">{p.snapshot_scope} · {p.line_count}{tr(" lines · ")}{p.voiced_count}{tr(" voiced · v")}{p.version}</div></td><td><button className="small">{tr("open")}</button></td></tr>)}</tbody></table>
+            <table className="simple" style={{ marginTop: 8 }}><tbody>{list.map((p) => <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setPresentation(p.id)}><td><b>{p.title}</b><div className="tiny muted">{p.snapshot_scope} · {p.line_count}{tr(" lines · ")}{p.voiced_count}{tr(" voiced · v")}{p.version}</div></td><td><button className="small">{tr("open")}</button>{p.can_edit !== false && <button className="ghost small" onClick={(ev) => { ev.stopPropagation(); removePres(p.id); }}>{tr("delete")}</button>}</td></tr>)}</tbody></table>
           </div>
         )}
       </div>
@@ -83,9 +93,8 @@ export default function VisualNovelEditor() {
         <label className="tiny">{tr("typewriter ")}<input type="number" min={5} max={120} value={pres.settings?.typewriter_cps ?? 28} onChange={(e) => setPres({ ...pres, settings: { ...pres.settings, typewriter_cps: +e.target.value } })} onBlur={() => channelId && api.updatePresentation(channelId, pres.id, { settings: { typewriter_cps: pres.settings?.typewriter_cps } })} style={{ width: 60 }} disabled={!canEdit} />{tr(" cps")}</label>
         <span className="grow" />
         <button className="primary small" onClick={() => setPlayerMode(true)}>{tr("▶ Play")}</button>
-        {canEdit && <button className="ghost small" title={tr("Replace every character image with the character's current one (for images updated after this visual novel was made)")} onClick={async () => { if (!channelId) return; try { const r = await api.refreshStandees(channelId, pres.id); toast(r.changed ? tr('{n} character images updated', { n: r.changed }) : tr('Character images are already current')); await loadPres(pres.id); } catch (e: any) { toast(e.message, 'error'); } }}>{tr("Use current character images")}</button>}
         <BundleDownload channelId={channelId!} presentationId={pres.id} />
-        {canEdit && <button className="ghost small" onClick={async () => { if (!channelId || !confirm(tr('Delete this presentation?'))) return; await api.deletePresentation(channelId, pres.id); setPresentation(null); loadList(); }}>{tr("delete")}</button>}
+        {canEdit && <button className="ghost small" onClick={() => removePres(pres.id)}>{tr("delete")}</button>}
       </div>
       <div className="vn-editor">
         <div className="card list">
@@ -139,7 +148,7 @@ export default function VisualNovelEditor() {
                 <div key={p.character_id} className="row tiny" style={{ flexWrap: 'wrap' }}>
                   <span style={{ minWidth: 80 }}>{names[p.character_id] ?? '?'}</span>
                   <select value={p.position} onChange={(e) => setPlacement(cur, p.character_id, { position: e.target.value })} disabled={!canEdit}><option value="left">{tr("left")}</option><option value="center">{tr("center")}</option><option value="right">{tr("right")}</option></select>
-                  <select value={p.asset_id ?? ''} onChange={(e) => setPlacement(cur, p.character_id, { asset_id: e.target.value || null })} disabled={!canEdit}><option value="">{tr("no standee")}</option>{standees(p.character_id).map((a) => <option key={a.id} value={a.id}>{a.name}{a.expression ? ` (${a.expression})` : ''}</option>)}</select>
+                  <select value={!p.expression || p.expression.toLowerCase() === 'default' ? 'default' : (subtitles(p).have.find((s) => s.toLowerCase() === p.expression!.toLowerCase()) ?? p.expression)} onChange={(e) => setPlacement(cur, p.character_id, { expression: e.target.value })} disabled={!canEdit} title={tr("Shows the character's current image for this subtitle")}><option value="default">{tr("default (main portrait)")}</option>{subtitles(p).have.map((s) => <option key={s} value={s}>{s}</option>)}{subtitles(p).missing.map((s) => <option key={s} value={s}>{tr("{subtitle} (no image yet)", { subtitle: s })}</option>)}</select>
                   <label><input type="checkbox" checked={!!p.flip} onChange={(e) => setPlacement(cur, p.character_id, { flip: e.target.checked })} disabled={!canEdit} />{tr(" flip")}</label>
                   <button className="ghost small" onClick={() => setPlacement(cur, p.character_id, null)} disabled={!canEdit}>✕</button>
                 </div>

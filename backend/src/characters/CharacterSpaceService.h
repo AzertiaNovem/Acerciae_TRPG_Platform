@@ -28,6 +28,9 @@ public:
     // Queues image jobs for the requested slots and subtitles (generated mode only).
     Json::Value generate(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);
     Json::Value removeAsset(const ChannelAccess& a, const std::string& characterId, const std::string& assetId);
+    // A library upload of a character's standee or portrait with a subtitle, by the Keeper or the character's actor,
+    // becomes that character's image for the subtitle (the older one is deleted). Anyone else's stays a library image.
+    void adoptLibraryUpload(const ChannelAccess& a, const Json::Value& asset);
 
     // The COC7 role card, bounded and typed; unknown keys are dropped.
     static Json::Value normalizeRoleCard(const Json::Value& card);
