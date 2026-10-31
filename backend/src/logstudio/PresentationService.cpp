@@ -137,7 +137,7 @@ Json::Value PresentationService::create(const ChannelAccess& a, const std::strin
     return get(a, pres["id"].asString());
 }
 
-static const std::string PE_COLS = "pe.id, pe.scene_id, pe.position, pe.canonical_event_id, pe.merged_event_ids, pe.segment_index, pe.segment_text, pe.display_kind, pe.hidden, pe.speaker_character_id, pe.speaker_name_override, pe.tts_text, pe.character_asset_ids, pe.expression_ids, pe.dialogue_style, pe.voice_profile_id, pe.audio_asset_id, pe.style_instruction, pe.transition, pe.effect, pe.estimated_duration_ms, pe.actual_audio_duration_ms, pe.ai_suggestion, "
+static const std::string PE_COLS = "pe.id, pe.scene_id, pe.position, pe.canonical_event_id, pe.merged_event_ids, pe.segment_index, pe.segment_text, pe.script_text, pe.display_kind, pe.hidden, pe.speaker_character_id, pe.speaker_name_override, pe.tts_text, pe.character_asset_ids, pe.expression_ids, pe.dialogue_style, pe.voice_profile_id, pe.audio_asset_id, pe.style_instruction, pe.transition, pe.effect, pe.estimated_duration_ms, pe.actual_audio_duration_ms, pe.ai_suggestion, "
     "le.content, le.event_type, le.speaker_display_name, le.speaker_role, le.visibility_scope, le.audience, le.dice, le.media, le.sequence_number, "
     "ta.duration_ms AS audio_duration_ms, ta.word_timestamps, ta.is_mock AS audio_is_mock, ta.mime AS audio_mime, c.name AS character_name";
 
@@ -158,6 +158,8 @@ Json::Value PresentationService::get(const ChannelAccess& a, const std::string& 
             std::string joined; bool all=true; for(const auto& id:ids){auto part=frozen.find(id);if(part==frozen.end()){all=false;break;}joined+=(joined.empty()?"":"\n")+part->second.content;} if(!all) {r["audio_asset_id"]=Json::Value();continue;}
             r["display_text"] = joined;
         }
+        // The script's own wording (the composer's or an editor's); the log and the raw view keep the original.
+        if (r["script_text"].isString() && !r["script_text"].asString().empty()) r["display_text"] = r["script_text"];
         if (!a.isGm) r.removeMember("ai_suggestion");
         visible.append(r);
     }
@@ -237,8 +239,10 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
                 auto speakerId = json::str(l, "speaker_character_id");
                 if (!speakerId.empty() && Db::queryOne(w, "SELECT 1 AS ok FROM characters WHERE id=$1 AND channel_id=$2", {speakerId, a.channelId}).isNull()) speakerId.clear();
                 auto effect = json::str(l, "effect", "none"); if (!effects.count(effect)) effect = "none";
-                Db::exec(w, "UPDATE presentation_events SET scene_id=$2, position=$3, display_kind=$4, hidden=$5, speaker_character_id=COALESCE($6::uuid, speaker_character_id), character_asset_ids=$7::jsonb, effect=$8, style_instruction=$9, transition=$10, updated_at=now() WHERE id=$1",
-                    {ev["id"].asString(), sceneId, (int64_t)pos++, kind, json::toBool(l, "hidden"), speakerId.empty() ? dbNull() : DbParam(speakerId), json::dump(stage), effect, json::str(l, "delivery").substr(0, 400), first ? "fade" : (kind == "scene_change" ? "fade" : "none")});
+                auto wording = json::str(l, "text").substr(0, 4000);
+                Db::exec(w, "UPDATE presentation_events SET scene_id=$2, position=$3, display_kind=$4, hidden=$5, speaker_character_id=COALESCE($6::uuid, speaker_character_id), character_asset_ids=$7::jsonb, effect=$8, style_instruction=$9, transition=$10, "
+                            "script_text=$11, audio_asset_id = CASE WHEN script_text IS DISTINCT FROM $11 THEN NULL ELSE audio_asset_id END, updated_at=now() WHERE id=$1",
+                    {ev["id"].asString(), sceneId, (int64_t)pos++, kind, json::toBool(l, "hidden"), speakerId.empty() ? dbNull() : DbParam(speakerId), json::dump(stage), effect, json::str(l, "delivery").substr(0, 400), first ? "fade" : (kind == "scene_change" ? "fade" : "none"), wording.empty() ? dbNull() : DbParam(wording)});
                 first = false;
             }
         }
@@ -307,11 +311,13 @@ Json::Value PresentationService::updateEvent(const ChannelAccess& a, const std::
     Json::Value assets = body.isMember("character_asset_ids") && body["character_asset_ids"].isArray() ? body["character_asset_ids"] : e["character_asset_ids"];
     for (auto& c : assets) if (c.isMember("asset_id") && c["asset_id"].isString() && !c["asset_id"].asString().empty()) { auto as = db_.queryOne("SELECT version, approval_status, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2", {c["asset_id"].asString(), a.channelId}); if (as.isNull()) throw badRequest("standee asset not found"); if (as["approval_status"].asString() != "approved") throw badRequest("asset is not approved yet"); if(p["snapshot_scope"]!="gm_full"&&as["visibility_scope"]=="gm")throw forbidden("private image requires a GM presentation"); c["asset_version"] = as["version"]; }
     // tts_text is the separately stored speech adaptation; it never replaces display text.
-    bool clearAudio = body.isMember("tts_text") || body.isMember("voice_profile_id") || body.isMember("style_instruction");
-    auto out = db_.queryOne("UPDATE presentation_events SET display_kind=$2, hidden=$3, speaker_character_id=$4, speaker_name_override=$5, tts_text=$6, character_asset_ids=$7::jsonb, expression_ids=$8::jsonb, dialogue_style=$9::jsonb, voice_profile_id=$10, style_instruction=$11, transition=$12, effect=$13, scene_id=$14, audio_asset_id = CASE WHEN $15 THEN NULL ELSE audio_asset_id END, actual_audio_duration_ms = CASE WHEN $15 THEN NULL ELSE actual_audio_duration_ms END, updated_at=now() WHERE id=$1 RETURNING *",
+    bool clearAudio = body.isMember("tts_text") || body.isMember("voice_profile_id") || body.isMember("style_instruction") || body.isMember("script_text");
+    // script_text: the presentation's wording of the line (null or "" = the log's own words).
+    auto scriptText = body.isMember("script_text") ? json::str(body, "script_text").substr(0, 4000) : json::str(e, "script_text");
+    auto out = db_.queryOne("UPDATE presentation_events SET display_kind=$2, hidden=$3, speaker_character_id=$4, speaker_name_override=$5, tts_text=$6, character_asset_ids=$7::jsonb, expression_ids=$8::jsonb, dialogue_style=$9::jsonb, voice_profile_id=$10, style_instruction=$11, transition=$12, effect=$13, scene_id=$14, audio_asset_id = CASE WHEN $15 THEN NULL ELSE audio_asset_id END, actual_audio_duration_ms = CASE WHEN $15 THEN NULL ELSE actual_audio_duration_ms END, script_text=$16, updated_at=now() WHERE id=$1 RETURNING *",
         {eventId, kind, json::toBool(body, "hidden", e["hidden"].asBool()), opt(json::str(body, "speaker_character_id", e["speaker_character_id"].isNull() ? "" : e["speaker_character_id"].asString())), opt(json::str(body, "speaker_name_override", e["speaker_name_override"].isNull() ? "" : e["speaker_name_override"].asString())),
          body.isMember("tts_text") ? opt(json::str(body, "tts_text")) : (e["tts_text"].isNull() ? dbNull() : DbParam(e["tts_text"].asString())), json::dump(assets), json::dump(body.isMember("expression_ids") ? body["expression_ids"] : e["expression_ids"]), json::dump(body.isMember("dialogue_style") ? body["dialogue_style"] : e["dialogue_style"]),
-         opt(json::str(body, "voice_profile_id", e["voice_profile_id"].isNull() ? "" : e["voice_profile_id"].asString())), json::str(body, "style_instruction", e["style_instruction"].asString()), json::str(body, "transition", e["transition"].asString()), json::str(body, "effect", e["effect"].asString()), opt(json::str(body, "scene_id", e["scene_id"].isNull() ? "" : e["scene_id"].asString())), clearAudio});
+         opt(json::str(body, "voice_profile_id", e["voice_profile_id"].isNull() ? "" : e["voice_profile_id"].asString())), json::str(body, "style_instruction", e["style_instruction"].asString()), json::str(body, "transition", e["transition"].asString()), json::str(body, "effect", e["effect"].asString()), opt(json::str(body, "scene_id", e["scene_id"].isNull() ? "" : e["scene_id"].asString())), clearAudio, opt(scriptText)});
     touch(e["presentation_id"].asString(), a.channelId, "event"); return out;
 }
 Json::Value PresentationService::bulkUpdateEvents(const ChannelAccess& a, const std::string& presentationId, const Json::Value& body) {

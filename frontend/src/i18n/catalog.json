@@ -4199,18 +4199,6 @@
     "Link:",
     "Link di condivisione:"
   ],
-  "Speech text (TTS adaptation; display text stays verbatim)": [
-    "朗读文本（仅配音适配，显示原文不变）",
-    "朗讀文字（僅配音調整，顯示原文不變）",
-    "読み上げ文（表示は原文を維持）",
-    "읽기 텍스트 (표시 원문은 유지)",
-    "Texto de voz (sin cambiar el original visible)",
-    "Texte vocal (original affiché inchangé)",
-    "Sprechtext (Anzeigetext bleibt unverändert)",
-    "Текст озвучки (видимый оригинал неизменен)",
-    "Texto falado (original visível inalterado)",
-    "Testo vocale (originale visualizzato invariato)"
-  ],
   "Standees on stage": [
     "场上立绘",
     "場上立繪",
@@ -15046,5 +15034,53 @@
     "{service} не принимает фонетику, поэтому чтение просто заменяет слово.",
     "{service} não aceita leituras fonéticas, então cada leitura substitui a palavra.",
     "{service} non accetta letture fonetiche, quindi ogni lettura sostituisce la parola."
+  ],
+  "Script wording": [
+    "剧本措辞",
+    "劇本措辭",
+    "台本の文言",
+    "대본 문구",
+    "Texto del guion",
+    "Texte du script",
+    "Skripttext",
+    "Текст сценария",
+    "Texto do roteiro",
+    "Testo della sceneggiatura"
+  ],
+  "Use the log's wording": [
+    "改用记录原文",
+    "改用記錄原文",
+    "ログの文言に戻す",
+    "기록 문구 사용",
+    "Usar el texto del registro",
+    "Reprendre le texte du journal",
+    "Text aus dem Log verwenden",
+    "Вернуть текст журнала",
+    "Usar o texto do registro",
+    "Usa il testo del registro"
+  ],
+  "Speech text (TTS adaptation; the script wording above stays as shown)": [
+    "朗读文本（TTS 改写；上方的剧本措辞保持不变）",
+    "朗讀文字（TTS 改寫；上方的劇本措辭保持不變）",
+    "読み上げテキスト（TTS 用の調整。上の台本の文言はそのまま）",
+    "음성 텍스트(TTS 조정; 위의 대본 문구는 그대로)",
+    "Texto hablado (adaptación TTS; el texto del guion de arriba no cambia)",
+    "Texte parlé (adaptation TTS ; le texte du script ci-dessus ne change pas)",
+    "Sprechtext (TTS-Anpassung; der Skripttext oben bleibt)",
+    "Текст для озвучки (адаптация TTS; текст сценария выше не меняется)",
+    "Texto falado (adaptação TTS; o texto do roteiro acima não muda)",
+    "Testo parlato (adattamento TTS; il testo della sceneggiatura sopra resta com’è)"
+  ],
+  "In the log:": [
+    "记录原文：",
+    "記錄原文：",
+    "ログの原文：",
+    "기록 원문:",
+    "En el registro:",
+    "Dans le journal :",
+    "Im Log:",
+    "В журнале:",
+    "No registro:",
+    "Nel registro:"
   ]
 }
