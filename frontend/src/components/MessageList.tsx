@@ -26,7 +26,7 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const addReference = useChat(s=>s.addReference);
   const own = user?.id === m.author_id;
   // The character's avatar first; the user's own avatar when the character has none.
-  const avatar = m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? user.avatar_data : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
+  const avatar = m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? api.ownAvatarUrl(user) : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
   const [failedAvatar, setFailedAvatar] = useState('');
   const author = own ? user.display_name : m.author_name;
   const name = m.character_name ?? (m.author_role === 'gm' ? `${author} (GM)` : author);

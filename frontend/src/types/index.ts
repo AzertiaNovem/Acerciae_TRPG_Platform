@@ -1,5 +1,5 @@
 // Shared API types (mirrors backend JSON shapes).
-export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; avatar_version: number; languages?: string[] }
+export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; languages?: string[] }
 export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest' }
 export interface DirectoryServer { id: string; name: string; member_count: number }
 export interface ServerInvite { id: string; code: string; max_uses: number; uses: number; expires_at: string | null; revoked_at: string | null; created_at: string; created_by_name?: string | null; active: boolean }

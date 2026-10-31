@@ -219,7 +219,8 @@ std::string TtsService::synthesizeLine(const std::string& channelId, const LineP
         db_.exec("DELETE FROM tts_usage_records WHERE id=$1", {usage["id"].asString()});
         error = res.error; retryable = res.retryable; return "";
     }
-    auto key = safeObjectKey(channelId, "tts", res.mime == "audio/wav" ? "wav" : "mp3");
+    // Voice clips are not secret: they go to the public bucket when there is one (access is still checked per request).
+    auto key = publicObjectKey(store_, channelId, "tts", res.mime == "audio/wav" ? "wav" : "mp3");
     store_.put(key, res.audioBytes, res.mime);
     int dur = res.durationMs ? res.durationMs : (res.mime == "audio/wav" ? wavDurationMs(res.audioBytes) : 0);
     auto row = db_.queryOne("INSERT INTO tts_audio_assets(channel_id, cache_key, provider, model_id, voice_id, voice_profile_id, voice_profile_version, spoken_text, style_instruction, dictionary_version, synthesis_parameters, object_key, mime, bytes, duration_ms, word_timestamps, is_mock, created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18) ON CONFLICT (cache_key) DO UPDATE SET bytes=EXCLUDED.bytes RETURNING id",
@@ -279,7 +280,7 @@ Json::Value TtsService::getJob(const ChannelAccess& a, const std::string& jobId)
 Json::Value TtsService::listJobs(const ChannelAccess& a, const std::string& presentationId) { pres_.presentationRow(a,presentationId); return db_.queryJson("SELECT * FROM tts_jobs WHERE channel_id=$1 AND ($2::text = '' OR presentation_id::text=$2) ORDER BY created_at DESC LIMIT 50", {a.channelId, presentationId}); }
 Json::Value TtsService::cancelJob(const ChannelAccess& a, const std::string& jobId) { auto j=getJob(a, jobId); if (!a.isGm && j["created_by"] != a.userId) throw forbidden("not your job"); return db_.queryOne("UPDATE tts_jobs SET status=CASE WHEN status IN ('pending','running') THEN 'cancelled' ELSE status END, updated_at=now() WHERE id=$1 RETURNING *", {jobId}); }
 
-bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime) {
+bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime, std::string* redirectUrl) {
     auto row = db_.queryOne("SELECT * FROM tts_audio_assets WHERE id=$1 AND channel_id=$2", {audioId, a.channelId});
     if (row.isNull()) return false;
     if (!a.isGm) {
@@ -295,8 +296,10 @@ bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, 
         }
         if(!allowed) return false;
     }
+    mime = row["mime"].asString();
+    if (redirectUrl) { *redirectUrl = store_.publicUrl(row["object_key"].asString()); if (!redirectUrl->empty()) return true; }
     auto data = store_.get(row["object_key"].asString()); if (!data) return false;
-    bytes = std::move(*data); mime = row["mime"].asString(); return true;
+    bytes = std::move(*data); return true;
 }
 
 // ---- worker -------------------------------------------------------------------------------------------

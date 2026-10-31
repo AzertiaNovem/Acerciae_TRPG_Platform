@@ -29,28 +29,58 @@ Live Log Studio jobs (backgrounds, standees, visual-novel art) require both the 
 
 Performance suggestions use the existing LLM gateway, with 1–30 explicitly selected presentation event IDs. They save candidate delivery instructions and reasons only. Accepting a suggestion updates presentation data; neither images nor suggested emotion are written into the Canonical Log or narrative memory. Visual novels are generated from the campaign log; see [VISUAL_NOVEL.md](VISUAL_NOVEL.md).
 
-### Storing images in Cloudflare R2
+### Cloudflare R2: storage, direct downloads and moving existing media
 
-Media bytes go to the object store chosen by `OBJECT_STORE` (`local`, `s3` or `r2`). `IMAGE_STORE` (same values,
-defaulting to `OBJECT_STORE`) overrides it for images only, so `IMAGE_STORE=r2` keeps portraits, avatars, backgrounds and
-generated art in R2 while speech and PDFs stay where `OBJECT_STORE` puts them. Configure R2 in `.env` with
-`R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` (an R2 API token limited to Object Read & Write
-on that private bucket); `R2_ENDPOINT` overrides the endpoint, e.g. for the EU jurisdiction. The backend signs requests
-with AWS Signature V4 (region `auto`) and refuses to start when R2 is selected but incomplete.
+**Where bytes go.** `OBJECT_STORE` (`local`, `s3` or `r2`) holds all media; `IMAGE_STORE` (same values, defaulting to
+`OBJECT_STORE`) overrides it for images. Configure R2 with `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID` and
+`R2_SECRET_ACCESS_KEY` (an R2 API token with Object Read & Write on the buckets below); `R2_ENDPOINT` overrides the
+endpoint, e.g. for the EU jurisdiction. Requests are signed with AWS Signature V4 (region `auto`); the backend refuses
+to start when R2 is selected but incomplete.
 
-Images are never served from R2 directly: browsers keep fetching `/api/channels/{id}/media/{asset}`, which checks
-channel membership, GM-only visibility and approval before streaming the bytes, so the bucket stays private.
+**Direct downloads (saving the backend's bandwidth).** Set `R2_PUBLIC_BUCKET` to a second bucket that has public access
+(a custom domain or the `r2.dev` URL) and `R2_PUBLIC_BASE_URL` to that address. Media that is not secret is then written
+there under keys starting with `pub/`:
 
-Switching back is a single setting: `IMAGE_STORE=local`. Reads try the configured backend first and then every other
-one that is configured (the local directory always, R2 while its variables remain), so images written under either
-setting stay readable. To move them for good, copy them with the backend binary and then remove the old settings:
+| Goes to the public bucket | Stays private (streamed through the backend) |
+|---|---|
+| AI-generated images (and the mock provider's stand-ins), except SVG | uploaded images, audio, video and documents |
+| voice clips (TTS audio) | PDFs, publications, log imports |
+| user avatars | voice-enrollment samples (never stored) |
+
+Browsers still ask the backend: `/api/channels/{id}/media/{asset}`, `/studio/tts/audio/{id}` and `/api/users/{id}/avatar`
+check membership, Keeper-only visibility and approval exactly as before, then answer with a `302` to the public URL
+instead of streaming the bytes. The redirect is a few hundred bytes; the picture or clip itself comes from Cloudflare,
+which may cache it for a year (`Cache-Control: public, max-age=31536000, immutable`; every version has a new key).
+Keys contain random UUIDs and an R2 bucket is never listable, but a URL, once handed out, works for whoever has it:
+that is why only the media above is placed there. Native apps send an Authorization header and keep receiving the bytes
+(some HTTP stacks would forward the header across the redirect).
+
+Give the public bucket a CORS rule allowing `GET` from your site's origin; the visual-novel player's sound effects
+are fetched by script and need it (pictures and voices play through `<img>`/`<audio>` and do not).
+
+**Moving existing media: automatic.** Every start runs the media migration in the background (`MEDIA_MIGRATION=false`
+turns it off; `acerciae-server --migrate-media` runs it in the foreground and prints a report):
+
+1. avatars still stored inline in PostgreSQL become media objects;
+2. with a public bucket, existing AI art, voice clips and avatars are copied there and their rows repointed to the
+   `pub/` key (only after the copy succeeded);
+3. everything still in the local directory that now belongs in object storage is uploaded, once (recorded in
+   `object_migrations`).
+
+So turning R2 on is enough: the next start sends the local media up. Local files are kept unless
+`MEDIA_MIGRATION_DELETE_LOCAL=true`; failures are logged and retried on the next start.
+
+**Switching back.** Set `OBJECT_STORE`/`IMAGE_STORE` back to `local` and remove `R2_PUBLIC_BASE_URL` (keep
+`R2_PUBLIC_BUCKET` and the credentials for a while): new media is written locally, everything is streamed by the backend
+again, and reads still find objects in R2. To leave R2 for good, copy first, then remove the R2 settings:
 
 ```bash
-acerciae-server --copy-images local r2     # existing local images → R2
-acerciae-server --copy-images r2 local     # back from R2
+acerciae-server --copy-media r2public local   # the public bucket (avatars, voices, AI art)
+acerciae-server --copy-media r2 local         # the private bucket
+acerciae-server --copy-images local r2        # only images, e.g. into the private bucket
 ```
 
-The copy covers every version of every image asset, skips objects the destination already has, never deletes, and
-can be re-run safely. With Docker Compose: `docker compose run --rm backend /app/acerciae-server --copy-images local r2`.
+Copies keep the keys, skip what the destination already has, never delete, and can be re-run. With Docker Compose:
+`docker compose run --rm backend /app/acerciae-server --copy-media r2public local`.
 
 For MinIO development, set S3 variables in `.env`, use `docker compose --profile s3 up`, create a private bucket and provision a bucket-scoped access key. The profile has a development-only fallback password; configure a strong `S3_SECRET_KEY` before using shared infrastructure. The local object-store path was integration-tested; Docker/MinIO were not run in this environment.

@@ -3,7 +3,9 @@
 Base URL `/api`. JSON in/out. Authentication: `Authorization: Bearer <token>` (tokens from `/auth/login`); the
 session token is accepted only in that header. Files a browser loads by itself — media, avatars, TTS audio, exports,
 PDFs, bundles — and the WebSocket also accept `?token=<file token>`: a short-lived (≤ 6 h) signed token from
-`POST /auth/file-token`, bound to the session (logging out revokes it).
+`POST /auth/file-token`, bound to the session (logging out revokes it). When a public media bucket is configured, such
+file-token requests for AI-generated art, voice clips and avatars are answered with a `302` to the object's public URL
+(after the usual permission check); requests with an Authorization header always get the bytes.
 Errors: `{ "error": "<code>", "message": "..." }` with 400/401/403/404/409/410/429/500. A 500 carries only a generic
 message with a reference id; details go to the server log. Logins are throttled (5 failures per account and 30 per
 client address in 15 minutes, then 429 `too_many_attempts`), as are registrations per client address.
@@ -19,12 +21,12 @@ Each channel's AI status is `GET /channels/{id}/ai/status`.
 
 ## Auth
 
-User objects now include `ui_language`, `avatar_data`, `avatar_version` and `languages`. See [personal settings](USER_SETTINGS.md) for validation, image limits and native client integration.
+User objects now include `ui_language`, `avatar_data` (empty once the avatar is a media object), `has_avatar`, `avatar_version` and `languages`. See [personal settings](USER_SETTINGS.md) for validation, image limits and native client integration.
 
 | Method | Path | Notes |
 |---|---|---|
-| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?,atmosphere_enabled?}`. Empty avatar removes it; duplicate username returns 409. |
-| GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. |
+| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?,atmosphere_enabled?}`. A data URI replaces the avatar, `""` removes it, an absent `avatar_data` keeps it; duplicate username returns 409. |
+| GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. With `?token=` (browsers) an avatar in the public media bucket is answered with a `302` to its public URL. |
 | POST | `/auth/register` | `{username, password, display_name}` → `{token, user}` |
 | POST | `/auth/login` | `{username, password}` → `{token, user}` |
 | POST | `/auth/logout` | ends the session and closes its WebSockets |

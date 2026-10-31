@@ -27,6 +27,7 @@
 #include "characters/CharacterSpaceService.h"
 #include "logstudio/ImageProvider.h"
 #include "logstudio/ObjectStore.h"
+#include "logstudio/MediaService.h"
 #include <filesystem>
 #include <cstdlib>
 #include <zlib.h>
@@ -824,6 +825,28 @@ int main() {
         CHECK(logstudio::makeBackend("r2", ca)->kind() == "r2");
         for (auto* k : {"R2_ACCOUNT_ID", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}) unsetenv(k);
         bool unknown = false; try { logstudio::makeBackend("ftp", ca); } catch (const std::exception&) { unknown = true; } CHECK(unknown);
+        std::error_code ec; fs::remove_all(root, ec);
+    });
+    test("object store: non-secret media goes to the public bucket under pub/ keys with a direct URL", [] {
+        namespace fs = std::filesystem;
+        auto root = fs::temp_directory_path() / ("acerciae-public-" + crypto::randomHex(6));
+        Config cm; cm.uploadDir = (root / "media").string(); Config cp; cp.uploadDir = (root / "public").string();
+        std::shared_ptr<logstudio::ObjectStore> media = logstudio::makeBackend("local", cm), pub = logstudio::makeBackend("local", cp);
+        logstudio::RoutingObjectStore r(media, media);
+        CHECK(!r.publicAvailable() && logstudio::publicObjectKey(r, "c", "tts", "mp3").rfind("channels/c/tts/", 0) == 0);
+        r.setPublic(pub, "https://media.example.com/");
+        CHECK(r.publicAvailable() && r.kind() == "local+public:local");
+        auto key = logstudio::publicObjectKey(r, "c", "portrait", "png");
+        CHECK(key.rfind("pub/channels/c/portrait/", 0) == 0 && logstudio::isPublicKey(key));
+        r.put(key, "PNG", "image/png"); r.put("channels/c/upload/x.png", "UP", "image/png");
+        CHECK(pub->exists(key) && !media->exists(key) && media->exists("channels/c/upload/x.png"));
+        CHECK(r.publicUrl(key) == "https://media.example.com/" + key);
+        CHECK(r.publicUrl("channels/c/upload/x.png").empty());                  // private media is never linked
+        CHECK(r.publicUrl("pub/a b/ü.png") == "https://media.example.com/pub/a%20b/%C3%BC.png");
+        CHECK(&r.targetFor(key) == pub.get() && r.localBackend() == media.get() && r.backends().size() == 2);
+        auto av = logstudio::avatarObjectKey(r, "u1", "jpg"); CHECK(av.rfind("pub/users/u1/avatar/", 0) == 0 && av.size() > 30);
+        CHECK(logstudio::MediaService::publicEligible("generated", "image/png") && logstudio::MediaService::publicEligible("mock", "image/jpeg"));
+        CHECK(!logstudio::MediaService::publicEligible("upload", "image/png") && !logstudio::MediaService::publicEligible("generated", "image/svg+xml") && !logstudio::MediaService::publicEligible("generated", "audio/wav"));
         std::error_code ec; fs::remove_all(root, ec);
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";

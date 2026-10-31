@@ -62,6 +62,9 @@ export const api = {
   atmosphereImage: (ch: string, id: string) => `${BASE}/api/channels/${ch}/atmosphere/assets/${id}?token=${encodeURIComponent(fileToken())}`,
   updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
   avatarUrl: (id: string, version: number) => `${BASE}/api/users/${encodeURIComponent(id)}/avatar?v=${version}&token=${encodeURIComponent(fileToken())}`,
+  // The signed-in user's avatar: an inline data URI from older servers, otherwise the avatar route (which may redirect
+  // to the public media bucket).
+  ownAvatarUrl: (u: Pick<T.User, 'id' | 'avatar_data' | 'has_avatar' | 'avatar_version'>) => u.avatar_data || (u.has_avatar ? `${BASE}/api/users/${encodeURIComponent(u.id)}/avatar?v=${u.avatar_version}&token=${encodeURIComponent(fileToken())}` : ''),
   servers: () => get<T.Server[]>('/api/servers'),
   createServer: (name: string) => post<T.Server>('/api/servers', { name }),
   joinServer: (id: string, invite_code?: string) => post<T.Server>(`/api/servers/${id}/join`, { invite_code }),

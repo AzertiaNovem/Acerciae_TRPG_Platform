@@ -25,7 +25,10 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const [name, setName] = useState(user.display_name);
   const [language, setLanguage] = useState(user.ui_language || 'en');
   const [atmosphere, setAtmosphere] = useState(!!user.atmosphere_enabled);
-  const [avatar, setAvatar] = useState(user.avatar_data || '');
+  const [avatar, setAvatarState] = useState(api.ownAvatarUrl(user));
+  // avatar_data is sent only when the picture changed: a data URI replaces it, '' removes it.
+  const [avatarChanged, setAvatarChanged] = useState(false);
+  const setAvatar = (v: string) => { setAvatarState(v); setAvatarChanged(true); };
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
   const [error, setError] = useState('');
@@ -37,7 +40,7 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); const epoch = sessionEpoch();
     try {
-      const updated = await api.updateMe({ username, display_name: name.trim(), ui_language: language, avatar_data: avatar, atmosphere_enabled: atmosphere });
+      const updated = await api.updateMe({ username, display_name: name.trim(), ui_language: language, ...(avatarChanged ? { avatar_data: avatar } : {}), atmosphere_enabled: atmosphere });
       if (epoch !== sessionEpoch()) return;
       useAuth.setState({ user: updated }); useLocale.getState().setLanguage(updated.ui_language);
       useUi.getState().toast(t('User settings saved')); onClose();

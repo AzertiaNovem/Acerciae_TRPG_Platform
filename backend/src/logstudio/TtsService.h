@@ -43,7 +43,8 @@ public:
     Json::Value listJobs(const ChannelAccess& a, const std::string& presentationId);
     Json::Value cancelJob(const ChannelAccess& a, const std::string& jobId);
     Json::Value usage(const ChannelAccess& a);
-    bool fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime);
+    // With `redirectUrl`, a clip in the public bucket is not read: its URL is returned there instead.
+    bool fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime, std::string* redirectUrl = nullptr);
     static std::string cacheKey(const std::string& provider, const std::string& model, const std::string& voiceId, int voiceVersion, const std::string& text, const std::string& instruction, int dictVersion, const Json::Value& params);
     Json::Value processJobNow(const std::string& jobId);    // used by tests
     TtsProvider& provider() { return *provider_; }

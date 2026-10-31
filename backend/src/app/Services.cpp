@@ -1,5 +1,6 @@
 #include "../atmosphere/AtmosphereService.h"
 #include "Services.h"
+#include <cstdlib>
 #include "Maintenance.h"
 #include "../auth/AuthService.h"
 #include "../events/EventStore.h"
@@ -22,6 +23,7 @@
 #include "../ws/Notifier.h"
 #include "../logstudio/LogStudioService.h"
 #include "../logstudio/ObjectStore.h"
+#include "../logstudio/MediaMigrator.h"
 #include "../logstudio/MediaService.h"
 #include "../logstudio/PresentationService.h"
 #include "../logstudio/StyleService.h"
@@ -72,6 +74,9 @@ Services& Services::build(const Config& cfg) {
     s.modules = std::make_unique<ModuleImporter>(s.cfg, *s.db, *s.llm, *s.notifier);
     s.studio = std::make_unique<logstudio::LogStudioService>(s.cfg, *s.db, *s.notifier);
     s.objectStore = logstudio::makeObjectStore(s.cfg);
+    s.auth->setObjectStore(s.objectStore.get());   // avatars are media objects
+    { const char* d = std::getenv("MEDIA_MIGRATION_DELETE_LOCAL"); bool del = d && (std::string(d) == "true" || std::string(d) == "1");
+      s.mediaMigrator = std::make_unique<logstudio::MediaMigrator>(*s.db, static_cast<logstudio::RoutingObjectStore&>(*s.objectStore), del); }
     s.media = std::make_unique<logstudio::MediaService>(s.cfg, *s.db, *s.objectStore);
     s.deletion = std::make_unique<DeletionService>(*s.db, *s.objectStore, *s.notifier);
     s.presentations = std::make_unique<logstudio::PresentationService>(s.cfg, *s.db, *s.notifier, *s.studio);
@@ -102,6 +107,7 @@ Services& Services::build(const Config& cfg) {
 
 void Services::shutdown() {
     if (!g_services) return;
+    if (g_services->mediaMigrator) g_services->mediaMigrator->stop();
     if (g_services->maintenance) g_services->maintenance->stop();
     if (g_services->apiRequests) g_services->apiRequests->stop();
     if (g_services->aiRequests) g_services->aiRequests->stop();

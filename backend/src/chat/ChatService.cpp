@@ -14,7 +14,7 @@
 namespace acerciae {
 
 static const std::string MSG_SELECT =
-    "SELECT m.*, c.name AS character_name, c.avatar_asset_id AS character_avatar_asset_id, ca.version AS character_avatar_version, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' THEN u.avatar_version ELSE 0 END AS author_avatar_version FROM messages m "
+    "SELECT m.*, c.name AS character_name, c.avatar_asset_id AS character_avatar_asset_id, ca.version AS character_avatar_version, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_version ELSE 0 END AS author_avatar_version FROM messages m "
     "LEFT JOIN characters c ON c.id=m.character_id LEFT JOIN media_assets ca ON ca.id=c.avatar_asset_id LEFT JOIN users u ON u.id=m.author_id ";
 
 // ---- servers ---------------------------------------------------------------------------------

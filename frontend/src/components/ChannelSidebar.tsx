@@ -146,7 +146,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
         )}
       </div>
       <div className="sidebar-footer">
-        <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{user?.avatar_data ? <img src={user.avatar_data} alt="" /> : user?.display_name.slice(0, 2).toUpperCase()}</div>
+        <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{user && api.ownAvatarUrl(user) ? <img src={api.ownAvatarUrl(user)} alt="" /> : user?.display_name.slice(0, 2).toUpperCase()}</div>
         <div className="grow small"><div>{user?.display_name}</div><div className="tiny muted">@{user?.username}</div></div>
         <button className="ghost small" title={tr("User settings")} aria-label={tr("User settings")} onClick={() => setUserSettingsOpen(true)}>⚙</button>
         <button className="ghost small" onClick={logout}>{tr("Sign out")}</button>
