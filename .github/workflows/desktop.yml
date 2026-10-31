@@ -48,16 +48,26 @@ jobs:
         id: ffmpeg
         continue-on-error: true
         run: node desktop/scripts/fetch-ffmpeg.mjs ${{ matrix.target }}
-      - uses: tauri-apps/tauri-action@v0
+      # Optional macOS signing and notarization. The variables are only set when the secrets exist: an empty
+      # APPLE_CERTIFICATE makes the bundler try (and fail) to import an empty certificate. Without them the build is
+      # unsigned; macOS then asks users to confirm the first launch.
+      - name: Signing secrets (when configured)
+        if: runner.os == 'macOS'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional signing; unsigned builds work but macOS and Windows warn on first launch.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then echo "No Apple signing secrets: building unsigned."; exit 0; fi
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then printf '%s<<__%s__\n%s\n__%s__\n' "$v" "$v" "${!v}" "$v" >> "$GITHUB_ENV"; fi
+          done
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: desktop
           tauriScript: npx tauri

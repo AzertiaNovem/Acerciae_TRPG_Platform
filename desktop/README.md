@@ -82,7 +82,7 @@ licence when you distribute installers that contain it.
 
 `.github/workflows/desktop.yml` builds macOS (Apple silicon and Intel), Windows and Linux installers on every push
 to `main` that touches `desktop/` or `frontend/`, and uploads them as workflow artifacts. Pushing a tag
-`desktop-v0.1.0` also attaches them to a draft GitHub release. Without signing secrets the installers are unsigned:
+`desktop-v0.1.0` also attaches them to a draft GitHub release. Without signing secrets the installers are unsigned (the workflow only passes the `APPLE_*` variables on when the secrets exist):
 macOS asks to confirm the first launch (right-click → Open) and Windows SmartScreen shows a warning. To sign, add
 the `APPLE_*` secrets listed in the workflow (Developer ID certificate and notarization) and a Windows code-signing
 certificate.

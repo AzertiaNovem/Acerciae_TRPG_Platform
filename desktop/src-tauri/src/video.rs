@@ -171,18 +171,31 @@ async fn encode(dir: &Path, spec: &Spec, voices: &[(String, u64)], progress: &im
         tokio::fs::write(dir.join("audio.txt"), track).await.map_err(|e| e.to_string())?;
     }
 
+    // FFmpeg 5.1 and later take -fps_mode; older ones (Ubuntu 22.04 ships 4.4) only know -vsync, which newer ones
+    // still accept. Try the current option first and fall back once.
+    match run_encoder(&ffmpeg, dir, spec, has_audio, false, progress).await {
+        Err(e) if e.contains("fps_mode") => run_encoder(&ffmpeg, dir, spec, has_audio, true, progress).await,
+        other => other,
+    }
+}
+
+fn encoder_args(spec: &Spec, has_audio: bool, legacy: bool) -> Vec<String> {
     let mut args: Vec<String> = ["-hide_banner", "-y", "-nostdin", "-progress", "pipe:1", "-nostats", "-f", "concat", "-safe", "0", "-i", "video.txt"].iter().map(|s| s.to_string()).collect();
     if has_audio { args.extend(["-f", "concat", "-safe", "0", "-i", "audio.txt", "-map", "0:v", "-map", "1:a"].iter().map(|s| s.to_string())); }
-    let lossless = spec.quality == "lossless";
-    let codec: &[&str] = if lossless {
-        &["-c:v", "libx264rgb", "-qp", "0", "-preset", "veryslow", "-pix_fmt", "bgr24", "-fps_mode", "vfr", "-c:a", "flac"]
+    let timing = if legacy { "-vsync" } else { "-fps_mode" };
+    let codec: Vec<&str> = if spec.quality == "lossless" {
+        vec!["-c:v", "libx264rgb", "-qp", "0", "-preset", "veryslow", "-pix_fmt", "bgr24", timing, "vfr", "-c:a", "flac"]
     } else {
-        &["-c:v", "libx264", "-crf", "14", "-preset", "slow", "-tune", "stillimage", "-pix_fmt", "yuv420p", "-r", "30", "-fps_mode", "cfr", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
+        vec!["-c:v", "libx264", "-crf", "14", "-preset", "slow", "-tune", "stillimage", "-pix_fmt", "yuv420p", "-r", "30", timing, "cfr", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
     };
     args.extend(codec.iter().map(|s| s.to_string()));
     args.extend(["-t".to_string(), secs(spec.total_ms.max(40)), spec.output.clone()]);
+    args
+}
 
-    let mut child = command(&ffmpeg).args(&args).current_dir(dir).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn()
+async fn run_encoder(ffmpeg: &Path, dir: &Path, spec: &Spec, has_audio: bool, legacy: bool, progress: &impl Fn(&'static str, u64, u64)) -> Result<(), String> {
+    let args = encoder_args(spec, has_audio, legacy);
+    let mut child = command(ffmpeg).args(&args).current_dir(dir).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn()
         .map_err(|e| format!("FFmpeg could not start ({e}). Install FFmpeg or use a build that includes it."))?;
     let stderr = child.stderr.take().unwrap();
     let errors = tokio::spawn(async move { let mut lines = BufReader::new(stderr).lines(); let mut tail = Vec::new(); while let Ok(Some(l)) = lines.next_line().await { tail.push(l); if tail.len() > 6 { tail.remove(0); } } tail.join(" | ") });
@@ -238,6 +251,11 @@ mod tests {
         let a = command(&ffmpeg_path()).args(["-v", "error", "-i", "back.png", "-i", "frame_000001.png", "-lavfi", "psnr", "-f", "null", "-"]).current_dir(&dir).output().await.unwrap();
         let log = String::from_utf8_lossy(&a.stderr).into_owned() + &String::from_utf8_lossy(&a.stdout);
         assert!(log.is_empty() || log.contains("inf"), "not lossless: {log}");
+        // The arguments for FFmpeg before 5.1 (-vsync) encode the same.
+        let legacy = spec("legacy.mkv", "lossless");
+        assert!(encoder_args(&legacy, true, true).contains(&"-vsync".to_string()));
+        run_encoder(&ffmpeg_path(), &dir, &legacy, true, true, &none).await.unwrap();
+        assert!(probe(Path::new(&legacy.output), "stream=codec_name").await.contains("flac"));
         let compatible = spec("out.mp4", "compatible");
         encode(&dir, &compatible, &voices, &none).await.unwrap();
         let streams = probe(Path::new(&compatible.output), "stream=codec_name").await;
