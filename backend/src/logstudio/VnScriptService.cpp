@@ -1,5 +1,6 @@
 #include "VnScriptService.h"
 #include "../core/Errors.h"
+#include "../core/Crypto.h"
 #include "../core/Json.h"
 #include "../core/Log.h"
 #include "../core/Text.h"
@@ -690,6 +691,12 @@ ScriptInputs VnScriptService::inputs(const ChannelAccess &a, const std::string &
 // ---- model planner --------------------------------------------------------------------------------
 Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptInputs &in, const Json::Value &job) {
   auto id = job["id"].asString();
+  const bool resume = json::toBool(job["params"], "retry_failed_chunks", llm_.retryFailedVnChunks());
+  if (!resume) db_.exec("DELETE FROM vn_script_chunks WHERE job_id=$1", {id});
+  std::map<int, Json::Value> saved;
+  if (resume) for (const auto &part : db_.queryJson("SELECT part_index, request_hash, response FROM vn_script_chunks WHERE job_id=$1 ORDER BY part_index", {id}))
+    saved[part["part_index"].asInt()] = part;
+  bool reusablePrefix = resume;
   // One call per time block; a long block is cut into consecutive parts that continue each other.
   std::vector<std::pair<size_t, size_t>> parts;
   for (const auto &blk : blocks(in.events)) {
@@ -700,6 +707,7 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
   prog["chunks_total"] = (int)parts.size();
   prog["chunks_done"] = 0;
   prog["lines"] = (int)in.events.size();
+  prog["chunks_reused"] = 0;
   progress(a.channelId, id, prog, "running");
 
   const std::string system =
@@ -733,6 +741,11 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
       "\"script\":[{\"ref\":\"L1\",\"speaker?\":\"C1\",\"background\":\"name\",\"portrait?\":\"SAY\",\"text?\":\"rewritten wording\",\"fold?\":[\"L2\",\"L3\"],\"kind?\":\"narration\"}]}";
   std::vector<Json::Value> flats;
   Json::Value known(Json::arrayValue);
+  Json::Value identity;
+  identity["model"] = llm_.status(a.channelId);
+  identity["cast"] = in.cast;
+  identity["assets"] = in.assets;
+  identity["system"] = system;
   for (size_t pi = 0; pi < parts.size(); ++pi) {
     auto st = db_.queryOne("SELECT status FROM vn_script_jobs WHERE id=$1", {id});
     if (st.isNull() || st["status"] != "running") throw ApiError(409, "cancelled", "job cancelled");
@@ -745,21 +758,40 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
     req.task = "vn_script";
     req.system = system;
     req.temperature = 0.2;
-    req.maxTokens = 8000;
+    req.maxTokens = llm_.limitsForTask("vn_script").maxTokens;
     LlmMessage msg;
     msg.role = "user";
     msg.content = user;
     req.messages.push_back(msg);
     req.responseSchema = json::parse(R"({"type":"object","required":["script"],"properties":{"generate_backgrounds":{"type":"array"},"generate_portraits":{"type":"array"},"script":{"type":"array"}}})");
-    auto out = llm_.runStructured(req);
-    if (!out.ok) throw ApiError(502, "llm_error", out.error);
-    flats.push_back(out.data);
-    for (const auto &b : out.data["generate_backgrounds"]) {
+    identity["user"] = user;
+    auto hash = crypto::sha256Hex(json::dump(identity));
+    const auto cached = saved.find((int)pi);
+    Json::Value answer;
+    if (reusablePrefix && cached != saved.end() && cached->second["request_hash"] == hash && cached->second["response"]["script"].isArray()) {
+      answer = cached->second["response"];
+      prog["chunks_reused"] = prog["chunks_reused"].asInt() + 1;
+    } else {
+      // Once inputs diverge, later chunks also depend on newly generated backgrounds.
+      if (reusablePrefix) db_.exec("DELETE FROM vn_script_chunks WHERE job_id=$1 AND part_index >= $2", {id, (int64_t)pi});
+      reusablePrefix = false;
+      db_.exec("UPDATE vn_script_jobs SET progress=$2::jsonb, updated_at=now() WHERE id=$1 AND status='running'", {id, json::dump(prog)});
+      auto out = llm_.runStructured(req);
+      if (!out.ok) throw ApiError(502, "llm_error", "Part " + std::to_string(pi + 1) + "/" + std::to_string(parts.size()) + ": " + out.error);
+      answer = out.data;
+    }
+    flats.push_back(answer);
+    for (const auto &b : answer["generate_backgrounds"]) {
       bool dup = false; for (const auto &k : known) dup = dup || text::lower(json::str(k, "name")) == text::lower(json::str(b, "name"));
       if (!dup && known.size() < 40 && !json::str(b, "name").empty()) { Json::Value k; k["name"] = clip(json::str(b, "name"), 80); k["prompt"] = clip(json::str(b, "prompt"), 400); known.append(k); }
     }
     prog["chunks_done"] = (int)pi + 1;
-    db_.exec("UPDATE vn_script_jobs SET progress=$2::jsonb, updated_at=now() WHERE id=$1", {id, json::dump(prog)});
+    db_.tx([&](pqxx::work &w) {
+      auto current = Db::queryOne(w, "SELECT status FROM vn_script_jobs WHERE id=$1 FOR UPDATE", {id});
+      if (current.isNull() || current["status"] != "running") throw ApiError(409, "cancelled", "job cancelled");
+      Db::exec(w, "INSERT INTO vn_script_chunks(job_id,part_index,request_hash,response) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(job_id,part_index) DO UPDATE SET request_hash=EXCLUDED.request_hash,response=EXCLUDED.response", {id, (int64_t)pi, hash, json::dump(answer)});
+      Db::exec(w, "UPDATE vn_script_jobs SET progress=$2::jsonb, updated_at=now() WHERE id=$1", {id, json::dump(prog)});
+    });
     progress(a.channelId, id, prog, "running");
   }
   return normalize(in, {fromFlat(in, flats)}, llm_.mode(a.channelId));
@@ -803,6 +835,9 @@ Json::Value VnScriptService::status(const ChannelAccess &a) {
   auto row = db_.queryOne("SELECT studio_cloud_allowed FROM channels WHERE id=$1", {a.channelId});
   v["cloud_allowed"] = !row.isNull() && row["studio_cloud_allowed"].asBool();
   v["max_lines"] = (Json::UInt64)kMaxLines;
+  v["max_tokens"] = llm_.limitsForTask("vn_script").maxTokens;
+  v["timeout_ms"] = llm_.limitsForTask("vn_script").timeoutMs;
+  v["retry_failed_chunks"] = llm_.retryFailedVnChunks();
   v["images"] = creative_.available(a.channelId);
   v["note"] = v["mock"].asBool() ? "MOCK planner: one scene per chat window and scenario, portraits SAY/IDLE, no language model."
                                  : "The model reads the whole campaign log block by block. Review the draft before publishing.";
@@ -829,6 +864,7 @@ Json::Value VnScriptService::get(const ChannelAccess &a, const std::string &id) 
   return j;
 }
 Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b) {
+  if (b.isMember("retry_failed_chunks") && !b["retry_failed_chunks"].isBool()) throw badRequest("retry_failed_chunks must be a boolean");
   Json::Value snap;
   std::string snapshotId = json::str(b, "snapshot_id");
   if (snapshotId.empty()) {
@@ -856,6 +892,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
   params["template"] = b.isMember("template") && !b["template"].isNull() ? PresentationService::validateVnTemplate(b["template"]) : PresentationService::validateVnTemplate(Json::Value(Json::objectValue));
   params["cloud_authorized"] = !mock || json::toBool(b, "allow_cloud");
   params["generate_art"] = json::toBool(b, "generate_art", true);
+  params["retry_failed_chunks"] = json::toBool(b, "retry_failed_chunks", llm_.retryFailedVnChunks());
   auto j = db_.queryOne("INSERT INTO vn_script_jobs(channel_id, project_id, snapshot_id, provider, model, params, created_by) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING id, status, provider, snapshot_id, created_at",
                         {a.channelId, snap["project_id"].asString(), snapshotId, mock ? "mock" : llm_.mode(a.channelId), llm_.modelName(a.channelId), json::dump(params), a.userId});
   logs_.audit(a, "vnscript.request", j);
@@ -870,6 +907,21 @@ Json::Value VnScriptService::cancel(const ChannelAccess &a, const std::string &i
   return r;
 }
 
+Json::Value VnScriptService::retry(const ChannelAccess &a, const std::string &id, const Json::Value &body) {
+  auto job = get(a, id); // owner or Keeper; never reveal another player's jobs
+  if (job["status"] != "failed") throw badRequest("only failed script jobs can be retried");
+  logs_.snapshotEvents(a, job["snapshot_id"].asString());
+  if (job["provider"] != "mock") requireCloudPermission(db_, a.channelId);
+  if (body.isMember("retry_failed_chunks") && !body["retry_failed_chunks"].isBool()) throw badRequest("retry_failed_chunks must be a boolean");
+  auto params = job["params"];
+  params["retry_failed_chunks"] = json::toBool(body, "retry_failed_chunks", json::toBool(params, "retry_failed_chunks", llm_.retryFailedVnChunks()));
+  auto result = db_.queryOne("UPDATE vn_script_jobs SET status='pending',attempts=0,error=NULL,params=$2::jsonb,updated_at=now() WHERE id=$1 AND status='failed' RETURNING id,status,snapshot_id", {id, json::dump(params)});
+  if (result.isNull()) throw badRequest("job is no longer failed");
+  logs_.audit(a, "vnscript.retry", result);
+  cv_.notify_all();
+  return result;
+}
+
 // ---- worker ---------------------------------------------------------------------------------------
 void VnScriptService::start() {
   if (running_.exchange(true)) return;
@@ -881,7 +933,8 @@ void VnScriptService::stop() {
   if (thread_.joinable()) thread_.join();
 }
 bool VnScriptService::processNext() {
-  db_.exec("UPDATE vn_script_jobs SET status=CASE WHEN attempts<max_attempts THEN 'pending' ELSE 'failed' END, error='worker interrupted' WHERE status='running' AND updated_at<now()-interval '10 minutes'");
+  auto staleSeconds = std::max<int64_t>(600, (int64_t)llm_.limitsForTask("vn_script").timeoutMs * 4 / 1000 + 120);
+  db_.exec("UPDATE vn_script_jobs SET status=CASE WHEN attempts<max_attempts THEN 'pending' ELSE 'failed' END, error='worker interrupted' WHERE status='running' AND updated_at<now()-make_interval(secs => $1::double precision)", {staleSeconds});
   auto j = db_.queryOne("UPDATE vn_script_jobs SET status='running', attempts=attempts+1, updated_at=now() WHERE id=(SELECT id FROM vn_script_jobs WHERE status='pending' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");
   if (j.isNull()) return false;
   run(j);
@@ -951,10 +1004,10 @@ void VnScriptService::run(const Json::Value &j) {
     if (e.code() == "cancelled") return;
     bool retry = e.status() >= 500 && j["attempts"].asInt() < j["max_attempts"].asInt();
     db_.exec("UPDATE vn_script_jobs SET status=$2, error=$3, updated_at=now() WHERE id=$1 AND status='running'", {id, retry ? "pending" : "failed", std::string(e.what())});
-    progress(channel, id, j["progress"], retry ? "pending" : "failed");
+    progress(channel, id, db_.queryOne("SELECT progress FROM vn_script_jobs WHERE id=$1", {id})["progress"], retry ? "pending" : "failed");
   } catch (const std::exception &e) {
     db_.exec("UPDATE vn_script_jobs SET status='failed', error=$2, updated_at=now() WHERE id=$1 AND status='running'", {id, std::string(e.what())});
-    progress(channel, id, j["progress"], "failed");
+    progress(channel, id, db_.queryOne("SELECT progress FROM vn_script_jobs WHERE id=$1", {id})["progress"], "failed");
   }
 }
 } // namespace acerciae::logstudio

@@ -35,6 +35,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   const [direction, setDirection] = useState('');
   const [cloudOk, setCloudOk] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [retryFailedChunks, setRetryFailedChunks] = useState(true);
   // Cast step
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [presets, setPresets] = useState<{ id: string; name: string; language: string; gender: string }[]>([]);
@@ -51,7 +52,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     const j = await api.vnScript(channelId, id); setJob(j);
     if (j.presentation_id) { const p = await api.presentation(channelId, j.presentation_id); setPres(p); if (castTouched.current !== p.id) setCastState((p.settings?.cast as Record<string, string>) ?? {}); }
   };
-  useEffect(() => { if (!channelId) return; api.vnScriptStatus(channelId).then(setStatus).catch(() => undefined); loadJobs(); }, [channelId]);
+  useEffect(() => { if (!channelId) return; api.vnScriptStatus(channelId).then((s) => { setStatus(s); setRetryFailedChunks(s.retry_failed_chunks ?? true); }).catch(() => undefined); loadJobs(); }, [channelId]);
   useEffect(() => { if (jobId) loadJob(jobId).catch((e) => toast(e.message, 'error')); else { setJob(null); setPres(null); } }, [jobId, channelId]);
   useEffect(() => contextSocket.on((m) => {
     if (m.type === 'studio.vnscript.progress') { loadJobs(); if (jobId && m.payload?.job_id === jobId) loadJob(jobId).catch(() => undefined); }
@@ -77,7 +78,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     if (!channelId) return;
     setBusy(true);
     try {
-      const j = await api.createVnScript(channelId, { scope, scope_character_id: scope === 'character' ? scopeChar : undefined, title: title.trim() || undefined, template: { base }, instructions: direction.trim() || undefined, allow_cloud: status?.mock ? undefined : cloudOk });
+      const j = await api.createVnScript(channelId, { scope, scope_character_id: scope === 'character' ? scopeChar : undefined, title: title.trim() || undefined, template: { base }, retry_failed_chunks: retryFailedChunks, instructions: direction.trim() || undefined, allow_cloud: status?.mock ? undefined : cloudOk });
       toast(tr('Script job started'), 'ai'); setJobId(j.id); loadJobs();
     } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
@@ -128,6 +129,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
             <label>{tr('Look template')}<select value={base} onChange={(e) => setBase(e.target.value as VnBase)}>{VN_BASES.map((b) => <option key={b} value={b}>{tr(VN_BASE_INFO[b].label)}</option>)}</select></label>
           </div>
           <label className="tiny" style={{ display: 'block', marginTop: 6 }}>{tr('Direction for the AI (optional)')}<textarea value={direction} maxLength={1000} onChange={(e) => setDirection(e.target.value)} placeholder={tr('e.g. Keep the investigation scenes tense; skip rules discussion.')} style={{ minHeight: 44, display: 'block', width: '100%', marginTop: 2 }} /></label>
+          <label className="tiny" style={{ display: 'block', marginTop: 6 }}><input type="checkbox" checked={retryFailedChunks} onChange={(e) => setRetryFailedChunks(e.target.checked)} /> {tr('Keep completed parts when retrying')}</label>
           {needsCloud && (status!.cloud_allowed
             ? <label className="tiny" style={{ display: 'block', marginTop: 6 }}><input type="checkbox" checked={cloudOk} onChange={(e) => setCloudOk(e.target.checked)} /> {tr('Send these lines to the configured model')}</label>
             : <div className="tiny" style={{ marginTop: 6, color: 'var(--warn)' }}>{tr('Cloud processing is off for this campaign. Enable it in Library settings, or use the mock planner.')}</div>)}
@@ -143,6 +145,12 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {j.status === 'completed' && <button className="small primary" onClick={() => { setJobId(j.id); setStep('art'); }}>{tr('continue')}</button>}
+                    {j.status === 'failed' && <button className="small" disabled={busy} onClick={async () => {
+                      setBusy(true);
+                      try { await api.retryVnScript(channelId!, j.id, retryFailedChunks); setJobId(j.id); await loadJob(j.id); loadJobs(); }
+                      catch (e: any) { toast(e.message, 'error'); }
+                      finally { setBusy(false); }
+                    }}>{tr('Retry script')}</button>}
                     {(j.status === 'pending' || j.status === 'running') && <button className="small ghost" onClick={async () => { await api.cancelVnScript(channelId!, j.id).catch(() => undefined); loadJobs(); }}>{tr('cancel')}</button>}
                   </td>
                 </tr>

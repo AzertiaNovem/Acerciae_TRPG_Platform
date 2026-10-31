@@ -42,6 +42,29 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("visual novel request limits remain independent from daily and module limits", [] {
+        struct Recorder : ILlmClient {
+            int tokens = 0;
+            LlmResponse complete(const LlmRequest &r) override { tokens = r.maxTokens; LlmResponse out; out.ok=true; out.content="{}"; return out; }
+            std::string mode() const override { return "mock"; }
+            std::string modelName() const override { return "fixture"; }
+        };
+        Config cfg; cfg.llmMaxTokens=100000; cfg.llmTimeoutMs=1000;
+        cfg.llmVnMaxTokens=12345; cfg.llmVnTimeoutMs=345000;
+        auto recorder=std::make_unique<Recorder>(); auto *record=recorder.get();
+        LlmGateway gateway(cfg, std::move(recorder));
+        LlmRequest request; request.task="vn_script"; request.maxTokens=8000;
+        CHECK(gateway.runStructured(request).ok); CHECK(record->tokens==12345);
+        CHECK(gateway.limitsForTask("vn_script").timeoutMs==345000);
+        cfg.llmMaxTokens=512; cfg.llmTimeoutMs=2000;
+        CHECK(gateway.runStructured(request).ok); CHECK(record->tokens==12345);
+        CHECK(gateway.limitsForTask("vn_script").timeoutMs==345000);
+        request.task="module_structure";
+        CHECK(gateway.runStructured(request).ok); CHECK(record->tokens==cfg.llmModuleMaxTokens);
+        CHECK(gateway.limitsForTask("module_structure").timeoutMs==cfg.llmModuleTimeoutMs);
+        CHECK(gateway.limitsForTask("observer_extract").timeoutMs==2000);
+        CHECK(gateway.retryFailedVnChunks()); cfg.vnScriptRetryFailedChunks=false; CHECK(!gateway.retryFailedVnChunks());
+    });
     test("SSE completion requires terminal events and reconstructs tool calls and usage (Responses and Messages)", [] {
         auto event=[](const Json::Value& v){return "data: "+json::dump(v)+"\r\n\r\n";};
         std::string open=": heartbeat\r\n\r\nevent: response.created\r\n";

@@ -22,6 +22,9 @@ struct Config {
     int llmMaxTokens = 8192;
     int llmModuleMaxTokens = 32768;
     int llmModuleTimeoutMs = 300000;
+    int llmVnMaxTokens = 32768;
+    int llmVnTimeoutMs = 300000;
+    bool vnScriptRetryFailedChunks = true;
     double llmTemperature = 0.2;
     bool aiAllowPrivateEndpoints = false;   // allow http:// and private/loopback hosts (self-hosted models)
     int llmMaxConnections = 32;
