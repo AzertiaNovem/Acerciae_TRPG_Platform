@@ -225,16 +225,23 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     const ttsStatus = await call(gm.token, 'GET', root + '/tts/status');
     assert.equal(ttsStatus.provider, 'openai'); assert.equal(ttsStatus.mock, false); assert.equal(ttsStatus.official_model, 'gpt-4o-mini-tts');
     assert.equal(ttsStatus.capabilities.voice_design, false); assert.equal(ttsStatus.capabilities.voice_clone, false);
+    // The Voice Studio follows the service: OpenAI offers speed, a model per voice, a spoken language and an accent.
+    const f = ttsStatus.features;
+    assert.equal(f.label, 'OpenAI'); assert.equal(f.voice_design, false); assert.equal(f.voice_clone, false); assert.equal(f.phoneme_dictionary, false);
+    assert.deepEqual(f.params.map(p => p.key), ['speed']); assert.deepEqual(f.models, ['gpt-4o-mini-tts', 'tts-1-hd', 'tts-1']);
+    assert.equal(f.dialect.label, 'Accent'); assert.ok(f.languages.some(l => l.id === 'ja'));
     assert.ok((await call(gm.token, 'GET', root + '/tts/available-voices')).some(v => v.id === 'marin'));
     await rejects(call(gm.token, 'POST', root + '/voices', { name: 'Designed', voice_type: 'design', design_prompt: 'A calm old sailor' }), 502);
-    const sailor = await call(gm.token, 'POST', root + '/voices', { name: 'Sailor', voice_type: 'preset', voice_id: 'ash', language: 'en', style_instruction: 'gravelly, unhurried' });
+    const sailor = await call(gm.token, 'POST', root + '/voices', { name: 'Sailor', voice_type: 'preset', voice_id: 'ash', language: 'en', style_instruction: 'gravelly, unhurried', synthesis_parameters: { speed: 9, pitch: 1.5 } });
     assert.equal(sailor.provider, 'openai'); assert.equal(sailor.model_id, 'gpt-4o-mini-tts');
+    assert.deepEqual(sailor.synthesis_parameters, { speed: 4 }, 'only the service\'s own parameters, clamped');
+    await call(gm.token, 'PUT', root + `/voices/${sailor.id}`, { synthesis_parameters: {} });   // back to the default speed
     const speak = extra => call(gm.token, 'POST', root + '/tts/preview', { voice_profile_id: sailor.id, text: 'The tide is turning.', ...extra });
     const clip = await speak({ style_instruction: 'whispered' });
     assert.equal(clip.mime, 'audio/wav'); assert.equal(clip.duration_ms, 500); assert.equal(clip.is_mock, false);
     const speech = requests.filter(r => r.url === '/openai/v1/audio/speech');
     assert.equal(speech.length, 1); assert.equal(speech[0].headers.authorization, 'Bearer speech-secret-A');
-    assert.deepEqual(speech[0].json, { model: 'gpt-4o-mini-tts', input: 'The tide is turning.', voice: 'ash', response_format: 'pcm', instructions: 'gravelly, unhurried; whispered' });
+    assert.deepEqual(speech[0].json, { model: 'gpt-4o-mini-tts', input: 'The tide is turning.', voice: 'ash', response_format: 'pcm', instructions: 'Speak in English. gravelly, unhurried; whispered' });
     await speak({ style_instruction: 'whispered' });   // cached: no second call
     assert.equal(requests.filter(r => r.url === '/openai/v1/audio/speech').length, 1);
     await speak({ model_id: 'tts-1-hd', text: 'Older model.' });   // the same contract; tts-1 models take no instructions

@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cctype>
+#include <map>
 
 namespace acerciae::logstudio {
 
@@ -32,6 +33,26 @@ int wavDurationMs(const std::string& b) {
         i += 8 + len + (len & 1);
     }
     return 0;
+}
+
+namespace {
+Json::Value param(const char* key, const char* label, double min, double max, double step, double def) {
+    Json::Value p; p["key"] = key; p["label"] = label; p["min"] = min; p["max"] = max; p["step"] = step; p["default"] = def; return p;
+}
+Json::Value languages(std::initializer_list<std::pair<const char*, const char*>> l) {
+    Json::Value v(Json::arrayValue); for (auto& [id, label] : l) { Json::Value x; x["id"] = id; x["label"] = label; v.append(x); } return v;
+}
+Json::Value strings(std::initializer_list<const char*> l) { Json::Value v(Json::arrayValue); for (auto* s : l) v.append(s); return v; }
+}
+Json::Value sanitizeSynthesisParameters(const Json::Value& features, const Json::Value& params) {
+    Json::Value out(Json::objectValue);
+    if (!params.isObject()) return out;
+    for (const auto& p : features["params"]) {
+        auto key = p["key"].asString();
+        if (!params[key].isNumeric()) continue;
+        out[key] = std::min(p["max"].asDouble(), std::max(p["min"].asDouble(), params[key].asDouble()));
+    }
+    return out;
 }
 
 // ---- Mock provider: real, playable WAV that is unmistakably synthetic (tone sequence), labelled mock ----
@@ -63,6 +84,13 @@ public:
     }
     double estimateSynthesisCost(const std::string&, int) override { return 0.0; }
     Json::Value capabilities() const override { Json::Value c; c["word_timestamps"] = false; c["voice_design"] = true; c["voice_clone"] = true; c["phoneme_hints"] = false; c["note"] = "mock provider: generates tone WAVs; no external calls"; return c; }
+    Json::Value features() const override {
+        Json::Value f; f["label"] = "Mock"; f["voice_design"] = true; f["voice_clone"] = true;
+        f["languages"] = languages({{"zh", "Mandarin"}, {"en", "English"}, {"auto", "Auto (mixed)"}}); f["language_note"] = "";
+        f["dialect"] = Json::Value(); f["instructions"] = true; f["instruction_note"] = "Slow/fast in an instruction changes the tone tempo.";
+        f["params"].append(param("speed", "Speed", 0.5, 2, 0.1, 1)); f["phoneme_dictionary"] = false; f["models"] = Json::Value(Json::arrayValue);
+        f["highlights"] = strings({"Synthetic tones for trying every flow without a provider"}); return f;
+    }
 };
 
 // ---- Qwen (Alibaba Cloud Model Studio / DashScope) provider ---------------------------------------
@@ -151,6 +179,17 @@ public:
         r.ok = true; return r;
     }
     double estimateSynthesisCost(const std::string&, int chars) override { return pricePer10k_ * chars / 10000.0; }
+    Json::Value features() const override {
+        Json::Value f; f["label"] = "Qwen"; f["voice_design"] = true; f["voice_clone"] = true;
+        f["languages"] = languages({{"zh", "Mandarin"}, {"en", "English"}, {"auto", "Auto (mixed)"}, {"zh-dialect", "Chinese dialect"}});
+        f["language_note"] = "Sent as a language hint.";
+        Json::Value d; d["label"] = "Dialect"; d["placeholder"] = "e.g. Beijing, Sichuan, Cantonese"; f["dialect"] = d;
+        f["instructions"] = true; f["instruction_note"] = "Identity and delivery are sent as the model's instruction.";
+        f["params"].append(param("rate", "Rate", 0.5, 2, 0.05, 1)); f["params"].append(param("pitch", "Pitch", 0.5, 2, 0.05, 1)); f["params"].append(param("volume", "Volume", 0, 100, 1, 50));
+        f["phoneme_dictionary"] = true; f["models"] = Json::Value(Json::arrayValue);
+        f["highlights"] = strings({"Voice design from a description", "Voice cloning with recorded consent", "Language hints and Chinese dialects", "Rate, pitch and volume per voice", "Pinyin pronunciations"});
+        return f;
+    }
     Json::Value capabilities() const override { Json::Value c; c["word_timestamps"] = "only if returned by the API (not assumed)"; c["voice_design"] = true; c["voice_clone"] = true; c["phoneme_hints"] = true; c["api_base"] = base_; c["synth_endpoint"] = synthPath_; c["enroll_endpoint"] = enrollPath_; c["instruction_field"] = instructionField_; c["note"] = "Qwen-Audio 3.1 HTTP contract checked 2026-10-26; preset availability depends on model and region. Live account validation still required."; return c; }
 private:
     std::string post(const std::string& path, const std::string& body, long& st, std::string& err) { return postJson(base_ + path, apiKey_, body, timeoutMs_, st, err); }
@@ -197,7 +236,11 @@ public:
         Json::Value body; body["model"] = req.modelId.empty() ? model_ : req.modelId;
         body["input"] = req.text; body["voice"] = req.voiceId.empty() ? voice_ : req.voiceId; body["response_format"] = "pcm";
         // tts-1 and tts-1-hd ignore delivery instructions; the gpt-*-tts models take them.
-        if (!req.instruction.empty() && body["model"].asString().rfind("tts-1", 0) != 0) body["instructions"] = req.instruction;
+        // The API has no language field: a chosen language is asked for in the instructions.
+        static const std::map<std::string, std::string> spoken = {{"zh", "Mandarin Chinese"}, {"zh-dialect", "Chinese"}, {"en", "English"}, {"ja", "Japanese"}, {"ko", "Korean"}, {"es", "Spanish"}, {"fr", "French"}, {"de", "German"}, {"ru", "Russian"}, {"pt", "Portuguese"}, {"it", "Italian"}};
+        auto lang = spoken.find(req.language);
+        std::string instructions = lang == spoken.end() ? req.instruction : "Speak in " + lang->second + "." + (req.instruction.empty() ? "" : " " + req.instruction);
+        if (!instructions.empty() && body["model"].asString().rfind("tts-1", 0) != 0) body["instructions"] = instructions;
         if (req.parameters.isMember("speed") && req.parameters["speed"].isNumeric()) body["speed"] = std::min(4.0, std::max(0.25, req.parameters["speed"].asDouble()));
         long st = 0; std::string err; auto resp = postJson(base_ + "/audio/speech", apiKey_, json::dump(body), timeoutMs_, st, err);
         if (!err.empty()) { r.error = "transport: " + err; r.retryable = true; return r; }
@@ -223,6 +266,17 @@ public:
         VoiceProfileCreateResult r; r.error = "OpenAI speech has preset voices only; voice design and cloning need the Qwen provider"; return r;
     }
     double estimateSynthesisCost(const std::string&, int chars) override { return pricePer10k_ * chars / 10000.0; }
+    Json::Value features() const override {
+        Json::Value f; f["label"] = "OpenAI"; f["voice_design"] = false; f["voice_clone"] = false;
+        f["languages"] = languages({{"auto", "Follow the text"}, {"zh", "Mandarin Chinese"}, {"en", "English"}, {"ja", "Japanese"}, {"ko", "Korean"}, {"es", "Spanish"}, {"fr", "French"}, {"de", "German"}, {"ru", "Russian"}, {"pt", "Portuguese"}, {"it", "Italian"}});
+        f["language_note"] = "Asked for in the instructions; the model reads the language from the text otherwise.";
+        Json::Value d; d["label"] = "Accent"; d["placeholder"] = "e.g. soft Scottish, Boston, Taiwanese Mandarin"; f["dialect"] = d;
+        f["instructions"] = true; f["instruction_note"] = "Free-form: tone, emotion, pacing, whispering, character. Ignored by tts-1 models.";
+        f["params"].append(param("speed", "Speed", 0.25, 4, 0.05, 1)); f["phoneme_dictionary"] = false;
+        Json::Value models(Json::arrayValue); models.append(model_); for (auto* m : {"gpt-4o-mini-tts", "tts-1-hd", "tts-1"}) if (model_ != m) models.append(m); f["models"] = models;
+        f["highlights"] = strings({"13 preset voices", "Free-form delivery instructions", "Spoken language and accent", "Speed per voice", "Model per voice"});
+        return f;
+    }
     Json::Value capabilities() const override { Json::Value c; c["word_timestamps"] = false; c["voice_design"] = false; c["voice_clone"] = false; c["phoneme_hints"] = false; c["instructions"] = model_.rfind("tts-1", 0) != 0; c["api_base"] = base_; c["model"] = model_; c["note"] = "OpenAI /audio/speech: preset voices, delivery instructions on gpt-*-tts models, 24 kHz PCM wrapped as WAV."; return c; }
 private:
     std::string apiKey_, base_, model_, voice_; double pricePer10k_ = 0; long timeoutMs_ = 60000;
