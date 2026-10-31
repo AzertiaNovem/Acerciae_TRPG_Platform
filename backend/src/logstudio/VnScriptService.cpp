@@ -349,6 +349,8 @@ Json::Value VnScriptService::fromFlat(const ScriptInputs &in, const std::vector<
       auto subtitle = clip(json::str(p, "subtitle"), 32), prompt = clip(json::str(p, "prompt"), 400);
       if (!castByRef.count(who) || subtitle.empty() || prompt.empty()) continue;
       if (json::str(castByRef[who], "asset_mode") != "generated") continue;   // uploaded-mode art is the actor's alone
+      bool have = false; for (const auto &h : castByRef[who]["subtitles"]) have = have || text::lower(h.asString()) == text::lower(subtitle);
+      if (have) continue;   // never redraw a pose the character already has (it may have just been updated by hand)
       if (!portraitKeys.insert(who + "|" + text::lower(subtitle)).second) continue;
       Json::Value need; need["kind"] = "standee"; need["who"] = who; need["subtitle"] = subtitle; need["brief"] = prompt;
       plan["asset_needs"].append(need);
@@ -654,25 +656,35 @@ ScriptInputs VnScriptService::inputs(const ChannelAccess &a, const std::string &
     x["appearance_prompt"] = r["appearance_prompt"].isString() ? r["appearance_prompt"] : Json::Value("");
     x["default_asset_id"] = r["default_asset_id"].isString() ? r["default_asset_id"] : r["portrait_asset_id"];
     x["subtitles"] = Json::Value(Json::arrayValue);
-    // Subtitle portraits come from the character space (expressions[subtitle] = asset id).
-    if (r["expressions"].isObject())
-      for (const auto &k : r["expressions"].getMemberNames()) {
-        if (!r["expressions"][k].isString()) continue;
-        x["subtitles"].append(k);
-        Json::Value st; st["ref"] = "S" + std::to_string(++s); st["id"] = r["expressions"][k]; st["type"] = "standee"; st["name"] = r["name"].asString() + " · " + k;
-        st["tags"] = Json::Value(Json::arrayValue); st["character_id"] = id; st["expression"] = k;
-        in.assets.append(st);
-      }
     in.cast.append(x);
   }
   std::set<std::string> castIds;
   for (const auto &x : in.cast) castIds.insert(x["character_id"].asString());
   bool gmOnly = snap && (*snap)["scope"].asString() == "gm_full";
+  // One image per character and subtitle: the newest approved one, whether the character space set it (its poses)
+  // or it was uploaded in the asset library; older images of the same subtitle are never offered.
+  {
+    auto current = pres_.currentStandees(a.channelId, gmOnly);
+    for (auto &x : in.cast) {
+      auto cid = x["character_id"].asString();
+      auto c = current.find(cid);
+      if (c == current.end()) continue;
+      for (const auto &[key, r] : c->second) {
+        if (key.empty()) continue;   // the default image comes in as default_asset_id
+        auto expr = r["expression"].asString();
+        x["subtitles"].append(expr);
+        Json::Value st; st["ref"] = "S" + std::to_string(++s); st["id"] = r["id"]; st["type"] = "standee"; st["name"] = x["name"].asString() + " · " + expr;
+        st["tags"] = Json::Value(Json::arrayValue); st["character_id"] = cid; st["expression"] = expr;
+        in.assets.append(st);
+      }
+    }
+  }
+
   int b = 0, m = 0;
   for (const auto &r : db_.queryJson("SELECT id, asset_type, name, tags, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type IN ('background','bgm','audio','standee') ORDER BY updated_at DESC LIMIT 400", {a.channelId})) {
     if (!gmOnly && r["visibility_scope"].asString() == "gm") continue;   // a private image cannot enter a shared presentation
     auto type = r["asset_type"].asString();
-    if (type == "standee" && !castIds.count(r["character_id"].asString())) continue;
+    if (type == "standee") continue;   // standees were chosen above, one per character and subtitle
     bool dup = false; for (const auto &x : in.assets) dup = dup || x["id"] == r["id"];
     if (dup) continue;
     Json::Value x;

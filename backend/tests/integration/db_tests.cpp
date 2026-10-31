@@ -1,9 +1,12 @@
 // Database-backed tests for the validation core. Requires PostgreSQL; set TEST_DATABASE_URL (a
 // database that may be wiped) — defaults to postgresql://postgres@localhost:5432/acerciae_test.
+#include <drogon/utils/Utilities.h>
 #include "logstudio/ObjectStore.h"
 #include "logstudio/LogStudioService.h"
 #include "logstudio/PresentationService.h"
 #include "logstudio/PublicationService.h"
+#include "characters/CharacterSpaceService.h"
+#include "logstudio/MediaService.h"
 #include "app/Services.h"
 #include "atmosphere/AtmosphereService.h"
 #include "logstudio/ImageProvider.h"
@@ -861,6 +864,29 @@ int main() {
         CHECK(!S.objectStore->exists(key));
         CHECK(S.db->queryOne("SELECT status FROM vn_bundle_jobs WHERE id=$1", {ready["id"].asString()})["status"] == "expired");
         CHECK(!S.publication->bundleDownload(gm, ready["id"].asString(), false, url, bytes, name));
+        // Character images: the newest approved image per subtitle wins (a character-space pose or a library upload),
+        // the main portrait is the default, and an existing visual novel can take the current images.
+        const std::string png = drogon::utils::base64Decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+        auto portrait = S.characterSpace->uploadAsset(p1, c1, "portrait", "", "p.png", png)["portrait"]["id"].asString();
+        S.characterSpace->uploadAsset(p1, c1, "subtitle", "SAY", "say1.png", png);
+        auto pose = S.db->queryOne("SELECT expressions->>'SAY' AS id FROM character_visual_profiles WHERE character_id=$1", {c1})["id"].asString();
+        auto cur = S.presentations->currentStandees(channelId, true);
+        CHECK(cur[c1][""]["id"].asString() == portrait); CHECK(cur[c1]["say"]["id"].asString() == pose);
+        Json::Value lib; lib["asset_type"] = "standee"; lib["character_id"] = c1; lib["expression"] = "say";   // a newer library upload, other case
+        auto newer = S.media->upload(gm, "say2.png", png, "image/png", lib)["id"].asString();
+        S.db->exec("UPDATE media_assets SET updated_at=now() + interval '1 second' WHERE id=$1", {newer});
+        cur = S.presentations->currentStandees(channelId, true);
+        CHECK(cur[c1]["say"]["id"].asString() == newer); CHECK(cur[c1].size() == 2);
+        auto ev = S.db->queryOne("SELECT id FROM presentation_events WHERE presentation_id=$1 ORDER BY position LIMIT 1", {pid})["id"].asString();
+        Json::Value stage(Json::arrayValue);
+        Json::Value a1; a1["character_id"] = c1; a1["expression"] = "SAY"; a1["position"] = "left"; a1["asset_id"] = pose; a1["asset_version"] = 1; stage.append(a1);
+        Json::Value a2; a2["character_id"] = c1; a2["expression"] = "ANGRY"; a2["position"] = "right"; a2["asset_id"] = Json::Value(); stage.append(a2);
+        S.db->exec("UPDATE presentation_events SET character_asset_ids='[]'::jsonb WHERE presentation_id=$1", {pid});   // only this stage
+        S.db->exec("UPDATE presentation_events SET character_asset_ids=$2::jsonb WHERE id=$1", {ev, json::dump(stage)});
+        CHECK(S.presentations->refreshStandees(gm, pid)["changed"].asInt() == 2);
+        auto after = S.db->queryOne("SELECT character_asset_ids AS s FROM presentation_events WHERE id=$1", {ev})["s"];
+        CHECK(after[0]["asset_id"].asString() == newer); CHECK(after[1]["asset_id"].asString() == portrait);   // no ANGRY image: the default
+        CHECK(S.presentations->refreshStandees(gm, pid)["changed"].asInt() == 0);
         // A build a restart dropped is failed after an hour.
         S.db->exec("UPDATE vn_bundle_jobs SET created_at=now() - interval '2 hours' WHERE status='pending'");
         S.publication->expireBundles();

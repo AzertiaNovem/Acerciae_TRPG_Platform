@@ -21,6 +21,8 @@ body.font-mono { font-family: "JetBrains Mono", Consolas, monospace; }
 #cast img { position: absolute; bottom: 0; max-height: 92%; max-width: 40%; object-fit: contain; filter: brightness(.55); transition: filter .25s, transform .25s; }
 #cast img.active { filter: brightness(1); transform: translateY(-6px); z-index: 2; }
 #cast img.pos-left { left: 6%; } #cast img.pos-center { left: 50%; transform: translateX(-50%); } #cast img.pos-center.active { transform: translateX(-50%) translateY(-6px); } #cast img.pos-right { right: 6%; }
+/* Upper-half framing (the default): standees sit low, drawn about twice as tall, so only head to waist shows. */
+body.frame-upper #cast { inset: 0; } body.frame-upper #cast img { bottom: auto; top: 12%; height: 176%; max-height: none; max-width: none; }
 #box { position: absolute; left: 50%; bottom: 4%; transform: translateX(-50%); width: min(92%, 980px); background: var(--panel); border: 1px solid rgba(255,255,255,.12); border-top: 3px solid var(--accent); border-radius: 10px; padding: 18px 24px 22px; min-height: 140px; z-index: 3; backdrop-filter: blur(6px); }
 #speaker { font-weight: 700; color: var(--accent); letter-spacing: .04em; margin-bottom: 6px; min-height: 1.2em; }
 #text { font-size: 1.1rem; line-height: 1.6; white-space: pre-wrap; }
@@ -63,7 +65,8 @@ body.tpl-cinematic #box { background: transparent; border: none; text-align: cen
   var events = data.events || [], scenes = data.scenes || [];
   var sceneById = {}; scenes.forEach(function(s){ sceneById[s.id] = s; });
   var tpl = data.template || {};
-  document.body.classList.add('tpl-' + (tpl.layout || tpl.id || 'adv'));
+  document.body.classList.add('tpl-' + (tpl.base || tpl.layout || tpl.id || 'adv'));
+  document.body.classList.add('frame-' + (tpl.portrait_framing === 'full' ? 'full' : 'upper'));
   if (tpl.font) document.body.classList.add('font-' + tpl.font);
   var i = -1, typing = null, auto = false, muted = false, audio = null, lastScene = null;
   var $ = function(id){ return document.getElementById(id); };

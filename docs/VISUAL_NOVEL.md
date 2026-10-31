@@ -42,6 +42,7 @@ A presentation stores its template in `settings.template`: a base preset plus op
 | `color_grade` | `none` · `sepia` · `mono` · `cold` · `warm` | Filter on background and standees, never on text |
 | `letterbox` | boolean | Black bars above and below |
 | `dim_inactive` | boolean | Darken standees that are not speaking |
+| `portrait_framing` | `upper` · `full` | `upper` (every preset's default): standees sit lower and only their upper half shows; `full`: the whole figure |
 | `dice_style` | `burst` · `stamp` · `inline` · `hide` | How a roll's total and outcome appear |
 | `scene_card` | `fade` · `caption` · `none` | How a new scene's title appears |
 | `character_colors` | character id → `#RRGGBB` (≤ 200) | Name colours |

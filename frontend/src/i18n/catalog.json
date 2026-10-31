@@ -15274,5 +15274,89 @@
     "Срок прошлой загрузки истёк.",
     "O último download expirou.",
     "L’ultimo download è scaduto."
+  ],
+  "Portraits": [
+    "立绘",
+    "立繪",
+    "立ち絵",
+    "스탠딩 일러스트",
+    "Retratos",
+    "Portraits",
+    "Porträts",
+    "Портреты",
+    "Retratos",
+    "Ritratti"
+  ],
+  "Upper half (lower on the stage)": [
+    "上半身（位置更低）",
+    "上半身（位置更低）",
+    "上半身（画面の下寄り）",
+    "상반신(화면 아래쪽)",
+    "Medio cuerpo (más abajo)",
+    "Buste (plus bas)",
+    "Oberkörper (tiefer)",
+    "По пояс (ниже)",
+    "Meio corpo (mais abaixo)",
+    "Mezzo busto (più in basso)"
+  ],
+  "Full figure": [
+    "全身",
+    "全身",
+    "全身",
+    "전신",
+    "Cuerpo entero",
+    "En pied",
+    "Ganze Figur",
+    "В полный рост",
+    "Corpo inteiro",
+    "Figura intera"
+  ],
+  "Replace every character image with the character's current one (for images updated after this visual novel was made)": [
+    "把每个角色的图像换成该角色当前的图像（适用于本视觉小说生成后更新过的图像）",
+    "把每個角色的圖像換成該角色目前的圖像（適用於本視覺小說產生後更新過的圖像）",
+    "各キャラクターの画像を現在のものに置き換えます（このビジュアルノベル作成後に更新された画像向け）",
+    "각 캐릭터 이미지를 현재 이미지로 바꿉니다(이 비주얼 노벨을 만든 뒤 바뀐 이미지용)",
+    "Sustituye cada imagen de personaje por la actual (para imágenes actualizadas tras crear esta novela visual)",
+    "Remplace chaque image de personnage par l’actuelle (pour les images mises à jour après la création de ce visual novel)",
+    "Ersetzt jedes Charakterbild durch das aktuelle (für Bilder, die nach dem Erstellen dieser Visual Novel geändert wurden)",
+    "Заменяет изображение каждого персонажа текущим (для изображений, обновлённых после создания новеллы)",
+    "Substitui cada imagem de personagem pela atual (para imagens atualizadas depois desta visual novel)",
+    "Sostituisce ogni immagine dei personaggi con quella attuale (per immagini aggiornate dopo questa visual novel)"
+  ],
+  "{n} character images updated": [
+    "已更新 {n} 张角色图像",
+    "已更新 {n} 張角色圖像",
+    "キャラクター画像を {n} 件更新しました",
+    "캐릭터 이미지 {n}개를 바꿨습니다",
+    "{n} imágenes de personajes actualizadas",
+    "{n} images de personnages mises à jour",
+    "{n} Charakterbilder aktualisiert",
+    "Обновлено изображений персонажей: {n}",
+    "{n} imagens de personagens atualizadas",
+    "{n} immagini dei personaggi aggiornate"
+  ],
+  "Character images are already current": [
+    "角色图像已是最新",
+    "角色圖像已是最新",
+    "キャラクター画像はすでに最新です",
+    "캐릭터 이미지가 이미 최신입니다",
+    "Las imágenes de personajes ya están al día",
+    "Les images des personnages sont déjà à jour",
+    "Die Charakterbilder sind schon aktuell",
+    "Изображения персонажей уже актуальны",
+    "As imagens dos personagens já estão atualizadas",
+    "Le immagini dei personaggi sono già aggiornate"
+  ],
+  "Use current character images": [
+    "使用当前角色图像",
+    "使用目前角色圖像",
+    "現在のキャラクター画像を使う",
+    "현재 캐릭터 이미지 사용",
+    "Usar las imágenes actuales",
+    "Utiliser les images actuelles",
+    "Aktuelle Charakterbilder verwenden",
+    "Взять текущие изображения",
+    "Usar as imagens atuais",
+    "Usa le immagini attuali"
   ]
 }

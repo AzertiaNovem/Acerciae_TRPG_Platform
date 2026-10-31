@@ -576,6 +576,8 @@ void registerRoutes() {
     route2("/api/channels/{1}/studio/presentations/{2}/tts/estimate", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->estimate(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->createJob(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listJobs(studioAccess(p, a[0]), a[1]); });
+    // Every placement takes its character's current image (for presentations built before an image was updated).
+    route2("/api/channels/{1}/studio/presentations/{2}/refresh-standees", {Post}, [&](auto&, auto& p, auto& a) { return S.presentations->refreshStandees(studioAccess(p, a[0]), a[1]); });
     // Dubbing cast: which voice reads each character and the narration.
     route2("/api/channels/{1}/studio/presentations/{2}/cast", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->applyCast(studioAccess(p, a[0]), a[1], body(req)["cast"]); });
     // Standalone visual novel: index.html plus every image and voice line, as one ZIP.

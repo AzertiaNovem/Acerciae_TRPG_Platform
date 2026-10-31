@@ -83,6 +83,7 @@ export default function VisualNovelEditor() {
         <label className="tiny">{tr("typewriter ")}<input type="number" min={5} max={120} value={pres.settings?.typewriter_cps ?? 28} onChange={(e) => setPres({ ...pres, settings: { ...pres.settings, typewriter_cps: +e.target.value } })} onBlur={() => channelId && api.updatePresentation(channelId, pres.id, { settings: { typewriter_cps: pres.settings?.typewriter_cps } })} style={{ width: 60 }} disabled={!canEdit} />{tr(" cps")}</label>
         <span className="grow" />
         <button className="primary small" onClick={() => setPlayerMode(true)}>{tr("▶ Play")}</button>
+        {canEdit && <button className="ghost small" title={tr("Replace every character image with the character's current one (for images updated after this visual novel was made)")} onClick={async () => { if (!channelId) return; try { const r = await api.refreshStandees(channelId, pres.id); toast(r.changed ? tr('{n} character images updated', { n: r.changed }) : tr('Character images are already current')); await loadPres(pres.id); } catch (e: any) { toast(e.message, 'error'); } }}>{tr("Use current character images")}</button>}
         <BundleDownload channelId={channelId!} presentationId={pres.id} />
         {canEdit && <button className="ghost small" onClick={async () => { if (!channelId || !confirm(tr('Delete this presentation?'))) return; await api.deletePresentation(channelId, pres.id); setPresentation(null); loadList(); }}>{tr("delete")}</button>}
       </div>

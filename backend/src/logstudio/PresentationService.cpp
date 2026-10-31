@@ -33,6 +33,7 @@ Json::Value PresentationService::validateVnTemplate(const Json::Value& in) {
     choice("color_grade", {"none", "sepia", "mono", "cold", "warm"});
     choice("dice_style", {"burst", "stamp", "inline", "hide"});
     choice("scene_card", {"fade", "caption", "none"});
+    choice("portrait_framing", {"upper", "full"});
     for (auto [key, low, high] : {std::tuple{"text_scale", 0.8, 1.5}, {"box_opacity", 0.0, 1.0}}) {
         if (!in.isMember(key)) continue;
         if (!in[key].isNumeric()) throw badRequest(std::string("invalid template ") + key);
@@ -230,7 +231,7 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
                     auto speaker = json::str(l, "speaker_character_id", ev["speaker_character_id"].isNull() ? "" : ev["speaker_character_id"].asString());
                     for (const auto& c : l["stage"]) {
                         Json::Value x; x["character_id"] = c["character_id"]; x["position"] = c["position"]; x["expression"] = c["expression"]; x["active"] = c["character_id"].asString() == speaker;
-                        auto st = asset(c["asset_id"], {"standee"});
+                        auto st = asset(c["asset_id"], {"standee", "portrait"});   // the main portrait is the default image
                         x["asset_id"] = st.isNull() ? Json::Value() : st["id"]; x["asset_version"] = st.isNull() ? Json::Value() : st["version"];
                         stage.append(x);
                     }
@@ -256,6 +257,49 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
         }
     });
     touch(id, a.channelId, "script");
+}
+std::map<std::string, std::map<std::string, Json::Value>> PresentationService::currentStandees(const std::string& channelId, bool gmOnly) {
+    std::map<std::string, std::map<std::string, Json::Value>> out;
+    std::map<std::string, std::pair<std::string, std::string>> poseOf;   // asset id → (character, subtitle) from the character space
+    for (auto& r : db_.queryJson("SELECT c.id, c.portrait_asset_id, cv.default_asset_id, cv.expressions FROM characters c LEFT JOIN character_visual_profiles cv ON cv.character_id=c.id WHERE c.channel_id=$1", {channelId})) {
+        auto cid = r["id"].asString();
+        if (r["expressions"].isObject()) for (auto& k : r["expressions"].getMemberNames()) if (r["expressions"][k].isString()) poseOf[r["expressions"][k].asString()] = {cid, k};
+        auto def = r["default_asset_id"].isString() ? r["default_asset_id"].asString() : r["portrait_asset_id"].isString() ? r["portrait_asset_id"].asString() : "";
+        if (def.empty()) continue;
+        auto d = db_.queryOne("SELECT id, version, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2 AND approval_status='approved' AND asset_type IN ('standee','portrait')", {def, channelId});
+        if (!d.isNull() && (gmOnly || d["visibility_scope"].asString() != "gm")) { d["expression"] = "default"; out[cid][""] = d; }
+    }
+    for (auto& r : db_.queryJson("SELECT id, version, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type='standee' ORDER BY updated_at DESC", {channelId})) {
+        if (!gmOnly && r["visibility_scope"].asString() == "gm") continue;
+        auto cid = r["character_id"].isString() ? r["character_id"].asString() : ""; auto expr = r["expression"].asString();
+        auto pose = poseOf.find(r["id"].asString());
+        if (pose != poseOf.end()) { cid = pose->second.first; expr = pose->second.second; }   // filed under its subtitle
+        if (cid.empty() || text::trim(expr).empty()) continue;
+        auto& slot = out[cid][text::lower(expr)];
+        if (slot.isNull()) { r["expression"] = expr; slot = r; }   // newest first
+    }
+    return out;
+}
+Json::Value PresentationService::refreshStandees(const ChannelAccess& a, const std::string& id) {
+    auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
+    auto current = currentStandees(a.channelId, p["snapshot_scope"].asString() == "gm_full");
+    int changed = 0;
+    for (auto& ev : db_.queryJson("SELECT id, character_asset_ids FROM presentation_events WHERE presentation_id=$1 AND jsonb_array_length(character_asset_ids) > 0", {id})) {
+        Json::Value stage = ev["character_asset_ids"]; bool touched = false;
+        for (auto& pl : stage) {
+            auto c = current.find(json::str(pl, "character_id"));
+            if (c == current.end()) continue;
+            auto expr = text::lower(json::str(pl, "expression"));
+            auto img = c->second.find(expr == "default" ? "" : expr);
+            if (img == c->second.end()) img = c->second.find("");
+            if (img == c->second.end()) continue;
+            if (json::str(pl, "asset_id") == img->second["id"].asString() && json::toInt(pl, "asset_version", 0) == img->second["version"].asInt()) continue;
+            pl["asset_id"] = img->second["id"]; pl["asset_version"] = img->second["version"]; touched = true; ++changed;
+        }
+        if (touched) db_.exec("UPDATE presentation_events SET character_asset_ids=$2::jsonb, updated_at=now() WHERE id=$1", {ev["id"].asString(), json::dump(stage)});
+    }
+    if (changed) touch(id, a.channelId, "art");
+    Json::Value v; v["changed"] = changed; return v;
 }
 Json::Value PresentationService::applyCast(const ChannelAccess& a, const std::string& id, const Json::Value& castIn) {
     auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");

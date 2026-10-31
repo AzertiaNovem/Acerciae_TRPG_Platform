@@ -107,7 +107,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   }, [next, back, audio, editorMode]);
   const toggleFullscreen = () => { const el = stageRef.current; if (!el) return; if (document.fullscreenElement) document.exitFullscreen(); else el.requestFullscreen?.(); };
 
-  const stageClass = `vn-stage tpl-${tpl.base} grade-${tpl.color_grade} names-${tpl.name_style}${tpl.letterbox ? ' letterboxed' : ''}`;
+  const stageClass = `vn-stage tpl-${tpl.base} grade-${tpl.color_grade} names-${tpl.name_style} frame-${tpl.portrait_framing}${tpl.letterbox ? ' letterboxed' : ''}`;
   const stageStyle = templateStyle(tpl) as React.CSSProperties;
   if (!cur) return <div className={stageClass} style={stageStyle} ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">{tr("No visible lines in this presentation.")}</div></div></div>;
 

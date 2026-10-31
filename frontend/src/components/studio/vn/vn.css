@@ -12,6 +12,9 @@
 .vn-char { position: absolute; bottom: 0; height: 92%; width: 34%; display: flex; align-items: flex-end; justify-content: center; transform-origin: bottom center; }
 .vn-char img { max-height: 100%; max-width: 100%; object-fit: contain; filter: drop-shadow(0 8px 20px rgba(0,0,0,.5)); }
 .vn-char.pos-left { left: 2%; } .vn-char.pos-center { left: 33%; } .vn-char.pos-right { right: 2%; }
+/* Upper-half framing: the standee is drawn about twice as tall and pushed down, so the stage shows it from the head to
+   the waist (top at ~12% of the stage) and the rest falls below the frame. */
+.vn-stage.frame-upper .vn-char img { max-height: none; max-width: none; height: 190%; transform: translateY(50%); }
 .vn-char .vn-char-placeholder { width: 60%; height: 70%; border-radius: 50% 50% 8px 8px; background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.04)); border: 1px dashed rgba(255,255,255,.3); display: grid; place-items: center; color: rgba(255,255,255,.6); font-size: 12px; text-align: center; padding: 8px; }
 .vn-dialogue { z-index: 2; position: absolute; left: 4%; right: 4%; bottom: 4%; background: rgb(var(--vn-box-rgb) / var(--vn-box-alpha)); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 2.2cqw 3cqw 2.4cqw; min-height: 22%; color: var(--vn-ink); backdrop-filter: blur(6px); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
 .vn-dialogue .vn-name { position: absolute; top: -1.15em; left: 2.6cqw; background: var(--vn-name-bg, var(--vn-accent)); color: var(--vn-name-ink, var(--vn-accent-ink)); font-weight: 700; padding: .2em .8em; border-radius: 8px; font-size: calc(var(--vn-text-size) * .78); }
