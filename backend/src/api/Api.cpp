@@ -71,6 +71,15 @@ std::string bearer(const HttpRequestPtr& req) {
 // the public bucket are answered with a redirect, so the bytes come straight from Cloudflare instead of this server.
 // Requests with an Authorization header (native apps, API clients) still get the bytes: some HTTP stacks would carry
 // the bearer token along to the other host.
+// Content-Disposition for a file name that may not be ASCII (titles are often Chinese): an ASCII fallback plus RFC 5987.
+std::string attachmentHeader(const std::string& name) {
+    std::string ascii, enc; static const char* hex = "0123456789ABCDEF";
+    for (unsigned char c : name) {
+        ascii += (c >= 0x20 && c < 0x7f && c != '"' && c != '\\') ? (char)c : '_';
+        if (isalnum(c) || c == '.' || c == '-' || c == '_') enc += (char)c; else { enc += '%'; enc += hex[c >> 4]; enc += hex[c & 15]; }
+    }
+    return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + enc;
+}
 bool mayRedirect(const HttpRequestPtr& req) { return req->getHeader("Authorization").empty(); }
 HttpResponsePtr redirectTo(const std::string& url, const char* cacheControl) {
     auto r = HttpResponse::newRedirectionResponse(url, k302Found);
@@ -472,7 +481,7 @@ void registerRoutes() {
         try {
             auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
             std::string mime, name; auto data = S.studio->exportLog(studioAccess(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name);
-            auto r = HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
+            auto r = HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
     route1("/api/channels/{1}/studio/projects", {Get}, [&](auto&, auto& p, auto& a) { return S.studio->listProjects(studioAccess(p, a[0])); });
@@ -574,7 +583,19 @@ void registerRoutes() {
         try {
             auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
             std::string name; auto data = S.publication->bundle(studioAccess(*pr, ch), pid, name);
-            auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
+            auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
+    }, {Get});
+    // Background bundles: prepared off the request, kept for VN_BUNDLE_TTL_HOURS, then deleted.
+    route2("/api/channels/{1}/studio/presentations/{2}/bundle", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->requestBundle(studioAccess(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/studio/presentations/{2}/bundles", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->bundleJobs(studioAccess(p, a[0]), a[1]); });
+    app().registerHandler("/api/channels/{1}/studio/bundles/{2}/download", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string id) {
+        try {
+            auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
+            std::string url, bytes, name;
+            if (!S.publication->bundleDownload(studioAccess(*pr, ch), id, mayRedirect(req), url, bytes, name)) throw ApiError(404, "not_found", "this download is not ready or has expired; prepare it again");
+            if (!url.empty()) { cb(redirectTo(url, "no-store")); return; }
+            auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(std::move(bytes)); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
     route2("/api/channels/{1}/studio/tts/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->getJob(studioAccess(p, a[0]), a[1]); });

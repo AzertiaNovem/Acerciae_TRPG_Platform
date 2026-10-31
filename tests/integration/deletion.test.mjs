@@ -62,6 +62,11 @@ test('deletion: maintainers delete channels, only the owner deletes the server, 
   const watching = await socket(player.token, first);
   const gone = await request(admin.token, 'DELETE', `/api/channels/${first}`, { confirm: 'Delete Channel' });
   assert.equal(gone.ok, true); assert.ok(gone.files >= 1, 'the uploaded map is removed from storage');
+  // Nothing of the channel is left on the local disk (the test server stores media locally).
+  if (process.env.E2E_UPLOAD_DIR) {
+    const { existsSync } = await import('node:fs');
+    for (const dir of [`channels/${first}`, `pub/channels/${first}`]) assert.ok(!existsSync(`${process.env.E2E_UPLOAD_DIR}/${dir}`), dir);
+  }
   await until(() => watching.messages.some(m => m.type === 'channel.deleted' && m.channel_id === first));
   watching.ws.close();
   await request(player.token, 'GET', `/api/channels/${first}`, undefined, 404);

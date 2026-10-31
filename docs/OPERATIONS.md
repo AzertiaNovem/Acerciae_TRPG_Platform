@@ -56,6 +56,14 @@ without serving.
 
 ## Housekeeping and limits
 
+- Visual-novel downloads are packed on the background pool and kept for `VN_BUNDLE_TTL_HOURS` (default 24). The
+  maintenance thread deletes expired ones within a minute, from every storage backend. As a backstop, you can also
+  add an R2 lifecycle rule on the public bucket that deletes objects under `pub/channels/` matching `*/bundles/*`
+  after a day longer than the TTL.
+- Deleting a channel or a server removes its stored files everywhere: each recorded object from the local disk, the
+  private R2 bucket and the public bucket, the local copies the media migrator kept under their old names, and
+  whatever is left in the channel's local folders.
+
 - A maintenance thread re-checks WebSocket subscriptions every minute (expired sessions are closed, removed members stop
   receiving) and sweeps hourly: expired sessions, finished background AI jobs older than `RETENTION_AI_JOB_DAYS` (30),
   studio audit rows older than `RETENTION_AUDIT_DAYS` (365) and spent or revoked invites.

@@ -1,5 +1,9 @@
 // Database-backed tests for the validation core. Requires PostgreSQL; set TEST_DATABASE_URL (a
 // database that may be wiped) — defaults to postgresql://postgres@localhost:5432/acerciae_test.
+#include "logstudio/ObjectStore.h"
+#include "logstudio/LogStudioService.h"
+#include "logstudio/PresentationService.h"
+#include "logstudio/PublicationService.h"
 #include "app/Services.h"
 #include "atmosphere/AtmosphereService.h"
 #include "logstudio/ImageProvider.h"
@@ -822,6 +826,44 @@ int main() {
         on["atmosphere_enabled"]=true;S.auth->updateProfile(gmP,on);
         settings["features"]["atmosphere"]=false;S.settings->update(gmP,sid,settings);CHECK(!service.fetch(a,asset,bytes,mime));
         S.auth->updateProfile(gmP,off);
+    });
+    test("visual-novel bundles are built in the background, reused while current, and deleted when they expire", [&] {
+        say(gmUser, mainWin, "The harbour at night.", "narration");
+        auto log = S.studio->campaignLog(gm);
+        auto snap = S.studio->createSnapshot(gm, log["project"]["id"].asString(), Json::Value(Json::objectValue));
+        Json::Value pb; pb["title"] = "港口之夜 The Harbour";
+        auto pres = S.presentations->create(gm, snap["id"].asString(), pb);
+        auto pid = pres["id"].asString();
+        std::vector<std::function<void()>> queued;
+        S.publication->setExecutor([&](std::function<void()> f) { queued.push_back(std::move(f)); return true; });
+        auto job = S.publication->requestBundle(gm, pid, Json::Value(Json::objectValue));
+        CHECK(job["status"] == "pending"); CHECK(queued.size() == 1);
+        CHECK(S.publication->requestBundle(gm, pid, Json::Value(Json::objectValue))["id"] == job["id"]);   // already queued: the same job
+        queued.back()(); queued.clear();
+        auto ready = S.publication->bundleJobs(gm, pid)[0];
+        CHECK(ready["status"] == "ready"); CHECK(ready["file_name"].asString().find(".zip") != std::string::npos); CHECK(ready["bytes"].asInt64() > 100);
+        CHECK(ready["progress"]["lines_total"].asInt() >= 1 && ready["progress"]["lines_done"] == ready["progress"]["lines_total"]);
+        CHECK(ready["public"] == false);   // a Keeper-only (gm_full) presentation never goes to the public bucket
+        auto key = S.db->queryOne("SELECT object_key FROM vn_bundle_jobs WHERE id=$1", {ready["id"].asString()})["object_key"].asString();
+        CHECK(key.rfind("channels/" + channelId + "/bundles/", 0) == 0 && key.size() > 4 && key.substr(key.size() - 4) == ".zip");
+        std::string url, bytes, name;
+        CHECK(S.publication->bundleDownload(gm, ready["id"].asString(), true, url, bytes, name));
+        CHECK(url.empty() && bytes.rfind("PK", 0) == 0 && name == ready["file_name"].asString());
+        CHECK(!S.publication->bundleDownload(p1, ready["id"].asString(), false, url, bytes, name));   // only the requester's own
+        auto again = S.publication->requestBundle(gm, pid, Json::Value(Json::objectValue));
+        CHECK(again["id"] == ready["id"]); CHECK(again["reused"].asBool());
+        Json::Value force; force["force"] = true;
+        CHECK(S.publication->requestBundle(gm, pid, force)["id"] != ready["id"]); queued.clear();
+        // Expiry: the object leaves storage and the link stops working.
+        S.db->exec("UPDATE vn_bundle_jobs SET expires_at=now() - interval '1 minute' WHERE id=$1", {ready["id"].asString()});
+        CHECK(S.publication->expireBundles() == 1);
+        CHECK(!S.objectStore->exists(key));
+        CHECK(S.db->queryOne("SELECT status FROM vn_bundle_jobs WHERE id=$1", {ready["id"].asString()})["status"] == "expired");
+        CHECK(!S.publication->bundleDownload(gm, ready["id"].asString(), false, url, bytes, name));
+        // A build a restart dropped is failed after an hour.
+        S.db->exec("UPDATE vn_bundle_jobs SET created_at=now() - interval '2 hours' WHERE status='pending'");
+        S.publication->expireBundles();
+        CHECK(S.db->queryJson("SELECT 1 FROM vn_bundle_jobs WHERE status='pending'").empty());
     });
     test("module imports persist progress, deduplicate concurrent content, retry failures and preserve UTF-8 chunks", [&] {
         auto client=std::make_unique<ModuleProgressClient>();auto* fixture=client.get();

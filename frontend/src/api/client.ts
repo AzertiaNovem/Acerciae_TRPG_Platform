@@ -206,6 +206,9 @@ export const api = {
   presentation: (ch: string, id: string) => get<T.Presentation>(`/api/channels/${ch}/studio/presentations/${id}`),
   // Dubbing cast: character id (or 'narrator') → voice profile id ('' clears).
   applyCast: (ch: string, id: string, cast: Record<string, string>) => post<T.Presentation>(`/api/channels/${ch}/studio/presentations/${id}/cast`, { cast }),
+  requestBundle: (ch: string, id: string, force = false) => post<T.BundleJob>(`/api/channels/${ch}/studio/presentations/${id}/bundle`, { force }),
+  bundleJobs: (ch: string, id: string) => get<T.BundleJob[]>(`/api/channels/${ch}/studio/presentations/${id}/bundles`),
+  bundleDownloadUrl: (path: string) => `${BASE}${path}?token=${encodeURIComponent(fileToken())}`,
   bundleUrl: (ch: string, id: string) => `${BASE}/api/channels/${ch}/studio/presentations/${id}/bundle.zip?token=${encodeURIComponent(fileToken())}`,
   updatePresentation: (ch: string, id: string, body: Partial<T.Presentation>) => put<T.Presentation>(`/api/channels/${ch}/studio/presentations/${id}`, body),
   deletePresentation: (ch: string, id: string) => del(`/api/channels/${ch}/studio/presentations/${id}`),

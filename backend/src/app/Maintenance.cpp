@@ -2,6 +2,7 @@
 #include "Services.h"
 #include "../auth/AuthService.h"
 #include "../chat/ChatService.h"
+#include "../logstudio/PublicationService.h"
 #include "../ws/WsGateway.h"
 #include "../core/Log.h"
 #include <chrono>
@@ -48,6 +49,8 @@ void Maintenance::loop() {
         }
         if (!running_) break;
         try { revalidateSockets(); } catch (const std::exception& e) { ALOG_WARN << "socket revalidation: " << e.what(); }
+        // Expired visual-novel bundles leave storage within a minute.
+        try { s_.publication->expireBundles(); } catch (const std::exception& e) { ALOG_WARN << "bundle expiry: " << e.what(); }
         if (std::chrono::steady_clock::now() >= nextSweep) {
             try { sweep(); } catch (const std::exception& e) { ALOG_WARN << "retention sweep: " << e.what(); }
             nextSweep = std::chrono::steady_clock::now() + std::chrono::hours(1);

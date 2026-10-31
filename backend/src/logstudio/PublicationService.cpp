@@ -1,6 +1,8 @@
 #include "PublicationService.h"
 #include "VnBundle.h"
 #include "../core/Zip.h"
+#include <chrono>
+#include "../core/Log.h"
 #include "../core/Crypto.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
@@ -470,8 +472,11 @@ std::string PublicationService::frozenFile(const Json::Value &r,
   return *bytes;
 }
 
-std::string PublicationService::bundle(const ChannelAccess &a, const std::string &presentationId, std::string &fileName) {
+std::string PublicationService::bundle(const ChannelAccess &a, const std::string &presentationId, std::string &fileName,
+                                      const std::function<void(int, int)> &progress) {
   auto p = pres_.get(a, presentationId);   // viewer-filtered: a GM-only draft never reaches a player
+  const int total = (int)p["events"].size();
+  int done = 0;
   std::vector<std::pair<std::string, std::string>> files;
   std::map<std::string, std::string> assetPath;   // asset id → relative path inside the bundle
   auto ext = [](const std::string &mime) { return mime == "image/png" ? "png" : mime == "image/jpeg" ? "jpg" : mime == "image/webp" ? "webp" : mime == "image/gif" ? "gif" : mime == "image/svg+xml" ? "svg" : mime == "audio/wav" ? "wav" : mime == "audio/mpeg" ? "mp3" : mime == "audio/ogg" ? "ogg" : "bin"; };
@@ -501,12 +506,108 @@ std::string PublicationService::bundle(const ChannelAccess &a, const std::string
       if (!au.isNull()) { auto bytes = store_.get(au["object_key"].asString()); if (bytes) { auto path = "audio/" + e["id"].asString().substr(0, 8) + "." + ext(au["mime"].asString()); files.push_back({path, *bytes}); x["audio"] = path; } }
     }
     data["events"].append(x);
+    if (progress && (++done % 10 == 0 || done == total)) progress(done, total);
   }
+  if (progress) progress(total, total);
   files.insert(files.begin(), {"index.html", renderStandaloneVn(data)});
   files.push_back({"script.json", json::dump(data, true)});
   std::string base; for (unsigned char c : p["title"].asString()) base += (isalnum(c) || c >= 0x80) ? (char)c : '_';
-  fileName = (base.empty() ? "visual-novel" : base.substr(0, 40)) + ".zip";
+  if (base.size() > 40) { base.resize(40); while (!base.empty() && ((unsigned char)base.back() & 0xC0) == 0x80) base.pop_back(); if (!base.empty() && (unsigned char)base.back() >= 0xC0) base.pop_back(); }   // whole characters only
+  fileName = (base.empty() ? "visual-novel" : base) + ".zip";
   logs_.audit(a, "presentation.bundle", Json::Value(presentationId));
   return zip::build(files);
+}
+
+// ---- background bundles ---------------------------------------------------------------------------
+int PublicationService::bundleTtlHours() {
+  const char *v = std::getenv("VN_BUNDLE_TTL_HOURS");
+  int h = v && *v ? std::atoi(v) : 24;
+  return std::min(720, std::max(1, h));
+}
+Json::Value PublicationService::bundleRow(Json::Value r) {
+  Json::Value out;
+  for (auto k : {"id", "presentation_id", "status", "progress", "file_name", "bytes", "error", "expires_at", "created_at", "finished_at"}) out[k] = r[k];
+  out["download_path"] = r["status"] == "ready" ? Json::Value("/api/channels/" + r["channel_id"].asString() + "/studio/bundles/" + r["id"].asString() + "/download") : Json::Value();
+  out["public"] = r["object_key"].isString() && isPublicKey(r["object_key"].asString());
+  return out;
+}
+Json::Value PublicationService::requestBundle(const ChannelAccess &a, const std::string &presentationId, const Json::Value &body) {
+  pres_.get(a, presentationId);   // the requester must be able to read the presentation now
+  if (!json::toBool(body, "force")) {
+    auto reuse = db_.queryOne(
+        "SELECT j.* FROM vn_bundle_jobs j JOIN log_presentations p ON p.id=j.presentation_id WHERE j.presentation_id=$1 AND j.requested_by=$2 AND j.channel_id=$3 "
+        "AND (j.status IN ('pending','running') OR (j.status='ready' AND j.expires_at > now() + interval '10 minutes' AND j.created_at >= p.updated_at)) ORDER BY j.created_at DESC LIMIT 1",
+        {presentationId, a.userId, a.channelId});
+    if (!reuse.isNull()) { auto r = bundleRow(reuse); r["reused"] = true; return r; }
+  }
+  auto row = db_.queryOne("INSERT INTO vn_bundle_jobs(channel_id, presentation_id, requested_by) VALUES($1,$2,$3) RETURNING *", {a.channelId, presentationId, a.userId});
+  auto id = row["id"].asString();
+  if (!executor_ || !executor_([this, id] { runBundle(id); })) {
+    db_.exec("UPDATE vn_bundle_jobs SET status='failed', error='the server is busy; try again in a moment', finished_at=now() WHERE id=$1", {id});
+    row = db_.queryOne("SELECT * FROM vn_bundle_jobs WHERE id=$1", {id});
+  }
+  return bundleRow(row);
+}
+Json::Value PublicationService::bundleJobs(const ChannelAccess &a, const std::string &presentationId) {
+  Json::Value out(Json::arrayValue);
+  for (auto &r : db_.queryJson("SELECT * FROM vn_bundle_jobs WHERE presentation_id=$1 AND requested_by=$2 AND channel_id=$3 ORDER BY created_at DESC LIMIT 5", {presentationId, a.userId, a.channelId}))
+    out.append(bundleRow(r));
+  return out;
+}
+void PublicationService::runBundle(const std::string &jobId) {
+  auto job = db_.queryOne("UPDATE vn_bundle_jobs SET status='running', started_at=now() WHERE id=$1 AND status='pending' RETURNING *", {jobId});
+  if (job.isNull()) return;
+  try {
+    if (!accessFor_) throw std::runtime_error("bundles are not configured");
+    auto a = accessFor_(job["requested_by"].asString(), job["channel_id"].asString());   // throws when the requester left the channel
+    auto pid = job["presentation_id"].asString();
+    auto last = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+    std::string fileName;
+    Json::Value prog(Json::objectValue);
+    auto bytes = bundle(a, pid, fileName, [&](int done, int total) {
+      prog["lines_done"] = done; prog["lines_total"] = total;
+      if (std::chrono::steady_clock::now() - last < std::chrono::seconds(1) && done < total) return;
+      last = std::chrono::steady_clock::now();
+      db_.exec("UPDATE vn_bundle_jobs SET progress=$2::jsonb WHERE id=$1", {jobId, json::dump(prog)});
+    });
+    // Keeper-only presentations never go to the public bucket.
+    auto scope = db_.queryOne("SELECT s.scope FROM log_presentations p JOIN log_snapshots s ON s.id=p.snapshot_id WHERE p.id=$1", {pid});
+    bool secret = scope.isNull() || scope["scope"].asString() == "gm_full";
+    auto key = secret ? safeObjectKey(a.channelId, "bundles", "zip") : publicObjectKey(store_, a.channelId, "bundles", "zip");
+    key = key.substr(0, key.size() - 4) + "/" + fileName;   // ".../bundles/<uuid>/<Title>.zip": the download keeps its name
+    store_.put(key, bytes, "application/zip");
+    auto stored = db_.queryOne("UPDATE vn_bundle_jobs SET status='ready', object_key=$2, file_name=$3, bytes=$4, expires_at=now() + make_interval(hours => $5), finished_at=now(), progress=$6::jsonb WHERE id=$1 AND status='running' RETURNING id",
+                               {jobId, key, fileName, (int64_t)bytes.size(), (int64_t)bundleTtlHours(), json::dump(prog)});
+    if (stored.isNull()) store_.remove(key);   // the channel or job went away meanwhile
+  } catch (const std::exception &e) {
+    ALOG_WARN << "visual-novel bundle " << jobId << ": " << e.what();
+    try { db_.exec("UPDATE vn_bundle_jobs SET status='failed', error=$2, finished_at=now() WHERE id=$1", {jobId, std::string(e.what()).substr(0, 300)}); } catch (...) {}
+  }
+}
+bool PublicationService::bundleDownload(const ChannelAccess &a, const std::string &jobId, bool preferUrl, std::string &url, std::string &bytes, std::string &fileName) {
+  if (!Visibility::isUuid(jobId)) return false;
+  auto r = db_.queryOne("SELECT object_key, file_name FROM vn_bundle_jobs WHERE id=$1 AND channel_id=$2 AND requested_by=$3 AND status='ready' AND expires_at > now()", {jobId, a.channelId, a.userId});
+  if (r.isNull() || !r["object_key"].isString()) return false;
+  fileName = r["file_name"].asString();
+  auto key = r["object_key"].asString();
+  if (preferUrl) { url = store_.publicUrl(key); if (!url.empty()) return true; }
+  auto data = store_.get(key);
+  if (!data) return false;
+  bytes = std::move(*data);
+  return true;
+}
+int PublicationService::expireBundles() {
+  int deleted = 0;
+  for (auto &r : db_.queryJson("SELECT id, object_key FROM vn_bundle_jobs WHERE status='ready' AND expires_at <= now() ORDER BY expires_at LIMIT 500")) {
+    try { if (r["object_key"].isString()) store_.remove(r["object_key"].asString()); }
+    catch (const std::exception &e) { ALOG_WARN << "expired bundle " << r["id"].asString() << ": " << e.what(); continue; }   // retried next time
+    db_.exec("UPDATE vn_bundle_jobs SET status='expired', object_key=NULL WHERE id=$1", {r["id"].asString()});
+    ++deleted;
+  }
+  // A restart drops queued and running builds; anything still pending or running after an hour was one of them.
+  db_.exec("UPDATE vn_bundle_jobs SET status='failed', error='interrupted; prepare the download again', finished_at=now() "
+           "WHERE (status='pending' AND created_at < now() - interval '1 hour') OR (status='running' AND started_at < now() - interval '1 hour')");
+  db_.exec("DELETE FROM vn_bundle_jobs WHERE status IN ('expired','failed') AND created_at < now() - interval '30 days'");
+  return deleted;
 }
 } // namespace acerciae::logstudio
