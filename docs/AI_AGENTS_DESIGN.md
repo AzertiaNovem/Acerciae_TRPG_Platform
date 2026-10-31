@@ -1,5 +1,7 @@
 # Design: AI as player and AI as Keeper
 
+# Abandoned 2026-10-31: a dedicated gm-agent is in the project
+
 Status: **design only — nothing here is implemented yet.** Written against `main` at `6ee93b4` (scenarios, independent
 KP / player-group memory, reminders, script knowledge, Character space, COC7 point-buy, server AI providers, dice).
 
