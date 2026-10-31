@@ -12,6 +12,7 @@
 #include "llm/AnthropicClient.h"
 #include "llm/OpenAiCompatClient.h"
 #include "llm/StreamResponse.h"
+#include "llm/HttpTransport.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
 #include "logstudio/LogAdapters.h"
@@ -42,6 +43,29 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("UTF-8 text limits keep complete Chinese, accented and four-byte characters", [] {
+        const std::vector<std::string> points = {"A", "é", "密", "😀", "e", "\xcc\x81", "Z"};
+        const auto input = text::join(points, "");
+        for (size_t limit = 0; limit <= input.size() + 1; ++limit) {
+            std::string expected;
+            for (const auto &point : points) {
+                if (expected.size() + point.size() > limit) break;
+                expected += point;
+            }
+            CHECK(text::utf8Prefix(input, limit) == expected);
+            CHECK(text::truncate(input, limit) == (input.size() <= limit ? input : expected + "…"));
+        }
+        CHECK(text::utf8Prefix("", 0).empty());
+        CHECK(text::utf8Prefix(input, std::string::npos) == input);
+        CHECK(text::truncate("abc", 2) == "ab…");
+        // The reported e5 af e2 sequence: a Chinese character cut after two bytes, followed by the ellipsis.
+        const auto prefix = std::string(78, 'a');
+        const auto summary = prefix + "密室中的线索";
+        const auto broken = summary.substr(0, 80) + "…";
+        CHECK(broken.substr(78, 3) == std::string("\xe5\xaf\xe2", 3));
+        CHECK(text::truncate(summary, 80) == prefix + "…");
+        CHECK(llm::excerpt(summary, 80) == prefix);
+    });
     test("visual novel request limits remain independent from daily and module limits", [] {
         struct Recorder : ILlmClient {
             int tokens = 0;

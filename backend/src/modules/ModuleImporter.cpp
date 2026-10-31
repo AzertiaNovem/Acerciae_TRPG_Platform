@@ -156,7 +156,7 @@ Json::Value ModuleImporter::importPdf(const ChannelAccess &a,
                        "CONFLICT(channel_id,source_hash) WHERE source_hash IS "
                        "NOT NULL DO NOTHING RETURNING id",
                        {a.channelId, title.empty() ? fileName : title,
-                        fileName.substr(0, 200), path, llm_.mode(a.channelId),
+                        text::utf8Prefix(fileName, 200), path, llm_.mode(a.channelId),
                         a.userId, hash});
   } catch (...) {
     std::filesystem::remove(path);
@@ -297,7 +297,7 @@ void ModuleImporter::process(const std::string &moduleId) {
       } catch (const std::exception &e) {
         ALOG_WARN << "module post-process failed: " << e.what();
         db_.exec("UPDATE modules SET import_warning=$2 WHERE id=$1",
-                 {moduleId, std::string(e.what()).substr(0, 2000)});
+                 {moduleId, text::utf8Prefix(e.what(), 2000)});
       }
     db_.exec("UPDATE modules SET status='ready',error=NULL,updated_at=now() "
              "WHERE id=$1",
@@ -307,7 +307,7 @@ void ModuleImporter::process(const std::string &moduleId) {
     db_.exec("UPDATE modules SET "
              "status='failed',import_stage='failed',error=$2,updated_at=now() "
              "WHERE id=$1",
-             {moduleId, std::string(e.what()).substr(0, 2000)});
+             {moduleId, text::utf8Prefix(e.what(), 2000)});
     Json::Value p;
     p["module_id"] = moduleId;
     p["status"] = "failed";

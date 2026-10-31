@@ -264,7 +264,7 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
     auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
     db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
              "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
-        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), json::str(body, "era", cur["era"].asString()).substr(0, 80), flag("studio_visible"), flag("studio_player_access"),
+        {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
          flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled")});
     notifier_.channelUpdated(a.channelId);
     return getChannel(a);

@@ -446,7 +446,7 @@ std::string LogStudioService::exportLog(const ChannelAccess& a, const std::strin
         " AND (EXISTS (SELECT 1 FROM chat_window_members wm WHERE wm.chat_window_id=w.id AND wm.user_id=$3) OR EXISTS (SELECT 1 FROM log_events le WHERE le.project_id=$2 AND le.chat_window_id=w.id" + scopeSql(a, "le") + "))") + " ORDER BY w.created_at",
         a.isGm ? DbParams{a.channelId} : DbParams{a.channelId, pid, a.userId});
     std::map<std::string, std::string> windowName; for (auto& w : windows) windowName[w["id"].asString()] = w["name"].asString();
-    auto slug = [](std::string s) { std::string o; for (unsigned char c : s) o += (isalnum(c) || c >= 0x80) ? (char)c : '_'; return o.substr(0, 40); };
+    auto slug = [](std::string s) { std::string o; for (unsigned char c : s) o += (isalnum(c) || c >= 0x80) ? (char)c : '_'; return text::utf8Prefix(o, 40); };
     std::string base = slug(ch.isNull() ? "campaign" : ch["name"].asString());
     Json::Value target; target["format"] = format; target["chat_window_id"] = chatWindowId; audit(a, "log.export", target);
     auto meta = [&](const std::vector<LogEvent>& events) {

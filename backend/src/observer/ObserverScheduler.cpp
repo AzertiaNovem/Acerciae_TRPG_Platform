@@ -101,7 +101,7 @@ bool ObserverScheduler::recordFailure(const std::string& channelId, const std::s
         auto r = Db::queryOne(w, "INSERT INTO ai_processing_cursors(channel_id, kind, group_key, last_seq, failures, retry_after, last_error) VALUES($1,$2,$3,0,1, now() + interval '30 seconds', $4) "
                                  "ON CONFLICT (channel_id, kind, group_key) DO UPDATE SET failures=ai_processing_cursors.failures+1, "
                                  "retry_after=now() + make_interval(secs => least(3600, 30 * power(2, ai_processing_cursors.failures))), last_error=EXCLUDED.last_error, updated_at=now() RETURNING failures",
-                             {channelId, kind, key, error.substr(0, 1000)});
+                             {channelId, kind, key, text::utf8Prefix(error, 1000)});
         if (r["failures"].asInt() < kMaxAttempts) return false;
         Db::exec(w, "UPDATE ai_processing_cursors SET last_seq=GREATEST(last_seq, $4), failures=0, retry_after=NULL, updated_at=now() WHERE channel_id=$1 AND kind=$2 AND group_key=$3", {channelId, kind, key, skipTo});
         if (!jobId.empty()) Db::exec(w, "UPDATE ai_jobs SET error=coalesce(error, '') || ' (skipped after " + std::to_string(kMaxAttempts) + " failed attempts)' WHERE id=$1", {jobId});

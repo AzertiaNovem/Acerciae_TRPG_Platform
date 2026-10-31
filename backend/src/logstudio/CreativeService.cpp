@@ -1,3 +1,4 @@
+#include "../core/Text.h"
 #include "CreativeService.h"
 #include "../core/Crypto.h"
 #include "../core/Errors.h"
@@ -520,7 +521,7 @@ void CreativeService::run(const Json::Value &j) {
     db_.exec("UPDATE asset_generation_jobs SET "
              "status='failed',error=$2,updated_at=now() WHERE id=$1 AND "
              "status='running'",
-             {id, std::string(e.what()).substr(0, 1000)});
+             {id, text::utf8Prefix(e.what(), 1000)});
   }
 }
 Json::Value CreativeService::suggest(const ChannelAccess &a,
@@ -584,8 +585,8 @@ Json::Value CreativeService::suggest(const ChannelAccess &a,
       continue;
     Json::Value candidate;
     candidate["style_instruction"] =
-        json::str(s, "style_instruction").substr(0, 1200);
-    candidate["reason"] = json::str(s, "reason").substr(0, 1200);
+        text::utf8Prefix(json::str(s, "style_instruction"), 1200);
+    candidate["reason"] = text::utf8Prefix(json::str(s, "reason"), 1200);
     candidate["source"] = llm_.mode(a.channelId);
     db_.exec("UPDATE presentation_events SET ai_suggestion=$2::jsonb WHERE "
              "id=$1 AND presentation_id=$3",

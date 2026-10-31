@@ -14,6 +14,8 @@ std::vector<std::string> keywords(const std::string& s, size_t minLen = 4); // l
 std::vector<std::string> properNouns(const std::string& s);           // "Sheriff Baker", "Corbitt House"
 std::vector<std::string> quotedSpeech(const std::string& s);          // text inside "..." or “...”
 std::vector<std::string> sentences(const std::string& s);
+// Byte limits on valid UTF-8: never split a code point. truncate adds an ellipsis after the prefix.
+std::string utf8Prefix(const std::string& s, size_t maxBytes);
 std::string truncate(const std::string& s, size_t n);
 std::string join(const std::vector<std::string>& xs, const std::string& sep);
 bool isStopword(const std::string& w);
