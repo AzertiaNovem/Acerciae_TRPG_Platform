@@ -103,9 +103,10 @@ async function setup(cfg) {
 
 // The table for a channel: roster, timelines, guard and scenario from the state file. `write` saves changes back
 // (compare-and-swap); read-only commands pass write:false and never touch the file.
-async function openTable(cfg, { llm = null, write = true, heal = false, deferArrivals = false } = {}) {
-  const api = await signIn(cfg);
-  const { channel } = await resolveChannel(api, cfg, { create: false });
+// A save refused because another process changed the file is fatal: `onConflict` decides how to stop (default: throw).
+async function openTable(cfg, { llm = null, write = true, heal = false, deferArrivals = false, channel: known = null, onConflict = (e) => { throw e; } } = {}) {
+  const api = known?.api ?? (await signIn(cfg));
+  const channel = known?.channel ?? (await resolveChannel(api, cfg, { create: false })).channel;
   const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
   let version = Number(state.version) || 0;
   const persist = write
@@ -113,7 +114,7 @@ async function openTable(cfg, { llm = null, write = true, heal = false, deferArr
       const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, journal: t.journal, owedArrivals: t.owedArrivals };
       delete next.version;
       try { version = saveState(cfg.stateDir, next, { expectVersion: version }); }
-      catch (e) { if (!(e instanceof StateConflict)) throw e; log(`${e.message}; reloading it`); const fresh = loadState(cfg.stateDir, channel.id) ?? {}; version = Number(fresh.version) || 0; t.reload(fresh); }
+      catch (e) { if (!(e instanceof StateConflict)) throw e; onConflict(e); }
     }
     : () => {};
   const table = new Table({
@@ -122,14 +123,22 @@ async function openTable(cfg, { llm = null, write = true, heal = false, deferArr
   });
   await table.init({ heal });
   if (write) table.save();
-  if (table.publicSplits && cfg.timelineAuto) log("note: this channel's knowledge mode is public, so every player can read every split scene's window");
+  if (write && table.splitWarning && cfg.timelineAuto) log(`note: ${table.splitWarning}`);
   return { api, channel, table };
 }
 
 async function run(cfg) {
-  const { api, channel, table } = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), heal: true });
-  const release = acquireLock(cfg.stateDir, channel.id);
-  if (!release) throw new Error(`another \`run\` (pid ${lockHolder(cfg.stateDir, channel.id)}) already keeps this channel`);
+  // The lock comes first: healing an interrupted split and every save need to be this process's alone.
+  const signedIn = await signIn(cfg);
+  const { channel: ch } = await resolveChannel(signedIn, cfg, { create: false });
+  const release = acquireLock(cfg.stateDir, ch.id);
+  if (!release) throw new Error(`another process (pid ${lockHolder(cfg.stateDir, ch.id) ?? "?"}) already keeps this channel`);
+  // Another writer changed the state file under us: continuing would act on a stale table, so stop loudly.
+  const onConflict = (e) => { log(`stopping: ${e.message}. Restart \`run\` to continue from the file.`); release(); process.exit(3); };
+  let opened;
+  try { opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), heal: true, channel: { api: signedIn, channel: ch }, onConflict }); }
+  catch (e) { release(); throw e; }
+  const { api, channel, table } = opened;
   const roster = table.roster;
   const rt = new Realtime({ apiBase: cfg.apiBase, token: api.token, channelId: channel.id, log });
   rt.on("event", (ev) => table.onEvent(ev));
@@ -169,7 +178,9 @@ async function manual(cfg, cmd, describe) {
   const release = acquireLock(cfg.stateDir, channel.id);
   if (!release) throw new Error("another process took the channel meanwhile; try again");
   try {
-    const { table } = await openTable(cfg, { deferArrivals: true });
+    // A split interrupted half-way is finished only by `run` (it needs the turn loop for its opening turns).
+    if (loadState(cfg.stateDir, channel.id)?.journal) throw new Error("a split was interrupted half-way; start `run` to finish it, then try again");
+    const { table } = await openTable(cfg, { deferArrivals: true, channel: { api, channel } });
     await table.command(cmd);
     console.log(`${describe}: done. ${table.owedArrivals.length ? "Its opening turn will run when `run` starts." : ""}`);
   } finally { release(); }
@@ -204,7 +215,7 @@ async function status(cfg) {
   const cname = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   const holder = lockHolder(cfg.stateDir, channel.id);
   console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
-  if (table.publicSplits) console.log("knowledge mode public: every player can read every split scene's window");
+  if (table.splitWarning) console.log(`warning: ${table.splitWarning}`);
   console.log("GM and real NPCs share the Keeper's context: all chat, the Keeper board, reminders, script knowledge, documents, highlights.");
   console.log(`real NPCs: ${roster.npcs.map((n) => n.name).join(", ") || "(none)"}`);
   console.log("co-players see only the chat lines their character witnessed, during their seats:");

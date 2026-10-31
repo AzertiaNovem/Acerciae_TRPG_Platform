@@ -14,7 +14,9 @@
 //   * reunions   – always land in the main timeline (the Main Chat), where every player already is;
 //   * privacy    – nobody is ever added to an existing window (its whole history would open to them): joining a
 //                  thread whose window lacks a joining player regroups the thread into a fresh window;
-//   * caps       – at most TIMELINE_MAX_ACTIVE active threads; a player gets a new window at most once per cooldown.
+//   * leaving    – a player who leaves a thread others stay in stops seeing it: those who stay move to a fresh window;
+//   * caps       – at most TIMELINE_MAX_ACTIVE active threads; a player gets a new window at most once per cooldown
+//                  (both counted on real new windows only, after the rules above).
 //
 // The planner is pure: it reads timelines, guard and the scene, and returns the operations plus guard updates.
 import { MAIN, placeKey } from "./timelines.mjs";
@@ -125,21 +127,11 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
           }
         }
       }
-      // A new window for a player at most once per cooldown.
-      if (!manual && target.kind === "new" && isPc(id) && rec(id).windowAt && now - rec(id).windowAt < cfg.timelinePcCooldownMs) { ignored.push({ id, why: "a new scene for this player opened moments ago" }); continue; }
       decisions.set(id, target);
       if (target.kind === "new") groups.get(target.key).ids.push(id);
     }
   }
   for (const [key, g] of groups) if (!g.ids.length) groups.delete(key);
-
-  // 4. Cap first: refused splits cancel their departures before anything else is decided.
-  const room = Math.max(0, cfg.timelineMaxActive - timelines.active().length);
-  const newKeys = [...groups.keys()];
-  for (const key of newKeys.slice(room)) {
-    for (const id of groups.get(key).ids) { decisions.delete(id); ignored.push({ id, why: "too many threads at once" }); }
-    groups.delete(key);
-  }
 
   // 5. Normalise.
   const ops = { moves: new Map(), merges: [], splits: [], relocations: [] };
@@ -171,6 +163,14 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
       keep(F, leaverKeys[0]);
       continue;
     }
+    if (F.id !== MAIN && remaining.length && leavers.some(isPc) && F.windowId) {
+      // (d) A player leaves a thread others stay in: those who stay continue in a fresh window, so the leaver does not
+      // keep reading a scene their character has left (window members cannot be removed without losing history).
+      const key = `regroup:${F.id}`;
+      if (!groups.has(key)) groups.set(key, { key, place: F.location, time: F.narrativeTime, span: F.span, opening: "", ids: [...remaining], replaces: F.id, stay: true });
+      for (const id of remaining) decisions.set(id, { kind: "new", key });
+      continue;
+    }
     if (F.id === MAIN && !remaining.length) {
       // (c) Everyone in the main timeline went to existing threads: the reunion lands in the main timeline.
       const counts = new Map();
@@ -199,6 +199,29 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   }
   for (const [id, d] of [...decisions]) {
     if (d.kind === "tl" && groups.has(`regroup:${d.id}`)) { decisions.set(id, { kind: "new", key: `regroup:${d.id}` }); groups.get(`regroup:${d.id}`).ids.push(id); }
+  }
+
+  // 7. Limits on real new windows only (a relocation opens none): a player gets a new window at most once per cooldown,
+  // and at most TIMELINE_MAX_ACTIVE threads exist. A refused group's departure is cancelled as a whole, so nobody is
+  // split off alone from companions who were meant to go with them. Groups that only keep a scene going (regroups of
+  // those who stay) are never refused.
+  const refuse = (g, why) => {
+    for (const id of g.ids) { if (decisions.get(id)?.key === g.key) decisions.delete(id); ignored.push({ id, why }); }
+    groups.delete(g.key);
+  };
+  if (mode !== "manual") {
+    for (const g of [...groups.values()]) {
+      if (g.stay) continue;
+      const cooling = g.ids.find((id) => isPc(id) && rec(id).windowAt && now - rec(id).windowAt < cfg.timelinePcCooldownMs);
+      if (cooling) refuse(g, "a new scene for this player opened moments ago");
+    }
+  }
+  const replacedCount = [...groups.values()].filter((g) => g.replaces).length;
+  let room = Math.max(0, cfg.timelineMaxActive - timelines.active().length + replacedCount);
+  for (const g of [...groups.values()]) {
+    if (g.replaces) { room--; continue; }
+    if (room > 0) { room--; continue; }
+    refuse(g, "too many threads at once");
   }
 
   // Moves into existing threads.
@@ -237,10 +260,11 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   for (const m of ops.merges) for (const id of timelines.get(m.from)?.members ?? []) changed.add(id);
   for (const s of ops.splits) for (const id of s.ids) changed.add(id);
   observe(changed);
+  // Splits are applied before merges, so a thread emptied by a departure is merged empty (no false reunion).
   const list = [
     ...[...ops.moves].map(([to, ids]) => ({ op: "move", ids, to })),
-    ...ops.merges.map((m) => ({ op: "merge", ...m })),
     ...ops.splits.map((s) => ({ op: "split", ...s })),
+    ...ops.merges.map((m) => ({ op: "merge", ...m })),
     ...ops.relocations.map((r) => ({ op: "relocate", ...r })),
   ];
   return { ops: list, changed: [...changed], ignored, guard: updates, prevOf: curOf };

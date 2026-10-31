@@ -127,6 +127,26 @@ test("a player gets a new window at most once per cooldown", () => {
   assert.deepEqual(r.ops, []); assert.match(r.ignored[0].why, /moments ago/);
 });
 
+test("a player leaving a thread others stay in: those who stay continue in a fresh window the leaver cannot read", () => {
+  const w = world({ main: ["bob", "tomas"], threads: [{ place: "Docks", members: ["alice", "harriet"], window: "w-docks" }] });
+  const docks = w.tl.byName("Docks");
+  const r = plan(w, [{ who: ["alice"], thread: "T0" }], { scene: docks.id, speakers: ["alice"] });
+  assert.deepEqual(kinds(r), ["move", "split"], "the order is move, split, merge, relocate");
+  assert.deepEqual(r.ops[0].ids, ["alice"]); assert.equal(r.ops[0].to, MAIN);
+  assert.deepEqual(r.ops[1].ids, ["harriet"]); assert.equal(r.ops[1].replaces, docks.id); assert.equal(r.ops[1].place, "Docks");
+});
+
+test("limits apply after normalising: a regroup is never refused by the cap or a player's cooldown", () => {
+  // Three side threads and the main one: the cap of four is reached.
+  const w = world({ main: ["tomas"], threads: [{ place: "Docks", members: ["alice", "bob"], window: "w-docks" }, { place: "Mill", members: [], window: "w-mill" }, { place: "Inn", members: [], window: "w-inn" }] });
+  const docks = w.tl.byName("Docks");
+  const guard = new Guard(); guard.by.bob = { ...guard.rec("bob"), windowAt: 10_000_000 };
+  const r = plan(w, [{ who: ["alice"], thread: "T0" }], { scene: docks.id, speakers: ["alice"], guard, now: 10_000_000 + 1000 });
+  const split = r.ops.find((o) => o.op === "split");
+  assert.ok(split, JSON.stringify(r)); assert.deepEqual(split.ids, ["bob"]); assert.equal(split.replaces, docks.id);
+  assert.deepEqual(r.ignored, []);
+});
+
 test("the brief shows handles, places, spans, who may move and the cap", () => {
   const w = world({ main: ["bob"], threads: [{ place: "Old Harbour", members: ["alice"], window: "w-harbour", span: "long" }] });
   const text = whereaboutsBrief({ timelines: w.tl, scene: { timeline: w.tl.main() }, nameOf: (id) => id, windowName: () => "Scene: Old Harbour", isPc: (id) => PEOPLE[id].pc, mayMove: ["bob"], capReached: true });

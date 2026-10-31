@@ -62,6 +62,7 @@ export class Api {
   channel(ch) { return this.get(`/api/channels/${ch}`); }
   updateChannel(ch, body) { return this.put(`/api/channels/${ch}`, body); }
   channelMembers(ch) { return this.get(`/api/channels/${ch}/members`); }
+  playerGroups(ch) { return this.get(`/api/channels/${ch}/player-groups`); }
 
   // ---- characters
   characters(ch) { return this.get(`/api/channels/${ch}/characters`); }

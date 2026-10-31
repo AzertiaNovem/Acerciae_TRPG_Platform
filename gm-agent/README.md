@@ -126,11 +126,14 @@ hears a window only while it sits there (its seats have a start and an end), kno
 here** and which are elsewhere, and never sees lines a player wrote from another scene.
 
 > **Public channels.** In a channel whose knowledge mode is *public* (what `setup` creates), every player can read
-> every window a member of their group sits in, so **split scenes are readable by every player**. `run` and `status`
-> say so. Use an *isolated* channel if split scenes must stay private.
+> every window a member of their group sits in, so **split scenes are readable by every player**. In an *isolated*
+> channel, players who share a player group can still read each other's split scenes. `run` and `status` warn in
+> either case. Use an isolated channel with one player per group if split scenes must stay private.
 
 You can split and rejoin by hand too. While `run` keeps the channel, these commands are queued for it (it is the only
-process that writes the state file); otherwise they are applied directly and their opening turn waits for `run`:
+process that writes the state file); otherwise they are applied directly and their opening turn waits for `run`. If
+`run` finds the state file changed by another writer anyway, it stops rather than act on a stale table; start it again
+to continue from the file. A command refuses to run while a split is half-finished; `run` finishes it first:
 
 ```bash
 node src/cli.mjs split --channel <id> --who "Alice Hale,Harriet Vance" --place "Old Harbour" [--span long] [--time "Tuesday night"] [--opening "Fog hangs over the harbour."]

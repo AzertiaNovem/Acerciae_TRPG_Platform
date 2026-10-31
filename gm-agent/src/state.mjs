@@ -43,13 +43,28 @@ export function lockHolder(stateDir, channelId) {
   } catch { return null; }
 }
 
-// Takes the channel's lock; returns a release function, or null when another live process holds it.
+// Takes the channel's lock atomically (the file is created exclusively; a lock left by a dead process is removed);
+// returns a release function, or null when another live process holds it.
 export function acquireLock(stateDir, channelId) {
   fs.mkdirSync(stateDir, { recursive: true });
-  if (lockHolder(stateDir, channelId)) return null;
   const file = lockPath(stateDir, channelId);
-  fs.writeFileSync(file, String(process.pid));
-  return () => { try { if (fs.readFileSync(file, "utf8").trim() === String(process.pid)) fs.unlinkSync(file); } catch { /* already gone */ } };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const fd = fs.openSync(file, "wx");
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      return () => { try { if (fs.readFileSync(file, "utf8").trim() === String(process.pid)) fs.unlinkSync(file); } catch { /* already gone */ } };
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      if (lockHolder(stateDir, channelId)) return null;
+      // A stale lock (or one being written this instant: an empty file younger than a second is left alone).
+      let stale = true;
+      try { const st = fs.statSync(file); stale = st.size > 0 || Date.now() - st.mtimeMs > 1000; } catch { /* gone meanwhile */ }
+      if (!stale) return null;
+      try { fs.unlinkSync(file); } catch { /* someone else removed it */ }
+    }
+  }
+  return null;
 }
 
 export function appendInbox(stateDir, channelId, command) {

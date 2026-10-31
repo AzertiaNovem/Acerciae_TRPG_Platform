@@ -80,7 +80,14 @@ export class Table {
     this.me = this.api.user ?? (await this.api.me());
     this.channel = await this.api.channel(this.channelId);
     if (this.channel.my_role !== "gm") throw new Error(`the client's account is not the GM of channel ${this.channelId}`);
+    // Who can read a split scene's window besides its members: everyone in public mode; in isolated mode, the players
+    // who share a player group with a member.
     this.publicSplits = this.channel.knowledge_mode !== "isolated";
+    const groups = this.publicSplits ? [] : ((await this.api.playerGroups(this.channelId).catch(() => null)) ?? []);
+    this.sharedGroups = groups.filter((g) => (g.members ?? []).length > 1).map((g) => g.name || g.id);
+    this.splitWarning = this.publicSplits
+      ? "this channel's knowledge mode is public, so every player can read every split scene's window"
+      : this.sharedGroups.length ? `players who share a player group (${this.sharedGroups.join(", ")}) can read each other's split scene windows` : null;
     const settings = await this.api.serverSettings(this.channel.server_id).catch(() => null);
     this.language = languageName(this.cfg.language || settings?.language || "en");
     this.rules = await this.api.coc7Rules().catch(() => null);
@@ -110,6 +117,7 @@ export class Table {
     if (this.journal?.phase === "A") {
       this.log("finishing a split that was interrupted");
       const j = this.journal; this.journal = null;
+      for (const c of j.created ?? []) this.guard.spare.push(c);          // reuse the windows it already opened
       await this.applyPlan({ ops: j.ops, changed: j.changed ?? [], ignored: [], guard: {}, prevOf: () => null }, { windowId: j.windowId, mode: "manual", turn: this.guard.turn, quiet: true });
     } else if (this.journal) { this.journal = null; changed = true; }
     for (const t of this.timelines.active()) if (t.id !== MAIN && t.windowId && !t.opened) this.scheduleArrival(t.windowId, { names: t.members.map((id) => this.nameOf(id)), place: t.location, reunion: false }, { force: true });
@@ -261,9 +269,13 @@ export class Table {
     const st = this.state(windowId);
     st.lastTurnAt = this.now();
     if (mode === "quiet") st.quietTurns++;
-    if ((mode === "quiet" || mode === "side") || (mode === "arrival" && extra.autonomous)) this.autonomousTurns.push(this.now());
-    const batch = this.speakers.get(windowId) ?? [];
-    this.speakers.delete(windowId);
+    if (mode === "quiet" || mode === "side" || (mode === "arrival" && extra.autonomous)) this.autonomousTurns.push(this.now());
+    // Players' lines are taken only by the turns that can act on them; an arrival, quiet or side turn running first
+    // leaves them for the human turn that follows.
+    const takesLines = mode === "human" || mode === "relay";
+    const batch = takesLines ? this.speakers.get(windowId) ?? [] : [];
+    if (takesLines) this.speakers.delete(windowId);
+    const autonomous = mode === "quiet" || mode === "side" || (mode === "arrival" && Boolean(extra.autonomous));
     let scene = this.scene(windowId);
     const sceneThread = scene;
     if (mode === "arrival" && sceneThread && sceneThread.id !== MAIN && !sceneThread.opened) { sceneThread.opened = true; this.save(); }
@@ -275,9 +287,12 @@ export class Table {
       if (visitors.length === batch.length) {
         const away = visitors.filter((l) => this.windowOf(this.timelines.of(l.id)) && this.windowOf(this.timelines.of(l.id)) !== windowId);
         if (away.length === visitors.length) {
+          const readers = new Set(this.windowUsers(windowId));
           for (const l of away) {
             const home = this.windowOf(this.timelines.of(l.id));
             await this.post(windowId, { content: `→ "${this.windowName(home)}"`, kind: "narration", visibility: "whisper", whisper_to: [l.id] }, { count: false });
+            // The line is answered in the player's own scene only if that does not widen who reads it.
+            if (!this.windowUsers(home).every((u) => readers.has(u))) { this.log(`relay: ${this.nameOf(l.id)}'s line stays where it was written (their scene has other readers)`); continue; }
             this.speakers.set(home, [...(this.speakers.get(home) ?? []), l]);
             this.schedule(home, { mode: "relay", delay: 0, relay: { speaker: this.nameOf(l.id), window: this.windowName(windowId), text: l.content } });
           }
@@ -299,22 +314,24 @@ export class Table {
       const whereabouts = this.cfg.timelineAuto && scene
         ? whereaboutsBrief({ timelines: this.timelines, scene: { timeline: scene }, nameOf: (id) => this.nameOf(id), windowName: (id) => this.windowName(id), isPc: (id) => this.isPc(id), mayMove, capReached: this.timelines.active().length >= this.cfg.timelineMaxActive })
         : "";
-      const verdict = await this.scenarioVerdict(windowId, roundMode);
+      const verdict = await this.scenarioVerdict(windowId, roundMode, mode);
       const scenario = this.cfg.scenarioAuto ? `Scenario change: ${verdict.ok ? "possible this turn, if the story as a whole has moved on." : `not this turn (${verdict.reason}).`}` : "";
       const plan = await directTurn(this.llm, { language: this.language, contextText: ctx.text, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, ...roundExtra });
       this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} Keeper action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
       for (const action of plan.actions) {
         if (budget <= 0) break;
-        budget -= await this.act(windowId, action, ctx, { mode: roundMode });
+        budget -= await this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope });
       }
-      if (this.cfg.timelineAuto && scene && plan.whereabouts.length && MOVE_MODES.has(roundMode)) {
+      // Whereabouts apply in rounds that may move someone; never inside an arrival or a kickoff (no cascades).
+      const moves = MOVE_MODES.has(roundMode) && !(roundMode === "followup" && (mode === "arrival" || mode === "kickoff"));
+      if (this.cfg.timelineAuto && scene && plan.whereabouts.length && moves) {
         const result = planWhereabouts({
           timelines: this.timelines, scene: { timeline: scene, windowId }, reports: plan.whereabouts, scopeIds: scope, speakers: speakerIds, mode: roundMode,
           resolve: (n) => this.investigatorByName(n), isPc: (id) => this.isPc(id), userOf: (id) => this.userOf(id), windowUsers: (w) => this.windowUsers(w),
           guard: this.guard, turn: turnNo, now: this.now(), cfg: this.cfg,
         });
         for (const i of result.ignored) this.log(`whereabouts: ${this.nameOf(i.id)} stays (${i.why})`);
-        const out = await this.applyPlan(result, { windowId, mode: roundMode, turn: turnNo, autonomous: roundMode === "side" || extra.autonomous });
+        const out = await this.applyPlan(result, { windowId, mode: roundMode, turn: turnNo, autonomous });
         if (out?.here) here = out.here;
       } else if (this.cfg.timelineAuto && scene) {
         this.guard.apply(planWhereabouts({ timelines: this.timelines, scene: { timeline: scene }, reports: [], scopeIds: scope, guard: this.guard, turn: turnNo, now: this.now(), cfg: this.cfg }).guard);
@@ -357,16 +374,21 @@ export class Table {
   }
 
   async applyPlan(result, { windowId, mode, turn, autonomous = false, quiet = false }) {
-    const { ops } = result;
-    if (!ops.length) { this.guard.apply(result.guard); if (result.ignored.length) this.noteIgnored(windowId, result.ignored); return null; }
+    const ops = result.ops.map((o) => ({ ...o }));
+    // A split the platform failed three times is given up (the people stay), so it is not retried every turn.
+    const factOf = (o) => JSON.stringify([placeKey(o.place), [...o.ids].sort()]);
+    const givenUp = [];
+    for (const o of ops) if (o.op === "split" && (this.guard.retries[factOf(o)] ?? 0) >= 3) { o.skip = true; givenUp.push(...o.ids.map((id) => ({ id, why: "the platform failed to open this scene three times" }))); }
+    if (!ops.some((o) => !o.skip)) { this.guard.apply(result.guard); const ig = [...result.ignored, ...givenUp]; if (ig.length) this.noteIgnored(windowId, ig); return null; }
     const lastSeq = this.lastSeq;
     // A. Platform calls first: windows for the new threads. Nothing local changes until they exist.
     this.journal = { opId: `${turn}-${lastSeq}`, ops, changed: result.changed, windowId, created: [], phase: "A" };
     this.save();
     const users = await this.channelUsers();
     const windowFor = new Map();
-    const dropped = [];
-    for (const s of ops.filter((o) => o.op === "split")) {
+    const dropped = [...givenUp];
+    const reusedSpares = [];
+    for (const s of ops.filter((o) => o.op === "split" && !o.skip)) {
       const pcs = s.ids.filter((id) => this.isPc(id));
       const seatable = pcs.filter((id) => this.userOf(id) && (!users || users.has(this.userOf(id))));
       for (const id of pcs.filter((p) => !seatable.includes(p))) { s.ids = s.ids.filter((x) => x !== id); dropped.push({ id, why: "not a channel member, so no window can seat them" }); }
@@ -375,7 +397,7 @@ export class Table {
       const key = placeKey(s.place);
       const spare = this.guard.spare.find((x) => x.placeKey === key && JSON.stringify([...x.users].sort()) === JSON.stringify(wantUsers));
       const retired = this.windows.find((w) => this.timelines.retired(w.id) && placeKey(this.timelines.ofWindow(w.id)?.location) === key && JSON.stringify(this.windowUsers(w.id).sort()) === JSON.stringify(wantUsers));
-      if (spare) { windowFor.set(s, spare.windowId); this.guard.spare = this.guard.spare.filter((x) => x !== spare); continue; }
+      if (spare) { windowFor.set(s, spare.windowId); this.guard.spare = this.guard.spare.filter((x) => x !== spare); reusedSpares.push(spare); continue; }
       if (retired) { windowFor.set(s, retired.id); continue; }
       try {
         const members = [];
@@ -387,22 +409,21 @@ export class Table {
       } catch (e) {
         if (e.status >= 400 && e.status < 500) { s.skip = true; for (const id of s.ids) dropped.push({ id, why: `the platform refused a window (${e.status})` }); continue; }
         // A server or network failure: nothing local changes; created windows are kept for reuse; retried later.
-        for (const c of this.journal.created) this.guard.spare.push(c);
-        const fact = JSON.stringify(ops.filter((o) => o.op === "split").map((o) => o.ids));
-        this.guard.retries[fact] = (this.guard.retries[fact] ?? 0) + 1;
+        for (const c of [...this.journal.created, ...reusedSpares]) this.guard.spare.push(c);
+        this.guard.retries[factOf(s)] = (this.guard.retries[factOf(s)] ?? 0) + 1;
         this.guard.apply(result.guard);
         this.journal = null;
         this.save();
-        this.log(`split postponed (${e.message}); will retry${this.guard.retries[fact] >= 3 ? " — giving up after 3 tries" : ""}`);
+        this.log(`split postponed (${e.message}); ${this.guard.retries[factOf(s)] >= 3 ? "given up after 3 tries" : "will retry"}`);
         return null;
       }
     }
 
-    // B. Local state, all at once.
+    // B. Local state, all at once: moves, then splits, then merges (a thread emptied by a departure merges empty).
+    for (const o of ops) if (o.op === "split" && !o.skip) delete this.guard.retries[factOf(o)];
     const fromSeq = lastSeq + 1;
     const before = new Map(investigatorsFor(this.characters, this.roster).map((c) => [c.id, this.timelines.of(c.id).id]));
     for (const o of ops) if (o.op === "move") this.timelines.move(o.ids, o.to, fromSeq);
-    for (const o of ops) if (o.op === "merge") this.timelines.merge(o.from, o.into, fromSeq);
     const created = [];
     for (const o of ops) {
       if (o.op !== "split" || o.skip) continue;
@@ -410,6 +431,7 @@ export class Table {
       if (o.replaces) this.timelines.merge(o.replaces, t.id, fromSeq);
       created.push({ op: o, timeline: t });
     }
+    for (const o of ops) if (o.op === "merge") this.timelines.merge(o.from, o.into, fromSeq);
     for (const o of ops) if (o.op === "relocate") this.timelines.relocate(o.timeline, { location: o.location, narrativeTime: o.narrativeTime });
     const after = new Map([...before.keys()].map((id) => [id, this.timelines.of(id).id]));
     const moved = [...before.keys()].filter((id) => before.get(id) !== after.get(id));
@@ -426,8 +448,8 @@ export class Table {
     this.checkInvariants();
     this.save();
 
-    // C. Refresh (the new windows), then D. posts and E. arrivals.
-    await this.refresh();
+    // C. Refresh (the new windows), then D. posts and E. arrivals. A failed refresh never stops the posts.
+    try { await this.refresh(); } catch (e) { this.log(`refresh after a split failed: ${e.message}`); }
     const ignored = [...(result.ignored ?? []), ...dropped];
     const summary = [];
     for (const { op, timeline: t } of created) {
@@ -442,20 +464,31 @@ export class Table {
       summary.push(`${op.ids.map((id) => this.nameOf(id)).join(", ")} → ${t.name} ("${this.windowName(w)}", ${t.span} split)`);
       this.scheduleArrival(w, { names: op.ids.map((id) => this.nameOf(id)), place: t.location, opening: op.opening, reunion: false }, { autonomous, mode });
     }
+    // Reunions: everyone who ended in an existing thread, grouped by where they ended, one arrival per window.
     let here = null;
-    for (const o of ops.filter((x) => x.op === "merge" || x.op === "move")) {
-      const dest = this.timelines.get(o.op === "merge" ? this.timelines.get(o.from)?.mergedInto ?? o.into : o.to);
-      const destWindow = dest && this.windowOf(dest);
-      const arrivedIds = o.op === "move" ? o.ids : moved.filter((id) => before.get(id) === o.from);
-      if (!destWindow || !arrivedIds.length) continue;
-      if (o.op === "merge") {
-        const old = this.timelines.get(o.from);
-        if (old?.windowId && old.windowId !== destWindow) await this.post(old.windowId, { content: `→ "${this.windowName(destWindow)}"`, kind: "narration" }, { count: false });
-      }
-      summary.push(`${arrivedIds.map((id) => this.nameOf(id)).join(", ")} → ${dest.name}`);
-      const arrival = { names: arrivedIds.map((id) => this.nameOf(id)), place: dest.location, reunion: true };
-      if (destWindow === windowId) here = arrival;
-      else this.scheduleArrival(destWindow, arrival, { autonomous, mode });
+    const inNew = new Set(created.flatMap((c) => c.timeline.members));
+    const byWindow = new Map();
+    for (const id of moved) {
+      if (inNew.has(id)) continue;
+      const dest = this.timelines.get(after.get(id));
+      const w = dest && this.windowOf(dest);
+      if (!w) continue;
+      if (!byWindow.has(w)) byWindow.set(w, { dest, ids: [] });
+      byWindow.get(w).ids.push(id);
+    }
+    // A thread merged away points its old window at where its members went (only if some of them went there).
+    for (const o of ops.filter((x) => x.op === "merge")) {
+      const old = this.timelines.get(o.from);
+      if (!old?.windowId) continue;
+      const went = moved.filter((id) => before.get(id) === o.from).map((id) => this.windowOf(this.timelines.get(after.get(id)) ?? this.timelines.main()));
+      const target = went.sort((a, b) => went.filter((x) => x === b).length - went.filter((x) => x === a).length)[0];
+      if (target && target !== old.windowId) await this.post(old.windowId, { content: `→ "${this.windowName(target)}"`, kind: "narration" }, { count: false });
+    }
+    for (const [w, { dest, ids }] of byWindow) {
+      summary.push(`${ids.map((id) => this.nameOf(id)).join(", ")} → ${dest.name}`);
+      const arrival = { names: ids.map((id) => this.nameOf(id)), place: dest.location, reunion: true };
+      if (w === windowId) here = arrival;
+      else this.scheduleArrival(w, arrival, { autonomous, mode });
     }
     if (!quiet && summary.length) await this.post(windowId, { content: `Timelines: ${summary.join("; ")}`, kind: "narration", visibility: "gm_only" }, { count: false });
     if (ignored.length) this.noteIgnored(windowId, ignored);
@@ -505,7 +538,7 @@ export class Table {
   }
 
   // ---- the Keeper's moves. Returns how many lines were posted.
-  async act(windowId, a, ctx, { mode } = {}) {
+  async act(windowId, a, ctx, { mode, parent = mode, scope = null } = {}) {
     switch (a.type) {
       case "narrate": return this.post(windowId, { content: a.text, kind: "narration" });
       case "note": return this.post(windowId, { content: a.text, kind: "narration", visibility: "gm_only" });
@@ -522,20 +555,24 @@ export class Table {
         if (!target) return this.post(windowId, { content: `(whisper for ${a.to}) ${a.text}`, kind: "narration", visibility: "gm_only" });
         return this.post(windowId, { content: a.text, kind: "narration", visibility: "whisper", whisper_to: [target.id] });
       }
-      case "request_roll": return this.requestRoll(windowId, a, mode);
+      case "request_roll": return this.requestRoll(windowId, a, scope);
       case "split": return this.cfg.timelineAuto ? 0 : this.legacySplit(windowId, a);
       case "rejoin": return this.cfg.timelineAuto ? 0 : this.legacyRejoin(a);
       case "timeline": return this.updateTimeline(a);
       case "advance_scenario":
-      case "enter_scenario": return this.changeScenario(windowId, a, mode);
+      case "enter_scenario": return this.changeScenario(windowId, a, mode, parent);
       default: return 0;
     }
   }
 
-  async requestRoll(windowId, a, mode) {
+  async requestRoll(windowId, a, scope = null) {
     const command = String(a.command ?? "").trim();
     const target = this.characterByName(a.who);
     if (!ROLL.test(command) || !target) return a.text ? this.post(windowId, { content: a.text, kind: "narration" }) : 0;
+    // Only someone in this scene (or a player writing here from elsewhere) can be asked to roll for it.
+    if (scope && (this.isPc(target.id) || this.roster.isCoplayer(target.id)) && !scope.has(target.id)) {
+      return this.post(windowId, { content: `Roll request for ${target.name} not posted: they are not in this scene.`, kind: "narration", visibility: "gm_only" });
+    }
     let n = 0;
     if (this.roster.isCoplayer(target.id) || this.roster.isNpc(target.id)) {
       // The client rolls for the characters it plays; the platform rolls against their own sheets.
@@ -549,11 +586,12 @@ export class Table {
   }
 
   // ---- scenarios
-  async scenarioVerdict(windowId, mode) {
-    if (!this.cfg.scenarioAuto) return { ok: false, reason: "automatic scenario changes are off" };
+  // `parent` is the turn's own mode: a followup round inside a quiet, side or arrival turn is still autonomous.
+  async scenarioVerdict(windowId, mode, parent = mode) {
     if (mode === "manual") return { ok: true };
+    if (!this.cfg.scenarioAuto) return { ok: false, reason: "automatic scenario changes are off" };
     if (windowId !== this.mainWindow()?.id) return { ok: false, reason: "only from the Main Chat" };
-    if (!["human", "followup"].includes(mode)) return { ok: false, reason: "only right after a player's or co-player's line" };
+    if (!["human", "followup"].includes(mode) || !["human", "relay"].includes(parent)) return { ok: false, reason: "only right after a player's or co-player's line, never in an autonomous turn" };
     const short = this.timelines.active().find((t) => t.id !== MAIN && t.span !== "long");
     if (short) return { ok: false, reason: `the party is briefly split ("${short.name}"): bring them together first` };
     const minutes = (this.now() - (this.scenario?.since ?? 0)) / 60000;
@@ -565,8 +603,8 @@ export class Table {
     return { ok: true, scenes };
   }
 
-  async changeScenario(windowId, a, mode) {
-    const v = await this.scenarioVerdict(windowId, mode);
+  async changeScenario(windowId, a, mode, parent = mode) {
+    const v = await this.scenarioVerdict(windowId, mode, parent);
     if (!v.ok) return this.post(windowId, { content: `Scenario change refused: ${v.reason}.`, kind: "narration", visibility: "gm_only" });
     try {
       let res;

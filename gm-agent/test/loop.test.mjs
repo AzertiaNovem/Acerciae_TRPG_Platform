@@ -53,8 +53,11 @@ class FakeApi {
     return this.add({ chat_window_id: w, author_id: "u-bot", author_role: "gm", ...body, kind: body.content.startsWith(".") ? "roll" : body.kind });
   }
   async characterSpace(_ch, cid) { return { character: { id: cid, role_card: { characteristics: { INT: 70 }, skills: { "Spot Hidden": 60 } } } }; }
+  async playerGroups() { return this.groups ?? []; }
   async createWindow(_ch, body) {
     for (const m of body.members ?? []) if (!this.channelUsers.includes(m.user_id)) throw Object.assign(new Error("user is not a channel member"), { status: 400 });
+    this.createAttempts = (this.createAttempts ?? 0) + 1;
+    if (this.failAfter !== undefined && this.createAttempts > this.failAfter) throw Object.assign(new Error("upstream down"), { status: 502 });
     if (this.failCreate) throw Object.assign(new Error("upstream down"), { status: 502 });
     if ((body.members ?? []).length) this.membershipWrites++;
     const w = { id: `w-new${this.windows_.length}`, kind: body.kind, name: body.name, members: [{ user_id: "u-bot" }, ...(body.members ?? []).map((m) => ({ ...m, character_name: this.characters_.find((c) => c.id === m.character_id)?.name }))] };
@@ -373,7 +376,7 @@ test("a player who says they go elsewhere gets a window of their own with the GM
   assert.ok(directorCalls(llm).some((u) => u.includes("MODE: arrival") && u.includes("Alice Hale just arrived")), "an arrival turn opened the scene");
   assert.ok(api.posts.some((p) => p.window === w.id && p.kind === "narration" && /You consider/.test(p.content)), "the Keeper narrated in her window");
   assert.ok(tl.opened, "the thread is marked opened");
-  assert.ok(t.publicSplits, "public knowledge mode is noticed (the CLI warns about it)");
+  assert.match(t.splitWarning, /knowledge mode is public/, "public knowledge mode is noticed (the CLI warns about it)");
 });
 
 test("only the player's own line moves them; a co-player follows after its own line, and its memory follows its seat", async () => {
@@ -429,36 +432,63 @@ test("a split-off player who writes in the Main Chat is answered in their own sc
 });
 
 test("a reported move that is not allowed is noted for the Keeper and changes nothing", async () => {
+  // Alice speaks; the Keeper also reports Bob leaving, but only Bob's own player can move Bob.
   const llm = new MockLlm();
-  llm.director = (user) => (user.includes("NEWEST LINE") ? { actions: [{ type: "narrate", text: "ok" }], coplayers_may_act: false, whereabouts: [{ who: ["Alice Hale"], thread: "new", place: "Attic", own_scene: true }] } : { actions: [], coplayers_may_act: false });
-  const { t, api, clock } = await table({ llm, cfg: { autonomyQuietMs: MIN } });
-  await alicePosts(t, api, "Hm.");
-  clock.t += MIN + 1;
-  await t.tick(); await settle(t);
-  assert.equal(api.createdWindows.length, 1, "her own line moved her once (human round)");
-  const notes = api.posts.filter((p) => p.visibility === "gm_only" && p.content.startsWith("Whereabouts not applied"));
-  assert.ok(notes.length === 0 || notes.every((n) => /stays/.test(n.content)));
+  llm.director = (user) => (!/^MODE: /m.test(user) ? { actions: [{ type: "narrate", text: "ok" }], coplayers_may_act: false, whereabouts: [{ who: ["Bob Price"], thread: "new", place: "Attic", own_scene: true }] } : { actions: [], coplayers_may_act: false });
+  const { t, api } = await table({ llm, bob: true });
+  await alicePosts(t, api, "Bob, go and look upstairs.");
+  await settle(t);
+  assert.equal(api.createAttempts ?? 0, 0, "no window");
+  assert.equal(t.timelines.of("c-bob").id, "main");
+  const note = api.posts.find((p) => p.visibility === "gm_only" && p.content.startsWith("Whereabouts not applied"));
+  assert.ok(note && /Bob Price/.test(note.content), note?.content);
 });
+
+const bobSays = (t, api, content, w = "w-main") => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-bob", author_role: "player", character_id: "c-bob", content }) });
+const twoWays = () => {
+  const llm = new MockLlm();
+  llm.director = (user) => (!/^MODE: /m.test(user) && user.includes("Mill")
+    ? { actions: [{ type: "narrate", text: "They part." }], coplayers_may_act: false, whereabouts: [{ who: ["Alice Hale"], thread: "new", place: "Docks", own_scene: true }, { who: ["Bob Price"], thread: "new", place: "Mill", own_scene: true }] }
+    : { actions: [], coplayers_may_act: false });
+  return llm;
+};
 
 test("a platform failure creating the window changes nothing locally and the window is reused on retry", async () => {
-  const { t, api } = await table();
-  api.failCreate = true;
-  await alicePosts(t, api, "I go to the docks.");
+  const { t, api } = await table({ llm: twoWays(), bob: true, cfg: { debounceMs: 20 } });
+  api.failAfter = 1;                                   // Alice's window is created, Bob's fails
+  await Promise.all([alicePosts(t, api, "I go to the docks."), bobSays(t, api, "And I go to the Mill.")]);
   await settle(t);
+  assert.equal(api.createdWindows.length, 1);
   assert.equal(t.timelines.active().length, 1, "no thread without its window");
   assert.equal(t.journal, null);
-  api.failCreate = false;
-  await alicePosts(t, api, "I go to the docks.");
+  assert.deepEqual(t.guard.spare.map((x) => x.windowId), [api.createdWindows[0].id], "the window already made is kept");
+  api.failAfter = undefined;
+  await Promise.all([alicePosts(t, api, "I go to the docks."), bobSays(t, api, "And I go to the Mill.")]);
   await settle(t);
-  assert.equal(t.timelines.active().length, 2);
+  assert.equal(api.createdWindows.length, 2, "only Bob's window is made the second time");
+  assert.equal(t.timelines.of("c-alice").windowId, api.createdWindows[0].id, "Alice's earlier window is reused");
+  assert.deepEqual(t.guard.spare, []);
 });
 
-test("an interrupted split is finished on restart, and its scene still gets an opening turn", async () => {
-  const { t, api, llm } = await table();
+test("a split the platform fails three times is given up and noted, not retried every turn", async () => {
+  const { t, api } = await table({ bob: true });
+  api.failCreate = true;
+  for (let i = 0; i < 4; i++) { await alicePosts(t, api, "I go to the docks."); await settle(t); }
+  assert.equal(api.createAttempts, 3);
+  assert.ok(api.posts.some((p) => p.visibility === "gm_only" && /failed to open this scene three times/.test(p.content)));
+  assert.equal(t.timelines.of("c-alice").id, "main");
+});
+
+test("an interrupted split is finished on restart with the window it had already made, and its scene still gets an opening turn", async () => {
+  const { t, api, llm } = await table({ bob: true });
+  const made = await api.createWindow("ch", { name: "Scene: Docks", kind: "group", members: [{ user_id: "u-alice", character_id: "c-alice" }] });
   const ops = [{ op: "split", ids: ["c-alice"], place: "Docks", time: "", span: "short", opening: "Fog.", fromTimeline: "main", replaces: null }];
-  const t2 = new Table({ api, llm, cfg: t.cfg, channelId: "ch", roster: new Roster(), journal: { opId: "x", ops, changed: ["c-alice"], windowId: "w-main", created: [], phase: "A" }, sleep: async () => {} });
+  const journal = { opId: "x", ops, changed: ["c-alice"], windowId: "w-main", created: [{ windowId: made.id, placeKey: "docks", users: ["u-alice"] }], phase: "A" };
+  const t2 = new Table({ api, llm, cfg: t.cfg, channelId: "ch", roster: new Roster(), journal, sleep: async () => {} });
   await t2.init({ heal: true });
   await settle(t2);
+  assert.equal(api.createdWindows.length, 1, "no second window");
+  assert.equal(t2.timelines.of("c-alice").windowId, made.id);
   assert.equal(t2.timelines.of("c-alice").location, "Docks");
   assert.equal(t2.journal, null);
   assert.ok(directorCalls(llm).some((u) => u.includes("MODE: arrival")), "the opening turn ran");
@@ -556,4 +586,93 @@ test("a lone player who leaves keeps the Main Chat (it moves with them); the co-
   const side = t.timelines.of("c-harriet");
   assert.notEqual(side.id, "main"); assert.equal(side.location, "Hale House");
   assert.equal(api.createdWindows[0].name, "Side: Hale House"); assert.equal(api.membershipWrites, 0, "a co-players-only window has no members to write");
+});
+
+test("an autonomous turn's followup never changes the scenario", async () => {
+  const llm = new MockLlm();
+  llm.director = (user) => {
+    const mode = (user.match(/^MODE: (\w+)/m) ?? [])[1] ?? "human";
+    if (mode === "quiet") return { actions: [{ type: "narrate", text: "Time passes." }], coplayers_may_act: true };
+    if (mode === "followup") return { actions: [{ type: "advance_scenario", title: "Dawn", narrative_time: "dawn", reason: "x" }], coplayers_may_act: false };
+    return { actions: [{ type: "narrate", text: "ok" }], coplayers_may_act: false };
+  };
+  const { t, api, clock } = await table({ llm, cfg: { scenarioMinMinutes: 0, scenarioMinLines: 0, autonomyQuietMs: MIN } });
+  await alicePosts(t, api, "Hm.");
+  await settle(t);
+  clock.t += MIN + 1;
+  assert.notEqual(await t.tick(), null, "a quiet turn runs");
+  await settle(t);
+  assert.ok(directorCalls(llm).some((u) => u.startsWith("MODE: followup") || u.includes("\nMODE: followup")), "the co-players acted and the Keeper followed up");
+  assert.deepEqual(api.advanced, []);
+  assert.ok(api.posts.some((p) => p.visibility === "gm_only" && p.content.startsWith("Scenario change refused") && /autonomous/.test(p.content)));
+});
+
+test("a player's lines wait for the human turn even when an arrival turn runs first", async () => {
+  // The Keeper reads Alice's line from the context (the arrival's narration is newer); the move counts only if her line
+  // is still in the human turn's batch.
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (!/^MODE: /m.test(user) && user.includes("Alice Hale: I go to the docks.") ? { actions: [{ type: "narrate", text: "She leaves." }], coplayers_may_act: false, whereabouts: [{ who: ["Alice Hale"], thread: "new", place: "Docks", own_scene: true }] } : base(user));
+  const { t, api } = await table({ llm, bob: true, cfg: { debounceMs: 30 } });
+  const human = alicePosts(t, api, "I go to the docks.");
+  await t.turn("w-main", { mode: "arrival", arrival: { names: ["Harriet Vance"], reunion: true } });
+  await human; await settle(t);
+  assert.ok(directorCalls(llm).some((u) => u.includes("Harriet Vance just rejoined")));
+  assert.equal(api.createdWindows.length, 1, "her own line still moved her");
+  assert.equal(t.timelines.of("c-alice").location, "Docks");
+});
+
+test("a player leaving a shared scene: the co-player who stays continues in a fresh window, and only the leaver is welcomed back", async () => {
+  const { t, api, llm } = await table({ bob: true });
+  await t.command({ cmd: "split", who: ["Alice Hale", "Harriet Vance"], place: "Docks" });
+  await settle(t);
+  const docks = t.timelines.of("c-alice");
+  const callsBefore = directorCalls(llm).length;
+  await alicePosts(t, api, "Nothing here. I go back to the others.", docks.windowId);
+  await settle(t);
+  assert.equal(t.timelines.of("c-alice").id, "main");
+  const harriet = t.timelines.of("c-harriet");
+  assert.notEqual(harriet.id, "main"); assert.notEqual(harriet.windowId, docks.windowId, "Harriet's scene moved to a fresh window");
+  assert.deepEqual(t.windowUsers(harriet.windowId), [], "Alice cannot read where Harriet stayed");
+  const later = directorCalls(llm).slice(callsBefore);
+  assert.ok(later.some((u) => u.includes("Alice Hale just rejoined")), "Alice's reunion is narrated");
+  assert.ok(!later.some((u) => u.includes("Harriet Vance just rejoined")), "Harriet never 'rejoins' anyone");
+});
+
+test("a roll for someone in another scene is not requested here", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (user.includes("listen for her") ? { actions: [{ type: "request_roll", who: "Alice Hale", command: ".ra Listen", text: "Alice, something stirs." }], coplayers_may_act: false } : base(user));
+  const { t, api } = await table({ llm, bob: true });
+  await alicePosts(t, api, "I go to the docks.");
+  await settle(t);
+  await bobSays(t, api, "I listen for her.");
+  await settle(t);
+  assert.ok(!api.posts.some((p) => p.content.includes("→ Alice Hale: .ra Listen")), "no roll request for Alice");
+  assert.ok(api.posts.some((p) => p.visibility === "gm_only" && p.content.startsWith("Roll request for Alice Hale not posted")));
+});
+
+test("relay never widens who reads a line: a scene with other readers gets only the pointer", async () => {
+  const { t, api, llm } = await table({ bob: true });
+  await alicePosts(t, api, "I go to the docks.");
+  await settle(t);
+  const home = t.timelines.of("c-alice").windowId;
+  api.channelUsers.push("u-carol");
+  api.windows_.find((w) => w.id === home).members.push({ user_id: "u-carol" });
+  await t.refresh();
+  const before = api.posts.length;
+  await alicePosts(t, api, "I search the crates.", "w-main");
+  await settle(t);
+  assert.ok(!directorCalls(llm).some((u) => u.includes("MODE: relay") && u.includes("I search the crates")), "no relay into a window Carol reads");
+  assert.ok(api.posts.slice(before).some((p) => p.window === "w-main" && p.visibility === "whisper"), "the pointer is still posted");
+});
+
+test("isolated channels warn only when players share a player group", async () => {
+  const api = new FakeApi();
+  api.knowledgeMode = "isolated";
+  const t = await new Table({ api, llm: new MockLlm(), cfg: { ...buildConfig({}, {}), debounceMs: 0 }, channelId: "ch", roster: new Roster(), sleep: async () => {} }).init();
+  assert.equal(t.splitWarning, null);
+  api.groups = [{ id: "g1", name: "Party", members: [{ user_id: "u-alice" }, { user_id: "u-bob" }] }];
+  const t2 = await new Table({ api, llm: new MockLlm(), cfg: { ...buildConfig({}, {}), debounceMs: 0 }, channelId: "ch", roster: new Roster(), sleep: async () => {} }).init();
+  assert.match(t2.splitWarning, /share a player group \(Party\)/);
 });
