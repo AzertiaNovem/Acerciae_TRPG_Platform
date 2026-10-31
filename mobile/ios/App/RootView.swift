@@ -324,7 +324,9 @@ private struct MessageBubble: View {
     let message: Message
     @ObservedObject var model: AppModel
     private var mine: Bool { message.authorId != nil && message.authorId == model.session?.user.id }
-    private var name: String { message.characterName ?? message.authorName }
+    // Out of character the player speaks: their own avatar and name.
+    private var ooc: Bool { message.kind == "ooc" }
+    private var name: String { (ooc ? nil : message.characterName) ?? message.authorName }
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 36) } else { avatar }
@@ -344,9 +346,9 @@ private struct MessageBubble: View {
         }
     }
     private var avatar: some View {
-        let character = model.characters.first { $0.id == message.characterId }
-        let asset = character.map { $0["avatar_asset_id"].text } ?? message.characterAvatarAssetId ?? ""
-        let revision = (character?["updated_at"].text ?? "") + ":" + String(message.characterAvatarVersion ?? 0)
+        let character = ooc ? nil : model.characters.first(where: { $0.id == message.characterId })
+        let asset = ooc ? "" : character.map { $0["avatar_asset_id"].text } ?? message.characterAvatarAssetId ?? ""
+        let revision = ooc ? "" : (character?["updated_at"].text ?? "") + ":" + String(message.characterAvatarVersion ?? 0)
         return AvatarView(model: model, name: name, assetId: asset, version: revision, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0)
     }
 }
