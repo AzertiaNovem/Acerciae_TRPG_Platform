@@ -15190,5 +15190,89 @@
     "В очереди",
     "Na fila",
     "In coda"
+  ],
+  "until {time}": [
+    "有效期至 {time}",
+    "有效期至 {time}",
+    "{time} まで",
+    "{time}까지",
+    "hasta {time}",
+    "jusqu’au {time}",
+    "bis {time}",
+    "до {time}",
+    "até {time}",
+    "fino al {time}"
+  ],
+  "The server deletes the file when it expires; prepare it again any time.": [
+    "文件到期后服务器会删除它；随时可以重新准备。",
+    "檔案到期後伺服器會刪除它；隨時可以重新準備。",
+    "期限が切れるとサーバーがファイルを削除します。いつでも作り直せます。",
+    "만료되면 서버가 파일을 삭제합니다. 언제든 다시 준비할 수 있습니다.",
+    "El servidor borra el archivo cuando caduca; puedes prepararlo de nuevo cuando quieras.",
+    "Le serveur supprime le fichier à son expiration ; vous pouvez le préparer à nouveau à tout moment.",
+    "Der Server löscht die Datei, wenn sie abläuft; du kannst sie jederzeit neu vorbereiten.",
+    "Сервер удаляет файл по истечении срока; его можно подготовить снова в любое время.",
+    "O servidor apaga o arquivo quando expira; você pode prepará-lo de novo a qualquer momento.",
+    "Il server elimina il file alla scadenza; puoi prepararlo di nuovo in qualsiasi momento."
+  ],
+  "Pack it again with the latest changes": [
+    "按最新修改重新打包",
+    "依最新修改重新打包",
+    "最新の変更で作り直す",
+    "최신 변경으로 다시 묶기",
+    "Volver a empaquetar con los últimos cambios",
+    "Réempaqueter avec les dernières modifications",
+    "Mit den neuesten Änderungen neu packen",
+    "Упаковать заново с последними изменениями",
+    "Empacotar de novo com as últimas alterações",
+    "Reimpacchetta con le ultime modifiche"
+  ],
+  "Packing the visual novel… {done}/{total} lines": [
+    "正在打包视觉小说… {done}/{total} 行",
+    "正在打包視覺小說… {done}/{total} 行",
+    "ビジュアルノベルをまとめています… {done}/{total} 行",
+    "비주얼 노벨을 묶는 중… {done}/{total}줄",
+    "Empaquetando la novela visual… {done}/{total} líneas",
+    "Empaquetage du visual novel… {done}/{total} lignes",
+    "Visual Novel wird gepackt … {done}/{total} Zeilen",
+    "Упаковка визуальной новеллы… {done}/{total} строк",
+    "Empacotando a visual novel… {done}/{total} linhas",
+    "Impacchettamento della visual novel… {done}/{total} righe"
+  ],
+  "Packing the visual novel…": [
+    "正在打包视觉小说…",
+    "正在打包視覺小說…",
+    "ビジュアルノベルをまとめています…",
+    "비주얼 노벨을 묶는 중…",
+    "Empaquetando la novela visual…",
+    "Empaquetage du visual novel…",
+    "Visual Novel wird gepackt …",
+    "Упаковка визуальной новеллы…",
+    "Empacotando a visual novel…",
+    "Impacchettamento della visual novel…"
+  ],
+  "Prepare the download (zip)": [
+    "准备下载（zip）",
+    "準備下載（zip）",
+    "ダウンロードを準備（zip）",
+    "다운로드 준비(zip)",
+    "Preparar la descarga (zip)",
+    "Préparer le téléchargement (zip)",
+    "Download vorbereiten (zip)",
+    "Подготовить загрузку (zip)",
+    "Preparar o download (zip)",
+    "Prepara il download (zip)"
+  ],
+  "The last download expired.": [
+    "上一次的下载已过期。",
+    "上一次的下載已過期。",
+    "前回のダウンロードは期限切れです。",
+    "지난 다운로드가 만료되었습니다.",
+    "La última descarga caducó.",
+    "Le dernier téléchargement a expiré.",
+    "Der letzte Download ist abgelaufen.",
+    "Срок прошлой загрузки истёк.",
+    "O último download expirou.",
+    "L’ultimo download è scaduto."
   ]
 }

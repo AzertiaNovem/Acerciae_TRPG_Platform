@@ -134,6 +134,18 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   assert.ok(listing.includes('id="vn-data"') && listing.includes("Fog rolls over the harbour."));
   assert.equal(new Set(listing.match(/audio\/[0-9a-f]{8}\.wav/g)).size, 6, "six voiced lines, one audio file each");
 
+  // The same bundle prepared in the background: pending → ready, then downloaded until it expires.
+  const prepared = await call(gm, "POST", root + `/presentations/${done.presentation_id}/bundle`, {});
+  assert.ok(["pending", "running", "ready"].includes(prepared.status));
+  const ready = await wait(async () => { const [j] = await call(gm, "GET", root + `/presentations/${done.presentation_id}/bundles`); assert.notEqual(j.status, "failed", JSON.stringify(j)); return j.status === "ready" ? j : null; });
+  assert.equal(ready.id, prepared.id); assert.equal(ready.file_name, "Harbour_VN.zip"); assert.ok(new Date(ready.expires_at) > new Date());
+  const got = await fetch(base + ready.download_path, { headers: { Authorization: `Bearer ${gm}` } });
+  assert.equal(got.status, 200); assert.match(got.headers.get("content-disposition"), /filename\*=UTF-8''Harbour_VN\.zip/);
+  const prepZip = Buffer.from(await got.arrayBuffer());
+  assert.equal(prepZip.readUInt32LE(0), 0x04034b50); assert.equal(new Set(prepZip.toString("latin1").match(/audio\/[0-9a-f]{8}\.wav/g)).size, 6);
+  assert.equal((await call(gm, "POST", root + `/presentations/${done.presentation_id}/bundle`, {})).id, ready.id, "a current bundle is reused");
+  assert.equal((await fetch(base + ready.download_path, { headers: { Authorization: `Bearer ${p2}` } })).status, 404, "only the requester downloads it");
+
   // The all-windows draft is GM only; a player sees their own jobs only.
   await rejects(call(p2, "GET", root + `/presentations/${done.presentation_id}`), 403);
   assert.deepEqual(await call(p1, "GET", root + "/vn-scripts"), []);

@@ -35,6 +35,11 @@ public:
     std::optional<std::string> get(const std::string& key) override { auto p = pathFor(key); if (!fs::exists(p)) return std::nullopt; std::ifstream i(p, std::ios::binary); return std::string((std::istreambuf_iterator<char>(i)), std::istreambuf_iterator<char>()); }
     bool exists(const std::string& key) override { return fs::exists(pathFor(key)); }
     void remove(const std::string& key) override { std::error_code ec; fs::remove(pathFor(key), ec); }
+    void removePrefix(const std::string& prefix) override {
+        // Only whole channel or user folders: never the root, never anything outside it.
+        if (prefix.empty() || prefix.back() != '/' || prefix.find("..") != std::string::npos || prefix[0] == '/') return;
+        std::error_code ec; fs::remove_all(fs::path(root_) / prefix, ec);
+    }
     std::string kind() const override { return "local"; }
 private:
     std::string root_;
@@ -181,6 +186,27 @@ void RoutingObjectStore::remove(const std::string& key) {
         catch (const std::exception& e) { if (!firstError) firstError.emplace(e.what()); }
     }
     if (firstError) throw *firstError;
+}
+void RoutingObjectStore::removePrefix(const std::string& prefix) {
+    for (auto& s : all_) s->removePrefix(prefix);
+}
+int removeChannelObjects(ObjectStore& store, const std::string& channelId, const std::vector<std::string>& keys) {
+    int removed = 0;
+    std::set<std::string> all;
+    for (const auto& k : keys) {
+        if (k.empty()) continue;
+        all.insert(k);
+        all.insert(isPublicKey(k) ? k.substr(std::string(kPublicPrefix).size()) : kPublicPrefix + k);
+    }
+    for (const auto& k : all) {
+        try { store.remove(k); if (std::find(keys.begin(), keys.end(), k) != keys.end()) ++removed; }
+        catch (const std::exception& e) { ALOG_WARN << "delete: could not remove object " << k << ": " << e.what(); }
+    }
+    if (!channelId.empty() && channelId.find('/') == std::string::npos && channelId.find("..") == std::string::npos) {
+        store.removePrefix("channels/" + channelId + "/");
+        store.removePrefix(std::string(kPublicPrefix) + "channels/" + channelId + "/");
+    }
+    return removed;
 }
 std::string RoutingObjectStore::kind() const {
     return (general_ == images_ ? general_->kind() : general_->kind() + "+images:" + images_->kind()) + (public_ ? "+public:" + public_->kind() : "");

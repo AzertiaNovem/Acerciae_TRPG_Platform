@@ -102,6 +102,8 @@ Services& Services::build(const Config& cfg) {
     s.modules->setExecutor(submit);
     s.script->setExecutor(submit);
     s.scenarios->setExecutor(submit);
+    s.publication->setExecutor(submit);
+    s.publication->setAccessResolver([&s](const std::string& user, const std::string& channel) { return s.auth->channelAccess(user, channel); });
     return s;
 }
 

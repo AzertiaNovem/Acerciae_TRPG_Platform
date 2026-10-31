@@ -1,6 +1,7 @@
 import { t as tr } from '../../i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import BundleDownload from './BundleDownload';
 import { contextSocket } from '../../api/ws';
 import { useNav } from '../../store/nav';
 import { useUi } from '../../store/ui';
@@ -245,7 +246,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
             <span className="tiny muted">{tr('{n} lines', { n: visible.length })} · {tr('{n} voiced', { n: visible.filter((e) => e.audio_asset_id).length })}</span>
             <span className="grow" />
             <button className="ghost small" onClick={() => onOpenEditor(pres.id)}>{tr('Advanced editor')}</button>
-            <a className="button primary small" href={api.bundleUrl(channelId!, pres.id)}>{tr('Download the visual novel (zip)')}</a>
+            <BundleDownload channelId={channelId!} presentationId={pres.id} primary />
           </div>
           <div className="tiny muted" style={{ marginTop: 4 }}>{tr('The zip holds index.html with every image and voice line; open it in any browser, no server needed.')}</div>
         </div>

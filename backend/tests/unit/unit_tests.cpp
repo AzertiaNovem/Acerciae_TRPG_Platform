@@ -872,6 +872,36 @@ int main() {
         CHECK(!logstudio::MediaService::publicEligible("upload", "image/png") && !logstudio::MediaService::publicEligible("generated", "image/svg+xml") && !logstudio::MediaService::publicEligible("generated", "audio/wav"));
         std::error_code ec; fs::remove_all(root, ec);
     });
+    test("object store: a deleted channel's objects leave every backend, the old local copies included", [] {
+        namespace fs = std::filesystem;
+        // An R2-like store: deletes by key only, cannot list (no removePrefix).
+        struct KeyOnly : logstudio::ObjectStore {
+            std::map<std::string, std::string> m;
+            void put(const std::string& k, const std::string& b, const std::string&) override { m[k] = b; }
+            std::optional<std::string> get(const std::string& k) override { auto it = m.find(k); if (it == m.end()) return std::nullopt; return it->second; }
+            bool exists(const std::string& k) override { return m.count(k) > 0; }
+            void remove(const std::string& k) override { m.erase(k); }
+            std::string kind() const override { return "r2"; }
+        };
+        auto root = fs::temp_directory_path() / ("acerciae-delete-" + crypto::randomHex(6));
+        Config cl; cl.uploadDir = (root / "local").string();
+        std::shared_ptr<logstudio::ObjectStore> local = logstudio::makeBackend("local", cl);
+        auto r2 = std::make_shared<KeyOnly>(), pub = std::make_shared<KeyOnly>();
+        logstudio::RoutingObjectStore store(local, r2, {}); store.setPublic(pub, "https://media.example.com");
+        const std::string art = "pub/channels/c1/portrait/a.png", oldArt = "channels/c1/portrait/a.png", voice = "pub/channels/c1/tts/v.wav", upload = "channels/c1/upload/u.png", bundle = "pub/channels/c1/bundles/x/港口.zip";
+        pub->put(art, "A", "image/png"); pub->put(voice, "V", "audio/wav"); pub->put(bundle, "Z", "application/zip");
+        local->put(oldArt, "OLD", "image/png");   // the migrator's leftover under the old key: in no row
+        r2->put(upload, "U", "image/png"); local->put("channels/c1/stray/s.bin", "S", "");   // stray file in the channel folder
+        local->put("channels/c2/portrait/b.png", "B", "image/png"); pub->put("pub/channels/c2/portrait/b.png", "B", "image/png");
+        int n = logstudio::removeChannelObjects(store, "c1", {art, voice, upload, bundle});
+        CHECK(n == 4);
+        CHECK(pub->m.size() == 1 && pub->exists("pub/channels/c2/portrait/b.png"));   // only the other channel's object is left
+        CHECK(r2->m.empty());
+        CHECK(!local->exists(oldArt) && !local->exists("channels/c1/stray/s.bin") && !fs::exists(root / "local" / "channels" / "c1"));
+        CHECK(local->exists("channels/c2/portrait/b.png"));
+        local->removePrefix("../"); local->removePrefix(""); local->removePrefix("/etc/"); CHECK(fs::exists(root / "local"));   // never outside the root
+        std::error_code ec; fs::remove_all(root, ec);
+    });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;
 }

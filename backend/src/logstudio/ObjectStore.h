@@ -30,6 +30,9 @@ public:
     virtual std::string publicUrl(const std::string& key) const { (void)key; return ""; }
     // Whether new non-secret media should get "pub/" keys (a public bucket is configured).
     virtual bool publicAvailable() const { return false; }
+    // Deletes every object under a folder-like prefix ("channels/<id>/"). The local directory removes the folder;
+    // S3/R2 cannot list here and do nothing (their objects are removed key by key).
+    virtual void removePrefix(const std::string& prefix) { (void)prefix; }
 };
 
 constexpr const char* kPublicPrefix = "pub/";
@@ -41,6 +44,11 @@ std::unique_ptr<ObjectStore> makeBackend(const std::string& kind, const Config& 
 // Copies objects that `to` does not have yet (used by `acerciae-server --copy-images FROM TO`). Never deletes.
 struct CopyReport { int copied = 0, alreadyPresent = 0, missingAtSource = 0, failed = 0; };
 CopyReport copyObjects(ObjectStore& from, ObjectStore& to, const std::vector<std::pair<std::string, std::string>>& keysAndMimes);
+
+// Deletes everything a deleted channel stored, from every backend (local disk, R2/S3, the public bucket): each listed
+// key and its "pub/" twin (the media migrator keeps the local copy under the old key), then whatever is left in the
+// channel's local folders. Returns how many listed keys were removed without an error.
+int removeChannelObjects(ObjectStore& store, const std::string& channelId, const std::vector<std::string>& keys);
 
 // Images are routed by content type (image/*) when written and by file extension when read.
 bool isImageObject(const std::string& key, const std::string& contentType = "");
@@ -59,6 +67,7 @@ public:
     std::string kind() const override;   // "local", or e.g. "local+images:r2+public:r2public"
     std::string publicUrl(const std::string& key) const override;
     bool publicAvailable() const override { return public_ != nullptr; }
+    void removePrefix(const std::string& prefix) override;   // on every backend
     // The backend new writes of this key go to, and the local directory backend (always present when built by
     // makeObjectStore). Used by the media migrator.
     ObjectStore& targetFor(const std::string& key, const std::string& contentType = "") const;

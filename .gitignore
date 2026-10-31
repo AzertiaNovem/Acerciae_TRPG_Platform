@@ -1,4 +1,5 @@
 # build
+.ccache/
 backend/build/
 backend/build-*/
 frontend/node_modules/

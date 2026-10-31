@@ -42,7 +42,7 @@ else
 fi
 (cd "$ROOT/tests/integration" && [ -d node_modules ] || npm --prefix "$ROOT/tests/integration" ci --silent)
 # shellcheck disable=SC2086
-(cd "$ROOT/tests/integration" && API_BASE="http://localhost:$PORT" node --test --test-concurrency=1 --test-timeout=300000 $SUITES)
+(cd "$ROOT/tests/integration" && API_BASE="http://localhost:$PORT" E2E_UPLOAD_DIR="${TMPDIR:-/tmp}/acerciae-e2e-uploads" node --test --test-concurrency=1 --test-timeout=300000 $SUITES)
 # Every server the suites built (chat, dice, Log Studio, speech, PDFs, …) must be deletable: deletion relies on the
 # schema cascading from servers and channels.
 echo "== every server deletes cleanly"

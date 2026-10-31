@@ -1,6 +1,7 @@
 import { t as tr } from '../../i18n';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
+import BundleDownload from './BundleDownload';
 import { useNav } from '../../store/nav';
 import { useStudio } from '../../store/studio';
 import { useUi } from '../../store/ui';
@@ -82,7 +83,7 @@ export default function VisualNovelEditor() {
         <label className="tiny">{tr("typewriter ")}<input type="number" min={5} max={120} value={pres.settings?.typewriter_cps ?? 28} onChange={(e) => setPres({ ...pres, settings: { ...pres.settings, typewriter_cps: +e.target.value } })} onBlur={() => channelId && api.updatePresentation(channelId, pres.id, { settings: { typewriter_cps: pres.settings?.typewriter_cps } })} style={{ width: 60 }} disabled={!canEdit} />{tr(" cps")}</label>
         <span className="grow" />
         <button className="primary small" onClick={() => setPlayerMode(true)}>{tr("▶ Play")}</button>
-        <a className="button small" href={api.bundleUrl(channelId!, pres.id)}>{tr("Download the visual novel (zip)")}</a>
+        <BundleDownload channelId={channelId!} presentationId={pres.id} />
         {canEdit && <button className="ghost small" onClick={async () => { if (!channelId || !confirm(tr('Delete this presentation?'))) return; await api.deletePresentation(channelId, pres.id); setPresentation(null); loadList(); }}>{tr("delete")}</button>}
       </div>
       <div className="vn-editor">

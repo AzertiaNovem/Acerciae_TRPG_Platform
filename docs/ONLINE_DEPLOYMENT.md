@@ -7,6 +7,25 @@ Cloudflare Pages 独立监听 `online`；它不会等待后端部署完成，所
 部署只上传 `backend` 和 `pdf-worker` 的 Git 源码归档，不包含构建产物、共享库或 `node_modules`。
 不再生成或下载部署 artifact；服务器编译成功后才切换服务，部署任务超时为 60 分钟。
 
+## 编译缓存
+
+CI 和服务器均使用 ccache 复用未变化的 C++ 编译结果。CI 用 GitHub Actions cache 保存缓存，
+服务器使用 `/srv/acerciae/cache/ccache`，各自上限为 1 GB。不同 release 的源码路径会归一化，
+避免仅因目录中的提交 SHA 改变而全部失去缓存命中；编译器、编译选项、源文件和头文件变化仍会使相关结果失效。
+
+每个 release 仍有独立的 build 目录和二进制，继续执行链接、测试、备份和健康检查。
+这不是复用旧版可执行文件。第一次建立缓存仍会完整编译，后续改动较少时收益最大；
+删除缓存只会使下一次编译变慢，不影响运行中的 release。命中统计会打印在构建日志中。
+
+服务器首次安装（无需重启应用）：
+
+```bash
+sudo apt-get install --no-install-recommends ccache
+```
+
+部署账号需要能写入上述缓存目录。未安装 ccache 的服务器会在日志中提示并退回普通编译，
+不会因此阻断部署。参考 [ccache 的跨目录缓存说明](https://ccache.dev/manual/latest.html#_compiling_in_different_directories)。
+
 ## GitHub production 环境
 
 在仓库 Settings → Environments → production 中配置：

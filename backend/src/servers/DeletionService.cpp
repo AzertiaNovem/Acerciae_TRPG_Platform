@@ -19,18 +19,24 @@ std::vector<std::string> objectKeys(pqxx::work& w, const std::string& where, con
         " UNION SELECT av.object_key FROM asset_versions av JOIN media_assets m ON m.id=av.asset_id WHERE m.channel_id " + where +
         " UNION SELECT object_key FROM tts_audio_assets WHERE channel_id " + where +
         " UNION SELECT object_key FROM pdf_render_jobs WHERE channel_id " + where +
-        " UNION SELECT raw_object_key FROM log_imports WHERE channel_id " + where, {param}))
+        " UNION SELECT raw_object_key FROM log_imports WHERE channel_id " + where +
+        " UNION SELECT object_key FROM vn_bundle_jobs WHERE channel_id " + where, {param}))
         if (r["k"].isString() && !r["k"].asString().empty()) keys.push_back(r["k"].asString());
     return keys;
 }
 std::vector<std::string> column(const Json::Value& rows, const char* key) { std::vector<std::string> v; for (auto& r : rows) v.push_back(r[key].asString()); return v; }
 }
 
-int DeletionService::removeObjects(const std::vector<std::string>& keys) {
+// After the rows are gone: every stored object of the channels, on the local disk and in R2 (private and public),
+// and the media migrator's ledger entries for them.
+int DeletionService::removeObjects(const std::vector<std::string>& channels, const std::vector<std::string>& keys) {
     int removed = 0;
-    for (auto& k : keys) {
-        try { store_.remove(k); ++removed; } catch (const std::exception& e) { ALOG_WARN << "delete: could not remove object " << k << ": " << e.what(); }
-    }
+    for (const auto& ch : channels) removed += logstudio::removeChannelObjects(store_, ch, ch == channels.front() ? keys : std::vector<std::string>{});
+    try {
+        const std::string pub = logstudio::kPublicPrefix;
+        std::vector<std::string> ledger; for (const auto& k : keys) { ledger.push_back(k); ledger.push_back(logstudio::isPublicKey(k) ? k.substr(pub.size()) : pub + k); }
+        if (!ledger.empty()) db_.exec("DELETE FROM object_migrations WHERE object_key = ANY($1::text[])", {pgArrayLiteral(ledger)});
+    } catch (const std::exception& e) { ALOG_WARN << "delete: object ledger: " << e.what(); }
     return removed;
 }
 
@@ -47,7 +53,7 @@ Json::Value DeletionService::deleteServer(const Principal& p, const std::string&
         keys = objectKeys(w, "IN (SELECT id FROM channels WHERE server_id=$1)", serverId);
         Db::exec(w, "DELETE FROM servers WHERE id=$1", {serverId});
     });
-    int files = removeObjects(keys);
+    int files = channels.empty() ? 0 : removeObjects(channels, keys);
     notifier_.serverDeleted(serverId, channels, members);
     Json::Value v; v["ok"] = true; v["channels"] = (int)channels.size(); v["files"] = files;
     return v;
@@ -67,7 +73,7 @@ Json::Value DeletionService::deleteChannel(const Principal& p, const std::string
         keys = objectKeys(w, "= $1::uuid", channelId);
         Db::exec(w, "DELETE FROM channels WHERE id=$1", {channelId});
     });
-    int files = removeObjects(keys);
+    int files = removeObjects({channelId}, keys);
     notifier_.channelDeleted(serverId, channelId, members);
     Json::Value v; v["ok"] = true; v["files"] = files;
     return v;
