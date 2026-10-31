@@ -37,6 +37,8 @@ export function useReadTracking() {
   const channelId = useNav((s) => s.channelId);
   const windowId = useNav((s) => s.windowId);
   const overlay = useNav((s) => !!(s.gmWorkspaceOpen || s.studioOpen || s.characterSpaceId || s.spectateChannelId));
+  // A window list fetched before the read was recorded may bring the count back: the window on screen clears it again.
+  const shownUnread = useNav((s) => s.windows.find((w) => w.id === s.windowId)?.unread ?? 0);
   const lastSeq = useChat((s) => { const list = windowId ? s.byWindow[windowId] : undefined; return list?.length ? list[list.length - 1].seq : 0; });
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible');
   useEffect(() => {
@@ -51,10 +53,7 @@ export function useReadTracking() {
     if ((win.unread ?? 0) > 0) useNav.getState().setUnread(windowId, 0);
     const seq = Math.max(lastSeq, win.last_seq ?? 0);
     if (!seq || (marked.get(windowId) ?? 0) >= seq) return;
-    const timer = setTimeout(() => {
-      marked.set(windowId, seq);
-      api.markRead(channelId, windowId, seq).catch(() => marked.delete(windowId));
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [channelId, windowId, overlay, visible, lastSeq]);
+    marked.set(windowId, seq);
+    api.markRead(channelId, windowId, seq).catch(() => marked.delete(windowId));
+  }, [channelId, windowId, overlay, visible, lastSeq, shownUnread]);
 }

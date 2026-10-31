@@ -15406,5 +15406,29 @@
     "Баннер в правом верхнем углу, когда кто-то пишет в другом окне, к которому вы присоединились, в просматриваемом канале. Действует сразу на этом устройстве.",
     "Um aviso no canto superior direito quando alguém escreve em outra janela da qual você participa, no canal que está vendo. Vale na hora neste dispositivo.",
     "Un banner in alto a destra quando qualcuno scrive in un’altra finestra a cui partecipi, nel canale che stai guardando. Si applica subito su questo dispositivo."
+  ],
+  "Show less": [
+    "收起",
+    "收合",
+    "表示を減らす",
+    "간단히 보기",
+    "Mostrar menos",
+    "Réduire",
+    "Weniger anzeigen",
+    "Свернуть",
+    "Mostrar menos",
+    "Mostra meno"
+  ],
+  "{n} messages in {window}": [
+    "{window} 中有 {n} 条消息",
+    "{window} 中有 {n} 則訊息",
+    "{window} に {n} 件のメッセージ",
+    "{window}에 메시지 {n}개",
+    "{n} mensajes en {window}",
+    "{n} messages dans {window}",
+    "{n} Nachrichten in {window}",
+    "{n} сообщений в «{window}»",
+    "{n} mensagens em {window}",
+    "{n} messaggi in {window}"
   ]
 }
