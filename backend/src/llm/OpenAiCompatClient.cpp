@@ -60,7 +60,9 @@ Json::Value OpenAiCompatClient::requestBody(const LlmRequest& req, const LlmEndp
 
 LlmResponse OpenAiCompatClient::parseResponse(const Json::Value& j) {
     LlmResponse r;
+    // Responses caches prompt prefixes on its own; input_tokens already includes the cached part.
     r.promptTokens = j["usage"]["input_tokens"].asInt(); r.completionTokens = j["usage"]["output_tokens"].asInt();
+    r.cacheReadTokens = j["usage"]["input_tokens_details"]["cached_tokens"].asInt();
     auto status = j["status"].asString();
     auto reason = j["incomplete_details"]["reason"].asString();
     if (status == "failed" || j["error"].isObject()) { r.error = "the AI provider reported a failed response"; return r; }

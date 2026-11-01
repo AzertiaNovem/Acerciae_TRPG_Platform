@@ -132,6 +132,44 @@ int main() {
         bool failed=false;try{llm::responsesResponse("data: {\"type\":\"error\",\"message\":\"x\"}\n\n");}catch(...){failed=true;}CHECK(failed);
         failed=false;try{llm::responsesResponse("data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n");}catch(...){failed=true;}CHECK(failed);
     });
+    test("prompt caching: Anthropic breakpoints on the system prompt, marked messages and the newest round; cache usage", [] {
+        LlmEndpoint ep; ep.provider="anthropic"; ep.model="fixture-claude";
+        LlmRequest req; req.system="Rules"; req.tools.push_back({"search", "Search", json::parse(R"({"type":"object"})")});
+        LlmMessage k; k.role="user"; k.content="KNOWLEDGE INDEX"; k.cacheBreakpoint=true; req.messages.push_back(k);
+        req.messages.push_back({"user", "new events"});
+        auto marks=[](const Json::Value& body){ int n=0; for(const auto& s:body["system"]) n+=s.isMember("cache_control"); for(const auto& m:body["messages"]) for(const auto& b:m["content"]) n+=b.isMember("cache_control"); return n; };
+        // Off: the system prompt stays a plain string and nothing is marked, whatever the messages ask.
+        auto off=AnthropicClient::requestBody(req, ep);
+        CHECK(off["system"].isString()); CHECK(marks(off)==0);
+        // Prefix: the system prompt (and the tools before it) plus the marked message, whose turn merges with the next one.
+        req.cache=LlmCache::prefix;
+        auto pre=AnthropicClient::requestBody(req, ep);
+        CHECK(pre["system"].isArray()); CHECK(pre["system"][0]["text"]=="Rules"); CHECK(pre["system"][0]["cache_control"]["type"]=="ephemeral");
+        CHECK(pre["messages"].size()==1); CHECK(pre["messages"][0]["content"].size()==2);
+        CHECK(pre["messages"][0]["content"][0]["cache_control"]["type"]=="ephemeral"); CHECK(!pre["messages"][0]["content"][1].isMember("cache_control"));
+        CHECK(marks(pre)==2);
+        // Conversation: the newest block too, so the next tool round reads this one; a thinking block is never marked.
+        req.cache=LlmCache::conversation;
+        LlmMessage a; a.role="assistant"; a.providerContent=json::parse(R"([{"type":"thinking","thinking":"","signature":"s"},{"type":"tool_use","id":"t1","name":"search","input":{}}])"); req.messages.push_back(a);
+        LlmMessage t; t.role="tool"; t.toolCallId="t1"; t.content="[]"; req.messages.push_back(t);
+        auto conv=AnthropicClient::requestBody(req, ep);
+        CHECK(conv["messages"].size()==3); CHECK(conv["messages"][2]["content"][0]["type"]=="tool_result"); CHECK(conv["messages"][2]["content"][0]["cache_control"]["type"]=="ephemeral");
+        CHECK(!conv["messages"][1]["content"][0].isMember("cache_control")); CHECK(marks(conv)==3);
+        // Never more than four breakpoints: the latest marked messages are kept.
+        LlmRequest many; many.system="Rules"; many.cache=LlmCache::conversation;
+        for (int i=0;i<6;++i) { LlmMessage m; m.role=i%2?"assistant":"user"; m.content="m"+std::to_string(i); m.cacheBreakpoint=true; many.messages.push_back(m); }
+        auto capped=AnthropicClient::requestBody(many, ep);
+        CHECK(marks(capped)==4); CHECK(capped["messages"][5]["content"][0].isMember("cache_control")); CHECK(capped["messages"][3]["content"][0].isMember("cache_control"));
+        CHECK(!capped["messages"][2]["content"][0].isMember("cache_control"));
+        // input_tokens is only the uncached remainder: the prompt adds the cache reads and writes.
+        auto used=AnthropicClient::parseResponse(json::parse(R"({"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":40,"cache_read_input_tokens":3000,"cache_creation_input_tokens":500,"output_tokens":7}})"));
+        CHECK(used.promptTokens==3540); CHECK(used.cacheReadTokens==3000); CHECK(used.cacheWriteTokens==500); CHECK(used.completionTokens==7);
+        // OpenAI caches on its own; its input_tokens already includes the cached part.
+        auto openai=OpenAiCompatClient::parseResponse(json::parse(R"({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":3000,"input_tokens_details":{"cached_tokens":2048},"output_tokens":7}})"));
+        CHECK(openai.promptTokens==3000); CHECK(openai.cacheReadTokens==2048); CHECK(openai.cacheWriteTokens==0);
+        // The OpenAI request is unchanged by the policy: it carries no cache fields.
+        auto ob=OpenAiCompatClient::requestBody(req, ep); CHECK(json::dump(ob).find("cache_control")==std::string::npos);
+    });
     test("OpenAI Responses requests replay tool calls as items and parse status, refusals and usage", [] {
         LlmEndpoint ep; ep.provider="openai_compatible"; ep.model="fixture-gpt"; ep.maxTokens=4000;
         LlmRequest req; req.system="Only use authorized records"; req.maxTokens=900; req.temperature=0.3; req.responseSchema=json::parse(R"({"type":"object"})");
@@ -577,6 +615,35 @@ int main() {
         CHECK(plan["asset_needs"].size() == 3);   // Ada's FIGHT portrait, the harbour and the lighthouse, not Mo's
         CHECK(plan["excluded"].size() == 1); CHECK(plan["excluded"][0]["ref"] == "L3");
         CHECK(!plan["scenes"][1]["lines"][0].isMember("text"));   // a line matched by its copied text keeps its words
+    });
+    test("visual-novel prompt order: the shared part is byte-identical for every part; the part's own content follows it", [] {
+        using logstudio::VnScriptService; using logstudio::LogEvent;
+        logstudio::ScriptInputs in; in.era = "1920s Arkham";
+        auto ev = [](std::string id, long long t) { LogEvent e; e.eventId = id; e.chatWindowId = "wA"; e.sceneKey = "s1"; e.sceneTitle = "Harbour"; e.eventType = "narration"; e.speakerRole = "gm"; e.speakerDisplayName = "Keeper"; e.content = "Line " + id; e.occurredAtUnix = t; return e; };
+        in.events = {ev("e1", 1700000000), ev("e2", 1700000060), ev("e3", 1700009000)};
+        in.windowNames = {{"wA", "Main"}};
+        in.cast = Json::Value(Json::arrayValue);
+        in.assets = json::parse(R"([{"ref":"B1","id":"bg1","type":"background","name":"Harbour","tags":[]}])");
+        in.knownBackgrounds = json::parse(R"([{"name":"Cellar","prompt":"a damp cellar"}])");
+        auto shared = VnScriptService::sharedPrompt(in, "Keep it tense.");
+        CHECK(shared.rfind("GM direction (data): Keep it tense.\n# Assets\n", 0) == 0);
+        CHECK(shared.find("- \"Harbour\" (existing)") != std::string::npos); CHECK(shared.find("- \"Cellar\" prompt=") != std::string::npos);
+        CHECK(shared.find("Part ") == std::string::npos); CHECK(shared.find("# Block") == std::string::npos);
+        CHECK(VnScriptService::sharedPrompt(in, "") == VnScriptService::assetsSection(in, in.knownBackgrounds));
+        // Backgrounds asked for by earlier parts go after the shared part, which never changes.
+        Json::Value known = in.knownBackgrounds;
+        auto first = VnScriptService::partPrompt(in, {0, 2}, 0, 2, known);
+        CHECK(first.rfind("Part 1 of 2\n# Block", 0) == 0); CHECK(first.find("[L1]") != std::string::npos); CHECK(first.find("[L3]") == std::string::npos);
+        Json::Value g; g["name"] = "Lighthouse"; g["prompt"] = "lighthouse at night"; known.append(g);
+        auto second = VnScriptService::partPrompt(in, {2, 3}, 1, 2, known);
+        CHECK(second.rfind("# Backgrounds generated in earlier parts\n- \"Lighthouse\" prompt=\"lighthouse at night\"\nPart 2 of 2\n", 0) == 0);
+        CHECK(second.find("Cellar") == std::string::npos);   // the seed is in the shared part, not repeated
+        // A continuation's story so far opens only the first part.
+        in.story = json::parse(R"({"scene":"Harbour","background":"Harbour","lines":["The fog lifts."]})");
+        CHECK(VnScriptService::partPrompt(in, {0, 2}, 0, 2, in.knownBackgrounds).rfind("# Story so far", 0) == 0);
+        CHECK(VnScriptService::partPrompt(in, {2, 3}, 1, 2, in.knownBackgrounds).find("# Story so far") == std::string::npos);
+        // The whole transcript is still the assets followed by the block.
+        CHECK(VnScriptService::transcript(in, 0, 2, known) == VnScriptService::assetsSection(in, known) + VnScriptService::blockSection(in, 0, 2));
     });
     test("visual-novel wording: narration is reworded, short questions and answers fold into narration, the log stays", [] {
         using logstudio::VnScriptService; using logstudio::LogEvent;

@@ -74,11 +74,12 @@ std::shared_ptr<void> AiPolicyService::acquire(const std::string& channelId) {
     });
 }
 
-void AiPolicyService::recordTokens(const std::string& channelId, const std::string& task, int promptTokens, int completionTokens) {
+void AiPolicyService::recordTokens(const std::string& channelId, const std::string& task, int promptTokens, int completionTokens, int cacheReadTokens, int cacheWriteTokens) {
     auto sid = serverOf(channelId);
     if (sid.empty()) return;
-    db_.exec("INSERT INTO ai_usage_records(server_id, channel_id, kind, task, prompt_tokens, completion_tokens) VALUES($1,$2,$3,$4,$5,$6)",
-             {sid, channelId, task == "embedding" ? "embedding" : "llm", task.substr(0, 60), (int64_t)std::max(0, promptTokens), (int64_t)std::max(0, completionTokens)});
+    db_.exec("INSERT INTO ai_usage_records(server_id, channel_id, kind, task, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+             {sid, channelId, task == "embedding" ? "embedding" : "llm", task.substr(0, 60), (int64_t)std::max(0, promptTokens), (int64_t)std::max(0, completionTokens),
+              (int64_t)std::max(0, cacheReadTokens), (int64_t)std::max(0, cacheWriteTokens)});
 }
 
 void AiPolicyService::recordImage(const std::string& channelId, const std::string& task) {
@@ -91,6 +92,7 @@ Json::Value AiPolicyService::usage(const std::string& serverId) {
     auto r = db_.queryOne(std::string("SELECT ss.ai_token_budget AS token_budget, ss.ai_image_budget AS image_budget, ss.ai_budget_period AS period, "
         "ss.ai_max_concurrent AS max_concurrent, ") + kSince + " AS period_start, "
         "(SELECT coalesce(sum(u.prompt_tokens + u.completion_tokens), 0) FROM ai_usage_records u WHERE u.server_id=ss.server_id AND u.created_at >= " + kSince + ") AS tokens_used, "
+        "(SELECT coalesce(sum(u.cache_read_tokens), 0) FROM ai_usage_records u WHERE u.server_id=ss.server_id AND u.created_at >= " + kSince + ") AS cached_tokens_used, "
         "(SELECT coalesce(sum(u.images), 0) FROM ai_usage_records u WHERE u.server_id=ss.server_id AND u.created_at >= " + kSince + ") AS images_used "
         "FROM server_settings ss WHERE ss.server_id=$1", {serverId});
     if (r.isNull()) return Json::Value(Json::objectValue);

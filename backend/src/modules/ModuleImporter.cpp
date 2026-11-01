@@ -337,6 +337,7 @@ void ModuleImporter::structurePages(const std::string &moduleId,
     LlmRequest req;
     req.channelId = channelId;
     req.task = "module_structure";
+    req.cache = LlmCache::prefix;   // the same instructions and schema for every chunk of the module
     req.responseSchema = structureSchema();
     req.temperature = 0.1;
     req.maxTokens = cfg_.llmModuleMaxTokens;

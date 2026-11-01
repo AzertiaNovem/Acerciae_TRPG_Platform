@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 // OpenAI Responses carries the system prompt in `instructions` and the turns in `input`; Anthropic in `system` and `messages`.
 const userText=body=>{const c=(body.input??body.messages).find(m=>m.role==='user').content;return typeof c==='string'?c:c.filter(b=>b.type==='text').map(b=>b.text).join('');};
-const systemText=body=>body.instructions??body.system;
+// Anthropic's system prompt is one string, or text blocks when the request marks it for prompt caching.
+const systemText=body=>{const s=body.instructions??body.system;return Array.isArray(s)?s.map(b=>b.text).join(''):s;};
 const base=process.env.API_BASE||'http://127.0.0.1:18081';
 async function call(token,method,path,body) {
  const r=await fetch(base+path,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
@@ -73,6 +74,8 @@ test('module import accepts promptly, reports durable progress, deduplicates ret
   assert.equal(contexts.length-accepted.length,6,'two reductions, three HTTP attempts per timed-out chunk');
   assert.equal(accepted.length,done.total_chunks);assert.equal(done.completed_chunks,done.total_chunks);
   assert.equal(accepted.flatMap(c=>c.pages).map(p=>p.text).join(''),source);
+  // Every chunk repeats the same instructions: on Anthropic they are marked for the prompt cache.
+  if(provider==='anthropic')assert.ok(requests.filter(b=>systemText(b).includes('conditional knowledge graph')).every(b=>b.system[0].cache_control?.type==='ephemeral'));
  }
 
 });

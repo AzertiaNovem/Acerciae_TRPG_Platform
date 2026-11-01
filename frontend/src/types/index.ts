@@ -133,7 +133,7 @@ export interface UserLite { id: string; username: string; display_name: string }
 export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member' | 'guest'; joined_at: string }
 export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
 export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'coc7_points' | 'atmosphere';
-export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; images_used: number; running: number }
+export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; cached_tokens_used?: number; images_used: number; running: number }
 export interface ServerSettings {
   server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;
   llm?: { provider: 'mock' | 'openai_compatible' | 'anthropic'; api_base: string; model: string; reasoning_effort: string; embedding_model: string; api_key_set: boolean; api_key_hint: string };

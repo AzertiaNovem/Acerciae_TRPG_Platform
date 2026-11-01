@@ -102,9 +102,12 @@ The desktop Open Log Studio does the same with a supplement log (see [desktop/RE
 ### The transcript the model reads
 
 The log is cut into **time blocks**: a block ends when no chat window carried a line for an hour. One model call reads one
-block (a long block is split into consecutive parts). Each call gets:
+block (a long block is split into consecutive parts). Each call gets two messages. The first is the same, byte for byte,
+for every part of a job, so the provider can serve it from its prompt cache (see Prompt caching in
+[ARCHITECTURE.md](ARCHITECTURE.md)):
 
 ```
+GM direction (data): Keep the investigation scenes tense.
 # Assets
 Era: 1920s New England
 Portraits:
@@ -112,7 +115,15 @@ Portraits:
 - C2 "Mo Reyes" mode=uploaded subtitles=[IDLE, FIGHT] (uploaded: only these subtitles may be used)
 Backgrounds:
 - "Harbour at night" (existing)
-- "Lighthouse" prompt="1920s lighthouse at night"      ← invented in an earlier block
+```
+
+The second holds what belongs to the part: backgrounds that earlier parts asked for, the story so far (first part of a
+continuation), the part number and its lines:
+
+```
+# Backgrounds generated in earlier parts
+- "Lighthouse" prompt="1920s lighthouse at night"
+Part 2 of 3
 # Block (2026-10-27 21:02 – 2026-10-27 22:40)
 ## Window: Main table
 [L1] KP(Narrative)(21:02): Fog rolls over the harbour.

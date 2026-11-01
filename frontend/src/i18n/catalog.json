@@ -17518,5 +17518,29 @@
     "Мужской голос {n}",
     "Voz masculina {n}",
     "Voce maschile {n}"
+  ],
+  "{n} of them read from the prompt cache ({percent}%)": [
+    "其中 {n} 个来自提示缓存（{percent}%）",
+    "其中 {n} 個來自提示快取（{percent}%）",
+    "うち {n} はプロンプトキャッシュから（{percent}%）",
+    "그중 {n}개는 프롬프트 캐시에서 읽음 ({percent}%)",
+    "{n} de ellos leídos de la caché de prompts ({percent} %)",
+    "dont {n} lus depuis le cache de prompts ({percent} %)",
+    "davon {n} aus dem Prompt-Cache gelesen ({percent} %)",
+    "из них {n} прочитано из кэша промптов ({percent}%)",
+    "{n} deles lidos do cache de prompts ({percent}%)",
+    "di cui {n} letti dalla cache dei prompt ({percent}%)"
+  ],
+  "The provider served this part of the prompts from its prompt cache, at a lower price. It still counts against the token budget.": [
+    "服务商以更低的价格从提示缓存中提供了这部分提示内容。它仍计入令牌预算。",
+    "服務商以更低的價格從提示快取中提供了這部分提示內容。它仍計入權杖預算。",
+    "プロバイダーがプロンプトのこの部分をプロンプトキャッシュから低価格で提供しました。トークン予算には引き続き計上されます。",
+    "제공자가 프롬프트의 이 부분을 프롬프트 캐시에서 더 낮은 가격으로 제공했습니다. 토큰 예산에는 그대로 계산됩니다.",
+    "El proveedor sirvió esta parte de los prompts desde su caché, a menor precio. Sigue contando para el presupuesto de tokens.",
+    "Le fournisseur a servi cette partie des prompts depuis son cache, à moindre coût. Elle compte toujours dans le budget de jetons.",
+    "Der Anbieter hat diesen Teil der Prompts günstiger aus seinem Prompt-Cache geliefert. Er zählt weiterhin zum Token-Budget.",
+    "Провайдер выдал эту часть промптов из своего кэша по более низкой цене. Она всё равно учитывается в бюджете токенов.",
+    "O provedor serviu esta parte dos prompts a partir do cache, por um preço menor. Ela ainda conta no orçamento de tokens.",
+    "Il fornitore ha servito questa parte dei prompt dalla sua cache a un prezzo inferiore. Conta comunque nel budget di token."
   ]
 }

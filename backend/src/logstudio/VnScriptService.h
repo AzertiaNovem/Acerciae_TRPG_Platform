@@ -63,6 +63,14 @@ public:
   static std::vector<std::pair<size_t, size_t>> blocks(const std::vector<LogEvent> &events, long long gapSeconds = kBlockGapSeconds);
   // The transcript one model call reads: assets header, then the block's lines grouped by chat window.
   static std::string transcript(const ScriptInputs &in, size_t begin, size_t end, const Json::Value &knownBackgrounds);
+  // Its two halves: the assets (the same for every part of a job) and one block of lines.
+  static std::string assetsSection(const ScriptInputs &in, const Json::Value &knownBackgrounds);
+  static std::string blockSection(const ScriptInputs &in, size_t begin, size_t end);
+  // What one model call reads, ordered for prompt caching: first the part every call of the job repeats byte for byte
+  // (the GM direction and the assets), then the part's own: backgrounds earlier parts asked for, the story so far
+  // (first part of a continuation), "Part i of N" and its lines.
+  static std::string sharedPrompt(const ScriptInputs &in, const std::string &instructions);
+  static std::string partPrompt(const ScriptInputs &in, std::pair<size_t, size_t> part, size_t index, size_t total, const Json::Value &known);
   // Deterministic answer in the model's shape: {generate_backgrounds, generate_portraits, script}.
   static Json::Value mockFlat(const ScriptInputs &in, size_t begin, size_t end);
   // Flat answers → scene plan (a scene per background change, speakers staged with their portrait subtitle).

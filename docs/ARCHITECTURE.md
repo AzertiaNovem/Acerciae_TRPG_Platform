@@ -60,6 +60,18 @@ Planned (design only, not implemented): AI players and an AI Keeper as real chan
 Replacing the model: implement `ILlmClient` and construct it in `Services::build` (or extend `LlmGateway`'s constructor
 to switch on `LLM_PROVIDER`). Prompts, schemas and tools are untouched.
 
+Prompt caching: providers reuse the part of a prompt that repeats an earlier one byte for byte, from the start (tools,
+then the system prompt, then the messages), at a fraction of the price. Prompts are therefore laid out stable-first:
+fixed system prompts, then the knowledge index, then the per-call context; the visual-novel planner sends the assets
+every part of a job shares as their own message before the part's lines. OpenAI-compatible endpoints cache on their own.
+For Anthropic, `LlmRequest::cache` marks where the reusable prefix ends: `prefix` marks the system prompt (which covers
+the tools) and any message flagged `cacheBreakpoint` (the knowledge index, the VN assets); `conversation` also marks the
+newest message, so each tool-call or schema-repair round reads the round before it. Tasks that repeat within minutes opt
+in (observer, stage detection, script-knowledge updates and reviews, reminders, consistency, inspiration, module and
+script-knowledge builds, VN parts); calls that rarely repeat stay `off`, since a cache write costs more than plain input.
+Usage records keep counting the whole prompt (`prompt_tokens`), so budgets are unchanged; `cache_read_tokens` and
+`cache_write_tokens` show the cached share (server settings show it under "Tokens used").
+
 Extending rule systems: `channels.rule_system` is carried into the consistency prompt (`rule_hints`); character sheets are
 free-form JSONB (`characters.sheet`) so BRP variants need no schema change.
 

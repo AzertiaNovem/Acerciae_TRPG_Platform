@@ -182,6 +182,7 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'access' | 'ai'
         <div className="tiny muted">{tr("Budgets cover the whole server; 0 means no limit. Mock providers are not counted. When a budget is used up, AI requests stop until the next period or a reset.")}</div>
         {usage && <div className="small">
           <div>{tr("Tokens used")}: {budgetText(usage.tokens_used, usage.token_budget)}</div>
+          {(usage.cached_tokens_used ?? 0) > 0 && <div className="tiny muted" title={tr("The provider served this part of the prompts from its prompt cache, at a lower price. It still counts against the token budget.")}>{tr("{n} of them read from the prompt cache ({percent}%)", { n: (usage.cached_tokens_used ?? 0).toLocaleString(), percent: usage.tokens_used ? Math.round(((usage.cached_tokens_used ?? 0) / usage.tokens_used) * 100) : 0 })}</div>}
           <div>{tr("Images used")}: {budgetText(usage.images_used, usage.image_budget)}</div>
           <div>{tr("Running now")}: {usage.running} / {usage.max_concurrent}</div>
           {usage.period_start && <div className="tiny muted">{tr("Counted since")} {new Date(usage.period_start).toLocaleString()}</div>}

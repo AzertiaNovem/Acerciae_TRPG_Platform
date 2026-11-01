@@ -223,6 +223,10 @@ std::string quoted(const std::string &s) { return "\"" + replaceQuotes(s) + "\""
 } // namespace
 
 std::string VnScriptService::transcript(const ScriptInputs &in, size_t begin, size_t end, const Json::Value &knownBackgrounds) {
+  return assetsSection(in, knownBackgrounds) + blockSection(in, begin, end);
+}
+
+std::string VnScriptService::assetsSection(const ScriptInputs &in, const Json::Value &knownBackgrounds) {
   std::string out = "# Assets\n";
   if (!in.era.empty()) out += "Era: " + in.era + "\n";
   out += "Portraits:\n";
@@ -237,6 +241,11 @@ std::string VnScriptService::transcript(const ScriptInputs &in, size_t begin, si
   out += "Backgrounds:\n";
   for (const auto &b : in.assets) if (b["type"] == "background") out += "- " + quoted(b["name"].asString()) + " (existing)\n";
   for (const auto &b : knownBackgrounds) out += "- " + quoted(json::str(b, "name")) + " prompt=" + quoted(clip(json::str(b, "prompt"), 200)) + "\n";
+  return out;
+}
+
+std::string VnScriptService::blockSection(const ScriptInputs &in, size_t begin, size_t end) {
+  std::string out;
   // Lines grouped by chat window, windows in order of first appearance; scene markers (no window) come first.
   std::vector<std::string> order; std::map<std::string, std::string> text;
   for (size_t i = begin; i < end && i < in.events.size(); ++i) {
@@ -633,6 +642,26 @@ std::string VnScriptService::storySoFar(const Json::Value &story) {
   return out;
 }
 
+std::string VnScriptService::sharedPrompt(const ScriptInputs &in, const std::string &instructions) {
+  std::string out;
+  auto direction = clip(instructions, 1000);
+  if (!direction.empty()) out += "GM direction (data): " + direction + "\n";
+  return out + assetsSection(in, in.knownBackgrounds);
+}
+
+std::string VnScriptService::partPrompt(const ScriptInputs &in, std::pair<size_t, size_t> part, size_t index, size_t total, const Json::Value &known) {
+  std::string out;
+  // Backgrounds asked for by earlier parts of this job: after the shared prompt, since this list only grows.
+  if (known.size() > in.knownBackgrounds.size()) {
+    out += "# Backgrounds generated in earlier parts\n";
+    for (Json::ArrayIndex i = in.knownBackgrounds.size(); i < known.size(); ++i)
+      out += "- " + quoted(json::str(known[i], "name")) + " prompt=" + quoted(clip(json::str(known[i], "prompt"), 200)) + "\n";
+  }
+  if (index == 0 && !in.story.isNull()) out += storySoFar(in.story);   // later parts follow the part before them
+  out += "Part " + std::to_string(index + 1) + " of " + std::to_string(total) + "\n";
+  return out + blockSection(in, part.first, part.second);
+}
+
 size_t VnScriptService::continuationStart(const std::vector<LogEvent> &events, const std::set<std::string> &presented) {
   size_t start = 0;
   for (size_t i = 0; i < events.size(); ++i) if (presented.count(events[i].eventId)) start = i + 1;
@@ -881,25 +910,30 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
   identity["cast"] = in.cast;
   identity["assets"] = in.assets;
   identity["system"] = system;
+  const std::string shared = sharedPrompt(in, json::str(job["params"], "instructions"));
   for (size_t pi = 0; pi < parts.size(); ++pi) {
     auto st = db_.queryOne("SELECT status FROM vn_script_jobs WHERE id=$1", {id});
     if (st.isNull() || st["status"] != "running") throw ApiError(409, "cancelled", "job cancelled");
-    std::string user = "Part " + std::to_string(pi + 1) + " of " + std::to_string(parts.size()) + "\n";
-    auto direction = clip(json::str(job["params"], "instructions"), 1000);
-    if (!direction.empty()) user += "GM direction (data): " + direction + "\n";
-    if (pi == 0 && !in.story.isNull()) user += storySoFar(in.story);   // later parts follow the part before them
-    user += transcript(in, parts[pi].first, parts[pi].second, known);
+    std::string user = partPrompt(in, parts[pi], pi, parts.size(), known);
     LlmRequest req;
     req.channelId = a.channelId;
     req.task = "vn_script";
     req.system = system;
     req.temperature = 0.2;
     req.maxTokens = llm_.limitsForTask("vn_script").maxTokens;
+    // The part every request of the job repeats comes first, marked, so the provider serves it from its prompt cache.
+    req.cache = LlmCache::prefix;
+    LlmMessage head;
+    head.role = "user";
+    head.content = shared;
+    head.cacheBreakpoint = true;
+    req.messages.push_back(head);
     LlmMessage msg;
     msg.role = "user";
     msg.content = user;
     req.messages.push_back(msg);
     req.responseSchema = json::parse(R"({"type":"object","required":["script"],"properties":{"generate_backgrounds":{"type":"array"},"generate_portraits":{"type":"array"},"script":{"type":"array"}}})");
+    identity["shared"] = shared;
     identity["user"] = user;
     auto hash = crypto::sha256Hex(json::dump(identity));
     const auto cached = saved.find((int)pi);

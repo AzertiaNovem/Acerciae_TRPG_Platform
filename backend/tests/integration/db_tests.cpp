@@ -736,6 +736,11 @@ int main() {
         S.aiPolicy->recordTokens(channelId, "observer_extract", 70, 40);
         bool spent = false; try { S.aiPolicy->checkTokens(channelId); } catch (const ApiError& e) { spent = e.status() == 429 && e.code() == "ai_budget_exhausted"; } CHECK(spent);
         CHECK(S.settings->get(gmP, sid)["ai_policy"]["tokens_used"].asInt64() == 110);
+        // A cached prompt still counts in full against the budget; the cached share is reported beside it.
+        S.aiPolicy->recordTokens(channelId, "observer_extract", 3000, 10, 2500, 400);
+        auto cachedUse = S.settings->get(gmP, sid)["ai_policy"];
+        CHECK(cachedUse["tokens_used"].asInt64() == 3120); CHECK(cachedUse["cached_tokens_used"].asInt64() == 2500);
+        CHECK(!S.db->queryOne("SELECT 1 AS ok FROM ai_usage_records WHERE channel_id=$1 AND cache_read_tokens=2500 AND cache_write_tokens=400", {channelId}).isNull());
         S.aiPolicy->recordImage(channelId, "background");
         bool imagesSpent = false; try { S.aiPolicy->checkImages(channelId); } catch (const ApiError& e) { imagesSpent = e.status() == 429; } CHECK(imagesSpent);
         Json::Value reset; reset["ai_policy"]["reset_usage"] = true; S.settings->update(gmP, sid, reset);
