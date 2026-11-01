@@ -14,4 +14,6 @@ export default defineConfig({
     },
   },
   build: { outDir: 'dist', sourcemap: false },
+  // The read-aloud worker (Kokoro) loads its model code in chunks.
+  worker: { format: 'es' },
 });

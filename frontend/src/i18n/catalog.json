@@ -17194,5 +17194,65 @@
     "Продолжить историю",
     "Continuar a história",
     "Continua la storia"
+  ],
+  "Read aloud": [
+    "朗读",
+    "朗讀",
+    "読み上げ",
+    "소리 내어 읽기",
+    "Leer en voz alta",
+    "Lecture à voix haute",
+    "Vorlesen",
+    "Читать вслух",
+    "Ler em voz alta",
+    "Leggi ad alta voce"
+  ],
+  "Reading aloud": [
+    "朗读中",
+    "朗讀中",
+    "読み上げ中",
+    "읽는 중",
+    "Leyendo en voz alta",
+    "Lecture en cours",
+    "Liest vor",
+    "Чтение вслух",
+    "Lendo em voz alta",
+    "Lettura in corso"
+  ],
+  "Speak new messages in this window with Kokoro, on this device. The voice model (about 90 MB) downloads once. Kokoro speaks English only: text in other languages is skipped.": [
+    "用 Kokoro 在本设备上朗读此窗口中的新消息。语音模型（约 90 MB）只需下载一次。Kokoro 只会说英语：其他语言的文字会被跳过。",
+    "用 Kokoro 在本裝置上朗讀此視窗中的新訊息。語音模型（約 90 MB）只需下載一次。Kokoro 只會說英語：其他語言的文字會被略過。",
+    "このウィンドウの新しいメッセージを、この端末上の Kokoro で読み上げます。音声モデル（約 90 MB）のダウンロードは一度だけです。Kokoro は英語のみ話します。他の言語のテキストは読み飛ばします。",
+    "이 창의 새 메시지를 이 기기에서 Kokoro로 읽어 줍니다. 음성 모델(약 90MB)은 한 번만 내려받습니다. Kokoro는 영어만 말하므로 다른 언어의 글은 건너뜁니다.",
+    "Lee los mensajes nuevos de esta ventana con Kokoro, en este dispositivo. El modelo de voz (unos 90 MB) se descarga una vez. Kokoro solo habla inglés: el texto en otros idiomas se omite.",
+    "Lit les nouveaux messages de cette fenêtre avec Kokoro, sur cet appareil. Le modèle vocal (environ 90 Mo) se télécharge une fois. Kokoro ne parle qu’anglais : le texte dans d’autres langues est ignoré.",
+    "Liest neue Nachrichten in diesem Fenster mit Kokoro auf diesem Gerät vor. Das Sprachmodell (etwa 90 MB) wird einmal geladen. Kokoro spricht nur Englisch: Text in anderen Sprachen wird übersprungen.",
+    "Читает новые сообщения этого окна с помощью Kokoro на этом устройстве. Голосовая модель (около 90 МБ) загружается один раз. Kokoro говорит только по-английски: текст на других языках пропускается.",
+    "Lê as novas mensagens desta janela com o Kokoro, neste dispositivo. O modelo de voz (cerca de 90 MB) é baixado uma vez. O Kokoro fala apenas inglês: texto em outros idiomas é ignorado.",
+    "Legge i nuovi messaggi di questa finestra con Kokoro, su questo dispositivo. Il modello vocale (circa 90 MB) si scarica una volta. Kokoro parla solo inglese: il testo in altre lingue viene saltato."
+  ],
+  "Loading the voice model… {percent}%": [
+    "正在加载语音模型… {percent}%",
+    "正在載入語音模型… {percent}%",
+    "音声モデルを読み込み中… {percent}%",
+    "음성 모델 불러오는 중… {percent}%",
+    "Cargando el modelo de voz… {percent}%",
+    "Chargement du modèle vocal… {percent} %",
+    "Sprachmodell wird geladen… {percent} %",
+    "Загрузка голосовой модели… {percent}%",
+    "Carregando o modelo de voz… {percent}%",
+    "Caricamento del modello vocale… {percent}%"
+  ],
+  "The voice model could not load": [
+    "语音模型加载失败",
+    "語音模型載入失敗",
+    "音声モデルを読み込めませんでした",
+    "음성 모델을 불러오지 못했습니다",
+    "No se pudo cargar el modelo de voz",
+    "Le modèle vocal n’a pas pu être chargé",
+    "Das Sprachmodell konnte nicht geladen werden",
+    "Не удалось загрузить голосовую модель",
+    "Não foi possível carregar o modelo de voz",
+    "Impossibile caricare il modello vocale"
   ]
 }
