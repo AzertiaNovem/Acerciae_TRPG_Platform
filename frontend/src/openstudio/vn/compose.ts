@@ -775,6 +775,17 @@ export async function composeScript(project: Project, opts: ComposeOptions): Pro
 export async function continueScript(project: Project, opts: ComposeOptions): Promise<VnScript> {
   const vn = project.vn;
   if (!vn) throw new Error('there is no visual novel to continue');
+  const { added, note } = await composeContinuation(project, opts);
+  return appendScript(vn.script, added, note);
+}
+
+/**
+ * The script of the lines after the visual novel's end, not yet appended: a task appends it (appendScript) to the
+ * script as it is when the writing is done, so art painted meanwhile is kept.
+ */
+export async function composeContinuation(project: Project, opts: ComposeOptions): Promise<{ added: VnScript; note: string; lines: number }> {
+  const vn = project.vn;
+  if (!vn) throw new Error('there is no visual novel to continue');
   const from = lastScriptedSeq(vn.script);
   const events = (project.events ?? []).filter((e) => e.seq > from);
   if (!events.length) throw new Error('no new lines after the end of the visual novel');
@@ -787,9 +798,8 @@ export async function continueScript(project: Project, opts: ComposeOptions): Pr
   }
   const tail = { ...project, events };
   const added = await compose(tail, { ...opts, backgrounds }, known, storyContext(project, vn.script));
-  const first = events[0].seq;
-  const note = `Continued after line #${from}: ${events.length} new lines from #${first}.`;
-  return appendScript(vn.script, added, note);
+  const note = `Continued after line #${from}: ${events.length} new lines from #${events[0].seq}.`;
+  return { added, note, lines: events.length };
 }
 
 async function compose(project: Project, opts: ComposeOptions, seedKnown: KnownBackground[], story: StoryContext | undefined): Promise<VnScript> {
@@ -814,7 +824,7 @@ async function compose(project: Project, opts: ComposeOptions, seedKnown: KnownB
     if (signal?.aborted) throw abortError(signal);
     // Only the first part follows the old ending; later parts follow the part before them.
     const user = userPrompt(inp, ps[pi], pi, ps.length, opts.instructions ?? '', known, pi === 0 ? story : undefined);
-    const raw = await llm({ system, user, json: true, max_tokens: VN_MAX_TOKENS });
+    const raw = await llm({ system, user, json: true, max_tokens: VN_MAX_TOKENS, signal });
     if (signal?.aborted) throw abortError(signal);
     const read = readAnswer(inp, ps[pi], raw);
     let answer: Json;

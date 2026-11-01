@@ -3,6 +3,7 @@
 export {
   composeScript,
   continueScript,
+  composeContinuation,
   appendScript,
   lastScriptedSeq,
   unscriptedCount,

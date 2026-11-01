@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { useEscape } from '../../hooks/useEscape';
 import { useUi } from '../../store/ui';
 import { getSecret, setSecret } from '../storage';
-import { DEFAULTS, KEY_NAMES, loadAiSettings, saveAiSettings, type AiSettings } from '../providers/settings';
+import { clampParallel, DEFAULTS, KEY_NAMES, loadAiSettings, PARALLEL_MAX, saveAiSettings, type AiSettings } from '../providers/settings';
+import { poolLimitChanged } from '../tasks';
 
 // The AI services Open Log Studio may use, with the user's own keys (kept in the system keychain).
 export default function AiSettingsDialog({ onClose }: { onClose: () => void }) {
@@ -13,13 +14,14 @@ export default function AiSettingsDialog({ onClose }: { onClose: () => void }) {
   const [keys, setKeys] = useState<Record<keyof typeof KEY_NAMES, string>>({ llm: '', image: '', tts: '' });
   const [hasKey, setHasKey] = useState<Record<string, boolean>>({});
   useEffect(() => { (Object.keys(KEY_NAMES) as (keyof typeof KEY_NAMES)[]).forEach((k) => getSecret(KEY_NAMES[k]).then((v) => setHasKey((h) => ({ ...h, [k]: !!v }))).catch(() => undefined)); }, []);
-  const pick = <K extends keyof AiSettings>(kind: K, provider: string) => {
+  const pick = <K extends 'llm' | 'image' | 'tts'>(kind: K, provider: string) => {
     const d = (DEFAULTS as any)[kind][provider] ?? { base_url: '', model: '' };
     setS({ ...s, [kind]: { ...s[kind], provider, base_url: d.base_url, model: d.model } });
   };
   const save = async () => {
     try {
-      saveAiSettings(s);
+      saveAiSettings({ ...s, parallel: clampParallel(s.parallel) });
+      poolLimitChanged();
       for (const k of Object.keys(KEY_NAMES) as (keyof typeof KEY_NAMES)[]) if (keys[k]) await setSecret(KEY_NAMES[k], keys[k].trim());
       toast(tr('AI services saved')); onClose();
     } catch (e: any) { toast(e?.message ?? String(e), 'error'); }
@@ -60,6 +62,10 @@ export default function AiSettingsDialog({ onClose }: { onClose: () => void }) {
           <select value={s.tts.provider} onChange={(e) => pick('tts', e.target.value)}>
             <option value="none">{tr('None — no voice lines')}</option><option value="openai">{tr('OpenAI or compatible')}</option><option value="qwen">Qwen (DashScope)</option>
           </select>{common('tts')}
+        </fieldset>
+        <fieldset className="col" style={{ gap: 6 }}><legend>{tr('Parallel requests')}</legend>
+          <label className="row tiny" style={{ gap: 8 }}><input type="number" min={1} max={PARALLEL_MAX} value={s.parallel} onChange={(e) => setS({ ...s, parallel: Number(e.target.value) })} style={{ width: 70 }} />{tr('AI requests at a time, shared by every task (script, art, voices)')}</label>
+          <p className="tiny muted" style={{ margin: 0 }}>{tr('Tasks run side by side, for example voicing while standees are painted; the rest of their requests wait for a free slot. Lower it if a service answers "too many requests".')}</p>
         </fieldset>
         <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}><button className="ghost" onClick={onClose}>{tr('Cancel')}</button><button className="primary" onClick={save}>{tr('Save')}</button></div>
       </div>

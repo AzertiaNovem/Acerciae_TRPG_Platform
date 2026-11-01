@@ -10,7 +10,11 @@ async function http(url: string, init: RequestInit & { timeoutMs?: number }): Pr
   const timer = setTimeout(() => ctrl.abort(), init.timeoutMs ?? 300_000);
   if (init.signal) init.signal.addEventListener('abort', () => ctrl.abort(), { once: true });
   try { return await fetch(url, { ...init, signal: ctrl.signal }); }
-  catch (e) { if (ctrl.signal.aborted) throw new Error(`The service did not answer in time (${url.replace(/\?.*$/, '')}).`); throw e; }
+  catch (e) {
+    if (init.signal?.aborted) { const err = new Error('cancelled'); err.name = 'AbortError'; throw err; }
+    if (ctrl.signal.aborted) throw new Error(`The service did not answer in time (${url.replace(/\?.*$/, '')}).`);
+    throw e;
+  }
   finally { clearTimeout(timer); }
 }
 async function failure(res: Response, service: string): Promise<Error> {
@@ -28,9 +32,9 @@ const trimBase = (u: string) => u.replace(/\/+$/, '');
 // ---- language model -------------------------------------------------------------------------------------
 export function makeLlm(s: AiSettings['llm']): LlmCall | null {
   if (s.provider === 'none') return null;
-  return async ({ system, user, json, max_tokens }) => {
+  return async ({ system, user, json, max_tokens, signal }) => {
     if (s.provider === 'anthropic') {
-      const res = await http(`${trimBase(s.base_url)}/messages`, { method: 'POST',
+      const res = await http(`${trimBase(s.base_url)}/messages`, { method: 'POST', signal,
         headers: { 'content-type': 'application/json', 'x-api-key': await key('llm', 'Anthropic'), 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model: s.model, max_tokens: max_tokens ?? 16000, system, messages: [{ role: 'user', content: user }] }) });
       if (!res.ok) throw await failure(res, 'Anthropic');
@@ -40,7 +44,7 @@ export function makeLlm(s: AiSettings['llm']): LlmCall | null {
     const body: Record<string, unknown> = { model: s.model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
     if (json) body.response_format = { type: 'json_object' };
     if (max_tokens) body.max_completion_tokens = max_tokens;
-    const res = await http(`${trimBase(s.base_url)}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${await key('llm', 'the language model')}` }, body: JSON.stringify(body) });
+    const res = await http(`${trimBase(s.base_url)}/chat/completions`, { method: 'POST', signal, headers: { 'content-type': 'application/json', authorization: `Bearer ${await key('llm', 'the language model')}` }, body: JSON.stringify(body) });
     if (!res.ok) throw await failure(res, 'The language model');
     const j = await res.json();
     return j.choices?.[0]?.message?.content ?? '';
@@ -48,7 +52,7 @@ export function makeLlm(s: AiSettings['llm']): LlmCall | null {
 }
 
 // ---- images ---------------------------------------------------------------------------------------------
-export interface ImageRequest { kind: 'background' | 'standee' | 'portrait' | 'avatar'; prompt: string; reference?: { bytes: Uint8Array; mime: string } }
+export interface ImageRequest { kind: 'background' | 'standee' | 'portrait' | 'avatar'; prompt: string; reference?: { bytes: Uint8Array; mime: string }; signal?: AbortSignal }
 function b64ToBytes(b64: string): Uint8Array { const s = atob(b64); const out = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out; }
 // The same framing the server sends: one TRPG asset, identity kept, standees cut out on true transparency.
 export function imagePrompt(r: ImageRequest): string {
@@ -71,18 +75,18 @@ export async function generateImage(s: AiSettings['image'], r: ImageRequest): Pr
     if (r.kind === 'standee') field('background', 'transparent');
     parts.push(enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="image[]"; filename="reference.${r.reference.mime.split('/')[1]}"\r\nContent-Type: ${r.reference.mime}\r\n\r\n`), r.reference.bytes, enc.encode(`\r\n--${boundary}--\r\n`));
     const body = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; for (const p of parts) { body.set(p, o); o += p.length; }
-    res = await http(`${trimBase(s.base_url)}/images/edits`, { method: 'POST', headers: { authorization: auth, 'content-type': `multipart/form-data; boundary=${boundary}` }, body });
+    res = await http(`${trimBase(s.base_url)}/images/edits`, { method: 'POST', signal: r.signal, headers: { authorization: auth, 'content-type': `multipart/form-data; boundary=${boundary}` }, body });
   } else {
     const body: Record<string, unknown> = { model: s.model, prompt: imagePrompt(r), n: 1, size, output_format: 'png' };
     if (s.quality !== 'auto') body.quality = s.quality;
     if (r.kind === 'standee') body.background = 'transparent';
-    res = await http(`${trimBase(s.base_url)}/images/generations`, { method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    res = await http(`${trimBase(s.base_url)}/images/generations`, { method: 'POST', signal: r.signal, headers: { authorization: auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   }
   if (!res.ok) throw await failure(res, 'The image service');
   const j = await res.json();
   const item = j.data?.[0];
   if (item?.b64_json) return b64ToBytes(item.b64_json);
-  if (item?.url) { const img = await http(item.url, { method: 'GET' }); if (img.ok) return new Uint8Array(await img.arrayBuffer()); }
+  if (item?.url) { const img = await http(item.url, { method: 'GET', signal: r.signal }); if (img.ok) return new Uint8Array(await img.arrayBuffer()); }
   throw new Error('The image service returned no image.');
 }
 
@@ -101,18 +105,18 @@ export function wavDurationMs(b: Uint8Array): number {
 }
 const SPOKEN: Record<string, string> = { zh: 'Mandarin Chinese', en: 'English', ja: 'Japanese', ko: 'Korean', es: 'Spanish', fr: 'French', de: 'German', ru: 'Russian', pt: 'Portuguese', it: 'Italian' };
 export interface Speech { bytes: Uint8Array; mime: string; ext: string; ms: number }
-export async function synthesize(s: AiSettings['tts'], text: string, voice: string, delivery = ''): Promise<Speech> {
+export async function synthesize(s: AiSettings['tts'], text: string, voice: string, delivery = '', signal?: AbortSignal): Promise<Speech> {
   if (s.provider === 'none') throw new Error('No speech service is set up.');
   if (s.provider === 'qwen') {
     const input: Record<string, unknown> = { text, voice, format: 'wav' };
     if (s.language && s.language !== 'auto') input.language_hints = [s.language];
     if (delivery) input.instruction = delivery;
-    const res = await http(`${trimBase(s.base_url)}/api/v1/services/audio/tts/SpeechSynthesizer`, { method: 'POST', headers: { authorization: `Bearer ${await key('tts', 'Qwen')}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: s.model, input }) });
+    const res = await http(`${trimBase(s.base_url)}/api/v1/services/audio/tts/SpeechSynthesizer`, { method: 'POST', signal, headers: { authorization: `Bearer ${await key('tts', 'Qwen')}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: s.model, input }) });
     if (!res.ok) throw await failure(res, 'Qwen speech');
     const j = await res.json(); const audio = j.output?.audio ?? {};
     let bytes: Uint8Array;
     if (audio.data) bytes = b64ToBytes(audio.data);
-    else if (audio.url) { const r = await http(audio.url, { method: 'GET' }); if (!r.ok) throw await failure(r, 'Qwen audio download'); bytes = new Uint8Array(await r.arrayBuffer()); }
+    else if (audio.url) { const r = await http(audio.url, { method: 'GET', signal }); if (!r.ok) throw await failure(r, 'Qwen audio download'); bytes = new Uint8Array(await r.arrayBuffer()); }
     else throw new Error('Qwen speech returned no audio.');
     return { bytes, mime: 'audio/wav', ext: 'wav', ms: wavDurationMs(bytes) };
   }
@@ -120,7 +124,7 @@ export async function synthesize(s: AiSettings['tts'], text: string, voice: stri
   const lang = SPOKEN[s.language];
   const instructions = [lang ? `Speak in ${lang}.` : '', delivery].filter(Boolean).join(' ');
   if (instructions && !s.model.startsWith('tts-1')) body.instructions = instructions;
-  const res = await http(`${trimBase(s.base_url)}/audio/speech`, { method: 'POST', headers: { authorization: `Bearer ${await key('tts', 'OpenAI speech')}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await http(`${trimBase(s.base_url)}/audio/speech`, { method: 'POST', signal, headers: { authorization: `Bearer ${await key('tts', 'OpenAI speech')}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) throw await failure(res, 'OpenAI speech');
   const bytes = new Uint8Array(await res.arrayBuffer());
   return { bytes, mime: 'audio/wav', ext: 'wav', ms: wavDurationMs(bytes) };

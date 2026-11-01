@@ -1,9 +1,9 @@
 import { t as tr, currentLocale } from '../../i18n';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useUi } from '../../store/ui';
 import { appendLogs, importFile, mergeLogs, type LogFile } from '../import';
 import type { CharacterSheet, Project } from '../types';
-import { loadProject, saveProject } from '../storage';
+import { openProject, updateProject, useProjects, viewProject } from '../projects';
 import CharactersPanel from './CharactersPanel';
 import ExportPanel from './ExportPanel';
 import VnPanel from './VnPanel';
@@ -14,22 +14,16 @@ type Tab = 'overview' | 'characters' | 'log' | 'export' | 'vn';
 // to this computer shortly after it is made.
 export default function ProjectView({ id }: { id: string }) {
   const toast = useUi((s) => s.toast);
-  const [p, setP] = useState<Project | null>(null);
+  const p = useProjects((s) => s.projects[id] ?? null);
   const [tab, setTab] = useState<Tab>('overview');
-  const timer = useRef<number | null>(null);
-  const latest = useRef<Project | null>(null);
-  useEffect(() => { loadProject(id).then(setP).catch((e) => toast(String(e?.message ?? e), 'error')); }, [id]);
-  const flush = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; if (latest.current) saveProject(latest.current).catch((e) => toast(String(e?.message ?? e), 'error')); latest.current = null; };
-  useEffect(() => flush, []);
-  // Changes go through here: the copy is shown at once and saved half a second after the last one.
-  const update = (fn: (draft: Project) => void) => setP((cur) => {
-    if (!cur) return cur;
-    const next: Project = structuredClone(cur); fn(next);
-    latest.current = next;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = window.setTimeout(flush, 500);
-    return next;
-  });
+  // The project stays open while it is shown (and while AI tasks work on it, after the view is gone).
+  useEffect(() => {
+    const release = viewProject(id);
+    openProject(id).catch((e) => toast(String(e?.message ?? e), 'error'));
+    return release;
+  }, [id]);
+  // Changes go through the project store: shown at once, saved half a second after the last one.
+  const update = (fn: (draft: Project) => void) => { updateProject(id, fn); };
   if (!p) return <div className="muted">{tr('Loading…')}</div>;
   return (
     <div className="col" style={{ gap: 12 }}>
@@ -46,7 +40,7 @@ export default function ProjectView({ id }: { id: string }) {
       {tab === 'characters' && <CharactersPanel p={p} update={update} />}
       {tab === 'log' && <LogList p={p} />}
       {tab === 'export' && <ExportPanel p={p} update={update} />}
-      {tab === 'vn' && <VnPanel p={p} update={update} save={flush} />}
+      {tab === 'vn' && <VnPanel p={p} update={update} />}
     </div>
   );
 }
