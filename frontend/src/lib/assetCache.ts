@@ -104,10 +104,10 @@ export function cachedSrc(url: string | null | undefined): Promise<string> {
       // A redirect goes to the public bucket: the browser keeps that object itself.
       const res = await fetch(url, { redirect: 'manual', credentials: 'omit' });
       if (res.type === 'opaqueredirect' || !res.ok) return url;
-      // Not marked for keeping (the current version of something, GM-private material): the page loads the URL
-      // itself, and the browser revalidates it by its ETag.
-      if (!/\bimmutable\b/.test(res.headers.get('Cache-Control') ?? '')) return url;
       const blob = await res.blob();
+      // Not marked for keeping (the current version of something, GM-private material): these bytes serve this one
+      // view and are neither stored nor remembered, so the next view asks again (and the browser revalidates by ETag).
+      if (!/\bimmutable\b/.test(res.headers.get('Cache-Control') ?? '')) return URL.createObjectURL(blob);
       void write(key, blob);
       return remember(key, blob);
     })().catch(() => url).finally(() => inflight.delete(key));

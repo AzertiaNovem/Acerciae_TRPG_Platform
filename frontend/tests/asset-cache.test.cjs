@@ -57,7 +57,8 @@ test('assets are keyed without the file token and per account; only immutable re
   // Not immutable (the current version, GM-private material): used, never kept.
   reply = () => response('X', { 'Cache-Control': 'private, max-age=3600' });
   const secret = 'http://api.test/api/channels/c/media/secret?v=1&token=T';
-  assert.equal(await c2.cachedSrc(secret), secret, 'the page loads it itself');
+  assert.match(await c2.cachedSrc(secret), /^blob:/, 'shown from the bytes just downloaded');
+  assert.equal(c2.peekSrc(secret), undefined, 'but not remembered');
   await new Promise((r) => setTimeout(r, 10));
   assert.equal([...idb.stores.get('assets').keys()].filter((k) => k.includes('secret')).length, 0);
   // A redirect to the public bucket is left to the browser.

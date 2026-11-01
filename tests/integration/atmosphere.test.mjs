@@ -40,7 +40,8 @@ test('atmosphere: both opt-ins, four generated variants, personal/GM permissions
  for(const [variant,id] of Object.entries(current.assets)){
    const r=await fetch(base+root+'/assets/'+id,{headers:{Authorization:`Bearer ${pl.token}`}});
    assert.equal(r.status,200);assert.equal(r.headers.get('content-type'),'image/png');
-   assert.match(r.headers.get('cache-control'),/no-store/);
+   // A backdrop id names one stored image every member sees: clients may keep it, and revalidate by its ETag.
+   assert.equal(r.headers.get('cache-control'),'private, max-age=31536000, immutable');assert.equal(r.headers.get('etag'),`"${id}"`);
    const bytes=Buffer.from(await r.arrayBuffer());assert.equal(bytes.readUInt32BE(20)>bytes.readUInt32BE(16),variant.endsWith('portrait'));
  }
  await assert.rejects(call(pl.token,'GET',root+'/history'),e=>e.status===403);
