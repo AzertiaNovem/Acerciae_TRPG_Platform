@@ -39,6 +39,20 @@ const SPEAKER_KINDS = new Set(["ic", "roll", "narration"]);       // lines that 
 const MOVE_MODES = new Set(["human", "followup", "side", "relay", "manual"]);
 const norm = (s) => String(s ?? "").trim().toLowerCase();
 const names = (v) => (Array.isArray(v) ? v : [v]).map((x) => String(x ?? "").trim()).filter(Boolean);
+// Splits text at paragraph or line breaks into pieces of at most `max` characters.
+function chunk(text, max) {
+  const out = [];
+  let cur = "";
+  for (const line of String(text).split(/(?<=\n)/)) {
+    for (const piece of line.length > max ? line.match(new RegExp(`[\\s\\S]{1,${max}}`, "g")) : [line]) {
+      if (cur.length + piece.length > max) { out.push(cur); cur = ""; }
+      cur += piece;
+    }
+  }
+  if (cur.trim()) out.push(cur);
+  return out.map((x) => x.trim()).filter(Boolean);
+}
+
 const HOUR = 3600000;
 
 export class Table {
@@ -603,7 +617,10 @@ export class Table {
     switch (a.type) {
       case "narrate": return this.post(windowId, { content: a.text, kind: "narration" });
       case "note": return this.post(windowId, { content: a.text, kind: "narration", visibility: "gm_only" });
-      case "truth": if (this.improv.on && addTruth(this.improv, a.text)) { this.log(`hidden truth recorded: ${a.text.slice(0, 100)}`); this.save(); } return 0;
+      case "truth":
+        if (this.improv.on && addTruth(this.improv, a.text)) { this.log(`hidden truth recorded: ${a.text.slice(0, 100)}`); this.save(); this.declare(a.text, true); }
+        return 0;
+      case "world_change": this.declare(a.text, a.secret === true || a.secret === "true"); return 0;
       case "npc":
       case "new_npc": {
         const who = this.characterByName(a.name);
@@ -716,6 +733,23 @@ export class Table {
     return this.applyPlan(result, { windowId, mode: "manual", turn: turnNo });
   }
 
+  // ---- the platform's living world record
+  // Declares a change to the world (off-screen, or a hidden truth) for the platform's observer to record. Best effort:
+  // a platform without the world record (404) is noted once and the table carries on with its own notes.
+  async declare(text, secret = false) {
+    const t = String(text ?? "").trim();
+    if (!t || this.worldUnsupported) return false;
+    try {
+      for (const part of chunk(t, 3900)) await this.api.declareWorld(this.channelId, { text: part, secret });
+      this.log(`world ${secret ? "secret " : ""}declared: ${t.slice(0, 100)}`);
+      return true;
+    } catch (e) {
+      if (e.status === 404 || e.status === 405) { this.worldUnsupported = true; this.log("this platform keeps no world record; world changes stay in the Keeper's notes"); }
+      else this.log(`world declaration failed: ${e.message}`);
+      return false;
+    }
+  }
+
   // ---- improvisation mode
   // The posted world setting is left out of every chat context: the GM and the co-players get it as a section of its own.
   hiddenLines() { return new Set(this.improv.published.ids); }
@@ -727,7 +761,20 @@ export class Table {
     if (secrets !== undefined) this.improv.secrets = String(secrets);
     this.save();
     await this.publishWorld();
+    await this.seedWorld();
     this.log(`improvisation ${this.improv.on ? "on" : "off"}: world ${this.improv.world.length} characters, secrets ${this.improv.secrets.length}, hidden truths ${this.improv.truths.length}`);
+  }
+
+  // Hands the world setting (public) and the Keeper's secrets (secret) to the platform's world record, once per version
+  // of each text, so its observer knows the places, groups and people from the start.
+  async seedWorld() {
+    const im = this.improv;
+    if (!im.on) return;
+    im.declared ??= {};
+    for (const [key, text, secret] of [["world", im.world, false], ["secrets", im.secrets, true]]) {
+      if (!text || im.declared[key] === hashText(text)) continue;
+      if (await this.declare(text, secret)) { im.declared[key] = hashText(text); this.save(); }
+    }
   }
 
   // Posts the world setting in the Main Chat for the human players, once per version of the text.
@@ -752,6 +799,7 @@ export class Table {
     }
     this.improv.published = { hash: hashText(world), ids: [...published.ids, ...ids].slice(-100) };
     this.save();
+    await this.seedWorld();
     this.log(`world setting posted in "${main.name}" (${ids.length} message${ids.length === 1 ? "" : "s"})`);
     return ids.length;
   }

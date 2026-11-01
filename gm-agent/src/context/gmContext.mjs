@@ -70,7 +70,7 @@ export class GmContext {
     const ch = this.channelId;
     const module = !improv?.on;
     await this.history.sync(windowId);
-    const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs] = await Promise.all([
+    const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs, world] = await Promise.all([
       this.safe("channel", () => this.api.channel(ch)),
       this.safe("scenes", () => this.api.scenes(ch)),
       this.safe("board", () => this.api.kpBoard(ch)),
@@ -80,6 +80,7 @@ export class GmContext {
       module ? this.safe("module hints", () => this.api.moduleHints(ch)) : null,
       this.safe("proposals", () => this.api.proposals(ch)),
       this.documents(),
+      this.safe("world", () => this.api.world(ch)),
     ]);
     const charName = new Map(characters.map((c) => [c.id, c.name]));
     const current = (scenes ?? []).find((s) => s.id === channel?.current_scene_id);
@@ -147,6 +148,8 @@ export class GmContext {
       const rest = script.filter((k) => k.kind !== "flow" && k.status !== "done").slice(0, 30);
       c.push(`## Script knowledge (from the module)\n${flow.map((k) => `- stage ${k.position ?? ""} [${k.status}] ${k.title}: ${clip(k.body, k.status === "active" ? 1200 : 250)}`).join("\n")}\n${rest.map((k) => `- ${k.kind} [${k.status}] ${k.title}: ${clip(k.body, 250)}`).join("\n")}`);
     }
+    const worldNow = worldRecordSection(world, Math.max(800, Math.round(this.budget * 0.08)));
+    if (worldNow) c.push(worldNow);
     if (docs.length) c.push(`## Keeper documents (platform AI)\n${docs.join("\n\n")}`);
 
     // ---- D: every turn
@@ -187,6 +190,24 @@ export class GmContext {
     const here = [...frozen, ...tail];
     return { parts, text: parts.map((p) => p.text).join(""), newest: here.at(-1) ?? null, current, render, lines: (w) => linesOf(w) };
   }
+}
+
+// The platform's living world record: every entity with something known about it now, within `budget` tokens (the
+// most recently changed kept), in the record's own order, then the latest changes.
+function worldRecordSection(world, budget) {
+  const known = (world?.entities ?? []).filter((e) => (e.status && e.status !== "unknown") || e.state || e.location);
+  if (!known.length) return "";
+  const line = (e) => `- [${e.kind}] ${e.name}${e.status && e.status !== "unknown" ? ` — ${e.status}` : ""}${e.state ? `: ${String(e.state).replace(/\s+/g, " ").trim()}` : ""}${e.location?.name ? ` (at ${e.location.name})` : ""}${e.state_by === "gm" ? " [set by you]" : ""}`;
+  const keep = new Set();
+  let used = 0;
+  for (const e of [...known].sort((a, b) => String(b.state_updated_at ?? "").localeCompare(String(a.state_updated_at ?? "")))) {
+    const t = estimateTokens(line(e));
+    if (used + t > budget && keep.size) break;
+    keep.add(e.id); used += t;
+  }
+  const changes = (world.recent_changes ?? []).slice(0, 8).map((c) => `- ${c.name}: ${c.status}${c.state ? `, ${String(c.state).replace(/\s+/g, " ").trim()}` : ""}${c.location_name ? ` (at ${c.location_name})` : ""} (${c.actor === "gm" ? "you" : "from play"})`);
+  const dropped = known.length - keep.size;
+  return [`## The world now (the platform's record of what is true at present; keep to it, change it with world_change)`, ...known.filter((e) => keep.has(e.id)).map(line), ...(dropped ? [`(${dropped} more entities not shown)`] : []), ...(changes.length ? ["Latest changes:", ...changes] : [])].join("\n");
 }
 
 // A document's entries within `budget` tokens, newest kept, in their own order, with a note of how many were left out.

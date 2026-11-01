@@ -22,6 +22,7 @@ export function improvState(s) {
     secrets: String(x.secrets ?? ""),
     truths: Array.isArray(x.truths) ? x.truths.filter((t) => t && t.text).slice(-TRUTHS_KEPT) : [],
     published: { hash: x.published?.hash ?? null, ids: Array.isArray(x.published?.ids) ? x.published.ids : [] },
+    declared: x.declared && typeof x.declared === "object" ? { ...x.declared } : {},   // text hashes handed to the platform's world record
   };
 }
 

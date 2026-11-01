@@ -90,4 +90,9 @@ export class Api {
   highlights(ch) { return this.get(`/api/channels/${ch}/highlights`); }
   moduleHints(ch) { return this.get(`/api/channels/${ch}/modules/hints?status=potential`); }
   proposals(ch) { return this.get(`/api/channels/${ch}/proposals?status=needs_gm_review`); }
+  // The platform's living world record (the Keeper's partition): entities' current status, state and whereabouts.
+  world(ch) { return this.get(`/api/channels/${ch}/world`); }
+  // A Keeper declaration about the world (often off-screen): recorded by the platform's observer, never shown to
+  // players; `secret` keeps the facts it yields Keeper-only.
+  declareWorld(ch, body) { return this.post(`/api/channels/${ch}/world/declare`, body); }
 }

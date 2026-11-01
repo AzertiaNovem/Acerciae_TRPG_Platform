@@ -16,10 +16,11 @@
 import { completeJson } from "./llm/index.mjs";
 import { validateWhereabouts } from "./whereabouts.mjs";
 
-const BASE_ACTIONS = ["narrate", "npc", "new_npc", "whisper", "request_roll", "note", "timeline", "advance_scenario", "enter_scenario"];
+const BASE_ACTIONS = ["narrate", "npc", "new_npc", "whisper", "request_roll", "note", "timeline", "advance_scenario", "enter_scenario", "world_change"];
 const LEGACY_ACTIONS = ["split", "rejoin"];
 const NO_TEXT_NEEDED = new Set(["request_roll", "split", "rejoin", "timeline", "advance_scenario", "enter_scenario"]);
 
+const WORLD_RULE = `- The world lives on: "The world now" is the platform's record of what is true about people, places and groups at present. Keep to it. When the world changes where play does not show it (off-screen, between visits, while the investigators are elsewhere), or something is now true that the chat never stated, record it with world_change: secret true when the investigators do not know it yet. What happens in the chat is recorded for you.`;
 const AWAY_RULE = `- Players come and go: a player character marked "player away" keeps its place in the scene but stays passive. Never act, speak or decide for it, never make the scene wait on it, and do not have harm befall it while its player is away; it catches up when its player returns.`;
 const COMMON_RULES = `- Every player, co-players included, needs an immediate response to each choice and line: acknowledge what they did, give its consequence, and propel the story (new information, a complication, a decision point). Never leave a move hanging or stall with vague atmosphere; then hand the scene back with an open situation.
 - Never write words, thoughts or decisions for player characters or co-players.
@@ -42,6 +43,7 @@ export function directorSystem(language, { auto = true, improv = false } = {}) {
 How to keep the table:
 ${COMMON_RULES}
 ${AWAY_RULE}
+${WORLD_RULE}
 ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
 ${SCENARIO_RULES}${improv ? `\n${IMPROV_RULES}` : ""}
 - Keep each line short enough for chat (1-5 sentences). One to three actions per turn is typical. Return no actions if nothing needs the Keeper now (for example players talking among themselves out of character).
@@ -55,6 +57,7 @@ Reply with only one JSON object:
   {"type": "whisper", "to": "<character name>", "text": "..."},
   {"type": "request_roll", "who": "<character name>", "command": ".ra <skill>", "text": "<why, in one short line>"},
   {"type": "note", "text": "<Keeper-only note>"},
+  {"type": "world_change", "text": "<what is now true in the world, e.g. 'The Harbour Guild has closed the docks at night.'>", "secret": true | false},
 ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for your own memory>"},
 ` : ""}${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-player names>"], "location": "...", "narrative_time": "...", "opening": "<first narration of the thread>"},
   {"type": "rejoin", "timeline": "<thread name>", "into": "<window name, optional>", "text": "<optional narration where they return>"},

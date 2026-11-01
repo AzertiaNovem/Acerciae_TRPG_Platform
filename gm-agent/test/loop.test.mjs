@@ -54,6 +54,8 @@ class FakeApi {
   }
   async characterSpace(_ch, cid) { return { character: { id: cid, role_card: { characteristics: { INT: 70 }, skills: { "Spot Hidden": 60 } } } }; }
   async playerGroups() { return this.groups ?? []; }
+  async world() { if (this.noWorld) throw Object.assign(new Error("not found"), { status: 404 }); return this.world_ ?? { version: 0, entities: [], recent_changes: [] }; }
+  async declareWorld(_ch, body) { if (this.noWorld) throw Object.assign(new Error("not found"), { status: 404 }); (this.declared ??= []).push(body); return { event_id: `ev${this.declared.length}`, seq: 0 }; }
   async createWindow(_ch, body) {
     for (const m of body.members ?? []) if (!this.channelUsers.includes(m.user_id)) throw Object.assign(new Error("user is not a channel member"), { status: 400 });
     this.createAttempts = (this.createAttempts ?? 0) + 1;
@@ -97,7 +99,7 @@ async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = []
   old({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "SECRET-THREE in Alice's own window" });
   old({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "The study is cold and smells of pipe smoke." });
   const cfg = { ...buildConfig({}, {}), debounceMs: 0, postDelayMs: 0, ...over };
-  const t = await new Table({ api, llm, cfg, channelId: "ch", roster: new Roster(), improv, sleep: async () => {}, now: () => clock.t }).init({ heal });
+  const t = await new Table({ api, llm, cfg, channelId: "ch", roster: new Roster(), improv, sleep: async () => {}, now: () => clock.t, log: process.env.TEST_LOG ? console.log : () => {} }).init({ heal });
   return { t, api, llm, clock };
 }
 const playerSays = (t, api, content, w = "w-main") => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content }) });
@@ -915,4 +917,54 @@ test("a player back after being away is welcomed back, and away players are mark
   await alicePosts(t, api, "Let's go.");
   await settle(t);
   assert.ok(!directorCalls(llm).slice(n).some((x) => x.includes("RETURNING")), "only once");
+});
+
+// ---- the platform's living world record
+test("the world record is in the GM's context, never a co-player's, and world_change declares to the platform", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (user.includes("Meanwhile?") && !/^MODE: /m.test(user) ? { actions: [{ type: "world_change", text: "WORLD-CHANGE: the Guild closes the docks at night.", secret: true }, { type: "narrate", text: "Night falls." }], coplayers_may_act: true } : base(user));
+  const { t, api } = await table({ llm });
+  api.world_ = { version: 3, entities: [
+    { id: "e1", kind: "npc", name: "Silas Mott", status: "dead", state: "RECORD-SILAS found drowned under the pier", location: null, state_by: "gm", state_updated_at: "2026-11-01T10:00:00Z" },
+    { id: "e2", kind: "location", name: "Old Mill", status: "unknown", state: "", location: null },
+  ], recent_changes: [{ entity_id: "e1", name: "Silas Mott", status: "dead", state: "RECORD-SILAS found drowned", actor: "gm" }] };
+  await alicePosts(t, api, "Meanwhile?");
+  await settle(t);
+  const director = llm.calls.find((c) => c.purpose === "director");
+  const ctx = director.messages[0].content;
+  assert.match(ctx, /## The world now/); assert.match(ctx, /\[npc\] Silas Mott — dead: RECORD-SILAS found drowned under the pier \[set by you\]/);
+  assert.ok(!ctx.includes("Old Mill"), "entities with nothing known are left out");
+  assert.match(director.system, /"type": "world_change"/);
+  assert.ok(!llm.calls.filter((c) => c.purpose === "coplayer_turn").some((c) => c.messages[0].content.includes("RECORD-SILAS")), "co-players never read the Keeper's record");
+  assert.deepEqual(api.declared, [{ text: "WORLD-CHANGE: the Guild closes the docks at night.", secret: true }]);
+  assert.ok(!api.posts.some((p) => p.content.includes("WORLD-CHANGE")), "a declaration is never a chat line");
+});
+
+test("improvisation: the world and secrets are handed to the platform's world record once per version, truths as secrets", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (user.includes("Who did it") ? { actions: [{ type: "truth", text: "TRUTH-Y: the clerk forged it." }], coplayers_may_act: false } : base(user));
+  const { t, api } = await table({ llm, improv: IMPROV, heal: true });
+  assert.deepEqual(api.declared.map((d) => [d.text.slice(0, 12), d.secret]), [["WORLD-PUBLIC", false], ["WORLD-SECRET", true]]);
+  await t.publishWorld(); await t.seedWorld();
+  assert.equal(api.declared.length, 2, "not again for the same texts");
+  await t.command({ cmd: "world", secrets: "WORLD-SECRET-2: the keeper lives." });
+  assert.equal(api.declared.at(-1).text, "WORLD-SECRET-2: the keeper lives."); assert.equal(api.declared.at(-1).secret, true);
+  await alicePosts(t, api, "Who did it?");
+  await settle(t);
+  assert.deepEqual(api.declared.at(-1), { text: "TRUTH-Y: the clerk forged it.", secret: true });
+});
+
+test("a platform without the world record: declarations are dropped once, the table carries on", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (user.includes("Meanwhile?") ? { actions: [{ type: "world_change", text: "X" }, { type: "narrate", text: "Ok." }], coplayers_may_act: false } : base(user));
+  const { t, api } = await table({ llm });
+  api.noWorld = true;
+  await alicePosts(t, api, "Meanwhile?");
+  await settle(t);
+  assert.equal(t.worldUnsupported, true);
+  assert.ok(api.posts.some((p) => p.content === "Ok."), "the turn went on");
+  assert.equal(await t.declare("Y"), false);
 });

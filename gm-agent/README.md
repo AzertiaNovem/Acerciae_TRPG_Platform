@@ -101,6 +101,20 @@ week's totals and the share of input read from cache. `LLM_DAILY_TOKEN_BUDGET` c
 (cache reads count a tenth); once it is spent, the table stops starting turns of its own, and answers to players still
 run.
 
+**The living world.** The platform keeps the world record itself: its observer tracks what is true about each person,
+place, group and item now (active, missing, dead, destroyed; a short state; where it is), with a history of changes.
+The client works with it in three ways:
+- **Reading it.** The GM and real NPCs get it as "The world now" in their context.
+- **Declaring changes.** When the world moves on where play does not show it (off-screen, between visits, while the
+  investigators are elsewhere), the GM records the change with a `world_change` action. A secret declaration stays
+  Keeper-only. Declarations never appear in chat.
+- **Improvisation mode.** The world setting and the Keeper's secrets are handed to the record once per version of the
+  text, so the observer knows the places, groups and people from the start. Hidden truths the GM decides are declared
+  as secrets too, so a human Keeper sees them in the web app.
+
+Co-players never read the record. They know only what their characters witnessed and the public world setting. A
+platform without the record (404) is noted once, and the table carries on with its own notes.
+
 ## How a turn runs
 
 1. A real person posts a line in a window. After `DEBOUNCE_MS` of quiet, one turn starts.
