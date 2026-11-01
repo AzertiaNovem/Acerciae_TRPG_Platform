@@ -118,6 +118,34 @@ The Keeper and each player group's observer perform editorial selection in the s
 
 Player observer context includes the witnessed message payload (message type and structured dice information) and a snapshot of the current scene's own entries. The backend rejects AI writes based solely on unambiguous placeholders and new entries based solely on raw rolls without a purpose (an existing action entry can supply context for an update), and skips materially identical AI updates without a fact/document version bump. Original messages and proposal audit records remain intact. Other semantic judgments are made by the configured model; mock mode only uses conservative rules and exact-entry matching, not full semantic editing. Existing confirmed or Keeper-authored entries retain review protections; this change does not bulk-delete previously recorded clutter.
 
+## World record
+The chronicle above says what happened; the world record says what is true **now** about each entity (alive, dead,
+missing, destroyed; where it is; one short line of state). It lives on `entities` in each memory partition: the Keeper's
+(`player_group_id IS NULL`) and each player group's own.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/channels/{id}/world` | any member; the caller's partition (GM: the Keeper's; player: their group's). `{version, entities: [{id, kind, name, aliases, description, status: active|inactive|missing|dead|destroyed|unknown, state, location: {id, name}\|null, state_version, state_updated_at, state_by: ai|gm\|null, fact_count}], recent_changes: [{entity_id, name, version, status, state, location_name, actor: ai|gm, created_at}]}`. Entities sorted by kind, name; the last 30 changes, newest first. `version` grows whenever any entity's state changes or an entity is added (compare, do not interpret). A player sees entities their group's facts mention or whose state cites chat the group can still read. |
+| POST | `/channels/{id}/world/declare?observe=true` | (GM) `{text: 1..4000 chars, secret?: bool}` → `{event_id, seq, jobs?}`. Records a Keeper declaration about the world (often off-screen) as an event `gm.declared` (`visibility: gm_only`, `actor_role: gm`, `payload {content, secret}`, the channel's current scene), never a chat message. `observe=true` runs the observer synchronously like `ai/observe-now` and returns its `jobs`. |
+
+**Observer op `entity_state`** (in the observer reply's top-level `"world"` array; also accepted inside a document's `ops`, where it is moved out):
+`{"op":"entity_state","entity":"name or id","kind":"npc|location|item|organisation|concept","status":"…","state":"…","location":"entity name or id","source_event_ids":["…"]}`.
+`kind` is required only when the entity does not exist yet (it is then created); at least one of `status`, `state`, `location` is required;
+an omitted field is unchanged, except that a new status without a new `state` clears the old state line. An unknown `location` is created as a
+`location` entity in the same partition. Validation (`DocumentService::commitWorld`) is the documents' provenance rule: an AI change must cite
+source events of the batch it was given; a player group's must be chat that group can read; entities and locations resolve only inside the
+writer's partition (database triggers also refuse cross-partition locations and history). A change citing a `gm.declared` event is the
+Keeper's (`state_by: gm`); so is a GM-accepted review. An AI change to a state the Keeper set becomes a `needs_gm_review` proposal
+(`document_id: null`, `ops[0].op: entity_state` with `entity_name` and `previous`), decided with `POST /proposals/{pid}/decide`. Each applied
+change bumps `state_version`, appends an `entity_state_history` row and emits `world.updated`. Repeating the current state is skipped.
+
+**`gm.declared`** is authoritative for the Keeper's observer: facts it establishes are `confirmed` (a GM-authored event backs `confirmed`), or
+`gm_secret` when `payload.secret` is true (the backend forces `gm_secret` on a fact citing a secret declaration). Players never read it: the
+event filter, `player_group_chat_events` and the player-group observer batch only contain witnessed `message.posted` events that are not
+`gm_only`. Mock mode recognises a few English patterns per sentence (`<Name> is dead|died|was killed`, `the <Place> burns|is destroyed`,
+`<Name> is missing|vanished`, `<Name> flees|moves|goes to <Place>`), in declarations and chat alike, and records a declaration itself as a
+timeline entry.
+
 ## Reminder bubbles
 | GET | `/channels/{id}/reminders` | active reminders for the caller (players: their group's; GM: the Keeper's), minus the ones they dismissed. `{id, version, status, updated_at, status_reason, review_citations[], kind: forgotten|needed|plan|note, title, why, citations[{event_id, message_id, chat_window_id, scene_id, seq, quotes[]}], scene_id, priority, llm_mode, created_at, expires_at}`. Each quote is a verbatim substring of a line the group can read; a reminder is never stored without a verified quote. New entries also emit `reminder.created` for older clients. All changes emit `reminders.changed {channel_id}` on `/ws/context` to the group (or GMs); refetch the list to apply updates and removals while respecting per-user dismissal. |
 | POST | `/channels/{id}/reminders/{rid}/dismiss` | per-user dismissal |
@@ -192,7 +220,8 @@ Chat stream: `message.posted {message}` (only to users allowed to read it), `win
 Context stream: `document.updated {document_id, doc_type, version, change_count, entry_ids, gm_only, actor, summary}`,
 `highlight.created {highlight}` (scope-filtered), `highlight.expired {highlight_ids}`, `proposal.pending` (GM),
 `module.updated` (GM), `ai.job {job}` (GM), `scene.changed`, `reminder.created {reminder}` and `reminders.changed {channel_id}` (its group, or GMs),
-`kp.board {board}` (GM), `script.changed {payload}` (GM).
+`kp.board {board}` (GM), `script.changed {payload}` (GM), `world.updated {channel_id, version}` (the partition's audience:
+GMs for the Keeper's world record, group members for their group's; refetch `GET /world`).
 
 Both streams answer `{"type":"ping"}` with `pong`. The upgrade must be the first request on its TCP connection (browsers
 always do this).

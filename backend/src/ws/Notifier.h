@@ -28,6 +28,7 @@ public:
     void serverSettingsChanged(const std::string& serverId, const Json::Value& publicSettings);  // every channel of the server
     // context stream
     void documentUpdated(const std::string& channelId, const Json::Value& payload);   // {document_id, doc_type, version, change_count, summary, gm_only}
+    void worldUpdated(const std::string& channelId, const std::string& groupId, int64_t version);   // the partition's audience: group members, or GMs
     void highlightCreated(const std::string& channelId, const Json::Value& highlight);
     void highlightExpired(const std::string& channelId, const std::vector<std::string>& ids);
     void proposalPending(const std::string& channelId, const Json::Value& proposal);  // GM only

@@ -52,6 +52,11 @@ public:
     // Validation + commit. Never throws for per-op problems: they are recorded in the result log.
     // Throws ApiError for structural problems (unknown document, version conflict).
     CommitResult commit(const Proposal& p);
+    // The living world record: entity_state ops (no document). Same provenance and partition rules as commit();
+    // an AI change to a state the Keeper set becomes a needs_gm_review proposal. res.version = worldVersion.
+    CommitResult commitWorld(const Proposal& p);
+    Json::Value world(const ChannelAccess& a);   // GET /world: the caller's partition
+    static int64_t worldVersion(pqxx::work& w, const std::string& channelId, const std::string& groupId);
 
     // Reading (viewer filtered)
     Json::Value listDocuments(const ChannelAccess& a, int sinceVersionHint);
@@ -75,6 +80,8 @@ public:
 private:
     struct OpContext;
     void applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& op, CommitResult& res);
+    void applyEntityState(pqxx::work& w, OpContext& ctx, const Json::Value& op, CommitResult& res);
+    std::string sourceProblem(pqxx::work& w, const OpContext& ctx, const std::vector<std::string>& sources);
     Json::Value snapshotEntries(pqxx::work& w, const std::string& documentId);
     void indexFact(pqxx::work& w, const std::string& channelId, const std::string& factId, const std::string& kind, const Json::Value& fact);
     void linkEntities(pqxx::work& w, const std::string& channelId, const std::string& factId, const Json::Value& entities, const std::string& actor);
