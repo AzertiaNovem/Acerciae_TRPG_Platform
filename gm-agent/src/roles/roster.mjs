@@ -1,8 +1,10 @@
-// The client's own cast. On the platform co-players and real NPCs are both `kind: "npc"` characters owned by the
-// Keeper account; here they are kept apart, because they are given different context:
-//   real NPC  – voiced by the GM model, shares the Keeper's whole context;
+// The client's own cast, told apart because they are given different context:
+//   real NPC  – a `kind: "npc"` character, voiced by the GM model, shares the Keeper's whole context;
 //   co-player – a fellow investigator with an LLM-made role card, sees only the chat log it could have witnessed.
-// Co-players carry COPLAYER_MARK at the start of `speaking_style` so the split survives a lost state file.
+// On the platform a co-player is a GM-cast PC: a `kind: "pc"` character owned by the Keeper account, so players see it
+// as one of the investigators. Every such PC is a co-player, including ones the Keeper made by hand before the client
+// first ran. Older co-players are NPCs marked with COPLAYER_MARK at the start of `speaking_style`; they are still
+// recognised (the platform cannot change a character's kind).
 // A co-player sits in windows for a stretch of the chat: `seats: [{windowId, fromSeq, toSeq}]`, where `toSeq` is null
 // while it is still there. It hears a window's lines only during its seats, and acts only where a seat is open.
 export const COPLAYER_MARK = "[co-player]";
@@ -50,17 +52,19 @@ export class Roster {
   coplayerByName(name) { return this.coplayers.find((c) => norm(c.name) === norm(name)); }
   npcByName(name) { return this.npcs.find((c) => norm(c.name) === norm(name)); }
 
-  // Brings the roster in line with the channel's characters: forgets deleted ones, picks up co-players by their mark
-  // and treats every other NPC (including ones the Keeper made by hand) as a real NPC.
-  reconcile(characters, defaultWindows) {
+  // Brings the roster in line with the channel's characters: forgets deleted ones, picks up co-players (PCs owned by
+  // the Keeper account `castBy`, and marked NPCs from older versions) and treats every other NPC (including ones the
+  // Keeper made by hand) as a real NPC.
+  reconcile(characters, defaultWindows, { castBy = null } = {}) {
     const byId = new Map(characters.map((c) => [c.id, c]));
     this.coplayers = this.coplayers.filter((c) => byId.has(c.characterId));
     this.npcs = this.npcs.filter((c) => byId.has(c.characterId) && !this.isCoplayer(c.characterId));
     for (const c of characters) {
-      if (c.kind !== "npc") continue;
+      const gmCast = c.kind === "pc" && castBy && c.user_id === castBy;
+      if (c.kind !== "npc" && !gmCast) continue;
       const entry = this.coplayers.find((x) => x.characterId === c.id) ?? this.npcs.find((x) => x.characterId === c.id);
       if (entry) { entry.name = c.name; continue; }
-      if (String(c.speaking_style ?? "").startsWith(COPLAYER_MARK)) {
+      if (gmCast || String(c.speaking_style ?? "").startsWith(COPLAYER_MARK)) {
         this.coplayers.push({ characterId: c.id, name: c.name, persona: c.bio ?? "", speakingStyle: unmarkStyle(c.speaking_style), seats: defaultWindows.map((w) => openSeat(w)) });
       } else {
         this.npcs.push({ characterId: c.id, name: c.name, brief: c.bio || c.description || "" });
@@ -69,3 +73,6 @@ export class Roster {
     return this;
   }
 }
+
+// A player character: a PC a real person plays (a GM-cast PC is a co-player, not a player character).
+export const isPlayerCharacter = (character, roster) => character?.kind === "pc" && !roster.isCoplayer(character.id);

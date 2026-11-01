@@ -75,7 +75,7 @@ export class Api {
   // ---- chat
   windows(ch) { return this.get(`/api/channels/${ch}/windows`); }
   createWindow(ch, body) { return this.post(`/api/channels/${ch}/windows`, body); }
-  messages(ch, w, limit = 60) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}`); }
+  messages(ch, w, limit = 60, beforeSeq = 0) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}${beforeSeq > 0 ? `&before_seq=${beforeSeq}` : ""}`); }
   postMessage(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/messages`, body); }
 
   // ---- the Keeper's context and the platform's AI tips (GM only)
@@ -90,4 +90,9 @@ export class Api {
   highlights(ch) { return this.get(`/api/channels/${ch}/highlights`); }
   moduleHints(ch) { return this.get(`/api/channels/${ch}/modules/hints?status=potential`); }
   proposals(ch) { return this.get(`/api/channels/${ch}/proposals?status=needs_gm_review`); }
+  // The platform's living world record (the Keeper's partition): entities' current status, state and whereabouts.
+  world(ch) { return this.get(`/api/channels/${ch}/world`); }
+  // A Keeper declaration about the world (often off-screen): recorded by the platform's observer, never shown to
+  // players; `secret` keeps the facts it yields Keeper-only.
+  declareWorld(ch, body) { return this.post(`/api/channels/${ch}/world/declare`, body); }
 }

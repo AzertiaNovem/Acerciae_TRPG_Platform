@@ -33,8 +33,8 @@ final class PointBuyTests: XCTestCase {
         let alice = try await api.login(username: "alice", password: "password")
         let servers = try await api.servers(token: gm.token); let server = try XCTUnwrap(servers.first)
         let channels = try await api.channels(token: gm.token, server: server.id); let channel = try XCTUnwrap(channels.first)
-        let serverPath = ["servers", server.id, "settings"]
-        _ = try await api.resource(serverPath, token: gm.token, body: .object(["features": .object(["coc7_points": .bool(true)])]), method: "PUT")
+        let channelPath = ["channels", channel.id]
+        _ = try await api.resource(channelPath, token: gm.token, body: .object(["point_buy": .bool(true)]), method: "PUT")
         let rules = try await api.resource(["coc7", "rules"], token: alice.token)
         XCTAssertEqual(rules["careers"].array.count, 230)
         let chars: [Resource] = try await api.request(["channels", channel.id, "characters"], token: alice.token)
@@ -57,11 +57,11 @@ final class PointBuyTests: XCTestCase {
         } catch ClientError.pointsRule(let message) { XCTAssertTrue(message.contains("Dodge")) }
         let after = try await api.resource(path + ["space"], token: alice.token)
         XCTAssertEqual(after["character"]["role_card"], saved["character"]["role_card"], "Rejected saves must not mutate the card")
-        _ = try await api.resource(serverPath, token: gm.token, body: .object(["features": .object(["coc7_points": .bool(false)])]), method: "PUT")
+        _ = try await api.resource(channelPath, token: gm.token, body: .object(["point_buy": .bool(false)]), method: "PUT")
         let off = try await api.resource(path + ["space"], token: alice.token)
         XCTAssertFalse(off["points"]["enabled"].bool)
         XCTAssertEqual(off["character"]["role_card"]["skill_points"], saved["character"]["role_card"]["skill_points"])
-        _ = try await api.resource(serverPath, token: gm.token, body: .object(["features": .object(["coc7_points": .bool(true)])]), method: "PUT")
+        _ = try await api.resource(channelPath, token: gm.token, body: .object(["point_buy": .bool(true)]), method: "PUT")
         for token in [gm.token, alice.token] { _ = try await api.resource(["auth", "logout"], token: token, body: .object([:])) }
     }
 

@@ -60,6 +60,25 @@ Planned (design only, not implemented): AI players and an AI Keeper as real chan
 Replacing the model: implement `ILlmClient` and construct it in `Services::build` (or extend `LlmGateway`'s constructor
 to switch on `LLM_PROVIDER`). Prompts, schemas and tools are untouched.
 
+Prompt caching: providers reuse the part of a prompt that repeats an earlier one byte for byte, from the start (tools,
+then the system prompt, then the messages), at a fraction of the price. Prompts are therefore laid out stable-first:
+fixed system prompts, then the knowledge index, then the per-call context; the visual-novel planner sends the assets
+every part of a job shares as their own message before the part's lines. The knowledge index goes out as two messages
+(`knowledgeMessages`): first what rarely changes (the script's titles and bodies, then the story index, which has its
+own 3,500-character share of the 9,000-character index so it cannot crowd out the records), then what play changes (the
+script's statuses grouped as `active: …; done: …`, relationships, clues, open threads). Rows that feed a prompt are
+read in a fixed order (`ORDER BY`), and the observer's context JSON, written with sorted keys, keeps its stable keys
+(channel, characters, chat window) ahead of the changing ones. OpenAI-compatible endpoints cache on their own; OpenAI's
+own API (`https://api.openai.com`) is also sent `prompt_cache_key`, a hash of the channel and task, so requests that
+share a prefix meet in one cache (other gateways are not sent it: some reject unknown fields).
+For Anthropic, `LlmRequest::cache` marks where the reusable prefix ends: `prefix` marks the system prompt (which covers
+the tools) and any message flagged `cacheBreakpoint` (the stable knowledge index, the VN assets); `conversation` also marks the
+newest message, so each tool-call or schema-repair round reads the round before it. Tasks that repeat within minutes opt
+in (Keeper and player-group observers, stage detection, script-knowledge updates and reviews, reminders, consistency, inspiration, module and
+script-knowledge builds, VN parts); calls that rarely repeat stay `off`, since a cache write costs more than plain input.
+Usage records keep counting the whole prompt (`prompt_tokens`), so budgets are unchanged; `cache_read_tokens` and
+`cache_write_tokens` show the cached share (server settings show it under "Tokens used").
+
 Extending rule systems: `channels.rule_system` is carried into the consistency prompt (`rule_hints`); character sheets are
 free-form JSONB (`characters.sheet`) so BRP variants need no schema change.
 
@@ -78,6 +97,11 @@ Migrations live in `backend/migrations/` and are applied in order at startup.
 * **Memory (shards)**: `knowledge_facts` (kind, summary, data, **status**, scene, `source_event_ids`, version, FTS),
   `knowledge_visibility` (fact × scope × character — the Fact–Knower mapping), `entities`, `fact_entities`,
   `entity_relations`, `clues`, `narrative_threads` (typed index tables), optional `fact_embeddings` (pgvector).
+* **World record** (per partition, on `entities`): `status` (`active|inactive|missing|dead|destroyed|unknown`), `state` (one short
+  line of what is true now), `location_entity_id` (same partition), `state_version`, `state_updated_at`, `state_source_event_ids`,
+  `state_by` (`ai|gm`); `entity_state_history` keeps every applied change (version, status, state, location, sources, actor). Written
+  only by the observer's `entity_state` op and accepted Keeper reviews; Keeper declarations arrive as `gm.declared` events
+  (`gm_only`, no chat message).
 * **Views**: `documents` (one per `doc_type` per channel, `version`, `gm_only`), `document_entries` (stable entry id ⇄ fact,
   `content_md`, created/updated version, soft `removed`), `document_revisions` (ops + full snapshot per version),
   `document_proposals` (every proposal with its decision: committed / rejected / needs_gm_review).
@@ -110,6 +134,7 @@ scoped by `channel_id`.
 | Documents | all | not `gm_only`; entries filtered as facts |
 | Module layer, proposals, jobs | all | forbidden |
 | Reminders | the Keeper's own | their group's; opening one re-runs the chat-log filter |
+| World record (`/world`) | the Keeper's partition | their group's partition; entities their facts mention or whose state cites chat they can still read |
 | Script knowledge, board, changes | all | forbidden (403); never in a player prelude or tool list |
 
 The same `ChannelAccess` is passed into the Tool API, so the model working for a player cannot retrieve more than the
@@ -121,19 +146,19 @@ derived from the cited events (see DATA_FLOW).
 | status | meaning | who may set |
 |---|---|---|
 | `attempted` | a character tried something; outcome not adjudicated | AI (player sources), GM |
-| `confirmed` | the GM declared it / it happened in the world | AI only with a GM- or system-authored source; GM |
+| `confirmed` | the GM declared it / it happened in the world | AI only with a GM- or system-authored source (GM narration or a `gm.declared` event); GM |
 | `npc_claim` | an NPC asserted it | AI, GM |
 | `hypothesis` | a player theory | AI, GM |
 | `ai_inferred` | the AI's own inference (always traceable) | AI |
-| `gm_secret` | GM-only truth | GM (AI proposals are forced to GM scope) |
+| `gm_secret` | GM-only truth | GM (AI proposals are forced to GM scope; a fact citing a secret `gm.declared` event is always `gm_secret`) |
 | `resolved` / `retracted` | closed thread / withdrawn record | AI (non-confirmed), GM |
 
 ## Schedulers
 
 | Loop | Default cadence | Work | Lock |
 |---|---|---|---|
-| observe | 5 s | per (channel, window, scene) group with `seq > cursor`: build context, LLM + tools, validate & commit, highlights, hints; then stage detection (a suggestion bubble for the Keeper), script knowledge propose → review → apply, board refresh, Keeper reminders; advance cursor | in-process set + `ai_jobs(channel, kind, group_key) WHERE status='running'` |
-| observe (player groups) | same tick | per player group with readable events after its cursor: the group's journals from readable chat only, its scenario outlines, its reminder bubbles | `player:<group>:<version>` group key |
+| observe | 5 s | per (channel, window, scene) group with `seq > cursor`: build context, LLM + tools, validate & commit (documents, then `entity_state` world changes), highlights, hints; then stage detection (a suggestion bubble for the Keeper), script knowledge propose → review → apply, board refresh, Keeper reminders; advance cursor | in-process set + `ai_jobs(channel, kind, group_key) WHERE status='running'` |
+| observe (player groups) | same tick | per player group with readable events after its cursor: the group's journals and world record from readable chat only, its scenario outlines, its reminder bubbles | `player:<group>:<version>` group key |
 | consolidate | 60 s | per channel when new events exist since its own cursor: thread resolution, duplicate relationships, timeline notes | same |
 | cleanup | 30 s | delete expired highlights, push `highlight.expired` | – |
 

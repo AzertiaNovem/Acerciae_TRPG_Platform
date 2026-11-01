@@ -66,9 +66,31 @@ std::vector<std::string> ModuleImporter::extractPdfText(const std::string& bytes
     return pages;
 }
 
+// A creature's stat block as the model copied it, bounded and typed: numbers where the 5e block has numbers, short
+// texts for the rest, and named entries (traits, actions …) as {name, text}.
+Json::Value ModuleImporter::statBlock(const Json::Value& in) {
+    Json::Value out(Json::objectValue);
+    auto txt = [](const Json::Value& v, size_t n) { return text::utf8Prefix(text::trim(v.isString() ? v.asString() : v.isNumeric() ? json::dump(v) : std::string()), n); };
+    for (auto k : {"ac", "hp"}) if (in[k].isNumeric() && !in[k].isBool()) out[k] = std::max(0, std::min(9999, in[k].asInt()));
+    for (auto k : {"hp_formula", "speed", "cr", "saves", "skills", "senses", "languages", "size_type"}) { auto v = txt(in[k], 200); if (!v.empty()) out[k] = v; }
+    for (auto ab : {"STR", "DEX", "CON", "INT", "WIS", "CHA"})
+        if (in["abilities"][ab].isNumeric() && !in["abilities"][ab].isBool()) out["abilities"][ab] = std::max(1, std::min(30, in["abilities"][ab].asInt()));
+    for (auto k : {"traits", "actions", "bonus_actions", "reactions", "legendary_actions"}) {
+        if (!in[k].isArray()) continue;
+        Json::Value list(Json::arrayValue);
+        for (const auto& e : in[k]) {
+            if (list.size() >= 20) break;
+            Json::Value x; x["name"] = txt(e["name"], 80); x["text"] = txt(e["text"], 600);
+            if (!x["name"].asString().empty() || !x["text"].asString().empty()) list.append(x);
+        }
+        if (!list.empty()) out[k] = list;
+    }
+    return out;
+}
+
 Json::Value ModuleImporter::structureSchema() {
     static Json::Value s = json::parse(R"({"type":"object","required":["nodes"],"properties":{
-      "nodes":{"type":"array","items":{"type":"object","required":["key","node_type","name"],"properties":{"key":{"type":"string"},"node_type":{"type":"string","enum":["npc","location","item","clue","secret","stage","scene","condition","twist","ending"]},"name":{"type":"string"},"description":{"type":"string"},"citations":{"type":"array","items":{"type":"object","required":["page"],"properties":{"page":{"type":"integer"},"excerpt":{"type":"string"}}}}}}},
+      "nodes":{"type":"array","items":{"type":"object","required":["key","node_type","name"],"properties":{"key":{"type":"string"},"node_type":{"type":"string","enum":["npc","creature","location","item","clue","secret","stage","scene","condition","twist","ending"]},"stat_block":{"type":"object"},"name":{"type":"string"},"description":{"type":"string"},"citations":{"type":"array","items":{"type":"object","required":["page"],"properties":{"page":{"type":"integer"},"excerpt":{"type":"string"}}}}}}},
       "edges":{"type":"array","items":{"type":"object","required":["from_key","to_key","relation"],"properties":{"from_key":{"type":"string"},"to_key":{"type":"string"},"relation":{"type":"string"}}}}}})");
     return s;
 }
@@ -337,11 +359,20 @@ void ModuleImporter::structurePages(const std::string &moduleId,
     LlmRequest req;
     req.channelId = channelId;
     req.task = "module_structure";
+    req.cache = LlmCache::prefix;   // the same instructions and schema for every chunk of the module
     req.responseSchema = structureSchema();
     req.temperature = 0.1;
     req.maxTokens = cfg_.llmModuleMaxTokens;
     req.system =
         R"(You convert tabletop RPG module text (Call of Cthulhu / BRP) into a conditional knowledge graph. Extract nodes of type npc, location, item, clue, secret, stage, scene, condition, twist, ending and edges (requires, reveals, leads_to, located_in, knows, holds, unlocks, triggers, found_in, takes_place_at, appears_in). Every node MUST cite page numbers and a short verbatim excerpt. Keys are stable slugs like "npc|sheriff dunmore" so later chunks can reference earlier nodes. Do not invent content that is not in the text. Output JSON {"nodes":[{"key","node_type","name","description","citations":[{"page","excerpt"}]}],"edges":[{"from_key","to_key","relation"}]})";
+    // A D&D adventure's creatures come with stat blocks: kept with the node for the DM.
+    auto rs = db_.queryOne("SELECT rule_system FROM channels WHERE id=$1", {channelId});
+    if (!rs.isNull() && rs["rule_system"].asString() == "dnd2024")
+      req.system += " This is a D&D 2024 (5e) adventure: extract each monster or NPC that has a stat block as node_type "
+                    "\"creature\" with \"stat_block\": {\"ac\", \"hp\", \"hp_formula\", \"speed\", \"cr\", \"abilities\": "
+                    "{\"STR\".. \"CHA\"}, \"saves\", \"skills\", \"senses\", \"languages\", \"traits\": [{\"name\", \"text\"}], "
+                    "\"actions\": [{\"name\", \"text\"}], \"bonus_actions\", \"reactions\", \"legendary_actions\"} copied from the text, "
+                    "never invented; leave out what the text does not give.";
     Json::Value ctx;
     ctx["pages"] = chunk;
     ctx["chunk"] = chunkIdx;
@@ -399,6 +430,7 @@ void ModuleImporter::structurePages(const std::string &moduleId,
                                ? n["data"]
                                : Json::Value(Json::objectValue);
         data["key"] = key;
+        if (json::str(n, "node_type") == "creature" && n["stat_block"].isObject()) data["stat_block"] = statBlock(n["stat_block"]);
         auto row = Db::queryOne(
             w,
             "INSERT INTO module_nodes(module_id, channel_id, node_type, name, "
@@ -457,7 +489,7 @@ Json::Value ModuleImporter::get(const ChannelAccess &a,
       "SELECT n.*, (SELECT count(*) FROM module_hints h WHERE h.node_id=n.id "
       "AND h.status='potential') AS pending_hints FROM module_nodes n WHERE "
       "n.module_id=$1 ORDER BY "
-      "array_position(ARRAY['stage','scene','location','npc','clue','item','"
+      "array_position(ARRAY['stage','scene','location','npc','creature','clue','item','"
       "secret','condition','twist','ending'], n.node_type), n.created_at",
       {moduleId});
   // Page-only citations are valid model output. Keep older clients' string
@@ -498,7 +530,7 @@ Json::Value ModuleImporter::updateNode(const ChannelAccess& a, const std::string
     static const std::set<std::string> prog = {"untouched","active","revealed","completed","skipped"};
     if (!prog.count(progress)) throw badRequest("invalid progress");
     auto type = json::str(body, "node_type", n["node_type"].asString());
-    static const std::set<std::string> types = {"npc","location","item","clue","secret","stage","scene","condition","twist","ending"};
+    static const std::set<std::string> types = {"npc","creature","location","item","clue","secret","stage","scene","condition","twist","ending"};
     if (!types.count(type)) throw badRequest("invalid node_type");
     auto row = db_.queryOne("UPDATE module_nodes SET name=$2, description=$3, node_type=$4, progress=$5, gm_edited=true, updated_at=now() WHERE id=$1 RETURNING *",
         {nodeId, json::str(body, "name", n["name"].asString()), json::str(body, "description", n["description"].asString()), type, progress});

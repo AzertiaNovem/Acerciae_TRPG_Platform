@@ -22,7 +22,7 @@ public:
     // AiMeter (LLM gateway)
     void checkTokens(const std::string& channelId) override;
     std::shared_ptr<void> acquire(const std::string& channelId) override;
-    void recordTokens(const std::string& channelId, const std::string& task, int promptTokens, int completionTokens) override;
+    void recordTokens(const std::string& channelId, const std::string& task, int promptTokens, int completionTokens, int cacheReadTokens = 0, int cacheWriteTokens = 0) override;
 
     // Images: 429 ai_budget_exhausted when the server's image budget for the period is spent.
     void checkImages(const std::string& channelId);

@@ -7,11 +7,14 @@ HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile app
 |---|---|---|---|
 | **GM (Keeper)** | the client's account, channel role `gm` | – | everything the Keeper may read (below) |
 | **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the Keeper by hand) | **the same context as the GM** |
-| **Co-player** | an `npc` character | **the LLM writes its COC7 role card** at setup | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
+| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its COC7 role card** at setup (or the Keeper made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
 Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
-platform they are NPCs like any other, because only a GM may create characters without a player. Inside this client
-they are separate from the real NPCs: they get different context, and the GM model is never allowed to speak for them.
+platform they are PCs cast by the GM: player characters owned by the client's own (Keeper) account, so players see them
+in the character list and can read (not edit) their sheets, and Log Studio files their lines as investigators' lines.
+Every PC the Keeper account owns is a co-player: `setup` adopts the ones already in the channel (made by hand in the web
+app, say) and generates only the missing ones. Inside this client co-players are separate from the real NPCs: they get
+different context, and the GM model is never allowed to speak for them.
 
 The platform's own AI never speaks in chat. It writes tips for the Keeper: the pinned board, reminder bubbles, script
 knowledge, documents, highlights and module hints. This client reads those tips for the GM and the real NPCs. Co-players
@@ -21,7 +24,8 @@ never get them.
 
 **GM and real NPCs** (one shared context, built per turn by `src/context/gmContext.mjs`):
 
-- every line in every chat window, including Keeper-only notes, whispers and hidden rolls;
+- every line in every chat window, including Keeper-only notes, whispers and hidden rolls (older history as compacted
+  chapters; see "Long campaigns");
 - the cast: every player character and co-player with its basic details (occupation, age, sex, residence, birthplace),
   bio and background from its role card, and each real NPC with its brief;
 - the current scenario and the summaries of earlier ones;
@@ -42,11 +46,74 @@ It never gets `gm_only` lines (Keeper notes, hidden roll results), whispers to a
 platform AI tip.
 
 Besides the log, its prompt holds:
+- its own memories: chapters it wrote, in the first person, from lines it witnessed (see "Long campaigns");
 - its own role card and persona;
 - the other investigators' basic details, bio and background (`src/context/profiles.mjs`): the player characters and
   the other co-players, as a human player can read any player character's page.
 
 It never gets a real NPC's details, or another investigator's characteristics and skills.
+
+## Long campaigns: memory, compaction and caching
+
+The client keeps its own data store: one SQLite file per channel, `STATE_DIR/<channel>.db`, built into Node (no extra
+package). It holds:
+- a local copy of the chat as the Keeper reads it, fetched once, with any gap filled after the table was down;
+- compacted chapters;
+- the token usage of every model call.
+
+The JSON state file stays the source of truth for the table itself.
+
+**Long context, compacted.** The models read as much of the campaign as fits a token budget, not a fixed number of
+lines.
+- **The GM and real NPCs** (`GM_CONTEXT_TOKENS`, default 60,000) read:
+  - every window's chapters, which hold the story so far;
+  - this window's lines since its last chapter, word for word;
+  - the newest lines of the other windows.
+
+  When a window's lines pass about 60% of the budget, the oldest half becomes a chapter, written by the model. It
+  keeps names, clues, promises, decisions, injuries, where each investigator ended up, and the line numbers of key
+  moments. When a window's chapters pass about 25% of the budget, the oldest half merge into one. A scene that ends
+  (a thread merged) becomes a chapter whole.
+- **Each co-player** (`COPLAYER_CONTEXT_TOKENS`, default 24,000) has its own memory in the same way. Its chapters are
+  written in the first person, only from the lines it witnessed. They never include Keeper notes, others' whispers or
+  another timeline's lines, and no one else reads them.
+- **Keeper documents** keep their newest entries when they are too long; a note says how many older ones were left
+  out.
+
+Compaction runs beside the turns, so a turn never waits for it.
+
+**Prompt caching.** Every prompt is laid out stable-first, and providers cache the prefix:
+1. The fixed rules.
+2. Parts that change rarely: campaign, world setting, cast, scenarios, chapters.
+3. This window's older lines, in frozen chunks of 50.
+4. Parts that change every few turns: hidden truths, timelines, Keeper board and documents.
+5. This turn's details: the scenario's event count, reminders, tips, the newest lines, the instruction. These come last
+   and are never cached.
+
+Providers:
+- **Anthropic** gets cache markers with a one-hour lifetime by default (`LLM_CACHE_TTL=1h|5m|off`).
+- **OpenAI's own API** gets a `prompt_cache_key` per purpose. Other compatible gateways rely on the stable order alone.
+
+One player line costs several calls (the GM, each co-player, a follow-up), and they share most of their prompt.
+
+**Usage.** Every call's input, cache reads and writes, and output tokens are recorded. `status` shows today's and the
+week's totals and the share of input read from cache. `LLM_DAILY_TOKEN_BUDGET` caps billable-equivalent tokens a day
+(cache reads count a tenth); once it is spent, the table stops starting turns of its own, and answers to players still
+run.
+
+**The living world.** The platform keeps the world record itself: its observer tracks what is true about each person,
+place, group and item now (active, missing, dead, destroyed; a short state; where it is), with a history of changes.
+The client works with it in three ways:
+- **Reading it.** The GM and real NPCs get it as "The world now" in their context.
+- **Declaring changes.** When the world moves on where play does not show it (off-screen, between visits, while the
+  investigators are elsewhere), the GM records the change with a `world_change` action. A secret declaration stays
+  Keeper-only. Declarations never appear in chat.
+- **Improvisation mode.** The world setting and the Keeper's secrets are handed to the record once per version of the
+  text, so the observer knows the places, groups and people from the start. Hidden truths the GM decides are declared
+  as secrets too, so a human Keeper sees them in the web app.
+
+Co-players never read the record. They know only what their characters witnessed and the public world setting. A
+platform without the record (404) is noted once, and the table carries on with its own notes.
 
 ## How a turn runs
 
@@ -171,13 +238,107 @@ On its own clock (`AUTONOMY_TICK_MS`) the table also runs:
   player character; the client enforces it too. After `AUTONOMY_QUIET_TURNS` quiet turns the window waits for a human
   again. Only windows where a human spoke recently are moved; the Main Chat never runs side turns.
 
-Autonomy pauses when no human has posted in the channel for `AUTONOMY_IDLE_MINUTES`, is capped at
-`AUTONOMY_MAX_TURNS_PER_HOUR`, never runs while another turn is pending, and any human line wakes the table up.
-`AUTONOMY=false` turns it off.
+Autonomy is capped at `AUTONOMY_MAX_TURNS_PER_HOUR` (and by `LLM_DAILY_TOKEN_BUDGET`), never runs while another turn
+is pending, and any human line wakes the table up. `AUTONOMY=false` turns it off.
+
+**Fragmented play.** A campaign can also go on for weeks with people dropping in hours or days apart:
+- **Away mode.** Once no human has posted in the channel for `AUTONOMY_IDLE_MINUTES`, the table is "away". Shared
+  windows wait. Co-players-only threads still move, but only every `AWAY_SIDE_INTERVAL_MS` (default 6 hours; 0 makes
+  them wait too), so the story moves on a little between visits without spending much.
+- **Returning players.** A player who writes after being away for longer than that gets a welcome back in the GM's
+  answer: where their character is now and what has moved on meanwhile, then the scene is theirs. Recaps of the story
+  so far come from the platform's own tips for players.
+- **Absent characters.** In the window list the GM sees which player characters' players are away. Those characters stay
+  in the scene but passive: the GM never acts for them, never makes the scene wait on them, and lets no harm befall them
+  until their player is back.
+- **Pace.** A human line gives each co-player one turn. In a quiet turn that follows, a co-player who has already
+  answered stays quiet, so slow human players are not drowned out by the AI side of the table.
 
 **Costs.** Every player split creates a window with that player as a member; the platform then rebuilds that player
 group's derived memory (journals, reminders) and web clients refresh. Every split or reunion also costs an arrival turn
 (a GM call, the co-players and a follow-up).
+
+## Improvisation mode
+
+Without a module, the table can improvise a campaign from a world setting you write yourself:
+
+```bash
+node src/cli.mjs setup --coplayers 2 --improv --world world.md --secrets secrets.md
+```
+
+- **`world.md`, the world setting** (your own text, used as written, up to 30,000 characters): places, factions, people,
+  tone, what everyone knows.
+  - Shared with **everyone**. `run` posts it in the Main Chat for the human players (in parts if it is long), once per
+    version of the text.
+  - The GM, the real NPCs and every co-player get it as a section of their prompt. The posted copy is left out of
+    their chat logs, so it is not read twice.
+- **`secrets.md`, the Keeper's hidden layer** (optional): what is really going on. Only the GM and the real NPCs read
+  it; it is never posted.
+- **The GM improvises.** It grows the story from the world, the investigators' backgrounds and the players' choices,
+  and is told to reveal hidden things only through play.
+  - Whenever it decides a hidden fact (who did it, what someone wants), it records it with a `truth` action.
+  - Recorded truths are kept in the state file and shown to the GM, never to the co-players, so later turns stay
+    consistent.
+- **Co-players are written into the world.** New ones get a full personality and a background story rooted in it.
+  Each co-player knows its own story and its companions' public profiles. Missing background on an adopted GM-cast PC
+  is also filled in to fit the world.
+- **No module.** The platform's script knowledge and module hints are not read in this mode.
+- **BRP with CoC presets.** An improvised campaign is a Basic Roleplaying game on the Call of Cthulhu 7th edition
+  presets: CoC's characteristics, skills, dice and sanity, with genre and tone taken from your world, not necessarily
+  horror. A module-led campaign stays Call of Cthulhu as such.
+
+To change the setting during a campaign, use `world` (handed to `run` if it is up):
+
+```bash
+node src/cli.mjs world --world world-v2.md
+```
+
+```bash
+node src/cli.mjs world --secrets secrets-v2.md
+```
+
+```bash
+node src/cli.mjs world --improv false
+```
+
+A text you leave out keeps its current version. `status` shows whether the mode is on, the setting's size, whether it
+has been posted, and how many truths the GM has recorded.
+
+## Casual mode: phones
+
+For casual roleplaying, usually (not necessarily) together with improvisation. It is a client option; the platform
+knows nothing of it. Without it the game is solemn and there are no phones.
+
+```bash
+node src/cli.mjs setup --coplayers 2 --casual --improv --world world.md
+```
+
+```bash
+node src/cli.mjs casual on
+```
+
+```bash
+node src/cli.mjs casual off
+```
+
+- **Phones.** Each player character gets a phone: a private window, `Phone: <name>`, with only its player in it. New
+  players get theirs when they join.
+- **Texting.** Write `@` and a name, e.g. `@Silas Mott where are you?`. A line without `@` goes to whoever you texted
+  last (or who texted you last). An unknown name gets a hint and reaches no one.
+- **Replies:**
+  - A real NPC answers through the GM, as that NPC, after a believable delay of its choosing, or leaves the message on
+    read.
+  - A co-player answers in character the same way, at most `CASUAL_MAX_DELAY_MINUTES` later.
+  - Pending replies are kept in the state file, so they survive a restart and still arrive while everyone is away.
+- **Other players.** A text to another player appears in their phone at once, posted as the sender's character.
+- **First contact.** The GM may have an NPC text a player (a hook, news, an invitation), and a co-player may text a
+  player instead of speaking in the scene.
+- **Who knows what.** A text never starts a scene turn and never moves anyone between scenes. The GM reads every
+  phone; a co-player knows only the messages it sent or received.
+- **Privacy.** Phones are private only on an **isolated** channel with one player per group, so casual mode stays off
+  anywhere else. `setup --casual` creates isolated channels.
+
+`status` shows the phones and the texts still on their way.
 
 ## Setup
 
@@ -218,7 +379,7 @@ Appearance prompts are generated alongside new role cards (also for new NPCs dur
 images. Saving the prompt does not change uploaded/generated image mode or automatically spend image-generation credits.
 Missing injury, phobia, magic and Mythos-experience fields use an explicit "None" when applicable.
 
-With the server's `coc7_points` feature enabled, setup also checks career and skill purchases. The model chooses a career,
+With the channel's `point_buy` option on (GM workspace → Settings → Rules; older servers: the `coc7_points` feature), setup also checks career and skill purchases. The model chooses a career,
 then receives that career's complete point formula, fixed skills, choice groups, free specialties, Credit Rating range and
 skill bases. It allocates career/hobby increments; the platform computes the final skill values. Existing growth points
 are retained. Missing/invalid allocations are repaired, including older co-players with only handwritten skill totals.
@@ -255,12 +416,17 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `LLM_STREAM` | `--llm-stream` | `true` | OpenAI Responses: receive streaming replies; set `false` only if the endpoint does not support streaming |
 | `LLM_TIMEOUT_MS` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a proxy/gateway's own timeout |
 | `DEBOUNCE_MS`, `POST_DELAY_MS` | | `4000`, `1200` | quiet time before a turn; pause between posted lines |
-| `MAX_ACTIONS_PER_TURN`, `CONTEXT_LINES` | | `6`, `60` | lines per turn; chat lines per prompt |
+| `MAX_ACTIONS_PER_TURN` | | `6` | lines per turn |
+| `GM_CONTEXT_TOKENS`, `COPLAYER_CONTEXT_TOKENS` | | `60000`, `24000` | context budget for the GM and for each co-player; older history is compacted into chapters |
+| `CONTEXT_LINES`, `HISTORY_BACKFILL_LINES` | | `100`, `1000` | lines fetched per page when syncing the local copy of the chat; how far back the first sync goes |
+| `LLM_CACHE_TTL` | `--llm-cache-ttl` | `1h` | Anthropic prompt-cache lifetime: `1h`, `5m` or `off` |
+| `LLM_DAILY_TOKEN_BUDGET` | | `0` (off) | billable-equivalent tokens a day; once spent, no autonomous turns until tomorrow |
 | `AUTONOMY` | `--autonomy` | `true` | side timelines and quiet windows move on the table's own clock |
 | `AUTONOMY_TICK_MS` | | `30000` | how often the table looks for a window that should move |
 | `AUTONOMY_SIDE_INTERVAL_MS` | | `90000` | pause between turns in a side window |
 | `AUTONOMY_QUIET_MS`, `AUTONOMY_QUIET_TURNS` | | `180000`, `2` | silence before a shared window moves on, and how many such turns until a human posts again |
-| `AUTONOMY_MAX_TURNS_PER_HOUR`, `AUTONOMY_IDLE_MINUTES` | | `20`, `30` | hourly cap on autonomous turns; no autonomy once nobody has posted for this long |
+| `AUTONOMY_MAX_TURNS_PER_HOUR`, `AUTONOMY_IDLE_MINUTES` | | `20`, `30` | hourly cap on autonomous turns; "away" once nobody has posted for this long |
+| `AWAY_SIDE_INTERVAL_MS` | | `21600000` (6 h) | while away, how often a co-players-only thread moves (0: never) |
 | `TIMELINE_AUTO` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: model-led co-player splits |
 | `TIMELINE_GUARD_TURNS`, `TIMELINE_GUARD_MS` | | `2`, `180000` | a co-player's move that undoes a recent change waits for two agreeing turns within this window |
 | `TIMELINE_MAX_ACTIVE` | | `4` | at most this many threads at once (the main one included) |
@@ -268,7 +434,11 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `TIMELINE_MAX_ARRIVALS_PER_HOUR` | | `12` | arrival turns (opening a new or changed scene) per hour |
 | `SCENARIO_AUTO` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the Main Chat only) |
 | `SCENARIO_MIN_MINUTES`, `SCENARIO_MIN_LINES` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it |
-| `STATE_DIR` | `--state-dir` | `./.state` | the state file (co-players, real NPCs, seats, timelines, guard, scenario), its lock and the command inbox |
+| `CASUAL` | `--casual` | off | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
+| `CASUAL_MAX_DELAY_MINUTES` | | `240` | longest delay before an NPC's or co-player's reply to a text |
+| `IMPROV` | `--improv` | off | improvisation mode (with `setup` or `world`; it is then kept in the state file) |
+| `WORLD_FILE`, `SECRETS_FILE` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` |
+| `STATE_DIR` | `--state-dir` | `./.state` | the state file (co-players, real NPCs, seats, timelines, guard, scenario, improvisation setting), its lock and the command inbox |
 
 **Mock mode.** `LLM_PROVIDER=mock` writes labelled placeholder text (`[mock Keeper] …`). It exercises every pipeline
 without a provider. It is for tests and demos, not for play.
@@ -278,9 +448,10 @@ for the model. HTTP 504 means the model gateway timed out, even if the client's 
 can keep an idle-timeout gateway connection active once the model starts sending data, but cannot fix an unavailable
 upstream or a gateway's absolute request deadline. After a failure, run setup again; it keeps previously saved co-players.
 
-**Recovering a lost roster.** Co-players carry a `[co-player]` prefix in their character's speaking style. If the state
-file is lost, the roster is rebuilt from the channel's characters: marked NPCs become co-players and every other NPC is a
-real NPC (including ones the Keeper makes in the web app).
+**Recovering a lost roster.** If the state file is lost, the roster is rebuilt from the channel's characters: PCs owned by
+the Keeper account are co-players and every NPC is a real NPC (including ones the Keeper makes in the web app).
+Co-players made by older versions are NPCs whose speaking style starts with `[co-player]`; they are still recognised,
+because the platform cannot change a character's kind.
 
 ## Tests
 
@@ -299,9 +470,9 @@ The tests need no backend and no model. They cover:
 
 - **Co-player lines count as Keeper lines.** They are posted by the Keeper account, so the platform records them with
   `actor_role = gm`. The platform's chronicler accepts GM-authored lines as grounds for `confirmed` facts, so a
-  co-player's in-character guess may be recorded as established. Co-player lines are posted under an NPC character, which
-  the chronicler's instructions treat as an NPC claim, but nothing enforces that. A platform-side `co-player` character
-  flag would fix this.
+  co-player's in-character guess may be recorded as established. Log Studio and the players' group memory count them
+  as the investigator's lines (the character is a PC); the Keeper-side observers, reminders and script tracking still
+  see a Keeper line.
 - Co-players start in the windows of `COPLAYER_WINDOWS` and move only through whereabouts (or `split` and `rejoin`). A
   private window the Keeper creates in the web app does not seat them automatically and is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side

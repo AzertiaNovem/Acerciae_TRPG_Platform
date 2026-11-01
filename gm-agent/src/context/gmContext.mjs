@@ -3,17 +3,24 @@
 // hints), and every chat line in every window. Co-players never get this (see coplayerContext.mjs).
 import { renderLine } from "./coplayerContext.mjs";
 import { renderProfile } from "./profiles.mjs";
+import { isPlayerCharacter } from "../roles/roster.mjs";
+import { improvSections } from "../improv.mjs";
+import { CHUNK_LINES, estimateTokens } from "../memory.mjs";
 
 const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const json = (v, n) => clip(JSON.stringify(v ?? null), n);
+export const duration = (ms) => (ms >= 86400000 ? `${Math.round(ms / 86400000)} d` : ms >= 3600000 ? `${Math.round(ms / 3600000)} h` : `${Math.max(1, Math.round(ms / 60000))} min`);
 
 export class GmContext {
-  constructor(api, channelId, { contextLines = 60, log = () => {} } = {}) {
+  // `history` and `memory` (memory.mjs) hold the chat and its compacted chapters; `budget` is GM_CONTEXT_TOKENS.
+  constructor(api, channelId, { history, memory, budget = 60000, log = () => {} } = {}) {
     this.api = api;
     this.channelId = channelId;
-    this.contextLines = contextLines;
+    this.history = history;
+    this.memory = memory;
+    this.budget = budget;
     this.log = log;
-    this.docCache = new Map();   // document id → {version, markdown}
+    this.docCache = new Map();   // document id → {version, text}
     this.liveTips = [];          // tips pushed on /ws/context since the last turn
   }
 
@@ -31,60 +38,75 @@ export class GmContext {
     try { return await fn(); } catch (e) { if (e.status !== 403 && e.status !== 404) this.log(`gm context: ${what}: ${e.message}`); return null; }
   }
 
+  // The Keeper documents, each within its share of the budget. The API lists entries oldest first; when a document is
+  // too long the newest entries are kept (a long campaign's latest developments matter most).
   async documents() {
     const list = (await this.safe("documents", () => this.api.documents(this.channelId))) ?? [];
+    const share = Math.max(800, Math.round(this.budget * 0.05));
     const out = [];
     for (const d of list) {
       if (!d.entry_count) continue;
       let cached = this.docCache.get(d.id);
       if (!cached || cached.version !== d.version) {
         const full = await this.safe(`document ${d.doc_type}`, () => this.api.document(this.channelId, d.id));
-        cached = { version: d.version, markdown: full?.markdown ?? d.preview ?? "" };
+        cached = { version: d.version, text: newestFirst(full, d.preview, share) };
         this.docCache.set(d.id, cached);
       }
-      out.push(`### ${d.title || d.doc_type} (v${d.version})\n${clip(cached.markdown, 2500)}`);
+      out.push(`### ${d.title || d.doc_type} (v${d.version})\n${cached.text}`);
     }
     return out;
   }
 
-  // Everything the GM model reads for one turn in `windowId`.
+  // Everything the GM model reads for one turn in `windowId`, as parts laid out stable-first (llm/parts.mjs):
+  //   A (cached) – campaign, world setting, cast, scenarios, every window's chapters: changes rarely;
+  //   B (cached) – this window's older lines since its last chapter, in frozen chunks of CHUNK_LINES;
+  //   C (cached) – hidden truths, timelines, the Keeper board and documents: changes every few turns;
+  //   D          – what changes every turn: the scenario's event count, reminders, tips, windows, the newest lines.
   // `sceneOf(windowId)` gives the active timeline played in a window (the main timeline for the Main Chat), or null.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null }) {
+  // `improv` (improv.mjs): in improvisation mode the module's script knowledge and hints are left out, and the world
+  // setting and hidden truths are added. `hide` holds message ids left out of the chat (the posted world setting).
+  // `awayOf(characterId)` is how long a player character's player has been away (ms), or null when they are around.
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null }) {
     const ch = this.channelId;
-    const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs] = await Promise.all([
+    const module = !improv?.on;
+    await this.history.sync(windowId);
+    const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs, world] = await Promise.all([
       this.safe("channel", () => this.api.channel(ch)),
       this.safe("scenes", () => this.api.scenes(ch)),
       this.safe("board", () => this.api.kpBoard(ch)),
       this.safe("reminders", () => this.api.reminders(ch)),
-      this.safe("script knowledge", () => this.api.scriptKnowledge(ch)),
+      module ? this.safe("script knowledge", () => this.api.scriptKnowledge(ch)) : null,
       this.safe("highlights", () => this.api.highlights(ch)),
-      this.safe("module hints", () => this.api.moduleHints(ch)),
+      module ? this.safe("module hints", () => this.api.moduleHints(ch)) : null,
       this.safe("proposals", () => this.api.proposals(ch)),
       this.documents(),
+      this.safe("world", () => this.api.world(ch)),
     ]);
-    // Windows whose scene is over are left out, except the last few merged threads: the Keeper needs what just
-    // happened there when the party reunites.
-    const recentMerged = new Set((timelines?.list ?? []).filter((t) => t.status !== "active" && t.windowId).slice(-3).map((t) => t.windowId));
-    const retired = (w) => w.id !== windowId && timelines?.retired(w.id) && !recentMerged.has(w.id);
-    const messages = await this.chat(windowId, windows.filter((w) => !retired(w)));
     const charName = new Map(characters.map((c) => [c.id, c.name]));
-    for (const m of messages) if (m.whisper_to?.length) m.whisper_to_names = m.whisper_to.map((id) => charName.get(id) ?? id);
     const current = (scenes ?? []).find((s) => s.id === channel?.current_scene_id);
     const tips = this.liveTips.splice(0);
     const nameOf = (id) => charName.get(id) ?? id;
     const windowName = (id) => windows.find((w) => w.id === id)?.name ?? id;
     // Every line carries the timeline it comes from, so a story told in one window is never taken as happening now.
-    const line = (m) => renderLine(m, { markVisibility: true, timeline: timelines ? timelines.ofLine(m).name : "" });
+    const render = (m) => {
+      if (m.whisper_to?.length && !m.whisper_to_names) m.whisper_to_names = m.whisper_to.map(nameOf);
+      return renderLine(m, { markVisibility: true, timeline: timelines ? timelines.ofLine(m).name : "" });
+    };
+    const shown = (m) => !hide?.has(m.id);
+    const linesOf = (w) => this.history.lines(w).filter(shown);
 
-    const sections = [];
-    sections.push(`## Campaign\nname: ${channel?.name ?? ""}\nera: ${channel?.era || "(not set)"}\ndescription: ${clip(channel?.description, 600)}\nstory: ${channel?.story_status ?? "ongoing"}\ncurrent scenario: ${current ? `${current.title}${current.location ? ` @ ${current.location}` : ""}${current.narrative_time ? ` (${current.narrative_time})` : ""}; ${current.event_count ?? 0} events so far` : "(none)"}`);
+    // ---- A: the campaign, rarely changing
+    const a = [];
+    a.push(`## Campaign\nname: ${channel?.name ?? ""}\nera: ${channel?.era || "(not set)"}\ndescription: ${clip(channel?.description, 600)}\nstory: ${channel?.story_status ?? "ongoing"}\ncurrent scenario: ${current ? `${current.title}${current.location ? ` @ ${current.location}` : ""}${current.narrative_time ? ` (${current.narrative_time})` : ""}` : "(none)"}`);
+    const [worldSection, hiddenSection] = improvSections(improv);
+    if (worldSection) a.push(worldSection);
     const prepared = (scenes ?? []).filter((s) => s.status === "active" && s.id !== channel?.current_scene_id);
-    if (prepared.length) sections.push(`## Prepared scenarios (enter_scenario)\n${prepared.map((s) => `- ${s.title}${s.location ? ` @ ${s.location}` : ""}${s.narrative_time ? ` (${s.narrative_time})` : ""}${s.summary ? `: ${clip(s.summary, 200)}` : ""}`).join("\n")}`);
-    const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-4);
-    if (closed.length) sections.push(`## Earlier scenarios\n${closed.map((s) => `- ${s.title}: ${clip(s.summary, 500)}`).join("\n")}`);
-    const pcs = characters.filter((c) => c.kind === "pc");
+    if (prepared.length) a.push(`## Prepared scenarios (enter_scenario)\n${prepared.map((s) => `- ${s.title}${s.location ? ` @ ${s.location}` : ""}${s.narrative_time ? ` (${s.narrative_time})` : ""}${s.summary ? `: ${clip(s.summary, 200)}` : ""}`).join("\n")}`);
+    const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-8);
+    if (closed.length) a.push(`## Earlier scenarios\n${closed.map((s) => `- ${s.title}: ${clip(s.summary, 800)}`).join("\n")}`);
+    const pcs = characters.filter((c) => isPlayerCharacter(c, roster));
     const coplayers = characters.filter((c) => roster.isCoplayer(c.id));
-    sections.push([
+    a.push([
       "## Cast",
       "Player characters (real people play them; never speak or decide for them), with their basic details and background:",
       ...(pcs.length ? pcs.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`)) : ["- (none yet)"]),
@@ -93,56 +115,123 @@ export class GmContext {
       "Real NPCs (you voice them):",
       ...(roster.npcs.length ? roster.npcs.map((c) => `- ${c.name}: ${clip(c.brief, 200)}`) : ["- (none yet; introduce them with new_npc)"]),
     ].join("\n"));
+    // Every window's chapters (the story so far, compacted), windows in a fixed order.
+    const chaptered = windows.map((w) => ({ w, chapters: this.memory.gmChapters(w.id) })).filter((x) => x.chapters.length);
+    if (chaptered.length) {
+      a.push(["## The story so far (compacted chapters, oldest first; the lines since each window's last chapter follow below)",
+        ...chaptered.map(({ w, chapters }) => `### In "${w.name}"\n${chapters.map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`).join("\n\n")}`)].join("\n"));
+    }
+
+    // ---- B: this window's lines since its last chapter, frozen in chunks; the rest goes to D
+    const raw = this.memory.gmRaw(windowId, linesOf(windowId));
+    let frozen = raw.slice(0, Math.floor(raw.length / CHUNK_LINES) * CHUNK_LINES);
+    const tail = raw.slice(frozen.length);
+    // Over budget (compaction has not caught up yet): the oldest lines wait for their chapter.
+    while (frozen.length && estimateTokens([...frozen, ...tail].map(render).join("\n")) > this.budget) frozen = frozen.slice(CHUNK_LINES);
+    const win = windows.find((w) => w.id === windowId);
+
+    // ---- C: changes every few turns
+    const c = [];
+    if (hiddenSection) c.push(hiddenSection);
     if (timelines) {
       // Every active thread, always; then the most recent merged ones for context.
-      const shown = [...timelines.active(), ...timelines.list.filter((t) => t.status !== "active" && t.mergedInto).slice(-6)];
-      sections.push([
+      const listed = [...timelines.active(), ...timelines.list.filter((t) => t.status !== "active" && t.mergedInto).slice(-6)];
+      c.push([
         "## Timelines",
         "Investigators may be living different threads of the story. A line is tagged with the timeline it comes from: a character telling the table about events speaks from its own timeline, so those events happened there, not now in this scene. Knowledge crosses timelines only when a character who was there tells it.",
-        ...shown.map((t) => `- T${t.handle ?? "?"} ${t.name} [${t.status}${t.mergedInto ? ` into ${timelines.get(t.mergedInto)?.name ?? t.mergedInto}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span} split` : ""}]${t.windowId ? ` in window "${windowName(t.windowId)}"` : ""}: ${t.members.map(nameOf).join(", ") || "(no one now)"}${t.narrativeTime ? `; time: ${t.narrativeTime}` : ""}${t.location ? `; place: ${t.location}` : ""}${t.notes ? `\n    notes: ${clip(t.notes, 600)}` : ""}`),
+        ...listed.map((t) => `- T${t.handle ?? "?"} ${t.name} [${t.status}${t.mergedInto ? ` into ${timelines.get(t.mergedInto)?.name ?? t.mergedInto}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span} split` : ""}]${t.windowId ? ` in window "${windowName(t.windowId)}"` : ""}: ${t.members.map(nameOf).join(", ") || "(no one now)"}${t.narrativeTime ? `; time: ${t.narrativeTime}` : ""}${t.location ? `; place: ${t.location}` : ""}${t.notes ? `\n    notes: ${clip(t.notes, 600)}` : ""}`),
       ].join("\n"));
     }
-    if (board && (board.next || board.notes)) sections.push(`## Keeper board (platform AI)\nnext: ${json(board.next, 2500)}\nnotes: ${json(board.notes, 2500)}`);
-    if (reminders?.length) sections.push(`## Keeper reminders (platform AI)\n${reminders.slice(0, 8).map((r) => `- [${r.kind}] ${r.title}: ${clip(r.why, 300)}`).join("\n")}`);
+    if (board && (board.next || board.notes)) c.push(`## Keeper board (platform AI)\nnext: ${json(board.next, 2500)}\nnotes: ${json(board.notes, 2500)}`);
     if (script?.length) {
-      const flow = script.filter((k) => k.kind === "flow").sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      const flow = script.filter((k) => k.kind === "flow").sort((x, y) => (x.position ?? 0) - (y.position ?? 0));
       const rest = script.filter((k) => k.kind !== "flow" && k.status !== "done").slice(0, 30);
-      sections.push(`## Script knowledge (from the module)\n${flow.map((k) => `- stage ${k.position ?? ""} [${k.status}] ${k.title}: ${clip(k.body, k.status === "active" ? 1200 : 250)}`).join("\n")}\n${rest.map((k) => `- ${k.kind} [${k.status}] ${k.title}: ${clip(k.body, 250)}`).join("\n")}`);
+      c.push(`## Script knowledge (from the module)\n${flow.map((k) => `- stage ${k.position ?? ""} [${k.status}] ${k.title}: ${clip(k.body, k.status === "active" ? 1200 : 250)}`).join("\n")}\n${rest.map((k) => `- ${k.kind} [${k.status}] ${k.title}: ${clip(k.body, 250)}`).join("\n")}`);
     }
-    if (docs.length) sections.push(`## Keeper documents (platform AI)\n${docs.join("\n\n")}`);
-    if (highlights?.length) sections.push(`## Highlights (platform AI)\n${highlights.slice(0, 10).map((h) => `- ${clip(h.reason, 200)}`).join("\n")}`);
-    if (hints?.length) sections.push(`## Module hints (platform AI)\n${hints.slice(0, 6).map((h) => `- ${clip(h.reason ?? h.description ?? JSON.stringify(h), 200)}`).join("\n")}`);
-    if (proposals?.length) sections.push(`## Pending memory proposals\n${proposals.length} waiting for the Keeper's review in the web app.`);
-    if (tips.length) sections.push(`## Just pushed by the platform\n${tips.map((t) => `- ${clip(t, 300)}`).join("\n")}`);
+    const worldNow = worldRecordSection(world, Math.max(800, Math.round(this.budget * 0.08)));
+    if (worldNow) c.push(worldNow);
+    if (docs.length) c.push(`## Keeper documents (platform AI)\n${docs.join("\n\n")}`);
+
+    // ---- D: every turn
+    const d = [];
+    if (current) d.push(`## Now\nThe current scenario "${current.title}" has ${current.event_count ?? 0} events so far.`);
+    if (reminders?.length) d.push(`## Keeper reminders (platform AI)\n${reminders.slice(0, 8).map((r) => `- [${r.kind}] ${r.title}: ${clip(r.why, 300)}`).join("\n")}`);
+    if (highlights?.length) d.push(`## Highlights (platform AI)\n${highlights.slice(0, 10).map((h) => `- ${clip(h.reason, 200)}`).join("\n")}`);
+    if (hints?.length) d.push(`## Module hints (platform AI)\n${hints.slice(0, 6).map((h) => `- ${clip(h.reason ?? h.description ?? JSON.stringify(h), 200)}`).join("\n")}`);
+    if (proposals?.length) d.push(`## Pending memory proposals\n${proposals.length} waiting for the Keeper's review in the web app.`);
+    if (tips.length) d.push(`## Just pushed by the platform\n${tips.map((t) => `- ${clip(t, 300)}`).join("\n")}`);
     // Who is really in each window's scene, who is a member but elsewhere, and which windows' scenes are over.
+    const who = (id) => { const ms = awayOf(id); return ms ? `${nameOf(id)} (player away ${duration(ms)})` : nameOf(id); };
     const describe = (w) => {
       if (timelines?.retired(w.id)) return "(scene over: merged into another thread)";
       const scene = sceneOf(w.id);
       const memberChars = (w.members ?? []).filter((m) => m.character_id).map((m) => m.character_id);
-      if (!scene) return [...memberChars.map(nameOf), ...roster.coplayersIn(w.id).map((c) => c.name)].join(", ") || "(no investigators)";
-      const here = scene.members.map(nameOf);
+      if (!scene) return [...memberChars.map(who), ...roster.coplayersIn(w.id).map((x) => x.name)].join(", ") || "(no investigators)";
+      const here = scene.members.map(who);
       const away = memberChars.filter((id) => !scene.members.includes(id)).map((id) => `${nameOf(id)} (in ${timelines.of(id).name})`);
       return `${here.join(", ") || "(no one)"}${away.length ? `; members elsewhere: ${away.join(", ")}` : ""}`;
     };
-    sections.push(`## Chat windows\n${windows.map((w) => `- ${w.name} (${w.kind})${w.id === windowId ? " ← this turn" : ""}: ${describe(w)}`).join("\n")}`);
-    const others = windows.filter((w) => w.id !== windowId && !retired(w));
-    for (const w of others) {
-      const lines = messages.filter((m) => m.chat_window_id === w.id).slice(-8);
-      if (lines.length) sections.push(`## Recent lines in "${w.name}"\n${lines.map(line).join("\n")}`);
+    d.push(`## Chat windows\n${windows.map((w) => `- ${w.name} (${w.kind})${w.id === windowId ? " ← this turn" : ""}: ${describe(w)}`).join("\n")}`);
+    // Windows whose scene is over are left out, except the last few merged threads: the Keeper needs what just
+    // happened there when the party reunites (their chapters stay in A in any case).
+    const recentMerged = new Set((timelines?.list ?? []).filter((t) => t.status !== "active" && t.windowId).slice(-3).map((t) => t.windowId));
+    for (const w of windows.filter((x) => x.id !== windowId && (!timelines?.retired(x.id) || recentMerged.has(x.id)))) {
+      const lines = this.memory.gmRaw(w.id, linesOf(w.id)).slice(-8);
+      if (lines.length) d.push(`## Recent lines in "${w.name}"\n${lines.map(render).join("\n")}`);
     }
-    const here = messages.filter((m) => m.chat_window_id === windowId);
-    const win = windows.find((w) => w.id === windowId);
-    sections.push(`## Chat in "${win?.name ?? "this window"}" (newest last)\n${here.map(line).join("\n") || "(no lines yet)"}`);
-    return { text: sections.join("\n\n"), newest: here[here.length - 1] ?? null, current };
-  }
+    d.push(`## Chat in "${win?.name ?? "this window"}" (newest last${frozen.length ? "; earlier lines above" : ""})\n${tail.map(render).join("\n") || (frozen.length ? "(see above)" : "(no lines yet)")}`);
 
-  async chat(windowId, windows) {
-    const out = [];
-    for (const w of windows) {
-      const limit = w.id === windowId ? this.contextLines : 8;
-      const rows = await this.safe(`messages ${w.name}`, () => this.api.messages(this.channelId, w.id, limit));
-      if (rows) out.push(...rows);
-    }
-    return out.sort((a, b) => a.seq - b.seq);
+    const parts = [
+      { text: `${a.join("\n\n")}\n\n`, cache: true },
+      ...(frozen.length ? [{ text: `## Chat in "${win?.name ?? "this window"}", earlier lines since its last chapter\n${frozen.map(render).join("\n")}\n\n`, cache: true }] : []),
+      ...(c.length ? [{ text: `${c.join("\n\n")}\n\n`, cache: true }] : []),
+      { text: d.join("\n\n") },
+    ];
+    const here = [...frozen, ...tail];
+    return { parts, text: parts.map((p) => p.text).join(""), newest: here.at(-1) ?? null, current, render, lines: (w) => linesOf(w) };
   }
+}
+
+// The platform's living world record: every entity with something known about it now, within `budget` tokens (the
+// most recently changed kept), in the record's own order, then the latest changes.
+function worldRecordSection(world, budget) {
+  const known = (world?.entities ?? []).filter((e) => (e.status && e.status !== "unknown") || e.state || e.location);
+  if (!known.length) return "";
+  const line = (e) => `- [${e.kind}] ${e.name}${e.status && e.status !== "unknown" ? ` — ${e.status}` : ""}${e.state ? `: ${String(e.state).replace(/\s+/g, " ").trim()}` : ""}${e.location?.name ? ` (at ${e.location.name})` : ""}${e.state_by === "gm" ? " [set by you]" : ""}`;
+  const keep = new Set();
+  let used = 0;
+  for (const e of [...known].sort((a, b) => String(b.state_updated_at ?? "").localeCompare(String(a.state_updated_at ?? "")))) {
+    const t = estimateTokens(line(e));
+    if (used + t > budget && keep.size) break;
+    keep.add(e.id); used += t;
+  }
+  const changes = (world.recent_changes ?? []).slice(0, 8).map((c) => `- ${c.name}: ${c.status}${c.state ? `, ${String(c.state).replace(/\s+/g, " ").trim()}` : ""}${c.location_name ? ` (at ${c.location_name})` : ""} (${c.actor === "gm" ? "you" : "from play"})`);
+  const dropped = known.length - keep.size;
+  return [`## The world now (the platform's record of what is true at present; keep to it, change it with world_change)`, ...known.filter((e) => keep.has(e.id)).map(line), ...(dropped ? [`(${dropped} more entities not shown)`] : []), ...(changes.length ? ["Latest changes:", ...changes] : [])].join("\n");
+}
+
+// A document's entries within `budget` tokens, newest kept, in their own order, with a note of how many were left out.
+function newestFirst(full, preview, budget) {
+  const entries = (full?.entries ?? []).filter((e) => !e.removed);
+  if (!entries.length) {
+    const md = String(full?.markdown ?? preview ?? "");
+    return estimateTokens(md) <= budget ? md : `…\n${md.slice(-Math.round(budget * 3.5))}`;
+  }
+  const order = entries.map((e, i) => ({ e, i, v: Number(e.updated_version ?? e.created_version ?? 0) }));
+  const keep = new Set();
+  let used = 0;
+  for (const x of [...order].sort((p, q) => q.v - p.v || q.i - p.i)) {
+    const t = estimateTokens(x.e.content_md ?? x.e.summary ?? "");
+    if (used + t > budget && keep.size) break;
+    keep.add(x.i); used += t;
+  }
+  let section = null;
+  const lines = [];
+  for (const x of order) {
+    if (!keep.has(x.i)) continue;
+    if (x.e.section && x.e.section !== section) { section = x.e.section; lines.push(`#### ${section}`); }
+    lines.push(`- ${String(x.e.content_md ?? x.e.summary ?? "").replace(/\s+/g, " ").trim()}`);
+  }
+  const dropped = entries.length - keep.size;
+  return `${lines.join("\n")}${dropped ? `\n(${dropped} older entries not shown)` : ""}`;
 }

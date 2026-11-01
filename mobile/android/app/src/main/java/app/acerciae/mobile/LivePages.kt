@@ -58,7 +58,7 @@ import java.io.File
             TextButton(onClick = { image = asset }, modifier = Modifier.fillMaxWidth()) { AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(260.dp)) }
         }
         items(attrs.obj("attrs").keys.sorted()) { key -> Text("$key  ${attrs.obj("attrs")[key]}") }
-        if (attrs.flag("editable") && !state.enabled("coc7_points")) {
+        if (attrs.flag("editable") && !space.obj("points").flag("enabled")) {
             item { OutlinedTextField(attribute, { attribute = it }, label = { Text(tr("属性或技能名")) }) }
             item { OutlinedTextField(value, { value = it }, label = { Text(tr("数值")) }) }
             item { Button(onClick = { model.launch {

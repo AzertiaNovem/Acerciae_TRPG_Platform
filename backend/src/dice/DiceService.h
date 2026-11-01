@@ -25,9 +25,16 @@ public:
         bool hidden = false;
         std::string hiddenNotice; // public "rolled in secret" line for hidden rolls
         bool narrative = true;    // false for sheet maintenance (.st/.en), which is not a story event
+        std::string initiativeWindow;   // set when the window's initiative order changed (notify after commit)
     };
     // Runs inside the caller's transaction; attribute changes commit together with the message.
-    Result execute(pqxx::work& w, const ChannelAccess& a, const std::string& characterId, const dice::Command& cmd);
+    Result execute(pqxx::work& w, const ChannelAccess& a, const std::string& windowId, const std::string& characterId, const dice::Command& cmd);
+    // The channel's rule system (channels.rule_system): which commands apply and how attribute names read.
+    std::string ruleSystem(const std::string& channelId);
+    // Initiative (D&D): a window's order, highest first, with the current turn and round. Members of the window read it;
+    // the GM moves the turn (next), removes an entry or clears the order. `.ri` adds to it, `.init` reads it in chat.
+    Json::Value initiative(const ChannelAccess& a, const std::string& windowId);
+    Json::Value initiativeAction(const ChannelAccess& a, const std::string& windowId, const Json::Value& body);
     void afterCommit(const ChannelAccess& a, const std::string& characterId, const Result& r);
 
     // Gray hint for the composer: {hint: string|null, command: ".ra"|null}. Never rolls.

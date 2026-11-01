@@ -182,7 +182,7 @@ ALTER TABLE ai_jobs DROP CONSTRAINT ai_jobs_kind_check;
 ALTER TABLE ai_jobs ADD CONSTRAINT ai_jobs_kind_check CHECK (kind IN
   ('observe','consolidate','consistency','inspiration','module_import','highlight_cleanup','agent_player','agent_keeper'));
 
--- Server switches (maintainers), next to consistency/dice/inspiration/log_studio/coc7_points.
+-- Server switches (maintainers), next to consistency/dice/inspiration/log_studio/atmosphere (point buy is now the channel option `point_buy`).
 ALTER TABLE server_settings ADD COLUMN feature_ai_player BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE server_settings ADD COLUMN feature_ai_keeper BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE server_settings ADD COLUMN ai_agent_daily_token_cap INTEGER NOT NULL DEFAULT 2000000;
@@ -315,7 +315,7 @@ appended, then `discarded`.
 1. Context: `coc7::rules()` (skills with bases, careers), the channel's `era`, persona.
 2. Output: a role card (`characteristics`, `career`, `skill_points{key:{career, hobby}}`, `bio`, `appearance_prompt`,
    `speaking_style`).
-3. Validate with `coc7::apply(card)`: when the server has `coc7_points` on, any `violations` trigger one repair round
+3. Validate with `coc7::apply(card)`: when the channel has `point_buy` on, any `violations` trigger one repair round
    with the report; still invalid ⇒ the request fails and nothing is saved.
 4. Save through `CharacterSpaceService::updateCard` (it normalizes the card and mirrors characteristics/skills into
    `sheet.attrs`, so the dice read them) and `updateAppearance`. Image generation is optional (`generate` in the

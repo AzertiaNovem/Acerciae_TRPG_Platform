@@ -218,7 +218,7 @@ void LogStudioService::insertEvents(pqxx::work& w, const std::string& projectId,
 Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std::string& projectId, const Json::Value& sel) {
     auto proj = projectRow(a, projectId);
     std::string sql = "SELECT e.id, e.seq, e.kind, e.payload, e.visibility, e.audience, e.actor_role, e.character_id, e.message_id, e.chat_window_id, e.scene_id, e.created_at, extract(epoch from e.created_at)::bigint AS ts, "
-                      "c.name AS character_name, u.display_name AS actor_name, s.title AS scene_title, m.content AS message_content, m.kind AS message_kind FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN users u ON u.id=e.actor_user_id LEFT JOIN scenes s ON s.id=e.scene_id LEFT JOIN messages m ON m.id=e.message_id "
+                      "c.name AS character_name, c.kind AS character_kind, u.display_name AS actor_name, s.title AS scene_title, m.content AS message_content, m.kind AS message_kind FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN users u ON u.id=e.actor_user_id LEFT JOIN scenes s ON s.id=e.scene_id LEFT JOIN messages m ON m.id=e.message_id "
                       "WHERE e.channel_id=$1 AND e.kind IN ('message.posted','scene.entered','scene.created') AND " + Visibility::eventFilter(a) +
                       " AND NOT EXISTS (SELECT 1 FROM log_events le WHERE le.project_id=$2 AND le.source_event_id=e.id)";
     DbParams p{a.channelId, projectId};
@@ -248,7 +248,8 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
         if (kind != "message.posted") { e.eventType = "scene_change"; e.content = e.sceneTitle.empty() ? json::str(r["payload"], "content") : e.sceneTitle; e.speakerRole = "system"; e.speakerKey = "system"; e.speakerDisplayName = "Scene"; e.metadata["location"] = r["payload"]["location"]; events.push_back(e); continue; }
         e.content = r["message_content"].isString() ? r["message_content"].asString() : json::str(r["payload"], "content");
         bool gm = r["actor_role"].asString() == "gm";
-        e.speakerRole = gm ? (r["character_id"].isNull() ? "gm" : "npc") : "pc";
+        // The Keeper speaking as a GM-cast PC (an AI co-player) is that investigator's line, not an NPC's.
+        e.speakerRole = gm ? (r["character_id"].isNull() ? "gm" : json::str(r, "character_kind") == "pc" ? "pc" : "npc") : "pc";
         e.speakerCharacterId = r["character_id"].isNull() ? "" : r["character_id"].asString();
         e.speakerDisplayName = r["character_name"].isNull() ? (gm ? "GM" : r["actor_name"].asString()) : r["character_name"].asString();
         e.speakerKey = e.speakerCharacterId.empty() ? (gm ? "gm" : "user:" + r["actor_name"].asString()) : e.speakerCharacterId;

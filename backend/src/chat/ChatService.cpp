@@ -10,6 +10,7 @@
 #include "../dice/DiceService.h"
 #include "../core/Text.h"
 #include "../core/Crypto.h"
+#include "../rules/RuleSystem.h"
 
 namespace acerciae {
 
@@ -223,9 +224,11 @@ Json::Value ChatService::createChannel(const Principal& p, const std::string& se
     auto name = json::requireStr(body, "name");
     auto mode = json::str(body, "knowledge_mode", "isolated");
     if (mode != "public" && mode != "isolated") throw badRequest("knowledge_mode must be public or isolated");
+    auto ruleSystem = rules::canonical(json::str(body, "rule_system", "coc7e"));
+    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e or dnd2024");
     auto ch = db_.tx([&](pqxx::work& w) {
-        auto c = Db::queryOne(w, "INSERT INTO channels(server_id, name, description, rule_system, knowledge_mode) VALUES($1,$2,$3,$4,$5) RETURNING *",
-            {serverId, name, json::str(body, "description"), json::str(body, "rule_system", "coc7e"), mode});
+        auto c = Db::queryOne(w, "INSERT INTO channels(server_id, name, description, rule_system, knowledge_mode, point_buy) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+            {serverId, name, json::str(body, "description"), ruleSystem, mode, json::toBool(body, "point_buy")});
         auto id = c["id"].asString();
         Db::exec(w, "INSERT INTO channel_members(channel_id, user_id, role) VALUES($1,$2,'gm')", {id, p.userId});
         auto win = Db::queryOne(w, "INSERT INTO chat_windows(channel_id, name, kind, created_by) VALUES($1,'Main Chat','main',$2) RETURNING id", {id, p.userId});
@@ -262,6 +265,11 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
             throw badRequest("unknown dice text group");
     }
     auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
+    // The rule system decides the dice commands, the character sheet and how the AI names the game and the GM; point
+    // buy makes role cards follow the system's character-creation budget. Both are the GM's to change at any time.
+    auto ruleSystem = rules::canonical(json::str(body, "rule_system", cur["rule_system"].asString()));
+    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e or dnd2024");
+    db_.exec("UPDATE channels SET rule_system=$2, point_buy=$3 WHERE id=$1", {a.channelId, ruleSystem, flag("point_buy")});
     db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
              "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
         {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
@@ -395,7 +403,11 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     return db_.tx([&](pqxx::work& w) {
         auto c = Db::queryOne(w, "INSERT INTO characters(channel_id, user_id, name, kind, speaking_style, sheet) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *",
             {a.channelId, ownerId.empty() ? dbNull() : DbParam(ownerId), name, kind, json::str(body, "speaking_style"), json::dump(sheet)});
-        if (kind == "pc" && !ownerId.empty()) {
+        // A PC owned by a GM account (a "GM-cast" PC, such as an AI co-player) is voiced by the Keeper like an NPC: the
+        // Keeper's own window memberships stay unbound, or every window the Keeper sits in would count it as present.
+        bool gmCast = ownerId.empty() ? false : ownerId == a.userId ? a.isGm
+            : !Db::queryOne(w, "SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2 AND role='gm'", {a.channelId, ownerId}).isNull();
+        if (kind == "pc" && !ownerId.empty() && !gmCast) {
             // Bind the character to the windows its player is already in and has no character yet.
             Db::exec(w, "UPDATE chat_window_members wm SET character_id=$2 FROM chat_windows cw WHERE cw.id=wm.chat_window_id AND cw.channel_id=$1 AND wm.user_id=$3 AND wm.character_id IS NULL",
                 {a.channelId, c["id"].asString(), ownerId});
@@ -445,7 +457,7 @@ Json::Value ChatService::createWindow(const ChannelAccess& a, const Json::Value&
             auto cid = json::str(m, "character_id");
             auto cm = Db::queryOne(w, "SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2", {a.channelId, uid});
             if (cm.isNull()) throw badRequest("user is not a channel member: " + uid);
-            if (cid.empty()) {
+            if (cid.empty() && Db::queryOne(w, "SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2 AND role='gm'", {a.channelId, uid}).isNull()) {
                 auto c = Db::queryOne(w, "SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2 AND kind='pc' ORDER BY created_at LIMIT 1", {a.channelId, uid});
                 if (!c.isNull()) cid = c["id"].asString();
             }
@@ -466,10 +478,11 @@ Json::Value ChatService::createWindow(const ChannelAccess& a, const Json::Value&
 Json::Value ChatService::addWindowMember(const ChannelAccess& a, const std::string& windowId, const std::string& userId, const std::string& characterId) {
     auth_.requireGm(a);
     auth_.requireWindowMember(a, windowId);
-    auto cm = db_.queryOne("SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2", {a.channelId, userId});
+    auto cm = db_.queryOne("SELECT role FROM channel_members WHERE channel_id=$1 AND user_id=$2", {a.channelId, userId});
     if (cm.isNull()) throw badRequest("user is not a channel member");
     std::string cid = characterId;
-    if (cid.empty()) {
+    // A Keeper speaks as any character; their GM-cast PCs are never their default identity in a window.
+    if (cid.empty() && cm["role"].asString() != "gm") {
         auto c = db_.queryOne("SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2 AND kind='pc' ORDER BY created_at LIMIT 1", {a.channelId, userId});
         if (!c.isNull()) cid = c["id"].asString();
     }
@@ -573,7 +586,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         std::string eventText = content;
         Json::Value diceJson;
         if (diceCmd) {
-            diceResult = dice_.execute(w, a, characterId, *diceCmd);
+            diceResult = dice_.execute(w, a, windowId, characterId, *diceCmd);
             diceJson = diceResult.dice; eventText = diceResult.text;
             if (diceResult.hidden) {
                 // Hidden rolls: the result reaches the roller's character and the GM; the window only sees a notice.

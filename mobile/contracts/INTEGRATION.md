@@ -36,7 +36,7 @@
 
 ## 新角色卡购点模式
 
-按服务端 `space.points.enabled` 决定角色卡模式，`features.coc7_points` 仅在该键存在时显示管理员开关。未知服务器不请求 `/coc7/rules`，保存服务器 features 保留未知开关。完整 role_card 回传保留 `career{name,choices,specialties}`、`skill_points{skill:{base?,growth,career,hobby}}` 及其他未修改分组。职业数据来自服务器，不在客户端打包职业表。两端独立预览器共用测试 fixture；预览不代替服务器最终授权和重新计算。规则错误只允许 `400 points_rule` 的 message 进入用户提示，限制长度 2000 字；失败不丢弃表单。
+按服务端 `space.points.enabled` 决定角色卡模式，`features.coc7_points` 仅在该键存在时显示管理员开关（新服务器已改为频道选项 `point_buy`，不再返回该键）。未知服务器不请求 `/coc7/rules`，保存服务器 features 保留未知开关。完整 role_card 回传保留 `career{name,choices,specialties}`、`skill_points{skill:{base?,growth,career,hobby}}` 及其他未修改分组。职业数据来自服务器，不在客户端打包职业表。两端独立预览器共用测试 fixture；预览不代替服务器最终授权和重新计算。规则错误只允许 `400 points_rule` 的 message 进入用户提示，限制长度 2000 字；失败不丢弃表单。
 
 默认地址现为 `https://trpg.missazertia.com:15510`，只填写根地址，客户端自行附加 `/api`。未尝试用种子账号登录该域名。购点模式联调使用独立 18083，不影响已有 18082 或其他 agent 的服务。
 

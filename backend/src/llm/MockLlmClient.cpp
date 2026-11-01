@@ -92,6 +92,32 @@ static Json::Value entityList(const std::string& content, const Json::Value& cha
     return arr;
 }
 
+// World-state changes in plain English, one per sentence: "<Name> is dead", "the <Place> burns", "<Name> is missing",
+// "<Name> flees to <Place>". Deliberately narrow; a real model judges the rest.
+static Json::Value worldChanges(const std::string& content, const Json::Value& characters) {
+    static const std::string name = "((?:the\\s+)?[A-Z][\\w'-]*(?:\\s+(?:of\\s+(?:the\\s+)?)?[A-Z][\\w'-]*)*)";
+    static const std::regex deadRe(name + "\\s+(?:(?:is|was|lies)\\s+(?:now\\s+)?dead|(?:has\\s+)?died|dies|(?:is|was|has been)\\s+killed)\\b");
+    static const std::regex burnRe(name + "\\s+(?:burns|burned|burnt|is burning|has burned|collapses|collapsed|(?:is|was|has been)\\s+destroyed|lies in ruins)\\b");
+    static const std::regex missingRe(name + "\\s+(?:(?:is|has gone|went|has been)\\s+missing|(?:has\\s+)?(?:vanished|disappeared)|vanishes|disappears)\\b");
+    static const std::regex moveRe(name + "\\s+(?:moves|moved|has moved|flees|fled|has fled|goes|went|travels|travelled|traveled|is now)\\s+(?:to|at|in|into)\\s+" + name);
+    static const std::set<std::string> skip = {"he","she","it","they","we","i","you","this","that","everyone","nobody","someone","then","now","suddenly","meanwhile","later","finally","but","and","so"};
+    auto clean = [](std::string n) { if (n.rfind("the ", 0) == 0 || n.rfind("The ", 0) == 0) n = n.substr(4); return trim(n); };
+    Json::Value out(Json::arrayValue);
+    for (const auto& s : sentences(content)) {
+        std::smatch m; Json::Value op; op["op"] = "entity_state";
+        auto known = [&](const std::string& n) { for (auto& c : characters) if (lower(json::str(c, "name")) == lower(n)) return json::str(c, "kind", "npc"); return std::string(); };
+        auto set = [&](const std::string& n, const std::string& status, const std::string& fallbackKind) {
+            if (n.empty() || skip.count(lower(n))) return false;
+            auto k = known(n); op["entity"] = n; op["kind"] = k.empty() ? fallbackKind : k; op["status"] = status; op["state"] = truncate(trim(s), 160); return true;
+        };
+        if (std::regex_search(s, m, deadRe) && set(clean(m[1].str()), "dead", "npc")) out.append(op);
+        else if (std::regex_search(s, m, burnRe) && set(clean(m[1].str()), "destroyed", "location")) out.append(op);
+        else if (std::regex_search(s, m, missingRe) && set(clean(m[1].str()), "missing", "npc")) out.append(op);
+        else if (std::regex_search(s, m, moveRe) && set(clean(m[1].str()), "active", "npc")) { op["location"] = clean(m[2].str()); out.append(op); }
+    }
+    return out;
+}
+
 static std::string detectTime(const std::string& content) {
     static const std::regex re("\\b(\\d{1,2}(:\\d{2})?\\s?(am|pm|AM|PM)|midnight|noon|dawn|dusk|morning|afternoon|evening|night|tonight|next day|the following day|[0-9]{1,2}(st|nd|rd|th) of [A-Z][a-z]+|(January|February|March|April|May|June|July|August|September|October|November|December) \\d{1,2}(,? \\d{4})?)\\b");
     std::smatch m; if (std::regex_search(content, m, re)) return m[0];
@@ -123,7 +149,7 @@ static std::string objectAfter(const std::string& content, const std::regex& ver
 
 // ---- observer ----------------------------------------------------------------------------------
 Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
-    Json::Value out; out["proposals"] = Json::Value(Json::arrayValue); out["highlights"] = Json::Value(Json::arrayValue); out["module_hints"] = Json::Value(Json::arrayValue); out["knowledge_suggestions"] = Json::Value(Json::arrayValue);
+    Json::Value out; out["proposals"] = Json::Value(Json::arrayValue); out["highlights"] = Json::Value(Json::arrayValue); out["module_hints"] = Json::Value(Json::arrayValue); out["knowledge_suggestions"] = Json::Value(Json::arrayValue); out["world"] = Json::Value(Json::arrayValue);
     std::map<std::string, Json::Value> byDoc;   // doc_type -> ops array
     auto addOp = [&](const std::string& doc, const Json::Value& op) {
         if (json::str(op,"op") == "add_entry") {
@@ -175,6 +201,15 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
         auto ents = entityList(content, characters);
         auto l = lower(content);
         std::string timeMark = detectTime(content);
+        auto worldOf = [&](const std::string& text) { for (auto op : worldChanges(text, characters)) { op["source_event_ids"].append(eid); out["world"].append(op); } };
+        if (kind == "gm.declared") {
+            // The Keeper's declaration is authoritative: confirmed, or a secret that stays with the Keeper.
+            bool secret = json::toBool(e["payload"], "secret", false);
+            Json::Value td; td["when"] = timeMark.empty() ? (sceneTime.empty() ? "unspecified" : sceneTime) : timeMark;
+            addOp("timeline", mkFact(truncate(content, 160), secret ? "gm_secret" : "confirmed", td, eid, ents));
+            worldOf(content);
+            continue;
+        }
         if (kind != "message.posted") {
             if (kind == "scene.entered" || kind == "scene.created" || kind == "scene.updated") {
                 Json::Value d; d["facet"] = "location"; d["location"] = json::str(e["payload"], "location");
@@ -295,6 +330,7 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
             }
         }
 
+        worldOf(content);
         // Return of historical foreshadowing: related_history entries matched to this event's terms.
         for (auto& h : ctx["related_history"]) {
             // One highlight per (fact, event); pick the most specific matching term (proper noun, then longest).
@@ -554,15 +590,28 @@ Json::Value MockLlmClient::moduleStructure(const Json::Value& ctx) {
             std::string body; for (size_t j = i + 1; j < lines.size() && j < i + 6 && !lines[j].empty(); ++j) { body += lines[j] + " "; }
             { size_t q; while ((q = line.find("\xe2\x80\x99")) != std::string::npos) line.replace(q, 3, "'"); }
             auto l = lower(line);
-            bool heading = line.size() < 70 && (std::regex_match(line, headingRe) || line == upper(line) || l.rfind("scene", 0) == 0 || l.rfind("chapter", 0) == 0 || l.rfind("npc:", 0) == 0 || l.rfind("location:", 0) == 0 || l.rfind("item:", 0) == 0 || l.rfind("handout", 0) == 0 || l.rfind("condition:", 0) == 0 || l.rfind("twist:", 0) == 0 || l.rfind("ending:", 0) == 0 || l.rfind("secret:", 0) == 0);
+            bool heading = line.size() < 70 && (std::regex_match(line, headingRe) || line == upper(line) || l.rfind("scene", 0) == 0 || l.rfind("chapter", 0) == 0 || l.rfind("npc:", 0) == 0 || l.rfind("creature:", 0) == 0 || l.rfind("monster:", 0) == 0 || l.rfind("location:", 0) == 0 || l.rfind("item:", 0) == 0 || l.rfind("handout", 0) == 0 || l.rfind("condition:", 0) == 0 || l.rfind("twist:", 0) == 0 || l.rfind("ending:", 0) == 0 || l.rfind("secret:", 0) == 0);
             if (heading) {
                 std::string prefix; std::string name = line;
                 if (auto p = name.find(':'); p != std::string::npos && p + 1 < name.size()) { prefix = lower(trim(name.substr(0, p))); name = trim(name.substr(p + 1)); }
                 if (page == 1 && out["nodes"].empty() && line == upper(line)) { addNode("stage", name, body, page, line + " " + body); continue; }
-                static const std::map<std::string, std::string> prefixTypes = {{"npc","npc"},{"location","location"},{"item","item"},{"handout","clue"},{"clue","clue"},{"secret","secret"},{"condition","condition"},{"twist","twist"},{"ending","ending"},{"scene","scene"},{"chapter","stage"},{"act","stage"},{"part","stage"}};
+                static const std::map<std::string, std::string> prefixTypes = {{"npc","npc"},{"creature","creature"},{"monster","creature"},{"location","location"},{"item","item"},{"handout","clue"},{"clue","clue"},{"secret","secret"},{"condition","condition"},{"twist","twist"},{"ending","ending"},{"scene","scene"},{"chapter","stage"},{"act","stage"},{"part","stage"}};
                 std::string pt; for (auto& [k, v] : prefixTypes) if (prefix == k || prefix.rfind(k + " ", 0) == 0) pt = v;
                 if (!pt.empty() && pt != "scene" && pt != "stage") {
                     auto key = addNode(pt, name, body, page, line + " " + body);
+                    if (pt == "creature") {
+                        // A stat block in the lines below: "AC 15 HP 7 Speed 30 ft. CR 1/4 STR 8 DEX 14 …".
+                        Json::Value sb; std::smatch m;
+                        static const std::regex acRe("\\bAC\\s*(\\d+)"), hpRe("\\bHP\\s*(\\d+)"), spRe("Speed\\s*(\\d+\\s*ft\\.?)"), crRe("\\bCR\\s*([0-9/]+)");
+                        if (std::regex_search(body, m, acRe)) sb["ac"] = std::stoi(m[1]);
+                        if (std::regex_search(body, m, hpRe)) sb["hp"] = std::stoi(m[1]);
+                        if (std::regex_search(body, m, spRe)) sb["speed"] = m[1].str();
+                        if (std::regex_search(body, m, crRe)) sb["cr"] = m[1].str();
+                        for (auto* ab : {"STR", "DEX", "CON", "INT", "WIS", "CHA"}) { std::regex r(std::string("\\b") + ab + "\\s*(\\d+)"); if (std::regex_search(body, m, r)) sb["abilities"][ab] = std::stoi(m[1]); }
+                        if (!sb.isNull()) out["nodes"][nodeIndex[key]]["stat_block"] = sb;
+                        if (!currentScene.empty()) addEdge(key, currentScene, "appears_in");
+                        continue;
+                    }
                     if (pt == "location") { currentLocation = key; if (!currentScene.empty()) addEdge(currentScene, key, "takes_place_at"); }
                     else if (pt == "condition") { if (!currentScene.empty()) addEdge(currentScene, key, "requires"); }
                     else if (pt == "twist") { if (!currentScene.empty()) addEdge(currentScene, key, "triggers"); }

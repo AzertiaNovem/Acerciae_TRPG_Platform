@@ -18,7 +18,6 @@ const FEATURES: { key: Feature; label: string; help: string }[] = [
   { key: 'consistency', label: 'Consistency Check', help: 'Players and GMs can check a draft against what their character knows.' },
   { key: 'dice', label: 'Integrated Dice', help: 'Sealdice-style commands in chat: .r .ra .sc .st .en, with the gray attribute hint while typing.' },
   { key: 'inspiration', label: 'Inspiration', help: 'Drafts a possible in-character reply from the character’s knowledge (never sent automatically).' },
-  { key: 'coc7_points', label: 'COC7 point-buy', help: 'Role cards spend career points (from a career in the built-in list) and hobby points (INT×2) within their limits, and show the characteristic total.' },
   { key: 'log_studio', label: 'Log Studio', help: 'The campaign log, exports, PDF publication and visual novels. Keepers can still hide it per channel; when open, every member reaches it equally.' },
 ];
 
@@ -182,6 +181,7 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'access' | 'ai'
         <div className="tiny muted">{tr("Budgets cover the whole server; 0 means no limit. Mock providers are not counted. When a budget is used up, AI requests stop until the next period or a reset.")}</div>
         {usage && <div className="small">
           <div>{tr("Tokens used")}: {budgetText(usage.tokens_used, usage.token_budget)}</div>
+          {(usage.cached_tokens_used ?? 0) > 0 && <div className="tiny muted" title={tr("The provider served this part of the prompts from its prompt cache, at a lower price. It still counts against the token budget.")}>{tr("{n} of them read from the prompt cache ({percent}%)", { n: (usage.cached_tokens_used ?? 0).toLocaleString(), percent: usage.tokens_used ? Math.round(((usage.cached_tokens_used ?? 0) / usage.tokens_used) * 100) : 0 })}</div>}
           <div>{tr("Images used")}: {budgetText(usage.images_used, usage.image_budget)}</div>
           <div>{tr("Running now")}: {usage.running} / {usage.max_concurrent}</div>
           {usage.period_start && <div className="tiny muted">{tr("Counted since")} {new Date(usage.period_start).toLocaleString()}</div>}

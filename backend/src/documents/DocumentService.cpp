@@ -132,6 +132,27 @@ void DocumentService::indexFact(pqxx::work& w, const std::string& channelId, con
     }
 }
 
+// Provenance shared by every AI write: the Keeper's chronicler cites lines of the batch it was given (removals and
+// links included); a player group's memory cites only chat of its batch that the group can read.
+std::string DocumentService::sourceProblem(pqxx::work& w, const OpContext& ctx, const std::vector<std::string>& sources) {
+    if (ctx.access.isGm && ctx.actor == "ai" && !ctx.allowedSources.empty()) {
+        if (sources.empty()) return "AI changes must cite the chat lines they come from";
+        for (const auto& id : sources)
+            if (std::find(ctx.allowedSources.begin(), ctx.allowedSources.end(), id) == ctx.allowedSources.end()) return "Source is outside the batch the AI was given";
+    }
+    if (!ctx.access.isGm) {
+        if (sources.empty()) return "Player memory requires chat evidence";
+        for (const auto& id : sources) {
+            if (!Visibility::isUuid(id) || std::find(ctx.allowedSources.begin(),ctx.allowedSources.end(),id)==ctx.allowedSources.end())
+                return "Source is outside the authorized chat batch";
+        }
+        auto rows=Db::queryJson(w,"SELECT e.id FROM events e WHERE e.channel_id=$1 AND e.id=ANY("+Visibility::uuidArray(sources)+") AND "+Visibility::eventFilter(ctx.access),{ctx.channelId});
+        std::set<std::string> unique(sources.begin(),sources.end());
+        if (rows.size()!=unique.size()) return "Source is not readable by this player group";
+    }
+    return "";
+}
+
 void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& op, CommitResult& res) {
     auto type = json::str(op, "op");
     Json::Value log; log["op"] = type;
@@ -147,23 +168,8 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         res.pendingReview++; res.log.append(log);
     };
     const bool isAi = ctx.actor == "ai";
-    // The Keeper's chronicler: every op, removals and links included, cites lines of the batch it was given.
-    if (ctx.access.isGm && isAi && !ctx.allowedSources.empty()) {
-        const auto sources = mergeSources(op, ctx.defaultSources);
-        if (sources.empty()) return reject("AI changes must cite the chat lines they come from");
-        for (const auto& id : sources)
-            if (std::find(ctx.allowedSources.begin(), ctx.allowedSources.end(), id) == ctx.allowedSources.end()) return reject("Source is outside the batch the AI was given");
-    }
+    if (auto why = sourceProblem(w, ctx, mergeSources(op, ctx.defaultSources)); !why.empty()) return reject(why);
     if (!ctx.access.isGm) {
-        const auto sources = mergeSources(op,ctx.defaultSources);
-        if (sources.empty()) return reject("Player memory requires chat evidence");
-        for (const auto& id : sources) {
-            if (!Visibility::isUuid(id) || std::find(ctx.allowedSources.begin(),ctx.allowedSources.end(),id)==ctx.allowedSources.end())
-                return reject("Source is outside the authorized chat batch");
-        }
-        auto rows=Db::queryJson(w,"SELECT e.id FROM events e WHERE e.channel_id=$1 AND e.id=ANY("+Visibility::uuidArray(sources)+") AND "+Visibility::eventFilter(ctx.access),{ctx.channelId});
-        std::set<std::string> unique(sources.begin(),sources.end());
-        if (rows.size()!=unique.size()) return reject("Source is not readable by this player group");
         if (ctx.docType=="module_progress" || json::str(op,"status")=="gm_secret" || json::str(op["fact"],"status")=="gm_secret") return reject("KP-only content");
         // References in free-form data must resolve inside the same memory partition.
         auto checkData=[&](const Json::Value& data) {
@@ -208,6 +214,11 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
         if (isAi && status == "confirmed" && !sources.empty()) {
             auto gm = Db::queryOne(w, "SELECT count(*) AS n FROM events WHERE channel_id=$1 AND id = ANY(" + Visibility::uuidArray(sources) + ") AND actor_role IN ('gm','system')", {ctx.channelId});
             if (gm.isNull() || gm["n"].asInt() == 0) { status = "attempted"; log["note"] = "downgraded to attempted: no GM confirmation among sources"; }
+        }
+        // What the Keeper declared as a secret stays one, whatever status the model chose.
+        if (isAi && ctx.access.isGm && status != "gm_secret" && !sources.empty()) {
+            auto sec = Db::queryOne(w, "SELECT count(*) AS n FROM events WHERE channel_id=$1 AND id = ANY(" + Visibility::uuidArray(sources) + ") AND kind='gm.declared' AND payload->'secret'='true'::jsonb", {ctx.channelId});
+            if (sec["n"].asInt() > 0) { status = "gm_secret"; log["note"] = "secret Keeper declaration: recorded as gm_secret"; }
         }
         // Deduplicate: same kind + near-identical summary already in this document → update instead.
         auto dup = Db::queryOne(w, "SELECT f.id FROM knowledge_facts f JOIN document_entries de ON de.fact_id=f.id WHERE de.document_id=$1 AND f.kind=$2 AND lower(f.summary)=lower($3) AND NOT de.removed LIMIT 1",
@@ -405,6 +416,164 @@ CommitResult DocumentService::commit(const Proposal& p) {
     return res;
 }
 
+// ---- the living world record ------------------------------------------------------------------
+static const std::set<std::string>& worldStatuses() {
+    static const std::set<std::string> s = {"active","inactive","missing","dead","destroyed","unknown"};
+    return s;
+}
+
+int64_t DocumentService::worldVersion(pqxx::work& w, const std::string& channelId, const std::string& groupId) {
+    // Every state change bumps one entity's state_version and every new entity adds a row: the sum only grows.
+    return Db::queryOne(w, "SELECT coalesce(sum(state_version),0) + count(*) AS v FROM entities WHERE channel_id=$1 AND player_group_id IS NOT DISTINCT FROM $2::uuid",
+        {channelId, groupId.empty() ? dbNull() : DbParam(groupId)})["v"].asInt64();
+}
+
+void DocumentService::applyEntityState(pqxx::work& w, OpContext& ctx, const Json::Value& op, CommitResult& res) {
+    Json::Value log; log["op"] = "entity_state";
+    auto reject = [&](const std::string& why) { log["decision"] = "rejected"; log["reason"] = why; res.rejected++; res.log.append(log); };
+    const bool isAi = ctx.actor == "ai";
+    const auto& groupId = ctx.access.playerGroupId;
+    // The model may name the entity as a string or as {name|id, kind}.
+    const auto& ent = op["entity"];
+    auto ref = text::trim(ent.isObject() ? json::str(ent, "id", json::str(ent, "name")) : json::str(op, "entity", json::str(op, "entity_id")));
+    auto kind = json::str(op, "kind", ent.isObject() ? json::str(ent, "kind") : "");
+    log["entity"] = ref;
+    if (ref.empty()) return reject("entity_state requires entity");
+    const bool hasStatus = !json::str(op, "status").empty(), hasState = !text::trim(json::str(op, "state")).empty();
+    auto status = json::str(op, "status");
+    auto state = text::utf8Prefix(text::trim(json::str(op, "state")), 400);
+    auto locRef = text::trim(op["location"].isObject() ? json::str(op["location"], "id", json::str(op["location"], "name")) : json::str(op, "location"));
+    if (hasStatus && !worldStatuses().count(status)) return reject("invalid world status: " + status);
+    if (!hasStatus && !hasState && locRef.empty()) return reject("entity_state requires status, state or location");
+
+    auto sources = mergeSources(op, ctx.defaultSources);
+    for (auto& s : sources) if (!Visibility::isUuid(s)) return reject("invalid source event id");
+    if (isAi && sources.empty()) return reject("AI world changes must cite the chat lines they come from");
+    if (auto why = sourceProblem(w, ctx, sources); !why.empty()) return reject(why);
+    std::set<std::string> uniqSet(sources.begin(), sources.end());
+    const std::vector<std::string> uniq(uniqSet.begin(), uniqSet.end());
+    bool declared = false;
+    if (!uniq.empty()) {
+        auto ev = Db::queryOne(w, "SELECT count(*) AS n, count(*) FILTER (WHERE kind='gm.declared' AND actor_role='gm') AS declared FROM events WHERE channel_id=$1 AND id = ANY(" +
+                                  Visibility::uuidArray(uniq) + ")", {ctx.channelId});
+        if (ev["n"].asInt() != (int)uniq.size()) return reject("Source event not found in this channel");
+        declared = ev["declared"].asInt() > 0;
+    }
+    // A Keeper declaration is authoritative, as is the Keeper's own change (an accepted review). Player groups never
+    // read gm.declared events, so their partition only ever holds AI state.
+    const std::string stateBy = ctx.actor == "gm" || (ctx.access.isGm && declared) ? "gm" : "ai";
+
+    auto findIn = [&](const std::string& r) {
+        if (Visibility::isUuid(r)) return Db::queryOne(w, "SELECT * FROM entities e WHERE e.id=$1 AND e.channel_id=$2 AND " + Visibility::partitionFilter(ctx.access, "e"), {r, ctx.channelId});
+        return knowledge_.findEntity(w, ctx.channelId, r, groupId);
+    };
+    auto cur = findIn(ref);
+    if (cur.isNull()) {
+        if (Visibility::isUuid(ref)) return reject("entity not found in this memory partition");
+        static const std::set<std::string> kinds = {"pc","npc","location","item","organisation","concept"};
+        if (!kinds.count(kind)) return reject("kind (npc|location|item|organisation|concept) is required to create an entity");
+        cur = Db::queryOne(w, "SELECT id FROM entities WHERE id=$1", {knowledge_.upsertEntity(w, ctx.channelId, kind, text::utf8Prefix(ref, 120), "", groupId)});
+        log["created"] = true;
+    }
+    const auto id = cur["id"].asString();
+    cur = Db::queryOne(w, "SELECT * FROM entities WHERE id=$1 FOR UPDATE", {id});
+    log["entity_id"] = id; log["entity"] = cur["name"];
+    // Whereabouts resolve in the same partition; an unknown place is created only when the change is applied.
+    std::string locId; bool newPlace = false;
+    if (!locRef.empty()) {
+        auto loc = findIn(locRef);
+        if (loc.isNull() && Visibility::isUuid(locRef)) return reject("location not found in this memory partition");
+        if (loc.isNull()) newPlace = true; else locId = loc["id"].asString();
+        if (locId == id) return reject("an entity cannot be its own location");
+    }
+    auto curStatus = cur["status"].asString(), curState = cur["state"].asString(), curBy = json::str(cur, "state_by");
+    auto curLoc = json::str(cur, "location_entity_id");
+    auto newStatus = hasStatus ? status : curStatus, newState = hasState ? state : curState;
+    // A new status leaves an old description stale ("hiding in the mill" for a dead man) unless one is given.
+    if (hasStatus && !hasState && newStatus != curStatus) newState = "";
+    const bool changed = newStatus != curStatus || newState != curState || newPlace || (!locRef.empty() && locId != curLoc);
+    if (!changed && !(stateBy == "gm" && curBy != "gm")) { log["decision"] = "skipped"; log["reason"] = "No change to the entity's state"; res.log.append(log); return; }
+    // What the Keeper set is changed only by the Keeper: the AI's contradiction waits for review.
+    if (stateBy == "ai" && curBy == "gm") {
+        if (!ctx.access.isGm) return reject("contradicts a state the Keeper set");
+        Json::Value payload = op; payload["op"] = "entity_state"; payload["entity"] = id; payload["entity_name"] = cur["name"]; payload["source_event_ids"] = json::fromStrArray(sources);
+        payload["previous"]["status"] = curStatus; payload["previous"]["state"] = curState; payload["previous"]["location_entity_id"] = cur["location_entity_id"];
+        Json::Value ops(Json::arrayValue); ops.append(payload);
+        const std::string why = "contradicts a state the Keeper set";
+        auto pr = Db::queryOne(w, "INSERT INTO document_proposals(channel_id, document_id, ai_job_id, expected_version, ops, source_event_ids, evidence, status, rejection_reason) "
+                                  "VALUES($1,NULL,$2,$3,$4::jsonb,$5::uuid[],'[]'::jsonb,'needs_gm_review',$6) RETURNING id",
+            {ctx.channelId, ctx.aiJobId.empty() ? dbNull() : DbParam(ctx.aiJobId), (int64_t)cur["state_version"].asInt(), json::dump(ops), pgArrayLiteral(sources), why});
+        log["decision"] = "needs_gm_review"; log["reason"] = why; log["proposal_id"] = pr["id"];
+        res.pendingReview++; res.log.append(log);
+        return;
+    }
+    if (newPlace) { locId = knowledge_.upsertEntity(w, ctx.channelId, "location", text::utf8Prefix(locRef, 120), "", groupId); if (locId == id) return reject("an entity cannot be its own location"); }
+    auto newLoc = locRef.empty() ? curLoc : locId;
+    auto locParam = newLoc.empty() ? dbNull() : DbParam(newLoc);
+    auto row = Db::queryOne(w, "UPDATE entities SET status=$2, state=$3, location_entity_id=$4::uuid, state_version=state_version+1, state_updated_at=now(), state_source_event_ids=$5::uuid[], state_by=$6, updated_at=now() WHERE id=$1 RETURNING state_version",
+        {id, newStatus, newState, locParam, pgArrayLiteral(sources), stateBy});
+    Db::exec(w, "INSERT INTO entity_state_history(channel_id, entity_id, player_group_id, version, status, state, location_entity_id, source_event_ids, actor) VALUES($1,$2,$3::uuid,$4,$5,$6,$7::uuid,$8::uuid[],$9)",
+        {ctx.channelId, id, groupId.empty() ? dbNull() : DbParam(groupId), (int64_t)row["state_version"].asInt(), newStatus, newState, locParam, pgArrayLiteral(sources), stateBy});
+    log["decision"] = "applied"; log["status"] = newStatus; log["state_by"] = stateBy; log["state_version"] = row["state_version"];
+    res.applied++; res.log.append(log);
+    for (auto& s : sources) res.sourceEventIds.push_back(s);
+}
+
+CommitResult DocumentService::commitWorld(const Proposal& p) {
+    if (!p.ops.isArray() || p.ops.empty()) throw badRequest("proposal has no ops");
+    CommitResult res;
+    db_.tx([&](pqxx::work& w) {
+        ChannelAccess memory; memory.channelId=p.channelId; memory.isGm=p.playerGroupId.empty(); memory.playerGroupId=p.playerGroupId; memory.playerGroupVersion=p.playerGroupVersion;
+        if (!memory.isGm) {
+            if (p.actor!="ai") throw forbidden("Player memory can only be summarized from chat");
+            auto group=Db::queryOne(w,"SELECT version FROM player_groups WHERE id=$1 AND channel_id=$2 FOR UPDATE",{p.playerGroupId,p.channelId});
+            if (group.isNull() || group["version"].asInt()!=p.playerGroupVersion) throw conflict("Player group changed during generation");
+        }
+        // One writer per partition: entity creation, state_version and history stay in step.
+        Db::exec(w, "SELECT pg_advisory_xact_lock(hashtext('acerciae.world.' || $1 || '.' || $2))", {p.channelId, p.playerGroupId});
+        OpContext ctx; ctx.channelId = p.channelId; ctx.docType = "world"; ctx.access = memory; ctx.allowedSources = p.allowedSourceEventIds;
+        ctx.actor = p.actor; ctx.actorUserId = p.actorUserId; ctx.defaultSources = p.sourceEventIds; ctx.aiJobId = p.aiJobId;
+        for (const auto& op : p.ops) {
+            if (!op.isObject() || json::str(op, "op") != "entity_state") { Json::Value l; l["op"] = json::str(op, "op"); l["decision"] = "rejected"; l["reason"] = "not a world op"; res.log.append(l); res.rejected++; continue; }
+            try { applyEntityState(w, ctx, op, res); }
+            catch (const ApiError& e) { Json::Value l; l["op"] = "entity_state"; l["decision"] = "rejected"; l["reason"] = e.what(); res.log.append(l); res.rejected++; }
+        }
+        res.version = (int)worldVersion(w, p.channelId, p.playerGroupId);
+    });
+    if (res.applied > 0) notifier_.worldUpdated(p.channelId, p.playerGroupId, res.version);
+    if (res.pendingReview > 0) { Json::Value pp; pp["world"] = true; pp["count"] = res.pendingReview; notifier_.proposalPending(p.channelId, pp); }
+    return res;
+}
+
+Json::Value DocumentService::world(const ChannelAccess& a) {
+    if (!a.isGm && !Visibility::isUuid(a.playerGroupId)) throw forbidden("No memory partition for this member");
+    // A player's state is shown only while every line behind it is still readable by the group.
+    auto readable = [&](const std::string& col) {
+        if (a.isGm) return std::string("TRUE");
+        return "(cardinality(" + col + ")>0 AND NOT EXISTS(SELECT 1 FROM unnest(" + col + ") sid WHERE NOT EXISTS(SELECT 1 FROM player_group_chat_events ge WHERE ge.group_id='" + a.playerGroupId + "'::uuid AND ge.event_id=sid)))";
+    };
+    return db_.tx([&](pqxx::work& w) {
+        Json::Value out;
+        out["version"] = (Json::Int64)worldVersion(w, a.channelId, a.isGm ? "" : a.playerGroupId);
+        auto entities = Db::queryJson(w,
+            "SELECT * FROM (SELECT e.id, e.kind, e.name, e.aliases, e.description, e.status, e.state, "
+            "CASE WHEN l.id IS NULL THEN NULL ELSE json_build_object('id', l.id, 'name', l.name) END AS location, e.state_version, e.state_updated_at, e.state_by, "
+            "(SELECT count(*) FROM fact_entities fe JOIN knowledge_facts f ON f.id=fe.fact_id WHERE fe.entity_id=e.id AND " + Visibility::factFilter(a) + ") AS fact_count, "
+            + readable("e.state_source_event_ids") + " AS state_readable "
+            "FROM entities e LEFT JOIN entities l ON l.id=e.location_entity_id WHERE e.channel_id=$1 AND " + Visibility::partitionFilter(a, "e") + ") x "
+            + std::string(a.isGm ? "" : "WHERE fact_count > 0 OR (state_version > 0 AND state_readable) ") + "ORDER BY kind, name, id", {a.channelId});
+        for (auto& e : entities) {
+            if (!e["state_readable"].asBool()) { e["status"] = "unknown"; e["state"] = ""; e["location"] = Json::Value(); e["state_by"] = Json::Value(); }
+            e.removeMember("state_readable");
+        }
+        out["entities"] = entities;
+        out["recent_changes"] = Db::queryJson(w,
+            "SELECT h.entity_id, e.name, h.version, h.status, h.state, l.name AS location_name, h.actor, h.created_at FROM entity_state_history h JOIN entities e ON e.id=h.entity_id "
+            "LEFT JOIN entities l ON l.id=h.location_entity_id WHERE h.channel_id=$1 AND " + Visibility::partitionFilter(a, "h") + " AND " + readable("h.source_event_ids") + " ORDER BY h.id DESC LIMIT 30", {a.channelId});
+        return out;
+    });
+}
+
 // ---- reading ---------------------------------------------------------------------------------
 static std::string entrySelect(const ChannelAccess& a) {
     return "SELECT de.id, de.document_id, de.fact_id, de.section, de.position, de.content_md, de.created_version, de.updated_version, de.created_at, de.updated_at, "
@@ -579,7 +748,9 @@ Json::Value DocumentService::decideProposal(const ChannelAccess& a, const std::s
     p.ops = pr["ops"]; p.sourceEventIds = json::strArray(pr["source_event_ids"]); p.summary = "GM accepted AI proposal";
     for (auto& op : p.ops) { op.removeMember("previous"); op.removeMember("previous_status"); }
     CommitResult res;
-    try { res = commit(p); }
+    // A world-state review has no document: accepting it makes the change the Keeper's own (state_by='gm').
+    const bool world = p.ops.isArray() && !p.ops.empty() && json::str(p.ops[0], "op") == "entity_state";
+    try { res = world ? commitWorld(p) : commit(p); }
     catch (...) { db_.exec("UPDATE document_proposals SET status='needs_gm_review' WHERE id=$1 AND status='applying'", {proposalId}); throw; }
     auto out = db_.queryOne("UPDATE document_proposals SET status='committed', committed_version=$2, decided_at=now() WHERE id=$1 RETURNING *", {proposalId, (int64_t)res.version});
     out["log"] = res.log;

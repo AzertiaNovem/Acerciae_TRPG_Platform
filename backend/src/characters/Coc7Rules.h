@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-// COC7 point-buy rules (server feature `coc7_points`): the career list from the community character sheet, the
+// COC7 point-buy rules (a channel's `point_buy`, chosen by its GM, in a CoC channel): the career list from the community character sheet, the
 // career and hobby skill-point budgets, and the validation of a role card that spends them.
 namespace acerciae::coc7 {
 extern const char* kCareersJson;       // generated: scripts/coc7_careers.py

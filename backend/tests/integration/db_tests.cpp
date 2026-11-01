@@ -498,7 +498,17 @@ int main() {
         bool denied = false; try { S.script->list(p1, ""); } catch (const ApiError& e) { denied = e.status() == 403; } CHECK(denied);
         for (auto& t : ContextRetrievalService::toolSpecs(false)) CHECK(t.name != "get_script_knowledge");
         CHECK(S.retrieval->knowledgePrelude(p1).find("Script flow") == std::string::npos);
-        auto prelude = S.retrieval->knowledgePrelude(gm); CHECK(prelude.rfind("Script flow", 0) == 0); CHECK(prelude.find("The Lighthouse [pending]") != std::string::npos);
+        auto prelude = S.retrieval->knowledgePrelude(gm); CHECK(prelude.rfind("Script flow", 0) == 0); CHECK(prelude.find("- The Lighthouse") != std::string::npos);
+        {   // Ordered for prompt caching: the script's text (no statuses) is the stable part, sent first and marked.
+            auto parts = S.retrieval->knowledgePreludeParts(gm);
+            CHECK(parts.stable.rfind("Script flow", 0) == 0); CHECK(parts.stable.find("[pending]") == std::string::npos); CHECK(parts.stable.find("Relationships:") == std::string::npos);
+            CHECK(parts.live.find("Script flow") == std::string::npos); CHECK(parts.live.find("Script status") == std::string::npos);   // every entry still pending
+            auto msgs = S.retrieval->knowledgeMessages(gm, "INDEX:");
+            CHECK(!msgs.empty()); CHECK(msgs[0].cacheBreakpoint); CHECK(msgs[0].content.rfind("INDEX:\nScript flow", 0) == 0);
+            for (size_t i = 1; i < msgs.size(); ++i) CHECK(!msgs[i].cacheBreakpoint);
+            auto pl = S.retrieval->knowledgeMessages(p1, "INDEX:");
+            for (auto& m : pl) CHECK(m.content.find("Script") == std::string::npos);
+        }
         auto tool = S.retrieval->executeTool(gm, "get_script_knowledge", json::parse(R"({"kind":"flow"})")); CHECK(tool["entries"].size() == byKind["flow"]);
         auto b0 = S.script->board(gm); CHECK(b0["next"]["has_script"].asBool()); CHECK(b0["next"]["current"].empty()); CHECK(!json::str(b0["next"]["next"], "title").empty());
         // Play. The Keeper narrates the first stage; a player's speculation about the lighthouse moves nothing.
@@ -508,6 +518,11 @@ int main() {
         bool officeActive = false;
         for (auto& e : S.script->list(gm, "flow")) { if (e["title"].asString().find("Sheriff") != std::string::npos) officeActive = e["status"] == "active"; if (e["title"] == "The Lighthouse") CHECK(e["status"] == "pending"); }
         CHECK(officeActive);
+        {   // A stage moving on changes only the live part; the script's text, cached in front of it, stays as it was.
+            auto parts = S.retrieval->knowledgePreludeParts(gm);
+            CHECK(parts.stable == S.retrieval->knowledgePreludeParts(gm).stable); CHECK(parts.stable.find("[active]") == std::string::npos);
+            CHECK(parts.live.rfind("Script status (entries not listed are pending):\n- active: ", 0) == 0); CHECK(parts.live.find("Sheriff") != std::string::npos);
+        }
         auto changes = S.script->changes(gm, 50); CHECK(!changes.empty());
         for (auto& c : changes) { CHECK(c["verdict"] == "approved" || c["verdict"] == "rejected"); if (c["applied"].asBool()) CHECK(c["verdict"] == "approved"); CHECK(!c["evidence"].empty()); CHECK(!c["reviewer_reason"].asString().empty()); }
         auto b1 = S.script->board(gm);
@@ -736,6 +751,11 @@ int main() {
         S.aiPolicy->recordTokens(channelId, "observer_extract", 70, 40);
         bool spent = false; try { S.aiPolicy->checkTokens(channelId); } catch (const ApiError& e) { spent = e.status() == 429 && e.code() == "ai_budget_exhausted"; } CHECK(spent);
         CHECK(S.settings->get(gmP, sid)["ai_policy"]["tokens_used"].asInt64() == 110);
+        // A cached prompt still counts in full against the budget; the cached share is reported beside it.
+        S.aiPolicy->recordTokens(channelId, "observer_extract", 3000, 10, 2500, 400);
+        auto cachedUse = S.settings->get(gmP, sid)["ai_policy"];
+        CHECK(cachedUse["tokens_used"].asInt64() == 3120); CHECK(cachedUse["cached_tokens_used"].asInt64() == 2500);
+        CHECK(!S.db->queryOne("SELECT 1 AS ok FROM ai_usage_records WHERE channel_id=$1 AND cache_read_tokens=2500 AND cache_write_tokens=400", {channelId}).isNull());
         S.aiPolicy->recordImage(channelId, "background");
         bool imagesSpent = false; try { S.aiPolicy->checkImages(channelId); } catch (const ApiError& e) { imagesSpent = e.status() == 429; } CHECK(imagesSpent);
         Json::Value reset; reset["ai_policy"]["reset_usage"] = true; S.settings->update(gmP, sid, reset);
@@ -1047,6 +1067,85 @@ int main() {
         Json::Value edit; edit["script_text"] = repeat("😀", 1001);
         S.presentations->updateEvent(gm, pe["id"].asString(), edit);
         CHECK(S.db->queryOne("SELECT script_text FROM presentation_events WHERE id=$1", {pe["id"].asString()})["script_text"] == repeat("😀", 1000));
+    });
+    test("world record: entity_state creates, updates, cites its batch, stays in its partition; Keeper state needs review", [&] {
+        Json::Value cbw; cbw["name"] = "World record"; cbw["knowledge_mode"] = "isolated";
+        auto ch = S.chat->createChannel(gmP, server["id"].asString(), cbw)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, ch);
+        S.chat->addChannelMember(keeper, p1User, "player");
+        auto pl = S.auth->channelAccess(p1User, ch);
+        auto win = S.chat->listWindows(keeper)[0]["id"].asString();
+        auto post = [&](const ChannelAccess& ac, const std::string& content, const std::string& kind) { Json::Value b; b["content"] = content; b["kind"] = kind; return eventOf(S.chat->postMessage(ac, win, b)["id"].asString())["id"].asString(); };
+        auto op = [](const std::string& entity, const std::string& kind, const std::string& status, const std::string& state, const std::string& src) {
+            Json::Value o; o["op"] = "entity_state"; o["entity"] = entity; if (!kind.empty()) o["kind"] = kind; if (!status.empty()) o["status"] = status; if (!state.empty()) o["state"] = state;
+            if (!src.empty()) o["source_event_ids"].append(src); return o; };
+        auto kpWorld = [&](const Json::Value& o, const std::vector<std::string>& batch) { Proposal p; p.channelId = ch; p.actor = "ai"; p.allowedSourceEventIds = batch; p.ops.append(o); return S.documents->commitWorld(p); };
+        auto find = [](const Json::Value& world, const std::string& name) { for (const auto& e : world["entities"]) if (e["name"] == name) return e; return Json::Value(); };
+
+        auto e1 = post(keeper, "Constable Barnes is dead.", "narration");
+        auto r = kpWorld(op("Constable Barnes", "npc", "dead", "Shot at the docks.", e1), {e1});
+        CHECK(r.applied == 1); CHECK(r.log[0]["created"].asBool()); CHECK(r.log[0]["state_by"] == "ai");
+        auto barnes = r.log[0]["entity_id"].asString();
+        auto v1 = S.documents->world(keeper)["version"].asInt64();
+        // Update by id; an unknown place is created in the same partition.
+        auto e2 = post(keeper, "Barnes is carried to Saint Mary Chapel.", "narration");
+        auto move = op(barnes, "", "", "His body lies in the chapel crypt.", e2); move["location"] = "Saint Mary Chapel";
+        r = kpWorld(move, {e2}); CHECK(r.applied == 1); CHECK(r.log[0]["state_version"].asInt() == 2);
+        auto w = S.documents->world(keeper);
+        auto b = find(w, "Constable Barnes");
+        CHECK(b["status"] == "dead"); CHECK(b["state"] == "His body lies in the chapel crypt."); CHECK(b["location"]["name"] == "Saint Mary Chapel"); CHECK(b["state_version"].asInt() == 2);
+        CHECK(w["version"].asInt64() > v1);
+        CHECK(w["recent_changes"].size() == 2); CHECK(w["recent_changes"][0]["location_name"] == "Saint Mary Chapel"); CHECK(w["recent_changes"][1]["status"] == "dead");
+        CHECK(S.db->queryJson("SELECT version FROM entity_state_history WHERE entity_id=$1 ORDER BY version", {barnes}).size() == 2);
+        r = kpWorld(move, {e2}); CHECK(r.applied == 0); CHECK(r.log[0]["decision"] == "skipped");   // repetition is not a change
+        // Citations: required, from the batch, and a new entity needs a kind.
+        r = kpWorld(op("Constable Barnes", "", "missing", "", ""), {e2}); CHECK(r.rejected == 1);
+        r = kpWorld(op("Constable Barnes", "", "missing", "", e1), {e2}); CHECK(r.rejected == 1);
+        r = kpWorld(op("Unheard Of", "", "dead", "", e2), {e2}); CHECK(r.rejected == 1);
+        r = kpWorld(op("Constable Barnes", "", "undead", "", e2), {e2}); CHECK(r.rejected == 1);
+        CHECK(find(S.documents->world(keeper), "Constable Barnes")["status"] == "dead");
+
+        // A Keeper declaration is authoritative: state_by gm, its facts confirmed (or gm_secret when secret).
+        NewEvent d; d.channelId = ch; d.actorUserId = gmUser; d.actorRole = "gm"; d.kind = "gm.declared"; d.visibility = "gm_only";
+        d.payload["content"] = "Doctor Mora is missing."; d.payload["secret"] = true;
+        auto decl = S.events->append(d)["id"].asString();
+        r = kpWorld(op("Doctor Mora", "npc", "missing", "Vanished from her surgery overnight.", decl), {decl});
+        CHECK(r.applied == 1); CHECK(r.log[0]["state_by"] == "gm");
+        Proposal fp; fp.channelId = ch; fp.documentType = "timeline"; fp.actor = "ai"; fp.allowedSourceEventIds = {decl};
+        Json::Value fo; fo["op"] = "add_entry"; fo["fact"]["summary"] = "Doctor Mora vanished overnight"; fo["fact"]["status"] = "confirmed"; fo["fact"]["source_event_ids"].append(decl); fp.ops.append(fo);
+        auto fr = S.documents->commit(fp); CHECK(fr.applied == 1); CHECK(fr.log[0]["status"] == "gm_secret");
+        d.payload["content"] = "The harbour is closed by order of the mayor."; d.payload["secret"] = false;
+        auto decl2 = S.events->append(d)["id"].asString();
+        fp.allowedSourceEventIds = {decl2}; fp.ops = Json::Value(Json::arrayValue);
+        fo["fact"]["summary"] = "The harbour is closed"; fo["fact"]["source_event_ids"] = Json::Value(Json::arrayValue); fo["fact"]["source_event_ids"].append(decl2); fp.ops.append(fo);
+        fr = S.documents->commit(fp); CHECK(fr.applied == 1); CHECK(fr.log[0]["status"] == "confirmed");   // gm.declared backs "confirmed"
+        // An AI change contradicting the Keeper's state waits for review; accepting it makes it the Keeper's.
+        auto e3 = post(pl, "Doctor Mora is dead, I saw her body.", "ic");
+        r = kpWorld(op("Doctor Mora", "", "dead", "", e3), {e3});
+        CHECK(r.applied == 0); CHECK(r.pendingReview == 1);
+        CHECK(find(S.documents->world(keeper), "Doctor Mora")["status"] == "missing");
+        auto pid = r.log[0]["proposal_id"].asString(); bool listed = false;
+        for (const auto& pr : S.documents->listProposals(keeper, "needs_gm_review")) if (pr["id"] == pid) listed = true;
+        CHECK(listed);
+        CHECK(S.documents->decideProposal(keeper, pid, true)["status"] == "committed");
+        auto mora = find(S.documents->world(keeper), "Doctor Mora");
+        CHECK(mora["status"] == "dead"); CHECK(mora["state_by"] == "gm"); CHECK(mora["state"] == "");
+
+        // Partitions: the player group keeps its own record from readable chat only.
+        auto groupWorld = [&](const Json::Value& o, const std::vector<std::string>& batch) { Proposal p; p.channelId = ch; p.playerGroupId = pl.playerGroupId; p.playerGroupVersion = pl.playerGroupVersion; p.allowedSourceEventIds = batch; p.ops.append(o); return S.documents->commitWorld(p); };
+        auto gr = groupWorld(op("Constable Barnes", "npc", "dead", "Shot.", e1), {e1, decl});
+        CHECK(gr.applied == 1); CHECK(gr.log[0]["entity_id"] != barnes);
+        auto groupBarnes = gr.log[0]["entity_id"].asString();
+        CHECK(groupWorld(op("Doctor Mora", "npc", "missing", "", decl), {e1, decl}).rejected == 1);   // a declaration is never group evidence
+        CHECK(groupWorld(op(barnes, "", "missing", "", e1), {e1}).rejected == 1);                     // a Keeper entity is out of reach
+        bool threw = false;
+        try { S.db->exec("UPDATE entities SET location_entity_id=$2 WHERE id=$1", {barnes, groupBarnes}); } catch (const std::exception&) { threw = true; }
+        CHECK(threw);
+        auto pw = S.documents->world(pl);
+        CHECK(find(pw, "Constable Barnes")["id"] == groupBarnes); CHECK(find(pw, "Constable Barnes")["state"] == "Shot.");
+        auto dump = json::dump(pw);
+        CHECK(dump.find("Mora") == std::string::npos); CHECK(dump.find("Saint Mary") == std::string::npos); CHECK(dump.find("harbour") == std::string::npos);
+        CHECK(pw["recent_changes"].size() == 1);
     });
     test("storage cleanup deletes replaced character images, unpinned old versions and unreferenced objects, and keeps the rest", [&] {
         const std::string png = drogon::utils::base64Decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");

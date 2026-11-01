@@ -24,6 +24,7 @@ struct ScriptInputs {
   Json::Value cast = Json::Value(Json::arrayValue);
   Json::Value assets = Json::Value(Json::arrayValue); // [{ref:"B1"|"M1"|"S1", id, type, name, tags, character_id, expression}]
   std::string era;                                    // the campaign's period, for background and portrait prompts
+  std::string gmShort = "KP";                         // how transcript labels name the GM: KP (Keeper) or DM
   // Continuation only: where the visual novel ended ({scene, background, lines:[...]}) and the names of its scenes
   // still waiting for a background ([{name, prompt}]), which the planner may reuse like any listed background.
   Json::Value story;
@@ -63,6 +64,14 @@ public:
   static std::vector<std::pair<size_t, size_t>> blocks(const std::vector<LogEvent> &events, long long gapSeconds = kBlockGapSeconds);
   // The transcript one model call reads: assets header, then the block's lines grouped by chat window.
   static std::string transcript(const ScriptInputs &in, size_t begin, size_t end, const Json::Value &knownBackgrounds);
+  // Its two halves: the assets (the same for every part of a job) and one block of lines.
+  static std::string assetsSection(const ScriptInputs &in, const Json::Value &knownBackgrounds);
+  static std::string blockSection(const ScriptInputs &in, size_t begin, size_t end);
+  // What one model call reads, ordered for prompt caching: first the part every call of the job repeats byte for byte
+  // (the GM direction and the assets), then the part's own: backgrounds earlier parts asked for, the story so far
+  // (first part of a continuation), "Part i of N" and its lines.
+  static std::string sharedPrompt(const ScriptInputs &in, const std::string &instructions);
+  static std::string partPrompt(const ScriptInputs &in, std::pair<size_t, size_t> part, size_t index, size_t total, const Json::Value &known);
   // Deterministic answer in the model's shape: {generate_backgrounds, generate_portraits, script}.
   static Json::Value mockFlat(const ScriptInputs &in, size_t begin, size_t end);
   // Flat answers → scene plan (a scene per background change, speakers staged with their portrait subtitle).
@@ -73,7 +82,7 @@ public:
   // Lines the plans skip stay visible in place; only lines excluded with a reason are hidden.
   static Json::Value normalize(const ScriptInputs &in, const std::vector<Json::Value> &plans, const std::string &provider);
   // The label a line carries in the transcript: "Ada Quill", "Ada Quill(OOC)", "KP(Narrative)", "KP(as Old Tom)".
-  static std::string speakerLabel(const LogEvent &e);
+  static std::string speakerLabel(const LogEvent &e, const std::string &gm = "KP");
   // ---- continuation ----
   // The system prompt's extra rules when the transcript continues an existing visual novel.
   static const std::string &continuationRules();

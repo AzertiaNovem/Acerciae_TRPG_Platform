@@ -60,17 +60,30 @@ export function buildConfig(args = {}, env = process.env) {
       timeoutMs: int(pick("llm-timeout-ms", "LLM_TIMEOUT_MS", 600000), 600000),
       stream: bool(pick("llm-stream", "LLM_STREAM"), true),
       trace: pick("llm-trace", "LLM_TRACE", ""),
+      // Prompt caching (Anthropic markers): 1h keeps a campaign's prefix warm across short breaks, 5m is cheaper to
+      // write, off sends no markers.
+      cacheTtl: ["1h", "5m", "off"].includes(String(pick("llm-cache-ttl", "LLM_CACHE_TTL", "1h"))) ? String(pick("llm-cache-ttl", "LLM_CACHE_TTL", "1h")) : "1h",
     },
     debounceMs: int(pick("debounce-ms", "DEBOUNCE_MS", 4000), 4000),
     postDelayMs: int(pick("post-delay-ms", "POST_DELAY_MS", 1200), 1200),
     maxActionsPerTurn: Math.max(1, int(pick("max-actions", "MAX_ACTIONS_PER_TURN", 6), 6)),
-    contextLines: Math.max(10, Math.min(200, int(pick("context-lines", "CONTEXT_LINES", 60), 60))),
+    // Lines fetched per window when the table syncs its local copy of the chat (store.mjs); the model's context is set by
+    // the token budgets below, with older history compacted into chapters (memory.mjs).
+    contextLines: Math.max(10, Math.min(200, int(pick("context-lines", "CONTEXT_LINES", 100), 100))),
+    gmContextTokens: Math.max(8000, int(pick("gm-context-tokens", "GM_CONTEXT_TOKENS", 60000), 60000)),
+    coplayerContextTokens: Math.max(4000, int(pick("coplayer-context-tokens", "COPLAYER_CONTEXT_TOKENS", 24000), 24000)),
+    historyBackfillLines: Math.max(0, int(pick("history-backfill-lines", "HISTORY_BACKFILL_LINES", 1000), 1000)),
+    // Billable-equivalent tokens a day (cache reads count a tenth); spent, the table stops its own autonomous turns.
+    dailyTokenBudget: Math.max(0, int(pick("llm-daily-token-budget", "LLM_DAILY_TOKEN_BUDGET", 0), 0)),
     kickoff: bool(pick("kickoff", "KICKOFF"), false),
     // Autonomy: the table moves on its own clock (side timelines, quiet shared windows) while humans are around.
     autonomy: bool(pick("autonomy", "AUTONOMY"), true),
     autonomyTickMs: Math.max(1000, int(pick("autonomy-tick-ms", "AUTONOMY_TICK_MS", 30000), 30000)),
     autonomySideIntervalMs: int(pick("autonomy-side-interval-ms", "AUTONOMY_SIDE_INTERVAL_MS", 90000), 90000),
     autonomyQuietMs: int(pick("autonomy-quiet-ms", "AUTONOMY_QUIET_MS", 180000), 180000),
+    // Away mode: once nobody has posted for AUTONOMY_IDLE_MINUTES, co-players-only threads still move, this rarely
+    // (0 = they wait too). Fragmented play keeps going between visits without spending much.
+    awaySideIntervalMs: Math.max(0, int(pick("away-side-interval-ms", "AWAY_SIDE_INTERVAL_MS", 21600000), 21600000)),
     autonomyQuietTurns: Math.max(0, int(pick("autonomy-quiet-turns", "AUTONOMY_QUIET_TURNS", 2), 2)),
     autonomyMaxTurnsPerHour: Math.max(0, int(pick("autonomy-max-turns-per-hour", "AUTONOMY_MAX_TURNS_PER_HOUR", 20), 20)),
     autonomyIdleMinutes: Math.max(1, int(pick("autonomy-idle-minutes", "AUTONOMY_IDLE_MINUTES", 30), 30)),
@@ -85,6 +98,15 @@ export function buildConfig(args = {}, env = process.env) {
     scenarioAuto: bool(pick("scenario-auto", "SCENARIO_AUTO"), true),
     scenarioMinMinutes: Math.max(0, int(pick("scenario-min-minutes", "SCENARIO_MIN_MINUTES", 20), 20)),
     scenarioMinLines: Math.max(0, int(pick("scenario-min-lines", "SCENARIO_MIN_LINES", 30), 30)),
+    // Improvisation mode (improv.mjs): no module; a world setting from the Keeper's own files. Only `setup` and `world`
+    // read these; the setting then lives in the state file. `improv` stays undefined unless given.
+    improv: pick("improv", "IMPROV") === undefined ? undefined : bool(pick("improv", "IMPROV"), false),
+    // Casual mode (casual.mjs): phones for the player characters. Set with `setup --casual` or `casual on|off`, then kept
+    // in the state file. Replies from NPCs and co-players come after at most this many minutes.
+    casual: pick("casual", "CASUAL") === undefined ? undefined : bool(pick("casual", "CASUAL"), false),
+    casualMaxDelayMinutes: Math.max(0, int(pick("casual-max-delay-minutes", "CASUAL_MAX_DELAY_MINUTES", 240), 240)),
+    worldFile: pick("world", "WORLD_FILE") ? path.resolve(String(pick("world", "WORLD_FILE"))) : null,
+    secretsFile: pick("secrets", "SECRETS_FILE") ? path.resolve(String(pick("secrets", "SECRETS_FILE"))) : null,
     stateDir: path.resolve(pick("state-dir", "STATE_DIR", path.join(process.cwd(), ".state"))),
     verbose: bool(pick("verbose", "VERBOSE"), false),
   };

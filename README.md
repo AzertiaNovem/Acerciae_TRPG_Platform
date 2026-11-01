@@ -249,12 +249,18 @@ maintainer can turn the Log Studio off, and the Keeper can hide it per channel o
 ends. See
 [visual novel guide](docs/VISUAL_NOVEL.md).
 
-A server maintainer can switch on **COC7 point-buy** (Server settings → Features): role cards then show the
+A channel's GM can switch on **point buy** (GM workspace → Settings → Rules): in a Call of Cthulhu channel role cards then show the
 characteristic total, take a career from the built-in list of 230 (credit-rating range, points formula, career skills,
 option groups and free specialties, generated from the community COC7 sheet), and split skill investment into career
 points (career skills only) and hobby points (INT×2, any skill) with the limits enforced on save. Skill names follow
 the server language, and dice commands take them in English or that language (`.ra 目星` on a Japanese server). See
 [COC7 point-buy](docs/COC7_POINT_BUY.md).
+
+The GM can also switch a channel to **D&D 2024** (rules from the System Reference Document 5.2, CC-BY-4.0): a D&D
+character sheet with the 2024 point buy or standard array and background increases, D20 Tests with Advantage and
+Disadvantage (`.rc stealth dc 15`, `.rc attack +5 ac 13`), Initiative (`.ri`, `.init next`) with an Initiative bar in
+the chat window, Death Saving Throws (`.ds`) and spell slots (`.ss`), AI prompts that name the game and the Dungeon
+Master, and creature stat blocks in module import. See [D&D 2024](docs/DND_2024.md).
 
 See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.md), [media/generation](docs/ASSETS.md),
 [PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the

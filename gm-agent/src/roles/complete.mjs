@@ -14,7 +14,7 @@ function set(value, path, next) {
 
 // Check the platform's saved card, not just the local roster. This also resumes
 // a previous setup that created an NPC but failed before finishing its card.
-export async function completeExistingCharacter(api, llm, channelId, characterId, { rules, language, era, pointsMode, log = () => {} }) {
+export async function completeExistingCharacter(api, llm, channelId, characterId, { rules, language, era, pointsMode, world = "", log = () => {} }) {
   let space = await api.characterSpace(channelId, characterId);
   let current = space.character;
   const missing = missingDetails(current);
@@ -24,7 +24,7 @@ export async function completeExistingCharacter(api, llm, channelId, characterId
     log(`checking ${current.name}: filling ${missing.join(', ')}`);
     patch = await completeJson(llm, {
       system: `Complete ONLY the requested missing fields of this existing COC7 investigator. Preserve the existing identity, appearance, background, characteristic values and occupation. Write text in ${language}. Reply with {"appearance_prompt":"...", "role_card":{"basic":{...},"characteristics":{...},"background":{...},"career":{"id":123,"name":"...","choices":[],"specialties":[]}}}, including the missing fields only. appearance_prompt describes stable visible age, build, face, hair, clothing and accessories consistent with the card and era (max 1000 characters). Missing characteristics use COC7 creation ranges (15–90; SIZ/INT/EDU 40–90). Use a localized 'None' for absent injuries, phobias, magic and Mythos encounters; do not invent them. basic.player is AI co-player. If a career is requested, choose a matching entry from CAREERS and copy its numeric id and exact name field; do not invent a synonym for the name.`,
-      user: `ERA: ${era || '1920s'}\nMISSING: ${JSON.stringify(missing)}\nEXISTING: ${JSON.stringify({ name: current.name, bio: current.bio, appearance_prompt: current.appearance_prompt, role_card: current.role_card })}\n${missing.includes('role_card.career') ? `CAREERS: ${careerCatalog(rules)}` : ''}`,
+      user: `ERA: ${era || '1920s'}\n${world ? `WORLD SETTING (write missing background into this world):\n${world}\n` : ''}MISSING: ${JSON.stringify(missing)}\nEXISTING: ${JSON.stringify({ name: current.name, bio: current.bio, appearance_prompt: current.appearance_prompt, role_card: current.role_card })}\n${missing.includes('role_card.career') ? `CAREERS: ${careerCatalog(rules)}` : ''}`,
       purpose: 'coplayer_repair',
     }, (value) => {
       for (const path of missing) {
