@@ -9,6 +9,7 @@ import { CHUNK_LINES, estimateTokens } from "../memory.mjs";
 
 const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const json = (v, n) => clip(JSON.stringify(v ?? null), n);
+export const duration = (ms) => (ms >= 86400000 ? `${Math.round(ms / 86400000)} d` : ms >= 3600000 ? `${Math.round(ms / 3600000)} h` : `${Math.max(1, Math.round(ms / 60000))} min`);
 
 export class GmContext {
   // `history` and `memory` (memory.mjs) hold the chat and its compacted chapters; `budget` is GM_CONTEXT_TOKENS.
@@ -64,7 +65,8 @@ export class GmContext {
   // `sceneOf(windowId)` gives the active timeline played in a window (the main timeline for the Main Chat), or null.
   // `improv` (improv.mjs): in improvisation mode the module's script knowledge and hints are left out, and the world
   // setting and hidden truths are added. `hide` holds message ids left out of the chat (the posted world setting).
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null }) {
+  // `awayOf(characterId)` is how long a player character's player has been away (ms), or null when they are around.
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null }) {
     const ch = this.channelId;
     const module = !improv?.on;
     await this.history.sync(windowId);
@@ -156,12 +158,13 @@ export class GmContext {
     if (proposals?.length) d.push(`## Pending memory proposals\n${proposals.length} waiting for the Keeper's review in the web app.`);
     if (tips.length) d.push(`## Just pushed by the platform\n${tips.map((t) => `- ${clip(t, 300)}`).join("\n")}`);
     // Who is really in each window's scene, who is a member but elsewhere, and which windows' scenes are over.
+    const who = (id) => { const ms = awayOf(id); return ms ? `${nameOf(id)} (player away ${duration(ms)})` : nameOf(id); };
     const describe = (w) => {
       if (timelines?.retired(w.id)) return "(scene over: merged into another thread)";
       const scene = sceneOf(w.id);
       const memberChars = (w.members ?? []).filter((m) => m.character_id).map((m) => m.character_id);
-      if (!scene) return [...memberChars.map(nameOf), ...roster.coplayersIn(w.id).map((x) => x.name)].join(", ") || "(no investigators)";
-      const here = scene.members.map(nameOf);
+      if (!scene) return [...memberChars.map(who), ...roster.coplayersIn(w.id).map((x) => x.name)].join(", ") || "(no investigators)";
+      const here = scene.members.map(who);
       const away = memberChars.filter((id) => !scene.members.includes(id)).map((id) => `${nameOf(id)} (in ${timelines.of(id).name})`);
       return `${here.join(", ") || "(no one)"}${away.length ? `; members elsewhere: ${away.join(", ")}` : ""}`;
     };

@@ -20,6 +20,7 @@ const BASE_ACTIONS = ["narrate", "npc", "new_npc", "whisper", "request_roll", "n
 const LEGACY_ACTIONS = ["split", "rejoin"];
 const NO_TEXT_NEEDED = new Set(["request_roll", "split", "rejoin", "timeline", "advance_scenario", "enter_scenario"]);
 
+const AWAY_RULE = `- Players come and go: a player character marked "player away" keeps its place in the scene but stays passive. Never act, speak or decide for it, never make the scene wait on it, and do not have harm befall it while its player is away; it catches up when its player returns.`;
 const COMMON_RULES = `- Every player, co-players included, needs an immediate response to each choice and line: acknowledge what they did, give its consequence, and propel the story (new information, a complication, a decision point). Never leave a move hanging or stall with vague atmosphere; then hand the scene back with an open situation.
 - Never write words, thoughts or decisions for player characters or co-players.
 - Call for dice when the outcome is uncertain and matters: use request_roll with a Sealdice command the platform rolls (".ra Spot Hidden", ".ra hard Library Use", ".sc 1/1d6" for sanity). Do not invent results; read results already posted in the chat.
@@ -40,6 +41,7 @@ export function directorSystem(language, { auto = true, improv = false } = {}) {
 
 How to keep the table:
 ${COMMON_RULES}
+${AWAY_RULE}
 ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
 ${SCENARIO_RULES}${improv ? `\n${IMPROV_RULES}` : ""}
 - Keep each line short enough for chat (1-5 sentences). One to three actions per turn is typical. Return no actions if nothing needs the Keeper now (for example players talking among themselves out of character).
@@ -96,12 +98,15 @@ export async function directTurn(llm, { language, context, newest, mode = "human
   if (kickoff) mode = "kickoff";
   const note = MODE_NOTES[mode]?.(extra) ?? "";
   const arrivalNote = mode !== "arrival" && extra.arrival ? MODE_NOTES.arrival(extra) : "";   // an arrival folded into another turn
+  const back = (extra.returning ?? []).map((r) => `${r.name}'s player is back after ${r.away} away.`).join(" ");
+  const returningNote = back ? `RETURNING: ${back} Welcome them back into the story: where their character is now and what has moved on meanwhile, if anything, then hand them the scene.` : "";
   const turn = [
     "",
     auto ? whereabouts : "",
     scenario,
     note,
     arrivalNote,
+    returningNote,
     newest ? `NEWEST LINE: ${newest.character_name || newest.author_name || "someone"}: ${newest.content}` : "",
     "Decide the Keeper's actions for this turn.",
   ].filter(Boolean).join("\n");

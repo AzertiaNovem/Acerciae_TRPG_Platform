@@ -16,7 +16,7 @@
 //
 // The GM may also open the next scenario (campaign-wide), only from the Main Chat, never while a short split is
 // active, and not before SCENARIO_MIN_MINUTES and SCENARIO_MIN_LINES.
-import { GmContext } from "./context/gmContext.mjs";
+import { GmContext, duration } from "./context/gmContext.mjs";
 import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
 import { Store, billableTokens } from "./store.mjs";
 import { History, Memory, estimateTokens, CHUNK_LINES } from "./memory.mjs";
@@ -79,6 +79,8 @@ export class Table {
     this.lastHumanAt = 0;
     this.windowState = new Map();   // windowId → {lastLineAt, lastHumanAt, lastTurnAt, quietTurns}
     this.autonomousTurns = [];      // timestamps of the last hour's autonomous turns
+    this.lastLineBy = new Map();    // player character id → when its player last wrote
+    this.returning = new Map();     // player character id → how long its player had been away (until the next turn)
     this.arrivalTimes = [];         // timestamps of the last hour's arrival turns
     this.ticker = null;
     this.refreshGen = 0;
@@ -190,6 +192,14 @@ export class Table {
   // How the Keeper reads a line: visibility and the timeline it comes from (see gmContext.mjs).
   renderForGm(m) { return renderLine({ ...m, whisper_to_names: (m.whisper_to ?? []).map((id) => this.nameOf(id)) }, { markVisibility: true, timeline: this.timelines.ofLine(m).name }); }
 
+  // How long a player character's player has been away, or null while they are around (AUTONOMY_IDLE_MINUTES).
+  awayOf(id) {
+    if (!this.isPc(id)) return null;
+    const last = this.lastLineBy.get(id);
+    const gap = this.now() - (last ?? 0);
+    return last !== undefined && gap > this.cfg.autonomyIdleMinutes * 60000 ? gap : null;
+  }
+
   // Waits for background compaction (tests, shutdown).
   async memoryIdle() { await this.memory.idle(); }
 
@@ -202,6 +212,13 @@ export class Table {
     if (this.isHuman(m)) {
       st.lastHumanAt = Math.max(st.lastHumanAt, at);
       st.quietTurns = 0;
+      st.coplayersActed = new Set();       // every human line gives each co-player one more go
+      if (m.character_id) {
+        // A player back after being away (AUTONOMY_IDLE_MINUTES) is welcomed back by the next turn.
+        const prev = this.lastLineBy.get(m.character_id);
+        if (prev !== undefined && at - prev > this.cfg.autonomyIdleMinutes * 60000) this.returning.set(m.character_id, at - prev);
+        this.lastLineBy.set(m.character_id, Math.max(prev ?? 0, at));
+      }
       this.lastHumanAt = Math.max(this.lastHumanAt, at);
       if (m.character_id && m.visibility === "window" && SPEAKER_KINDS.has(m.kind) && this.isPc(m.character_id)) {
         if (!this.speakers.has(m.chat_window_id)) this.speakers.set(m.chat_window_id, []);
@@ -330,7 +347,7 @@ export class Table {
     let here = null;                       // an arrival that lands in this very window
     const round = async (roundMode, roundExtra) => {
       scene = this.scene(windowId);
-      const ctx = await this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines() });
+      const ctx = await this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines(), awayOf: (id) => this.awayOf(id) });
       // Compaction runs beside the turn: this round's prompt is already built.
       this.memory.maintainGm(windowId, ctx.lines(windowId), ctx.render, { windowName: this.windowName(windowId) });
       const scope = new Set([...(scene?.members ?? []), ...visitorsIn]);
@@ -362,17 +379,24 @@ export class Table {
       }
       return plan;
     };
-    let plan = await round(kickoff ? "kickoff" : mode, extra);
+    // Players back after being away are welcomed back in this turn.
+    const returning = takesLines ? [...new Set(batch.map((l) => l.id))].filter((id) => this.returning.has(id)).map((id) => ({ name: this.nameOf(id), away: duration(this.returning.get(id)) })) : [];
+    for (const l of batch) this.returning.delete(l.id);
+    let plan = await round(kickoff ? "kickoff" : mode, returning.length ? { ...extra, returning } : extra);
     if (here) { const arrival = here; here = null; plan = await round("arrival", { arrival }); }
     if (!this.scene(windowId) && sceneThread) return;                    // this window's scene just ended
     const side = mode === "side" || (mode === "arrival" && !this.presentPlayers(windowId).length);
     if (!plan.coplayersMayAct && !side) return;
-    const seated = this.roster.coplayersIn(windowId);
+    // Pace: in a quiet turn a co-player acts only if it has not since the last human line, so slow humans are not
+    // drowned out by the AI side of the table.
+    const st2 = this.state(windowId);
+    const seated = this.roster.coplayersIn(windowId).filter((c) => mode !== "quiet" || !st2.coplayersActed?.has(c.characterId));
     const first = seated.filter((c) => plan.spotlight.some((n) => norm(n) === norm(c.name)));
     let acted = 0;
     for (const c of [...first, ...seated.filter((x) => !first.includes(x))]) {
       if (budget <= 0) break;
       const n = await this.coplayerAct(windowId, c, first.includes(c), { side });
+      if (n) (st2.coplayersActed ??= new Set()).add(c.characterId);
       acted += n; budget -= n;
     }
     // Co-players are players too: their choices get the Keeper's answer now, not at the next human line.
@@ -792,7 +816,9 @@ export class Table {
     if (this.overBudget()) return null;
     const now = this.now();
     const idle = this.cfg.autonomyIdleMinutes * 60000;
-    if (now - this.lastHumanAt > idle) return null;      // nobody at the table
+    // Away: nobody at the table. Only co-players-only threads move, every AWAY_SIDE_INTERVAL_MS (0: not at all).
+    const away = now - this.lastHumanAt > idle;
+    if (away && !this.cfg.awaySideIntervalMs) return null;
     this.autonomousTurns = this.autonomousTurns.filter((t) => now - t < HOUR);
     if (this.autonomousTurns.length >= this.cfg.autonomyMaxTurnsPerHour) return null;
     const candidates = [];
@@ -804,8 +830,8 @@ export class Table {
       const humans = this.presentPlayers(w.id).length > 0;
       const sinceLine = now - Math.max(st.lastLineAt, st.lastTurnAt);
       if (scene && !isMain && !humans && this.roster.coplayersIn(w.id).length) {
-        if (sinceLine >= this.cfg.autonomySideIntervalMs) candidates.push({ w, mode: "side", waited: sinceLine, extra: { timeline: scene } });
-      } else if (humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < this.cfg.autonomyQuietTurns) {
+        if (sinceLine >= (away ? this.cfg.awaySideIntervalMs : this.cfg.autonomySideIntervalMs)) candidates.push({ w, mode: "side", waited: sinceLine, extra: { timeline: scene } });
+      } else if (!away && humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < this.cfg.autonomyQuietTurns) {
         // Only a window where a human spoke recently moves on; a long-abandoned private window stays as it is.
         const quiet = now - Math.max(st.lastHumanAt, st.lastTurnAt);
         if (quiet >= this.cfg.autonomyQuietMs) candidates.push({ w, mode: "quiet", waited: quiet, extra: { quietMinutes: Math.round((now - st.lastHumanAt) / 60000) } });

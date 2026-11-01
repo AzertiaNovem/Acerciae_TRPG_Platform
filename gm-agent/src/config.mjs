@@ -81,6 +81,9 @@ export function buildConfig(args = {}, env = process.env) {
     autonomyTickMs: Math.max(1000, int(pick("autonomy-tick-ms", "AUTONOMY_TICK_MS", 30000), 30000)),
     autonomySideIntervalMs: int(pick("autonomy-side-interval-ms", "AUTONOMY_SIDE_INTERVAL_MS", 90000), 90000),
     autonomyQuietMs: int(pick("autonomy-quiet-ms", "AUTONOMY_QUIET_MS", 180000), 180000),
+    // Away mode: once nobody has posted for AUTONOMY_IDLE_MINUTES, co-players-only threads still move, this rarely
+    // (0 = they wait too). Fragmented play keeps going between visits without spending much.
+    awaySideIntervalMs: Math.max(0, int(pick("away-side-interval-ms", "AWAY_SIDE_INTERVAL_MS", 21600000), 21600000)),
     autonomyQuietTurns: Math.max(0, int(pick("autonomy-quiet-turns", "AUTONOMY_QUIET_TURNS", 2), 2)),
     autonomyMaxTurnsPerHour: Math.max(0, int(pick("autonomy-max-turns-per-hour", "AUTONOMY_MAX_TURNS_PER_HOUR", 20), 20)),
     autonomyIdleMinutes: Math.max(1, int(pick("autonomy-idle-minutes", "AUTONOMY_IDLE_MINUTES", 30), 30)),

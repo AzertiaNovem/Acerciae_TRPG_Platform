@@ -861,3 +861,58 @@ test("a scene that ends becomes a chapter of the Keeper's memory", async () => {
   await settle(t); await t.memoryIdle();
   assert.equal(t.store.chapters("gm", side.windowId).length, 1);
 });
+
+// ---- fragmented play: away mode, pace, returning players
+test("away mode: with nobody around, a co-players-only thread still moves, rarely; shared windows wait", async () => {
+  const { t, api, clock } = await table({ cfg: { autonomyIdleMinutes: 30, awaySideIntervalMs: 6 * 3600000, autonomySideIntervalMs: MIN, autonomyQuietMs: MIN } });
+  await t.command({ cmd: "split", who: ["Harriet Vance"], place: "Lighthouse", span: "long" });
+  await settle(t);
+  await alicePosts(t, api, "Back soon.");
+  await settle(t);
+  clock.t += 2 * 3600000;                                   // two hours: away
+  assert.equal(await t.tick(), null, "away: the side thread waits for AWAY_SIDE_INTERVAL_MS");
+  clock.t += 5 * 3600000;                                   // seven hours since anyone posted
+  const before = t.turns;
+  assert.notEqual(await t.tick(), null, "the side thread moves after the away interval");
+  await settle(t);
+  assert.equal(t.turns, before + 1);
+  assert.equal(t.scene(api.createdWindows[0].id).members[0], "c-harriet");
+  t.cfg.awaySideIntervalMs = 0;
+  clock.t += 7 * 3600000;
+  assert.equal(await t.tick(), null, "AWAY_SIDE_INTERVAL_MS=0: nothing moves while everyone is away");
+});
+
+test("pace: in a quiet turn a co-player who already answered the last human line stays quiet", async () => {
+  const llm = new MockLlm();
+  const { t, api, clock } = await table({ llm, cfg: { autonomyQuietMs: MIN, autonomyQuietTurns: 2 } });
+  await alicePosts(t, api, "Harriet, the clock?");
+  await settle(t);
+  const turnsOf = () => llm.calls.filter((c) => c.purpose === "coplayer_turn").length;
+  const afterHuman = turnsOf();
+  assert.equal(afterHuman, 1, "she answers the human line");
+  clock.t += MIN + 1;
+  await t.tick(); await settle(t);
+  assert.equal(turnsOf(), afterHuman, "not again in the quiet turn that follows");
+  await alicePosts(t, api, "Well?");
+  await settle(t);
+  assert.equal(turnsOf(), afterHuman + 1, "a new human line gives her another go");
+});
+
+test("a player back after being away is welcomed back, and away players are marked for the Keeper", async () => {
+  const llm = new MockLlm();
+  const { t, api, clock } = await table({ llm, bob: true, cfg: { autonomyIdleMinutes: 30 } });
+  await alicePosts(t, api, "I sit by the fire.");
+  t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: "w-main", author_id: "u-bob", author_role: "player", character_id: "c-bob", content: "I read the paper." }) });
+  await settle(t);
+  clock.t += 9 * 3600000;
+  await alicePosts(t, api, "Morning. Anything new?");
+  await settle(t);
+  const u = directorCalls(llm).find((x) => x.includes("Morning. Anything new?") && !/^MODE: /m.test(x));
+  assert.match(u, /RETURNING: Alice Hale's player is back after 9 h away/);
+  assert.match(u, /Bob Price \(player away 9 h\)/, "Bob, who has not posted, is marked away");
+  assert.match(llm.calls.find((c) => c.purpose === "director").system, /player away/);
+  const n = directorCalls(llm).length;
+  await alicePosts(t, api, "Let's go.");
+  await settle(t);
+  assert.ok(!directorCalls(llm).slice(n).some((x) => x.includes("RETURNING")), "only once");
+});

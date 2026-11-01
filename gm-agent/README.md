@@ -224,9 +224,21 @@ On its own clock (`AUTONOMY_TICK_MS`) the table also runs:
   player character; the client enforces it too. After `AUTONOMY_QUIET_TURNS` quiet turns the window waits for a human
   again. Only windows where a human spoke recently are moved; the Main Chat never runs side turns.
 
-Autonomy pauses when no human has posted in the channel for `AUTONOMY_IDLE_MINUTES`, is capped at
-`AUTONOMY_MAX_TURNS_PER_HOUR`, never runs while another turn is pending, and any human line wakes the table up.
-`AUTONOMY=false` turns it off.
+Autonomy is capped at `AUTONOMY_MAX_TURNS_PER_HOUR` (and by `LLM_DAILY_TOKEN_BUDGET`), never runs while another turn
+is pending, and any human line wakes the table up. `AUTONOMY=false` turns it off.
+
+**Fragmented play.** A campaign can also go on for weeks with people dropping in hours or days apart:
+- **Away mode.** Once no human has posted in the channel for `AUTONOMY_IDLE_MINUTES`, the table is "away". Shared
+  windows wait. Co-players-only threads still move, but only every `AWAY_SIDE_INTERVAL_MS` (default 6 hours; 0 makes
+  them wait too), so the story moves on a little between visits without spending much.
+- **Returning players.** A player who writes after being away for longer than that gets a welcome back in the GM's
+  answer: where their character is now and what has moved on meanwhile, then the scene is theirs. Recaps of the story
+  so far come from the platform's own tips for players.
+- **Absent characters.** In the window list the GM sees which player characters' players are away. Those characters stay
+  in the scene but passive: the GM never acts for them, never makes the scene wait on them, and lets no harm befall them
+  until their player is back.
+- **Pace.** A human line gives each co-player one turn. In a quiet turn that follows, a co-player who has already
+  answered stays quiet, so slow human players are not drowned out by the AI side of the table.
 
 **Costs.** Every player split creates a window with that player as a member; the platform then rebuilds that player
 group's derived memory (journals, reminders) and web clients refresh. Every split or reunion also costs an arrival turn
@@ -360,7 +372,8 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `AUTONOMY_TICK_MS` | | `30000` | how often the table looks for a window that should move |
 | `AUTONOMY_SIDE_INTERVAL_MS` | | `90000` | pause between turns in a side window |
 | `AUTONOMY_QUIET_MS`, `AUTONOMY_QUIET_TURNS` | | `180000`, `2` | silence before a shared window moves on, and how many such turns until a human posts again |
-| `AUTONOMY_MAX_TURNS_PER_HOUR`, `AUTONOMY_IDLE_MINUTES` | | `20`, `30` | hourly cap on autonomous turns; no autonomy once nobody has posted for this long |
+| `AUTONOMY_MAX_TURNS_PER_HOUR`, `AUTONOMY_IDLE_MINUTES` | | `20`, `30` | hourly cap on autonomous turns; "away" once nobody has posted for this long |
+| `AWAY_SIDE_INTERVAL_MS` | | `21600000` (6 h) | while away, how often a co-players-only thread moves (0: never) |
 | `TIMELINE_AUTO` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: model-led co-player splits |
 | `TIMELINE_GUARD_TURNS`, `TIMELINE_GUARD_MS` | | `2`, `180000` | a co-player's move that undoes a recent change waits for two agreeing turns within this window |
 | `TIMELINE_MAX_ACTIVE` | | `4` | at most this many threads at once (the main one included) |
