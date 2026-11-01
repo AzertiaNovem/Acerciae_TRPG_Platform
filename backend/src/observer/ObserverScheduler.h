@@ -54,6 +54,9 @@ private:
     bool backingOff(const std::string& channelId, const std::string& kind, const std::string& key);
     static constexpr int kMaxAttempts = 5;
     Json::Value buildGroupContext(const ChannelAccess& sys, const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, std::vector<std::string>& terms);
+    Json::Value worldContext(const std::string& channelId, const std::string& groupId);
+    static Json::Value worldOps(const Json::Value& data);
+    static Json::Value documentOps(const Json::Value& ops);
     void applyExtraction(const ChannelAccess& sys, const std::string& channelId, const std::string& jobId, const Json::Value& data, const Json::Value& batch, Json::Value& summary);
     ChannelAccess systemAccess(const std::string& channelId);
     bool tryLock(const std::string& key, bool wait);
