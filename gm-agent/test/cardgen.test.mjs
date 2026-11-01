@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeCard, derived, skillIndex } from "../src/roles/cardgen.mjs";
+import { normalizeCard, derived, skillIndex, generateCoplayer } from "../src/roles/cardgen.mjs";
+import { MockLlm } from "../src/llm/mock.mjs";
 import { completeJson } from "../src/llm/index.mjs";
 
 const rules = {
@@ -42,4 +43,10 @@ test("a reply that is not JSON gets one repair round", async () => {
   const out = await completeJson(llm, { system: "s", user: "u", purpose: "coplayer_card" }, (x) => x);
   assert.equal(out.name, "Ada");
   assert.equal(llm.calls, 2);
+});
+
+test("improvisation: a co-player is written into the Keeper's world setting", async () => {
+  const llm = new MockLlm();
+  await generateCoplayer(llm, { language: "English", era: "1920s", rules: null, pointsMode: false, takenNames: [], partyNotes: "", index: 0, total: 1, world: "WORLD-GEN: Kingsport, 1923" });
+  assert.ok(llm.calls[0].messages[0].content.includes("WORLD-GEN: Kingsport, 1923"));
 });

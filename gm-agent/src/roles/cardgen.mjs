@@ -119,13 +119,16 @@ function validateCard(x) {
 }
 
 // One co-player: a fellow investigator who plays alongside the real players.
-export async function generateCoplayer(llm, { language, era, rules, pointsMode, takenNames, partyNotes, index, total }) {
+// `world` (improvisation mode) is the setting the investigator comes from: their persona and background are written
+// into it.
+export async function generateCoplayer(llm, { language, era, rules, pointsMode, takenNames, partyNotes, index, total, world = "" }) {
   const system = `You create investigator characters for a Call of Cthulhu 7th edition campaign. They are co-players: AI-played investigators who join the human players' party as equals. Make them distinct, playable and grounded in the era; no Mythos knowledge beyond a trace. Write every text field in ${language}. Reply with only one JSON object of this shape: ${CARD_SHAPE}`;
   const user = [
     `CAMPAIGN ERA: ${era || "1920s"}`,
     `CO-PLAYER: ${index + 1} of ${total}`,
     `TAKEN NAMES: ${takenNames.join(", ")}`,
     partyNotes ? `THE PARTY SO FAR:\n${partyNotes}` : "",
+    world ? `WORLD SETTING (there is no module: the story is improvised in this world). Make the investigator someone from it: a full personality in the persona and a background story rooted in its places, people and tensions:\n${world}` : "",
     "Use COC7 creation values: STR CON DEX APP POW LUK 15-90, SIZ INT EDU 40-90, occupation skills at 40-75, a few hobby skills at 20-50.",
     rulesSummary(rules, pointsMode),
   ].filter(Boolean).join("\n");

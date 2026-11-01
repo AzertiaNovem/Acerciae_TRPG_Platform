@@ -182,6 +182,49 @@ Autonomy pauses when no human has posted in the channel for `AUTONOMY_IDLE_MINUT
 group's derived memory (journals, reminders) and web clients refresh. Every split or reunion also costs an arrival turn
 (a GM call, the co-players and a follow-up).
 
+## Improvisation mode
+
+Without a module, the table can improvise a campaign from a world setting you write yourself:
+
+```bash
+node src/cli.mjs setup --coplayers 2 --improv --world world.md --secrets secrets.md
+```
+
+- **`world.md`, the world setting** (your own text, used as written, up to 30,000 characters): places, factions, people,
+  tone, what everyone knows.
+  - Shared with **everyone**. `run` posts it in the Main Chat for the human players (in parts if it is long), once per
+    version of the text.
+  - The GM, the real NPCs and every co-player get it as a section of their prompt. The posted copy is left out of
+    their chat logs, so it is not read twice.
+- **`secrets.md`, the Keeper's hidden layer** (optional): what is really going on. Only the GM and the real NPCs read
+  it; it is never posted.
+- **The GM improvises.** It grows the story from the world, the investigators' backgrounds and the players' choices,
+  and is told to reveal hidden things only through play.
+  - Whenever it decides a hidden fact (who did it, what someone wants), it records it with a `truth` action.
+  - Recorded truths are kept in the state file and shown to the GM, never to the co-players, so later turns stay
+    consistent.
+- **Co-players are written into the world.** New ones get a full personality and a background story rooted in it.
+  Each co-player knows its own story and its companions' public profiles. Missing background on an adopted GM-cast PC
+  is also filled in to fit the world.
+- **No module.** The platform's script knowledge and module hints are not read in this mode.
+
+To change the setting during a campaign, use `world` (handed to `run` if it is up):
+
+```bash
+node src/cli.mjs world --world world-v2.md
+```
+
+```bash
+node src/cli.mjs world --secrets secrets-v2.md
+```
+
+```bash
+node src/cli.mjs world --improv false
+```
+
+A text you leave out keeps its current version. `status` shows whether the mode is on, the setting's size, whether it
+has been posted, and how many truths the GM has recorded.
+
 ## Setup
 
 Requirements: Node 22.13+ and a running Acerciae backend.
@@ -271,7 +314,9 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `TIMELINE_MAX_ARRIVALS_PER_HOUR` | | `12` | arrival turns (opening a new or changed scene) per hour |
 | `SCENARIO_AUTO` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the Main Chat only) |
 | `SCENARIO_MIN_MINUTES`, `SCENARIO_MIN_LINES` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it |
-| `STATE_DIR` | `--state-dir` | `./.state` | the state file (co-players, real NPCs, seats, timelines, guard, scenario), its lock and the command inbox |
+| `IMPROV` | `--improv` | off | improvisation mode (with `setup` or `world`; it is then kept in the state file) |
+| `WORLD_FILE`, `SECRETS_FILE` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` |
+| `STATE_DIR` | `--state-dir` | `./.state` | the state file (co-players, real NPCs, seats, timelines, guard, scenario, improvisation setting), its lock and the command inbox |
 
 **Mock mode.** `LLM_PROVIDER=mock` writes labelled placeholder text (`[mock Keeper] …`). It exercises every pipeline
 without a provider. It is for tests and demos, not for play.

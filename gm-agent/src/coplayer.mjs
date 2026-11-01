@@ -60,7 +60,8 @@ function cardSummary(card) {
 // `timeline` is the co-player's own thread (name, time, place; never the GM's notes). `side` is true in a
 // co-players-only window, where no human player is there to lead.
 // `companions` are the other investigators; those in `withYou` (character ids) are in the same scene right now.
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, spotlight, timeline = null, side = false }) {
+// `world` is the improvisation mode's public world setting (empty otherwise).
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, spotlight, timeline = null, side = false, world = "" }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -69,6 +70,7 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     `PERSONA: ${coplayer.persona || "(none)"}`,
     `SPEAKING STYLE: ${coplayer.speakingStyle || "(natural)"}`,
     `YOUR ROLE CARD:\n${cardSummary(card)}`,
+    world ? `THE WORLD (the setting everyone at the table shares; your persona and background are your own story in it):\n${world}` : "",
     timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
     side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
     `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map((c) => renderProfile(c)).join("\n") || "(none)"}`,

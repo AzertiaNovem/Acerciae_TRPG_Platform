@@ -4,6 +4,7 @@
 import { renderLine } from "./coplayerContext.mjs";
 import { renderProfile } from "./profiles.mjs";
 import { isPlayerCharacter } from "../roles/roster.mjs";
+import { improvSections } from "../improv.mjs";
 
 const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const json = (v, n) => clip(JSON.stringify(v ?? null), n);
@@ -50,16 +51,19 @@ export class GmContext {
 
   // Everything the GM model reads for one turn in `windowId`.
   // `sceneOf(windowId)` gives the active timeline played in a window (the main timeline for the Main Chat), or null.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null }) {
+  // `improv` (improv.mjs): in improvisation mode the module's script knowledge and hints are left out, and the world
+  // setting and hidden truths are added. `hide` holds message ids left out of the chat (the posted world setting).
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null }) {
     const ch = this.channelId;
+    const module = !improv?.on;
     const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs] = await Promise.all([
       this.safe("channel", () => this.api.channel(ch)),
       this.safe("scenes", () => this.api.scenes(ch)),
       this.safe("board", () => this.api.kpBoard(ch)),
       this.safe("reminders", () => this.api.reminders(ch)),
-      this.safe("script knowledge", () => this.api.scriptKnowledge(ch)),
+      module ? this.safe("script knowledge", () => this.api.scriptKnowledge(ch)) : null,
       this.safe("highlights", () => this.api.highlights(ch)),
-      this.safe("module hints", () => this.api.moduleHints(ch)),
+      module ? this.safe("module hints", () => this.api.moduleHints(ch)) : null,
       this.safe("proposals", () => this.api.proposals(ch)),
       this.documents(),
     ]);
@@ -67,7 +71,7 @@ export class GmContext {
     // happened there when the party reunites.
     const recentMerged = new Set((timelines?.list ?? []).filter((t) => t.status !== "active" && t.windowId).slice(-3).map((t) => t.windowId));
     const retired = (w) => w.id !== windowId && timelines?.retired(w.id) && !recentMerged.has(w.id);
-    const messages = await this.chat(windowId, windows.filter((w) => !retired(w)));
+    const messages = (await this.chat(windowId, windows.filter((w) => !retired(w)))).filter((m) => !hide?.has(m.id));
     const charName = new Map(characters.map((c) => [c.id, c.name]));
     for (const m of messages) if (m.whisper_to?.length) m.whisper_to_names = m.whisper_to.map((id) => charName.get(id) ?? id);
     const current = (scenes ?? []).find((s) => s.id === channel?.current_scene_id);
@@ -79,6 +83,7 @@ export class GmContext {
 
     const sections = [];
     sections.push(`## Campaign\nname: ${channel?.name ?? ""}\nera: ${channel?.era || "(not set)"}\ndescription: ${clip(channel?.description, 600)}\nstory: ${channel?.story_status ?? "ongoing"}\ncurrent scenario: ${current ? `${current.title}${current.location ? ` @ ${current.location}` : ""}${current.narrative_time ? ` (${current.narrative_time})` : ""}; ${current.event_count ?? 0} events so far` : "(none)"}`);
+    sections.push(...improvSections(improv));
     const prepared = (scenes ?? []).filter((s) => s.status === "active" && s.id !== channel?.current_scene_id);
     if (prepared.length) sections.push(`## Prepared scenarios (enter_scenario)\n${prepared.map((s) => `- ${s.title}${s.location ? ` @ ${s.location}` : ""}${s.narrative_time ? ` (${s.narrative_time})` : ""}${s.summary ? `: ${clip(s.summary, 200)}` : ""}`).join("\n")}`);
     const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-4);

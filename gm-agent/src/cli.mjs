@@ -17,6 +17,7 @@ import { Realtime } from "./realtime.mjs";
 import { Roster, openSeat, openWindows } from "./roles/roster.mjs";
 import { generateCoplayer, saveCharacter } from "./roles/cardgen.mjs";
 import { completeExistingCharacter } from "./roles/complete.mjs";
+import { SECRETS_MAX, WORLD_MAX, readSetting } from "./improv.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
@@ -77,12 +78,18 @@ async function setup(cfg) {
   const me = api.user ?? (await api.me());
   const known = new Set((state.coplayers ?? []).map((c) => c.characterId));
   const roster = new Roster(state).reconcile(await api.characters(channel.id), seats, { castBy: me.id });
+  // Improvisation mode: the world setting the co-players are written into (and, later, the table plays in).
+  const improv = improvChange(cfg, state.improv);
+  const world = ((improv?.on ?? state.improv?.on) && (improv?.world ?? state.improv?.world)) || "";
   for (const c of roster.coplayers) if (!known.has(c.characterId)) log(`using ${c.name}, a PC this account already owns, as a co-player`);
   // While `run` keeps the channel it is the only writer; it picks new co-players up by their owner.
   const running = Boolean(lockHolder(cfg.stateDir, channel.id));
+  if (improv && running) appendInbox(cfg.stateDir, channel.id, { cmd: "world", ...improv });
+  else if (improv) state.improv = { ...(state.improv ?? {}), ...improv };
+  if (improv) log(`improvisation mode ${improv.on ? `on (world ${String(improv.world ?? state.improv?.world ?? "").length} characters)` : "off"}${running ? "; handed to the running table" : "; the world setting is posted in the Main Chat when run starts"}`);
 
   for (const existing of roster.coplayers) {
-    await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, log });
+    await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, log });
   }
 
   const missing = cfg.coplayers - roster.coplayers.length;
@@ -92,7 +99,7 @@ async function setup(cfg) {
     const characters = await api.characters(channel.id);
     const takenNames = characters.map((c) => c.name);
     const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-    const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers };
+    const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers, world };
     const generated = await generateCoplayer(llm, args);
     const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, llm, language, pointsMode });
     roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
@@ -116,7 +123,7 @@ async function openTable(cfg, { llm = null, write = true, heal = false, deferArr
   let version = Number(state.version) || 0;
   const persist = write
     ? (t) => {
-      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, journal: t.journal, owedArrivals: t.owedArrivals };
+      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, journal: t.journal, owedArrivals: t.owedArrivals };
       delete next.version;
       try { version = saveState(cfg.stateDir, next, { expectVersion: version }); }
       catch (e) { if (!(e instanceof StateConflict)) throw e; onConflict(e); }
@@ -124,7 +131,7 @@ async function openTable(cfg, { llm = null, write = true, heal = false, deferArr
     : () => {};
   const table = new Table({
     api, llm, cfg, channelId: channel.id, roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
-    scenario: state.scenario ?? null, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
+    scenario: state.scenario ?? null, improv: state.improv ?? null, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
   });
   await table.init({ heal });
   if (write) table.save();
@@ -191,6 +198,25 @@ async function manual(cfg, cmd, describe) {
   } finally { release(); }
 }
 
+// What `--improv`, `--world` and `--secrets` change in the improvisation settings (null: nothing given). The texts
+// are read from the Keeper's own files.
+function improvChange(cfg, current) {
+  if (cfg.improv === undefined && !cfg.worldFile && !cfg.secretsFile) return null;
+  const on = cfg.improv ?? true;
+  const out = { on };
+  if (cfg.worldFile) out.world = readSetting(cfg.worldFile, { what: "world", max: WORLD_MAX });
+  if (cfg.secretsFile) out.secrets = readSetting(cfg.secretsFile, { what: "secrets", max: SECRETS_MAX });
+  if (on && !out.world && !current?.world) throw new Error("improvisation mode needs a world setting: --world <file>");
+  return out;
+}
+
+// `world --world world.md [--secrets secrets.md] [--improv false]`: improvisation mode's setting, during a campaign.
+function world(cfg) {
+  const change = improvChange(cfg, null);
+  if (!change) throw new Error("world needs --world <file>, --secrets <file> or --improv false");
+  return manual(cfg, { cmd: "world", ...change }, `improvisation ${change.on ? "on" : "off"}`);
+}
+
 const list = (v) => String(v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 
 // `split --who "Alice Hale,Harriet Vance" --place "Old Harbour" [--span long] [--time …] [--opening …]`
@@ -228,6 +254,8 @@ async function status(cfg) {
   console.log("timelines:");
   for (const t of timelines.list) console.log(`  T${t.handle} ${t.name} [${t.status}${t.mergedInto ? ` → ${timelines.get(t.mergedInto)?.name}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span}${t.opened ? "" : ", not opened yet"}` : ""}]${t.windowId ? ` in "${wname(t.windowId)}"` : ""}: ${t.members.map(cname).join(", ") || "(no one)"}${t.narrativeTime ? `; ${t.narrativeTime}` : ""}${t.location ? ` @ ${t.location}` : ""}`);
   if (table.owedArrivals.length) console.log(`opening turns waiting for run: ${table.owedArrivals.map((a) => wname(a.windowId)).join(", ")}`);
+  const im = table.improv;
+  console.log(`improvisation: ${im.on ? `on — world ${im.world.length} characters (${im.published.hash ? "posted in the Main Chat" : "not posted yet; run posts it"}), secrets ${im.secrets.length} characters, ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
   console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
   console.log(`timelines: ${cfg.timelineAuto ? `proactive (at most ${cfg.timelineMaxActive} at once, ${cfg.timelineMaxArrivalsPerHour} arrivals an hour)` : "model-led (TIMELINE_AUTO=false)"}; scenarios: ${cfg.scenarioAuto ? `GM-driven from the Main Chat after ${cfg.scenarioMinMinutes} min and ${cfg.scenarioMinLines} lines; never during a short split` : "manual only"}`);
 }
@@ -237,9 +265,9 @@ loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
 loadEnvFile(path.join(here, "..", ".env"));
 const cfg = buildConfig(args);
 const command = args._[0] ?? "run";
-const commands = { setup, run, status, split, rejoin, advance };
+const commands = { setup, run, status, split, rejoin, advance, world };
 if (!commands[command]) {
-  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance|world> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
   process.exit(2);
 }
 commands[command](cfg, args).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });

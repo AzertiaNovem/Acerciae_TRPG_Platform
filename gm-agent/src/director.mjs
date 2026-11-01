@@ -33,13 +33,15 @@ const LEGACY_TIMELINE_RULES = `- Timelines: investigators may be on different th
 
 const SCENARIO_RULES = `- Scenarios are the story's stages, for the whole campaign. Open the next one with advance_scenario (or enter a prepared one with enter_scenario) when the story as a whole moves on: a jump in time, the party reaching a new location for good, a stage of the module completed, or the platform's "New scenario?" reminder when you agree with it. Decide this only in the Main Chat. A short split blocks it (bring the party together first); a long split carries on into the new scenario. A split or a reunion is not by itself a scenario change. Changing too often is worse than too late.`;
 
-export function directorSystem(language, { auto = true } = {}) {
+const IMPROV_RULES = `- Improvisation: there is no module. The story grows from the World setting, your Hidden truths, the investigators' own personalities and backgrounds, and the players' choices. Build mysteries, places and people that fit the world, and tie threads to the investigators' backgrounds. Stay consistent with the World setting and every Hidden truth. When you decide something true behind the scenes (who did it, what someone wants, what is really in the cellar), record it at once with truth, so later turns keep to it. Reveal hidden truths only through play: clues, NPCs, consequences, rolls.`;
+
+export function directorSystem(language, { auto = true, improv = false } = {}) {
   return `You are the Keeper (Game Master) of a Call of Cthulhu 7th edition campaign on an online table. Human players play their investigators; some investigators are AI co-players that act on their own turn after you. You voice the world and every real NPC.
 
 How to keep the table:
 ${COMMON_RULES}
 ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
-${SCENARIO_RULES}
+${SCENARIO_RULES}${improv ? `\n${IMPROV_RULES}` : ""}
 - Keep each line short enough for chat (1-5 sentences). One to three actions per turn is typical. Return no actions if nothing needs the Keeper now (for example players talking among themselves out of character).
 - Write all text in ${language}.
 
@@ -51,7 +53,8 @@ Reply with only one JSON object:
   {"type": "whisper", "to": "<character name>", "text": "..."},
   {"type": "request_roll", "who": "<character name>", "command": ".ra <skill>", "text": "<why, in one short line>"},
   {"type": "note", "text": "<Keeper-only note>"},
-${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-player names>"], "location": "...", "narrative_time": "...", "opening": "<first narration of the thread>"},
+${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for your own memory>"},
+` : ""}${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-player names>"], "location": "...", "narrative_time": "...", "opening": "<first narration of the thread>"},
   {"type": "rejoin", "timeline": "<thread name>", "into": "<window name, optional>", "text": "<optional narration where they return>"},
 `}  {"type": "timeline", "timeline": "<handle or thread name>", "narrative_time": "...", "location": "...", "notes": "<your private notes>", "span": "short" | "long"},
   {"type": "advance_scenario", "title": "...", "location": "...", "narrative_time": "...", "reason": "<why now>"},
@@ -62,9 +65,9 @@ ${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-p
  "whereabouts": [{"who": ["<investigator names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": "<first narration there>"}]` : ""}}`;
 }
 
-export function validateDirector(x, { auto = true } = {}) {
+export function validateDirector(x, { auto = true, improv = false } = {}) {
   if (!x || typeof x !== "object" || !Array.isArray(x.actions)) throw new Error("actions must be an array");
-  const allowed = auto ? BASE_ACTIONS : [...BASE_ACTIONS, ...LEGACY_ACTIONS];
+  const allowed = [...BASE_ACTIONS, ...(auto ? [] : LEGACY_ACTIONS), ...(improv ? ["truth"] : [])];
   const actions = x.actions
     .filter((a) => a && allowed.includes(a.type))
     .map((a) => ({ ...a, text: String(a.text ?? "").trim() }))
@@ -88,7 +91,7 @@ const MODE_NOTES = {
 };
 
 // `whereabouts` is the brief from whereabouts.mjs; `scenario` says whether a scenario change is possible this turn.
-export async function directTurn(llm, { language, contextText, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, ...extra }) {
+export async function directTurn(llm, { language, contextText, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, improv = false, ...extra }) {
   if (kickoff) mode = "kickoff";
   const note = MODE_NOTES[mode]?.(extra) ?? "";
   const arrivalNote = mode !== "arrival" && extra.arrival ? MODE_NOTES.arrival(extra) : "";   // an arrival folded into another turn
@@ -102,5 +105,5 @@ export async function directTurn(llm, { language, contextText, newest, mode = "h
     newest ? `NEWEST LINE: ${newest.character_name || newest.author_name || "someone"}: ${newest.content}` : "",
     "Decide the Keeper's actions for this turn.",
   ].filter(Boolean).join("\n");
-  return completeJson(llm, { system: directorSystem(language, { auto }), user, purpose: "director" }, (x) => validateDirector(x, { auto }));
+  return completeJson(llm, { system: directorSystem(language, { auto, improv }), user, purpose: "director" }, (x) => validateDirector(x, { auto, improv }));
 }

@@ -85,6 +85,11 @@ export function buildConfig(args = {}, env = process.env) {
     scenarioAuto: bool(pick("scenario-auto", "SCENARIO_AUTO"), true),
     scenarioMinMinutes: Math.max(0, int(pick("scenario-min-minutes", "SCENARIO_MIN_MINUTES", 20), 20)),
     scenarioMinLines: Math.max(0, int(pick("scenario-min-lines", "SCENARIO_MIN_LINES", 30), 30)),
+    // Improvisation mode (improv.mjs): no module; a world setting from the Keeper's own files. Only `setup` and `world`
+    // read these; the setting then lives in the state file. `improv` stays undefined unless given.
+    improv: pick("improv", "IMPROV") === undefined ? undefined : bool(pick("improv", "IMPROV"), false),
+    worldFile: pick("world", "WORLD_FILE") ? path.resolve(String(pick("world", "WORLD_FILE"))) : null,
+    secretsFile: pick("secrets", "SECRETS_FILE") ? path.resolve(String(pick("secrets", "SECRETS_FILE"))) : null,
     stateDir: path.resolve(pick("state-dir", "STATE_DIR", path.join(process.cwd(), ".state"))),
     verbose: bool(pick("verbose", "VERBOSE"), false),
   };

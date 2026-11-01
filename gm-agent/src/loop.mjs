@@ -25,6 +25,7 @@ import { generateNpc, saveCharacter } from "./roles/cardgen.mjs";
 import { isPlayerCharacter, openWindows } from "./roles/roster.mjs";
 import { Timelines, MAIN, placeKey } from "./timelines.mjs";
 import { Guard, planWhereabouts, whereaboutsBrief } from "./whereabouts.mjs";
+import { addTruth, hashText, improvState, worldMessages } from "./improv.mjs";
 
 const LANGUAGES = { en: "English", zh: "Simplified Chinese", "zh-CN": "Simplified Chinese", "zh-TW": "Traditional Chinese", ja: "Japanese", ko: "Korean", es: "Spanish", fr: "French", de: "German", ru: "Russian", pt: "Portuguese", it: "Italian" };
 export const languageName = (code) => LANGUAGES[code] ?? LANGUAGES[String(code ?? "").split("-")[0]] ?? (code || "English");
@@ -39,7 +40,7 @@ const HOUR = 3600000;
 
 export class Table {
   // `deferArrivals`: a short-lived CLI process records arrivals in the state file for the `run` process to play.
-  constructor({ api, llm, cfg, channelId, roster, timelines, guard, scenario = null, journal = null, owedArrivals = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now }) {
+  constructor({ api, llm, cfg, channelId, roster, timelines, guard, scenario = null, improv = null, journal = null, owedArrivals = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now }) {
     this.api = api;
     this.llm = llm;
     this.cfg = cfg;
@@ -49,6 +50,7 @@ export class Table {
     this.timelines = timelines ?? new Timelines([], { now });
     this.guard = guard ?? new Guard();
     this.scenario = scenario;            // {id, since}: when the client saw the current scenario begin
+    this.improv = improvState(improv);   // improvisation mode: world setting, hidden truths (improv.mjs)
     this.journal = journal;              // an applyPlan in progress, for roll-forward after a crash
     this.owedArrivals = [...owedArrivals];
     this.deferArrivals = deferArrivals;
@@ -101,6 +103,7 @@ export class Table {
       this.scenario = { id: this.channel.current_scene_id, since: Date.parse(cur?.created_at) || this.now() };
     }
     if (heal) await this.heal();
+    if (heal) await this.publishWorld();
     return this;
   }
 
@@ -309,7 +312,7 @@ export class Table {
     let here = null;                       // an arrival that lands in this very window
     const round = async (roundMode, roundExtra) => {
       scene = this.scene(windowId);
-      const ctx = await this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w) });
+      const ctx = await this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines() });
       const scope = new Set([...(scene?.members ?? []), ...visitorsIn]);
       const mayMove = [...scope].filter((id) => (this.isPc(id) ? ["human", "relay"].includes(roundMode) && speakerIds.has(id) : ["followup", "side"].includes(roundMode)));
       const whereabouts = this.cfg.timelineAuto && scene
@@ -317,7 +320,7 @@ export class Table {
         : "";
       const verdict = await this.scenarioVerdict(windowId, roundMode, mode);
       const scenario = this.cfg.scenarioAuto ? `Scenario change: ${verdict.ok ? "possible this turn, if the story as a whole has moved on." : `not this turn (${verdict.reason}).`}` : "";
-      const plan = await directTurn(this.llm, { language: this.language, contextText: ctx.text, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, ...roundExtra });
+      const plan = await directTurn(this.llm, { language: this.language, contextText: ctx.text, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, improv: this.improv.on, ...roundExtra });
       this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} Keeper action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
       for (const action of plan.actions) {
         if (budget <= 0) break;
@@ -543,6 +546,7 @@ export class Table {
     switch (a.type) {
       case "narrate": return this.post(windowId, { content: a.text, kind: "narration" });
       case "note": return this.post(windowId, { content: a.text, kind: "narration", visibility: "gm_only" });
+      case "truth": if (this.improv.on && addTruth(this.improv, a.text)) { this.log(`hidden truth recorded: ${a.text.slice(0, 100)}`); this.save(); } return 0;
       case "npc":
       case "new_npc": {
         const who = this.characterByName(a.name);
@@ -634,6 +638,7 @@ export class Table {
     const turnNo = this.guard.beginTurn();
     await this.refresh();
     const resolveAll = (list) => names(list).map((n) => this.investigatorByName(n)).filter(Boolean);
+    if (cmd.cmd === "world") return this.setWorld(cmd);
     if (cmd.cmd === "advance") return this.changeScenario(this.mainWindow().id, { type: "advance_scenario", title: cmd.title, location: cmd.location, narrative_time: cmd.time, reason: "by the operator" }, "manual");
     let reports;
     let windowId = this.mainWindow().id;
@@ -652,6 +657,46 @@ export class Table {
     const scope = new Set(investigatorsFor(this.characters, this.roster).map((c) => c.id));
     const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: scene, windowId }, reports, scopeIds: scope, mode: "manual", resolve: (n) => this.investigatorByName(n), isPc: (id) => this.isPc(id), userOf: (id) => this.userOf(id), windowUsers: (w) => this.windowUsers(w), guard: this.guard, turn: turnNo, now: this.now(), cfg: this.cfg });
     return this.applyPlan(result, { windowId, mode: "manual", turn: turnNo });
+  }
+
+  // ---- improvisation mode
+  // The posted world setting is left out of every chat context: the GM and the co-players get it as a section of its own.
+  hiddenLines() { return new Set(this.improv.published.ids); }
+
+  // `world` command (and `setup` while `run` is up): turns the mode on or off and replaces the setting texts.
+  async setWorld({ on, world, secrets }) {
+    if (on !== undefined) this.improv.on = Boolean(on);
+    if (world !== undefined) this.improv.world = String(world);
+    if (secrets !== undefined) this.improv.secrets = String(secrets);
+    this.save();
+    await this.publishWorld();
+    this.log(`improvisation ${this.improv.on ? "on" : "off"}: world ${this.improv.world.length} characters, secrets ${this.improv.secrets.length}, hidden truths ${this.improv.truths.length}`);
+  }
+
+  // Posts the world setting in the Main Chat for the human players, once per version of the text.
+  async publishWorld() {
+    const { on, world, published } = this.improv;
+    if (!on || !world || published.hash === hashText(world)) return 0;
+    const main = this.mainWindow();
+    if (!main) return 0;
+    const ids = [];
+    try {
+      for (const content of worldMessages(world)) {
+        const m = await this.api.postMessage(this.channelId, main.id, { content, kind: "narration", visibility: "window" });
+        this.botMessageIds.add(m.id);
+        this.noteLine(m);
+        ids.push(m.id);
+      }
+    } catch (e) {
+      this.log(`posting the world setting failed (${e.message}); it is posted again when run starts`);
+      this.improv.published.ids.push(...ids);
+      this.save();
+      return 0;
+    }
+    this.improv.published = { hash: hashText(world), ids: [...published.ids, ...ids].slice(-100) };
+    this.save();
+    this.log(`world setting posted in "${main.name}" (${ids.length} message${ids.length === 1 ? "" : "s"})`);
+    return ids.length;
   }
 
   // ---- older, model-led timelines (TIMELINE_AUTO=false)
@@ -781,13 +826,14 @@ export class Table {
     const messages = [];
     for (const w of new Set(coplayer.seats.map((s) => s.windowId))) messages.push(...((await this.api.messages(this.channelId, w, this.cfg.contextLines).catch(() => [])) ?? []));
     const me = coplayer.characterId;
-    const log = coplayerLog(coplayer, messages, this.cfg.contextLines).filter((m) => !(m.character_id && this.isPc(m.character_id) && this.timelines.timelineAt(m.character_id, m.seq).id !== this.timelines.timelineAt(me, m.seq).id));
+    const hidden = this.hiddenLines();
+    const log = coplayerLog(coplayer, messages.filter((m) => !hidden.has(m.id)), this.cfg.contextLines).filter((m) => !(m.character_id && this.isPc(m.character_id) && this.timelines.timelineAt(m.character_id, m.seq).id !== this.timelines.timelineAt(me, m.seq).id));
     const t = this.timelines.of(me);
     const timeline = t ? { name: t.name, narrativeTime: t.narrativeTime, location: t.location } : null;
     let move;
     try {
       const companions = investigatorsFor(this.characters, this.roster, { except: me });
-      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, spotlight, timeline, side });
+      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "" });
     } catch (e) { this.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
     if (move.action === "speak") return this.post(windowId, { content: move.text, kind: move.kind, character_id: me });
     if (move.action === "roll") {
