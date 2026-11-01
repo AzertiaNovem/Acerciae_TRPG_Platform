@@ -1,4 +1,4 @@
-//! Provider API keys for Open Log Studio: in the system keychain (macOS Keychain, Windows Credential Manager,
+//! Secrets of the desktop app (the session token, Open Log Studio provider API keys): in the system keychain (macOS Keychain, Windows Credential Manager,
 //! Secret Service on Linux). Where no keychain is available (some Linux desktops), a file only the user can read
 //! in the app's data folder is used instead.
 

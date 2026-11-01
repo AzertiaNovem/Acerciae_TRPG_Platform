@@ -8,6 +8,9 @@ web and mobile apps use.
 ## What only the desktop app does
 
 - **Server address** on the sign-in screen (default `https://trpg.missazertia.com`). It is remembered per device.
+- **The sign-in stays in the system keychain** (macOS Keychain, Windows Credential Manager, Secret Service on Linux;
+  a file only you can read where there is none), not in the web view's storage. A sign-in saved by an earlier version
+  moves there at the next start. Signing out removes it.
 - **Native downloads.** Log exports, PDFs and visual-novel zips are saved through a "Save as" dialog. Other links
   (shared publications, external pages) open in the user's browser; the app window only shows the app.
 - **A visual novel saved file by file.** "Save files to a folder" writes `index.html` (the standalone player),

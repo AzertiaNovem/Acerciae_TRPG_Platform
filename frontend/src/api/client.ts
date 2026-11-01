@@ -1,10 +1,17 @@
 import type * as T from '../types';
-import { readStorage, writeStorage } from '../lib/storage';
-import { apiBase } from '../lib/platform';
+import { apiBase, isDesktop } from '../lib/platform';
+import { createTokenStore, tauriKeychain } from '../lib/tokenStore';
 
-let token: string | null = readStorage('acerciae.token');
+// The session token: local storage on the web, the system keychain in the desktop app (read before the app renders).
+const tokenStore = createTokenStore(isDesktop, tauriKeychain);
+let token: string | null = tokenStore.initial();
+let tokenTouched = false;
+export async function restoreToken() {
+  const saved = await tokenStore.load();
+  if (!tokenTouched) token = saved;
+}
 
-export function setToken(t: string | null) { token = t; fileTok = null; writeStorage('acerciae.token', t); }
+export function setToken(t: string | null) { tokenTouched = true; token = t; fileTok = null; void tokenStore.save(t); }
 export function getToken() { return token; }
 
 // URLs a browser loads by itself (images, audio, downloads, the WebSocket) carry a short-lived file token, never the
