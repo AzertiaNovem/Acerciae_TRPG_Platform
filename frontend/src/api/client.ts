@@ -1,10 +1,17 @@
 import type * as T from '../types';
-import { readStorage, writeStorage } from '../lib/storage';
-import { apiBase } from '../lib/platform';
+import { apiBase, isDesktop } from '../lib/platform';
+import { createTokenStore, tauriKeychain } from '../lib/tokenStore';
 
-let token: string | null = readStorage('acerciae.token');
+// The session token: local storage on the web, the system keychain in the desktop app (read before the app renders).
+const tokenStore = createTokenStore(isDesktop, tauriKeychain);
+let token: string | null = tokenStore.initial();
+let tokenTouched = false;
+export async function restoreToken() {
+  const saved = await tokenStore.load();
+  if (!tokenTouched) token = saved;
+}
 
-export function setToken(t: string | null) { token = t; fileTok = null; writeStorage('acerciae.token', t); }
+export function setToken(t: string | null) { tokenTouched = true; token = t; fileTok = null; void tokenStore.save(t); }
 export function getToken() { return token; }
 
 // URLs a browser loads by itself (images, audio, downloads, the WebSocket) carry a short-lived file token, never the
@@ -198,7 +205,7 @@ export const api = {
   vnScriptStatus: (ch: string) => get<{ mock: boolean; model: string; cloud_allowed: boolean; max_lines: number; max_tokens: number; timeout_ms: number; retry_failed_chunks: boolean; note: string; images: boolean }>(`/api/channels/${ch}/studio/vn-scripts/status`),
   vnScripts: (ch: string) => get<T.VnScriptJob[]>(`/api/channels/${ch}/studio/vn-scripts`),
   vnScript: (ch: string, id: string) => get<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}`),
-  createVnScript: (ch: string, body: { snapshot_id?: string; scope?: 'gm_full' | 'pl_public' | 'character'; scope_character_id?: string; title?: string; template?: Record<string, unknown>; instructions?: string; allow_cloud?: boolean; generate_art?: boolean; retry_failed_chunks?: boolean }) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts`, body),
+  createVnScript: (ch: string, body: { snapshot_id?: string; continue_presentation_id?: string; scope?: 'gm_full' | 'pl_public' | 'character'; scope_character_id?: string; title?: string; template?: Record<string, unknown>; instructions?: string; allow_cloud?: boolean; generate_art?: boolean; retry_failed_chunks?: boolean }) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts`, body),
   retryVnScript: (ch: string, id: string, retry_failed_chunks: boolean) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}/retry`, { retry_failed_chunks }),
   retryVnBackgrounds: (ch: string, id: string, scene_key?: string, allow_cloud?: boolean) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}/backgrounds/retry`, { scene_key, allow_cloud }),
   vnImageStatus: (ch: string) => get<{ enabled: boolean; mock: boolean }>(`/api/channels/${ch}/studio/images/status`),

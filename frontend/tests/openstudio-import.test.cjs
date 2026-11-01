@@ -373,3 +373,19 @@ test('platform ids are dropped from the kept source text too, the message text s
   const js = lib.importFile('b.json', new TextEncoder().encode(JSON.stringify({ version: 105, items: [{ nickname: 'Mira', IMUserId: 'QQ:2223334', time: 1790977502, message: 'hi', isDice: false, commandId: 0 }] })));
   assert.ok(!JSON.stringify(js).includes('2223334'));
 });
+
+test('appendLogs: a supplement keeps the project\'s line numbers, drops overlaps, numbers new lines after the last', () => {
+  const day1 = 'Sylvan(1234567) 2026/10/02 21:41:06\nHello\nKeeper(7654321) 2026/10/02 21:43:45\nThe door creaks.';
+  const day2 = 'Keeper(7654321) 2026/10/02 21:43:45\nThe door creaks.\nMira(5555555) 2026/10/03 20:00:00\nI follow.\nSylvan(1234567) 2026/10/03 20:01:00\nWait!\nKeeper(7654321) 2026/10/01 10:00:00\nAn older note.';
+  const p = S.buildProject({ title: 'T', background: { title: '', era: '', setting: '', summary: '' }, files: [{ file: 'day1.txt', log: S.importFile('day1.txt', enc(day1)) }] });
+  const before = p.events.map((e) => [e.seq, e.content]);
+  const report = S.appendLogs(p, [{ file: 'day2.txt', log: S.importFile('day2.txt', enc(day2)) }]);
+  assert.deepEqual(report, { added: 3, duplicates: 1, earlier: 1, characters: 1 });
+  assert.deepEqual(p.events.slice(0, 2).map((e) => [e.seq, e.content]), before);
+  // New lines in their own time order, after the last line (the older note too).
+  assert.deepEqual(p.events.slice(2).map((e) => [e.seq, e.content.trim(), e.source.file]), [[3, 'An older note.', 'day2.txt'], [4, 'I follow.', 'day2.txt'], [5, 'Wait!', 'day2.txt']]);
+  assert.ok(p.characters.some((c) => c.name === 'Mira' && c.speakers.includes('Mira')));
+  assert.equal(p.characters.filter((c) => c.name === 'Sylvan').length, 1);
+  assert.equal(p.speakers.find((s) => s.key === 'Keeper').message_count, 2);
+  assert.equal(p.sources.at(-1).file, 'day2.txt');
+});

@@ -7,6 +7,7 @@ import ConsistencyResultPanel from './ConsistencyResultPanel';
 import InspirationDraftPanel from './InspirationDraftPanel';
 import { useUi } from '../store/ui';
 import ContextBubbleDock from './ContextBubbleDock';
+import ReadAloudButton from './ReadAloudButton';
 
 export default function ChatWindow() {
   const { windows, windowId, channel, scenes } = useNav();
@@ -23,6 +24,7 @@ export default function ChatWindow() {
         {scene && <span className="scene-chip" title={scene.summary || scene.location}>{scene.title}{scene.location && scene.location !== scene.title ? ` · ${scene.location}` : ''}{scene.narrative_time ? ` · ${scene.narrative_time}` : ''}</span>}
         {channel.story_status === 'ended' && <span className="pill ok" title={tr("Every member can read the whole story in the Log Studio.")}>{tr("Story ended")}</span>}
         <span className="grow" />
+        <ReadAloudButton />
         <span className="tiny muted" title={tr("Participants")}>{(win.members ?? []).map((m) => m.character_name ?? m.display_name).join(' · ')}</span>
         <span className="pill" title={tr("Knowledge mode")}>{channel.my_role === 'gm' ? tr("GM only") : `${tr("Player group")}: ${channel.player_group_name ?? "…"}`}</span>
       </div>

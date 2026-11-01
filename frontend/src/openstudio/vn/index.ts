@@ -2,6 +2,13 @@
 // or by rules), toPresentation() feeds the in-app VNPlayer, and the bundle functions build a standalone player.
 export {
   composeScript,
+  continueScript,
+  composeContinuation,
+  appendScript,
+  lastScriptedSeq,
+  unscriptedCount,
+  storySoFarText,
+  CONTINUE_RULES,
   // the composer's building blocks (pure, unit tested)
   blocks,
   chunk,
@@ -26,7 +33,7 @@ export {
   PART_MAX_CHARS,
   VN_MAX_TOKENS,
 } from './compose';
-export type { ComposeOptions, KnownBackground } from './compose';
+export type { ComposeOptions, KnownBackground, StoryContext } from './compose';
 export { buildInputs, planLines, assetModeOf, subtitlesOf, standeeFor, MAIN_WINDOW } from './inputs';
 export type { BackgroundAsset, ScriptInputs, CastEntry, AssetEntry, PlanLine, AssetMode } from './inputs';
 export { toPresentation, sanitizeTemplate, characterNames, characterImages, defaultKind, estimatedDuration } from './presentation';

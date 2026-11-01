@@ -612,6 +612,53 @@ int main() {
         CHECK(ids.size() == 7);   // every log line is still in the script
         CHECK(hidden == 1); CHECK(l2Text == "The door is locked."); CHECK(l2Kind == "narration");
     });
+    test("visual-novel continuation: new lines after the ending, story so far, reused backgrounds and fresh scene keys", [] {
+        using logstudio::VnScriptService; using logstudio::LogEvent;
+        auto ev = [](std::string id) { LogEvent e; e.eventId = id; return e; };
+        std::vector<LogEvent> events = {ev("e1"), ev("e2"), ev("e3"), ev("e4"), ev("e5")};
+        CHECK(VnScriptService::continuationStart(events, {"e1", "e2", "e3"}) == 3);
+        CHECK(VnScriptService::continuationStart(events, {"e1", "e3"}) == 3);   // e2 (missing in between) is not continued
+        CHECK(VnScriptService::continuationStart(events, {"e5"}) == 5);         // nothing new
+        CHECK(VnScriptService::continuationStart(events, {}) == 0);
+        auto story = json::parse(R"({"scene":"Harbour","background":"Harbour","lines":["Ada: Who's there?","The lamp flickers."]})");
+        auto told = VnScriptService::storySoFar(story);
+        CHECK(told.find("# Story so far") == 0); CHECK(told.find("Last scene: \"Harbour\"") != std::string::npos);
+        CHECK(told.find("- Ada: Who's there?\n- The lamp flickers.\n") != std::string::npos);
+        CHECK(VnScriptService::storySoFar(Json::Value()).empty());
+        CHECK(VnScriptService::continuationRules().find("reuse") != std::string::npos || VnScriptService::continuationRules().find("Reuse") != std::string::npos);
+        // The new lines' existing backgrounds and the presentation's ending, then a script that continues it.
+        logstudio::ScriptInputs in;
+        auto line = [](std::string id, std::string type, std::string who, std::string text) { LogEvent e; e.eventId = id; e.chatWindowId = "wA"; e.sceneKey = "s1"; e.sceneTitle = "Harbour"; e.eventType = type; e.speakerCharacterId = who; e.speakerDisplayName = who.empty() ? "Keeper" : "Ada"; e.speakerRole = who.empty() ? "gm" : "pc"; e.content = text; return e; };
+        in.events = {line("e6", "narration", "", "The fog lifts."), line("e7", "dialogue", "c1", "Look, the lighthouse!"), line("e8", "narration", "", "They climb the lighthouse stairs.")};
+        in.cast = json::parse(R"([{"ref":"C1","character_id":"c1","name":"Ada","kind":"pc","default_asset_id":null,"asset_mode":"uploaded","subtitles":[],"appearance_prompt":""}])");
+        in.assets = json::parse(R"([{"ref":"B1","id":"bg-harbour","type":"background","name":"Harbour","tags":[]}])");
+        in.knownBackgrounds = json::parse(R"([{"name":"Cellar","prompt":"a damp cellar"}])");
+        auto t = VnScriptService::transcript(in, 0, 3, in.knownBackgrounds);
+        CHECK(t.find("- \"Harbour\" (existing)") != std::string::npos); CHECK(t.find("- \"Cellar\" prompt=\"a damp cellar\"") != std::string::npos);
+        auto llm = json::parse(R"({"generate_backgrounds":[{"name":"Lighthouse stairs","prompt":"spiral stairs"},{"name":"Cellar","prompt":"again"}],
+                                   "script":[{"ref":"L1","background":"Harbour"},{"ref":"L2","speaker":"C1","background":"Harbour"},{"ref":"L3","background":"Lighthouse stairs"}]})");
+        auto script = VnScriptService::normalize(in, {VnScriptService::fromFlat(in, {llm})}, "llm");
+        CHECK(script["scenes"].size() == 2); CHECK(script["scenes"][0]["background_asset_id"] == "bg-harbour");
+        auto old = json::parse(R"([{"title":"Harbour","canonical_scene_key":"harbour","background_asset_id":"bg-harbour"},
+                                   {"title":"Lighthouse stairs","canonical_scene_key":"lighthouse-stairs","background_asset_id":null},
+                                   {"title":"Harbour","canonical_scene_key":"harbour-2","background_asset_id":"bg-harbour"}])");
+        auto fit = VnScriptService::fitContinuation(script, old);
+        CHECK(fit["scenes"].size() == 2);
+        CHECK(fit["scenes"][0]["join_scene_key"] == "harbour-2");   // the story goes on in the scene it ended on
+        CHECK(!fit["scenes"][1].isMember("join_scene_key"));
+        CHECK(fit["scenes"][1]["key"] == "lighthouse-stairs-2");    // never the key of an old scene
+        int backgrounds = 0; std::string needKey;
+        for (const auto& n : fit["asset_needs"]) if (n["kind"] == "background") { ++backgrounds; needKey = n["scene_key"].asString(); }
+        CHECK(backgrounds == 1); CHECK(needKey == "lighthouse-stairs-2");   // the harbour is not painted again
+        // A later scene named like an old pictured one takes its picture and asks for nothing.
+        auto old2 = json::parse(R"([{"title":"Cellar","canonical_scene_key":"cellar","background_asset_id":"bg-cellar"},{"title":"Docks","canonical_scene_key":"docks","background_asset_id":null}])");
+        auto s2 = json::parse(R"({"scenes":[{"key":"pier","title":"Pier","background_asset_id":null,"lines":[]},{"key":"cellar","title":"Cellar","background_asset_id":null,"lines":[]}],
+                                  "asset_needs":[{"kind":"background","scene_key":"pier","brief":"a pier"},{"kind":"background","scene_key":"cellar","brief":"x"},{"kind":"standee","character_id":"c1","subtitle":"SAY","brief":"y"}]})");
+        auto fit2 = VnScriptService::fitContinuation(s2, old2);
+        CHECK(!fit2["scenes"][0].isMember("join_scene_key"));   // "Pier" is not where the story ended ("Docks")
+        CHECK(fit2["scenes"][1]["background_asset_id"] == "bg-cellar"); CHECK(fit2["scenes"][1]["key"] == "cellar-2");
+        CHECK(fit2["asset_needs"].size() == 2); CHECK(fit2["asset_needs"][0]["scene_key"] == "pier"); CHECK(fit2["asset_needs"][1]["kind"] == "standee");
+    });
     test("scenario detection fires only on Keeper time or place shifts with enough history; summaries use only the log", [] {
         Json::Value ctx; ctx["current"]["event_count"] = 10; ctx["current"]["manual_move"] = false;
         auto ev = [](const char* id, const char* role, const char* content) { Json::Value e; e["event_id"] = id; e["kind"] = "message.posted"; e["actor_role"] = role; e["content"] = content; return e; };
