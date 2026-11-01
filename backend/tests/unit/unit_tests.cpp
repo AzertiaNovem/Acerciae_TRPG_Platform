@@ -167,8 +167,17 @@ int main() {
         // OpenAI caches on its own; its input_tokens already includes the cached part.
         auto openai=OpenAiCompatClient::parseResponse(json::parse(R"({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":3000,"input_tokens_details":{"cached_tokens":2048},"output_tokens":7}})"));
         CHECK(openai.promptTokens==3000); CHECK(openai.cacheReadTokens==2048); CHECK(openai.cacheWriteTokens==0);
-        // The OpenAI request is unchanged by the policy: it carries no cache fields.
-        auto ob=OpenAiCompatClient::requestBody(req, ep); CHECK(json::dump(ob).find("cache_control")==std::string::npos);
+        // OpenAI: no markers. OpenAI's own API gets a cache key per channel and task, so requests sharing a prefix meet in one cache.
+        auto ob=OpenAiCompatClient::requestBody(req, ep); CHECK(json::dump(ob).find("cache_control")==std::string::npos); CHECK(!ob.isMember("prompt_cache_key"));
+        CHECK(OpenAiCompatClient::officialOpenAi("https://api.openai.com/v1")); CHECK(OpenAiCompatClient::officialOpenAi("https://API.openai.com"));
+        CHECK(!OpenAiCompatClient::officialOpenAi("https://api.openai.com.evil.example/v1")); CHECK(!OpenAiCompatClient::officialOpenAi("http://api.openai.com/v1")); CHECK(!OpenAiCompatClient::officialOpenAi("https://openrouter.ai/api/v1"));
+        LlmEndpoint oai; oai.provider="openai_compatible"; oai.apiBase="https://api.openai.com/v1"; oai.model="m";
+        req.channelId="7f3c2a10-5b6e-4d8f-9a01-23456789abcd"; req.task="observer_extract";
+        auto k1=OpenAiCompatClient::requestBody(req, oai)["prompt_cache_key"].asString();
+        CHECK(k1.rfind("acerciae-", 0)==0); CHECK(k1.size()==9+32); CHECK(k1.find("7f3c2a10")==std::string::npos);   // a hash: no ids in clear
+        CHECK(OpenAiCompatClient::requestBody(req, oai)["prompt_cache_key"].asString()==k1);
+        req.task="reminders"; CHECK(OpenAiCompatClient::requestBody(req, oai)["prompt_cache_key"].asString()!=k1);
+        req.cache=LlmCache::off; CHECK(!OpenAiCompatClient::requestBody(req, oai).isMember("prompt_cache_key"));
     });
     test("OpenAI Responses requests replay tool calls as items and parse status, refusals and usage", [] {
         LlmEndpoint ep; ep.provider="openai_compatible"; ep.model="fixture-gpt"; ep.maxTokens=4000;

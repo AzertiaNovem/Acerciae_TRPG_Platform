@@ -180,7 +180,7 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         req.tools = ContextRetrievalService::toolSpecs(true); req.temperature = cfg_.llmTemperature; req.maxTokens = cfg_.llmMaxTokens;
         req.cache = LlmCache::conversation;   // up to four rounds over the same context; batches follow each other closely
         // The Keeper's knowledge index comes first: script knowledge, then the Keeper's own records.
-        if (!llm_.isMock(channelId)) { LlmMessage k; k.role = "user"; k.content = "KEEPER KNOWLEDGE INDEX (a shortcut for searching, not a source to cite):\n" + retrieval_.knowledgePrelude(sys); k.cacheBreakpoint = true; req.messages.push_back(k); }
+        if (!llm_.isMock(channelId)) for (auto& k : retrieval_.knowledgeMessages(sys, "KEEPER KNOWLEDGE INDEX (a shortcut for searching, not a source to cite):")) req.messages.push_back(k);
         LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
         auto outcome = llm_.runStructured(req, [&](const std::string& name, const Json::Value& args) { return retrieval_.executeTool(sys, name, args); }, 4);
         llmCalls_ += outcome.llmCalls;
@@ -222,6 +222,9 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
 }
 
 Json::Value ObserverScheduler::buildGroupContext(const ChannelAccess& sys, const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, std::vector<std::string>& terms) {
+    // Serialized with keys in alphabetical order, which happens to put what stays the same between batches first
+    // (channel, characters, chat_window_id) and what changes after it (documents, new_events, scene): a renamed key
+    // can move a changing part ahead of the stable ones and shorten the prefix providers cache.
     Json::Value ctx;
     auto ch = db_.queryOne("SELECT knowledge_mode, rule_system, name FROM channels WHERE id=$1", {channelId});
     ctx["channel"] = ch; ctx["chat_window_id"] = windowId;
@@ -233,7 +236,7 @@ Json::Value ObserverScheduler::buildGroupContext(const ChannelAccess& sys, const
         for (auto& e : scene["log"]) if (e["seq"].asInt64() < firstSeq) prior.append(e);
         scene["log"] = prior; scene.removeMember("facts");
     }
-    if (!windowId.empty()) scene["participants"] = db_.queryJson("SELECT c.id AS character_id, c.name, c.kind FROM chat_window_members wm JOIN characters c ON c.id=wm.character_id WHERE wm.chat_window_id=$1", {windowId});
+    if (!windowId.empty()) scene["participants"] = db_.queryJson("SELECT c.id AS character_id, c.name, c.kind FROM chat_window_members wm JOIN characters c ON c.id=wm.character_id WHERE wm.chat_window_id=$1 ORDER BY c.created_at, c.id", {windowId});
     ctx["scene"] = scene;
     Json::Value evs(Json::arrayValue);
     for (auto& e : batch) {
@@ -264,7 +267,8 @@ Json::Value ObserverScheduler::buildGroupContext(const ChannelAccess& sys, const
     terms.clear(); for (auto& t : proper) terms.push_back(t); for (auto& t : plain) terms.push_back(t);
     if (terms.size() > 24) terms.resize(24);
     ctx["related_history"] = retrieval_.relatedHistory(sys, terms, sceneId, 12);
-    ctx["characters"] = db_.queryJson("SELECT id, name, kind, user_id FROM characters WHERE channel_id=$1", {channelId});
+    // A fixed order: rows without ORDER BY may come back in any order, which would change the prompt between batches.
+    ctx["characters"] = db_.queryJson("SELECT id, name, kind, user_id FROM characters WHERE channel_id=$1 ORDER BY created_at, id", {channelId});
     // Module awareness (GM layer): nodes whose names appear in the new text.
     auto mod = db_.queryOne("SELECT id FROM modules WHERE channel_id=$1 AND status='ready' ORDER BY created_at DESC LIMIT 1", {channelId});
     ctx["has_module"] = !mod.isNull();

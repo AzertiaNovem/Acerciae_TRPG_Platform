@@ -91,10 +91,11 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     assert.equal(anth.length, 2); assert.equal(anth[0].headers['x-api-key'], 'anthropic-secret-A');
     assert.equal(anth[0].headers['anthropic-version'], '2023-06-01'); assert.equal(anth[0].headers.authorization, undefined);
     assert.equal(anth[0].json.model, 'fixture-claude');
-    // Inspiration caches its prefix: the system prompt is one marked block, and so is the knowledge index.
+    // Inspiration caches its prefix: the system prompt is one marked block. The knowledge index is marked only where it
+    // has a stable part (script text, story index); this group has recorded nothing yet, so it is sent unmarked.
     assert.ok(Array.isArray(anth[0].json.system)); assert.equal(anth[0].json.system.length, 1);
     assert.ok(anth[0].json.system[0].text.includes('JSON')); assert.deepEqual(anth[0].json.system[0].cache_control, { type: 'ephemeral' });
-    assert.ok(anth[0].json.messages[0].content[0].text.startsWith('KNOWLEDGE INDEX')); assert.deepEqual(anth[0].json.messages[0].content[0].cache_control, { type: 'ephemeral' });
+    assert.ok(anth[0].json.messages[0].content[0].text.startsWith('KNOWLEDGE INDEX')); assert.equal(anth[0].json.messages[0].content[0].cache_control, undefined);
     assert.equal(anth[0].json.reasoning_effort, undefined); assert.equal(anth[0].json.response_format, undefined);
     assert.ok(anth[0].json.tools.every(t => t.input_schema && !t.function));
     const answer = anth[1].json.messages.at(-1);

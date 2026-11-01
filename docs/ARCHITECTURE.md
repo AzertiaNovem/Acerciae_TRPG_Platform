@@ -63,11 +63,18 @@ to switch on `LLM_PROVIDER`). Prompts, schemas and tools are untouched.
 Prompt caching: providers reuse the part of a prompt that repeats an earlier one byte for byte, from the start (tools,
 then the system prompt, then the messages), at a fraction of the price. Prompts are therefore laid out stable-first:
 fixed system prompts, then the knowledge index, then the per-call context; the visual-novel planner sends the assets
-every part of a job shares as their own message before the part's lines. OpenAI-compatible endpoints cache on their own.
+every part of a job shares as their own message before the part's lines. The knowledge index goes out as two messages
+(`knowledgeMessages`): first what rarely changes (the script's titles and bodies, then the story index, which has its
+own 3,500-character share of the 9,000-character index so it cannot crowd out the records), then what play changes (the
+script's statuses grouped as `active: …; done: …`, relationships, clues, open threads). Rows that feed a prompt are
+read in a fixed order (`ORDER BY`), and the observer's context JSON, written with sorted keys, keeps its stable keys
+(channel, characters, chat window) ahead of the changing ones. OpenAI-compatible endpoints cache on their own; OpenAI's
+own API (`https://api.openai.com`) is also sent `prompt_cache_key`, a hash of the channel and task, so requests that
+share a prefix meet in one cache (other gateways are not sent it: some reject unknown fields).
 For Anthropic, `LlmRequest::cache` marks where the reusable prefix ends: `prefix` marks the system prompt (which covers
-the tools) and any message flagged `cacheBreakpoint` (the knowledge index, the VN assets); `conversation` also marks the
+the tools) and any message flagged `cacheBreakpoint` (the stable knowledge index, the VN assets); `conversation` also marks the
 newest message, so each tool-call or schema-repair round reads the round before it. Tasks that repeat within minutes opt
-in (observer, stage detection, script-knowledge updates and reviews, reminders, consistency, inspiration, module and
+in (Keeper and player-group observers, stage detection, script-knowledge updates and reviews, reminders, consistency, inspiration, module and
 script-knowledge builds, VN parts); calls that rarely repeat stay `off`, since a cache write costs more than plain input.
 Usage records keep counting the whole prompt (`prompt_tokens`), so budgets are unchanged; `cache_read_tokens` and
 `cache_write_tokens` show the cached share (server settings show it under "Tokens used").

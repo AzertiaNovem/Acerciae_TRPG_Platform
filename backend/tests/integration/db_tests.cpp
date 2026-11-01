@@ -498,7 +498,17 @@ int main() {
         bool denied = false; try { S.script->list(p1, ""); } catch (const ApiError& e) { denied = e.status() == 403; } CHECK(denied);
         for (auto& t : ContextRetrievalService::toolSpecs(false)) CHECK(t.name != "get_script_knowledge");
         CHECK(S.retrieval->knowledgePrelude(p1).find("Script flow") == std::string::npos);
-        auto prelude = S.retrieval->knowledgePrelude(gm); CHECK(prelude.rfind("Script flow", 0) == 0); CHECK(prelude.find("The Lighthouse [pending]") != std::string::npos);
+        auto prelude = S.retrieval->knowledgePrelude(gm); CHECK(prelude.rfind("Script flow", 0) == 0); CHECK(prelude.find("- The Lighthouse") != std::string::npos);
+        {   // Ordered for prompt caching: the script's text (no statuses) is the stable part, sent first and marked.
+            auto parts = S.retrieval->knowledgePreludeParts(gm);
+            CHECK(parts.stable.rfind("Script flow", 0) == 0); CHECK(parts.stable.find("[pending]") == std::string::npos); CHECK(parts.stable.find("Relationships:") == std::string::npos);
+            CHECK(parts.live.find("Script flow") == std::string::npos); CHECK(parts.live.find("Script status") == std::string::npos);   // every entry still pending
+            auto msgs = S.retrieval->knowledgeMessages(gm, "INDEX:");
+            CHECK(!msgs.empty()); CHECK(msgs[0].cacheBreakpoint); CHECK(msgs[0].content.rfind("INDEX:\nScript flow", 0) == 0);
+            for (size_t i = 1; i < msgs.size(); ++i) CHECK(!msgs[i].cacheBreakpoint);
+            auto pl = S.retrieval->knowledgeMessages(p1, "INDEX:");
+            for (auto& m : pl) CHECK(m.content.find("Script") == std::string::npos);
+        }
         auto tool = S.retrieval->executeTool(gm, "get_script_knowledge", json::parse(R"({"kind":"flow"})")); CHECK(tool["entries"].size() == byKind["flow"]);
         auto b0 = S.script->board(gm); CHECK(b0["next"]["has_script"].asBool()); CHECK(b0["next"]["current"].empty()); CHECK(!json::str(b0["next"]["next"], "title").empty());
         // Play. The Keeper narrates the first stage; a player's speculation about the lighthouse moves nothing.
@@ -508,6 +518,11 @@ int main() {
         bool officeActive = false;
         for (auto& e : S.script->list(gm, "flow")) { if (e["title"].asString().find("Sheriff") != std::string::npos) officeActive = e["status"] == "active"; if (e["title"] == "The Lighthouse") CHECK(e["status"] == "pending"); }
         CHECK(officeActive);
+        {   // A stage moving on changes only the live part; the script's text, cached in front of it, stays as it was.
+            auto parts = S.retrieval->knowledgePreludeParts(gm);
+            CHECK(parts.stable == S.retrieval->knowledgePreludeParts(gm).stable); CHECK(parts.stable.find("[active]") == std::string::npos);
+            CHECK(parts.live.rfind("Script status (entries not listed are pending):\n- active: ", 0) == 0); CHECK(parts.live.find("Sheriff") != std::string::npos);
+        }
         auto changes = S.script->changes(gm, 50); CHECK(!changes.empty());
         for (auto& c : changes) { CHECK(c["verdict"] == "approved" || c["verdict"] == "rejected"); if (c["applied"].asBool()) CHECK(c["verdict"] == "approved"); CHECK(!c["evidence"].empty()); CHECK(!c["reviewer_reason"].asString().empty()); }
         auto b1 = S.script->board(gm);

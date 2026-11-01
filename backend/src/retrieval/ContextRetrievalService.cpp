@@ -99,22 +99,65 @@ Json::Value ContextRetrievalService::knowledgePreludeJson(const ChannelAccess& a
     }
     return k;
 }
-std::string ContextRetrievalService::knowledgePrelude(const ChannelAccess& a) {
-    auto k = knowledgePreludeJson(a); std::string out;
-    auto section = [&](const char* name, const Json::Value& arr, auto fmt) { if (arr.empty()) return; out += std::string(name) + ":\n"; for (auto& x : arr) { if (out.size() > 9000) break; out += "- " + fmt(x) + "\n"; } };
-    if (k.isMember("script")) {
-        auto st = [](const Json::Value& x) { auto b = json::str(x, "body"); return json::str(x, "title") + " [" + json::str(x, "status") + "]" + (b.empty() ? "" : ": " + b); };
-        section("Script flow (in order)", k["script"]["flow"], st);
-        section("Script relationships", k["script"]["relationship"], st);
-        section("Script clues", k["script"]["clue"], st);
-        section("Script foreshadowing", k["script"]["foreshadowing"], st);
-        section("Script background", k["script"]["background"], st);
+ContextRetrievalService::KnowledgePrelude ContextRetrievalService::knowledgePreludeParts(const ChannelAccess& a) {
+    auto k = knowledgePreludeJson(a);
+    KnowledgePrelude p;
+    // About 9,000 characters in all, as before. The story index comes before the records so it can share a cached
+    // prefix with the script, so it gets its own share and cannot crowd the records out.
+    constexpr size_t kTotal = 9000, kIndexShare = 3500;
+    auto section = [&](std::string& out, const char* name, const Json::Value& arr, auto fmt, size_t cap) {
+        if (arr.empty()) return;
+        const size_t begin = out.size();
+        out += std::string(name) + ":\n";
+        for (auto& x : arr) {
+            if (p.stable.size() + p.live.size() > kTotal || out.size() - begin > cap) break;
+            out += "- " + fmt(x) + "\n";
+        }
+    };
+    static const char* kinds[] = {"flow", "relationship", "clue", "foreshadowing", "background"};
+    static const char* names[] = {"Script flow (in order)", "Script relationships", "Script clues", "Script foreshadowing", "Script background"};
+    const bool script = k.isMember("script");
+    if (script) {
+        // The script's text: what the module says. Statuses move during play, so they are listed apart, further down.
+        auto text = [](const Json::Value& x) { auto b = json::str(x, "body"); return json::str(x, "title") + (b.empty() ? "" : ": " + b); };
+        for (int i = 0; i < 5; ++i) section(p.stable, names[i], k["script"][kinds[i]], text, kTotal);
     }
-    section("Relationships", k["relationships"], [](const Json::Value& x) { return json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
-    section("Clues", k["clues"], [](const Json::Value& x) { auto t = json::str(x, "title"); return (t.empty() ? "" : t + ": ") + json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
-    section("Open threads", k["open_threads"], [](const Json::Value& x) { return json::str(x, "summary") + " [" + json::str(x, "status") + "]"; });
-    section("Index", k["index"], [](const Json::Value& x) { return json::str(x, "title") + ": " + json::str(x, "summary"); });
-    return out.empty() ? "(nothing recorded yet)" : out;
+    section(p.stable, "Index", k["index"], [](const Json::Value& x) { return json::str(x, "title") + ": " + json::str(x, "summary"); }, kIndexShare);
+    if (script) {
+        std::map<std::string, std::vector<std::string>> byStatus;
+        for (const char* kind : kinds) for (const auto& x : k["script"][kind]) {
+            auto st = json::str(x, "status");
+            if (!st.empty() && st != "pending") byStatus[st].push_back(json::str(x, "title"));
+        }
+        if (!byStatus.empty()) {
+            p.live += "Script status (entries not listed are pending):\n";
+            std::vector<std::string> order = {"active", "done", "skipped"};
+            for (const auto& [st, _] : byStatus) if (std::find(order.begin(), order.end(), st) == order.end()) order.push_back(st);
+            for (const auto& st : order) {
+                auto it = byStatus.find(st);
+                if (it == byStatus.end()) continue;
+                std::string line = "- " + st + ": ";
+                for (size_t i = 0; i < it->second.size(); ++i) line += (i ? "; " : "") + it->second[i];
+                p.live += line + "\n";
+            }
+        }
+    }
+    section(p.live, "Relationships", k["relationships"], [](const Json::Value& x) { return json::str(x, "summary") + " [" + json::str(x, "status") + "]"; }, kTotal);
+    section(p.live, "Clues", k["clues"], [](const Json::Value& x) { auto t = json::str(x, "title"); return (t.empty() ? "" : t + ": ") + json::str(x, "summary") + " [" + json::str(x, "status") + "]"; }, kTotal);
+    section(p.live, "Open threads", k["open_threads"], [](const Json::Value& x) { return json::str(x, "summary") + " [" + json::str(x, "status") + "]"; }, kTotal);
+    if (p.stable.empty() && p.live.empty()) p.live = "(nothing recorded yet)";
+    return p;
+}
+std::string ContextRetrievalService::knowledgePrelude(const ChannelAccess& a) {
+    auto p = knowledgePreludeParts(a);
+    return p.stable + p.live;
+}
+std::vector<LlmMessage> ContextRetrievalService::knowledgeMessages(const ChannelAccess& a, const std::string& heading) {
+    auto p = knowledgePreludeParts(a);
+    std::vector<LlmMessage> out;
+    if (!p.stable.empty()) { LlmMessage m; m.role = "user"; m.content = heading + "\n" + p.stable; m.cacheBreakpoint = true; out.push_back(m); }
+    if (!p.live.empty()) { LlmMessage m; m.role = "user"; m.content = (p.stable.empty() ? heading : std::string("The same index, as play stands now:")) + "\n" + p.live; out.push_back(m); }
+    return out;
 }
 Json::Value ContextRetrievalService::listScenarios(const ChannelAccess& a) {
     if (!a.isGm) return db_.queryJson("SELECT s.id, s.sequence, 'Scenario '||s.sequence AS title, s.status, count(e.id) AS event_count, min(e.created_at) AS first_at, max(e.created_at) AS last_at FROM scenes s JOIN events e ON e.scene_id=s.id WHERE s.channel_id=$1 AND e.kind='message.posted' AND " + Visibility::eventFilter(a) + " GROUP BY s.id ORDER BY s.sequence", {a.channelId});

@@ -3,6 +3,8 @@
 #include "../core/Log.h"
 #include "HttpTransport.h"
 #include "StreamResponse.h"
+#include "../core/Crypto.h"
+#include <regex>
 
 namespace acerciae {
 
@@ -11,6 +13,11 @@ std::string OpenAiCompatClient::post(const std::string& path, const std::string&
     auto res = llm::postJson(url, {"Content-Type: application/json", "Authorization: Bearer " + ep_.apiKey}, body, ep_.timeoutMs);
     status = res.status; err = res.error;
     return res.body;
+}
+
+bool OpenAiCompatClient::officialOpenAi(const std::string& apiBase) {
+    static const std::regex host(R"(^https://api\.openai\.com(?::443)?(/.*)?$)", std::regex::icase);
+    return std::regex_match(apiBase, host);
 }
 
 Json::Value OpenAiCompatClient::requestBody(const LlmRequest& req, const LlmEndpoint& ep) {
@@ -23,6 +30,10 @@ Json::Value OpenAiCompatClient::requestBody(const LlmRequest& req, const LlmEndp
     if (!ep.reasoningEffort.empty()) body["reasoning"]["effort"] = ep.reasoningEffort;
     else body["temperature"] = req.temperature;
     if (!req.system.empty()) body["instructions"] = req.system;
+    // OpenAI caches prompt prefixes on its own; a cache key sends requests that share a prefix (one task of one channel)
+    // to the same cache. Only OpenAI's own API is sent the field: other compatible gateways may reject unknown fields.
+    if (req.cache != LlmCache::off && !req.channelId.empty() && officialOpenAi(ep.apiBase))
+        body["prompt_cache_key"] = "acerciae-" + crypto::sha256Hex(req.channelId + "\n" + req.task).substr(0, 32);
     Json::Value input(Json::arrayValue);
     if (!req.responseSchema.isNull()) {
         // Some Responses gateways validate JSON mode against input only, ignoring instructions.
