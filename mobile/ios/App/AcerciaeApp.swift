@@ -56,12 +56,15 @@ import AcerciaeCore
         do {
             if let saved = try SessionStore.read() {
                 guard ServiceConfiguration.acceptsSavedEndpoint(saved.endpoint) else { try SessionStore.clear(); return }
-                client = try makeClient(); session = saved.session; campaign = nil
+                client = try makeClient().withAssets(assets(for: saved.session.user)); session = saved.session; campaign = nil
                 if let code = saved.session.user.uiLanguage { MobileLocale.shared.set(code) }
                 connection = "正在恢复登录…"
             }
         } catch { notice = tr("无法读取已保存的登录，请重新登录") }
     }
+    // Downloaded media, one directory per account and server (AcerciaeCore/AssetDiskCache.swift); deleted on sign-out.
+    private var assetRoot: URL { FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("assets", isDirectory: true) }
+    private func assets(for user: User) -> AssetDiskCache { AssetDiskCache(directory: assetRoot.appendingPathComponent(AssetDiskCache.hex("\(endpoint)|\(user.id)"), isDirectory: true)) }
     func makeClient() throws -> BackendClient {
         #if DEBUG
         let local = true
@@ -78,7 +81,7 @@ import AcerciaeCore
             let auth: Session
             if registering { auth = try await api.register(username: username, password: password, displayName: displayName) }
             else { auth = try await api.login(username: username, password: password) }
-            epoch = UUID(); client = api; session = auth; draft = ""; drafts = [:]
+            epoch = UUID(); client = api.withAssets(assets(for: auth.user)); session = auth; draft = ""; drafts = [:]
             if let code = auth.user.uiLanguage { MobileLocale.shared.set(code) }
             do { try SessionStore.save(SavedLogin(endpoint: endpoint, session: auth)) }
             catch { notice = tr("登录成功，但设备未能安全保存登录状态") }
@@ -120,6 +123,7 @@ import AcerciaeCore
         do { try SessionStore.clear() } catch { notice = tr("设备未能清除登录记录，请保持联网完成退出") }
         catalogUpdated = .distantPast
         epoch = UUID(); session = nil; client = nil; servers = []; channels = []; serverId = ""; serverSettings = .null
+        try? FileManager.default.removeItem(at: assetRoot)   // no media of this account stays
         clearChannel(); drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
     }

@@ -6,6 +6,7 @@ import { useChat } from '../store/chat';
 import { useNav } from '../store/nav';
 import ChatReference from './ChatReference';
 import type { Message } from '../types';
+import { CachedImg } from './CachedImg';
 
 // Colour a check by its (last) outcome so successes and failures read at a glance.
 function diceTone(m: Message): string {
@@ -35,7 +36,7 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const name = speaker ?? (m.author_role === 'gm' ? `${author} (GM)` : author);
   return (
     <div className={`message ${m.kind} ${m.visibility}`} id={`msg-${m.id}`}>
-      <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <img src={avatar} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
+      <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <CachedImg src={avatar} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
         <div className="meta"><span className="author">{name}</span>
           {m.kind !== 'ic' && !m.dice && <span className="pill">{tr(m.kind)}</span>}

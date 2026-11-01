@@ -38,7 +38,7 @@ public:
     Json::Value updateProfile(const Principal& principal, const Json::Value& body);
     // A user's avatar for a viewer who shares a server with them: either `url` (the public object, when redirecting is
     // allowed) or the bytes with their mime type. Throws 404 when there is none.
-    struct Avatar { std::string mime, bytes, url; };
+    struct Avatar { std::string mime, bytes, url, etag; };
     Avatar avatar(const Principal& principal, const std::string& userId, bool allowRedirect = false);
     // Avatars are objects in the media store; without one (unit tests) they stay inline in users.avatar_data.
     void setObjectStore(logstudio::ObjectStore* store) { store_ = store; }

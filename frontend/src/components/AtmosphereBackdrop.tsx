@@ -5,6 +5,7 @@ import { useAuth } from '../store/auth';
 import { contextSocket } from '../api/ws';
 import { t } from '../i18n';
 import { atmosphereVariant } from '../lib/atmosphere';
+import { CachedImg } from './CachedImg';
 
 // One channel backdrop across all its chat windows; personal opt-out unmounts and releases the image.
 export default function AtmosphereBackdrop() {
@@ -44,7 +45,7 @@ export default function AtmosphereBackdrop() {
   }, [channel, enabled, portrait, dark]);
   if (!enabled || !backdrop || backdrop.channel !== channel) return null;
   return <div className="atmosphere-backdrop" aria-hidden="true">
-    <img src={backdrop.url} alt="" onError={() => setBackdrop(null)} />
+    <CachedImg src={backdrop.url} alt="" onError={() => setBackdrop(null)} />
     {backdrop.mock && <span className="atmosphere-mock">{t('Mock background')}</span>}
   </div>;
 }

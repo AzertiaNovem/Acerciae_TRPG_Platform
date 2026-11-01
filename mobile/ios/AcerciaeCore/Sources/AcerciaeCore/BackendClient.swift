@@ -49,9 +49,13 @@ public enum RealtimeStream: String, Sendable { case chat, context }
 public struct BackendClient: Sendable {
     private let address: BackendAddress
     private let session: URLSession
-    public init(address: BackendAddress, session: URLSession = URLSession(configuration: .ephemeral)) {
-        self.address = address; self.session = session
+    /// Downloaded media kept on disk for the signed-in account (see `AssetDiskCache`); nil keeps nothing.
+    public let assets: AssetDiskCache?
+    public init(address: BackendAddress, session: URLSession = URLSession(configuration: .ephemeral), assets: AssetDiskCache? = nil) {
+        self.address = address; self.session = session; self.assets = assets
     }
+    /// The same client, keeping media in `assets` (once the account is known, after signing in).
+    public func withAssets(_ assets: AssetDiskCache?) -> BackendClient { BackendClient(address: address, session: session, assets: assets) }
     public func request<T: Decodable>(_ path: [String], token: String? = nil, body: Data? = nil, method: String? = nil, query: [String: String] = [:]) async throws -> T {
         var components = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) } }
@@ -74,11 +78,14 @@ public struct BackendClient: Sendable {
     public func bytes(_ path: [String], token: String, query: [String: String] = [:]) async throws -> Data {
         var c = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
         c.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        let key = c.url!.absoluteString
+        if let kept = assets?.get(key) { return kept }
         var r = URLRequest(url: c.url!); r.timeoutInterval = 30
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: r, delegate: NoRedirects())
         guard let h = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
         guard (200..<300).contains(h.statusCode) else { throw ClientError.http(h.statusCode) }
+        if let assets, AssetDiskCache.keepable(h.value(forHTTPHeaderField: "Cache-Control")) { assets.put(key, data) }
         return data
     }
     public func uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, data: Data, token: String) async throws -> JSONValue {

@@ -287,6 +287,14 @@ Presentations can be authored by hand or built by a visual-novel script job (bel
 | GET | `/character-visuals` | NPC profiles are GM-only. |
 | PUT | `/character-visuals/{character}` | Owner/GM maintains identity and reference/default assets. |
 
+**Client caching of binaries.** Every binary route (`/media/{id}`, `/users/{id}/avatar`, `/atmosphere/assets/{id}`, `/studio/tts/audio/{id}`) sends an `ETag` (the stored object, which is never rewritten) and answers `If-None-Match` with `304`. A response a client may keep for good is marked `Cache-Control: private, max-age=31536000, immutable`:
+- a media asset requested with `?v=N`, when a player could see it (not GM-only, approved, not an NPC's);
+- a user avatar with `?v=`;
+- an atmosphere backdrop;
+- a TTS clip fetched by a player.
+
+Everything else revalidates (`private, no-cache`, such as a media asset without `?v=`) or is only briefly cacheable: GM-private material and the Keeper's TTS clips get `private, max-age=…` without `immutable`. The web, desktop and mobile clients keep on disk only `immutable` responses, keyed without the file token, separately per account, and delete them on sign-out, so GM-private material is never written to a device.
+
 Media routes are under `/api/channels/{channel_id}/media`, not `/studio/media`. `GET /media` lists metadata; `POST /media/upload` accepts multipart `file` and metadata. `GET /media/{id}/meta`, `PUT /media/{id}`, `DELETE /media/{id}` manage metadata; `POST /media/{id}/versions` uploads a replacement. `GET /media/{id}?v=N` returns bytes after authorization. Browser media URLs may carry `?token=...`; native clients should use `Authorization: Bearer ...` headers. Never copy authenticated media URLs into public pages; use publication file endpoints.
 
 ### Voices and generation

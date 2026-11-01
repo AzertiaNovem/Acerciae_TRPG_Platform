@@ -6,6 +6,9 @@ import type { Presentation, PresentationEvent, PresentationScene } from '../../.
 import { VnAudio } from './audio';
 import { inkFor, resolveVnTemplate, speakerColor, templateStyle } from './templates';
 import './vn.css';
+import { CachedImg } from '../../CachedImg';
+import { useCachedSrc } from '../../../hooks/useCachedSrc';
+import { cachedSrc } from '../../../lib/assetCache';
 
 export interface VNPlayerProps {
   channelId: string;
@@ -70,7 +73,9 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
         if (!ok) { setNeedUnlock(true); return; }
         audio.setRate(speed);
         audio.onVoiceTime = (ms) => { setAudioMs(ms); const dur = audio.voiceDurationMs() || cur.audio_duration_ms || 1; if (!cur.word_timestamps) setTyped(Math.min(total, Math.round(total * (ms / dur) * 1.05))); };
-        audio.playVoice(src, fmt, () => { finishLine(); if (playing) advance(); });
+        // A known format can play from the local cache (Howler needs the format for a blob URL).
+        const play = (s: string) => { if (!cancelled) audio.playVoice(s, fmt, () => { finishLine(); if (playing) advance(); }); };
+        if (!audioUrl && fmt) void cachedSrc(src).then(play); else play(src);
       });
     } else {
       // Manual/auto reading: character-paced typewriter, then dwell by estimated duration when auto-playing.
@@ -109,9 +114,11 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
 
   const stageClass = `vn-stage tpl-${tpl.base} grade-${tpl.color_grade} names-${tpl.name_style} frame-${tpl.portrait_framing}${tpl.letterbox ? ' letterboxed' : ''}`;
   const stageStyle = templateStyle(tpl) as React.CSSProperties;
+  const bgRemote = scene?.background_asset_id && !assetUrl ? api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version) : null;
+  const bgCached = useCachedSrc(bgRemote);
   if (!cur) return <div className={stageClass} style={stageStyle} ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">{tr("No visible lines in this presentation.")}</div></div></div>;
 
-  const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version)) : null;
+  const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : bgCached ?? null) : null;
   const placements = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' ? [] : (cur.character_asset_ids ?? []);
   const speaker = cur.speaker_name_override ?? cur.character_name ?? cur.speaker_display_name;
   const isNarr = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' || cur.display_kind === 'system';
@@ -139,10 +146,11 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
             {placements.map((p) => {
               const active = p.character_id === cur.speaker_character_id || p.active;
               const url = p.asset_id ? (assetUrl ? assetUrl(p.asset_id) : api.mediaUrl(channelId, p.asset_id, p.asset_version)) : null;
+              const Img = assetUrl ? 'img' : CachedImg;
               return (
                 <motion.div key={p.character_id} className={`vn-char ${POS_CLASS[p.position] ?? 'pos-center'}`} layout={animations}
                   initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0, scale: active || !tpl.dim_inactive ? 1 : 0.94, filter: active || !tpl.dim_inactive ? 'brightness(1)' : 'brightness(0.55)', zIndex: active ? 2 : 1 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: fadeDur }}>
-                  {url ? <img src={url} alt={characterNames[p.character_id] ?? ''} style={{ transform: p.flip ? 'scaleX(-1)' : undefined }} /> : <div className="vn-char-placeholder">{characterNames[p.character_id] ?? tr("character")}<br /><span style={{ fontSize: 10 }}>{tr("no standee assigned")}</span></div>}
+                  {url ? <Img src={url} alt={characterNames[p.character_id] ?? ''} style={{ transform: p.flip ? 'scaleX(-1)' : undefined }} /> : <div className="vn-char-placeholder">{characterNames[p.character_id] ?? tr("character")}<br /><span style={{ fontSize: 10 }}>{tr("no standee assigned")}</span></div>}
                 </motion.div>
               );
             })}

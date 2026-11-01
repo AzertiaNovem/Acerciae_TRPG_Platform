@@ -7,6 +7,7 @@ import type { MediaAsset } from '../../types';
 import AtmosphereHistory from './AtmosphereHistory';
 import CreativePanel from './CreativePanel';
 import VisualStylePanel from './VisualStylePanel';
+import { CachedImg } from '../CachedImg';
 
 const TYPES = ['background', 'standee', 'portrait', 'illustration', 'cover', 'bgm', 'sfx', 'audio'];
 
@@ -58,7 +59,7 @@ export default function AssetLibrary() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10, marginTop: 10 }}>
           {assets.map((a) => (
             <div key={a.id} className="node" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {isImage(a) ? <img src={api.mediaUrl(channelId!, a.id, a.version)} alt={a.name} style={{ width: '100%', height: 110, objectFit: a.asset_type === 'standee' ? 'contain' : 'cover', borderRadius: 6, background: '#0b0e14' }} /> : <audio controls src={api.mediaUrl(channelId!, a.id, a.version)} style={{ width: '100%' }} />}
+              {isImage(a) ? <CachedImg src={api.mediaUrl(channelId!, a.id, a.version)} alt={a.name} style={{ width: '100%', height: 110, objectFit: a.asset_type === 'standee' ? 'contain' : 'cover', borderRadius: 6, background: '#0b0e14' }} /> : <audio controls src={api.mediaUrl(channelId!, a.id, a.version)} style={{ width: '100%' }} />}
               <div className="small" style={{ fontWeight: 600 }}>{a.name}</div>
               <div className="tiny muted">{a.asset_type}{tr(" · v")}{a.version} · {Math.round(a.bytes / 1024)}{tr(" KB")}{a.width ? ` · ${a.width}×${a.height}` : ''}{a.character_id ? ` · ${characters.find((c) => c.id === a.character_id)?.name ?? ''}${a.expression ? ` (${a.expression})` : ''}` : ''}</div>
               <div className="row" style={{ flexWrap: 'wrap' }}>

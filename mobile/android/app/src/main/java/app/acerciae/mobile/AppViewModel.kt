@@ -5,10 +5,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.acerciae.mobile.core.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
+import java.io.File
 import java.util.UUID
 
 private val emptyObject = JsonObject(emptyMap())
@@ -50,12 +52,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var polling = false
     private var catalogUpdated = 0L
     private val sessionStore = SessionStore(application)
+    // Downloaded media, one directory per account and server (core/AssetDiskCache.kt); deleted on sign-out.
+    private val assetRoot = File(application.cacheDir, "assets")
+    private fun assetsFor(endpoint: String, user: User) = AssetDiskCache(File(assetRoot, AssetDiskCache.hex("$endpoint|${user.id}")))
     init {
         MobileLocale.initialize(application)
         try {
             sessionStore.read()?.let { saved ->
                 if (!ServiceConfiguration.acceptsSavedEndpoint(saved.endpoint)) { sessionStore.clear(); return@let }
-                api = BackendClient(BackendAddress(ServiceConfiguration.BACKEND_ROOT, BuildConfig.DEBUG)); session = saved.session
+                api = BackendClient(BackendAddress(ServiceConfiguration.BACKEND_ROOT, BuildConfig.DEBUG), assets = assetsFor(ServiceConfiguration.BACKEND_ROOT, saved.session.user)); session = saved.session
                 saved.session.user.uiLanguage?.let { MobileLocale.set(it) }
                 update { copy(user = saved.session.user, campaign = null, connection = "正在恢复登录…") }
             }
@@ -94,6 +99,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 else -> throw e
             }
         }
+        client.assets = assetsFor(state.value.endpoint, auth.user)
         epoch++; api = client; session = auth; drafts.clear(); catalogUpdated = 0L
         auth.user.uiLanguage?.let { MobileLocale.set(it) }
         update { AppState(endpoint = endpoint, user = auth.user, busy = true, connection = "已连接") }
@@ -127,6 +133,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         epoch++; api = null; session = null; drafts.clear(); catalogUpdated = 0L
         update { AppState(connection = "已退出登录") }
         try { sessionStore.clear() } catch (_: Exception) { notice(tr("设备未能清除登录记录，请保持联网完成退出")) }
+        oldApi?.assets = null
+        viewModelScope.launch(Dispatchers.IO) { runCatching { assetRoot.deleteRecursively() } }   // no media of this account stays
         if (oldApi != null && oldToken != null) viewModelScope.launch { runCatching { oldApi.resource(listOf("auth", "logout"), oldToken, emptyObject) } }
     }
     private fun rememberDraft() { if (state.value.windowId.isNotEmpty()) drafts[state.value.windowId] = state.value.draft }

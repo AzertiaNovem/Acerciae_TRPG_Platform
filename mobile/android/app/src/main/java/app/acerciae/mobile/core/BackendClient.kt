@@ -43,6 +43,8 @@ class BackendClient(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build(),
+    /** Downloaded media kept on disk for the signed-in account (see [AssetDiskCache]); null keeps nothing. */
+    var assets: AssetDiskCache? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private suspend inline fun <reified T> request(path: List<String>, token: String? = null, body: String? = null, method: String? = null, query: Map<String, String> = emptyMap()): T =
@@ -65,9 +67,14 @@ class BackendClient(
     suspend fun resources(path: List<String>, token: String, query: Map<String, String> = emptyMap()): List<JsonObject> = request(path, token, query = query)
     suspend fun bytes(path: List<String>, token: String, query: Map<String, String> = emptyMap()): ByteArray = withContext(Dispatchers.IO) {
         val url = address.api(*path.toTypedArray()).newBuilder().apply { query.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
+        val cache = assets
+        val key = url.toString()
+        cache?.get(key)?.let { return@withContext it }
         client.newCall(Request.Builder().url(url).header("Authorization", "Bearer $token").build()).execute().use {
             if (!it.isSuccessful) throw BackendException(it.code)
-            it.body?.bytes() ?: throw IOException("空文件")
+            val bytes = it.body?.bytes() ?: throw IOException("空文件")
+            if (cache != null && AssetDiskCache.keepable(it.header("Cache-Control"))) cache.put(key, bytes)
+            bytes
         }
     }
     suspend fun uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, bytes: ByteArray, token: String): JsonObject = withContext(Dispatchers.IO) {
