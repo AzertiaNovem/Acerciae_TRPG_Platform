@@ -45,6 +45,10 @@ test("character space: role card mirrors into dice attributes, uploads and gener
   await call(p1, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content: "I open my notebook.", character_id: ada.id });
   const msgs = await call(p2, "GET", `/api/channels/${ch}/windows/${main}/messages`);
   assert.equal(msgs.find((m) => m.content === "I open my notebook.").character_avatar_asset_id, withSub.avatar.id, "chat lines carry the character avatar");
+  // Out of character the player speaks: no character avatar on the line (clients show the player's avatar and name).
+  await call(p1, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content: "brb, coffee", kind: "ooc", character_id: ada.id });
+  const ooc = (await call(p2, "GET", `/api/channels/${ch}/windows/${main}/messages`)).find((m) => m.content === "brb, coffee");
+  assert.equal(ooc.kind, "ooc"); assert.equal(ooc.character_avatar_asset_id, null, "OOC lines carry no character avatar"); assert.equal(ooc.character_avatar_version, null);
   // Generated mode: needs the prompt; the mock image provider attaches the results.
   await rejects(call(p1, "POST", `/api/channels/${ch}/characters/${ada.id}/assets/generate`, { slots: ["portrait"] }), 409);
   const gen = await call(p1, "PUT", `/api/channels/${ch}/characters/${ada.id}/appearance`, { asset_mode: "generated", appearance_prompt: "A gaunt woman in a grey wool coat, cropped dark hair, round spectacles" });

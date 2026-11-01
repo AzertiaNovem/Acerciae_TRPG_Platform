@@ -94,14 +94,42 @@ ParsedLog parseHeaderFormat(const std::string& textIn, const std::regex& header,
 class NativeJsonAdapter : public LogAdapter {
 public:
     std::string name() const override { return "native_json"; }
-    std::string supportedVersions() const override { return "acerciae-log schemaVersion 1.0"; }
+    std::string supportedVersions() const override { return "acerciae-log schemaVersion 1.0 (events) and 2.0 (players, characters, messages)"; }
     bool detect(const std::string& t) const override {
-        try { auto j = json::parse(t); return j.isObject() && j.isMember("schemaVersion") && j["events"].isArray(); } catch (...) { return false; }
+        try { auto j = json::parse(t); return j.isObject() && j.isMember("schemaVersion") && (j["events"].isArray() || j["messages"].isArray()); } catch (...) { return false; }
+    }
+    // 2.0: messages name the speaker, the character and the player; no internal ids.
+    static ParsedLog parseV2(const Json::Value& j) {
+        ParsedLog out; out.adapter = "native_json"; out.formatVersion = "2.0";
+        std::map<int, std::string> scenario; for (auto& s : j["scenarios"]) if (s["sequence"].isNumeric()) scenario[s["sequence"].asInt()] = json::str(s, "title");
+        SpeakerTable speakers; long long seq = 0;
+        for (auto& m : j["messages"]) {
+            LogEvent e; e.sequenceNumber = ++seq; e.sourceKind = "import";
+            if (!m.isObject()) { e.eventType = "system"; e.speakerRole = "system"; e.rawText = json::dump(m); e.content = e.rawText; e.unrecognised = true; out.events.push_back(e); out.issues.push_back({(int)seq, e.rawText, "non-object message retained", "warning"}); continue; }
+            e.content = json::str(m, "content"); e.rawText = json::dump(m);
+            e.eventType = json::str(m, "type", "dialogue"); e.speakerRole = json::str(m, "role", "pc");
+            auto speaker = json::str(m, "speaker"), character = json::str(m, "character"), player = json::str(m, "player");
+            e.speakerDisplayName = character.empty() ? speaker : character;
+            e.speakerKey = speakers.add(e.speakerDisplayName, player.empty() ? "native" : player, e.speakerRole == "dice");
+            speakers.byKey[e.speakerKey].role = e.speakerRole;
+            auto time = json::str(m, "time"); if (!time.empty() && time.back() == 'Z') time.pop_back();
+            if (auto ts = parseTime(time)) e.occurredAtUnix = ts; else e.timeText = json::str(m, "time_text");
+            if (m["scenario"].isNumeric()) { e.sceneKey = "scenario-" + std::to_string(m["scenario"].asInt()); e.sceneTitle = scenario.count(m["scenario"].asInt()) ? scenario[m["scenario"].asInt()] : ""; }
+            if (m["window"].isString()) e.metadata["window"] = m["window"];
+            if (!player.empty()) e.sourceReference["player"] = player;
+            auto vis = json::str(m, "visibility", "public"); e.visibilityScope = vis == "gm" ? "gm" : vis == "private" ? "character" : "public";
+            if (m["dice"].isObject()) { DiceInfo d; d.expression = json::str(m["dice"], "expression"); if (m["dice"]["total"].isNumeric()) d.total = m["dice"]["total"].asInt(); d.outcome = json::str(m["dice"], "outcome"); d.checkName = json::str(m["dice"], "check_name"); d.raw = json::str(m["dice"], "text"); e.dice = d; }
+            e.sourceReference["adapter"] = "native_json"; e.sourceReference["line_no"] = (int)seq;
+            out.events.push_back(e);
+        }
+        out.speakers = speakers.list();
+        return out;
     }
     ParsedLog parse(const std::string& t) const override {
         ParsedLog out; out.adapter = name();
         auto j = json::parse(t); out.formatVersion = json::str(j, "schemaVersion");
-        if(out.formatVersion!="1.0"||!j["events"].isArray()) throw badRequest("native JSON requires schemaVersion 1.0 and events array");
+        if (out.formatVersion == "2.0" && j["messages"].isArray()) return parseV2(j);
+        if(out.formatVersion!="1.0"||!j["events"].isArray()) throw badRequest("native JSON requires schemaVersion 1.0 (events) or 2.0 (messages)");
         SpeakerTable speakers; long long seq = 0;
         for (auto& ev : j["events"]) {
             if(!ev.isObject()) { LogEvent e;e.sequenceNumber=++seq;e.eventType="system";e.speakerRole="system";e.rawText=json::dump(ev);e.content=e.rawText;e.unrecognised=true;out.events.push_back(e);out.issues.push_back({(int)seq,e.rawText,"non-object event retained","warning"});continue; }

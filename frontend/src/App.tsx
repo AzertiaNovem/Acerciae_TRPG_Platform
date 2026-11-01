@@ -5,6 +5,9 @@ import { useAuth } from './store/auth';
 import { useNav } from './store/nav';
 import { useUi } from './store/ui';
 import { useRealtime } from './hooks/useRealtime';
+import { useOpenStudio } from './openstudio/ui/state';
+import { useReadTracking } from './hooks/useUnread';
+import MessageNotifications from './components/MessageNotifications';
 import LoginScreen from './components/LoginScreen';
 import ServerSidebar from './components/ServerSidebar';
 import ChannelSidebar from './components/ChannelSidebar';
@@ -18,9 +21,12 @@ import ErrorBoundary from './components/ErrorBoundary';
 const GMWorkspace = lazy(() => import('./components/GMWorkspace'));
 const StudioWorkspace = lazy(() => import('./components/studio/StudioWorkspace'));
 const SharedPublication = lazy(() => import('./components/studio/PublicationViewer'));
+// Open Log Studio (desktop app): the Log Studio on this computer, signed in or not.
+const OpenLogStudio = lazy(() => import('./openstudio/ui/OpenLogStudio'));
 
 function Shell() {
   useRealtime();
+  useReadTracking();
   const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers, spectateChannelId } = useNav();
   const toasts = useUi((s) => s.toasts);
   const aiActivity = useUi((s) => s.aiActivity);
@@ -43,14 +49,23 @@ function Shell() {
         </Suspense>
       </div>
       <EvidenceModal />
-      <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{tr(t.text)}</div>)}</div>
+      <div className="corner-stack">
+        <MessageNotifications />
+        <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{tr(t.text)}</div>)}</div>
+      </div>
     </div>
   );
 }
 
 function AuthenticatedApp() {
   const { user, loading, bootstrap } = useAuth();
+  const studio = useOpenStudio((s) => s.open);
+  const toasts = useUi((s) => s.toasts);
   useEffect(() => { bootstrap(); }, [bootstrap]);
+  if (studio) return (<>
+    <Suspense fallback={<div style={{ padding: 40 }} className="muted">{tr('Loading…')}</div>}><OpenLogStudio /></Suspense>
+    <div className="corner-stack"><div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind ?? ''}`}>{tr(t.text)}</div>)}</div></div>
+  </>);
   if (loading) return <div className="login"><div className="muted">{tr("Loading…")}</div></div>;
   if (!user) return <LoginScreen />;
   return <Shell />;

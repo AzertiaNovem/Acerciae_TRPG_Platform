@@ -1,3 +1,4 @@
+import { webOrigin } from '../../lib/platform';
 import { t as tr } from '../../i18n';
 import { useEffect, useState } from "react";
 import { useNav } from "../../store/nav";
@@ -48,7 +49,7 @@ export default function PublishedLogs() {
         title: title || snapshot?.title,
       });
       if (p.share_token)
-        setShare(`${location.origin}/?publication=${p.share_token}`);
+        setShare(`${webOrigin()}/?publication=${p.share_token}`);
       setItems(await api.list(ch));
     } catch (e) {
       setError((e as Error).message);

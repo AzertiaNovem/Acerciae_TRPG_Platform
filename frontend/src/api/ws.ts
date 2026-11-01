@@ -1,3 +1,4 @@
+import { apiBase } from '../lib/platform';
 import { ensureFileToken, getToken } from './client';
 
 // Two sockets: chat traffic and context (document/highlight) traffic are kept apart so that a burst of
@@ -26,7 +27,7 @@ class StreamSocket {
     ensureFileToken().then((token) => {
       if (gen !== this.generation || this.closed || !token) return;
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const base = (import.meta.env.VITE_API_BASE as string | undefined) || `${proto}://${location.host}`;
+      const base = apiBase() || `${proto}://${location.host}`;
       const ws = new WebSocket(base.replace(/^http/, 'ws') + `/ws/${this.stream}?token=${encodeURIComponent(token)}`);
       this.ws = ws;
       ws.onopen = () => { this.retry = 1000; for (const c of this.channels) ws.send(JSON.stringify({ type: 'subscribe', channel_id: c })); for (const c of this.spectating) ws.send(JSON.stringify({ type: 'subscribe', channel_id: c, spectate: true })); this.emit({ type: '_open' }); };

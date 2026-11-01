@@ -69,6 +69,7 @@ Config Config::fromEnv() {
     c.seedDemo = envBool("SEED_DEMO", c.seedDemo);
     c.allowInsecureDev = envBool("ALLOW_INSECURE_DEV", c.allowInsecureDev);
     c.corsOrigins = envStr("CORS_ORIGINS", c.corsOrigins);
+    c.publicUrl = envStr("PUBLIC_URL", c.publicUrl); while (!c.publicUrl.empty() && c.publicUrl.back() == '/') c.publicUrl.pop_back();
     c.trustProxy = envBool("TRUST_PROXY", c.trustProxy);
     c.registerPerHour = envInt("AUTH_REGISTER_PER_HOUR", c.registerPerHour);
     c.retentionAuditDays = envInt("RETENTION_AUDIT_DAYS", c.retentionAuditDays);

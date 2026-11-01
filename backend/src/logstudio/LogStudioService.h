@@ -3,6 +3,7 @@
 #include "../core/Db.h"
 #include "../auth/AuthService.h"
 #include "LogAdapters.h"
+#include "ObjectStore.h"
 #include <json/json.h>
 
 namespace acerciae {
@@ -31,7 +32,15 @@ public:
     // Pulls every new channel event into the campaign log under a system identity (viewer filtering happens on read).
     int syncCampaign(const std::string& channelId, const std::string& projectId);
     // Viewer-filtered export of the whole campaign log (or one chat window): json | txt | html | sealdice | zip.
-    std::string exportLog(const ChannelAccess& a, const std::string& format, const std::string& chatWindowId, std::string& mime, std::string& fileName);
+    // `origin` (e.g. https://trpg.example.com) makes the links in the native export absolute.
+    std::string exportLog(const ChannelAccess& a, const std::string& format, const std::string& chatWindowId, std::string& mime, std::string& fileName, const std::string& origin = "");
+    // The native export (acerciae-log 2.0): readable on its own, without internal ids. {format, schemaVersion,
+    // campaign, players[{username, display_name, role, avatar_url}], characters[{name, kind, player, role_card,
+    // appearance_prompt, bio, speaking_style, avatar_url, portrait_url, poses{subtitle: url}}], windows[],
+    // scenarios[], messages[{time, window, scenario, speaker, character, player, role, type, content, dice,
+    // visibility}]}. Only what the viewer may read; NPC cards and appearance only for the Keeper.
+    Json::Value nativeExport(const ChannelAccess& a, const std::vector<LogEvent>& events, const std::string& origin);
+    void setObjectStore(ObjectStore* store) { store_ = store; }   // public links for media in the public bucket
     // SealDice-compatible log JSON ({version, items[]}) for one chat window.
     static Json::Value toSealDiceJson(const std::vector<LogEvent>& events);
 
@@ -50,7 +59,7 @@ public:
     std::vector<LogEvent> snapshotEvents(const ChannelAccess& a, const std::string& snapshotId, Json::Value* snapshotOut = nullptr);
 
     // exports
-    std::string exportSnapshot(const ChannelAccess& a, const std::string& snapshotId, const std::string& format, std::string& mime, std::string& fileName);
+    std::string exportSnapshot(const ChannelAccess& a, const std::string& snapshotId, const std::string& format, std::string& mime, std::string& fileName, const std::string& origin = "");
     std::string renderStyledHtml(const Json::Value& snapshot, const std::vector<LogEvent>& events, const Json::Value& style, const Json::Value& characterMap);
 
     // helpers used by other studio services
@@ -66,6 +75,7 @@ private:
     void insertEvents(pqxx::work& w, const std::string& projectId, const std::string& channelId, std::vector<LogEvent>& events, const std::string& importId);
     std::vector<LogEvent> campaignEvents(const ChannelAccess& a, const std::string& projectId, const std::string& chatWindowId);
     const Config& cfg_; Db& db_; Notifier& notifier_;
+    ObjectStore* store_ = nullptr;
 };
 
 } } // namespace

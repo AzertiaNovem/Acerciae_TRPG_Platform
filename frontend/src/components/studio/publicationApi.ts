@@ -1,3 +1,4 @@
+import { apiBase } from "../../lib/platform";
 import { request, fileToken } from "../../api/client";
 export interface PdfConfig {
   base: string;
@@ -40,7 +41,6 @@ export interface Publication {
   pdf_job_id?: string;
   frozen_content?: any;
 }
-const base = (import.meta.env.VITE_API_BASE as string | undefined) || "";
 export const studioPath = (ch: string) => `/api/channels/${ch}/studio`;
 export const publicationApi = {
   templates: (ch: string) =>
@@ -63,7 +63,7 @@ export const publicationApi = {
       retry: true,
     }),
   file: (ch: string, id: string) =>
-    `${base}${studioPath(ch)}/pdf/jobs/${id}/file?token=${encodeURIComponent(fileToken())}`,
+    `${apiBase()}${studioPath(ch)}/pdf/jobs/${id}/file?token=${encodeURIComponent(fileToken())}`,
   list: (ch: string) =>
     request<Publication[]>("GET", studioPath(ch) + "/publications"),
   publish: (ch: string, body: unknown) =>
@@ -75,7 +75,7 @@ export const publicationApi = {
   shared: (token: string) =>
     request<Publication>("GET", `/api/published/${encodeURIComponent(token)}`),
   publicationFile: (ch: string, pub: string, id: string) =>
-    `${base}${studioPath(ch)}/publications/${pub}/files/${id}?token=${encodeURIComponent(fileToken())}`,
+    `${apiBase()}${studioPath(ch)}/publications/${pub}/files/${id}?token=${encodeURIComponent(fileToken())}`,
   sharedFile: (token: string, id: string) =>
-    `${base}/api/published/${encodeURIComponent(token)}/files/${encodeURIComponent(id)}`,
+    `${apiBase()}/api/published/${encodeURIComponent(token)}/files/${encodeURIComponent(id)}`,
 };

@@ -475,24 +475,33 @@ std::string PublicationService::frozenFile(const Json::Value &r,
   return *bytes;
 }
 
-std::string PublicationService::bundle(const ChannelAccess &a, const std::string &presentationId, std::string &fileName,
-                                      const std::function<void(int, int)> &progress) {
+// What a standalone visual novel holds: its script (data) and the images and voice lines it plays, each under a
+// path that names the asset and its version.
+PublicationService::BundlePlan PublicationService::bundlePlan(const ChannelAccess &a, const std::string &presentationId,
+                                                              const std::function<void(int, int)> &progress) {
   auto p = pres_.get(a, presentationId);   // viewer-filtered: a GM-only draft never reaches a player
+  BundlePlan plan;
   const int total = (int)p["events"].size();
   int done = 0;
-  std::vector<std::pair<std::string, std::string>> files;
-  std::map<std::string, std::string> assetPath;   // asset id → relative path inside the bundle
+  std::map<std::string, std::string> assetPath;   // "id@version" → relative path inside the bundle
   auto ext = [](const std::string &mime) { return mime == "image/png" ? "png" : mime == "image/jpeg" ? "jpg" : mime == "image/webp" ? "webp" : mime == "image/gif" ? "gif" : mime == "image/svg+xml" ? "svg" : mime == "audio/wav" ? "wav" : mime == "audio/mpeg" ? "mp3" : mime == "audio/ogg" ? "ogg" : "bin"; };
   auto image = [&](const Json::Value &idv, int version) -> std::string {
     if (!idv.isString() || idv.asString().empty()) return "";
-    auto id = idv.asString();
-    if (assetPath.count(id)) return assetPath[id];
-    std::string bytes, mime, name;
-    if (!media_.fetch(a, id, version, bytes, mime, name) || mime.rfind("image/", 0) != 0) return "";
-    auto path = "assets/" + id.substr(0, 8) + "." + ext(mime);
-    files.push_back({path, bytes}); assetPath[id] = path; return path;
+    auto id = idv.asString(), key = id + "@" + std::to_string(version);
+    if (assetPath.count(key)) return assetPath[key];
+    // The same checks as serving the file: this channel, approved and visible to the viewer.
+    auto m = db_.queryOne("SELECT m.version AS current, coalesce(av.mime, m.mime) AS mime, coalesce(av.bytes, m.bytes) AS bytes, m.approval_status, m.visibility_scope "
+                          "FROM media_assets m LEFT JOIN asset_versions av ON av.asset_id=m.id AND av.version=$2 WHERE m.id=$1 AND m.channel_id=$3",
+                          {id, (int64_t)(version > 0 ? version : 0), a.channelId});
+    if (m.isNull() || m["mime"].asString().rfind("image/", 0) != 0) return "";
+    if (!a.isGm && (m["visibility_scope"].asString() == "gm" || m["approval_status"].asString() != "approved")) return "";
+    int v = version > 0 ? version : m["current"].asInt();
+    auto path = "assets/" + id.substr(0, 8) + "-v" + std::to_string(v) + "." + ext(m["mime"].asString());
+    plan.files.push_back({path, "media", id, m["mime"].asString(), v, m["bytes"].asInt64()});
+    assetPath[key] = path; return path;
   };
-  Json::Value data; data["title"] = p["title"]; data["template"] = p["settings"]["template"].isObject() ? p["settings"]["template"] : Json::Value(Json::objectValue);
+  Json::Value &data = plan.data;
+  data["title"] = p["title"]; data["template"] = p["settings"]["template"].isObject() ? p["settings"]["template"] : Json::Value(Json::objectValue);
   data["scenes"] = Json::Value(Json::arrayValue);
   for (const auto &sc : p["scenes"]) { Json::Value x; x["id"] = sc["id"]; x["title"] = sc["title"]; auto bg = image(sc["background_asset_id"], json::toInt(sc, "background_asset_version", 0)); x["background"] = bg.empty() ? Json::Value() : Json::Value(bg); data["scenes"].append(x); }
   std::map<std::string, std::string> names; for (const auto &c : db_.queryJson("SELECT id, name FROM characters WHERE channel_id=$1", {a.channelId})) names[c["id"].asString()] = c["name"].asString();
@@ -505,20 +514,59 @@ std::string PublicationService::bundle(const ChannelAccess &a, const std::string
     for (const auto &pl : e["character_asset_ids"]) { Json::Value c; auto cid = json::str(pl, "character_id"); c["name"] = names.count(cid) ? names[cid] : ""; c["position"] = pl["position"]; c["active"] = json::toBool(pl, "active") || cid == json::str(e, "speaker_character_id"); auto img = image(pl["asset_id"], json::toInt(pl, "asset_version", 0)); c["image"] = img.empty() ? Json::Value() : Json::Value(img); x["stage"].append(c); }
     if (e["dice"].isObject() && !e["dice"]["total"].isNull()) { x["dice"]["total"] = e["dice"]["total"]; x["dice"]["outcome"] = e["dice"]["outcome"]; }
     if (e["audio_asset_id"].isString()) {
-      auto au = db_.queryOne("SELECT object_key, mime FROM tts_audio_assets WHERE id=$1 AND channel_id=$2", {e["audio_asset_id"].asString(), a.channelId});
-      if (!au.isNull()) { auto bytes = store_.get(au["object_key"].asString()); if (bytes) { auto path = "audio/" + e["id"].asString().substr(0, 8) + "." + ext(au["mime"].asString()); files.push_back({path, *bytes}); x["audio"] = path; } }
+      auto aid = e["audio_asset_id"].asString();
+      auto au = db_.queryOne("SELECT mime, bytes, duration_ms FROM tts_audio_assets WHERE id=$1 AND channel_id=$2", {aid, a.channelId});
+      if (!au.isNull()) {
+        auto path = "audio/" + aid.substr(0, 8) + "." + ext(au["mime"].asString());
+        plan.files.push_back({path, "audio", aid, au["mime"].asString(), 0, au["bytes"].asInt64()}); x["audio"] = path;
+        if (au["duration_ms"].isNumeric() || au["duration_ms"].isString()) x["audio_ms"] = (Json::Int64)json::toInt(au, "duration_ms", 0);
+      }
     }
     data["events"].append(x);
     if (progress && (++done % 10 == 0 || done == total)) progress(done, total);
   }
-  if (progress) progress(total, total);
-  files.insert(files.begin(), {"index.html", renderStandaloneVn(data)});
-  files.push_back({"script.json", json::dump(data, true)});
   std::string base; for (unsigned char c : p["title"].asString()) base += (isalnum(c) || c >= 0x80) ? (char)c : '_';
   base = text::utf8Prefix(base, 40);   // whole characters only: the name also ends the storage key
-  fileName = (base.empty() ? "visual-novel" : base) + ".zip";
+  plan.fileBase = base.empty() ? "visual-novel" : base;
+  return plan;
+}
+
+std::string PublicationService::bundle(const ChannelAccess &a, const std::string &presentationId, std::string &fileName,
+                                      const std::function<void(int, int)> &progress) {
+  auto plan = bundlePlan(a, presentationId, nullptr);
+  std::vector<std::pair<std::string, std::string>> files{{"index.html", renderStandaloneVn(plan.data)}};
+  const int total = (int)plan.files.size();
+  int done = 0;
+  for (const auto &f : plan.files) {
+    std::string bytes, mime, name;
+    if (f.kind == "media") { if (media_.fetch(a, f.id, f.version, bytes, mime, name)) files.push_back({f.path, std::move(bytes)}); }
+    else { auto au = db_.queryOne("SELECT object_key FROM tts_audio_assets WHERE id=$1 AND channel_id=$2", {f.id, a.channelId}); if (!au.isNull()) if (auto b = store_.get(au["object_key"].asString())) files.push_back({f.path, *b}); }
+    if (progress && (++done % 5 == 0 || done == total)) progress(done, total);
+  }
+  if (progress) progress(total, total);
+  files.push_back({"script.json", json::dump(plan.data, true)});
+  fileName = plan.fileBase + ".zip";
   logs_.audit(a, "presentation.bundle", Json::Value(presentationId));
   return zip::build(files);
+}
+
+Json::Value PublicationService::bundleManifest(const ChannelAccess &a, const std::string &presentationId) {
+  auto plan = bundlePlan(a, presentationId, nullptr);
+  Json::Value out; out["title"] = plan.data["title"]; out["folder"] = plan.fileBase;
+  out["files"] = Json::Value(Json::arrayValue);
+  auto inline_ = [&](const std::string &path, const std::string &content) { Json::Value f; f["path"] = path; f["content"] = content; f["bytes"] = (Json::Int64)content.size(); out["files"].append(f); };
+  inline_("index.html", renderStandaloneVn(plan.data));
+  inline_("script.json", json::dump(plan.data, true));
+  long long total = 0;
+  for (const auto &f : plan.files) {
+    Json::Value x; x["path"] = f.path; x["bytes"] = (Json::Int64)f.bytes; x["mime"] = f.mime; total += f.bytes;
+    x["url"] = f.kind == "media" ? "/api/channels/" + a.channelId + "/media/" + f.id + "?v=" + std::to_string(f.version)
+                                 : "/api/channels/" + a.channelId + "/studio/tts/audio/" + f.id;
+    out["files"].append(x);
+  }
+  out["total_bytes"] = (Json::Int64)total;
+  logs_.audit(a, "presentation.bundle", Json::Value(presentationId));
+  return out;
 }
 
 // ---- background bundles ---------------------------------------------------------------------------
@@ -568,7 +616,7 @@ void PublicationService::runBundle(const std::string &jobId) {
     std::string fileName;
     Json::Value prog(Json::objectValue);
     auto bytes = bundle(a, pid, fileName, [&](int done, int total) {
-      prog["lines_done"] = done; prog["lines_total"] = total;
+      prog["files_done"] = done; prog["files_total"] = total;
       if (std::chrono::steady_clock::now() - last < std::chrono::seconds(1) && done < total) return;
       last = std::chrono::steady_clock::now();
       db_.exec("UPDATE vn_bundle_jobs SET progress=$2::jsonb WHERE id=$1", {jobId, json::dump(prog)});

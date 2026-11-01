@@ -278,9 +278,11 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
 @Composable private fun MessageBubble(message: Message, state: AppState, model: AppViewModel) {
     val mine = state.user?.id != null && message.authorId == state.user?.id
     val character = state.characters.find { it.id == message.characterId }
-    val asset = character?.text("avatar_asset_id") ?: message.characterAvatarAssetId.orEmpty()
-    val revision = character?.text("updated_at").orEmpty() + ":" + (message.characterAvatarVersion ?: 0)
-    val name = message.characterName ?: message.authorName
+    // Out of character the player speaks: their own avatar and name.
+    val ooc = message.kind == "ooc"
+    val asset = if (ooc) "" else character?.text("avatar_asset_id") ?: message.characterAvatarAssetId.orEmpty()
+    val revision = if (ooc) "" else character?.text("updated_at").orEmpty() + ":" + (message.characterAvatarVersion ?: 0)
+    val name = (if (ooc) null else message.characterName) ?: message.authorName
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {
         if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0); Spacer(Modifier.width(8.dp)) }

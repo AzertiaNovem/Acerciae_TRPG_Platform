@@ -25,14 +25,17 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const references = useChat(s=>s.references);
   const addReference = useChat(s=>s.addReference);
   const own = user?.id === m.author_id;
-  // The character's avatar first; the user's own avatar when the character has none.
-  const avatar = m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? api.ownAvatarUrl(user) : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
+  // Out of character the player speaks: their own avatar and name. Otherwise the character's avatar first, the
+  // player's when the character has none.
+  const ooc = m.kind === 'ooc';
+  const avatar = !ooc && m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? api.ownAvatarUrl(user) : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
   const [failedAvatar, setFailedAvatar] = useState('');
   const author = own ? user.display_name : m.author_name;
-  const name = m.character_name ?? (m.author_role === 'gm' ? `${author} (GM)` : author);
+  const speaker = ooc ? null : m.character_name;
+  const name = speaker ?? (m.author_role === 'gm' ? `${author} (GM)` : author);
   return (
     <div className={`message ${m.kind} ${m.visibility}`} id={`msg-${m.id}`}>
-      <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <img src={avatar} alt="" onError={() => setFailedAvatar(avatar)} /> : (m.character_name ?? author).slice(0, 2).toUpperCase()}</div>
+      <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <img src={avatar} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
         <div className="meta"><span className="author">{name}</span>
           {m.kind !== 'ic' && !m.dice && <span className="pill">{tr(m.kind)}</span>}

@@ -134,6 +134,29 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   assert.ok(listing.includes('id="vn-data"') && listing.includes("Fog rolls over the harbour."));
   assert.equal(new Set(listing.match(/audio\/[0-9a-f]{8}\.wav/g)).size, 6, "six voiced lines, one audio file each");
 
+  // The same, file by file (the desktop app): the player and script inline, every image and voice line as a URL whose
+  // path names the asset version; each URL serves the file, the zip and the list hold the same files.
+  const manifest = await call(gm, "GET", root + `/presentations/${done.presentation_id}/files`);
+  assert.equal(manifest.folder, "Harbour_VN");
+  const paths = manifest.files.map((f) => f.path);
+  assert.deepEqual(paths.slice(0, 2), ["index.html", "script.json"]);
+  assert.ok(manifest.files[0].content.includes('id="vn-data"'));
+  const script = JSON.parse(manifest.files[1].content);
+  assert.ok(script.events.filter((e) => e.audio).every((e) => e.audio_ms > 0), "voice lines carry their length");
+  const remote = manifest.files.filter((f) => f.url);
+  assert.equal(remote.filter((f) => f.path.startsWith("audio/")).length, 6);
+  assert.ok(remote.filter((f) => f.path.startsWith("assets/")).every((f) => /-v\d+\.(png|jpg|webp|svg)$/.test(f.path)), "image paths carry the version");
+  for (const f of remote) { assert.ok(listing.includes(f.path), `zip has ${f.path}`); }
+  for (const f of remote.slice(0, 3)) {
+    const r = await fetch(base + f.url, { headers: { Authorization: `Bearer ${gm}` } });
+    assert.equal(r.status, 200, f.url);
+    assert.equal((await r.arrayBuffer()).byteLength, f.bytes, `${f.path} size`);
+  }
+  // The desktop app's origins may call the API; other sites may not.
+  const cors = await fetch(base + "/api/health", { headers: { Origin: "tauri://localhost" } });
+  assert.equal(cors.headers.get("access-control-allow-origin"), "tauri://localhost");
+  assert.equal((await fetch(base + "/api/health", { headers: { Origin: "https://evil.example" } })).headers.get("access-control-allow-origin"), null);
+
   // The same bundle prepared in the background: pending → ready, then downloaded until it expires.
   const prepared = await call(gm, "POST", root + `/presentations/${done.presentation_id}/bundle`, {});
   assert.ok(["pending", "running", "ready"].includes(prepared.status));

@@ -260,6 +260,13 @@ See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.
 [PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the
 shared mobile-facing contracts; `mobile/` development is maintained independently.
 
+## Desktop app
+
+`desktop/` is the web frontend in a Tauri shell, using the system web view with no bundled Chromium. It adds native
+downloads, visual novels saved file by file or exported as video, and system notifications, plus **Open Log
+Studio**: the Log Studio on your own computer without an account (SealDice/QQ/Acerciae logs → HTML, PDF, visual novel
+player or video, with your own AI keys). See [desktop/README.md](desktop/README.md).
+
 ## AI Game Master client
 
 [`gm-agent/`](gm-agent/README.md) is an optional Node.js client that sits at the table as the Keeper through the same

@@ -23,7 +23,7 @@ The Docker instructions below apply to Compose installations.
    The bundled nginx forwards `/api` and `/ws` to the backend and sets `X-Real-IP`; compose sets `TRUST_PROXY=true` so
    login throttling sees real client addresses. If you put the backend behind your own proxy instead, set
    `TRUST_PROXY=true` only when the backend port is not reachable directly, and make the proxy overwrite `X-Real-IP`.
-4. **Cross-origin access** stays closed unless `CORS_ORIGINS` lists an origin (the bundled frontend needs none).
+4. **Cross-origin access** stays closed unless `CORS_ORIGINS` lists an origin (the bundled frontend needs none). The desktop app's origins (`tauri://localhost`, `http://tauri.localhost`, `https://tauri.localhost`) are always allowed; requests carry bearer tokens, never cookies.
 5. **AI is per server.** There are no platform AI keys. Each server's maintainers configure providers, keys and the AI
    policy (token and image budgets, simultaneous AI tasks) in Server settings → AI. Provider endpoints must be https on
    a public address; set `AI_ALLOW_PRIVATE_ENDPOINTS=true` only for a trusted self-hosted model on your network, since any

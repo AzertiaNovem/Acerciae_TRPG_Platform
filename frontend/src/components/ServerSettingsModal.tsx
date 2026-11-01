@@ -2,6 +2,7 @@ import { t as tr } from '../i18n';
 import { useEscape } from '../hooks/useEscape';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { isDesktop, webOrigin } from '../lib/platform';
 import { useNav } from '../store/nav';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
@@ -205,7 +206,7 @@ function Invites({ serverId, joinPolicy }: { serverId: string; joinPolicy: Serve
   const [hours, setHours] = useState('168');
   const load = useCallback(() => { api.serverInvites(serverId).then(setInvites).catch(() => undefined); }, [serverId]);
   useEffect(load, [load]);
-  const link = (code: string) => `${location.origin}${location.pathname}?invite=${code}`;
+  const link = (code: string) => isDesktop ? `${webOrigin()}/?invite=${code}` : `${location.origin}${location.pathname}?invite=${code}`;
   const copy = async (code: string) => { try { await navigator.clipboard.writeText(link(code)); toast('Invite link copied'); } catch { toast(link(code)); } };
   const create = async () => {
     try { const inv = await api.createServerInvite(serverId, { max_uses: Number(uses) || 0, expires_in_hours: Number(hours) || 0 }); load(); copy(inv.code); }

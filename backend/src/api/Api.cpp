@@ -42,6 +42,7 @@
 #include "../core/Text.h"
 #include <drogon/drogon.h>
 #include <drogon/MultiPart.h>
+#include <set>
 
 using namespace drogon;
 
@@ -79,6 +80,16 @@ std::string attachmentHeader(const std::string& name) {
         if (isalnum(c) || c == '.' || c == '-' || c == '_') enc += (char)c; else { enc += '%'; enc += hex[c >> 4]; enc += hex[c & 15]; }
     }
     return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + enc;
+}
+// The site's own address for absolute links: PUBLIC_URL, else the scheme and host the request came in on.
+std::string siteOrigin(const HttpRequestPtr& req) {
+    const auto& cfg = services().cfg;
+    if (!cfg.publicUrl.empty()) return cfg.publicUrl;
+    auto host = req->getHeader("X-Forwarded-Host"); if (host.empty()) host = req->getHeader("Host");
+    if (host.empty() || host.find_first_of(" /\\\"<>") != std::string::npos) return "";
+    auto proto = req->getHeader("X-Forwarded-Proto");
+    if (proto != "http" && proto != "https") proto = host.rfind("localhost", 0) == 0 || host.rfind("127.", 0) == 0 ? "http" : "https";
+    return proto + "://" + host;
 }
 bool mayRedirect(const HttpRequestPtr& req) { return req->getHeader("Authorization").empty(); }
 HttpResponsePtr redirectTo(const std::string& url, const char* cacheControl) {
@@ -333,6 +344,7 @@ void registerRoutes() {
     route2("/api/channels/{1}/windows/{2}/members", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->addWindowMember(access(p, a[0]), a[1], json::requireStr(b, "user_id"), json::str(b, "character_id")); });
     route3("/api/channels/{1}/windows/{2}/members/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeWindowMember(access(p, a[0]), a[1], a[2]); });
     route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint(req, "before_seq", 0)); });
+    route2("/api/channels/{1}/windows/{2}/read", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->markRead(access(p, a[0]), a[1], b["seq"].isNumeric() ? b["seq"].asInt64() : 0); });
     route2("/api/channels/{1}/windows/{2}/messages", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->postMessage(access(p, a[0]), a[1], body(req)); });
     // Deprecated alias of /scenarios/enter: scenarios are campaign-wide, the window is ignored.
     route2("/api/channels/{1}/windows/{2}/scene", {Post}, [&](auto& req, auto& p, auto& a) { return S.scenarios->enter(access(p, a[0]), json::requireStr(body(req), "scene_id")); });
@@ -480,7 +492,7 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/studio/log/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch) {
         try {
             auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
-            std::string mime, name; auto data = S.studio->exportLog(studioAccess(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name);
+            std::string mime, name; auto data = S.studio->exportLog(studioAccess(*pr, ch), req->getParameter("format").empty() ? "json" : req->getParameter("format"), req->getParameter("chat_window_id"), mime, name, siteOrigin(req));
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString(mime); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
@@ -499,7 +511,7 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/studio/snapshots/{2}/export", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string snap) {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
-            std::string mime, name; auto data = S.studio->exportSnapshot(studioAccess(*pr, ch), snap, req->getParameter("format").empty() ? "json" : req->getParameter("format"), mime, name);
+            std::string mime, name; auto data = S.studio->exportSnapshot(studioAccess(*pr, ch), snap, req->getParameter("format").empty() ? "json" : req->getParameter("format"), mime, name, siteOrigin(req));
             auto r = HttpResponse::newHttpResponse(); r->setBody(data); r->setContentTypeString(mime);
             if (req->getParameter("download") == "1") r->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
             cb(r);
@@ -578,7 +590,6 @@ void registerRoutes() {
     route2("/api/channels/{1}/studio/presentations/{2}/tts/estimate", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->estimate(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.tts->createJob(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/tts/jobs", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->listJobs(studioAccess(p, a[0]), a[1]); });
-    // Every placement takes its character's current image (for presentations built before an image was updated).
     // Dubbing cast: which voice reads each character and the narration.
     route2("/api/channels/{1}/studio/presentations/{2}/cast", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->applyCast(studioAccess(p, a[0]), a[1], body(req)["cast"]); });
     // Standalone visual novel: index.html plus every image and voice line, as one ZIP.
@@ -589,6 +600,8 @@ void registerRoutes() {
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
+    // The same, file by file (the desktop app saves it into a folder and skips files it already has).
+    route2("/api/channels/{1}/studio/presentations/{2}/files", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->bundleManifest(studioAccess(p, a[0]), a[1]); });
     // Background bundles: prepared off the request, kept for VN_BUNDLE_TTL_HOURS, then deleted.
     route2("/api/channels/{1}/studio/presentations/{2}/bundle", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->requestBundle(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}/bundles", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->bundleJobs(studioAccess(p, a[0]), a[1]); });
@@ -612,12 +625,16 @@ void registerRoutes() {
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 
-    // CORS only for the origins listed in CORS_ORIGINS (the bundled frontend is same-origin and needs none).
+    // CORS only for the origins listed in CORS_ORIGINS and the desktop app (the bundled frontend is same-origin).
     static std::vector<std::string> origins = [] { std::vector<std::string> v; std::string cur; for (char c : services().cfg.corsOrigins + ",") { if (c == ',') { cur = text::trim(cur); if (!cur.empty()) v.push_back(cur); cur.clear(); } else cur += c; } return v; }();
     auto allowedOrigin = [](const HttpRequestPtr& req) -> std::string {
         auto o = req->getHeader("Origin");
         if (o.empty()) return "";
         for (auto& a : origins) if (a == "*" || a == o) return o;
+        // The desktop app (Tauri) loads its pages from these origins on macOS/Linux and Windows. Requests carry a
+        // bearer token, never cookies, so allowing them exposes nothing a token holder could not already reach.
+        static const std::set<std::string> desktop = {"tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"};
+        if (desktop.count(o)) return o;
         return "";
     };
     app().registerPreRoutingAdvice([allowedOrigin](const HttpRequestPtr& req, AdviceCallback&& acb, AdviceChainCallback&& ccb) {

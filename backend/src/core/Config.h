@@ -39,6 +39,7 @@ struct Config {
     int highlightCleanupIntervalMs = 30000;
     bool seedDemo = false;                  // demo accounts with a published password: local development only
     bool allowInsecureDev = false;          // ALLOW_INSECURE_DEV: accept a weak AUTH_SECRET and demo seeding (never in production)
+    std::string publicUrl;                  // PUBLIC_URL: the site's address (https://trpg.example.com) for absolute links in exports; "" = the request's host
     std::string corsOrigins;                // CORS_ORIGINS: comma-separated origins allowed cross-origin ("" = same origin only)
     bool trustProxy = false;
     int registerPerHour = 20;               // AUTH_REGISTER_PER_HOUR: new accounts per client address per hour                // TRUST_PROXY: take the client address from X-Forwarded-For (behind a reverse proxy)
