@@ -17,7 +17,10 @@
 // The GM may also open the next scenario (campaign-wide), only from the Main Chat, never while a short split is
 // active, and not before SCENARIO_MIN_MINUTES and SCENARIO_MIN_LINES.
 import { GmContext } from "./context/gmContext.mjs";
-import { coplayerLog } from "./context/coplayerContext.mjs";
+import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
+import { Store, billableTokens } from "./store.mjs";
+import { History, Memory, estimateTokens, CHUNK_LINES } from "./memory.mjs";
+import { metered } from "./llm/parts.mjs";
 import { investigatorsFor } from "./context/profiles.mjs";
 import { directTurn } from "./director.mjs";
 import { coplayerTurn } from "./coplayer.mjs";
@@ -40,9 +43,12 @@ const HOUR = 3600000;
 
 export class Table {
   // `deferArrivals`: a short-lived CLI process records arrivals in the state file for the `run` process to play.
-  constructor({ api, llm, cfg, channelId, roster, timelines, guard, scenario = null, improv = null, journal = null, owedArrivals = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now }) {
+  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, journal = null, owedArrivals = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now }) {
     this.api = api;
-    this.llm = llm;
+    // The client's own store (store.mjs): the chat's local copy, compacted chapters, token usage. In memory when none
+    // is given (tests, read-only commands).
+    this.store = store ?? new Store();
+    this.llm = metered(llm, { sink: (u) => this.store.recordUsage({ ...u, at: this.now() }), channelId });
     this.cfg = cfg;
     this.channelId = channelId;
     this.roster = roster;
@@ -57,7 +63,9 @@ export class Table {
     this.persist = persist;
     this.log = log;
     this.sleep = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
-    this.gm = new GmContext(api, channelId, { contextLines: cfg.contextLines, log });
+    this.history = new History({ api, store: this.store, channelId, pageSize: cfg.contextLines, backfill: cfg.historyBackfillLines ?? 1000, log });
+    this.memory = new Memory({ store: this.store, llm: this.llm, gmBudget: cfg.gmContextTokens ?? 60000, coplayerBudget: cfg.coplayerContextTokens ?? 24000, log });
+    this.gm = new GmContext(api, channelId, { history: this.history, memory: this.memory, budget: cfg.gmContextTokens ?? 60000, log });
     this.botMessageIds = new Set();
     this.timers = new Map();
     this.queue = Promise.resolve();
@@ -92,6 +100,7 @@ export class Table {
       : this.sharedGroups.length ? `players who share a player group (${this.sharedGroups.join(", ")}) can read each other's split scene windows` : null;
     const settings = await this.api.serverSettings(this.channel.server_id).catch(() => null);
     this.language = languageName(this.cfg.language || settings?.language || "en");
+    this.memory.language = this.language;
     this.rules = await this.api.coc7Rules().catch(() => null);
     await this.refresh();
     for (const w of this.windows) if (Number.isFinite(Number(w.last_seq))) this.noteSeq(w.id, Number(w.last_seq));
@@ -169,14 +178,23 @@ export class Table {
   }
 
   // On start: when humans last spoke, from the newest lines of every window (so a restart does not wake a dead table).
+  // Brings the local copy of every window up to date (a first backfill, or the gap since the table last ran) and notes
+  // the newest lines for pacing.
   async observeHistory() {
     for (const w of this.windows) {
-      const rows = (await this.api.messages(this.channelId, w.id, 20).catch(() => [])) ?? [];
-      for (const m of rows) this.noteLine(m);
+      await this.history.sync(w.id).catch((e) => this.log(`history ${w.name}: ${e.message}`));
+      for (const m of this.history.lines(w.id).slice(-20)) this.noteLine(m);
     }
   }
 
+  // How the Keeper reads a line: visibility and the timeline it comes from (see gmContext.mjs).
+  renderForGm(m) { return renderLine({ ...m, whisper_to_names: (m.whisper_to ?? []).map((id) => this.nameOf(id)) }, { markVisibility: true, timeline: this.timelines.ofLine(m).name }); }
+
+  // Waits for background compaction (tests, shutdown).
+  async memoryIdle() { await this.memory.idle(); }
+
   noteLine(m) {
+    this.history.add(m);
     const at = Date.parse(m.created_at) || this.now();
     const st = this.state(m.chat_window_id);
     st.lastLineAt = Math.max(st.lastLineAt, at);
@@ -313,6 +331,8 @@ export class Table {
     const round = async (roundMode, roundExtra) => {
       scene = this.scene(windowId);
       const ctx = await this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines() });
+      // Compaction runs beside the turn: this round's prompt is already built.
+      this.memory.maintainGm(windowId, ctx.lines(windowId), ctx.render, { windowName: this.windowName(windowId) });
       const scope = new Set([...(scene?.members ?? []), ...visitorsIn]);
       const mayMove = [...scope].filter((id) => (this.isPc(id) ? ["human", "relay"].includes(roundMode) && speakerIds.has(id) : ["followup", "side"].includes(roundMode)));
       const whereabouts = this.cfg.timelineAuto && scene
@@ -320,7 +340,7 @@ export class Table {
         : "";
       const verdict = await this.scenarioVerdict(windowId, roundMode, mode);
       const scenario = this.cfg.scenarioAuto ? `Scenario change: ${verdict.ok ? "possible this turn, if the story as a whole has moved on." : `not this turn (${verdict.reason}).`}` : "";
-      const plan = await directTurn(this.llm, { language: this.language, contextText: ctx.text, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, improv: this.improv.on, ...roundExtra });
+      const plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, improv: this.improv.on, ...roundExtra });
       this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} Keeper action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
       for (const action of plan.actions) {
         if (budget <= 0) break;
@@ -487,6 +507,8 @@ export class Table {
       const went = moved.filter((id) => before.get(id) === o.from).map((id) => this.windowOf(this.timelines.get(after.get(id)) ?? this.timelines.main()));
       const target = went.sort((a, b) => went.filter((x) => x === b).length - went.filter((x) => x === a).length)[0];
       if (target && target !== old.windowId) await this.post(old.windowId, { content: `→ "${this.windowName(target)}"`, kind: "narration" }, { count: false });
+      // Its scene is over: what happened there becomes a chapter of the Keeper's memory.
+      this.memory.maintainGm(old.windowId, this.history.lines(old.windowId).filter((m) => !this.hiddenLines().has(m.id)), (m) => this.renderForGm(m), { windowName: this.windowName(old.windowId), whole: true });
     }
     for (const [w, { dest, ids }] of byWindow) {
       summary.push(`${ids.map((id) => this.nameOf(id)).join(", ")} → ${dest.name}`);
@@ -516,11 +538,22 @@ export class Table {
       if (this.arrivalTimes.length >= this.cfg.timelineMaxArrivalsPerHour) { this.log(`arrival in "${this.windowName(windowId)}" skipped: hourly arrival cap`); return null; }
       if (autonomous) {
         this.autonomousTurns = this.autonomousTurns.filter((t) => now - t < HOUR);
-        if (now - this.lastHumanAt > this.cfg.autonomyIdleMinutes * 60000 || this.autonomousTurns.length >= this.cfg.autonomyMaxTurnsPerHour) { this.log("arrival skipped: autonomy paused"); return null; }
+        if (now - this.lastHumanAt > this.cfg.autonomyIdleMinutes * 60000 || this.autonomousTurns.length >= this.cfg.autonomyMaxTurnsPerHour || this.overBudget()) { this.log("arrival skipped: autonomy paused"); return null; }
       }
     }
     this.arrivalTimes.push(now);
     return this.schedule(windowId, { mode: "arrival", delay: 0, arrival, autonomous });
+  }
+
+  // LLM_DAILY_TOKEN_BUDGET: once today's billable-equivalent tokens reach it, the table stops starting turns of its own
+  // (answers to humans still run). Logged once a day.
+  overBudget() {
+    if (!this.cfg.dailyTokenBudget) return false;
+    const day = new Date(this.now()); day.setHours(0, 0, 0, 0);
+    const spent = billableTokens(this.store.usageSince(day.getTime()));
+    if (spent < this.cfg.dailyTokenBudget) return false;
+    if (this.budgetNoted !== day.getTime()) { this.budgetNoted = day.getTime(); this.log(`daily token budget reached (${spent} of ${this.cfg.dailyTokenBudget}): no autonomous turns until tomorrow`); }
+    return true;
   }
 
   // After every change: each co-player has one open seat, in its timeline's window; every investigator is in one
@@ -756,6 +789,7 @@ export class Table {
   // Picks at most one window that should move on its own, and queues its turn.
   async tick() {
     if (!this.cfg.autonomy || this.pending > 0) return null;
+    if (this.overBudget()) return null;
     const now = this.now();
     const idle = this.cfg.autonomyIdleMinutes * 60000;
     if (now - this.lastHumanAt > idle) return null;      // nobody at the table
@@ -823,18 +857,24 @@ export class Table {
   // profiles. Nothing from the Keeper's side. Lines a player wrote while their character was in another scene are not
   // something this co-player witnessed, even in a window it sits in.
   async coplayerAct(windowId, coplayer, spotlight, { side = false } = {}) {
-    const messages = [];
-    for (const w of new Set(coplayer.seats.map((s) => s.windowId))) messages.push(...((await this.api.messages(this.channelId, w, this.cfg.contextLines).catch(() => [])) ?? []));
     const me = coplayer.characterId;
     const hidden = this.hiddenLines();
-    const log = coplayerLog(coplayer, messages.filter((m) => !hidden.has(m.id)), this.cfg.contextLines).filter((m) => !(m.character_id && this.isPc(m.character_id) && this.timelines.timelineAt(m.character_id, m.seq).id !== this.timelines.timelineAt(me, m.seq).id));
+    // Everything this co-player witnessed (its seats, its timeline), from the local copy of the chat.
+    const messages = [];
+    for (const w of new Set(coplayer.seats.map((s) => s.windowId))) messages.push(...this.history.lines(w));
+    const witnessed = coplayerLog(coplayer, messages.filter((m) => !hidden.has(m.id)), Infinity).filter((m) => !(m.character_id && this.isPc(m.character_id) && this.timelines.timelineAt(m.character_id, m.seq).id !== this.timelines.timelineAt(me, m.seq).id));
+    // Since its last memory chapter, within its budget (compaction catches up beside the turn).
+    let log = this.memory.coplayerRaw(coplayer, witnessed);
+    while (log.length > CHUNK_LINES && estimateTokens(log.map((m) => renderLine(m)).join("\n")) > this.memory.coplayerBudget) log = log.slice(CHUNK_LINES);
+    const memories = this.memory.coplayerChapters(coplayer).map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`);
     const t = this.timelines.of(me);
     const timeline = t ? { name: t.name, narrativeTime: t.narrativeTime, location: t.location } : null;
     let move;
     try {
       const companions = investigatorsFor(this.characters, this.roster, { except: me });
-      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "" });
+      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "" });
     } catch (e) { this.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
+    this.memory.maintainCoplayer(coplayer, witnessed, (m) => renderLine(m));
     if (move.action === "speak") return this.post(windowId, { content: move.text, kind: move.kind, character_id: me });
     if (move.action === "roll") {
       let n = 0;

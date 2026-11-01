@@ -5,6 +5,7 @@
 import { completeJson } from "./llm/index.mjs";
 import { renderLine } from "./context/coplayerContext.mjs";
 import { renderProfile } from "./context/profiles.mjs";
+import { CHUNK_LINES } from "./memory.mjs";
 
 // Co-players may roll checks and sanity against their own sheet; they never edit sheets (.st / .en) or roll hidden.
 const ROLL = /^\.(ra|rc|r|sc)(\s|$)/i;
@@ -60,26 +61,38 @@ function cardSummary(card) {
 // `timeline` is the co-player's own thread (name, time, place; never the GM's notes). `side` is true in a
 // co-players-only window, where no human player is there to lead.
 // `companions` are the other investigators; those in `withYou` (character ids) are in the same scene right now.
-// `world` is the improvisation mode's public world setting (empty otherwise).
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, spotlight, timeline = null, side = false, world = "" }) {
+// `world` is the improvisation mode's public world setting (empty otherwise). `memories` are the co-player's own
+// compacted chapters (memory.mjs); `log` the lines it witnessed since them.
+// The prompt is laid out stable-first (llm/parts.mjs): who it is, then its memories and older lines in frozen chunks
+// (cached), then what changes every turn.
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "" }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
-  const user = [
+  const frozen = log.slice(0, Math.floor(log.length / CHUNK_LINES) * CHUNK_LINES);
+  const recent = log.slice(frozen.length);
+  const self = [
     `YOU ARE: ${coplayer.name}`,
     `PERSONA: ${coplayer.persona || "(none)"}`,
     `SPEAKING STYLE: ${coplayer.speakingStyle || "(natural)"}`,
     `YOUR ROLE CARD:\n${cardSummary(card)}`,
     world ? `THE WORLD (the setting everyone at the table shares; your persona and background are your own story in it):\n${world}` : "",
+  ].filter(Boolean).join("\n");
+  const past = [
+    memories.length ? `WHAT YOU REMEMBER (your own memories of earlier play, oldest first):\n${memories.join("\n\n")}` : "",
+    frozen.length ? `CHAT LOG YOUR CHARACTER WITNESSED, earlier part (oldest first):\n${frozen.map((m) => renderLine(m)).join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
+  const now = [
     timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
     side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
     `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
     away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map((c) => renderProfile(c)).join("\n")}` : "",
     "",
-    `CHAT LOG YOUR CHARACTER WITNESSED (newest last):\n${log.map((m) => renderLine(m)).join("\n") || "(nothing yet)"}`,
+    `CHAT LOG YOUR CHARACTER WITNESSED${frozen.length ? ", latest part" : ""} (newest last):\n${recent.map((m) => renderLine(m)).join("\n") || (frozen.length ? "(see above)" : "(nothing yet)")}`,
     newest ? `NEWEST LINE: ${renderLine(newest)}` : "",
     spotlight ? "The Keeper turned to you: it is a good moment to act." : "",
     "Your move?",
   ].filter(Boolean).join("\n");
+  const user = [{ text: `${self}\n\n`, cache: true }, ...(past ? [{ text: `${past}\n\n`, cache: true }] : []), { text: now }];
   return completeJson(llm, { system: coplayerSystem(language), user, purpose: "coplayer_turn" }, validateCoplayer);
 }

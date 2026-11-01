@@ -1,5 +1,7 @@
 // A deterministic offline model: it shows every pipeline end to end without a provider and records each request, so
 // tests can check what each role was (and was not) shown. Its writing is placeholder text, clearly labelled.
+import { partsOf, textOf } from "./parts.mjs";
+
 const NAMES = ["Harriet Vance", "Tomas Leclerc", "Mei Okada", "Arthur Penhallow", "Rosa Delgado", "Ivan Sorokin", "Edith Crane", "Samuel Achebe"];
 const CAREERS = ["Antiquarian", "Journalist", "Doctor of Medicine", "Private Investigator", "Professor", "Police Detective", "Author", "Nurse"];
 
@@ -8,9 +10,12 @@ const field = (text, label) => (String(text).match(new RegExp(`^${label}:\\s*(.+
 export class MockLlm {
   constructor() { this.calls = []; this.mock = true; }
 
-  async complete({ system, messages, purpose }) {
-    this.calls.push({ purpose, system, messages: structuredClone(messages) });
-    const user = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  async complete({ system, messages, purpose, onUsage }) {
+    // Recorded as plain text (parts joined), with the cache marks kept apart for tests of the layout.
+    this.calls.push({ purpose, system, messages: messages.map((m) => ({ role: m.role, content: textOf(m.content) })), parts: messages.map((m) => partsOf(m.content).map((p) => ({ text: p.text, cache: Boolean(p.cache) }))) });
+    const user = messages.filter((m) => m.role === "user").map((m) => textOf(m.content)).join("\n");
+    const chars = system.length + user.length;
+    onUsage?.({ model: "mock", input: Math.ceil(chars / 3.5), cacheRead: 0, cacheWrite: 0, output: 50 });
     switch (purpose) {
       case "coplayer_card": return JSON.stringify(this.card(user, "coplayer"));
       case "npc_card": return JSON.stringify(this.card(user, "npc"));
@@ -18,6 +23,7 @@ export class MockLlm {
       case "coplayer_points": return JSON.stringify(this.points(user));
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user));
+      case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }
   }

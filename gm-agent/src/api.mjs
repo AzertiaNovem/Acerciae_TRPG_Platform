@@ -75,7 +75,7 @@ export class Api {
   // ---- chat
   windows(ch) { return this.get(`/api/channels/${ch}/windows`); }
   createWindow(ch, body) { return this.post(`/api/channels/${ch}/windows`, body); }
-  messages(ch, w, limit = 60) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}`); }
+  messages(ch, w, limit = 60, beforeSeq = 0) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}${beforeSeq > 0 ? `&before_seq=${beforeSeq}` : ""}`); }
   postMessage(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/messages`, body); }
 
   // ---- the Keeper's context and the platform's AI tips (GM only)

@@ -24,7 +24,8 @@ never get them.
 
 **GM and real NPCs** (one shared context, built per turn by `src/context/gmContext.mjs`):
 
-- every line in every chat window, including Keeper-only notes, whispers and hidden rolls;
+- every line in every chat window, including Keeper-only notes, whispers and hidden rolls (older history as compacted
+  chapters; see "Long campaigns");
 - the cast: every player character and co-player with its basic details (occupation, age, sex, residence, birthplace),
   bio and background from its role card, and each real NPC with its brief;
 - the current scenario and the summaries of earlier ones;
@@ -45,11 +46,60 @@ It never gets `gm_only` lines (Keeper notes, hidden roll results), whispers to a
 platform AI tip.
 
 Besides the log, its prompt holds:
+- its own memories: chapters it wrote, in the first person, from lines it witnessed (see "Long campaigns");
 - its own role card and persona;
 - the other investigators' basic details, bio and background (`src/context/profiles.mjs`): the player characters and
   the other co-players, as a human player can read any player character's page.
 
 It never gets a real NPC's details, or another investigator's characteristics and skills.
+
+## Long campaigns: memory, compaction and caching
+
+The client keeps its own data store: one SQLite file per channel, `STATE_DIR/<channel>.db`, built into Node (no extra
+package). It holds:
+- a local copy of the chat as the Keeper reads it, fetched once, with any gap filled after the table was down;
+- compacted chapters;
+- the token usage of every model call.
+
+The JSON state file stays the source of truth for the table itself.
+
+**Long context, compacted.** The models read as much of the campaign as fits a token budget, not a fixed number of
+lines.
+- **The GM and real NPCs** (`GM_CONTEXT_TOKENS`, default 60,000) read:
+  - every window's chapters, which hold the story so far;
+  - this window's lines since its last chapter, word for word;
+  - the newest lines of the other windows.
+
+  When a window's lines pass about 60% of the budget, the oldest half becomes a chapter, written by the model. It
+  keeps names, clues, promises, decisions, injuries, where each investigator ended up, and the line numbers of key
+  moments. When a window's chapters pass about 25% of the budget, the oldest half merge into one. A scene that ends
+  (a thread merged) becomes a chapter whole.
+- **Each co-player** (`COPLAYER_CONTEXT_TOKENS`, default 24,000) has its own memory in the same way. Its chapters are
+  written in the first person, only from the lines it witnessed. They never include Keeper notes, others' whispers or
+  another timeline's lines, and no one else reads them.
+- **Keeper documents** keep their newest entries when they are too long; a note says how many older ones were left
+  out.
+
+Compaction runs beside the turns, so a turn never waits for it.
+
+**Prompt caching.** Every prompt is laid out stable-first, and providers cache the prefix:
+1. The fixed rules.
+2. Parts that change rarely: campaign, world setting, cast, scenarios, chapters.
+3. This window's older lines, in frozen chunks of 50.
+4. Parts that change every few turns: hidden truths, timelines, Keeper board and documents.
+5. This turn's details: the scenario's event count, reminders, tips, the newest lines, the instruction. These come last
+   and are never cached.
+
+Providers:
+- **Anthropic** gets cache markers with a one-hour lifetime by default (`LLM_CACHE_TTL=1h|5m|off`).
+- **OpenAI's own API** gets a `prompt_cache_key` per purpose. Other compatible gateways rely on the stable order alone.
+
+One player line costs several calls (the GM, each co-player, a follow-up), and they share most of their prompt.
+
+**Usage.** Every call's input, cache reads and writes, and output tokens are recorded. `status` shows today's and the
+week's totals and the share of input read from cache. `LLM_DAILY_TOKEN_BUDGET` caps billable-equivalent tokens a day
+(cache reads count a tenth); once it is spent, the table stops starting turns of its own, and answers to players still
+run.
 
 ## How a turn runs
 
@@ -301,7 +351,11 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `LLM_STREAM` | `--llm-stream` | `true` | OpenAI Responses: receive streaming replies; set `false` only if the endpoint does not support streaming |
 | `LLM_TIMEOUT_MS` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a proxy/gateway's own timeout |
 | `DEBOUNCE_MS`, `POST_DELAY_MS` | | `4000`, `1200` | quiet time before a turn; pause between posted lines |
-| `MAX_ACTIONS_PER_TURN`, `CONTEXT_LINES` | | `6`, `60` | lines per turn; chat lines per prompt |
+| `MAX_ACTIONS_PER_TURN` | | `6` | lines per turn |
+| `GM_CONTEXT_TOKENS`, `COPLAYER_CONTEXT_TOKENS` | | `60000`, `24000` | context budget for the GM and for each co-player; older history is compacted into chapters |
+| `CONTEXT_LINES`, `HISTORY_BACKFILL_LINES` | | `100`, `1000` | lines fetched per page when syncing the local copy of the chat; how far back the first sync goes |
+| `LLM_CACHE_TTL` | `--llm-cache-ttl` | `1h` | Anthropic prompt-cache lifetime: `1h`, `5m` or `off` |
+| `LLM_DAILY_TOKEN_BUDGET` | | `0` (off) | billable-equivalent tokens a day; once spent, no autonomous turns until tomorrow |
 | `AUTONOMY` | `--autonomy` | `true` | side timelines and quiet windows move on the table's own clock |
 | `AUTONOMY_TICK_MS` | | `30000` | how often the table looks for a window that should move |
 | `AUTONOMY_SIDE_INTERVAL_MS` | | `90000` | pause between turns in a side window |

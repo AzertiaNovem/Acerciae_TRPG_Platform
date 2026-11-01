@@ -4,6 +4,7 @@ import { AnthropicLlm } from "./anthropic.mjs";
 import { OpenAiCompatLlm } from "./openai.mjs";
 import { MockLlm } from "./mock.mjs";
 import fs from "node:fs";
+import { textOf } from "./parts.mjs";
 
 export function createLlm(cfg) {
   let llm;
@@ -21,7 +22,7 @@ function traced(llm, file) {
   return {
     async complete(req) {
       const reply = await llm.complete(req);
-      fs.appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), purpose: req.purpose, system: req.system, messages: req.messages, reply })}\n`);
+      fs.appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), purpose: req.purpose, system: req.system, messages: req.messages.map((m) => ({ role: m.role, content: textOf(m.content) })), reply })}\n`);
       return reply;
     },
   };
@@ -36,7 +37,8 @@ export function extractJson(text) {
   return JSON.parse(s.slice(start, end + 1));
 }
 
-// Asks for a JSON object; one repair round when the reply does not parse or fails validation.
+// Asks for a JSON object; one repair round when the reply does not parse or fails validation. `user` is a string or a
+// list of parts (parts.mjs); the repair round appends to it, so the original prompt stays a cached prefix.
 export async function completeJson(llm, { system, user, purpose }, validate = (x) => x) {
   const messages = [{ role: "user", content: user }];
   let reply = await llm.complete({ system, messages, purpose });

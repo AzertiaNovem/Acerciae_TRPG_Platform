@@ -47,7 +47,7 @@ class FakeApi {
   async coc7Rules() { return { skills: [{ name: "Spot Hidden", base: 25, names: {} }], families: [] }; }
   async characters() { return structuredClone(this.characters_); }
   async windows() { return structuredClone(this.windows_.map((w) => ({ ...w, last_seq: Math.max(0, ...this.lines.filter((m) => m.chat_window_id === w.id).map((m) => m.seq)) }))); }
-  async messages(_ch, w, limit) { return this.lines.filter((m) => m.chat_window_id === w).slice(-limit); }
+  async messages(_ch, w, limit, beforeSeq = 0) { return this.lines.filter((m) => m.chat_window_id === w && (!beforeSeq || m.seq < beforeSeq)).slice(-limit); }
   async postMessage(_ch, w, body) {
     this.posts.push({ window: w, ...body });
     return this.add({ chat_window_id: w, author_id: "u-bot", author_role: "gm", ...body, kind: body.content.startsWith(".") ? "roll" : body.kind });
@@ -752,4 +752,112 @@ test("the world command turns the mode on, posts a long setting in parts, and po
   await t.command({ cmd: "world", world: "A new world." });
   assert.ok(api.posts.some((p) => p.content === "World setting\n\nA new world."));
   assert.equal(t.improv.secrets, "S", "secrets kept when not given");
+});
+
+// ---- long context: local history, compaction, co-player memory, cache layout, usage
+const many = (api, n, { w = "w-main", text = (i) => `Line ${i}: the rain keeps falling over the harbour while we argue about the lighthouse keeper and his debts.` } = {}) => {
+  for (let i = 0; i < n; i++) api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content: text(i) });
+};
+
+test("history: a long window is copied once into the store, paging back past the first page", async () => {
+  const api0 = new FakeApi();
+  many(api0, 250);
+  const { History } = await import("../src/memory.mjs");
+  const { Store } = await import("../src/store.mjs");
+  const store = new Store();
+  const h = new History({ api: api0, store, channelId: "ch", pageSize: 100, backfill: 1000 });
+  await h.sync("w-main");
+  assert.equal(h.lines("w-main").length, 250);
+  many(api0, 120);
+  await h.sync("w-main");
+  assert.equal(h.lines("w-main").length, 370, "the gap since the last sync is filled");
+});
+
+test("long context: old lines become a Keeper chapter, the newest stay word for word, and the GM keeps reading both", async () => {
+  const { t, api, llm } = await table({ cfg: { gmContextTokens: 4000 } });
+  many(api, 300);
+  await alicePosts(t, api, "Where were we?");
+  await settle(t); await t.memoryIdle();
+  const chapters = t.store.chapters("gm", "w-main");
+  assert.ok(chapters.length >= 1, "a chapter was written");
+  const compact = llm.calls.find((c) => c.purpose === "compact");
+  assert.ok(compact.messages[0].content.includes("LINES:") && compact.messages[0].content.includes("Line 0:"), "the oldest lines were summarised");
+  await alicePosts(t, api, "And now?");
+  await settle(t);
+  const ctx = directorCalls(llm).at(-1);
+  assert.ok(ctx.includes("## The story so far") && ctx.includes("[mock compact]"), "the chapter is in the GM's context");
+  assert.ok(ctx.includes("And now?"), "the newest lines are word for word");
+  assert.ok(!ctx.includes("Line 0: the rain"), "the compacted lines are not repeated");
+});
+
+test("co-player memory: its chapters come only from lines it witnessed, and it reads them in its turn", async () => {
+  const { t, api, llm } = await table({ cfg: { coplayerContextTokens: 2500 } });
+  for (let i = 0; i < 150; i++) {
+    api.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: `Witnessed ${i}: we search the study for the ledger and find dust, letters and old receipts.` });
+    if (i % 30 === 0) api.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: `KEEPER-ONLY-${i}: the ledger is in the clock`, visibility: "gm_only" });
+  }
+  await alicePosts(t, api, "Harriet, what do you think?");
+  await settle(t); await t.memoryIdle();
+  const mem = llm.calls.filter((c) => c.purpose === "coplayer_memory");
+  assert.ok(mem.length >= 1, "a memory chapter was written");
+  assert.ok(mem.every((c) => !c.messages[0].content.includes("KEEPER-ONLY")), "never from Keeper-only lines");
+  assert.match(mem[0].system, /You are Harriet Vance/);
+  await alicePosts(t, api, "Harriet?");
+  await settle(t);
+  const turn = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
+  assert.ok(turn.includes("WHAT YOU REMEMBER") && turn.includes("[mock coplayer_memory]"));
+  assert.ok(!turn.includes("KEEPER-ONLY"));
+});
+
+test("cache layout: the GM's prompt is stable-first, its cached parts unchanged between turns, the turn's details last", async () => {
+  const { t, api, llm } = await table();
+  await alicePosts(t, api, "Hello.");
+  await settle(t);
+  await alicePosts(t, api, "Hello again.");
+  await settle(t);
+  const calls = llm.calls.filter((c) => c.purpose === "director");
+  const [first, second] = [calls.at(-2).parts[0], calls.at(-1).parts[0]];
+  assert.ok(first[0].cache && first[0].text.includes("## Campaign") && first[0].text.includes("## Cast"));
+  assert.ok(!first[0].text.includes("events so far"), "the per-turn event count is not in the cached prefix");
+  assert.equal(first[0].text, second[0].text, "the campaign part is byte-identical across turns");
+  assert.ok(!first.at(-1).cache && first.at(-1).text.includes("NEWEST LINE"), "the turn's details are last and uncached");
+  assert.ok(first.filter((p) => p.cache).length <= 3, "at most three cache marks besides the system prompt");
+  const cp = llm.calls.find((c) => c.purpose === "coplayer_turn").parts[0];
+  assert.ok(cp[0].cache && cp[0].text.startsWith("YOU ARE: Harriet Vance"));
+  assert.ok(cp.at(-1).text.includes("Your move?") && !cp.at(-1).cache);
+});
+
+test("usage is recorded per call, and the daily budget stops autonomous turns", async () => {
+  const { t, api, clock } = await table({ cfg: { autonomyQuietMs: MIN } });
+  await alicePosts(t, api, "Hm.");
+  await settle(t);
+  const u = t.store.usageSince(0);
+  assert.ok(u.calls >= 2 && u.input > 0 && u.output > 0);
+  t.cfg.dailyTokenBudget = 1;
+  clock.t += MIN + 1;
+  assert.equal(await t.tick(), null, "no quiet turn once the budget is spent");
+  t.cfg.dailyTokenBudget = 0;
+  assert.notEqual(await t.tick(), null);
+  await settle(t);
+});
+
+test("Keeper documents keep their newest entries when they are too long", async () => {
+  const { t, api } = await table({ cfg: { gmContextTokens: 16000 } });
+  const entries = Array.from({ length: 60 }, (_, i) => ({ id: `e${i}`, section: "Clues", content_md: `CLUE-${i}: ${"a long clue about the harbour ".repeat(6)}`, updated_version: i + 1 }));
+  api.document = async () => ({ entries });
+  await alicePosts(t, api, "Clues?");
+  await settle(t);
+  const docs = await t.gm.documents();
+  assert.ok(docs[0].includes("CLUE-59") && !docs[0].includes("CLUE-0:"), "newest kept, oldest dropped");
+  assert.match(docs[0], /\(\d+ older entries not shown\)/);
+});
+
+test("a scene that ends becomes a chapter of the Keeper's memory", async () => {
+  const { t, api } = await table({ bob: true });
+  await alicePosts(t, api, "I go to the docks.");
+  await settle(t);
+  const side = t.timelines.of("c-alice");
+  await alicePosts(t, api, "Nothing here. I go back to the others.", side.windowId);
+  await settle(t); await t.memoryIdle();
+  assert.equal(t.store.chapters("gm", side.windowId).length, 1);
 });

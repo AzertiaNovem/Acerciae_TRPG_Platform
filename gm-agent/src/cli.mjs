@@ -18,6 +18,7 @@ import { Roster, openSeat, openWindows } from "./roles/roster.mjs";
 import { generateCoplayer, saveCharacter } from "./roles/cardgen.mjs";
 import { completeExistingCharacter } from "./roles/complete.mjs";
 import { SECRETS_MAX, WORLD_MAX, readSetting } from "./improv.mjs";
+import { Store, billableTokens } from "./store.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
@@ -132,7 +133,7 @@ async function openTable(cfg, { llm = null, write = true, heal = false, deferArr
     }
     : () => {};
   const table = new Table({
-    api, llm, cfg, channelId: channel.id, roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
+    api, llm, cfg, channelId: channel.id, store: Store.open(cfg.stateDir, channel.id), roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
     scenario: state.scenario ?? null, improv: state.improv ?? null, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
   });
   await table.init({ heal });
@@ -174,7 +175,7 @@ async function run(cfg) {
     const main = table.mainWindow();
     if (main) table.schedule(main.id, { kickoff: true, delay: 0 });
   }
-  const stop = () => { table.stopTicker(); fs.unwatchFile(inbox); rt.stop(); release(); process.exit(0); };
+  const stop = () => { table.stopTicker(); fs.unwatchFile(inbox); rt.stop(); table.store.close(); release(); process.exit(0); };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 }
@@ -256,6 +257,12 @@ async function status(cfg) {
   console.log("timelines:");
   for (const t of timelines.list) console.log(`  T${t.handle} ${t.name} [${t.status}${t.mergedInto ? ` → ${timelines.get(t.mergedInto)?.name}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span}${t.opened ? "" : ", not opened yet"}` : ""}]${t.windowId ? ` in "${wname(t.windowId)}"` : ""}: ${t.members.map(cname).join(", ") || "(no one)"}${t.narrativeTime ? `; ${t.narrativeTime}` : ""}${t.location ? ` @ ${t.location}` : ""}`);
   if (table.owedArrivals.length) console.log(`opening turns waiting for run: ${table.owedArrivals.map((a) => wname(a.windowId)).join(", ")}`);
+  const day = new Date(); day.setHours(0, 0, 0, 0);
+  const usage = (since) => { const u = table.store.usageSince(since); return `${u.calls} calls, ${billableTokens(u)} billable-equivalent tokens (input ${u.input}, of which ${u.input ? Math.round((u.cacheRead / u.input) * 100) : 0}% read from cache; cache writes ${u.cacheWrite}; output ${u.output})`; };
+  console.log(`model usage today: ${usage(day.getTime())}`);
+  console.log(`model usage, last 7 days: ${usage(Date.now() - 7 * 86400000)}${cfg.dailyTokenBudget ? `; daily budget for autonomous turns: ${cfg.dailyTokenBudget}` : ""}`);
+  const chapters = table.store.db.prepare("SELECT scope LIKE 'coplayer:%' AS cp, count(*) AS n FROM chapters GROUP BY 1").all();
+  console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} Keeper chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
   const im = table.improv;
   console.log(`improvisation: ${im.on ? `on — world ${im.world.length} characters (${im.published.hash ? "posted in the Main Chat" : "not posted yet; run posts it"}), secrets ${im.secrets.length} characters, ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
   console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);

@@ -90,13 +90,13 @@ const MODE_NOTES = {
   relay: ({ relay }) => `MODE: relay — ${relay?.speaker ?? "a player"} wrote in another window ("${relay?.window ?? "elsewhere"}"), but their character is here, in this scene. Answer them here as if they had written here: ${JSON.stringify(relay?.text ?? "")}.`,
 };
 
+// `context` is the Keeper's context as parts (gmContext.mjs) or text; this turn's notes follow it, uncached.
 // `whereabouts` is the brief from whereabouts.mjs; `scenario` says whether a scenario change is possible this turn.
-export async function directTurn(llm, { language, contextText, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, improv = false, ...extra }) {
+export async function directTurn(llm, { language, context, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, improv = false, ...extra }) {
   if (kickoff) mode = "kickoff";
   const note = MODE_NOTES[mode]?.(extra) ?? "";
   const arrivalNote = mode !== "arrival" && extra.arrival ? MODE_NOTES.arrival(extra) : "";   // an arrival folded into another turn
-  const user = [
-    contextText,
+  const turn = [
     "",
     auto ? whereabouts : "",
     scenario,
@@ -105,5 +105,6 @@ export async function directTurn(llm, { language, contextText, newest, mode = "h
     newest ? `NEWEST LINE: ${newest.character_name || newest.author_name || "someone"}: ${newest.content}` : "",
     "Decide the Keeper's actions for this turn.",
   ].filter(Boolean).join("\n");
+  const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
   return completeJson(llm, { system: directorSystem(language, { auto, improv }), user, purpose: "director" }, (x) => validateDirector(x, { auto, improv }));
 }

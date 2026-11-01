@@ -60,11 +60,21 @@ export function buildConfig(args = {}, env = process.env) {
       timeoutMs: int(pick("llm-timeout-ms", "LLM_TIMEOUT_MS", 600000), 600000),
       stream: bool(pick("llm-stream", "LLM_STREAM"), true),
       trace: pick("llm-trace", "LLM_TRACE", ""),
+      // Prompt caching (Anthropic markers): 1h keeps a campaign's prefix warm across short breaks, 5m is cheaper to
+      // write, off sends no markers.
+      cacheTtl: ["1h", "5m", "off"].includes(String(pick("llm-cache-ttl", "LLM_CACHE_TTL", "1h"))) ? String(pick("llm-cache-ttl", "LLM_CACHE_TTL", "1h")) : "1h",
     },
     debounceMs: int(pick("debounce-ms", "DEBOUNCE_MS", 4000), 4000),
     postDelayMs: int(pick("post-delay-ms", "POST_DELAY_MS", 1200), 1200),
     maxActionsPerTurn: Math.max(1, int(pick("max-actions", "MAX_ACTIONS_PER_TURN", 6), 6)),
-    contextLines: Math.max(10, Math.min(200, int(pick("context-lines", "CONTEXT_LINES", 60), 60))),
+    // Lines fetched per window when the table syncs its local copy of the chat (store.mjs); the model's context is set by
+    // the token budgets below, with older history compacted into chapters (memory.mjs).
+    contextLines: Math.max(10, Math.min(200, int(pick("context-lines", "CONTEXT_LINES", 100), 100))),
+    gmContextTokens: Math.max(8000, int(pick("gm-context-tokens", "GM_CONTEXT_TOKENS", 60000), 60000)),
+    coplayerContextTokens: Math.max(4000, int(pick("coplayer-context-tokens", "COPLAYER_CONTEXT_TOKENS", 24000), 24000)),
+    historyBackfillLines: Math.max(0, int(pick("history-backfill-lines", "HISTORY_BACKFILL_LINES", 1000), 1000)),
+    // Billable-equivalent tokens a day (cache reads count a tenth); spent, the table stops its own autonomous turns.
+    dailyTokenBudget: Math.max(0, int(pick("llm-daily-token-budget", "LLM_DAILY_TOKEN_BUDGET", 0), 0)),
     kickoff: bool(pick("kickoff", "KICKOFF"), false),
     // Autonomy: the table moves on its own clock (side timelines, quiet shared windows) while humans are around.
     autonomy: bool(pick("autonomy", "AUTONOMY"), true),
