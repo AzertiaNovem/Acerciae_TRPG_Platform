@@ -101,6 +101,10 @@ export function buildConfig(args = {}, env = process.env) {
     // Improvisation mode (improv.mjs): no module; a world setting from the Keeper's own files. Only `setup` and `world`
     // read these; the setting then lives in the state file. `improv` stays undefined unless given.
     improv: pick("improv", "IMPROV") === undefined ? undefined : bool(pick("improv", "IMPROV"), false),
+    // Casual mode (casual.mjs): phones for the player characters. Set with `setup --casual` or `casual on|off`, then kept
+    // in the state file. Replies from NPCs and co-players come after at most this many minutes.
+    casual: pick("casual", "CASUAL") === undefined ? undefined : bool(pick("casual", "CASUAL"), false),
+    casualMaxDelayMinutes: Math.max(0, int(pick("casual-max-delay-minutes", "CASUAL_MAX_DELAY_MINUTES", 240), 240)),
     worldFile: pick("world", "WORLD_FILE") ? path.resolve(String(pick("world", "WORLD_FILE"))) : null,
     secretsFile: pick("secrets", "SECRETS_FILE") ? path.resolve(String(pick("secrets", "SECRETS_FILE"))) : null,
     stateDir: path.resolve(pick("state-dir", "STATE_DIR", path.join(process.cwd(), ".state"))),

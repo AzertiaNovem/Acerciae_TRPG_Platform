@@ -51,7 +51,8 @@ async function resolveChannel(api, cfg, { create }) {
   if (!create) throw new Error("set CHANNEL_ID (or --channel); run `setup` first to create one");
   let serverId = cfg.serverId;
   if (!serverId) { serverId = (await api.createServer(cfg.serverName)).id; log(`created server "${cfg.serverName}"`); }
-  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: "public", rule_system: "coc7e" });
+  // Casual mode's phones are private only when each player is in a group of their own.
+  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: cfg.casual ? "isolated" : "public", rule_system: "coc7e" });
   if (cfg.era) await api.updateChannel(ch.id, { era: cfg.era });
   log(`created channel "${cfg.channelName}"`);
   return { channel: await api.channel(ch.id), created: true };
@@ -89,6 +90,11 @@ async function setup(cfg) {
   const running = Boolean(lockHolder(cfg.stateDir, channel.id));
   if (improv && running) appendInbox(cfg.stateDir, channel.id, { cmd: "world", ...improv });
   else if (improv) state.improv = { ...(state.improv ?? {}), ...improv };
+  if (cfg.casual !== undefined) {
+    if (running) appendInbox(cfg.stateDir, channel.id, { cmd: "casual", on: cfg.casual });
+    else state.casual = { ...(state.casual ?? {}), on: cfg.casual };
+    log(`casual mode ${cfg.casual ? "on: each player character gets a phone when run starts" : "off"}${cfg.casual && channel.knowledge_mode !== "isolated" ? ` — but this channel's knowledge mode is ${channel.knowledge_mode}: phones need an isolated channel with one player per group` : ""}`);
+  }
   if (improv) log(`improvisation mode ${improv.on ? `on (world ${String(improv.world ?? state.improv?.world ?? "").length} characters)` : "off"}${running ? "; handed to the running table" : "; the world setting is posted in the Main Chat when run starts"}`);
 
   for (const existing of roster.coplayers) {
@@ -126,7 +132,7 @@ async function openTable(cfg, { llm = null, write = true, heal = false, deferArr
   let version = Number(state.version) || 0;
   const persist = write
     ? (t) => {
-      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, journal: t.journal, owedArrivals: t.owedArrivals };
+      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, casual: t.casual, journal: t.journal, owedArrivals: t.owedArrivals };
       delete next.version;
       try { version = saveState(cfg.stateDir, next, { expectVersion: version }); }
       catch (e) { if (!(e instanceof StateConflict)) throw e; onConflict(e); }
@@ -134,7 +140,7 @@ async function openTable(cfg, { llm = null, write = true, heal = false, deferArr
     : () => {};
   const table = new Table({
     api, llm, cfg, channelId: channel.id, store: Store.open(cfg.stateDir, channel.id), roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
-    scenario: state.scenario ?? null, improv: state.improv ?? null, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
+    scenario: state.scenario ?? null, improv: state.improv ?? null, casual: state.casual ?? null, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
   });
   await table.init({ heal });
   if (write) table.save();
@@ -263,6 +269,8 @@ async function status(cfg) {
   console.log(`model usage, last 7 days: ${usage(Date.now() - 7 * 86400000)}${cfg.dailyTokenBudget ? `; daily budget for autonomous turns: ${cfg.dailyTokenBudget}` : ""}`);
   const chapters = table.store.db.prepare("SELECT scope LIKE 'coplayer:%' AS cp, count(*) AS n FROM chapters GROUP BY 1").all();
   console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} Keeper chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
+  const ca = table.casual;
+  console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min)`) : "off (a solemn game: no phones)"}`);
   const im = table.improv;
   console.log(`improvisation: ${im.on ? `on — world ${im.world.length} characters (${im.published.hash ? "posted in the Main Chat" : "not posted yet; run posts it"}), secrets ${im.secrets.length} characters, ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
   console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
@@ -274,9 +282,17 @@ loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
 loadEnvFile(path.join(here, "..", ".env"));
 const cfg = buildConfig(args);
 const command = args._[0] ?? "run";
-const commands = { setup, run, status, split, rejoin, advance, world };
+// `casual on|off`: casual mode's phones, during a campaign.
+function casual(cfg, args) {
+  const v = String(args._?.[1] ?? (cfg.casual === undefined ? "" : cfg.casual)).toLowerCase();
+  if (!["on", "off", "true", "false"].includes(v)) throw new Error("casual needs on or off");
+  const on = v === "on" || v === "true";
+  return manual(cfg, { cmd: "casual", on }, `casual mode ${on ? "on" : "off"}`);
+}
+
+const commands = { setup, run, status, split, rejoin, advance, world, casual };
 if (!commands[command]) {
-  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance|world> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance|world|casual> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
   process.exit(2);
 }
 commands[command](cfg, args).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });

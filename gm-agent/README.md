@@ -283,6 +283,9 @@ node src/cli.mjs setup --coplayers 2 --improv --world world.md --secrets secrets
   Each co-player knows its own story and its companions' public profiles. Missing background on an adopted GM-cast PC
   is also filled in to fit the world.
 - **No module.** The platform's script knowledge and module hints are not read in this mode.
+- **BRP with CoC presets.** An improvised campaign is a Basic Roleplaying game on the Call of Cthulhu 7th edition
+  presets: CoC's characteristics, skills, dice and sanity, with genre and tone taken from your world, not necessarily
+  horror. A module-led campaign stays Call of Cthulhu as such.
 
 To change the setting during a campaign, use `world` (handed to `run` if it is up):
 
@@ -300,6 +303,42 @@ node src/cli.mjs world --improv false
 
 A text you leave out keeps its current version. `status` shows whether the mode is on, the setting's size, whether it
 has been posted, and how many truths the GM has recorded.
+
+## Casual mode: phones
+
+For casual roleplaying, usually (not necessarily) together with improvisation. It is a client option; the platform
+knows nothing of it. Without it the game is solemn and there are no phones.
+
+```bash
+node src/cli.mjs setup --coplayers 2 --casual --improv --world world.md
+```
+
+```bash
+node src/cli.mjs casual on
+```
+
+```bash
+node src/cli.mjs casual off
+```
+
+- **Phones.** Each player character gets a phone: a private window, `Phone: <name>`, with only its player in it. New
+  players get theirs when they join.
+- **Texting.** Write `@` and a name, e.g. `@Silas Mott where are you?`. A line without `@` goes to whoever you texted
+  last (or who texted you last). An unknown name gets a hint and reaches no one.
+- **Replies:**
+  - A real NPC answers through the GM, as that NPC, after a believable delay of its choosing, or leaves the message on
+    read.
+  - A co-player answers in character the same way, at most `CASUAL_MAX_DELAY_MINUTES` later.
+  - Pending replies are kept in the state file, so they survive a restart and still arrive while everyone is away.
+- **Other players.** A text to another player appears in their phone at once, posted as the sender's character.
+- **First contact.** The GM may have an NPC text a player (a hook, news, an invitation), and a co-player may text a
+  player instead of speaking in the scene.
+- **Who knows what.** A text never starts a scene turn and never moves anyone between scenes. The GM reads every
+  phone; a co-player knows only the messages it sent or received.
+- **Privacy.** Phones are private only on an **isolated** channel with one player per group, so casual mode stays off
+  anywhere else. `setup --casual` creates isolated channels.
+
+`status` shows the phones and the texts still on their way.
 
 ## Setup
 
@@ -395,6 +434,8 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `TIMELINE_MAX_ARRIVALS_PER_HOUR` | | `12` | arrival turns (opening a new or changed scene) per hour |
 | `SCENARIO_AUTO` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the Main Chat only) |
 | `SCENARIO_MIN_MINUTES`, `SCENARIO_MIN_LINES` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it |
+| `CASUAL` | `--casual` | off | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
+| `CASUAL_MAX_DELAY_MINUTES` | | `240` | longest delay before an NPC's or co-player's reply to a text |
 | `IMPROV` | `--improv` | off | improvisation mode (with `setup` or `world`; it is then kept in the state file) |
 | `WORLD_FILE`, `SECRETS_FILE` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` |
 | `STATE_DIR` | `--state-dir` | `./.state` | the state file (co-players, real NPCs, seats, timelines, guard, scenario, improvisation setting), its lock and the command inbox |

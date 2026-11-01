@@ -6,7 +6,8 @@
 //              that co-player remembers, built only from lines it witnessed); level 0 summarises lines, level 1+ merges
 //              chapters;
 //   usage    – one row per model call (input, cache reads and writes, output tokens);
-//   kv       – small values.
+//   kv       – small values;
+//   phone    – casual mode's text messages (who to whom), so a thread can be read back (casual.mjs).
 // The process that keeps the state file (the `run` lock) is the only writer.
 import fs from "node:fs";
 import path from "node:path";
@@ -32,6 +33,10 @@ CREATE TABLE IF NOT EXISTS usage (
   input INTEGER NOT NULL DEFAULT 0, cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS usage_at ON usage(at);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS phone (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL DEFAULT 0, window_id TEXT NOT NULL, from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL, text TEXT NOT NULL, at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS phone_pair ON phone(from_id, to_id, id);
 `;
 
 export const storePath = (stateDir, channelId) => path.join(stateDir, `${channelId}.db`);
@@ -54,6 +59,9 @@ export class Store {
       usage: this.db.prepare("INSERT INTO usage(at, purpose, model, input, cache_read, cache_write, output) VALUES(?, ?, ?, ?, ?, ?, ?)"),
       usageSince: this.db.prepare("SELECT count(*) AS calls, coalesce(sum(input),0) AS input, coalesce(sum(cache_read),0) AS cacheRead, coalesce(sum(cache_write),0) AS cacheWrite, coalesce(sum(output),0) AS output FROM usage WHERE at >= ?"),
       get: this.db.prepare("SELECT value FROM kv WHERE key = ?"),
+      addPhone: this.db.prepare("INSERT INTO phone(seq, window_id, from_id, to_id, text, at) VALUES(?, ?, ?, ?, ?, ?)"),
+      thread: this.db.prepare("SELECT seq, from_id AS \"from\", to_id AS \"to\", text, at FROM phone WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?) ORDER BY id DESC LIMIT ?"),
+      phoneOf: this.db.prepare("SELECT seq, from_id AS \"from\", to_id AS \"to\", text, at FROM phone WHERE from_id = ? OR to_id = ? ORDER BY id DESC LIMIT ?"),
       set: this.db.prepare("INSERT INTO kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"),
     };
   }
@@ -93,6 +101,13 @@ export class Store {
     this.q.usage.run(at, purpose, model, input | 0, cacheRead | 0, cacheWrite | 0, output | 0);
   }
   usageSince(at) { return { ...this.q.usageSince.get(at) }; }
+
+  // ---- phone (casual mode)
+  addPhone({ seq = 0, windowId, from, to, text, at = Date.now() }) { this.q.addPhone.run(seq | 0, windowId, from, to, String(text), at); }
+  // Messages between two characters, oldest first (the newest `limit`).
+  thread(a, b, limit = 40) { return this.q.thread.all(a, b, b, a, limit).map((r) => ({ ...r })).reverse(); }
+  // Every message to or from one character, oldest first (the newest `limit`).
+  phoneOf(id, limit = 30) { return this.q.phoneOf.all(id, id, limit).map((r) => ({ ...r })).reverse(); }
 
   // ---- kv
   get(key, fallback = null) { const r = this.q.get.get(key); return r ? JSON.parse(r.value) : fallback; }

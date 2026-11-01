@@ -968,3 +968,104 @@ test("a platform without the world record: declarations are dropped once, the ta
   assert.ok(api.posts.some((p) => p.content === "Ok."), "the turn went on");
   assert.equal(await t.declare("Y"), false);
 });
+
+// ---- casual mode: phones
+const isolated = async (opts = {}) => {
+  const r = await table({ ...opts, bob: true, heal: false });
+  r.api.knowledgeMode = "isolated";
+  r.t.channel.knowledge_mode = "isolated"; r.t.publicSplits = false; r.t.splitWarning = null;
+  await r.t.setCasual(true); await settle(r.t);
+  await r.t.refresh();
+  return r;
+};
+const phoneOf = (t, id) => t.casual.phones[id];
+const texts = (t, api, id) => api.posts.filter((p) => p.window === phoneOf(t, id) && p.kind === "ic");
+const textFrom = (t, api, who, content) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: phoneOf(t, who), author_id: who === "c-bob" ? "u-bob" : "u-alice", author_role: "player", character_id: who, content }) });
+
+test("casual mode is refused on a public channel: phones would not be private", async () => {
+  const { t, api } = await table({ bob: true });
+  await t.setCasual(true);
+  assert.deepEqual(t.casual.phones, {}); assert.equal(api.createdWindows.length, 0);
+  assert.equal(t.casualOn(), false);
+});
+
+test("casual: each player character gets a private phone; a phone line never starts a scene turn", async () => {
+  const { t, api, llm } = await isolated();
+  assert.deepEqual(Object.keys(t.casual.phones).sort(), ["c-alice", "c-bob"]);
+  const alicePhone = api.createdWindows.find((w) => w.id === phoneOf(t, "c-alice"));
+  assert.equal(alicePhone.name, "Phone: Alice Hale"); assert.equal(alicePhone.kind, "private");
+  assert.deepEqual(alicePhone.members.map((m) => m.user_id), ["u-bot", "u-alice"], "only her player");
+  await t.setCasual(true);
+  assert.equal(api.createdWindows.length, 2, "phones are opened once");
+  const before = directorCalls(llm).length;
+  await textFrom(t, api, "c-alice", "@Bob Price meet me at the pier");
+  await settle(t);
+  assert.equal(directorCalls(llm).length, before, "no scene turn");
+  assert.deepEqual(texts(t, api, "c-bob").map((p) => [p.content, p.character_id]), [["meet me at the pier", "c-alice"]], "relayed to Bob's phone at once, as Alice");
+  await textFrom(t, api, "c-bob", "On my way.");
+  await settle(t);
+  assert.deepEqual(texts(t, api, "c-alice").map((p) => [p.content, p.character_id]), [["On my way.", "c-bob"]], "a reply without @ goes back to the sender");
+  assert.equal(await t.tick(), null, "phones never get autonomous turns");
+});
+
+test("casual: an NPC answers a text through the GM after a believable delay, and nothing happens in any scene", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (/^MODE: phone/m.test(user) ? { actions: [{ type: "text", from: "Mr. Grimsby", to: "Alice Hale", text: "Under the clock, miss.", delay_minutes: 30 }, { type: "narrate", text: "NOT-IN-A-SCENE" }], coplayers_may_act: true } : base(user));
+  const { t, api, clock } = await isolated({ llm });
+  await textFrom(t, api, "c-alice", "@Mr. Grimsby where is the key?");
+  await settle(t);
+  const call = llm.calls.filter((c) => c.purpose === "director").at(-1);
+  assert.match(call.messages[0].content, /MODE: phone — Alice Hale texted Mr\. Grimsby/);
+  assert.match(call.system, /"type": "text"/); assert.match(call.system, /Casual mode/);
+  assert.equal(texts(t, api, "c-alice").length, 0, "not yet");
+  assert.ok(!api.posts.some((p) => p.content === "NOT-IN-A-SCENE"), "a phone turn narrates nothing");
+  clock.t += 31 * MIN;
+  assert.equal(await t.deliverDue(), 1);
+  assert.deepEqual(texts(t, api, "c-alice").map((p) => [p.content, p.character_id]), [["Under the clock, miss.", "c-butler"]]);
+  assert.deepEqual(t.store.thread("c-alice", "c-butler").map((r) => r.text), ["where is the key?", "Under the clock, miss."]);
+});
+
+test("casual: a co-player answers a text in character, knowing only its own messages", async () => {
+  const { t, api, llm, clock } = await isolated();
+  await textFrom(t, api, "c-alice", "@Harriet are you coming?");
+  await settle(t);
+  const call = llm.calls.find((c) => c.purpose === "coplayer_phone");
+  assert.ok(call.messages[0].content.includes("are you coming?") && call.messages[0].content.startsWith("YOU ARE: Harriet Vance"));
+  assert.ok(!SECRETS.some((s) => call.messages[0].content.includes(s)), "no Keeper secrets");
+  clock.t += 6 * MIN;
+  await t.deliverDue();
+  assert.deepEqual(texts(t, api, "c-alice").map((p) => p.character_id), ["c-harriet"]);
+});
+
+test("casual: a co-player may text a player first; without casual mode the GM has no text action", async () => {
+  const llm = new MockLlm();
+  llm.coplayer = (user) => (user.includes("YOUR PHONE") || /casual/i.test(user) ? { action: "text", to: "Alice Hale", text: "psst, look at the clock" } : { action: "text", to: "Alice Hale", text: "psst, look at the clock" });
+  const { t, api } = await isolated({ llm });
+  await alicePosts(t, api, "Hm.");
+  await settle(t);
+  assert.ok(texts(t, api, "c-alice").some((p) => p.character_id === "c-harriet" && p.content === "psst, look at the clock"));
+  const plain = await table();
+  await alicePosts(plain.t, plain.api, "Hm.");
+  await settle(plain.t);
+  assert.ok(!/"type": "text"/.test(plain.llm.calls.find((c) => c.purpose === "director").system));
+});
+
+test("casual: a line naming no known contact gets a hint, and nobody is texted", async () => {
+  const { t, api } = await isolated();
+  await textFrom(t, api, "c-alice", "@Nobody Atall hello?");
+  await settle(t);
+  assert.ok(api.posts.some((p) => p.window === phoneOf(t, "c-alice") && p.content.startsWith("(No one by that name")));
+  assert.equal(t.store.phoneOf("c-alice").length, 0);
+});
+
+test("casual: addressing picks the longest name, prefers a full name, and needs no separator after a CJK name", async () => {
+  const { parseAddress } = await import("../src/casual.mjs");
+  const c = [{ id: "a", name: "Silas Mott" }, { id: "b", name: "Silas" }, { id: "z", name: "张三" }, { id: "m", name: "Mr. Grimsby" }];
+  assert.deepEqual(parseAddress("@Silas Mott where?", c), { to: "a", body: "where?", addressed: true });
+  assert.equal(parseAddress("@Silas hi", c).to, "b");
+  assert.deepEqual(parseAddress("@张三在吗", c), { to: "z", body: "在吗", addressed: true });
+  assert.equal(parseAddress("@Mr. Grimsby key?", c).to, "m");
+  assert.equal(parseAddress("@Silasx hi", c).to, null);
+  assert.deepEqual(parseAddress("no at", c), { to: null, body: "no at", addressed: false });
+});

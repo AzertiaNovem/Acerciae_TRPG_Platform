@@ -23,6 +23,7 @@ export class MockLlm {
       case "coplayer_points": return JSON.stringify(this.points(user));
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user));
+      case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }
@@ -87,6 +88,8 @@ export class MockLlm {
   // brings them back to the main story, "next morning" asks for the next scenario.
   director(user) {
     const last = field(user, "NEWEST LINE") || "the silence";
+    const phone = user.match(/^MODE: phone — (.+?) texted (.+?) on their phone/m);
+    if (phone) return { actions: [{ type: "text", from: phone[2], to: phone[1], text: `[mock ${phone[2]}] Got your message.`, delay_minutes: 1 }], coplayers_may_act: false };
     if (field(user, "KICKOFF")) return { actions: [{ type: "narrate", text: "[mock Keeper] The rain drums on the station roof as your train pulls in. What do you do?" }], coplayers_may_act: true };
     const actions = [{ type: "narrate", text: `[mock Keeper] You consider ${JSON.stringify(last.slice(0, 80))}. The lamp flickers; something waits in the dark.` }];
     const whereabouts = [];

@@ -10,8 +10,10 @@ import { CHUNK_LINES } from "./memory.mjs";
 // Co-players may roll checks and sanity against their own sheet; they never edit sheets (.st / .en) or roll hidden.
 const ROLL = /^\.(ra|rc|r|sc)(\s|$)/i;
 
-export function coplayerSystem(language) {
-  return `You play one investigator in a Call of Cthulhu 7th edition game on an online table, alongside human players. The Keeper (GM) runs the world. You are a fellow player, not the Keeper and not the protagonist.
+// `improv`: a Basic Roleplaying game on the CoC presets, its tone the world's. `casual`: the co-player may also text a
+// player character on their phone (casual.mjs).
+export function coplayerSystem(language, { improv = false, casual = false } = {}) {
+  return `You play one investigator in ${improv ? "a Basic Roleplaying (BRP) game using the Call of Cthulhu 7th edition presets, whose genre and tone follow its world setting," : "a Call of Cthulhu 7th edition game"} on an online table, alongside human players. The Keeper (GM) runs the world. You are a fellow player, not the Keeper and not the protagonist.
 
 How to play:
 - Stay in character, true to your persona and role card. Know only what your character saw or heard in the chat log below.
@@ -21,14 +23,30 @@ How to play:
 - Never narrate outcomes, the world or other characters' actions; that is the Keeper's job.
 - If the Keeper asked you to roll, or an uncertain action needs a check, reply with a roll using a Sealdice command such as ".ra Spot Hidden" (the platform rolls it against your sheet).
 - Pass when you have nothing useful to add, or when the last lines were addressed to someone else.
-- Write all text in ${language}.
+- Write all text in ${language}.${casual ? `
+- This is a casual game: everyone has a phone, even if the setting has none. Now and then, when it fits, you may text a player character instead of speaking in the scene (a plan, a joke, something you noticed), never to flood them.` : ""}
 
-Reply with only one JSON object: {"action": "speak", "kind": "ic" | "ooc", "text": "..."} or {"action": "roll", "command": ".ra <skill>", "text": "<optional short line>"} or {"action": "pass"}`;
+Reply with only one JSON object: {"action": "speak", "kind": "ic" | "ooc", "text": "..."} or {"action": "roll", "command": ".ra <skill>", "text": "<optional short line>"}${casual ? ` or {"action": "text", "to": "<a player character>", "text": "<the text message>"}` : ""} or {"action": "pass"}`;
 }
 
-export function validateCoplayer(x) {
+// Who the co-player is: the stable head of every prompt it gets.
+export function coplayerSelf({ coplayer, card, world = "" }) {
+  return [
+    `YOU ARE: ${coplayer.name}`,
+    `PERSONA: ${coplayer.persona || "(none)"}`,
+    `SPEAKING STYLE: ${coplayer.speakingStyle || "(natural)"}`,
+    `YOUR ROLE CARD:\n${cardSummary(card)}`,
+    world ? `THE WORLD (the setting everyone at the table shares; your persona and background are your own story in it):\n${world}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+export function validateCoplayer(x, { casual = false } = {}) {
   if (!x || typeof x !== "object") throw new Error("expected an object");
   if (x.action === "pass") return { action: "pass" };
+  if (x.action === "text" && casual) {
+    const text = String(x.text ?? "").trim();
+    return text && x.to ? { action: "text", to: String(x.to), text } : { action: "pass" };
+  }
   if (x.action === "speak") {
     const text = String(x.text ?? "").trim();
     if (!text) return { action: "pass" };
@@ -65,24 +83,19 @@ function cardSummary(card) {
 // compacted chapters (memory.mjs); `log` the lines it witnessed since them.
 // The prompt is laid out stable-first (llm/parts.mjs): who it is, then its memories and older lines in frozen chunks
 // (cached), then what changes every turn.
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "" }) {
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "" }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
   const frozen = log.slice(0, Math.floor(log.length / CHUNK_LINES) * CHUNK_LINES);
   const recent = log.slice(frozen.length);
-  const self = [
-    `YOU ARE: ${coplayer.name}`,
-    `PERSONA: ${coplayer.persona || "(none)"}`,
-    `SPEAKING STYLE: ${coplayer.speakingStyle || "(natural)"}`,
-    `YOUR ROLE CARD:\n${cardSummary(card)}`,
-    world ? `THE WORLD (the setting everyone at the table shares; your persona and background are your own story in it):\n${world}` : "",
-  ].filter(Boolean).join("\n");
+  const self = coplayerSelf({ coplayer, card, world });
   const past = [
     memories.length ? `WHAT YOU REMEMBER (your own memories of earlier play, oldest first):\n${memories.join("\n\n")}` : "",
     frozen.length ? `CHAT LOG YOUR CHARACTER WITNESSED, earlier part (oldest first):\n${frozen.map((m) => renderLine(m)).join("\n")}` : "",
   ].filter(Boolean).join("\n\n");
   const now = [
+    phone ? `YOUR PHONE (recent text messages, oldest first):\n${phone}` : "",
     timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
     side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
     `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
@@ -94,5 +107,5 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     "Your move?",
   ].filter(Boolean).join("\n");
   const user = [{ text: `${self}\n\n`, cache: true }, ...(past ? [{ text: `${past}\n\n`, cache: true }] : []), { text: now }];
-  return completeJson(llm, { system: coplayerSystem(language), user, purpose: "coplayer_turn" }, validateCoplayer);
+  return completeJson(llm, { system: coplayerSystem(language, { improv, casual }), user, purpose: "coplayer_turn" }, (x) => validateCoplayer(x, { casual }));
 }
