@@ -554,15 +554,28 @@ Json::Value MockLlmClient::moduleStructure(const Json::Value& ctx) {
             std::string body; for (size_t j = i + 1; j < lines.size() && j < i + 6 && !lines[j].empty(); ++j) { body += lines[j] + " "; }
             { size_t q; while ((q = line.find("\xe2\x80\x99")) != std::string::npos) line.replace(q, 3, "'"); }
             auto l = lower(line);
-            bool heading = line.size() < 70 && (std::regex_match(line, headingRe) || line == upper(line) || l.rfind("scene", 0) == 0 || l.rfind("chapter", 0) == 0 || l.rfind("npc:", 0) == 0 || l.rfind("location:", 0) == 0 || l.rfind("item:", 0) == 0 || l.rfind("handout", 0) == 0 || l.rfind("condition:", 0) == 0 || l.rfind("twist:", 0) == 0 || l.rfind("ending:", 0) == 0 || l.rfind("secret:", 0) == 0);
+            bool heading = line.size() < 70 && (std::regex_match(line, headingRe) || line == upper(line) || l.rfind("scene", 0) == 0 || l.rfind("chapter", 0) == 0 || l.rfind("npc:", 0) == 0 || l.rfind("creature:", 0) == 0 || l.rfind("monster:", 0) == 0 || l.rfind("location:", 0) == 0 || l.rfind("item:", 0) == 0 || l.rfind("handout", 0) == 0 || l.rfind("condition:", 0) == 0 || l.rfind("twist:", 0) == 0 || l.rfind("ending:", 0) == 0 || l.rfind("secret:", 0) == 0);
             if (heading) {
                 std::string prefix; std::string name = line;
                 if (auto p = name.find(':'); p != std::string::npos && p + 1 < name.size()) { prefix = lower(trim(name.substr(0, p))); name = trim(name.substr(p + 1)); }
                 if (page == 1 && out["nodes"].empty() && line == upper(line)) { addNode("stage", name, body, page, line + " " + body); continue; }
-                static const std::map<std::string, std::string> prefixTypes = {{"npc","npc"},{"location","location"},{"item","item"},{"handout","clue"},{"clue","clue"},{"secret","secret"},{"condition","condition"},{"twist","twist"},{"ending","ending"},{"scene","scene"},{"chapter","stage"},{"act","stage"},{"part","stage"}};
+                static const std::map<std::string, std::string> prefixTypes = {{"npc","npc"},{"creature","creature"},{"monster","creature"},{"location","location"},{"item","item"},{"handout","clue"},{"clue","clue"},{"secret","secret"},{"condition","condition"},{"twist","twist"},{"ending","ending"},{"scene","scene"},{"chapter","stage"},{"act","stage"},{"part","stage"}};
                 std::string pt; for (auto& [k, v] : prefixTypes) if (prefix == k || prefix.rfind(k + " ", 0) == 0) pt = v;
                 if (!pt.empty() && pt != "scene" && pt != "stage") {
                     auto key = addNode(pt, name, body, page, line + " " + body);
+                    if (pt == "creature") {
+                        // A stat block in the lines below: "AC 15 HP 7 Speed 30 ft. CR 1/4 STR 8 DEX 14 …".
+                        Json::Value sb; std::smatch m;
+                        static const std::regex acRe("\\bAC\\s*(\\d+)"), hpRe("\\bHP\\s*(\\d+)"), spRe("Speed\\s*(\\d+\\s*ft\\.?)"), crRe("\\bCR\\s*([0-9/]+)");
+                        if (std::regex_search(body, m, acRe)) sb["ac"] = std::stoi(m[1]);
+                        if (std::regex_search(body, m, hpRe)) sb["hp"] = std::stoi(m[1]);
+                        if (std::regex_search(body, m, spRe)) sb["speed"] = m[1].str();
+                        if (std::regex_search(body, m, crRe)) sb["cr"] = m[1].str();
+                        for (auto* ab : {"STR", "DEX", "CON", "INT", "WIS", "CHA"}) { std::regex r(std::string("\\b") + ab + "\\s*(\\d+)"); if (std::regex_search(body, m, r)) sb["abilities"][ab] = std::stoi(m[1]); }
+                        if (!sb.isNull()) out["nodes"][nodeIndex[key]]["stat_block"] = sb;
+                        if (!currentScene.empty()) addEdge(key, currentScene, "appears_in");
+                        continue;
+                    }
                     if (pt == "location") { currentLocation = key; if (!currentScene.empty()) addEdge(currentScene, key, "takes_place_at"); }
                     else if (pt == "condition") { if (!currentScene.empty()) addEdge(currentScene, key, "requires"); }
                     else if (pt == "twist") { if (!currentScene.empty()) addEdge(currentScene, key, "triggers"); }

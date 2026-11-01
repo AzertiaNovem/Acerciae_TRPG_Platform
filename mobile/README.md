@@ -61,7 +61,7 @@ python3 mobile/scripts/smoke-live.py
 
 ## CoC7 购点角色卡（2026-10-28）
 
-对接 `e630fad`：当服务器 `features.coc7_points` 启用时，角色空间按 `space.points.enabled` 加载认证的 `/coc7/rules`，提供可搜索的 230 个职业、职业选项、自由特长、技能基础／成长／职业／兴趣点编辑、困难／极难值和预算预览。保存按钮固定在顶部；超限或规则未加载时不能提交，信用评级警告不阻止保存。关闭模式后回到普通技能总值编辑，保留 career／skill_points 字段。服务器仍重新计算总值，客户端仅把 `points_rule` 错误作为可读校验信息展示，其他错误不暴露服务端内部内容。素材操作不覆盖尚未保存的角色卡草稿。
+对接 `e630fad`：当频道开启 `point_buy`（主持人在 GM 工作台 → 设置 → 规则中开启；旧服务器为 `features.coc7_points`）时，角色空间按 `space.points.enabled` 加载认证的 `/coc7/rules`，提供可搜索的 230 个职业、职业选项、自由特长、技能基础／成长／职业／兴趣点编辑、困难／极难值和预算预览。保存按钮固定在顶部；超限或规则未加载时不能提交，信用评级警告不阻止保存。关闭模式后回到普通技能总值编辑，保留 career／skill_points 字段。服务器仍重新计算总值，客户端仅把 `points_rule` 错误作为可读校验信息展示，其他错误不暴露服务端内部内容。素材操作不覆盖尚未保存的角色卡草稿。
 
 新版购点测试服务独立使用 `http://localhost:18083` / `acerciae_mobile_points_demo`（55432）。源码为 `git archive e630fad backend`，保存在忽略的 `mobile/artifacts/points-source`；仅将 Coc7Rules.cpp 两个中文左括号查找从字符字面量改为字符串以兼容 Apple Clang，该问题已反馈后端 agent。构建目录 `mobile/artifacts/points-build`；迁移使用该源码的 migrations，不能用旧主线迁移代替。没有修改或合并后端工作树。
 

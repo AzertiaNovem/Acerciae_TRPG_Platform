@@ -8,7 +8,24 @@ import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
 import type { ModuleInfo, ModuleNode } from '../types';
 
-const TYPES = ['stage', 'scene', 'location', 'npc', 'clue', 'item', 'secret', 'condition', 'twist', 'ending'];
+const TYPES = ['stage', 'scene', 'location', 'npc', 'creature', 'clue', 'item', 'secret', 'condition', 'twist', 'ending'];
+
+// A D&D creature's stat block as the import copied it from the adventure.
+function StatBlock({ sb }: { sb: any }) {
+  if (!sb || typeof sb !== 'object') return null;
+  const line = (label: string, v: unknown) => (v === undefined || v === null || v === '' ? null : <span><b>{label}</b> {String(v)}</span>);
+  const named = (key: string, label: string) => Array.isArray(sb[key]) && sb[key].length > 0 && (
+    <div><b>{label}</b>{sb[key].map((e: { name: string; text: string }, i: number) => <div key={i}><i>{e.name}.</i> {e.text}</div>)}</div>
+  );
+  return (
+    <div className="stat-block tiny">
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>{line(tr('AC'), sb.ac)}{line(tr('HP'), sb.hp_formula ? `${sb.hp ?? ''} (${sb.hp_formula})` : sb.hp)}{line(tr('Speed'), sb.speed)}{line(tr('CR'), sb.cr)}</div>
+      {sb.abilities && <div className="row" style={{ gap: 10 }}>{['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].map((a) => sb.abilities[a] !== undefined && <span key={a}><b>{a}</b> {sb.abilities[a]} ({Math.floor((sb.abilities[a] - 10) / 2) >= 0 ? '+' : ''}{Math.floor((sb.abilities[a] - 10) / 2)})</span>)}</div>}
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>{line(tr('Saving Throws'), sb.saves)}{line(tr('Skills'), sb.skills)}{line(tr('Senses'), sb.senses)}{line(tr('Languages'), sb.languages)}</div>
+      {named('traits', tr('Traits'))}{named('actions', tr('Actions'))}{named('bonus_actions', tr('Bonus Actions'))}{named('reactions', tr('Reactions'))}{named('legendary_actions', tr('Legendary Actions'))}
+    </div>
+  );
+}
 
 export default function ModuleImportPanel() {
   const channelId = useNav((s) => s.channelId);
@@ -134,6 +151,7 @@ export default function ModuleImportPanel() {
                     <div key={n.id} className="node">
                       <div className="row"><span className="pill">{n.node_type}</span><b className="small">{n.name}</b><span className={`pill ${n.progress === 'untouched' ? '' : n.progress === 'completed' ? 'ok' : 'ai'}`}>{n.progress}</span>{n.gm_edited && <span className="pill gm">{tr("edited")}</span>}<span className="grow" /><button className="ghost small" onClick={() => setEditing({ ...n })}>{tr("edit")}</button></div>
                       <div className="small muted">{n.description.slice(0, 220)}</div>
+                      {n.node_type === 'creature' && <StatBlock sb={(n as any).data?.stat_block} />}
                       <PageCitations citations={n.citations} maxExcerpt={120} onPage={async (page) => { if (channelId) setPage(await api.modulePage(channelId, current.id, page)); }} />
                       {outEdges(n.id).length > 0 && <div className="tiny muted">→ {outEdges(n.id).map((e) => `${e.relation} ${e.to_name}`).join(' · ')}</div>}
                     </div>

@@ -36,6 +36,7 @@ public:
 
     static std::vector<std::string> extractPdfText(const std::string& bytes);   // one string per page
     static Json::Value structureSchema();
+    static Json::Value statBlock(const Json::Value& in);   // a creature's stat block, bounded and typed
 private:
     void enqueue(const std::string& id);
     void progress(const std::string& id, const std::string& stage, int completed = 0, int total = 0);

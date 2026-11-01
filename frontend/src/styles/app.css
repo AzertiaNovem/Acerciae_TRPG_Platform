@@ -60,6 +60,21 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); paddi
 @keyframes read-aloud-pulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .read-aloud-icon.speaking { animation: none; } }
 .chat-body { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.initiative-bar { display: flex; align-items: center; gap: 10px; padding: 6px 16px; border-bottom: 1px solid var(--bg-3); background: var(--bg-1); overflow-x: auto; }
+.initiative-round { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.initiative-list { display: flex; gap: 6px; margin: 0; padding: 0; list-style: none; flex: 1; min-width: 0; }
+.initiative-list li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--bg-3); white-space: nowrap; font-size: 13px; }
+.initiative-list li.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.initiative-total { font-weight: 700; font-variant-numeric: tabular-nums; }
+.initiative-list li button { padding: 0 4px; }
+.dnd-abilities td, .dnd-abilities th { padding: 3px 6px; text-align: left; }
+.role-card .skills.dnd-skills { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.dnd-skills .skill select { max-width: 110px; }
+.dnd-slot input { margin-left: 2px; }
+.dnd-sheet > .char-grid:first-child { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.dnd-sheet .char-grid .cell select { width: 100%; }
+.v.pre { white-space: pre-wrap; }
+.stat-block { margin: 4px 0; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--bg-2); border-radius: 4px; display: flex; flex-direction: column; gap: 3px; }
 .message-list { flex: 1; overflow-y: auto; padding: 14px 16px 8px; display: flex; flex-direction: column; gap: 10px; }
 .message { display: grid; grid-template-columns: 36px 1fr; gap: 10px; padding: 6px 8px; border-radius: 8px; transition: background .4s; }
 .message.jumped { background: var(--hl); }

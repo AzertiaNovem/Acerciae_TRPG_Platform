@@ -15,6 +15,7 @@ struct LlmMessage {
     std::string name;           // tool: tool name
     Json::Value providerContent; // Anthropic blocks preserved when returning tool results
     bool isError = false;        // tool: the call failed (sent as is_error where the provider supports it)
+    bool cacheBreakpoint = false; // prompt caching: the request's stable prefix ends after this message (see LlmCache)
 };
 
 struct LlmToolSpec {
@@ -38,7 +39,17 @@ struct LlmEndpoint {
 struct LlmProfile {
     LlmEndpoint endpoint;
     std::string language;          // BCP-47-ish code, '' or 'en' = English
+    std::string ruleSystem;        // the channel's rule system (coc7e | dnd2024): how system prompts name the game and GM
 };
+
+// Prompt caching. Providers cache a request's prefix (tools, then the system prompt, then the messages) and serve the
+// part a later request repeats byte for byte at a fraction of the price. OpenAI-compatible endpoints do it on their
+// own; Anthropic caches only up to the points a request marks:
+//   off          nothing is marked (calls that rarely repeat within a few minutes: a cache write costs extra);
+//   prefix       the tools and system prompt, plus every message marked cacheBreakpoint (a task's stable context);
+//   conversation prefix, plus the newest message on every round, so a tool-call or repair round reads the round
+//                before it instead of paying for the whole conversation again.
+enum class LlmCache { off, prefix, conversation };
 
 struct LlmRequest {
     std::string channelId;      // selects the server's LLM profile; empty = mock
@@ -49,6 +60,7 @@ struct LlmRequest {
     Json::Value responseSchema; // when set, the final answer must validate against it
     double temperature = 0.2;
     int maxTokens = 2048;
+    LlmCache cache = LlmCache::off;
 };
 
 struct LlmResponse {
@@ -58,7 +70,8 @@ struct LlmResponse {
     long providerStatus = 0; // HTTP status, separate from transport/schema failures
     std::string content;
     Json::Value toolCalls = Json::Value(Json::arrayValue);   // [{id, name, arguments}]
-    int promptTokens = 0, completionTokens = 0;
+    int promptTokens = 0, completionTokens = 0;   // promptTokens: the whole prompt, cached parts included
+    int cacheReadTokens = 0, cacheWriteTokens = 0; // the parts of promptTokens served from / written to the prompt cache
 };
 
 // A server's AI policy as seen by the gateway: the token budget and the number of AI calls it may run at once.
@@ -68,7 +81,9 @@ public:
     virtual ~AiMeter() = default;
     virtual void checkTokens(const std::string& channelId) = 0;                    // throws std::runtime_error when spent
     virtual std::shared_ptr<void> acquire(const std::string& channelId) = 0;       // throws when no slot frees up in time
-    virtual void recordTokens(const std::string& channelId, const std::string& task, int promptTokens, int completionTokens) = 0;
+    // promptTokens counts the whole prompt (budgets do not change with caching); the cache figures show how much of it
+    // the provider served from or wrote to its prompt cache.
+    virtual void recordTokens(const std::string& channelId, const std::string& task, int promptTokens, int completionTokens, int cacheReadTokens = 0, int cacheWriteTokens = 0) = 0;
 };
 
 // Pluggable backend. Implementations: OpenAiCompatClient, AnthropicClient, MockLlmClient.

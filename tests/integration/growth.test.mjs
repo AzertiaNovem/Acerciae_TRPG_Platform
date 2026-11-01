@@ -10,8 +10,8 @@ test('investigator development: skills used successfully in a scenario are check
   const sfx = Date.now().toString(36);
   const [gm, pl] = await Promise.all(['gm', 'pl'].map(n => request(null, 'POST', '/api/auth/register', { username: `grow_${n}_${sfx}`, display_name: n, password: 'password' })));
   const server = await request(gm.token, 'POST', '/api/servers', { name: 'Growth ' + sfx });
-  await request(gm.token, 'PUT', `/api/servers/${server.id}/settings`, { features: { coc7_points: true } });
   const ch = (await request(gm.token, 'POST', `/api/servers/${server.id}/channels`, { name: 'Arkham' })).id;
+  await request(gm.token, 'PUT', `/api/channels/${ch}`, { point_buy: true });
   await request(gm.token, 'POST', `/api/channels/${ch}/members`, { user_id: pl.user.id, role: 'player' });
   const main = (await request(gm.token, 'GET', `/api/channels/${ch}/windows`))[0].id;
   const ada = await request(pl.token, 'POST', `/api/channels/${ch}/characters`, { name: 'Ada' });

@@ -32,7 +32,7 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     std::string visibleText;
     for (auto& f : ctx["known_facts"]) visibleText += json::str(f, "summary") + "\n";
     for (auto& m : ctx["recent_messages"]) visibleText += json::str(m, "content") + "\n";
-    for (auto& c : db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1", {a.channelId})) {
+    for (auto& c : db_.queryJson("SELECT id, name, kind FROM characters WHERE channel_id=$1 ORDER BY created_at, id", {a.channelId})) {
         if (a.isGm || text::icontains(visibleText, c["name"].asString())) ctx["characters"].append(c);
     }
     ctx["hint"] = hint; ctx["variant"] = variant;
@@ -40,7 +40,8 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     LlmRequest req; req.channelId = a.channelId; req.task = "inspiration"; req.responseSchema = schema(); req.temperature = 0.8;
     req.system = R"(You draft ONE possible in-character response for a player who is unsure what to say next in a Call of Cthulhu / BRP game. Use only the information in known_facts, recent_messages and scene — the character's actual knowledge. Hard rules: do not invent world facts or NPC answers; do not decide whether actions succeed; do not fabricate character backstory; never use module secrets; you may propose an action, a question or a line of dialogue in the character's speaking_style. 2-4 sentences, first person, editable. Output JSON {"draft":"...","used_fact_ids":["..."],"notes":"..."})";
     req.tools = ContextRetrievalService::toolSpecs(false);
-    { LlmMessage k; k.role = "user"; k.content = std::string(a.isGm ? "KEEPER KNOWLEDGE INDEX (script knowledge first, then the Keeper's records; a shortcut for searching):\n" : "KNOWLEDGE INDEX (what this character's group already knows; a shortcut for searching):\n") + retrieval_.knowledgePrelude(view); req.messages.push_back(k); }
+    req.cache = LlmCache::conversation;   // tool rounds re-read the same context
+    for (auto& k : retrieval_.knowledgeMessages(view, a.isGm ? "KEEPER KNOWLEDGE INDEX (script knowledge first, then the Keeper's records; a shortcut for searching):" : "KNOWLEDGE INDEX (what this character's group already knows; a shortcut for searching):")) req.messages.push_back(k);
     LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
     auto outcome = llm_.runStructured(req, [&](const std::string& n, const Json::Value& args) { return retrieval_.executeTool(view, n, args); }, 3);
     if (!outcome.ok) throw ApiError(502, "llm_error", "inspiration failed: " + outcome.error);

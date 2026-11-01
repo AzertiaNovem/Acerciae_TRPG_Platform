@@ -12,6 +12,8 @@ public:
     std::string modelName() const override { return ep_.model; }
     std::vector<float> embed(const std::string& text) override;
     static Json::Value requestBody(const LlmRequest& req, const LlmEndpoint& ep);
+    // Whether an API base is OpenAI's own API (which takes prompt_cache_key).
+    static bool officialOpenAi(const std::string& apiBase);
     static LlmResponse parseResponse(const Json::Value& body);
 private:
     std::string post(const std::string& path, const std::string& body, long& status, std::string& err);

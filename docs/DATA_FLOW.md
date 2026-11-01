@@ -35,7 +35,7 @@ every AI_OBSERVER_INTERVAL_MS (5 s)                         ObserverScheduler.ob
 
 every tick, per player group (PlayerGroupObserver)
    ├─ batch = readable events after the group's cursor (player_group_readable_messages)
-   ├─ prelude = the group's hidden knowledge index (relationships, clues, open threads, story index) as the first user turn
+   ├─ prelude = the group's hidden knowledge index as the first user turns: the story index (stable, a prompt-cache breakpoint), then relationships, clues, open threads
    ├─ LLM → the group's own journals (DocumentService.commit with the batch as the only allowed sources)
    ├─ ReminderService.afterBatch: scenario outlines refreshed; planner reads current log, previous tail, newest lines
    │     (may call get_chat_log); every quote verified as a substring of a readable line; ≤ 3 stored → reminder.created

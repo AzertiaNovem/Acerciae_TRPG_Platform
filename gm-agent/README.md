@@ -218,7 +218,7 @@ Appearance prompts are generated alongside new role cards (also for new NPCs dur
 images. Saving the prompt does not change uploaded/generated image mode or automatically spend image-generation credits.
 Missing injury, phobia, magic and Mythos-experience fields use an explicit "None" when applicable.
 
-With the server's `coc7_points` feature enabled, setup also checks career and skill purchases. The model chooses a career,
+With the channel's `point_buy` option on (GM workspace → Settings → Rules; older servers: the `coc7_points` feature), setup also checks career and skill purchases. The model chooses a career,
 then receives that career's complete point formula, fixed skills, choice groups, free specialties, Credit Rating range and
 skill bases. It allocates career/hobby increments; the platform computes the final skill values. Existing growth points
 are retained. Missing/invalid allocations are repaired, including older co-players with only handwritten skill totals.

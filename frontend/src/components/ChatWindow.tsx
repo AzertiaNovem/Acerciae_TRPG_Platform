@@ -8,6 +8,7 @@ import InspirationDraftPanel from './InspirationDraftPanel';
 import { useUi } from '../store/ui';
 import ContextBubbleDock from './ContextBubbleDock';
 import ReadAloudButton from './ReadAloudButton';
+import InitiativePanel from './InitiativePanel';
 
 export default function ChatWindow() {
   const { windows, windowId, channel, scenes } = useNav();
@@ -28,6 +29,7 @@ export default function ChatWindow() {
         <span className="tiny muted" title={tr("Participants")}>{(win.members ?? []).map((m) => m.character_name ?? m.display_name).join(' · ')}</span>
         <span className="pill" title={tr("Knowledge mode")}>{channel.my_role === 'gm' ? tr("GM only") : `${tr("Player group")}: ${channel.player_group_name ?? "…"}`}</span>
       </div>
+      {channel.rule_system === 'dnd2024' && <InitiativePanel key={win.id} channelId={channel.id} windowId={win.id} isGm={channel.my_role === 'gm'} />}
       <div className="chat-body">
         <AtmosphereBackdrop />
         <MessageList />

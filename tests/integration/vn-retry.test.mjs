@@ -24,9 +24,11 @@ test('VN durable chunks: resume, full retry, manual retry, changed model, cancel
     if (!body.instructions?.includes('visual-novel script')) {
       res.statusCode = 400; return res.end('{}');
     }
-    const user = body.input.find(x => x.role === 'user').content;
+    // Two user turns: the assets every part shares (first, for the prompt cache), then the part's own lines.
+    const turns = body.input.filter(x => x.role === 'user').map(x => x.content);
+    const user = turns.join('\n');
     const part = Number(/Part (\d+)/.exec(user)[1]);
-    requests.push({ part, body });
+    requests.push({ part, body, shared: turns[0] });
     if (hold) { hold = false; await new Promise(resolve => { releaseHeld = resolve; }); }
     // Longer than the short daily timeout used in the local regression run.
     if (part === 1) await new Promise(r => setTimeout(r, 1200));
@@ -68,6 +70,9 @@ test('VN durable chunks: resume, full retry, manual retry, changed model, cancel
   assert.deepEqual(requests.map(x => x.part), [1, 2, 2, 3]);
   assert.equal(ad.progress.chunks_reused, 1);
   assert.ok(requests.every(x => x.body.max_output_tokens === config.max_tokens));
+  // The shared turn is byte-identical for every part and holds no part's own content.
+  assert.equal(new Set(requests.map(x => x.shared)).size, 1);
+  assert.ok(requests[0].shared.startsWith('# Assets') && !/Part \d|\[L\d/.test(requests[0].shared));
   await assert.rejects(call(gm, 'POST', path + '/' + a.id + '/retry', {}), e => e.status === 400);
 
   requests = []; failures = 1;

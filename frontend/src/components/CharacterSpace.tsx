@@ -3,13 +3,16 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
-import type { CharacterSpace as Space, Coc7Rules, RoleCard } from '../types';
+import type { CharacterSpace as Space, Coc7Rules, DndCard, DndRules, RoleCard } from '../types';
+import DndSheet, { EMPTY_DND } from './DndSheet';
 import PointBuy from './PointBuy';
 import { sessionEpoch } from '../store/session';
 
 let rulesPromise: Promise<Coc7Rules> | null = null;
 // A failed load is not cached: the next visit tries again.
 const loadRules = () => (rulesPromise ??= api.coc7Rules().catch((e) => { rulesPromise = null; throw e; }));
+let dndRulesPromise: Promise<DndRules> | null = null;
+const loadDndRules = () => (dndRulesPromise ??= api.dndRules().catch((e) => { dndRulesPromise = null; throw e; }));
 
 const CHARS: (keyof RoleCard['characteristics'])[] = ['STR', 'CON', 'SIZ', 'DEX', 'APP', 'INT', 'POW', 'EDU', 'LUK'];
 const BACKGROUND: (keyof RoleCard['background'])[] = ['personal_description', 'ideology', 'significant_people', 'meaningful_locations', 'treasured_possessions', 'traits', 'injuries', 'phobias', 'arcane', 'encounters'];
@@ -71,7 +74,10 @@ export default function CharacterSpace({ characterId }: { characterId: string })
     return () => window.removeEventListener('beforeunload', warn);
   }, []);
   const pointsOn = !!space?.points?.enabled;
-  useEffect(() => { if (pointsOn && !rules) loadRules().then(setRules).catch((e) => toast(e.message, 'error')); }, [pointsOn]);
+  const dnd = space?.rule_system === 'dnd2024';
+  const [dndRules, setDndRules] = useState<DndRules | null>(null);
+  useEffect(() => { if (pointsOn && !dnd && !rules) loadRules().then(setRules).catch((e) => toast(e.message, 'error')); }, [pointsOn, dnd]);
+  useEffect(() => { if (dnd && !dndRules) loadDndRules().then(setDndRules).catch((e) => toast(e.message, 'error')); }, [dnd]);
   // Live updates (generation finished, another editor saved) arrive as character.updated → characters refresh.
   const version = characters.find((c) => c.id === characterId);
   useEffect(() => { if (space) refresh(); }, [version?.avatar_asset_id, version?.portrait_asset_id, version?.asset_mode]);
@@ -95,6 +101,9 @@ export default function CharacterSpace({ characterId }: { characterId: string })
     } finally { busyRef.current = false; if (mounted.current) { setBusy(false); setSaving(false); } }
   };
   const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, role_card: card }), tr('Character saved'), true);
+  // D&D: the build is part of the card; live values (Hit Points, slots left, death saves) are written straight away.
+  const setDnd = (fn: (d: DndCard) => void) => setCardField((x) => { x.dnd = x.dnd ?? JSON.parse(JSON.stringify(EMPTY_DND)); fn(x.dnd!); });
+  const setLive = (set: Record<string, number>) => mutate(async () => { await api.updateAttributes(channelId, characterId, { set }); return api.characterSpace(channelId, characterId); });
   const saveLook = async (patch: Partial<typeof look>) => { if (busyRef.current) return; const next = { ...look, ...patch }; setLook(next); await mutate(() => api.updateCharacterAppearance(channelId, characterId, next)); };
   const pickFile = (slot: 'avatar' | 'portrait' | 'subtitle', subtitle?: string) => { fileFor.current = { slot, subtitle }; fileInput.current?.click(); };
   const onFile = async (f: File | undefined) => { if (!f || !fileFor.current) return; const target = fileFor.current; await mutate(() => api.uploadCharacterAsset(channelId, characterId, target.slot, f, target.subtitle ?? ''), tr('Image uploaded')); if (fileInput.current) fileInput.current.value = ''; };
@@ -140,6 +149,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
 
         {tab === 'card' && (
           <div className="card role-card">
+            {dnd ? (dndRules ? <DndSheet card={card.dnd ?? EMPTY_DND} rules={dndRules} editable={!!editable} isGm={channel?.my_role === 'gm'} pointsOn={pointsOn} report={space.points} attrs={space.attrs} setCard={setDnd} setLive={setLive} /> : <div className="tiny muted">{tr('Loading…')}</div>) : <>
             <div className="row"><h4 style={{ margin: '10px 0 6px' }}>{tr('Characteristics')}</h4><span className="grow" />{pointsOn && <span className="pill" title={tr('STR+CON+SIZ+DEX+APP+INT+POW+EDU; Luck apart')}>{tr('Total')} {CHARS.filter((k) => k !== 'LUK').reduce((a, k) => a + (card.characteristics[k] ?? 0), 0)} · LUK {card.characteristics.LUK ?? 0}</span>}</div>
             <div className="char-grid">
               {CHARS.map((k) => <div key={k} className="cell"><b>{k}</b>{editable ? <input inputMode="numeric" value={card.characteristics[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete x.characteristics[k]; else if (Number.isFinite(v)) x.characteristics[k] = Math.round(v); })} /> : <span className="v">{card.characteristics[k] ?? '—'}</span>}<span className="halves">{half(card.characteristics[k])}</span></div>)}
@@ -167,6 +177,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
             <div className="char-grid">
               {(['cash', 'assets', 'spending_level'] as const).map((k) => <div key={k} className="cell"><b>{tr(k === 'cash' ? 'Cash' : k === 'assets' ? 'Assets' : 'Spending level')}</b>{editable ? <input style={{ fontSize: 13, fontWeight: 500 }} value={card.wealth[k]} onChange={(e) => setCardField((x) => { x.wealth[k] = e.target.value; })} /> : <span className="v" style={{ fontSize: 13, fontWeight: 500 }}>{card.wealth[k] || '—'}</span>}</div>)}
             </div>
+            </>}
           </div>
         )}
 

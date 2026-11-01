@@ -1,4 +1,5 @@
 #include "Dice.h"
+#include "Dnd.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
 #include <algorithm>
@@ -342,6 +343,53 @@ const Json::Value& builtinTexts(const std::string& lang) {
         "reason": " ({reason})",
         "error.no_character": "Choose a character to speak as before using {command}.",
         "error.expression": "Could not read the dice expression “{expr}”.",
+        "error.rules_dnd": "{command} belongs to the D&D rules; this channel plays Call of Cthulhu.",
+        "error.rules_coc": "{command} belongs to the Call of Cthulhu rules; this channel plays D&D.",
+        "dnd.check": "{name}'s {what}{reason}: {roll}{bonus} = {total}{target}{result}",
+        "dnd.what.plain": "D20 Test",
+        "dnd.what.ability": "{ability} check",
+        "dnd.what.save": "{ability} saving throw",
+        "dnd.what.skill": "{skill} ({ability}) check",
+        "dnd.what.attack": "attack roll",
+        "dnd.what.custom": "{attr} check",
+        "dnd.advantage": "with Advantage",
+        "dnd.disadvantage": "with Disadvantage",
+        "dnd.proficiency": "proficiency",
+        "dnd.expertise": "expertise",
+        "dnd.target.dc": " vs DC {dc}",
+        "dnd.target.ac": " vs AC {ac}",
+        "dnd.result.success": " — Success",
+        "dnd.result.failure": " — Failure",
+        "dnd.result.hit": " — Hit",
+        "dnd.result.miss": " — Miss",
+        "dnd.result.critical": " — natural 20: Critical Hit!",
+        "dnd.result.nat1": " — natural 1: Miss",
+        "dnd.nat20": " (natural 20)",
+        "dnd.nat1": " (natural 1)",
+        "dnd.hint": "{name}'s {what}: D20 {bonus}",
+        "dnd.initiative": "{name} rolls Initiative: {roll}{bonus} = {total}",
+        "dnd.init.list": "Initiative, round {round}: {list}",
+        "dnd.init.item": "{mark}{who} {total}",
+        "dnd.init.empty": "No one has rolled Initiative yet — roll with .ri",
+        "dnd.init.cleared": "Initiative order cleared.",
+        "dnd.init.removed": "Removed {who} from the Initiative order.",
+        "dnd.init.missing": "{who} is not in the Initiative order.",
+        "dnd.init.turn": "Round {round}: {who}'s turn.",
+        "dnd.init.gm_only": "Only the Dungeon Master moves the turn or edits the order.",
+        "dnd.death.success": "{name}'s Death Saving Throw: D20={roll} — success ({successes} successes, {failures} failures)",
+        "dnd.death.failure": "{name}'s Death Saving Throw: D20={roll} — failure ({successes} successes, {failures} failures)",
+        "dnd.death.nat1": "{name}'s Death Saving Throw: D20=1 — natural 1, two failures ({successes} successes, {failures} failures)",
+        "dnd.death.nat20": "{name}'s Death Saving Throw: D20=20 — natural 20! {name} regains 1 Hit Point.",
+        "dnd.death.stable": "{name} is Stable.",
+        "dnd.death.dead": "{name} dies.",
+        "dnd.death.reset": "{name}'s Death Saving Throws are reset.",
+        "dnd.slots.item": "level {level} {left}/{max}",
+        "dnd.slots.show": "{name}'s spell slots: {list}",
+        "dnd.slots.none": "{name} has no spell slots recorded — set the class and level, or the slots, under Spellcasting on the character sheet",
+        "dnd.slots.use": "{name} expends {n} level {level} spell slot(s): {left}/{max} left",
+        "dnd.slots.empty": "{name} has no level {level} spell slot left ({left}/{max}).",
+        "dnd.slots.regain": "{name} regains {n} level {level} spell slot(s): {left}/{max}",
+        "dnd.slots.reset": "{name}'s spell slots are restored: {list}",
         "error.usage": "Usage: {usage}"
     })JSON");
     static const Json::Value zh = json::parse(R"JSON({
@@ -381,6 +429,53 @@ const Json::Value& builtinTexts(const std::string& lang) {
         "reason": "（{reason}）",
         "error.no_character": "使用 {command} 之前请先选择要扮演的角色",
         "error.expression": "无法识别骰子表达式「{expr}」",
+        "error.rules_dnd": "{command} 属于 D&D 规则；本频道使用克苏鲁的呼唤规则。",
+        "error.rules_coc": "{command} 属于克苏鲁的呼唤规则；本频道使用 D&D 规则。",
+        "dnd.check": "{name}的{what}{reason}: {roll}{bonus} = {total}{target}{result}",
+        "dnd.what.plain": "D20 检定",
+        "dnd.what.ability": "{ability}检定",
+        "dnd.what.save": "{ability}豁免",
+        "dnd.what.skill": "{skill}（{ability}）检定",
+        "dnd.what.attack": "攻击检定",
+        "dnd.what.custom": "{attr}检定",
+        "dnd.advantage": "优势",
+        "dnd.disadvantage": "劣势",
+        "dnd.proficiency": "熟练",
+        "dnd.expertise": "专精",
+        "dnd.target.dc": " 对抗 DC {dc}",
+        "dnd.target.ac": " 对抗 AC {ac}",
+        "dnd.result.success": " — 成功",
+        "dnd.result.failure": " — 失败",
+        "dnd.result.hit": " — 命中",
+        "dnd.result.miss": " — 未命中",
+        "dnd.result.critical": " — 自然 20：重击！",
+        "dnd.result.nat1": " — 自然 1：未命中",
+        "dnd.nat20": "（自然 20）",
+        "dnd.nat1": "（自然 1）",
+        "dnd.hint": "{name}的{what}: D20 {bonus}",
+        "dnd.initiative": "{name}投掷先攻: {roll}{bonus} = {total}",
+        "dnd.init.list": "先攻顺序，第 {round} 轮: {list}",
+        "dnd.init.item": "{mark}{who} {total}",
+        "dnd.init.empty": "还没有人投掷先攻 — 使用 .ri 投掷",
+        "dnd.init.cleared": "先攻顺序已清空。",
+        "dnd.init.removed": "已将{who}移出先攻顺序。",
+        "dnd.init.missing": "{who}不在先攻顺序中。",
+        "dnd.init.turn": "第 {round} 轮：轮到{who}。",
+        "dnd.init.gm_only": "只有地下城主可以推进回合或编辑先攻顺序。",
+        "dnd.death.success": "{name}的死亡豁免: D20={roll} — 成功（{successes} 次成功，{failures} 次失败）",
+        "dnd.death.failure": "{name}的死亡豁免: D20={roll} — 失败（{successes} 次成功，{failures} 次失败）",
+        "dnd.death.nat1": "{name}的死亡豁免: D20=1 — 自然 1，计两次失败（{successes} 次成功，{failures} 次失败）",
+        "dnd.death.nat20": "{name}的死亡豁免: D20=20 — 自然 20！{name}恢复 1 点生命值。",
+        "dnd.death.stable": "{name}伤势稳定了。",
+        "dnd.death.dead": "{name}死亡。",
+        "dnd.death.reset": "{name}的死亡豁免已重置。",
+        "dnd.slots.item": "{level}环 {left}/{max}",
+        "dnd.slots.show": "{name}的法术位: {list}",
+        "dnd.slots.none": "{name}还没有记录法术位 — 请在角色卡的“施法”中设置职业和等级或法术位",
+        "dnd.slots.use": "{name}消耗 {n} 个{level}环法术位: 剩余 {left}/{max}",
+        "dnd.slots.empty": "{name}没有剩余的{level}环法术位（{left}/{max}）。",
+        "dnd.slots.regain": "{name}恢复 {n} 个{level}环法术位: {left}/{max}",
+        "dnd.slots.reset": "{name}的法术位已恢复: {list}",
         "error.usage": "用法: {usage}"
     })JSON");
     return lang.rfind("zh", 0) == 0 ? zh : en;
@@ -418,7 +513,8 @@ std::optional<Command> parseCommand(const std::string& content) {
     if (s.size() < 2 || s[0] != '.') return std::nullopt;
     auto rest = s.substr(1);
     static const std::vector<std::pair<const char*, const char*>> cmds = {
-        {"rah", "ra"}, {"rch", "ra"}, {"ra", "ra"}, {"rc", "ra"}, {"rh", "r"}, {"r", "r"}, {"sc", "sc"}, {"st", "st"}, {"en", "en"}};
+        {"init", "init"}, {"rah", "ra"}, {"rch", "ra"}, {"ra", "ra"}, {"rc", "ra"}, {"rih", "ri"}, {"ri", "ri"}, {"rh", "r"}, {"r", "r"},
+        {"sc", "sc"}, {"st", "st"}, {"en", "en"}, {"ds", "ds"}, {"ss", "ss"}};
     for (auto& [lit, name] : cmds) {
         auto n = std::strlen(lit);
         if (rest.size() < n) continue;
@@ -431,7 +527,7 @@ std::optional<Command> parseCommand(const std::string& content) {
             if (!ok) continue;
         }
         Command cmd; cmd.name = name; cmd.args = text::trim(rest.substr(n)); cmd.raw = "." + std::string(lit);
-        cmd.hidden = std::string(lit) == "rah" || std::string(lit) == "rch" || std::string(lit) == "rh";
+        cmd.hidden = std::string(lit) == "rah" || std::string(lit) == "rch" || std::string(lit) == "rh" || std::string(lit) == "rih";
         return cmd;
     }
     return std::nullopt;
@@ -739,26 +835,34 @@ StPlan parseSt(const std::string& argsIn, const TextSet& t) {
     if (p.sets.empty() || p.sets.size() > 200) usage(t, u);
     return p;
 }
-std::string listAttrs(const std::vector<std::pair<std::string, int>>& kv, const std::string& lang) {
-    std::vector<std::string> parts; for (auto& [k, v] : kv) parts.push_back(displayName(k, lang) + " " + itos(v)); return text::join(parts, ", ");
+// Attribute names follow the channel's rules: CoC's table (with base values) or D&D's (abilities, saves, skills).
+struct Naming {
+    bool dnd; std::string lang;
+    AttrValue lookup(const Json::Value& a, const std::string& n) const { return dnd ? dnd::lookup(a, n) : dice::lookup(a, n, lang); }
+    std::string stored(const Json::Value& a, const std::string& n) const { return dnd ? dnd::storedKey(a, n) : dice::storedKey(a, n, lang); }
+    std::string canon(const std::string& n) const { if (!dnd) return canonicalName(n, lang); auto c = dnd::canonical(n); return c.empty() ? text::trim(n) : c; }
+    std::string display(const std::string& k) const { return dnd ? dnd::displayName(k, lang) : dice::displayName(k, lang); }
+};
+std::string listAttrs(const std::vector<std::pair<std::string, int>>& kv, const Naming& nm) {
+    std::vector<std::string> parts; for (auto& [k, v] : kv) parts.push_back(nm.display(k) + " " + itos(v)); return text::join(parts, ", ");
 }
 Outcome runSt(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng) {
     if (!ctx.hasCharacter) noCharacter(t, cmd);
     auto p = parseSt(cmd.args, t);
-    const auto& L = ctx.language;
+    const Naming nm{ctx.ruleSystem == "dnd2024", ctx.language};
     Outcome o; o.detail["type"] = "st"; Json::Value attrs = ctx.attrs.isObject() ? ctx.attrs : Json::Value(Json::objectValue);
     switch (p.kind) {
     case StPlan::Show: {
         std::vector<std::pair<std::string, int>> kv;
         if (p.names.empty()) for (auto& k : attrs.getMemberNames()) kv.emplace_back(k, intOf(attrs[k]));
-        else for (auto& n : p.names) { auto v = lookup(attrs, n, L); if (v.found) kv.emplace_back(v.name, v.value); }
-        o.text = kv.empty() ? t.render("st.show_empty", {{"name", ctx.name}}) : t.render("st.show", {{"name", ctx.name}, {"list", listAttrs(kv, L)}});
+        else for (auto& n : p.names) { auto v = nm.lookup(attrs, n); if (v.found) kv.emplace_back(v.name, v.value); }
+        o.text = kv.empty() ? t.render("st.show_empty", {{"name", ctx.name}}) : t.render("st.show", {{"name", ctx.name}, {"list", listAttrs(kv, nm)}});
         o.detail["op"] = "show";
         return o;
     }
     case StPlan::Delete: {
         std::vector<std::string> removed;
-        for (auto& n : p.names) { auto k = storedKey(attrs, n, L); if (!k.empty()) { attrs.removeMember(k); removed.push_back(displayName(k, L)); } }
+        for (auto& n : p.names) { auto k = nm.stored(attrs, n); if (!k.empty()) { attrs.removeMember(k); removed.push_back(nm.display(k)); } }
         o.text = t.render("st.delete", {{"name", ctx.name}, {"list", removed.empty() ? "—" : text::join(removed, ", ")}});
         o.attrs = attrs; o.attrsChanged = !removed.empty(); o.detail["op"] = "delete";
         return o;
@@ -767,28 +871,28 @@ Outcome runSt(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng
         o.text = t.render("st.clear", {{"name", ctx.name}}); o.attrs = Json::Value(Json::objectValue); o.attrsChanged = true; o.detail["op"] = "clear";
         return o;
     case StPlan::Modify: {
-        auto cur = lookup(attrs, p.attr, L);
-        auto key = cur.found && !cur.isBase ? cur.name : canonicalName(p.attr, L);
+        auto cur = nm.lookup(attrs, p.attr);
+        auto key = cur.found && !cur.isBase ? cur.name : nm.canon(p.attr);
         int old = cur.found ? cur.value : 0;
         auto r = evalOrThrow(t, p.expr, rng);
         int now = p.sign == '+' ? old + r.total : old - r.total;
         attrs[key] = now;
         std::string delta = std::string(1, p.sign) + p.expr;
         if (stripSpaces(p.expr) != itos(r.total)) delta += "=" + std::string(1, p.sign) + itos(r.total);
-        o.text = t.render("st.modify", {{"name", ctx.name}, {"attr", displayName(key, L)}, {"old", itos(old)}, {"new", itos(now)}, {"delta", delta}});
+        o.text = t.render("st.modify", {{"name", ctx.name}, {"attr", nm.display(key)}, {"old", itos(old)}, {"new", itos(now)}, {"delta", delta}});
         o.attrs = attrs; o.attrsChanged = true; o.detail["op"] = "modify"; o.detail["attr"] = key; o.detail["old"] = old; o.detail["new"] = now;
         return o;
     }
     case StPlan::Set: {
         std::vector<std::pair<std::string, int>> applied;
         for (auto& [n, v] : p.sets) {
-            auto k = storedKey(attrs, n, L); if (k.empty()) k = canonicalName(n, L);
+            auto k = nm.stored(attrs, n); if (k.empty()) k = nm.canon(n);
             attrs[k] = v;
             auto it = std::find_if(applied.begin(), applied.end(), [&](auto& x) { return x.first == k; });
             if (it != applied.end()) it->second = v; else applied.emplace_back(k, v);
         }
         if (attrs.size() > 300) usage(t, "at most 300 attributes per character");
-        o.text = t.render("st.set", {{"name", ctx.name}, {"list", listAttrs(applied, L)}});
+        o.text = t.render("st.set", {{"name", ctx.name}, {"list", listAttrs(applied, nm)}});
         o.attrs = attrs; o.attrsChanged = true; o.detail["op"] = "set"; o.detail["count"] = (int)applied.size();
         return o;
     }
@@ -798,7 +902,14 @@ Outcome runSt(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng
 }
 
 Outcome execute(const Command& cmd, const Context& ctx, const TextSet& texts, Rng& rng) {
+    const bool D = ctx.ruleSystem == "dnd2024";
     if (cmd.name == "r") return runRoll(cmd, ctx, texts, rng);
+    if (cmd.name == "st") return runSt(cmd, ctx, texts, rng);
+    // Each rule system answers only its own commands.
+    static const std::set<std::string> dndOnly = {"ri", "init", "ds", "ss"}, cocOnly = {"sc", "en"};
+    if (!D && dndOnly.count(cmd.name)) throw DiceError(texts.render("error.rules_dnd", {{"command", cmd.raw}}));
+    if (D && cocOnly.count(cmd.name)) throw DiceError(texts.render("error.rules_coc", {{"command", cmd.raw}}));
+    if (D) return dnd::execute(cmd, ctx, texts, rng);
     if (cmd.name == "ra") return runCheck(cmd, ctx, texts, rng);
     if (cmd.name == "sc") return runSanity(cmd, ctx, texts, rng);
     if (cmd.name == "en") return runGrowth(cmd, ctx, texts, rng);
@@ -807,13 +918,15 @@ Outcome execute(const Command& cmd, const Context& ctx, const TextSet& texts, Rn
 }
 
 std::string preview(const Command& cmd, const Context& ctx, const TextSet& t) {
+    if (ctx.ruleSystem == "dnd2024" && cmd.name != "r" && cmd.name != "st") return dnd::preview(cmd, ctx, t);
     try {
         const auto& L = ctx.language;
-        auto shown = [&](const std::string& key) { return displayName(key, L); };
+        const Naming nm{ctx.ruleSystem == "dnd2024", L};
+        auto shown = [&](const std::string& key) { return nm.display(key); };
         auto attrValue = [&](const std::string& raw) {
             if (!ctx.hasCharacter) noCharacter(t, cmd);
-            auto v = lookup(ctx.attrs, raw, L);
-            if (!v.found) return t.render("attr.missing", {{"name", ctx.name}, {"attr", shown(canonicalName(raw, L))}});
+            auto v = nm.lookup(ctx.attrs, raw);
+            if (!v.found) return t.render("attr.missing", {{"name", ctx.name}, {"attr", shown(nm.canon(raw))}});
             return t.render(v.isBase ? "attr.value_base" : "attr.value", {{"name", ctx.name}, {"attr", shown(v.name)}, {"value", itos(v.value)}});
         };
         if (cmd.name == "r") { auto a = parseRoll(cmd.args); return t.render("hint.roll", {{"name", ctx.name}, {"expr", a.expr}}); }
@@ -841,8 +954,8 @@ std::string preview(const Command& cmd, const Context& ctx, const TextSet& t) {
             auto p = parseSt(cmd.args, t);
             if (p.kind == StPlan::Modify) return attrValue(p.attr);
             if (p.kind == StPlan::Set) {
-                std::vector<std::pair<std::string, int>> kv; for (auto& [n, v] : p.sets) kv.emplace_back(canonicalName(n, L), v);
-                return t.render("hint.set", {{"list", listAttrs(kv, L)}});
+                std::vector<std::pair<std::string, int>> kv; for (auto& [n, v] : p.sets) kv.emplace_back(nm.canon(n), v);
+                return t.render("hint.set", {{"list", listAttrs(kv, nm)}});
             }
             return "";
         }

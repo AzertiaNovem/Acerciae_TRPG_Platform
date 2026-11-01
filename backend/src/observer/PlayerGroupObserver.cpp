@@ -60,7 +60,8 @@ Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,c
         req.system += narrative_memory::guidance();
         req.tools=ContextRetrievalService::toolSpecs(false);
         // The group's structured knowledge goes first: an index for searching, not a source to copy from.
-        LlmMessage prelude; prelude.role="user"; prelude.content="KNOWLEDGE INDEX (what this group already knows; use it to find things, cite chat lines not this index):\n"+retrieval_.knowledgePrelude(view); req.messages.push_back(prelude);
+        req.cache=LlmCache::conversation;   // tool rounds over the same context; batches follow each other closely
+        for(auto& k : retrieval_.knowledgeMessages(view,"KNOWLEDGE INDEX (what this group already knows; use it to find things, cite chat lines not this index):")) req.messages.push_back(k);
         LlmMessage input; input.role="user"; input.content=json::dump(ctx); req.messages.push_back(input);
         auto outcome=llm_.runStructured(req,[&](const std::string& name,const Json::Value& args){return retrieval_.executeTool(view,name,args);},3);
         llmCalls_+=outcome.llmCalls;

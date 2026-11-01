@@ -1,7 +1,10 @@
 # COC7 point-buy mode
 
-A server feature (`features.coc7_points`, off by default; Server settings → Features → COC7 point-buy). While it is
-on, every role card in the server is built the way the Call of Cthulhu 7e investigator sheet builds it:
+A channel option for its GM (`point_buy` on `PUT /channels/{id}`, off by default; GM workspace → Settings → Rules →
+Point buy for role cards). Until migration 0042 it was the server feature `coc7_points`; each channel started with its
+server's old value. In a Call of Cthulhu channel (`rule_system: coc7e`) with the option on, every role card in the
+channel is built the way the Call of Cthulhu 7e investigator sheet builds it (a D&D channel uses the 2024 point buy
+instead, see [DND_2024.md](DND_2024.md)):
 
 - **Characteristics** show their accumulated total beside the heading (STR+CON+SIZ+DEX+APP+INT+POW+EDU; Luck apart).
 - **Career points** come from the career's formula (教育×4, 教育×2＋力量或敏捷×2 …; "或" takes the better
@@ -25,7 +28,7 @@ on, every role card in the server is built the way the Call of Cthulhu 7e invest
 
 The server recomputes the totals on every save and refuses a card that breaks a limit (`400 points_rule` naming the
 rule). The character space shows live counters, the ★ column of skills that may take career points, and the last
-report's violations and warnings. The Keeper is held to the same rules in this mode; with the feature off, the card
+report's violations and warnings. The Keeper is held to the same rules in this mode; with the option off, the card
 takes skill totals directly as before and the stored career / point fields are kept but not enforced.
 
 ## The career list

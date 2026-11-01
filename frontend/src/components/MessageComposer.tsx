@@ -12,6 +12,7 @@ const DICE_PREFIX = /^\s*[.。．](r|ra|rc|rh|rah|rch|sc|st|en)/i;
 
 export default function MessageComposer() {
   const { channelId, windowId, channel, windows, characters, serverSettings } = useNav();
+  const dndRules = channel?.rule_system === 'dnd2024';
   const user = useAuth((s) => s.user);
   const { composerInsert, toast } = useUi();
   const { references, removeReference, clearReferences } = useChat();
@@ -66,7 +67,7 @@ export default function MessageComposer() {
         {references.map(m=><div className="chat-reference" key={m.id}><div className="row"><span className="grow">{m.character_name ?? m.author_name}</span><button className="ghost small" aria-label={tr('Remove reference')} onClick={()=>removeReference(m.id)}>×</button></div><div className="small">{m.content.slice(0,240)}</div></div>)}
       </div>}
       <div className="composer-input">
-        <textarea disabled={!canPost} ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? tr("Narrate, speak as an NPC, or adjudicate…") + (diceOn ? '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)' : '') : tr("What does your character do or say?") + (diceOn ? '  (.ra skill to roll)' : '')}
+        <textarea disabled={!canPost} ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? tr("Narrate, speak as an NPC, or adjudicate…") + (diceOn ? (dndRules ? '  (.rc stealth dc15 · .ri · .init next · .r 2d20kh1+5)' : '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)') : '') : tr("What does your character do or say?") + (diceOn ? (dndRules ? '  (.rc stealth · .ri · .ss 1)' : '  (.ra skill to roll)') : '')}
           onScroll={(e) => { if (ghost.current) ghost.current.scrollTop = e.currentTarget.scrollTop; }}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
         {isDice && hint && hint.for === text && (
