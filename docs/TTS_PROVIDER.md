@@ -63,15 +63,26 @@ Jobs use pending/running/completed/failed/cancelled states, per-line retry limit
 
 The chat header's **Read aloud** button is separate from the Log Studio speech above. It does not change the
 visual-novel voices, the server's speech provider or any setting. When it is on, lines other people post in the open
-chat window are spoken on this device with [Kokoro.js](https://www.npmjs.com/package/kokoro-js), in the order they
-were posted. The button stays on for the visit and goes off on sign-out. The chosen voice is kept on this device.
+chat window are spoken on this device, in the order they were posted. The button stays on for the visit and goes off
+on sign-out. The voice chosen for each model is kept on this device.
 
-- The model (`onnx-community/Kokoro-82M-v1.0-ONNX`, 8-bit, about 90 MB) downloads from huggingface.co on first use and
-  stays in the browser cache. The ONNX runtime's WebAssembly comes from cdn.jsdelivr.net. Both hosts must be
-  reachable from the reader's device; nothing goes through the Acerciae server.
+The **server language** that the server's maintainers set (Server settings) chooses the model:
+
+| Server language | Package | Model | Reads | Voices |
+| --- | --- | --- | --- | --- |
+| Chinese (`zh-CN`, `zh-TW`) | [`@uzen/kokoro-js`](https://github.com/uzen-zone/kokoro-js) | `onnx-community/Kokoro-82M-v1.1-zh-ONNX`, fp32, about 330 MB; WebGPU when the device has it, else WebAssembly | Mandarin and mixed Chinese/English | 24 Mandarin voices (`zf_…`, `zm_…`) |
+| Any other | [`kokoro-js`](https://www.npmjs.com/package/kokoro-js) | `onnx-community/Kokoro-82M-v1.0-ONNX`, 8-bit, about 90 MB, WebAssembly | English | 18 American and British voices |
+
+- When a maintainer changes the server language, the button switches models at once. What is queued is dropped, and
+  the other model loads the next time a line is read.
+- Each model downloads from huggingface.co on first use and stays in the browser cache. The Mandarin model's voice
+  files are not in its package; they come from the model repository's `voices/` folder. The ONNX runtime's
+  WebAssembly comes from cdn.jsdelivr.net. These hosts must be reachable from the reader's device; nothing goes
+  through the Acerciae server. Only the package of the model in use is downloaded; each is a separate chunk.
 - Synthesis runs in a Web Worker (`frontend/src/lib/speech/kokoro.worker.ts`), so the chat stays responsive.
-- Kokoro's voices speak English only. Text in other scripts is left out, and a line with nothing left is skipped.
-  Links, CQ codes and markdown are not read. Dice are read by their result. A speaker is named when the speaker
-  changes, and narration is read without a name. Your own lines and system lines are not read.
+- Text a model cannot say is left out: the English model keeps Latin script, the Mandarin model keeps Chinese
+  characters and Latin script. A line with nothing left is skipped. Links, CQ codes and markdown are not read. Dice
+  are read by their result. A speaker is named when the speaker changes, and narration is read without a name. Your
+  own lines and system lines are not read.
 - When more than 20 lines are waiting, the oldest are dropped. Turning the button off stops the current line and clears
   the queue.

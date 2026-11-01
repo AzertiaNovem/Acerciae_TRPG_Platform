@@ -1,15 +1,19 @@
 // Reading the chat aloud with Kokoro, on this device. Lines are synthesized one after another in a worker and played
-// in order; turning it off stops the voice and drops what is queued. On or off is for this visit; the voice is kept.
+// in order; turning it off stops the voice and drops what is queued. On or off is for this visit; the voice chosen for
+// each model is kept. The model follows the server language its maintainers set (see text.ts).
 import { create } from 'zustand';
 import { readStorage, writeStorage } from '../storage';
 import type { Message } from '../../types';
-import { KOKORO_VOICES, spokenLine } from './text';
+import { spokenLine, VOICES, type SpeechModel } from './text';
 
-const VOICE_KEY = 'acerciae.chat-speech-voice';
+const voiceKey = (m: SpeechModel) => `acerciae.chat-speech-voice${m === 'en' ? '' : '.' + m}`;
+const savedVoice = (m: SpeechModel) => { const v = readStorage(voiceKey(m)); return VOICES[m].some((x) => x.id === v) ? v! : VOICES[m][0].id; };
+
 type Status = 'off' | 'loading' | 'ready' | 'error';
 interface SpeechState {
-  enabled: boolean; status: Status; progress: number; voice: string; error: string; speaking: boolean;
-  toggle: () => void; setVoice: (v: string) => void;
+  enabled: boolean; status: Status; progress: number; error: string; speaking: boolean;
+  model: SpeechModel; voice: string;
+  toggle: () => void; setVoice: (v: string) => void; setModel: (m: SpeechModel) => void;
 }
 
 let worker: Worker | null = null;
@@ -20,29 +24,45 @@ const ready = new Map<number, AudioBuffer>();    // synthesized, not played yet
 let nextId = 1;
 let generation = 0;                              // bumped on stop: answers for older lines are dropped
 let lastSpeaker: string | null = null;
-let loaded = false;                              // the model is in memory in the worker
+const loaded = new Set<SpeechModel>();           // models in memory in the worker
 
 export const useChatSpeech = create<SpeechState>((set, get) => ({
   enabled: false, status: 'off', progress: 0, error: '', speaking: false,
-  voice: (() => { const v = readStorage(VOICE_KEY); return KOKORO_VOICES.some((x) => x.id === v) ? v! : KOKORO_VOICES[0].id; })(),
+  model: 'en', voice: savedVoice('en'),
   toggle: () => {
     if (get().enabled) { stop(); set({ enabled: false, status: 'off', speaking: false }); return; }
     // Created inside the click, so the browser lets it play.
     try { audio ??= new AudioContext(); void audio.resume(); } catch { set({ status: 'error', error: 'This browser cannot play audio.' }); return; }
-    set({ enabled: true, status: loaded ? 'ready' : 'loading', progress: 0, error: '' });
+    set({ enabled: true, error: '' });
     ensureWorker();
-    if (!loaded) warmUp();   // also retries a download that failed earlier
+    prepare();
   },
-  setVoice: (v) => { writeStorage(VOICE_KEY, v); set({ voice: v }); },
+  setVoice: (v) => { writeStorage(voiceKey(get().model), v); set({ voice: v }); },
+  // A server with another language reads with the other model: what is queued is dropped, the new one is loaded.
+  setModel: (m) => {
+    if (m === get().model) return;
+    stop();
+    set({ model: m, voice: savedVoice(m), error: '' });
+    if (get().enabled) prepare();
+  },
 }));
+
+// Loads the current model ahead of the first line (also retrying a download that failed earlier).
+function prepare() {
+  const { model, voice } = useChatSpeech.getState();
+  if (loaded.has(model)) { useChatSpeech.setState({ status: 'ready' }); return; }
+  useChatSpeech.setState({ status: 'loading', progress: 0 });
+  worker?.postMessage({ type: 'speak', id: 0, text: model === 'zh' ? '好。' : 'Ready.', voice, speed: 1, model });
+}
 
 function ensureWorker() {
   if (worker) return;
   worker = new Worker(new URL('./kokoro.worker.ts', import.meta.url), { type: 'module' });
   worker.onmessage = (e: MessageEvent) => {
     const d = e.data;
-    if (d.type === 'loading') useChatSpeech.setState({ status: 'loading', progress: d.progress });
-    else if (d.type === 'ready') { loaded = true; useChatSpeech.setState({ status: 'ready' }); }
+    const current = useChatSpeech.getState().model;
+    if (d.type === 'loading') { if (d.model === current) useChatSpeech.setState({ status: 'loading', progress: d.progress }); }
+    else if (d.type === 'ready') { loaded.add(d.model); if (d.model === current) useChatSpeech.setState({ status: 'ready' }); }
     else if (d.type === 'audio' && d.id > 0 && audio && queue.includes(d.id)) {
       const buffer = audio.createBuffer(1, d.audio.length, d.rate);
       buffer.copyToChannel(d.audio, 0);
@@ -50,16 +70,12 @@ function ensureWorker() {
       playNext();
     } else if (d.type === 'error') {
       queue = queue.filter((id) => id !== d.id);
-      useChatSpeech.setState({ error: d.error, ...(useChatSpeech.getState().status === 'loading' ? { status: 'error' } : {}) });
+      const s = useChatSpeech.getState();
+      useChatSpeech.setState({ error: d.error, ...(s.status === 'loading' && d.model === s.model ? { status: 'error' } : {}) });
       playNext();
     }
   };
   worker.onerror = (e) => useChatSpeech.setState({ status: 'error', error: e.message || 'The voice model could not start.' });
-}
-
-// Loads the model ahead of the first line, so that line does not wait for the download.
-function warmUp() {
-  worker?.postMessage({ type: 'speak', id: 0, text: 'Ready.', voice: useChatSpeech.getState().voice, speed: 1 });
 }
 
 function playNext() {
@@ -92,11 +108,11 @@ export function stopChatSpeech() {
 export function speakMessage(m: Message, me: string | undefined, channelId: string | null, windowId: string | null) {
   const s = useChatSpeech.getState();
   if (!s.enabled || !worker || m.author_id === me || m.channel_id !== channelId || m.chat_window_id !== windowId) return;
-  const line = spokenLine(m, lastSpeaker);
+  const line = spokenLine(m, lastSpeaker, s.model);
   if (!line) return;
   lastSpeaker = line.speaker;
   const id = nextId++;
   queue.push(id);
   if (queue.length > 20) { const dropped = queue.shift()!; ready.delete(dropped); }   // far behind: skip the oldest
-  worker.postMessage({ type: 'speak', id, text: line.text, voice: s.voice, speed: 1 });
+  worker.postMessage({ type: 'speak', id, text: line.text, voice: s.voice, speed: 1, model: s.model });
 }

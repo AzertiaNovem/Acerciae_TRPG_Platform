@@ -1,30 +1,54 @@
-// Kokoro text-to-speech in a worker, so the chat stays responsive while lines are synthesized. The model (about
-// 90 MB, 8-bit) is fetched from Hugging Face on first use and kept in the browser cache; it runs on this device.
-import { KokoroTTS } from 'kokoro-js';
+// Kokoro text-to-speech in a worker, so the chat stays responsive while lines are synthesized. Each model is fetched
+// from Hugging Face on first use, kept in the browser cache, and runs on this device:
+// - en: kokoro-js with Kokoro-82M v1.0 (8-bit, about 90 MB, WebAssembly);
+// - zh: @uzen/kokoro-js with Kokoro-82M v1.1-zh (Mandarin and mixed Chinese/English, about 330 MB; WebGPU when the
+//   device has it, else WebAssembly). Its voice files are not in the package: they come from the model repository.
+// Only the package for the model in use is downloaded.
+import type { SpeechModel } from './text';
 
-type Request = { type: 'speak'; id: number; text: string; voice: string; speed: number };
-let model: Promise<KokoroTTS> | null = null;
+type Request = { type: 'speak'; id: number; text: string; voice: string; speed: number; model: SpeechModel };
+interface Tts { generate(text: string, o: { voice: any; speed: number }): Promise<{ audio: Float32Array; sampling_rate: number }> }
 
-function load(): Promise<KokoroTTS> {
-  if (!model) {
-    model = KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
-      dtype: 'q8', device: 'wasm',
-      progress_callback: (p: any) => { if (p?.status === 'progress' && typeof p.progress === 'number') postMessage({ type: 'loading', progress: Math.round(p.progress) }); },
-    });
-    model.then(() => postMessage({ type: 'ready' }), () => { model = null; });
+const ZH_MODEL = 'onnx-community/Kokoro-82M-v1.1-zh-ONNX';
+const models = new Map<SpeechModel, Promise<Tts>>();
+
+const progress = (model: SpeechModel) => (p: any) => {
+  if (p?.status === 'progress' && typeof p.progress === 'number') postMessage({ type: 'loading', model, progress: Math.round(p.progress) });
+};
+
+async function webgpu(): Promise<boolean> {
+  try { return !!(await (navigator as any).gpu?.requestAdapter()); } catch { return false; }
+}
+
+function load(model: SpeechModel): Promise<Tts> {
+  let m = models.get(model);
+  if (!m) {
+    m = (async (): Promise<Tts> => {
+      if (model === 'zh') {
+        const { KokoroTTS } = await import('@uzen/kokoro-js');
+        return KokoroTTS.from_pretrained(ZH_MODEL, {
+          dtype: 'fp32', device: (await webgpu()) ? 'webgpu' : 'wasm',
+          voicePath: `https://huggingface.co/${ZH_MODEL}/resolve/main/voices`, progress_callback: progress(model),
+        }) as unknown as Promise<Tts>;
+      }
+      const { KokoroTTS } = await import('kokoro-js');
+      return KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', { dtype: 'q8', device: 'wasm', progress_callback: progress(model) }) as unknown as Promise<Tts>;
+    })();
+    models.set(model, m);
+    m.then(() => postMessage({ type: 'ready', model }), () => { models.delete(model); });
   }
-  return model;
+  return m;
 }
 
 self.onmessage = async (event: MessageEvent<Request>) => {
   const r = event.data;
   if (r?.type !== 'speak') return;
   try {
-    const tts = await load();
-    const out = await tts.generate(r.text, { voice: r.voice as any, speed: r.speed });
-    const audio = out.audio as Float32Array;
+    const tts = await load(r.model);
+    const out = await tts.generate(r.text, { voice: r.voice, speed: r.speed });
+    const audio = out.audio;
     (self as unknown as Worker).postMessage({ type: 'audio', id: r.id, audio, rate: out.sampling_rate }, [audio.buffer]);
   } catch (e: any) {
-    postMessage({ type: 'error', id: r.id, error: String(e?.message ?? e) });
+    postMessage({ type: 'error', id: r.id, model: r.model, error: String(e?.message ?? e) });
   }
 };

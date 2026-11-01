@@ -17482,5 +17482,41 @@
     "Задачи идут параллельно, например озвучка во время отрисовки портретов; остальные их запросы ждут свободного места. Уменьшите значение, если сервис отвечает «слишком много запросов».",
     "As tarefas rodam lado a lado, por exemplo dublar enquanto os retratos são pintados; as demais solicitações esperam um espaço livre. Diminua se um serviço responder \"muitas solicitações\".",
     "Le attività procedono in parallelo, ad esempio il doppiaggio mentre si disegnano i ritratti; le altre richieste attendono un posto libero. Abbassalo se un servizio risponde «troppe richieste»."
+  ],
+  "Speak new messages in this window with Kokoro (Mandarin model, chosen by the server language), on this device. The voice model (about 330 MB) downloads once. It reads Chinese and English; other text is skipped.": [
+    "用 Kokoro（中文模型，由服务器语言决定）在本设备上朗读此窗口中的新消息。语音模型（约 330 MB）只需下载一次。可朗读中文和英文，其他文字会被跳过。",
+    "用 Kokoro（中文模型，由伺服器語言決定）在本裝置上朗讀此視窗中的新訊息。語音模型（約 330 MB）只需下載一次。可朗讀中文和英文，其他文字會被略過。",
+    "このウィンドウの新しいメッセージを、この端末上の Kokoro（サーバー言語で選ばれる中国語モデル）で読み上げます。音声モデル（約 330 MB）のダウンロードは一度だけです。中国語と英語を読み、それ以外は読み飛ばします。",
+    "이 창의 새 메시지를 이 기기에서 Kokoro(서버 언어로 정해지는 중국어 모델)로 읽어 줍니다. 음성 모델(약 330MB)은 한 번만 내려받습니다. 중국어와 영어를 읽고, 다른 글은 건너뜁니다.",
+    "Lee los mensajes nuevos de esta ventana con Kokoro (modelo de mandarín, elegido por el idioma del servidor), en este dispositivo. El modelo de voz (unos 330 MB) se descarga una vez. Lee chino e inglés; el resto se omite.",
+    "Lit les nouveaux messages de cette fenêtre avec Kokoro (modèle mandarin, choisi par la langue du serveur), sur cet appareil. Le modèle vocal (environ 330 Mo) se télécharge une fois. Il lit le chinois et l’anglais ; le reste est ignoré.",
+    "Liest neue Nachrichten in diesem Fenster mit Kokoro (Mandarin-Modell, gewählt durch die Serversprache) auf diesem Gerät vor. Das Sprachmodell (etwa 330 MB) wird einmal geladen. Es liest Chinesisch und Englisch; anderes wird übersprungen.",
+    "Читает новые сообщения этого окна с помощью Kokoro (модель для китайского, выбранная по языку сервера) на этом устройстве. Голосовая модель (около 330 МБ) загружается один раз. Читает китайский и английский; остальное пропускается.",
+    "Lê as novas mensagens desta janela com o Kokoro (modelo de mandarim, escolhido pelo idioma do servidor), neste dispositivo. O modelo de voz (cerca de 330 MB) é baixado uma vez. Lê chinês e inglês; o resto é ignorado.",
+    "Legge i nuovi messaggi di questa finestra con Kokoro (modello mandarino, scelto dalla lingua del server), su questo dispositivo. Il modello vocale (circa 330 MB) si scarica una volta. Legge cinese e inglese; il resto viene saltato."
+  ],
+  "Female voice {n}": [
+    "女声 {n}",
+    "女聲 {n}",
+    "女性の声 {n}",
+    "여성 목소리 {n}",
+    "Voz femenina {n}",
+    "Voix féminine {n}",
+    "Weibliche Stimme {n}",
+    "Женский голос {n}",
+    "Voz feminina {n}",
+    "Voce femminile {n}"
+  ],
+  "Male voice {n}": [
+    "男声 {n}",
+    "男聲 {n}",
+    "男性の声 {n}",
+    "남성 목소리 {n}",
+    "Voz masculina {n}",
+    "Voix masculine {n}",
+    "Männliche Stimme {n}",
+    "Мужской голос {n}",
+    "Voz masculina {n}",
+    "Voce maschile {n}"
   ]
 }
