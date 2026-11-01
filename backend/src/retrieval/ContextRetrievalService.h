@@ -30,7 +30,14 @@ public:
     // The hidden knowledge index of the caller's memory partition: relationships, clues, open threads and the
     // story index (scenario outlines). Prepended to player-facing model requests; never shown to users.
     Json::Value knowledgePreludeJson(const ChannelAccess& a);
-    std::string knowledgePrelude(const ChannelAccess& a);
+    // The prelude in two parts, ordered for prompt caching: `stable` changes rarely (the script's text, then the story
+    // index), `live` changes with play (the script's statuses, then relationships, clues and open threads).
+    struct KnowledgePrelude { std::string stable, live; };
+    KnowledgePrelude knowledgePreludeParts(const ChannelAccess& a);
+    std::string knowledgePrelude(const ChannelAccess& a);   // both parts as one text
+    // The prelude as user messages under `heading`: the stable part first, marked as a prompt-cache breakpoint, then the
+    // live part. One message when a part is empty.
+    std::vector<LlmMessage> knowledgeMessages(const ChannelAccess& a, const std::string& heading);
     // The story's stages in order (Keeper: with summaries; players: neutral labels over readable chat).
     Json::Value listScenarios(const ChannelAccess& a);
     // Verbatim chat lines, the authoritative record: by scenario, window, time range, or around one event.

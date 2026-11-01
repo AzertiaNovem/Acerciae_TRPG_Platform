@@ -90,12 +90,21 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     const anth = requests.filter(r => r.url.endsWith('/messages'));
     assert.equal(anth.length, 2); assert.equal(anth[0].headers['x-api-key'], 'anthropic-secret-A');
     assert.equal(anth[0].headers['anthropic-version'], '2023-06-01'); assert.equal(anth[0].headers.authorization, undefined);
-    assert.equal(anth[0].json.model, 'fixture-claude'); assert.ok(anth[0].json.system.includes('JSON'));
+    assert.equal(anth[0].json.model, 'fixture-claude');
+    // Inspiration caches its prefix: the system prompt is one marked block. The knowledge index is marked only where it
+    // has a stable part (script text, story index); this group has recorded nothing yet, so it is sent unmarked.
+    assert.ok(Array.isArray(anth[0].json.system)); assert.equal(anth[0].json.system.length, 1);
+    assert.ok(anth[0].json.system[0].text.includes('JSON')); assert.deepEqual(anth[0].json.system[0].cache_control, { type: 'ephemeral' });
+    assert.ok(anth[0].json.messages[0].content[0].text.startsWith('KNOWLEDGE INDEX')); assert.equal(anth[0].json.messages[0].content[0].cache_control, undefined);
     assert.equal(anth[0].json.reasoning_effort, undefined); assert.equal(anth[0].json.response_format, undefined);
     assert.ok(anth[0].json.tools.every(t => t.input_schema && !t.function));
     const answer = anth[1].json.messages.at(-1);
     assert.equal(answer.role, 'user'); assert.deepEqual(answer.content.map(b => b.tool_use_id), ['call_scope_1', 'call_scope_2']);
     assert.ok(answer.content.every(b => b.type === 'tool_result'));
+    // The tool round marks its newest block, so a further round would read this one from the cache.
+    assert.deepEqual(answer.content.at(-1).cache_control, { type: 'ephemeral' }); assert.equal(answer.content[0].cache_control, undefined);
+    const markers = (j) => j.system.filter((b) => b.cache_control).length + j.messages.flatMap((m) => m.content).filter((b) => b.cache_control).length;
+    assert.ok(markers(anth[1].json) <= 4);
     assert.equal(anth[1].json.messages.at(-2).content.filter(b => b.type === 'tool_use').length, 2);
 
     const style = await call(gm.token, 'POST', root + '/styles', { style_name: 'Cold harbour', art_direction: 'blue-grey', period_setting: '1926' });

@@ -1,6 +1,7 @@
 #include "CharacterSpaceService.h"
 #include <map>
 #include "Coc7Rules.h"
+#include "Dnd2024Rules.h"
 #include "../servers/ServerSettingsService.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
@@ -38,7 +39,7 @@ Json::Value CharacterSpaceService::normalizeRoleCard(const Json::Value& in) {
     Json::Value skills(Json::objectValue); int n = 0;
     if (src["skills"].isObject()) for (auto& k : src["skills"].getMemberNames()) { if (n++ >= 200) break; auto name = clip(text::trim(k), 60); if (name.empty()) continue; skills[name] = num(src["skills"][k], 0, 999); }
     card["skills"] = skills;
-    // Point-buy mode (server feature coc7_points): the chosen career with its option picks and specialties, and
+    // Point-buy mode (the channel's point_buy, CoC): the chosen career with its option picks and specialties, and
     // per-skill career/hobby/growth points. Totals are recomputed from these on save.
     if (src["career"].isObject()) {
         Json::Value cr; cr["name"] = str(src["career"], "name", 80);
@@ -66,6 +67,8 @@ Json::Value CharacterSpaceService::normalizeRoleCard(const Json::Value& in) {
     for (const auto& it : src["items"]) { if (items.size() >= 60) break; Json::Value x; x["name"] = it.isString() ? clip(text::trim(it.asString()), 80) : str(it, "name", 80); if (x["name"].asString().empty()) continue; x["note"] = it.isObject() ? str(it, "note", 300) : ""; x["qty"] = it.isObject() && it["qty"].isNumeric() ? num(it["qty"], 0, 9999) : 1; items.append(x); }
     card["items"] = items;
     Json::Value w(Json::objectValue); for (auto k : {"cash","assets","spending_level"}) w[k] = str(src["wealth"], k, 120); card["wealth"] = w;
+    // D&D channels: the character's build (class, species, background, scores, proficiencies …), see Dnd2024Rules.
+    if (src["dnd"].isObject()) card["dnd"] = dnd2024::normalize(src["dnd"]);
     return card;
 }
 
@@ -109,10 +112,23 @@ Json::Value CharacterSpaceService::characterFor(const ChannelAccess& a, const st
     return c;
 }
 
-bool CharacterSpaceService::pointsMode(const ChannelAccess& a) { return settings_.featureEnabled(a.serverId, "coc7_points"); }
+// Point buy is the GM's choice for the channel (channels.point_buy); its rules follow the channel's rule system.
+bool CharacterSpaceService::pointsMode(const ChannelAccess& a) {
+    auto r = db_.queryOne("SELECT point_buy FROM channels WHERE id=$1", {a.channelId});
+    return !r.isNull() && r["point_buy"].asBool();
+}
+std::string CharacterSpaceService::ruleSystem(const ChannelAccess& a) {
+    auto r = db_.queryOne("SELECT rule_system FROM channels WHERE id=$1", {a.channelId});
+    return r.isNull() ? "coc7e" : r["rule_system"].asString();
+}
 Json::Value CharacterSpaceService::pointsReport(const ChannelAccess& a, const Json::Value& card) {
-    Json::Value rep; rep["enabled"] = pointsMode(a);
+    Json::Value rep; rep["enabled"] = pointsMode(a); rep["rule_system"] = ruleSystem(a);
     if (!rep["enabled"].asBool()) return rep;
+    if (rep["rule_system"] == "dnd2024") {
+        auto r = dnd2024::check(card["dnd"].isObject() ? card["dnd"] : dnd2024::normalize(Json::Value()));
+        for (auto& k : r.getMemberNames()) rep[k] = r[k];
+        return rep;
+    }
     rep["language"] = settings_.language(a.serverId);   // skill names are shown in the server language
     Json::Value copy = card; auto r = coc7::apply(copy);
     for (auto& k : r.getMemberNames()) rep[k] = r[k];
@@ -132,6 +148,7 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
     auto ch = db_.queryOne("SELECT c.era, s.narrative_time FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
     out["era"] = ch["era"]; out["narrative_time"] = ch["narrative_time"];
     out["attrs"] = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
+    out["rule_system"] = ruleSystem(a);
     out["generation_available"] = creative_.available(a.channelId);
     out["points"] = pointsReport(a, out["character"]["role_card"]);
     return out;
@@ -140,7 +157,23 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
 Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
     auto c = characterFor(a, characterId, true);
     auto card = body.isMember("role_card") ? normalizeRoleCard(body["role_card"]) : normalizeRoleCard(c["role_card"]);
-    if (pointsMode(a) && !a.isGm) {
+    const bool dnd = ruleSystem(a) == "dnd2024";
+    if (dnd) {
+        if (!card["dnd"].isObject()) card["dnd"] = dnd2024::normalize(Json::Value());
+        // Ability improvements after level 1 (feats, Ability Score Improvements) are the GM's to grant under point buy.
+        if (pointsMode(a) && !a.isGm) {
+            auto before = normalizeRoleCard(c["role_card"]);
+            card["dnd"]["improvements"] = before["dnd"].isObject() ? before["dnd"]["improvements"] : Json::Value(Json::objectValue);
+        }
+        if (pointsMode(a)) {
+            auto rep = dnd2024::check(card["dnd"]);
+            if (!rep["violations"].empty()) {
+                std::string msg; for (const auto& v : rep["violations"]) msg += (msg.empty() ? "" : "; ") + v["message"].asString();
+                throw ApiError(400, "points_rule", msg);
+            }
+        }
+    }
+    if (!dnd && pointsMode(a) && !a.isGm) {
         // Growth points record improvement the Keeper granted (or .en rolled): a player cannot set them.
         auto before = normalizeRoleCard(c["role_card"]);
         for (auto& k : card["skill_points"].getMemberNames()) {
@@ -148,7 +181,7 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
             card["skill_points"][k]["growth"] = old.isMember(k) ? old[k]["growth"] : Json::Value(0);
         }
     }
-    if (pointsMode(a)) {
+    if (!dnd && pointsMode(a)) {
         auto rep = coc7::apply(card);
         if (!rep["violations"].empty()) {
             std::string msg; for (const auto& v : rep["violations"]) msg += (msg.empty() ? "" : "; ") + v["message"].asString();
@@ -156,7 +189,7 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
         }
     }
     Json::Value sheet = c["sheet"].isObject() ? c["sheet"] : Json::Value(Json::objectValue);
-    sheet["attrs"] = mirrorAttrs(sheet["attrs"], card);
+    sheet["attrs"] = dnd ? dnd2024::mirrorAttrs(sheet["attrs"], card["dnd"]) : mirrorAttrs(sheet["attrs"], card);
     auto name = clip(text::trim(json::str(body, "name", c["name"].asString())), 80); if (name.empty()) throw badRequest("name required");
     auto row = db_.queryOne("UPDATE characters SET name=$2, speaking_style=$3, bio=$4, role_card=$5::jsonb, sheet=$6::jsonb, updated_at=now() WHERE id=$1 RETURNING *",
         {characterId, name, clip(json::str(body, "speaking_style", c["speaking_style"].asString()), 400), clip(json::str(body, "bio", c["bio"].asString()), 6000), json::dump(card), json::dump(sheet)});

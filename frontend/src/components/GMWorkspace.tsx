@@ -86,7 +86,7 @@ function ChannelSettings() {
   const toast = useUi((s) => s.toast);
   const [groups, setGroups] = useState<DiceTextGroup[]>([]);
   const [members, setMembers] = useState<ChannelMember[]>([]);
-  const blank = { name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, consistency_enabled: true, inspiration_enabled: true, atmosphere_enabled: true, dice_text_group: '', era: '', studio_visible: true, studio_player_access: true };
+  const blank = { name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, consistency_enabled: true, inspiration_enabled: true, atmosphere_enabled: true, dice_text_group: '', era: '', studio_visible: true, studio_player_access: true, rule_system: 'coc7e', point_buy: false };
   const [form, setFormState] = useState(blank);
   const [dirty, setDirty] = useState(false);
   const setForm = (f: typeof blank) => { setFormState(f); setDirty(true); };
@@ -96,7 +96,7 @@ function ChannelSettings() {
   useEffect(() => {
     if (!channel || (dirty && loadedFor.current === channel.id)) return;
     loadedFor.current = channel.id; setDirty(false);
-    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, consistency_enabled: channel.consistency_enabled !== false, inspiration_enabled: channel.inspiration_enabled !== false, atmosphere_enabled: channel.atmosphere_enabled !== false, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false });
+    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, consistency_enabled: channel.consistency_enabled !== false, inspiration_enabled: channel.inspiration_enabled !== false, atmosphere_enabled: channel.atmosphere_enabled !== false, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false, rule_system: channel.rule_system === 'dnd2024' ? 'dnd2024' : 'coc7e', point_buy: !!channel.point_buy });
   }, [channel, dirty]);
   useEffect(() => {
     if (serverId) api.diceTextGroups(serverId).then(setGroups).catch(() => undefined);
@@ -126,6 +126,16 @@ function ChannelSettings() {
         <label className="field"><span>{tr("Knowledge mode")}</span>
           <select value={form.knowledge_mode} onChange={(e) => setForm({ ...form, knowledge_mode: e.target.value })}><option value="isolated">{tr("New players: separate groups")}</option><option value="public">{tr("New players: shared group")}</option></select>
         </label>
+        <div className="section-label">{tr("Rules")}</div>
+        <label className="field"><span>{tr("Rule system")}</span>
+          <select value={form.rule_system} onChange={(e) => setForm({ ...form, rule_system: e.target.value })}>
+            <option value="coc7e">{tr("Call of Cthulhu 7th edition (BRP)")}</option>
+            <option value="dnd2024">{tr("D&D 2024 (SRD 5.2)")}</option>
+          </select>
+        </label>
+        <div className="tiny muted">{tr("Decides the dice commands, the character sheet and how the AI names the game and the GM. Character sheets keep their values when you switch.")}</div>
+        <label className="row small"><input type="checkbox" checked={form.point_buy} onChange={(e) => setForm({ ...form, point_buy: e.target.checked })} />{tr("Point buy for role cards")}</label>
+        <div className="tiny muted">{form.rule_system === 'dnd2024' ? tr("Ability scores by point buy (27 points) or the standard array, background increases, and skills from the class, background and species.") : tr("Role cards spend occupation points (from a career in the built-in list) and personal interest points (INT×2).")}</div>
         <div className="section-label">{tr("AI in this channel")}</div>
         <label className="row small"><input type="checkbox" checked={form.ai_enabled} onChange={(e) => setForm({ ...form, ai_enabled: e.target.checked })} />{tr("Background chronicler (the observer behind the reminder and document bubbles)")}</label>
         <label className="row small"><input type="checkbox" checked={form.consistency_enabled} disabled={serverSettings?.features?.consistency === false} onChange={(e) => setForm({ ...form, consistency_enabled: e.target.checked })} />{tr("Consistency check")}</label>

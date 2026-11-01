@@ -41,7 +41,7 @@ struct CharacterView: View {
                 ForEach(attributes["attrs"].object.keys.sorted(), id: \.self) { key in
                     LabeledContent(key, value: String(attributes["attrs"][key].int))
                 }
-                if attributes["editable"].bool && !model.enabled("coc7_points") {
+                if attributes["editable"].bool && !space["points"]["enabled"].bool {
                     TextField(tr("属性或技能名"), text: $attribute)
                     TextField(tr("数值"), text: $value).keyboardType(.numbersAndPunctuation)
                     Button(tr("保存属性")) { Task { await model.run {

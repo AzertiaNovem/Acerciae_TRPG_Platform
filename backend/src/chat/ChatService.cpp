@@ -10,6 +10,7 @@
 #include "../dice/DiceService.h"
 #include "../core/Text.h"
 #include "../core/Crypto.h"
+#include "../rules/RuleSystem.h"
 
 namespace acerciae {
 
@@ -223,9 +224,11 @@ Json::Value ChatService::createChannel(const Principal& p, const std::string& se
     auto name = json::requireStr(body, "name");
     auto mode = json::str(body, "knowledge_mode", "isolated");
     if (mode != "public" && mode != "isolated") throw badRequest("knowledge_mode must be public or isolated");
+    auto ruleSystem = rules::canonical(json::str(body, "rule_system", "coc7e"));
+    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e or dnd2024");
     auto ch = db_.tx([&](pqxx::work& w) {
-        auto c = Db::queryOne(w, "INSERT INTO channels(server_id, name, description, rule_system, knowledge_mode) VALUES($1,$2,$3,$4,$5) RETURNING *",
-            {serverId, name, json::str(body, "description"), json::str(body, "rule_system", "coc7e"), mode});
+        auto c = Db::queryOne(w, "INSERT INTO channels(server_id, name, description, rule_system, knowledge_mode, point_buy) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+            {serverId, name, json::str(body, "description"), ruleSystem, mode, json::toBool(body, "point_buy")});
         auto id = c["id"].asString();
         Db::exec(w, "INSERT INTO channel_members(channel_id, user_id, role) VALUES($1,$2,'gm')", {id, p.userId});
         auto win = Db::queryOne(w, "INSERT INTO chat_windows(channel_id, name, kind, created_by) VALUES($1,'Main Chat','main',$2) RETURNING id", {id, p.userId});
@@ -262,6 +265,11 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
             throw badRequest("unknown dice text group");
     }
     auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
+    // The rule system decides the dice commands, the character sheet and how the AI names the game and the GM; point
+    // buy makes role cards follow the system's character-creation budget. Both are the GM's to change at any time.
+    auto ruleSystem = rules::canonical(json::str(body, "rule_system", cur["rule_system"].asString()));
+    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e or dnd2024");
+    db_.exec("UPDATE channels SET rule_system=$2, point_buy=$3 WHERE id=$1", {a.channelId, ruleSystem, flag("point_buy")});
     db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
              "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
         {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
@@ -578,7 +586,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         std::string eventText = content;
         Json::Value diceJson;
         if (diceCmd) {
-            diceResult = dice_.execute(w, a, characterId, *diceCmd);
+            diceResult = dice_.execute(w, a, windowId, characterId, *diceCmd);
             diceJson = diceResult.dice; eventText = diceResult.text;
             if (diceResult.hidden) {
                 // Hidden rolls: the result reaches the roller's character and the GM; the window only sees a notice.

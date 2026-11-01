@@ -18,8 +18,9 @@ public:
     CharacterSpaceService(Db& db, logstudio::MediaService& media, logstudio::CreativeService& creative, ServerSettingsService& settings, Notifier& n) : db_(db), media_(media), creative_(creative), settings_(settings), notifier_(n) {}
 
     Json::Value space(const ChannelAccess& a, const std::string& characterId);
-    // Point-buy mode is a server feature; the report carries budgets, spending and rule violations for a card.
+    // Point-buy mode is the channel's GM option; the report carries budgets, spending and rule violations for a card.
     bool pointsMode(const ChannelAccess& a);
+    std::string ruleSystem(const ChannelAccess& a);   // the channel's rule system: which card and rules apply
     Json::Value pointsReport(const ChannelAccess& a, const Json::Value& card);
     Json::Value updateCard(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);        // name, speaking_style, bio, role_card
     Json::Value updateAppearance(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);  // asset_mode, appearance_prompt

@@ -44,12 +44,13 @@ async function resolveChannel(api, cfg, { create }) {
   if (cfg.channelId) {
     const ch = await api.channel(cfg.channelId);
     if (ch.my_role !== "gm") throw new Error(`${cfg.username} is not the GM of channel ${cfg.channelId}; add it as GM first`);
+    if (ch.rule_system && ch.rule_system !== "coc7e") throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent builds Call of Cthulhu 7e investigators only`);
     return { channel: ch, created: false };
   }
   if (!create) throw new Error("set CHANNEL_ID (or --channel); run `setup` first to create one");
   let serverId = cfg.serverId;
   if (!serverId) { serverId = (await api.createServer(cfg.serverName)).id; log(`created server "${cfg.serverName}"`); }
-  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: "public", rule_system: "coc7" });
+  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: "public", rule_system: "coc7e" });
   if (cfg.era) await api.updateChannel(ch.id, { era: cfg.era });
   log(`created channel "${cfg.channelName}"`);
   return { channel: await api.channel(ch.id), created: true };
@@ -67,7 +68,8 @@ async function setup(cfg) {
   const llm = withProgress(createLlm(cfg.llm), log);
   const settings = await api.serverSettings(channel.server_id);
   const language = languageName(cfg.language || settings?.language || "en");
-  const pointsMode = Boolean(settings?.features?.coc7_points);
+  // Point buy is the channel's own option (its GM's); servers before that had a server feature.
+  const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
   const rules = await api.coc7Rules();
   const windows = await api.windows(channel.id);
   const seats = seatWindows(cfg, windows);

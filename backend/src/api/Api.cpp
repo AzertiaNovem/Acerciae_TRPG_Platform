@@ -12,6 +12,7 @@
 #include "../script/ScriptKnowledgeService.h"
 #include "../characters/CharacterSpaceService.h"
 #include "../characters/Coc7Rules.h"
+#include "../characters/Dnd2024Rules.h"
 #include "../knowledge/KnowledgeService.h"
 #include "../documents/DocumentService.h"
 #include "../highlights/HighlightService.h"
@@ -323,6 +324,7 @@ void registerRoutes() {
     route2("/api/channels/{1}/characters/{2}/space", {Get}, [&](auto&, auto& p, auto& a) { return S.characterSpace->space(access(p, a[0]), a[1]); });
     // COC7 point-buy reference: skills with bases, specialisation families, the 230 careers of the community sheet.
     route0("/api/coc7/rules", {Get}, [&](auto&, auto&, auto&) { return coc7::rules(); });
+    route0("/api/dnd/rules", {Get}, [&](auto&, auto&, auto&) { return dnd2024::rules(); });
     route2("/api/channels/{1}/characters/{2}/card", {Put}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->updateCard(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/characters/{2}/appearance", {Put}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->updateAppearance(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/characters/{2}/assets", {Post}, [&](auto& req, auto& p, auto& a) {
@@ -344,6 +346,8 @@ void registerRoutes() {
     route2("/api/channels/{1}/windows/{2}/members", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->addWindowMember(access(p, a[0]), a[1], json::requireStr(b, "user_id"), json::str(b, "character_id")); });
     route3("/api/channels/{1}/windows/{2}/members/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeWindowMember(access(p, a[0]), a[1], a[2]); });
     route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint(req, "before_seq", 0)); });
+    route2("/api/channels/{1}/windows/{2}/initiative", {Get}, [&](auto&, auto& p, auto& a) { return S.dice->initiative(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/windows/{2}/initiative", {Post}, [&](auto& req, auto& p, auto& a) { return S.dice->initiativeAction(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/windows/{2}/read", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->markRead(access(p, a[0]), a[1], b["seq"].isNumeric() ? b["seq"].asInt64() : 0); });
     route2("/api/channels/{1}/windows/{2}/messages", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->postMessage(access(p, a[0]), a[1], body(req)); });
     // Deprecated alias of /scenarios/enter: scenarios are campaign-wide, the window is ignored.

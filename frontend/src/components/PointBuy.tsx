@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import type { Coc7Career, Coc7Rules, PointsReport, RoleCard, SkillPoints } from '../types';
 import { careerDescription, careerKey, careerLabel, formulaLabel, skillKey, skillLabel } from './skillNames';
 
-// Point-buy mode of the role card (server feature coc7_points). The player picks a career from the built-in list,
+// Point-buy mode of the role card (the channel's point_buy, set by its GM). The player picks a career from the built-in list,
 // resolves its option groups and free specialties, then spends career points on those skills and hobby points on
 // any skill. Totals here are previews; the server recomputes them on save and refuses a card that breaks a limit.
 // Skill names show in the server language; what the player types in either language is stored under the English key.

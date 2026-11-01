@@ -15,6 +15,7 @@ public:
     void messagePosted(const Json::Value& message);                      // audience from message visibility
     void knowledgeChanged(const std::string& channelId);
     void windowChanged(const std::string& channelId, const Json::Value& window);
+    void initiativeChanged(const std::string& channelId, const std::string& windowId);   // invalidation only: members refetch
     void sceneChanged(const std::string& channelId, const Json::Value& scene);
     void characterUpdated(const std::string& channelId, const Json::Value& character);  // NPC changes reach GMs only
     void channelUpdated(const std::string& channelId);

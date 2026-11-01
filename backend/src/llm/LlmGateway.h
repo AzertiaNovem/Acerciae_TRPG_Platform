@@ -48,7 +48,7 @@ public:
     Limits limitsForTask(const std::string& task) const;
     bool retryFailedVnChunks() const { return cfg_.vnScriptRetryFailedChunks; }
 private:
-    struct Resolved { std::shared_ptr<ILlmClient> client; std::string language; std::string provider; std::string embeddingModel; bool fixed = false; };
+    struct Resolved { std::shared_ptr<ILlmClient> client; std::string language; std::string ruleSystem; std::string provider; std::string embeddingModel; bool fixed = false; };
     Resolved clientFor(const std::string& channelId, const std::string& task = "") const;
     static Json::Value extractJson(const std::string& content);
     const Config& cfg_;

@@ -3,8 +3,18 @@
 #include "HttpTransport.h"
 #include "StreamResponse.h"
 #include "../core/Log.h"
+#include <vector>
 
 namespace acerciae {
+namespace {
+// Blocks that may carry a cache breakpoint (thinking blocks may not).
+bool cacheable(const Json::Value& block) {
+    auto t = block["type"].asString();
+    return t == "text" || t == "tool_result" || t == "tool_use" || t == "image" || t == "document";
+}
+constexpr int kMaxBreakpoints = 4;   // the Messages API accepts at most four per request
+}
+
 Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoint& ep) {
     Json::Value b;
     b["model"] = ep.model;
@@ -13,10 +23,12 @@ Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoin
     std::string system = req.system;
     if (!req.responseSchema.isNull())
         system += "\nReturn only a JSON value matching this schema after any tool calls:\n" + json::dump(req.responseSchema);
-    b["system"] = system;
     b["messages"] = Json::Value(Json::arrayValue);
+    auto& messages = b["messages"];
+    // Breakpoints asked for by the caller: (message index, block index) of the last block of each marked message.
+    std::vector<std::pair<Json::ArrayIndex, Json::ArrayIndex>> marks;
     for (const auto& m : req.messages) {
-        if (m.role == "system") { b["system"] = b["system"].asString() + "\n" + m.content; continue; }
+        if (m.role == "system") { system += "\n" + m.content; continue; }
         Json::Value blocks(Json::arrayValue);
         const std::string role = m.role == "assistant" ? "assistant" : "user";
         if (m.role == "tool") {
@@ -34,12 +46,31 @@ Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoin
             }
         }
         if (blocks.empty()) continue;
-        auto& messages = b["messages"];
         // Consecutive tool responses must be one user turn immediately following tool_use.
         if (!messages.empty() && messages[messages.size()-1]["role"] == role) {
             for (const auto& block : blocks) messages[messages.size()-1]["content"].append(block);
         } else {
             Json::Value msg; msg["role"] = role; msg["content"] = blocks; messages.append(msg);
+        }
+        if (m.cacheBreakpoint) marks.push_back({messages.size() - 1, messages[messages.size()-1]["content"].size() - 1});
+    }
+    if (req.cache == LlmCache::off) {
+        b["system"] = system;
+    } else {
+        // The system prompt as one marked block: the tools before it and the system prompt are cached together.
+        Json::Value block; block["type"] = "text"; block["text"] = system; block["cache_control"]["type"] = "ephemeral";
+        b["system"] = Json::Value(Json::arrayValue); b["system"].append(block);
+        int left = kMaxBreakpoints - 1;
+        if (req.cache == LlmCache::conversation && !messages.empty()) {
+            auto& last = messages[messages.size()-1]["content"];
+            if (!last.empty()) marks.push_back({messages.size() - 1, last.size() - 1});
+        }
+        // When more points are asked for than the API takes, the latest ones are kept: they cover the longest prefix.
+        for (auto it = marks.rbegin(); it != marks.rend() && left > 0; ++it) {
+            auto& blk = messages[it->first]["content"][it->second];
+            if (!cacheable(blk) || blk.isMember("cache_control")) continue;
+            blk["cache_control"]["type"] = "ephemeral";
+            --left;
         }
     }
     if (!req.tools.empty()) {
@@ -55,8 +86,12 @@ Json::Value AnthropicClient::requestBody(const LlmRequest& req, const LlmEndpoin
 LlmResponse AnthropicClient::parseResponse(const Json::Value& b) {
     LlmResponse r;
     if (b["type"] == "error" || !b["content"].isArray()) { r.error = "invalid Anthropic Messages response"; return r; }
-    r.promptTokens = b["usage"].get("input_tokens", 0).asInt();
-    r.completionTokens = b["usage"].get("output_tokens", 0).asInt();
+    // input_tokens is only the uncached remainder: the whole prompt adds what was read from and written to the cache.
+    const auto& usage = b["usage"];
+    r.cacheReadTokens = usage.get("cache_read_input_tokens", 0).asInt();
+    r.cacheWriteTokens = usage.get("cache_creation_input_tokens", 0).asInt();
+    r.promptTokens = usage.get("input_tokens", 0).asInt() + r.cacheReadTokens + r.cacheWriteTokens;
+    r.completionTokens = usage.get("output_tokens", 0).asInt();
     if (b["stop_reason"] == "max_tokens") { r.error = "the model stopped at its output token limit before finishing"; return r; }
     // A refusal is final: neither its partial text nor any tool_use in the same turn is acted on.
     if (b["stop_reason"] == "refusal") { r.error = "the model declined this request"; return r; }
@@ -69,8 +104,6 @@ LlmResponse AnthropicClient::parseResponse(const Json::Value& b) {
             r.toolCalls.append(tool);
         }
     }
-    r.promptTokens = b["usage"].get("input_tokens", 0).asInt();
-    r.completionTokens = b["usage"].get("output_tokens", 0).asInt();
     r.ok = !r.content.empty() || !r.toolCalls.empty();
     if (!r.ok) r.error = "Anthropic response has no text or tool calls";
     return r;
