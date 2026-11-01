@@ -82,10 +82,14 @@ licence when you distribute installers that contain it.
 
 `.github/workflows/desktop.yml` builds macOS (Apple silicon and Intel), Windows and Linux installers on every push
 to `main` that touches `desktop/` or `frontend/`, and uploads them as workflow artifacts. Pushing a tag
-`desktop-v0.1.0` also attaches them to a draft GitHub release. Without signing secrets the installers are unsigned (the workflow only passes the `APPLE_*` variables on when the secrets exist):
-macOS asks to confirm the first launch (right-click → Open) and Windows SmartScreen shows a warning. To sign, add
-the `APPLE_*` secrets listed in the workflow (Developer ID certificate and notarization) and a Windows code-signing
-certificate.
+`desktop-v0.1.0` also attaches them to a draft GitHub release. Without signing secrets the macOS app is ad-hoc signed
+(`bundle.macOS.signingIdentity: "-"`). A downloaded app with no signature at all, or with only the linker's signature
+on the executable, is reported as "damaged and can't be opened" on Apple silicon; an ad-hoc signed one only asks to
+confirm the first launch: open it once, then System Settings → Privacy & Security → "Open Anyway". Builds from before
+this change can be opened after `xattr -dr com.apple.quarantine /Applications/Acerciae.app`. Windows SmartScreen shows
+a warning for unsigned installers. To sign properly, add the `APPLE_*` secrets listed in the workflow (Developer ID
+certificate, `APPLE_SIGNING_IDENTITY`, and notarization; the identity secret replaces the ad-hoc `-`) and a Windows
+code-signing certificate.
 
 ## Server requirements
 
