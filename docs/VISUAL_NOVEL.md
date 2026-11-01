@@ -72,6 +72,33 @@ The **Make a visual novel** card on the Visual novel tab has four steps.
 
 ![The standalone page from the zip](screenshots/vn-standalone.png)
 
+### Continuing a visual novel as the story goes on
+
+A finished visual novel can be continued with the lines posted after its last one. In the job list, **Continue the
+story** on the newest job of a presentation (its author or the Keeper) sends `POST /vn-scripts
+{continue_presentation_id, instructions?, allow_cloud?, generate_art?}`:
+
+1. The campaign log is frozen again in the presentation's own scope (the same point of view). The new lines are those
+   after the last line the presentation holds; when there are none the request is refused (400). Only one
+   continuation of a presentation runs at a time (409).
+2. The worker plans only the new lines, as usual, with three additions:
+   - The system prompt adds the continuation rules: carry on from where the story ended, reuse the existing
+     backgrounds and portrait subtitles by their exact names, and ask only for places and poses that are new.
+   - The first part starts with `# Story so far`: the scene the story ended on, its background name and its last
+     eight shown lines (only lines the requester may read). They are context and are never scripted again.
+   - The asset list includes the presentation's own backgrounds under their scene names, even Keeper-only generated
+     ones the presentation already shows. Scenes still waiting for a picture are listed by name with their prompt.
+3. The new scenes are appended to the same presentation, which now reads the newer snapshot. Old scenes and lines,
+   with their edits and voice lines, are untouched. The first new scene joins the last old one when it plays on the
+   same background. A later scene named like an old pictured one takes that picture. New scene keys never collide
+   with old ones, and no background is generated for a scene that already has one.
+4. The stored dubbing cast voices the new lines. Run **Apply cast and voice every line** again to record them; lines
+   already voiced are reused from the cache.
+
+The job lists `continues_presentation_id`, and its `script` holds the new lines only.
+
+The desktop Open Log Studio does the same with a supplement log (see [desktop/README.md](../desktop/README.md)).
+
 ### The transcript the model reads
 
 The log is cut into **time blocks**: a block ends when no chat window carried a line for an hour. One model call reads one

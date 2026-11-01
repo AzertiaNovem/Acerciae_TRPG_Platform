@@ -47,6 +47,8 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   const castTouched = useRef<string | null>(null);
   const setCast = (next: Record<string, string> | ((c: Record<string, string>) => Record<string, string>)) => { castTouched.current = pres?.id ?? null; setCastState(next); };
   const [tts, setTts] = useState<TtsJob | null>(null);
+  // Continuing a finished visual novel as the story goes on: the presentation whose ending the next job picks up.
+  const [continueFor, setContinueFor] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
 
   const loadJobs = () => { if (channelId) api.vnScripts(channelId).then(setJobs).catch(() => undefined); };
@@ -89,6 +91,19 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
       toast(tr('Script job started'), 'ai'); setJobId(j.id); loadJobs();
     } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
+  // The lines posted since the visual novel's last one become new scenes of the same presentation; the writer is
+  // told where the story ended and reuses its backgrounds and portraits, asking only for new art.
+  const continueStory = async (presentationId: string) => {
+    if (!channelId) return;
+    setBusy(true);
+    try {
+      const j = await api.createVnScript(channelId, { continue_presentation_id: presentationId, instructions: direction.trim() || undefined, retry_failed_chunks: retryFailedChunks, allow_cloud: status?.mock ? undefined : cloudOk });
+      toast(tr('Continuing the visual novel with {n} new lines', { n: j.params?.new_lines ?? 0 }), 'ai'); setContinueFor(null); setJobId(j.id); loadJobs();
+    } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  // A presentation is continued from its newest finished job; older jobs of it, and those with a job still running, are not.
+  const continuable = (j: VnScriptJob) => j.status === 'completed' && !!j.presentation_id
+    && !jobs.some((o) => o.id !== j.id && (o.presentation_id === j.presentation_id || o.continues_presentation_id === j.presentation_id) && (o.created_at > j.created_at || o.status === 'pending' || o.status === 'running'));
   const retryBackgrounds = async (sceneKey?: string) => {
     if (!channelId || !jobId) return;
     setBusy(true);
@@ -159,12 +174,23 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
               {jobs.map((j) => (
                 <tr key={j.id} className={j.id === jobId ? 'selected' : ''}>
                   <td>
-                    <b>{j.title}</b> <span className={`pill ${j.status === 'failed' ? 'danger' : j.status === 'completed' ? 'ok' : ''}`}>{tr(j.status)}</span>
+                    <b>{j.title}</b> <span className={`pill ${j.status === 'failed' ? 'danger' : j.status === 'completed' ? 'ok' : ''}`}>{tr(j.status)}</span>{j.continues_presentation_id && <span className="pill">{tr('continuation')}</span>}
                     <div className="tiny muted">{j.snapshot_scope}{j.stats ? ` · ${tr('{n} scenes', { n: j.stats.scenes })} · ${tr('{n} lines shown', { n: j.stats.shown })}` : ''}{j.status === 'running' && j.progress?.chunks_total ? ` · ${tr('part {a} of {b}', { a: j.progress.chunks_done ?? 0, b: j.progress.chunks_total })}` : ''}</div>
                     {j.error && <div className="tiny" style={{ color: 'var(--danger)' }}>{j.error}</div>}
+                    {continueFor === j.presentation_id && continuable(j) && (
+                      <div className="vn-continue">
+                        <div className="tiny muted">{tr('The lines posted since this visual novel ends are written as new scenes after it, in the same point of view. The AI is told where the story stopped and reuses its backgrounds and portraits; it asks only for the places and poses that are new. The direction above applies.')}</div>
+                        <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                          <button className="primary small" disabled={busy || blocked} onClick={() => continueStory(j.presentation_id!)}>{busy ? tr('Starting the script job…') : tr('Continue from the last line')}</button>
+                          <button className="ghost small" onClick={() => setContinueFor(null)}>{tr('Cancel')}</button>
+                          {blocked && <span className="tiny muted">{tr('Confirm sending the lines to the configured model above.')}</span>}
+                        </div>
+                      </div>
+                    )}
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    {j.status === 'completed' && <button className="small primary" onClick={() => { setJobId(j.id); setStep('art'); }}>{tr('continue')}</button>}
+                    {j.status === 'completed' && <button className="small primary" onClick={() => { setJobId(j.id); setStep('art'); }}>{tr('Open')}</button>}
+                    {continuable(j) && continueFor !== j.presentation_id && <button className="small" title={tr('Write the lines posted since its last line as new scenes')} onClick={() => setContinueFor(j.presentation_id)}>{tr('Continue the story')}</button>}
                     {j.status === 'failed' && <button className="small" disabled={busy} onClick={async () => {
                       setBusy(true);
                       try { await api.retryVnScript(channelId!, j.id, retryFailedChunks); setJobId(j.id); await loadJob(j.id); loadJobs(); }

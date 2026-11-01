@@ -5,6 +5,9 @@ import { deleteProject, listProjects, type ProjectMeta } from '../storage';
 import { useOpenStudio } from './state';
 import AiSettingsDialog from './AiSettingsDialog';
 import NewProject from './NewProject';
+import TaskTray from './TaskTray';
+import { cancelProjectTasks } from '../tasks';
+import { forgetProject } from '../projects';
 const ProjectView = lazy(() => import('./ProjectView'));
 
 // Open Log Studio: the Log Studio on this computer. Logs from SealDice, QQ or Acerciae become projects stored in the
@@ -19,7 +22,7 @@ export default function OpenLogStudio() {
   useEffect(() => { if (view.kind === 'list') load(); }, [view.kind]);
   const remove = async (p: ProjectMeta) => {
     if (!confirm(tr('Delete "{title}" and every file it holds from this computer?', { title: p.title }))) return;
-    try { await deleteProject(p.id); load(); } catch (e: any) { toast(String(e?.message ?? e), 'error'); }
+    try { cancelProjectTasks(p.id); forgetProject(p.id); await deleteProject(p.id); load(); } catch (e: any) { toast(String(e?.message ?? e), 'error'); }
   };
   return (
     <div className="open-studio">
@@ -28,6 +31,7 @@ export default function OpenLogStudio() {
         <b>{tr('Open Log Studio')}</b>
         <span className="tiny muted">{tr('On this computer · no account needed')}</span>
         <span className="grow" />
+        <TaskTray />
         <button className="ghost small" onClick={() => setAi(true)}>{tr('AI services')}</button>
       </header>
       <main className="open-studio-main">

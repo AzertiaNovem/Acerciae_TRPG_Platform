@@ -1,10 +1,11 @@
 import { t as tr, useLocale } from '../../i18n';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useUi } from '../../store/ui';
-import type { Project, StudioVn } from '../types';
-import { bundleFiles, bundleFolderName, characterNames, composeScript, standaloneData, toPresentation } from '../vn';
-import { paintNeeds, voiceLines } from '../actions';
-import { makeLlm } from '../providers/providers';
+import type { Project } from '../types';
+import { bundleFiles, bundleFolderName, characterNames, lastScriptedSeq, standaloneData, toPresentation, unscriptedCount } from '../vn';
+import { openNeeds } from '../actions';
+import { conflictFor, startCompose, startContinue, startPaint, startVoice, useTasks } from '../tasks';
+import { conflictText, TaskRow } from './TaskTray';
 import { loadAiSettings, TTS_VOICES } from '../providers/settings';
 import { assetAbsolutePath, exportToFolder, readAsset } from '../storage';
 import { useAssetUrls } from './useAssetUrls';
@@ -16,7 +17,7 @@ const LANGS = [['zh', '中文'], ['en', 'English'], ['ja', '日本語'], ['ko', 
 
 // The project as a visual novel: compose the script (by rules, or with the user's language model), paint what it
 // needs and voice its lines with the user's services, look at it, and save it as a player folder or a video.
-export default function VnPanel({ p, update, save }: { p: Project; update: (fn: (d: Project) => void) => void; save: () => void }) {
+export default function VnPanel({ p, update }: { p: Project; update: (fn: (d: Project) => void) => void }) {
   const toast = useUi((s) => s.toast);
   const ui = useLocale((s) => s.language);
   const ai = loadAiSettings();
@@ -24,41 +25,28 @@ export default function VnPanel({ p, update, save }: { p: Project; update: (fn: 
   const [language, setLanguage] = useState(vn?.language ?? (ui.startsWith('zh') ? 'zh' : ui.slice(0, 2)));
   const [instructions, setInstructions] = useState(vn?.instructions ?? '');
   const [useModel, setUseModel] = useState(ai.llm.provider !== 'none');
-  const [busy, setBusy] = useState<string | null>(null);
-  const [failed, setFailed] = useState<string[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);   // saving a folder or a video (not an AI task)
   const [index, setIndex] = useState(0);
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [quality, setQuality] = useState<VideoQuality>('lossless');
   const [height, setHeight] = useState<720 | 1080>(1080);
-  const abort = useRef<AbortController | null>(null);
 
-  const compose = async () => {
-    abort.current = new AbortController();
-    setBusy(tr('Composing…')); setFailed([]);
-    try {
-      const backgrounds = (vn?.script.scenes ?? []).filter((s) => s.background).map((s) => ({ name: s.title, path: s.background! }));
-      const script = await composeScript(p, { llm: useModel ? makeLlm(ai.llm) : null, language, instructions, backgrounds, signal: abort.current.signal, onProgress: (d, t) => setBusy(tr('Composing… part {done}/{total}', { done: d, total: t })) });
-      update((d) => { d.vn = { script, template: d.vn?.template ?? {}, audio: {}, narrator_voice: d.vn?.narrator_voice ?? '', language, instructions, composed_at: new Date().toISOString() }; });
-      setIndex(0);
-      toast(tr('Composed: {scenes} scenes, {shown} lines', { scenes: script.stats.scenes, shown: script.stats.shown }));
-    } catch (e: any) { if (e?.name !== 'AbortError') toast(String(e?.message ?? e), 'error'); }
-    finally { setBusy(null); abort.current = null; }
-  };
-  // Painting and voicing work on a copy, then hand the results back as one change.
-  const withCopy = async (label: string, fn: (copy: Project, signal: AbortSignal) => Promise<string[]>) => {
-    if (!vn) return;
-    abort.current = new AbortController();
-    setBusy(label); setFailed([]);
-    const copy: Project = structuredClone(p);
-    try {
-      const f = await fn(copy, abort.current.signal);
-      update((d) => { d.characters = copy.characters; d.vn = copy.vn; });
-      setFailed(f);
-    } catch (e: any) { toast(String(e?.message ?? e), 'error'); }
-    finally { setBusy(null); abort.current = null; save(); }
-  };
-  const paint = () => withCopy(tr('Painting…'), (c, sig) => paintNeeds(c, c.vn!, ai.image, (d, t) => setBusy(tr('Painting… {done}/{total}', { done: d, total: t })), sig));
-  const voice = () => withCopy(tr('Voicing…'), (c, sig) => voiceLines(c, c.vn!, ai.tts, (d, t) => setBusy(tr('Voicing… {done}/{total}', { done: d, total: t })), sig));
+  // The AI work runs as tasks (../tasks): it goes on when this panel is left, and its results land in the project
+  // as they finish. Painting and voicing may run at the same time; the script waits for neither and neither for it.
+  const tasks = useTasks((s) => s.tasks).filter((t) => t.projectId === p.id && (t.kind === 'compose' || t.kind === 'continue' || t.kind === 'paint' || t.kind === 'voice'));
+  const running = tasks.filter((t) => t.status === 'running');
+  const scriptBlocked = conflictFor(p.id, 'compose', `compose:${p.id}`);
+  const paintBlocked = conflictFor(p.id, 'paint', `paint:${p.id}`);
+  const voiceBlocked = conflictFor(p.id, 'voice', `voice:${p.id}`);
+  const start = (fn: () => void) => { try { fn(); } catch (e: any) { toast(conflictText(e?.message), 'error'); } };
+  const options = { useModel, language, instructions };
+  const compose = () => start(() => startCompose(p.id, options));
+  // The lines after the visual novel's last one (a supplement log): composed on their own and appended, reusing
+  // the novel's backgrounds and poses; the voice lines already made are kept.
+  const fresh = vn ? unscriptedCount(p) : 0;
+  const carryOn = () => start(() => startContinue(p.id, options));
+  const paint = () => start(() => startPaint(p.id));
+  const voice = () => start(() => startVoice(p.id));
 
   const template = preview ?? vn?.template ?? {};
   const presentation = useMemo(() => {
@@ -100,7 +88,9 @@ export default function VnPanel({ p, update, save }: { p: Project; update: (fn: 
     finally { setBusy(null); }
   };
 
-  const needs = vn ? vn.script.asset_needs.length : 0;
+  const needs = vn ? openNeeds(p).length : 0;
+  const scriptRows = tasks.filter((t) => t.kind === 'compose' || t.kind === 'continue');
+  const artRows = tasks.filter((t) => t.kind === 'paint' || t.kind === 'voice');
   const voiced = vn ? Object.keys(vn.audio).length : 0;
   const voices = ai.tts.provider === 'none' ? [] : TTS_VOICES[ai.tts.provider];
   return (
@@ -114,23 +104,25 @@ export default function VnPanel({ p, update, save }: { p: Project; update: (fn: 
         </div>
         {useModel && <textarea rows={2} placeholder={tr('Direction for the writer (optional): tone, what to focus on, what to leave out')} value={instructions} onChange={(e) => setInstructions(e.target.value)} />}
         <div className="row" style={{ gap: 8 }}>
-          <button className="primary small" disabled={!!busy} onClick={compose}>{vn ? tr('Compose again') : tr('Compose the script')}</button>
-          {busy && abort.current && <button className="ghost small" onClick={() => abort.current?.abort()}>{tr('Stop')}</button>}
-          {busy && <span className="tiny muted">{busy}</span>}
+          {vn && fresh > 0 && <button className="primary small" disabled={!!scriptBlocked} onClick={carryOn} title={tr('Writes the lines after line #{n} as new scenes, reusing this novel\'s backgrounds and poses and asking only for new art', { n: lastScriptedSeq(vn.script) })}>{tr('Continue the story ({n} new lines)', { n: fresh })}</button>}
+          <button className={vn && fresh > 0 ? 'small' : 'primary small'} disabled={!!scriptBlocked} onClick={() => { if (!vn || !fresh || confirm(tr('Compose the whole log again? The current script and its voice lines are replaced.'))) compose(); }}>{vn ? tr('Compose again') : tr('Compose the script')}</button>
+          {scriptBlocked === 'script-in-use' && <span className="tiny muted">{conflictText(scriptBlocked)}</span>}
         </div>
+        {scriptRows.map((t) => <TaskRow key={t.id} task={t} />)}
         {vn?.script.notes.length ? <div className="tiny muted">{vn.script.notes.join(' · ')}</div> : null}
       </div>
       {vn && (
         <div className="card col" style={{ gap: 8, maxWidth: 860 }}>
           <h3 style={{ margin: 0 }}>{tr('2. Art and voices')}</h3>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <button className="small" disabled={!!busy || ai.image.provider === 'none' || !needs} onClick={paint}>{tr('Paint backgrounds and poses ({n} asked for)', { n: needs })}</button>
+            <button className="small" disabled={!!paintBlocked || ai.image.provider === 'none' || !needs} onClick={paint}>{tr('Paint backgrounds and poses ({n} asked for)', { n: needs })}</button>
             {voices.length > 0 && <label className="tiny">{tr('Narrator')} <select value={vn.narrator_voice} onChange={(e) => update((d) => { d.vn!.narrator_voice = e.target.value; })}><option value="">{tr('— no voice —')}</option>{voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>}
-            <button className="small" disabled={!!busy || ai.tts.provider === 'none'} onClick={voice}>{tr('Voice the lines ({n} done)', { n: voiced })}</button>
-            {voiced > 0 && <button className="ghost small" disabled={!!busy} onClick={() => update((d) => { d.vn!.audio = {}; })}>{tr('Clear voices')}</button>}
+            <button className="small" disabled={!!voiceBlocked || ai.tts.provider === 'none'} onClick={voice}>{tr('Voice the lines ({n} done)', { n: voiced })}</button>
+            {voiced > 0 && <button className="ghost small" disabled={running.some((t) => t.kind === 'voice')} onClick={() => update((d) => { d.vn!.audio = {}; })}>{tr('Clear voices')}</button>}
           </div>
           {(ai.image.provider === 'none' || ai.tts.provider === 'none') && <div className="tiny muted">{tr('Image and voice generation need a service in AI services; you can also add character art yourself in Characters.')}</div>}
-          {failed.length > 0 && <details className="tiny" open><summary style={{ color: 'var(--danger)' }}>{tr('{n} could not be made', { n: failed.length })}</summary>{failed.slice(0, 30).map((f, i) => <div key={i}>{f}</div>)}</details>}
+          {artRows.map((t) => <TaskRow key={t.id} task={t} />)}
+          {running.length > 0 && <div className="tiny muted">{tr('These keep going if you leave this page; the results are saved as they arrive.')}</div>}
         </div>
       )}
       {vn && presentation && (
@@ -144,6 +136,7 @@ export default function VnPanel({ p, update, save }: { p: Project; update: (fn: 
                 <select value={quality} onChange={(e) => setQuality(e.target.value as VideoQuality)} disabled={!!busy}><option value="lossless">{tr('Lossless (MKV)')}</option><option value="compatible">{tr('Compatible (MP4)')}</option></select>
                 <select value={height} onChange={(e) => setHeight(Number(e.target.value) as 720 | 1080)} disabled={!!busy}><option value={1080}>1080p</option><option value={720}>720p</option></select>
                 <button className="small" disabled={!!busy} onClick={video}>{tr('Export video…')}</button>
+                {busy && <span className="tiny muted">{busy}</span>}
               </div>
             </div>
           </div>

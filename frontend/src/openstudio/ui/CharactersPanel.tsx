@@ -3,7 +3,9 @@ import { useState } from 'react';
 import { useUi } from '../../store/ui';
 import type { CharacterSheet, Project, SpeakerRole } from '../types';
 import { writeAsset } from '../storage';
-import { paintCharacter, type ArtSlot } from '../actions';
+import type { ArtSlot } from '../actions';
+import { artKey, startCharacterArt, useTasks } from '../tasks';
+import { conflictText } from './TaskTray';
 import { loadAiSettings, TTS_VOICES } from '../providers/settings';
 import { useAssetUrls } from './useAssetUrls';
 
@@ -14,7 +16,9 @@ const SUBTITLES = ['IDLE', 'SAY', 'SMILE', 'ANGRY', 'SAD', 'SURPRISED', 'FEAR', 
 export default function CharactersPanel({ p, update }: { p: Project; update: (fn: (d: Project) => void) => void }) {
   const toast = useUi((s) => s.toast);
   const ai = loadAiSettings();
-  const [busy, setBusy] = useState<string | null>(null);
+  // Art being painted: a task per character and slot, so several characters (and slots) are painted at once, and
+  // the painting goes on if this page is left.
+  const painting = new Set(useTasks((s) => s.tasks).filter((t) => t.status === 'running' && t.kind === 'art' && t.projectId === p.id).map((t) => t.key));
   // Poses added but not yet given an image: shown with their buttons, not stored until they have one.
   const [pending, setPending] = useState<Record<number, string[]>>({});
   const url = useAssetUrls(p.id, p.characters.flatMap((c) => [c.avatar, c.portrait, ...Object.values(c.poses)]));
@@ -35,24 +39,18 @@ export default function CharactersPanel({ p, update }: { p: Project; update: (fn
       edit(i, (c) => { if (slot.kind === 'portrait') c.portrait = path; else if (slot.kind === 'avatar') c.avatar = path; else c.poses = { ...c.poses, [slot.subtitle]: path }; });
     } catch (e: any) { toast(String(e?.message ?? e), 'error'); }
   };
-  const paint = async (i: number, slot: ArtSlot) => {
-    const label = `${p.characters[i].name} ${slot.kind === 'pose' ? slot.subtitle : slot.kind}`;
-    setBusy(label);
-    try {
-      const copy = structuredClone(p.characters[i]);
-      await paintCharacter(p, copy, slot, ai.image);
-      edit(i, (c) => { c.portrait = copy.portrait; c.avatar = copy.avatar; c.poses = copy.poses; });
-    } catch (e: any) { toast(String(e?.message ?? e), 'error'); }
-    finally { setBusy(null); }
+  const paint = (i: number, slot: ArtSlot) => {
+    try { startCharacterArt(p.id, p.characters[i].name, slot); }
+    catch (e: any) { toast(conflictText(e?.message), 'error'); }
   };
   const canPaint = ai.image.provider !== 'none';
   const voices = ai.tts.provider === 'none' ? [] : TTS_VOICES[ai.tts.provider];
   const art = (i: number, c: CharacterSheet, slot: ArtSlot, label: string, path: string | null) => (
     <div className="open-studio-art">
-      <div className="thumb">{path && url(path) ? <img src={url(path)!} alt="" /> : <span className="tiny muted">{label}</span>}</div>
+      <div className={`thumb ${painting.has(artKey(p.id, c.name, slot)) ? 'painting' : ''}`}>{path && url(path) ? <img src={url(path)!} alt="" /> : <span className="tiny muted">{label}</span>}{painting.has(artKey(p.id, c.name, slot)) && <span className="thumb-note tiny">{tr('Painting…')}</span>}</div>
       <div className="row" style={{ gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
         <label className="button small ghost">{tr('Upload')}<input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={(e) => { upload(i, slot, e.target.files?.[0]); e.target.value = ''; }} /></label>
-        {canPaint && <button className="ghost small" disabled={!!busy || (!c.appearance && slot.kind !== 'pose')} title={c.appearance ? '' : tr('Write the appearance first')} onClick={() => paint(i, slot)}>{tr('Generate')}</button>}
+        {canPaint && <button className="ghost small" disabled={painting.has(artKey(p.id, c.name, slot)) || (!c.appearance && slot.kind !== 'pose')} title={c.appearance ? '' : tr('Write the appearance first')} onClick={() => paint(i, slot)}>{tr('Generate')}</button>}
         {slot.kind === 'pose' && <button className="ghost small" onClick={() => { setPending({ ...pending, [i]: (pending[i] ?? []).filter((s) => s !== slot.subtitle) }); edit(i, (x) => { const poses = { ...x.poses }; delete poses[slot.subtitle]; x.poses = poses; }); }}>✕</button>}
       </div>
       <div className="tiny" style={{ textAlign: 'center' }}>{label}</div>
@@ -73,7 +71,6 @@ export default function CharactersPanel({ p, update }: { p: Project; update: (fn
           ))}
         </tbody></table>
       </div>
-      {busy && <div className="tiny muted">{tr('Generating {what}…', { what: busy })}</div>}
       {p.characters.map((c, i) => (
         <div key={i} className="card col" style={{ gap: 8 }}>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>

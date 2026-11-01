@@ -99,4 +99,4 @@ export interface VnAssetNeed { kind: 'background' | 'standee'; brief: string; sc
 export interface VnScript { scenes: VnScene[]; asset_needs: VnAssetNeed[]; notes: string[]; provider: string; stats: { scenes: number; shown: number; hidden: number } }
 
 // An LLM call, injected so the composer runs without knowing the provider (and in tests with a fixture).
-export type LlmCall = (req: { system: string; user: string; json: boolean; max_tokens?: number }) => Promise<string>;
+export type LlmCall = (req: { system: string; user: string; json: boolean; max_tokens?: number; signal?: AbortSignal }) => Promise<string>;

@@ -10,6 +10,13 @@ export interface AiSettings {
   llm: { provider: LlmProvider; base_url: string; model: string };
   image: { provider: ImageProvider; base_url: string; model: string; size: '1024x1024' | '1536x1024' | '1024x1536'; quality: 'auto' | 'low' | 'medium' | 'high' };
   tts: { provider: TtsProvider; base_url: string; model: string; language: string };
+  parallel: number;   // AI requests in flight at once, across every task (1–8)
+}
+export const PARALLEL_DEFAULT = 3;
+export const PARALLEL_MAX = 8;
+export function clampParallel(n: unknown): number {
+  const v = Math.round(Number(n));
+  return Number.isFinite(v) ? Math.min(PARALLEL_MAX, Math.max(1, v)) : PARALLEL_DEFAULT;
 }
 export const KEY_NAMES = { llm: 'openstudio-llm-key', image: 'openstudio-image-key', tts: 'openstudio-tts-key' } as const;
 
@@ -25,10 +32,11 @@ const empty: AiSettings = {
   llm: { provider: 'none', base_url: '', model: '' },
   image: { provider: 'none', base_url: '', model: '', size: '1024x1536', quality: 'auto' },
   tts: { provider: 'none', base_url: '', model: '', language: 'auto' },
+  parallel: PARALLEL_DEFAULT,
 };
 export function loadAiSettings(): AiSettings {
   const s = readJson<Partial<AiSettings>>(STORE, {});
-  return { llm: { ...empty.llm, ...s.llm }, image: { ...empty.image, ...s.image }, tts: { ...empty.tts, ...s.tts } };
+  return { llm: { ...empty.llm, ...s.llm }, image: { ...empty.image, ...s.image }, tts: { ...empty.tts, ...s.tts }, parallel: s.parallel === undefined ? PARALLEL_DEFAULT : clampParallel(s.parallel) };
 }
 export function saveAiSettings(s: AiSettings) { writeStorage(STORE, JSON.stringify(s)); }
 

@@ -1,11 +1,15 @@
 // What Open Log Studio does with the AI services: paint character art and visual-novel backgrounds, voice lines.
-// Every result is stored in the project's assets; the caller saves the project afterwards.
-import type { CharacterSheet, Project, StudioVn } from './types';
+// Each piece of work is one request that makes one file in the project's assets, and returns where it is; applying it
+// to the project is a separate, small change (apply*), made on the latest copy, so tasks running side by side never
+// overwrite each other's results. The task manager (tasks.ts) runs them.
+import type { CharacterSheet, Project, VnAssetNeed } from './types';
 import { generateImage, synthesize } from './providers/providers';
 import type { AiSettings } from './providers/settings';
 import { readAsset, writeAsset } from './storage';
 
 export type ArtSlot = { kind: 'portrait' } | { kind: 'avatar' } | { kind: 'pose'; subtitle: string };
+
+export function slotName(slot: ArtSlot): string { return slot.kind === 'pose' ? slot.subtitle : slot.kind; }
 
 // The server's framing text for each slot, with the project's era and setting.
 export function characterPrompt(project: Project, c: CharacterSheet, slot: ArtSlot): string {
@@ -25,49 +29,53 @@ async function referenceOf(project: Project, path: string | null): Promise<{ byt
   return { bytes, mime };
 }
 
-// Paints one image of a character and files it in the slot (a pose uses the main portrait as its reference).
-export async function paintCharacter(project: Project, c: CharacterSheet, slot: ArtSlot, ai: AiSettings['image']): Promise<string> {
+// ---- character art ----------------------------------------------------------------------------------
+/** Paints one image of a character (a pose uses the main portrait as its identity reference); returns its path. */
+export async function makeCharacterArt(project: Project, c: CharacterSheet, slot: ArtSlot, ai: AiSettings['image'], signal?: AbortSignal): Promise<string> {
   const kind = slot.kind === 'pose' ? 'standee' : slot.kind;
-  const bytes = await generateImage(ai, { kind, prompt: characterPrompt(project, c, slot), reference: slot.kind === 'pose' ? await referenceOf(project, c.portrait) : undefined });
-  const path = await writeAsset(project.id, bytes, 'png');
+  const reference = slot.kind === 'pose' ? await referenceOf(project, c.portrait) : undefined;
+  const bytes = await generateImage(ai, { kind, prompt: characterPrompt(project, c, slot), reference, signal });
+  return writeAsset(project.id, bytes, 'png');
+}
+/** Files a character image in its slot (the character is found by name; nothing happens when it is gone). */
+export function applyCharacterArt(d: Project, name: string, slot: ArtSlot, path: string) {
+  const c = d.characters.find((x) => x.name === name);
+  if (!c) return;
   if (slot.kind === 'portrait') c.portrait = path;
   else if (slot.kind === 'avatar') c.avatar = path;
   else c.poses = { ...c.poses, [slot.subtitle]: path };
-  return path;
 }
 
-// The art a composed script asks for: scene backgrounds and missing poses of characters with an appearance.
-export async function paintNeeds(project: Project, vn: StudioVn, ai: AiSettings['image'], onProgress: (done: number, total: number, failed: string[]) => void, signal?: AbortSignal): Promise<string[]> {
-  const failed: string[] = [];
-  const needs = vn.script.asset_needs.filter((n) => n.kind === 'background'
+// ---- what a composed script asks for ------------------------------------------------------------------
+/** The art a composed script still asks for: scene backgrounds not painted yet, and missing poses of characters with an appearance. */
+export function openNeeds(project: Project): VnAssetNeed[] {
+  const vn = project.vn;
+  if (!vn) return [];
+  return vn.script.asset_needs.filter((n) => n.kind === 'background'
     ? vn.script.scenes.some((s) => s.key === n.scene_key && !s.background)
     : !!project.characters.find((c) => c.name === n.character && c.appearance && !Object.keys(c.poses).some((k) => k.toLowerCase() === (n.subtitle ?? '').toLowerCase())));
-  let done = 0;
-  onProgress(0, needs.length, failed);
-  for (const n of needs) {
-    if (signal?.aborted) break;
-    try {
-      if (n.kind === 'background') {
-        const prompt = `Visual-novel background, no people, no text: ${n.brief}${project.background.era ? '. Period: ' + project.background.era : ''}${project.background.setting ? '. Setting: ' + project.background.setting : ''}`;
-        const path = await writeAsset(project.id, await generateImage(ai, { kind: 'background', prompt }), 'png');
-        for (const s of vn.script.scenes) if (s.key === n.scene_key && !s.background) s.background = path;
-      } else {
-        const c = project.characters.find((x) => x.name === n.character)!;
-        await paintCharacter(project, c, { kind: 'pose', subtitle: n.subtitle || 'IDLE' }, ai);
-      }
-    } catch (e: any) { failed.push(`${n.kind === 'background' ? n.brief : `${n.character} ${n.subtitle}`}: ${e?.message ?? e}`); }
-    onProgress(++done, needs.length, failed);
-  }
-  return failed;
+}
+export function needLabel(n: VnAssetNeed): string { return n.kind === 'background' ? n.name || n.brief.slice(0, 60) : `${n.character} ${n.subtitle || 'IDLE'}`; }
+
+export async function makeBackground(project: Project, n: VnAssetNeed, ai: AiSettings['image'], signal?: AbortSignal): Promise<string> {
+  const prompt = `Visual-novel background, no people, no text: ${n.brief}${project.background.era ? '. Period: ' + project.background.era : ''}${project.background.setting ? '. Setting: ' + project.background.setting : ''}`;
+  return writeAsset(project.id, await generateImage(ai, { kind: 'background', prompt, signal }), 'png');
+}
+/** Puts a painted background on its scene, unless the scene has one by now. */
+export function applyBackground(d: Project, sceneKey: string | undefined, path: string) {
+  for (const s of d.vn?.script.scenes ?? []) if (s.key === sceneKey && !s.background) s.background = path;
 }
 
+// ---- voice lines --------------------------------------------------------------------------------------
+export interface VoiceJob { seq: number; text: string; voice: string; delivery: string }
 const VOICED = new Set(['dialogue', 'narration', 'action']);
-// Voices every shown line that has none yet: a character's own voice, the narrator's for narration.
-export async function voiceLines(project: Project, vn: StudioVn, ai: AiSettings['tts'], onProgress: (done: number, total: number, failed: string[]) => void, signal?: AbortSignal): Promise<string[]> {
-  const failed: string[] = [];
+/** Every shown line without a voice yet: a character's own voice, the narrator's for narration and the Keeper. */
+export function voiceJobs(project: Project): VoiceJob[] {
+  const vn = project.vn;
+  if (!vn) return [];
   const bySeq = new Map(project.events.map((e) => [e.seq, e]));
   const charOf = (speaker?: string) => project.characters.find((c) => c.name === speaker || c.speakers.includes(speaker ?? ''));
-  const jobs: { seq: number; text: string; voice: string; delivery: string }[] = [];
+  const jobs: VoiceJob[] = [];
   for (const scene of vn.script.scenes) for (const l of scene.lines) {
     if (l.hidden || vn.audio[l.seq]) continue;
     const e = bySeq.get(l.seq); if (!e) continue;
@@ -78,15 +86,13 @@ export async function voiceLines(project: Project, vn: StudioVn, ai: AiSettings[
     const text = (l.text || e.content).trim();
     if (voice && text) jobs.push({ seq: l.seq, text, voice, delivery: l.delivery ?? '' });
   }
-  let done = 0;
-  onProgress(0, jobs.length, failed);
-  for (const j of jobs) {
-    if (signal?.aborted) break;
-    try {
-      const s = await synthesize(ai, j.text, j.voice, j.delivery);
-      vn.audio[j.seq] = { path: await writeAsset(project.id, s.bytes, s.ext), ms: s.ms };
-    } catch (e: any) { failed.push(`#${j.seq}: ${e?.message ?? e}`); }
-    onProgress(++done, jobs.length, failed);
-  }
-  return failed;
+  return jobs;
+}
+export async function makeVoice(project: Project, j: VoiceJob, ai: AiSettings['tts'], signal?: AbortSignal): Promise<{ path: string; ms: number }> {
+  const s = await synthesize(ai, j.text, j.voice, j.delivery, signal);
+  return { path: await writeAsset(project.id, s.bytes, s.ext), ms: s.ms };
+}
+/** Stores a voice line for a line of the script. */
+export function applyVoice(d: Project, seq: number, v: { path: string; ms: number }) {
+  if (d.vn && d.vn.script.scenes.some((s) => s.lines.some((l) => l.seq === seq))) d.vn.audio[seq] = v;
 }

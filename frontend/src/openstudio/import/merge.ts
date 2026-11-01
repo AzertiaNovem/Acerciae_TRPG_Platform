@@ -6,7 +6,7 @@ export interface MergedLog { events: LogEvent[]; speakers: Speaker[]; issues: Im
 
 interface Item { e: LogEvent; file: number; index: number; sortTime: number }
 
-function dedupKey(e: LogEvent): string {
+export function dedupKey(e: LogEvent): string {
   // Exports of the same chat differ in trailing blank lines and line endings; nothing else is forgiven.
   const content = e.content.replace(/\r\n/g, '\n').replace(/\s+$/, '');
   return [e.speaker_name, e.time === null ? '' : String(e.time), e.time === null ? e.time_text : '', content].join('\u0000');
