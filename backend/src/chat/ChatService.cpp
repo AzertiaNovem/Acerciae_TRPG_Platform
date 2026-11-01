@@ -395,7 +395,11 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     return db_.tx([&](pqxx::work& w) {
         auto c = Db::queryOne(w, "INSERT INTO characters(channel_id, user_id, name, kind, speaking_style, sheet) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *",
             {a.channelId, ownerId.empty() ? dbNull() : DbParam(ownerId), name, kind, json::str(body, "speaking_style"), json::dump(sheet)});
-        if (kind == "pc" && !ownerId.empty()) {
+        // A PC owned by a GM account (a "GM-cast" PC, such as an AI co-player) is voiced by the Keeper like an NPC: the
+        // Keeper's own window memberships stay unbound, or every window the Keeper sits in would count it as present.
+        bool gmCast = ownerId.empty() ? false : ownerId == a.userId ? a.isGm
+            : !Db::queryOne(w, "SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2 AND role='gm'", {a.channelId, ownerId}).isNull();
+        if (kind == "pc" && !ownerId.empty() && !gmCast) {
             // Bind the character to the windows its player is already in and has no character yet.
             Db::exec(w, "UPDATE chat_window_members wm SET character_id=$2 FROM chat_windows cw WHERE cw.id=wm.chat_window_id AND cw.channel_id=$1 AND wm.user_id=$3 AND wm.character_id IS NULL",
                 {a.channelId, c["id"].asString(), ownerId});
@@ -445,7 +449,7 @@ Json::Value ChatService::createWindow(const ChannelAccess& a, const Json::Value&
             auto cid = json::str(m, "character_id");
             auto cm = Db::queryOne(w, "SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2", {a.channelId, uid});
             if (cm.isNull()) throw badRequest("user is not a channel member: " + uid);
-            if (cid.empty()) {
+            if (cid.empty() && Db::queryOne(w, "SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2 AND role='gm'", {a.channelId, uid}).isNull()) {
                 auto c = Db::queryOne(w, "SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2 AND kind='pc' ORDER BY created_at LIMIT 1", {a.channelId, uid});
                 if (!c.isNull()) cid = c["id"].asString();
             }
@@ -466,10 +470,11 @@ Json::Value ChatService::createWindow(const ChannelAccess& a, const Json::Value&
 Json::Value ChatService::addWindowMember(const ChannelAccess& a, const std::string& windowId, const std::string& userId, const std::string& characterId) {
     auth_.requireGm(a);
     auth_.requireWindowMember(a, windowId);
-    auto cm = db_.queryOne("SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2", {a.channelId, userId});
+    auto cm = db_.queryOne("SELECT role FROM channel_members WHERE channel_id=$1 AND user_id=$2", {a.channelId, userId});
     if (cm.isNull()) throw badRequest("user is not a channel member");
     std::string cid = characterId;
-    if (cid.empty()) {
+    // A Keeper speaks as any character; their GM-cast PCs are never their default identity in a window.
+    if (cid.empty() && cm["role"].asString() != "gm") {
         auto c = db_.queryOne("SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2 AND kind='pc' ORDER BY created_at LIMIT 1", {a.channelId, userId});
         if (!c.isNull()) cid = c["id"].asString();
     }

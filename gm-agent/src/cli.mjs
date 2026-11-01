@@ -72,8 +72,13 @@ async function setup(cfg) {
   const seats = seatWindows(cfg, windows);
   const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
   delete state.version;
-  const roster = new Roster(state).reconcile(await api.characters(channel.id), seats);
-  // While `run` keeps the channel it is the only writer; it picks new co-players up by their mark.
+  // Co-players are GM-cast PCs (owned by this account): any the Keeper already made are adopted, and only the
+  // missing ones are generated.
+  const me = api.user ?? (await api.me());
+  const known = new Set((state.coplayers ?? []).map((c) => c.characterId));
+  const roster = new Roster(state).reconcile(await api.characters(channel.id), seats, { castBy: me.id });
+  for (const c of roster.coplayers) if (!known.has(c.characterId)) log(`using ${c.name}, a PC this account already owns, as a co-player`);
+  // While `run` keeps the channel it is the only writer; it picks new co-players up by their owner.
   const running = Boolean(lockHolder(cfg.stateDir, channel.id));
 
   for (const existing of roster.coplayers) {
@@ -86,7 +91,7 @@ async function setup(cfg) {
     log(`preparing co-player ${roster.coplayers.length + 1}/${cfg.coplayers} with ${cfg.llm.provider} / ${cfg.llm.model || "mock"}`);
     const characters = await api.characters(channel.id);
     const takenNames = characters.map((c) => c.name);
-    const partyNotes = characters.map((c) => `- ${c.name}${c.kind === "pc" ? " (player character)" : roster.isCoplayer(c.id) ? " (co-player)" : " (NPC)"}`).join("\n");
+    const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
     const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers };
     const generated = await generateCoplayer(llm, args);
     const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, llm, language, pointsMode });

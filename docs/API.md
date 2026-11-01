@@ -62,7 +62,7 @@ User objects now include `ui_language`, `avatar_data` (empty once the avatar is 
 | POST | `/channels/{id}/story/reopen` | GM: back to the Keeper's Studio switches and per-player visibility |
 | GET/POST | `/channels/{id}/members` | add `{user_id | username, role: gm|player}` (GM; the user must already be on the server unless the GM is a server maintainer) |
 | DELETE | `/channels/{id}/members/{uid}` | (GM) also removes them from every chat window of the channel |
-| GET/POST | `/channels/{id}/characters` | create `{name, kind: pc|npc, speaking_style?, sheet?, description?}` (NPC: GM) |
+| GET/POST | `/channels/{id}/characters` | create `{name, kind: pc|npc, speaking_style?, sheet?, description?}` (NPC: GM). A PC belongs to its creator, or to `user_id` when the GM names one. A PC owned by a GM account is a *GM-cast* PC, such as an AI co-player: the Keeper voices it, so it is never bound into the Keeper's window memberships, and Log Studio and the player-group memory treat its lines as an investigator's. |
 | PUT | `/channels/{id}/characters/{cid}` | owner or GM |
 | GET/PUT | `/channels/{id}/characters/{cid}/attributes` | `{attrs, editable}`; PUT `{set?: {name: number}, remove?: [name]}` (owner or GM; NPCs: GM). Names are canonicalised (`侦查`, `spot` → `Spot Hidden`) |
 | POST | `/channels/{id}/dice/preview` | `{content, chat_window_id, character_id?}` → `{hint, command}` — the composer's gray hint; never rolls |

@@ -22,7 +22,7 @@ import { investigatorsFor } from "./context/profiles.mjs";
 import { directTurn } from "./director.mjs";
 import { coplayerTurn } from "./coplayer.mjs";
 import { generateNpc, saveCharacter } from "./roles/cardgen.mjs";
-import { openWindows } from "./roles/roster.mjs";
+import { isPlayerCharacter, openWindows } from "./roles/roster.mjs";
 import { Timelines, MAIN, placeKey } from "./timelines.mjs";
 import { Guard, planWhereabouts, whereaboutsBrief } from "./whereabouts.mjs";
 
@@ -135,14 +135,15 @@ export class Table {
     this.characters = characters;
     this.windows = windows;
     const main = this.mainWindow();
-    this.roster.reconcile(this.characters, main ? [main.id] : []);
+    this.roster.reconcile(this.characters, main ? [main.id] : [], { castBy: this.me?.id });
     this.timelines.reconcile(investigatorsFor(this.characters, this.roster).map((c) => c.id));
   }
 
   mainWindow() { return this.windows.find((w) => w.kind === "main") ?? this.windows[0]; }
   windowName(id) { return this.windows.find((w) => w.id === id)?.name ?? "another window"; }
   nameOf(id) { return this.characters.find((c) => c.id === id)?.name ?? id; }
-  isPc(id) { return this.characters.find((c) => c.id === id)?.kind === "pc"; }
+  // A player character, played by a real person (a GM-cast PC is a co-player).
+  isPc(id) { return isPlayerCharacter(this.characters.find((c) => c.id === id), this.roster); }
   userOf(id) { return this.characters.find((c) => c.id === id)?.user_id ?? null; }
   // The active timeline played in a window: the main one in the Main Chat, a thread in its own window, else none.
   scene(windowId) {
@@ -545,7 +546,7 @@ export class Table {
       case "npc":
       case "new_npc": {
         const who = this.characterByName(a.name);
-        if (this.roster.coplayerByName(a.name) || who?.kind === "pc") { this.log(`the Keeper tried to voice ${a.name}, a ${who?.kind === "pc" ? "player character" : "co-player"}; skipped`); return 0; }
+        if (this.roster.coplayerByName(a.name) || who?.kind === "pc") { this.log(`the Keeper tried to voice ${a.name}, a ${this.roster.isCoplayer(who?.id) || !who ? "co-player" : "player character"}; skipped`); return 0; }
         const npc = this.roster.npcByName(a.name) ?? (await this.createNpc(a.name, a.brief, ctx.text));
         if (!npc || !a.text) return 0;
         return this.post(windowId, { content: a.text, kind: "ic", character_id: npc.characterId });

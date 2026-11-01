@@ -23,7 +23,7 @@ class FakeApi {
     this.characters_ = [
       { id: "c-alice", name: "Alice Hale", kind: "pc", user_id: "u-alice", player_name: "alice", bio: "ALICE-BIO: raised above a print shop",
         role_card: { basic: { occupation: "ALICE-JOB journalist", age: "31" }, background: { significant_people: "ALICE-TIES: her editor, Mr. Byrne" } } },
-      { id: "c-harriet", name: "Harriet Vance", kind: "npc", user_id: null, speaking_style: markStyle("dry wit"), bio: "A sharp antiquarian.",
+      { id: "c-harriet", name: "Harriet Vance", kind: "pc", user_id: "u-bot", player_name: "AI Keeper", speaking_style: "dry wit", bio: "A sharp antiquarian.",
         role_card: { basic: { occupation: "HARRIET-JOB antiquarian" }, background: { ideology: "HARRIET-IDEOLOGY: the past teaches" } } },
       { id: "c-butler", name: "Mr. Grimsby", kind: "npc", user_id: null, speaking_style: "", bio: "The butler; knows where the key is.",
         role_card: { background: { arcane: "SECRET-NPC: serves the Society" } } },
@@ -65,7 +65,7 @@ class FakeApi {
   }
   async advanceScenario(_ch, body) { const scene = { id: `sc${this.scenes_.length + 1}`, title: body.title, status: "active", location: body.location, narrative_time: body.narrative_time, event_count: 0, created_at: new Date().toISOString() }; for (const x of this.scenes_) if (x.id === this.currentScene) x.status = "closed"; this.scenes_.push(scene); this.currentScene = scene.id; this.advanced.push(body); return { scene }; }
   async enterScenario(_ch, id) { for (const x of this.scenes_) if (x.id === this.currentScene) x.status = "closed"; this.currentScene = id; this.advanced.push({ entered: id }); return { scene: this.scenes_.find((x) => x.id === id) }; }
-  async createCharacter(_ch, body) { const c = { id: `c-new${this.created.length}`, user_id: null, ...body }; this.created.push(c); this.characters_.push(c); return c; }
+  async createCharacter(_ch, body) { const c = { id: `c-new${this.created.length}`, user_id: body.kind === "pc" ? this.user.id : null, ...body }; this.created.push(c); this.characters_.push(c); return c; }
   async putCard() { return {}; }
   async putAppearance() { return {}; }
   async scenes() { return structuredClone(this.scenes_); }
@@ -201,7 +201,7 @@ test("lines in quick succession make one turn, and every caller learns when it r
 });
 
 test("the investigators' basic details and backgrounds reach the Keeper and the co-players, real NPCs' details only the Keeper", async () => {
-  const tomas = { id: "c-tomas", name: "Tomas Leclerc", kind: "npc", user_id: null, speaking_style: markStyle("eager"), bio: "TOMAS-BIO: a reporter who owes Alice",
+  const tomas = { id: "c-tomas", name: "Tomas Leclerc", kind: "pc", user_id: "u-bot", speaking_style: "eager", bio: "TOMAS-BIO: a reporter who owes Alice",
     role_card: { basic: { occupation: "TOMAS-JOB photographer" }, background: { traits: "TOMAS-TRAITS: never sits still" } } };
   const { t, api, llm } = await table({ extraCharacters: [tomas] });
   await playerSays(t, api, "Who here has been to the docks?");
@@ -675,4 +675,17 @@ test("isolated channels warn only when players share a player group", async () =
   api.groups = [{ id: "g1", name: "Party", members: [{ user_id: "u-alice" }, { user_id: "u-bob" }] }];
   const t2 = await new Table({ api, llm: new MockLlm(), cfg: { ...buildConfig({}, {}), debounceMs: 0 }, channelId: "ch", roster: new Roster(), sleep: async () => {} }).init();
   assert.match(t2.splitWarning, /share a player group \(Party\)/);
+});
+
+test("co-players are GM-cast PCs: every PC the Keeper account owns is one, older marked NPCs still are, and none is taken for a player", async () => {
+  const legacy = { id: "c-old", name: "Old Ned", kind: "npc", user_id: null, speaking_style: markStyle("gruff"), bio: "An older co-player." };
+  const { t } = await table({ extraCharacters: [legacy] });
+  assert.ok(t.roster.isCoplayer("c-harriet"), "a PC the Keeper owns is a co-player");
+  assert.ok(t.roster.isCoplayer("c-old"), "a marked NPC from an older version still is");
+  assert.ok(t.roster.isNpc("c-butler"), "an unmarked NPC is a real NPC");
+  assert.equal(t.isPc("c-harriet"), false, "a GM-cast PC is not a player character");
+  assert.equal(t.isPc("c-alice"), true);
+  const ctx = await t.gm.build({ windowId: "w-main", roster: t.roster, characters: t.characters, windows: t.windows, timelines: t.timelines, sceneOf: (w) => t.scene(w) });
+  const cast = ctx.text.slice(ctx.text.indexOf("## Cast"));
+  assert.ok(cast.indexOf("Harriet Vance") > cast.indexOf("Co-players"), "listed with the co-players, not the player characters");
 });

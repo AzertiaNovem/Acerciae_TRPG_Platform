@@ -7,11 +7,14 @@ HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile app
 |---|---|---|---|
 | **GM (Keeper)** | the client's account, channel role `gm` | – | everything the Keeper may read (below) |
 | **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the Keeper by hand) | **the same context as the GM** |
-| **Co-player** | an `npc` character | **the LLM writes its COC7 role card** at setup | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
+| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its COC7 role card** at setup (or the Keeper made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
 Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
-platform they are NPCs like any other, because only a GM may create characters without a player. Inside this client
-they are separate from the real NPCs: they get different context, and the GM model is never allowed to speak for them.
+platform they are PCs cast by the GM: player characters owned by the client's own (Keeper) account, so players see them
+in the character list and can read (not edit) their sheets, and Log Studio files their lines as investigators' lines.
+Every PC the Keeper account owns is a co-player: `setup` adopts the ones already in the channel (made by hand in the web
+app, say) and generates only the missing ones. Inside this client co-players are separate from the real NPCs: they get
+different context, and the GM model is never allowed to speak for them.
 
 The platform's own AI never speaks in chat. It writes tips for the Keeper: the pinned board, reminder bubbles, script
 knowledge, documents, highlights and module hints. This client reads those tips for the GM and the real NPCs. Co-players
@@ -278,9 +281,10 @@ for the model. HTTP 504 means the model gateway timed out, even if the client's 
 can keep an idle-timeout gateway connection active once the model starts sending data, but cannot fix an unavailable
 upstream or a gateway's absolute request deadline. After a failure, run setup again; it keeps previously saved co-players.
 
-**Recovering a lost roster.** Co-players carry a `[co-player]` prefix in their character's speaking style. If the state
-file is lost, the roster is rebuilt from the channel's characters: marked NPCs become co-players and every other NPC is a
-real NPC (including ones the Keeper makes in the web app).
+**Recovering a lost roster.** If the state file is lost, the roster is rebuilt from the channel's characters: PCs owned by
+the Keeper account are co-players and every NPC is a real NPC (including ones the Keeper makes in the web app).
+Co-players made by older versions are NPCs whose speaking style starts with `[co-player]`; they are still recognised,
+because the platform cannot change a character's kind.
 
 ## Tests
 
@@ -299,9 +303,9 @@ The tests need no backend and no model. They cover:
 
 - **Co-player lines count as Keeper lines.** They are posted by the Keeper account, so the platform records them with
   `actor_role = gm`. The platform's chronicler accepts GM-authored lines as grounds for `confirmed` facts, so a
-  co-player's in-character guess may be recorded as established. Co-player lines are posted under an NPC character, which
-  the chronicler's instructions treat as an NPC claim, but nothing enforces that. A platform-side `co-player` character
-  flag would fix this.
+  co-player's in-character guess may be recorded as established. Log Studio and the players' group memory count them
+  as the investigator's lines (the character is a PC); the Keeper-side observers, reminders and script tracking still
+  see a Keeper line.
 - Co-players start in the windows of `COPLAYER_WINDOWS` and move only through whereabouts (or `split` and `rejoin`). A
   private window the Keeper creates in the web app does not seat them automatically and is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side

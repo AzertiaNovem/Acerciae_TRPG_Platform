@@ -22,7 +22,7 @@ Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,c
     struct Unlock { ObserverScheduler* s; std::string k; ~Unlock(){s->unlock(k);} } unlocker{this,key};
     auto cursor=db_.queryOne("SELECT last_seq FROM ai_processing_cursors WHERE channel_id=$1 AND kind='observe' AND group_key=$2",{channelId,key});
     int64_t last=cursor.isNull()?0:cursor["last_seq"].asInt64();
-    auto batch=db_.queryJson("SELECT e.id AS event_id,e.seq,e.scene_id,e.actor_role,e.character_id,c.name AS character_name,e.kind,e.payload,e.payload->>'content' AS content,e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id WHERE e.channel_id=$1 AND e.seq>$2 AND e.seq<=$4 AND "+Visibility::eventFilter(view)+" ORDER BY e.seq LIMIT $3",{channelId,last,(int64_t)cfg_.observerMaxBatch,safe});
+    auto batch=db_.queryJson("SELECT e.id AS event_id,e.seq,e.scene_id,e.actor_role,e.character_id,c.name AS character_name,c.kind AS character_kind,e.kind,e.payload,e.payload->>'content' AS content,e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id WHERE e.channel_id=$1 AND e.seq>$2 AND e.seq<=$4 AND "+Visibility::eventFilter(view)+" ORDER BY e.seq LIMIT $3",{channelId,last,(int64_t)cfg_.observerMaxBatch,safe});
     if(batch.empty()) return Json::Value();
     auto to=batch[batch.size()-1]["seq"].asInt64();
     Json::Value job;
@@ -44,13 +44,14 @@ Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,c
         ctx["documents"]["current_scene"]=retrieval_.documentSnapshot(view,"current_scene",sceneId,80);
         ctx["related_history"]=retrieval_.relatedHistory(view,{terms.begin(),terms.end()},sceneId,12);
         ctx["characters"]=Json::Value(Json::arrayValue);
-        // Speaker identity comes from witnessed messages, never the KP character registry.
+        // Speaker identity comes from witnessed messages, never the KP character registry. A PC is public table
+        // knowledge, so a GM-cast PC (an AI co-player the Keeper voices) counts as the investigator it is.
         std::set<std::string> speakers;
         std::vector<std::string> sources;
         for(const auto& e : batch) {
             sources.push_back(e["event_id"].asString());
             if(e["character_id"].isString() && speakers.insert(e["character_id"].asString()).second) {
-                Json::Value c; c["id"]=e["character_id"]; c["name"]=e["character_name"]; c["kind"]=json::str(e,"actor_role")=="player"?"pc":"npc"; ctx["characters"].append(c);
+                Json::Value c; c["id"]=e["character_id"]; c["name"]=e["character_name"]; c["kind"]=(json::str(e,"actor_role")=="player"||json::str(e,"character_kind")=="pc")?"pc":"npc"; ctx["characters"].append(c);
             }
         }
         ctx["scene"]["participants"]=Json::Value(Json::arrayValue);

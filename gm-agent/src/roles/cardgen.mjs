@@ -2,7 +2,6 @@
 // checked against COC7 before it is saved: characteristics clamped to the creation ranges, derived values computed,
 // skill names matched to the platform's list (GET /api/coc7/rules), so the platform's dice read it correctly.
 import { completeJson } from "../llm/index.mjs";
-import { markStyle } from "./roster.mjs";
 import { allocatePointBuy, careerCatalog, findCareer } from "./pointbuy.mjs";
 
 const CHARS = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK"];
@@ -166,9 +165,10 @@ export async function putCardWithPoints(api, channelId, characterId, card, { hea
 
 export async function saveCharacter(api, channelId, generated, { kind, rules, llm, language, pointsMode = false }) {
   const card = normalizeCard(generated.role_card, { rules, kind });
-  const style = kind === "coplayer" ? markStyle(generated.speaking_style) : s(generated.speaking_style, 300);
+  // A co-player is a GM-cast PC: a PC the Keeper account owns (the platform makes the creator the owner).
+  const style = s(generated.speaking_style, 300);
   const bio = s(generated.persona ?? generated.brief, 6000);
-  const ch = await api.createCharacter(channelId, { name: s(generated.name), kind: "npc", speaking_style: style, description: bio.slice(0, 500) });
+  const ch = await api.createCharacter(channelId, { name: s(generated.name), kind: kind === "coplayer" ? "pc" : "npc", speaking_style: style, description: bio.slice(0, 500) });
   const savedCard = await putCardWithPoints(api, channelId, ch.id, card, {
     head: { name: s(generated.name), speaking_style: style, bio }, rules, llm, language, pointsMode,
   });

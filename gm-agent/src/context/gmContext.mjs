@@ -3,6 +3,7 @@
 // hints), and every chat line in every window. Co-players never get this (see coplayerContext.mjs).
 import { renderLine } from "./coplayerContext.mjs";
 import { renderProfile } from "./profiles.mjs";
+import { isPlayerCharacter } from "../roles/roster.mjs";
 
 const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const json = (v, n) => clip(JSON.stringify(v ?? null), n);
@@ -82,7 +83,7 @@ export class GmContext {
     if (prepared.length) sections.push(`## Prepared scenarios (enter_scenario)\n${prepared.map((s) => `- ${s.title}${s.location ? ` @ ${s.location}` : ""}${s.narrative_time ? ` (${s.narrative_time})` : ""}${s.summary ? `: ${clip(s.summary, 200)}` : ""}`).join("\n")}`);
     const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-4);
     if (closed.length) sections.push(`## Earlier scenarios\n${closed.map((s) => `- ${s.title}: ${clip(s.summary, 500)}`).join("\n")}`);
-    const pcs = characters.filter((c) => c.kind === "pc");
+    const pcs = characters.filter((c) => isPlayerCharacter(c, roster));
     const coplayers = characters.filter((c) => roster.isCoplayer(c.id));
     sections.push([
       "## Cast",
