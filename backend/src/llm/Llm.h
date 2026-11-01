@@ -39,6 +39,7 @@ struct LlmEndpoint {
 struct LlmProfile {
     LlmEndpoint endpoint;
     std::string language;          // BCP-47-ish code, '' or 'en' = English
+    std::string ruleSystem;        // the channel's rule system (coc7e | dnd2024): how system prompts name the game and GM
 };
 
 // Prompt caching. Providers cache a request's prefix (tools, then the system prompt, then the messages) and serve the

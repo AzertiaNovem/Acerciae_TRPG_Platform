@@ -91,7 +91,7 @@ private:
 
 // ---- commands -------------------------------------------------------------------------------------
 struct Command {
-    std::string name;       // r | ra | sc | st | en  (rc is an alias of ra)
+    std::string name;       // r | ra | sc | st | en  (rc is an alias of ra); D&D: ri | init | ds | ss
     std::string args;
     bool hidden = false;    // .rh / .rah / .rch
     std::string raw;        // e.g. ".ra"
@@ -103,6 +103,7 @@ struct Context {
     std::string name;           // who acts: character name, or the author's display name for plain rolls
     bool hasCharacter = false;
     std::string language;       // server language: names in it are accepted and replies use them
+    std::string ruleSystem = "coc7e";   // the channel's rules: coc7e (BRP) or dnd2024 (D20 Tests, see Dnd.h)
     Json::Value attrs = Json::Value(Json::objectValue);
 };
 struct Outcome {

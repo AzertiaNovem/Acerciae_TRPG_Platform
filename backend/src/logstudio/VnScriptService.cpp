@@ -10,6 +10,7 @@
 #include "CreativeService.h"
 #include "PresentationService.h"
 #include "StudioPolicy.h"
+#include "../rules/RuleSystem.h"
 #include <algorithm>
 #include <regex>
 #include <ctime>
@@ -193,16 +194,16 @@ std::vector<std::pair<size_t, size_t>> VnScriptService::blocks(const std::vector
   return out;
 }
 
-std::string VnScriptService::speakerLabel(const LogEvent &e) {
-  std::string name = e.speakerDisplayName.empty() ? (e.speakerRole == "gm" ? "KP" : "?") : e.speakerDisplayName;
+std::string VnScriptService::speakerLabel(const LogEvent &e, const std::string &gm) {
+  std::string name = e.speakerDisplayName.empty() ? (e.speakerRole == "gm" ? gm : "?") : e.speakerDisplayName;
   if (e.eventType == "system") return "System";
   if (e.speakerRole == "gm") {
-    if (e.eventType == "ooc") return "KP(OOC)";
-    if (e.eventType == "dice_roll" || e.eventType == "dice") return "KP(Dice)";
-    if (e.eventType == "narration" || e.eventType == "scene_change" || e.speakerCharacterId.empty()) return "KP(Narrative)";
-    return "KP(as " + name + ")";
+    if (e.eventType == "ooc") return gm + "(OOC)";
+    if (e.eventType == "dice_roll" || e.eventType == "dice") return gm + "(Dice)";
+    if (e.eventType == "narration" || e.eventType == "scene_change" || e.speakerCharacterId.empty()) return gm + "(Narrative)";
+    return gm + "(as " + name + ")";
   }
-  if (e.speakerRole == "npc") return "KP(as " + name + ")";
+  if (e.speakerRole == "npc") return gm + "(as " + name + ")";
   if (e.eventType == "ooc") return name + "(OOC)";
   if (e.eventType == "dice_roll" || e.eventType == "dice") return name + "(Dice)";
   return name;
@@ -256,7 +257,7 @@ std::string VnScriptService::blockSection(const ScriptInputs &in, size_t begin, 
       w = e.chatWindowId.empty() ? "## Scene markers\n" : "## Window: " + (in.windowNames.count(e.chatWindowId) ? in.windowNames.at(e.chatWindowId) : "untitled") + "\n";
     }
     auto t = clock(e);
-    w += "[L" + std::to_string(i + 1) + "] " + speakerLabel(e) + (t.empty() ? "" : "(" + t + ")") + ": " + clip(e.content, 1500);
+    w += "[L" + std::to_string(i + 1) + "] " + speakerLabel(e, in.gmShort) + (t.empty() ? "" : "(" + t + ")") + ": " + clip(e.content, 1500);
     if (e.dice && e.dice->total) w += " [roll " + std::to_string(*e.dice->total) + (e.dice->outcome.empty() ? "" : " " + e.dice->outcome) + "]";
     w += "\n";
   }
@@ -736,8 +737,8 @@ ScriptInputs VnScriptService::inputs(const ChannelAccess &a, const std::string &
     in.events.erase(in.events.begin(), in.events.begin() + (std::ptrdiff_t)continuationStart(in.events, presentedEvents(cont)));
     if (in.events.empty()) throw badRequest("there are no new lines after the end of this visual novel");
   }
-  auto ch = db_.queryOne("SELECT era FROM channels WHERE id=$1", {a.channelId});
-  if (!ch.isNull()) in.era = ch["era"].asString();
+  auto ch = db_.queryOne("SELECT era, rule_system FROM channels WHERE id=$1", {a.channelId});
+  if (!ch.isNull()) { in.era = ch["era"].asString(); in.gmShort = rules::profile(ch["rule_system"].asString()).gmShort; }
   std::set<std::string> windowIds, speakers;
   std::string corpus;
   for (const auto &e : in.events) {

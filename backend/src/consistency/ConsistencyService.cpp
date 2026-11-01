@@ -6,6 +6,7 @@
 #include "../knowledge/Visibility.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
+#include "../rules/RuleSystem.h"
 #include "../core/Text.h"
 #include <set>
 
@@ -54,7 +55,7 @@ Json::Value ConsistencyService::check(const ChannelAccess& a, const std::string&
     scene.removeMember("log"); scene.removeMember("facts");
     ctx["scene"] = scene;
     ctx["known_facts"] = gatherEvidence(db_, a, characterId, draft, 40);
-    ctx["rule_hints"] = "BRP/CoC: players declare intent; the Keeper adjudicates success. Characters only know what they witnessed or were told.";
+    ctx["rule_hints"] = rules::profile(ch["rule_system"].asString()).hints;
 
     LlmRequest req; req.channelId = a.channelId; req.task = "consistency"; req.responseSchema = schema(); req.temperature = 0.1;
     req.system = R"(You check a player's DRAFT message against ONLY the records their character may access (known_facts, recent_messages, scene). Judge: established facts, what the character actually knows, current time/place, relationships and promises, actions already taken, GM-stated world rules, BRP/CoC conventions, and references to things the character could not know. Never reveal or hint at information outside known_facts. Cite fact_ids as evidence. The score is a heuristic 0-100 consistency estimate, not a probability. If nothing in the records relates to the draft, set insufficient_evidence=true and score=null instead of guessing. Do not rewrite the draft. Output JSON: {"score":int|null,"insufficient_evidence":bool,"rationale":"...","conflicts":[{"description":"...","severity":"low|medium|high","evidence_fact_ids":["..."],"quote":"..."}],"supporting_fact_ids":[...],"recommended_fact_ids":[...]})";

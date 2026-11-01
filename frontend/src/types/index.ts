@@ -8,7 +8,7 @@ export interface ServerPolicy { join_policy: 'open' | 'invite' | 'closed'; chann
 export interface SpectatableChannel { id: string; name: string; description: string }
 export interface SpectateView { channel: { id: string; server_id: string; name: string; description: string }; window: { id: string; name: string } | null; messages: Message[] }
 export interface Channel {
-  id: string; server_id: string; name: string; description: string; rule_system: string;
+  id: string; server_id: string; name: string; description: string; rule_system: 'coc7e' | 'dnd2024' | string; point_buy?: boolean;
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean; studio_player_access?: boolean;
   story_status?: 'ongoing' | 'ended'; story_ended_at?: string | null; story_reveal_all?: boolean;
@@ -30,18 +30,40 @@ export interface RoleCard {
   background: Record<'personal_description' | 'ideology' | 'significant_people' | 'meaningful_locations' | 'treasured_possessions' | 'traits' | 'injuries' | 'phobias' | 'arcane' | 'encounters', string>;
   items: { name: string; note: string; qty: number }[];
   wealth: { cash: string; assets: string; spending_level: string };
-  // Point-buy mode (server feature coc7_points): the career with its option picks and free specialties, and the
+  // Point-buy mode (the channel's point_buy, set by its GM): the career with its option picks and free specialties, and the
   // career / hobby / growth points per skill. Totals in `skills` are recomputed from these by the server.
   career?: { name: string; choices: string[][]; specialties: string[] };
   skill_points?: Record<string, SkillPoints>;
+  dnd?: DndCard;   // D&D channels: the character's build (the server mirrors it into the dice attributes)
+}
+export interface InitiativeOrder { round: number; turn: string | null; entries: { id: string; name: string; total: number; tiebreak: number; character_id: string | null; created_by: string | null }[] }
+export type DndAbility = 'STR' | 'DEX' | 'CON' | 'INT' | 'WIS' | 'CHA';
+export interface DndCard {
+  class: string; subclass: string; species: string; background: string; level: number;
+  method: 'point_buy' | 'standard_array' | 'manual';
+  base: Partial<Record<DndAbility, number>>; increases: Partial<Record<DndAbility, number>>; improvements: Partial<Record<DndAbility, number>>;
+  saves: DndAbility[]; skills: Record<string, number>;   // skill -> 1 proficient, 2 expertise
+  ac: number; hp_max: number; speed: number; initiative: number; hit_dice: string;
+  spellcasting_ability: DndAbility | ''; slots: Record<string, number>;   // spell level -> slots per long rest
+  features: string; spells: string;
+}
+type Names = Record<string, string>;
+export interface DndRules {
+  classes: { name: string; names: Names; hit_die: number; saves: DndAbility[]; skill_count: number; skills: string[]; caster: 'full' | 'half' | 'pact' | 'none' }[];
+  species: { name: string; names: Names; speed: number; extra_skills: number; skill_from: string[] }[];
+  backgrounds: { name: string; names: Names; abilities: DndAbility[]; skills: string[] }[];
+  point_buy: { budget: number; min: number; max: number; costs: Record<string, number> };
+  standard_array: number[]; max_after_background: number;
+  slots: { full: number[][]; half: number[][]; pact: { slots: number; level: number }[] };
+  abilities: DndAbility[]; skills: { name: string; ability: DndAbility }[]; names: Record<string, Names>; source: string;
 }
 export interface SkillPoints { career: number; hobby: number; growth: number; base?: number }
-export interface PointsReport { enabled: boolean; language?: string; career?: string | null; career_budget?: number; career_spent?: number; hobby_budget?: number; hobby_spent?: number; characteristics_total?: number; luck?: number; allowed?: string[]; violations?: { code: string; message: string; skill?: string }[]; warnings?: { code: string; message: string }[] }
+export interface PointsReport { enabled: boolean; rule_system?: string; method?: string; budget?: number; spent?: number; scores?: Record<string, number>; language?: string; career?: string | null; career_budget?: number; career_spent?: number; hobby_budget?: number; hobby_spent?: number; characteristics_total?: number; luck?: number; allowed?: string[]; violations?: { code: string; message: string; skill?: string }[]; warnings?: { code: string; message: string }[] }
 export interface Coc7Option { skill: string; label: string; any?: boolean; spec?: string }
 export interface Coc7Career { id: number; name: string; credit: [number, number] | null; points: { attrs: string[]; mult: number }[]; formula: string; fixed: Coc7Option[]; choices: { pick: number; from: Coc7Option[] }[]; free: number; description: string; names?: Record<string, string>; descriptions?: Record<string, string> }
 export interface Coc7Rules { skills: { name: string; base: number | 'DEX/2' | 'EDU'; names?: Record<string, string> }[]; families: { name: string; base: number; names?: Record<string, string> }[]; careers: Coc7Career[]; characteristics?: { name: string; names?: Record<string, string> }[]; hobby_formula: string }
 export interface CharacterAssetRef { id: string; version: number; mime: string; width: number | null; height: number | null; source_type: string; approval_status: string; subtitle?: string }
-export interface CharacterSpace { character: Character & { role_card: RoleCard; editable: boolean }; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[]; jobs: { id: string; kind: string; status: string; error: string | null; attach: { slot: string; subtitle: string } | null; created_at: string; finished_at: string | null }[]; era: string; narrative_time: string | null; attrs: Record<string, number>; generation_available: boolean; points: PointsReport }
+export interface CharacterSpace { character: Character & { role_card: RoleCard; editable: boolean }; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[]; jobs: { id: string; kind: string; status: string; error: string | null; attach: { slot: string; subtitle: string } | null; created_at: string; finished_at: string | null }[]; era: string; narrative_time: string | null; attrs: Record<string, number>; generation_available: boolean; points: PointsReport; rule_system?: 'coc7e' | 'dnd2024' | string }
 export interface PlayerGroup { id: string; channel_id: string; name: string; version: number; members: {user_id: string; display_name: string}[] }
 export interface Message {
   reference_ids?: string[];
@@ -132,7 +154,7 @@ export interface TtsJob { id: string; presentation_id: string | null; kind: stri
 export interface UserLite { id: string; username: string; display_name: string }
 export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member' | 'guest'; joined_at: string }
 export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
-export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'coc7_points' | 'atmosphere';
+export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'atmosphere';
 export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; cached_tokens_used?: number; images_used: number; running: number }
 export interface ServerSettings {
   server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;

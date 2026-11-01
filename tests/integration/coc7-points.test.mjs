@@ -22,16 +22,18 @@ test("COC7 point-buy: a server feature; careers from the list gate career points
   const save = (role_card) => call(p1, "PUT", `/api/channels/${ch}/characters/${ada.id}/card`, { role_card });
 
   // Off by default: the card takes skill totals directly and no report is produced.
-  assert.equal((await call(gm, "GET", `/api/servers/${server.id}/settings`)).features.coc7_points, false);
+  assert.equal((await call(gm, "GET", `/api/servers/${server.id}/settings`)).features.coc7_points, undefined, "point buy is no longer a server feature");
+  assert.equal((await call(gm, "GET", `/api/channels/${ch}`)).point_buy, false);
   assert.equal((await space()).points.enabled, false);
   const chars = { STR: 50, CON: 60, SIZ: 50, DEX: 70, APP: 60, INT: 80, POW: 60, EDU: 75, LUK: 45 };
   const free = await save({ characteristics: chars, skills: { "Spot Hidden": 90, Stealth: 80 }, career: { name: "星际海盗" }, skill_points: { Stealth: { career: 500 } } });
   assert.equal(free.character.role_card.skills["Spot Hidden"], 90);
   assert.equal(free.character.role_card.career.name, "星际海盗", "the card keeps the fields; only the mode enforces them");
 
-  // The maintainer turns the mode on.
-  const settings = await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { coc7_points: true } });
-  assert.equal(settings.features.coc7_points, true);
+  // The channel's GM turns the mode on; a player cannot.
+  await rejects(call(p1, "PUT", `/api/channels/${ch}`, { point_buy: true }), 403);
+  const settings = await call(gm, "PUT", `/api/channels/${ch}`, { point_buy: true });
+  assert.equal(settings.point_buy, true);
   const rules = await call(p1, "GET", "/api/coc7/rules");
   assert.equal(rules.careers.length, 230);
   assert.ok(rules.skills.some((s) => s.name === "Spot Hidden" && s.base === 25) && rules.skills.some((s) => s.name === "Dodge" && s.base === "DEX/2"));
@@ -87,7 +89,7 @@ test("COC7 point-buy: a server feature; careers from the list gate career points
   const unchosen = await rejects(save({ ...hunterCard, skill_points: { ...hunterCard.skill_points, "Spot Hidden": { career: 10 } } }), 400);
   assert.match(unchosen.body.message, /Spot Hidden is not one of the career's skills/);
   // Off again: the same over-limit card saves without complaint.
-  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { coc7_points: false } });
+  await call(gm, "PUT", `/api/channels/${ch}`, { point_buy: false });
   await save({ ...card, skill_points: { ...card.skill_points, Stealth: { career: 10 } } });
 });
 
@@ -95,8 +97,8 @@ test("COC7 skill names follow the server language: the sheet gets the names, .ra
   const suffix = Math.random().toString(36).slice(2);
   const gm = (await call(null, "POST", "/api/auth/register", { username: "kpja" + suffix, password: "password", display_name: "Keeper" })).token;
   const server = await call(gm, "POST", "/api/servers", { name: "Names" });
-  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { language: "ja", features: { coc7_points: true } });
-  const ch = (await call(gm, "POST", `/api/servers/${server.id}/channels`, { name: "Innsmouth" })).id;
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { language: "ja" });
+  const ch = (await call(gm, "POST", `/api/servers/${server.id}/channels`, { name: "Innsmouth", point_buy: true })).id;
   const main = (await call(gm, "GET", `/api/channels/${ch}/windows`))[0].id;
   const npc = await call(gm, "POST", `/api/channels/${ch}/characters`, { name: "Aki" });
 

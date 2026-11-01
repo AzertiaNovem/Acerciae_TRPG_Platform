@@ -17,6 +17,9 @@
 #include "documents/DocumentService.h"
 #include "logstudio/LogAdapters.h"
 #include "dice/Dice.h"
+#include "dice/Dnd.h"
+#include "characters/Dnd2024Rules.h"
+#include "rules/RuleSystem.h"
 #include "logstudio/TtsProvider.h"
 #include "logstudio/TtsService.h"
 #include "logstudio/PublicationService.h"
@@ -462,6 +465,107 @@ int main() {
         CHECK(dice::preview(*dice::parseCommand(".ra 目星"), enCtx, en).find("目星") != std::string::npos);   // not a skill name here
         CHECK(!dice::lookup(enCtx.attrs, "目星", "en").found);
     });
+    test("D&D 2024 dice: names in every language, D20 Tests, Initiative, Death Saving Throws and spell slots", [] {
+        using namespace dice;
+        const auto npos = std::string::npos;
+        CHECK(dnd::canonical("感知") == "WIS"); CHECK(dnd::canonical("wis") == "WIS"); CHECK(dnd::canonical("力量豁免") == "STR Save");
+        CHECK(dnd::canonical("Dex save") == "DEX Save"); CHECK(dnd::canonical("sigilo") == "Stealth"); CHECK(dnd::canonical("Ловкость рук") == "Sleight of Hand");
+        CHECK(dnd::canonical("法术位1") == "Slot 1"); CHECK(dnd::canonical("1环法术位上限") == "Slot 1 Max"); CHECK(dnd::canonical("slot 3 max") == "Slot 3 Max");
+        CHECK(dnd::canonical("Spot Hidden").empty()); CHECK(dnd::canonical("1").empty());
+        CHECK(dnd::displayName("WIS", "zh-CN") == "感知"); CHECK(dnd::displayName("DEX Save", "zh-CN") == "敏捷豁免"); CHECK(dnd::displayName("Stealth", "ja") == "隠密");
+        CHECK(dnd::modifier(8) == -1); CHECK(dnd::modifier(15) == 2); CHECK(dnd::modifier(1) == -5);
+        CHECK(dnd::proficiencyBonus(1) == 2); CHECK(dnd::proficiencyBonus(5) == 3); CHECK(dnd::proficiencyBonus(17) == 6);
+        CHECK(parseCommand(".ri")->name == "ri"); CHECK(parseCommand(".rih +1")->hidden); CHECK(parseCommand(".init next")->name == "init");
+        CHECK(parseCommand("。ds")->name == "ds"); CHECK(parseCommand(".ss 1")->name == "ss"); CHECK(parseCommand(".rc stealth")->name == "ra");
+        for (auto& k : textKeys()) CHECK(builtinTexts("zh").isMember(k));
+
+        TextSet t("en", Json::Value());
+        Context ctx; ctx.name = "Ada"; ctx.hasCharacter = true; ctx.ruleSystem = "dnd2024";
+        ctx.attrs = json::parse(R"({"STR":10,"DEX":16,"WIS":13,"Level":5,"Stealth":2,"Perception":1,"DEX Save":1,"HP":3,"HP Max":20})");
+        auto run = [&](const std::string& line, std::vector<int> rolls) { auto c = parseCommand(line); SeqRng r(std::move(rolls)); return execute(*c, ctx, t, r); };
+        auto fails = [&](const std::string& line, const std::string& part) { try { run(line, {10, 10}); } catch (const DiceError& e) { return std::string(e.what()).find(part) != npos; } return false; };
+        // Expertise: DEX +3 and twice the proficiency bonus (3) on a 7.
+        auto s = run(".rc stealth dc 15", {7});
+        CHECK(s.detail["total"].asInt() == 16); CHECK(s.detail["success"].asBool()); CHECK(s.text.find("Stealth (DEX) check") != npos); CHECK(s.text.find("(expertise)") != npos);
+        auto adv = run(".rc 察觉 优势", {4, 15}); CHECK(adv.detail["roll"].asInt() == 15); CHECK(adv.detail["total"].asInt() == 19); CHECK(adv.detail["mode"].asInt() == 1);
+        auto both = run(".rc perception adv dis", {4}); CHECK(both.detail["rolls"].size() == 1);   // Advantage and Disadvantage cancel
+        // A saving throw with proficiency and an extra die (the extra is rolled first).
+        auto sv = run(".rc dex save +1d4 dc 20", {3, 10});
+        CHECK(sv.detail["test"] == "save"); CHECK(sv.detail["total"].asInt() == 19); CHECK(!sv.detail["success"].asBool());
+        // Attacks: a natural 20 always hits (Critical Hit), a natural 1 always misses; checks only add the die.
+        auto crit = run(".rc attack +5 ac 30", {20}); CHECK(crit.detail["critical"].asBool()); CHECK(crit.detail["success"].asBool());
+        auto miss = run(".rc attack +50 ac 10", {1}); CHECK(!miss.detail["success"].asBool());
+        auto one = run(".rc wis dc 2", {1}); CHECK(one.detail["success"].asBool());
+        CHECK(fails(".rc cha", "has no CHA"));
+        // Initiative: the sheet's DEX modifier; a name rolls for someone else with its own bonus.
+        auto ri = run(".ri", {12}); CHECK(ri.detail["initiative"]["total"].asInt() == 15); CHECK(ri.detail["initiative"]["tiebreak"].asInt() == 3); CHECK(ri.detail["initiative"]["own"].asBool());
+        auto gob = run(".ri +2 Goblin 2", {9}); CHECK(gob.detail["initiative"]["name"] == "Goblin 2"); CHECK(gob.detail["initiative"]["total"].asInt() == 11); CHECK(!gob.detail["initiative"]["own"].asBool());
+        // Death Saving Throws: a 1 counts twice, three failures kill, a 20 brings the character back with 1 HP.
+        ctx.attrs["HP"] = 0;
+        auto d1 = run(".ds", {1}); CHECK(d1.attrs["Death Failures"].asInt() == 2);
+        ctx.attrs = d1.attrs; auto d2 = run(".ds", {5}); CHECK(d2.attrs["Death Failures"].asInt() == 3); CHECK(d2.text.find("dies") != npos);
+        auto d3 = run(".ds", {20}); CHECK(d3.attrs["Death Failures"].asInt() == 0); CHECK(d3.attrs["HP"].asInt() == 1);
+        ctx.attrs["Death Successes"] = 2; ctx.attrs["Death Failures"] = 1;
+        auto d4 = run(".ds", {15}); CHECK(d4.text.find("Stable") != npos); CHECK(d4.attrs["Death Successes"].asInt() == 0);
+        // Spell slots: spend, run out, regain, Long Rest.
+        ctx.attrs = json::parse(R"({"Slot 1":1,"Slot 1 Max":4,"Slot 2 Max":2})");
+        auto u = run(".ss 1", {}); CHECK(u.attrs["Slot 1"].asInt() == 0);
+        ctx.attrs = u.attrs; CHECK(fails(".ss 1", "no level 1 spell slot left"));
+        CHECK(run(".ss", {}).text.find("level 1 0/4, level 2 2/2") != npos);
+        CHECK(run(".ss 1 +2", {}).attrs["Slot 1"].asInt() == 2);
+        auto rest = run(".ss reset", {}); CHECK(rest.attrs["Slot 1"].asInt() == 4); CHECK(rest.attrs["Slot 2"].asInt() == 2);
+        // .st reads D&D names in a D&D channel.
+        auto st = run(".st 感知14 力量豁免1", {}); CHECK(st.attrs["WIS"].asInt() == 14); CHECK(st.attrs["STR Save"].asInt() == 1);
+        // Each rule system answers only its own commands.
+        CHECK(fails(".sc 1/1d6", "Call of Cthulhu rules"));
+        ctx.ruleSystem = "coc7e"; CHECK(fails(".ri", "D&D rules")); CHECK(fails(".ss 1", "D&D rules"));
+    });
+    test("D&D 2024 character rules: point buy, standard array, background increases, skills, mirrored attributes, prompts", [] {
+        auto d = dnd2024::normalize(json::parse(R"({"class":"Rogue","species":"Elf","background":"Criminal","level":3,"method":"point_buy",
+            "base":{"STR":8,"DEX":15,"CON":14,"INT":12,"WIS":12,"CHA":10},"increases":{"DEX":2,"INT":1},"saves":["DEX","INT"],
+            "skills":{"Stealth":2,"Sleight of Hand":1,"Acrobatics":1,"Deception":1,"Investigation":1,"Perception":1,"Insight":1},
+            "ac":14,"hp_max":21,"slots":{"1":2},"bogus":1})"));
+        CHECK(!d.isMember("bogus"));
+        auto rep = dnd2024::check(d);
+        CHECK(rep["violations"].empty()); CHECK(rep["spent"].asInt() == 26); CHECK(rep["scores"]["DEX"].asInt() == 17);
+        auto codes = [](const Json::Value& r) { std::set<std::string> c; for (const auto& v : r["violations"]) c.insert(v["code"].asString()); return c; };
+        auto bad = d; bad["base"]["STR"] = 15; bad["increases"]["STR"] = 1; bad["skills"]["Athletics"] = 1; bad["saves"] = json::parse(R"(["DEX"])");
+        auto bc = codes(dnd2024::check(bad));
+        for (auto c : {"budget", "increase_ability", "increases", "skills", "saves"}) CHECK(bc.count(c));
+        auto arr = d; arr["method"] = "standard_array"; arr["base"] = json::parse(R"({"STR":8,"DEX":15,"CON":14,"INT":13,"WIS":12,"CHA":10})");
+        CHECK(dnd2024::check(arr)["violations"].empty());
+        arr["base"]["CHA"] = 15; CHECK(codes(dnd2024::check(arr)).count("standard_array"));
+        auto manual = d; manual["method"] = "manual"; CHECK(codes(dnd2024::check(manual)).count("method"));
+        auto cap = d; cap["base"]["DEX"] = 19; CHECK(codes(dnd2024::check(cap)).count("increase_cap"));
+        auto attrs = dnd2024::mirrorAttrs(json::parse(R"({"HP":5,"Slot 1":1,"Spot Hidden":60})"), d);
+        CHECK(attrs["DEX"].asInt() == 17); CHECK(attrs["Stealth"].asInt() == 2); CHECK(attrs["Athletics"].asInt() == 0); CHECK(attrs["DEX Save"].asInt() == 1); CHECK(attrs["STR Save"].asInt() == 0);
+        CHECK(attrs["HP"].asInt() == 5); CHECK(attrs["HP Max"].asInt() == 21); CHECK(attrs["Slot 1"].asInt() == 1); CHECK(attrs["Slot 1 Max"].asInt() == 2);
+        CHECK(attrs["Spot Hidden"].asInt() == 60); CHECK(attrs["Level"].asInt() == 3);
+        CHECK(dnd2024::mirrorAttrs(Json::Value(), d)["HP"].asInt() == 21);   // a new character starts at full Hit Points
+        // A caster without slots of its own gets the class table's: a level 3 Wizard 4 + 2, a level 5 Warlock 2 of level 3.
+        auto wiz = d; wiz["class"] = "Wizard"; wiz["slots"] = Json::Value(Json::objectValue);
+        auto wa = dnd2024::mirrorAttrs(Json::Value(), wiz);
+        CHECK(wa["Slot 1 Max"].asInt() == 4); CHECK(wa["Slot 2 Max"].asInt() == 2); CHECK(wa["Slot 2"].asInt() == 2); CHECK(!wa.isMember("Slot 3 Max"));
+        auto wl = wiz; wl["class"] = "Warlock"; wl["level"] = 5;
+        auto la = dnd2024::mirrorAttrs(Json::Value(), wl);
+        CHECK(la["Slot 3 Max"].asInt() == 2); CHECK(!la.isMember("Slot 1 Max"));
+        auto rogue = wiz; rogue["class"] = "Rogue"; CHECK(!dnd2024::mirrorAttrs(Json::Value(), rogue).isMember("Slot 1 Max"));
+        CHECK(dnd2024::normalize(wiz)["slots"]["1"].asInt() == 4);   // the card shows the same slots the dice read
+        auto own = wiz; own["slots"]["1"] = 1; CHECK(dnd2024::normalize(own)["slots"].size() == 1);
+        const auto& R = dnd2024::rules();
+        CHECK(R["classes"].size() == 12); CHECK(R["species"].size() == 9); CHECK(R["backgrounds"].size() == 4); CHECK(R["skills"].size() == 18);
+        CHECK(R["slots"]["full"].size() == 20); CHECK(R["slots"]["full"][19].size() == 9); CHECK(R["slots"]["pact"][10]["slots"].asInt() == 3);
+        // Prompts: the D&D channel's names for the game and the GM; Call of Cthulhu prompts stay as written.
+        const std::string prompt = "You help the Keeper of a Call of Cthulhu / BRP game. KP(Narrative) is the Keeper's narration.";
+        CHECK(acerciae::rules::adapt(prompt, acerciae::rules::profile("coc7e")) == prompt);
+        auto dndPrompt = acerciae::rules::adapt(prompt, acerciae::rules::profile("dnd2024"));
+        CHECK(dndPrompt.find("Keeper") == std::string::npos); CHECK(dndPrompt.find("Dungeon Master's narration") != std::string::npos);
+        CHECK(dndPrompt.find("DM(Narrative)") != std::string::npos); CHECK(dndPrompt.find("D&D 2024") != std::string::npos);
+        CHECK(acerciae::rules::profile("unknown").id == "coc7e"); CHECK(!acerciae::rules::valid("dnd5e")); CHECK(acerciae::rules::valid("dnd2024"));
+        CHECK(acerciae::rules::canonical("coc7") == "coc7e"); CHECK(acerciae::rules::canonical("dnd2024") == "dnd2024"); CHECK(acerciae::rules::canonical("dnd5e").empty());
+        logstudio::LogEvent e; e.eventType = "narration"; e.speakerRole = "gm"; e.speakerDisplayName = "Keeper";
+        CHECK(logstudio::VnScriptService::speakerLabel(e, "DM") == "DM(Narrative)"); CHECK(logstudio::VnScriptService::speakerLabel(e) == "KP(Narrative)");
+    });
     test("dice command parsing (Sealdice syntax)", [] {
         auto c = dice::parseCommand(".ra research"); CHECK(c && c->name == "ra" && c->args == "research" && !c->hidden);
         auto zh = dice::parseCommand("。ra侦查"); CHECK(zh && zh->name == "ra" && zh->args == "侦查");
@@ -883,7 +987,7 @@ int main() {
         CHECK(family("科学（生物学）") == "Science"); CHECK(family("格斗（鞭）") == "Fighting");
         CHECK(skillBase("格斗（鞭）", chars) == 5); CHECK(skillBase("射击（弓）", chars) == 15);
         CHECK(family("科学（生物）") == "Science"); CHECK(skillBase("科学（生物）", chars) == 1); CHECK(skillBase("格斗（剑）", chars) == 20); CHECK(skillBase("射击（弓术）", chars) == 15);
-        CHECK(rules()["careers"].size() == 230); CHECK(rules()["skills"].size() > 50);
+        CHECK(coc7::rules()["careers"].size() == 230); CHECK(coc7::rules()["skills"].size() > 50);
         // An accountant spends career points on career skills and one free specialty; hobby points go anywhere.
         Json::Value card; card["characteristics"] = chars; card["career"]["name"] = "会计师"; card["career"]["specialties"].append("Fighting (Brawl)");
         card["skill_points"]["Spot Hidden"]["career"] = 40; card["skill_points"]["Fighting (Brawl)"]["career"] = 20; card["skill_points"]["Dodge"]["hobby"] = 30; card["skill_points"]["Credit Rating"]["career"] = 40;

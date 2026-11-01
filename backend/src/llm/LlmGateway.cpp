@@ -6,6 +6,7 @@
 #include "SchemaValidator.h"
 #include "../core/Json.h"
 #include "../core/Log.h"
+#include "../rules/RuleSystem.h"
 
 namespace acerciae {
 
@@ -27,6 +28,7 @@ LlmGateway::Resolved LlmGateway::clientFor(const std::string& channelId, const s
     auto profile = resolver_(channelId);   // throws when the server's key cannot be unsealed: never fall back silently
     if (!profile) return r;
     r.language = profile->language;
+    r.ruleSystem = profile->ruleSystem;
     auto ep = profile->endpoint;
     auto limits = limitsForTask(task);
     ep.timeoutMs = limits.timeoutMs;
@@ -110,6 +112,8 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
     auto& client = *resolved.client;
     // Mock calls cost nothing; live calls spend the server's budget and hold one of its concurrent AI slots.
     AiMeter* meter = client.mode() == "live" && !resolved.fixed ? meter_ : nullptr;
+    // The channel's rules name the game and the GM (Keeper or Dungeon Master) in the system prompt.
+    req.system = rules::adapt(req.system, rules::profile(resolved.ruleSystem));
     auto lang = languageName(resolved.language);
     if (!lang.empty())
         req.system += "\n\nOutput language: write every human-readable string (summaries, titles, rationale, descriptions, drafts) in " + lang +

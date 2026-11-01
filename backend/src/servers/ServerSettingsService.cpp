@@ -18,7 +18,8 @@ const std::vector<std::string>& ServerSettingsService::languages() {
     return l;
 }
 
-static const char* FEATURES[] = {"consistency", "dice", "inspiration", "log_studio", "coc7_points", "atmosphere"};
+// Point buy is not here: it is a channel option the GM turns on (channels.point_buy), next to the rule system.
+static const char* FEATURES[] = {"consistency", "dice", "inspiration", "log_studio", "atmosphere"};
 
 static std::string keyHint(const std::string& key) {
     return key.size() > 8 ? "…" + key.substr(key.size() - 4) : "set";
@@ -162,22 +163,22 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     bool guestInvites = json::toBool(sp, "guest_invites", cur["guest_invites"].asBool());
     bool spectators = json::toBool(sp, "main_chat_spectators", cur["main_chat_spectators"].asBool());
 
-    bool feat[6];
-    for (int i = 0; i < 6; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
+    bool feat[5];
+    for (int i = 0; i < 5; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
 
     db_.tx([&](pqxx::work& w) {
         Db::exec(w, "UPDATE servers SET name=$2 WHERE id=$1", {serverId, name});
         Db::exec(w, "UPDATE server_settings SET language=$2, llm_api_base=$3, llm_api_key_sealed=$4, llm_api_key_hint=$5, llm_model=$6, llm_reasoning_effort=$7, "
                     "tts_api_base=$8, tts_api_key_sealed=$9, tts_api_key_hint=$10, tts_model=$11, tts_voice=$12, "
-                    "feature_consistency=$13, feature_dice=$14, feature_inspiration=$15, feature_log_studio=$17, feature_coc7_points=$18, updated_by=$16, updated_at=now() WHERE server_id=$1",
-            {serverId, language, llmBase, llmKey, llmHint, llmModel, effort, ttsBase, ttsKey, ttsHint, ttsModel, ttsVoice, feat[0], feat[1], feat[2], p.userId, feat[3], feat[4]});
+                    "feature_consistency=$13, feature_dice=$14, feature_inspiration=$15, feature_log_studio=$17, updated_by=$16, updated_at=now() WHERE server_id=$1",
+            {serverId, language, llmBase, llmKey, llmHint, llmModel, effort, ttsBase, ttsKey, ttsHint, ttsModel, ttsVoice, feat[0], feat[1], feat[2], p.userId, feat[3]});
         Db::exec(w, "UPDATE server_settings SET llm_provider=$2, image_provider=$3, image_api_base=$4, image_api_key_sealed=$5, image_api_key_hint=$6, image_model=$7, image_size=$8, image_quality=$9, "
                     "tts_provider=$10, llm_embedding_model=$11, ai_token_budget=$12, ai_image_budget=$13, ai_budget_period=$14, ai_max_concurrent=$15 WHERE server_id=$1",
                  {serverId, llmProvider, imageProvider, imageBase, imageKey, imageHint, imageModel, imageSize, imageQuality, ttsProvider, embeddingModel,
                   (int64_t)tokenBudget, (int64_t)imageBudget, period, (int64_t)maxConcurrent});
         Db::exec(w, "UPDATE server_settings SET join_policy=$2, channel_creation=$3, guest_invites=$4, main_chat_spectators=$5 WHERE server_id=$1",
                  {serverId, joinPolicy, channelCreation, guestInvites, spectators});
-        Db::exec(w, "UPDATE server_settings SET feature_atmosphere=$2 WHERE server_id=$1", {serverId,feat[5]});
+        Db::exec(w, "UPDATE server_settings SET feature_atmosphere=$2 WHERE server_id=$1", {serverId,feat[4]});
         if (resetUsage) Db::exec(w, "UPDATE server_settings SET ai_usage_reset_at=now() WHERE server_id=$1", {serverId});
     });
     auto fresh = row(serverId);
@@ -199,10 +200,11 @@ void ServerSettingsService::requireFeature(const std::string& serverId, const st
 }
 
 std::optional<LlmProfile> ServerSettingsService::profileForChannel(const std::string& channelId) {
-    auto r = db_.queryOne("SELECT ss.* FROM channels c JOIN server_settings ss ON ss.server_id=c.server_id WHERE c.id=$1", {channelId});
+    auto r = db_.queryOne("SELECT ss.*, c.rule_system AS channel_rule_system FROM channels c JOIN server_settings ss ON ss.server_id=c.server_id WHERE c.id=$1", {channelId});
     if (r.isNull()) return std::nullopt;
     LlmProfile p;
     p.language = r["language"].asString();
+    p.ruleSystem = r["channel_rule_system"].asString();
     auto& e = p.endpoint;
     e.provider = r["llm_provider"].asString();
     e.timeoutMs = cfg_.llmTimeoutMs; e.maxTokens = cfg_.llmMaxTokens;

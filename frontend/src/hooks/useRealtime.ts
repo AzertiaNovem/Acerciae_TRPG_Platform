@@ -33,6 +33,7 @@ export function useRealtime() {
       const ch = useNav.getState().channelId;
       if (m.channel_id && m.channel_id !== ch) return;
       if (m.type === 'message.posted') { useChat.getState().push(m.message); onIncomingMessage(m.message); const nav = useNav.getState(); speakMessage(m.message, useAuth.getState().user?.id, nav.channelId, nav.windowId); }
+      else if (m.type === 'initiative.changed') window.dispatchEvent(new CustomEvent('acerciae:initiative', { detail: m.chat_window_id }));
       else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows(); }
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
       else if (m.type === 'character.updated') useNav.getState().refreshCharacters();
