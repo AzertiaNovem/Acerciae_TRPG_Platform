@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -23,6 +24,10 @@ struct ScriptInputs {
   Json::Value cast = Json::Value(Json::arrayValue);
   Json::Value assets = Json::Value(Json::arrayValue); // [{ref:"B1"|"M1"|"S1", id, type, name, tags, character_id, expression}]
   std::string era;                                    // the campaign's period, for background and portrait prompts
+  // Continuation only: where the visual novel ended ({scene, background, lines:[...]}) and the names of its scenes
+  // still waiting for a background ([{name, prompt}]), which the planner may reuse like any listed background.
+  Json::Value story;
+  Json::Value knownBackgrounds = Json::Value(Json::arrayValue);
 };
 
 // Turns the campaign log into a visual-novel script, then a draft presentation.
@@ -40,6 +45,8 @@ public:
   Json::Value get(const ChannelAccess &a, const std::string &id);
   // {scope?, scope_character_id?, title?, template?, instructions?, allow_cloud?} freezes the campaign log and plans it;
   // {snapshot_id} plans an existing snapshot instead.
+  // {continue_presentation_id, instructions?, allow_cloud?, generate_art?} continues a visual novel: the campaign log is
+  // frozen again in the presentation's scope and only the lines after its last one are planned and appended to it.
   Json::Value create(const ChannelAccess &a, const Json::Value &body);
   Json::Value cancel(const ChannelAccess &a, const std::string &id);
   Json::Value retry(const ChannelAccess &a, const std::string &id, const Json::Value &body);
@@ -67,11 +74,26 @@ public:
   static Json::Value normalize(const ScriptInputs &in, const std::vector<Json::Value> &plans, const std::string &provider);
   // The label a line carries in the transcript: "Ada Quill", "Ada Quill(OOC)", "KP(Narrative)", "KP(as Old Tom)".
   static std::string speakerLabel(const LogEvent &e);
+  // ---- continuation ----
+  // The system prompt's extra rules when the transcript continues an existing visual novel.
+  static const std::string &continuationRules();
+  // "# Story so far": the scene the visual novel ended on, its background name and its last lines (context only).
+  static std::string storySoFar(const Json::Value &story);
+  // Index of the first line after the presentation's last one: lines the presentation already holds, and lines
+  // before its last one, are not continued. Returns events.size() when nothing is new.
+  static size_t continuationStart(const std::vector<LogEvent> &events, const std::set<std::string> &presented);
+  // Fits a normalized script of new lines onto a presentation's scenes ([{title, canonical_scene_key,
+  // background_asset_id}] in order): the first scene joins the last one ("join_scene_key") when they share a
+  // background name; a scene named like an earlier one reuses its picture; keys never collide with the old ones;
+  // art requests for a picture the presentation already has are dropped.
+  static Json::Value fitContinuation(const Json::Value &script, const Json::Value &oldScenes);
 
 private:
   void loop();
   void run(const Json::Value &job);
-  ScriptInputs inputs(const ChannelAccess &a, const std::string &snapshotId, Json::Value *snap);
+  // With continuePresentationId: only the lines after the presentation's end, its backgrounds and its ending.
+  ScriptInputs inputs(const ChannelAccess &a, const std::string &snapshotId, Json::Value *snap, const std::string &continuePresentationId = "");
+  std::set<std::string> presentedEvents(const std::string &presentationId);
   Json::Value planWithModel(const ChannelAccess &a, const ScriptInputs &in, const Json::Value &job);
   Json::Value queueArt(const ChannelAccess &a, const Json::Value &script, const std::string &presentationId, bool cloudAuthorized);
   void progress(const std::string &channelId, const std::string &jobId, const Json::Value &p, const std::string &status);

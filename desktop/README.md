@@ -54,6 +54,14 @@ nothing goes through the Acerciae server.
     - Your image service can paint the backgrounds and poses it asks for, and your speech service voices the lines.
     - It plays in the app, with the same look templates as the server.
     - It saves as a player folder or as a lossless MKV / compatible MP4 video.
+    - **Continue the story.** Once a project has a visual novel, logs added in Overview ("Add a supplement log…")
+      are placed after its last line instead of being re-merged, so every line keeps its number, the voice lines
+      stay, and lines the project already holds are dropped. Lines dated earlier than the project's end still go
+      at the end. **Continue the story (n new lines)** then writes only the new lines as scenes after the old ones.
+      The writer is told the scene the story ended on, with its last lines, and is asked to reuse the novel's
+      backgrounds and the characters' poses by name. It asks for art only for new places and poses. The first new
+      scene joins the last old one when it keeps the same background. A project without a visual novel joins added
+      logs in time order, as before.
 - **AI services**, with your own keys, which are kept in the system keychain (or a user-only file where there is
   none):
   - Language model: OpenAI or any OpenAI-compatible address, or Anthropic.

@@ -2,7 +2,7 @@ import { t as tr, useLocale } from '../../i18n';
 import { useMemo, useRef, useState } from 'react';
 import { useUi } from '../../store/ui';
 import type { Project, StudioVn } from '../types';
-import { bundleFiles, bundleFolderName, characterNames, composeScript, standaloneData, toPresentation } from '../vn';
+import { bundleFiles, bundleFolderName, characterNames, composeScript, continueScript, lastScriptedSeq, standaloneData, toPresentation, unscriptedCount } from '../vn';
 import { paintNeeds, voiceLines } from '../actions';
 import { makeLlm } from '../providers/providers';
 import { loadAiSettings, TTS_VOICES } from '../providers/settings';
@@ -41,6 +41,24 @@ export default function VnPanel({ p, update, save }: { p: Project; update: (fn: 
       update((d) => { d.vn = { script, template: d.vn?.template ?? {}, audio: {}, narrator_voice: d.vn?.narrator_voice ?? '', language, instructions, composed_at: new Date().toISOString() }; });
       setIndex(0);
       toast(tr('Composed: {scenes} scenes, {shown} lines', { scenes: script.stats.scenes, shown: script.stats.shown }));
+    } catch (e: any) { if (e?.name !== 'AbortError') toast(String(e?.message ?? e), 'error'); }
+    finally { setBusy(null); abort.current = null; }
+  };
+  // The lines after the visual novel's last one (a supplement log): composed on their own and appended, reusing
+  // the novel's backgrounds and poses; the voice lines already made are kept.
+  const fresh = vn ? unscriptedCount(p) : 0;
+  const carryOn = async () => {
+    if (!vn) return;
+    abort.current = new AbortController();
+    setBusy(tr('Continuing…')); setFailed([]);
+    try {
+      const firstNew = vn.script.scenes.length;
+      const script = await continueScript(p, { llm: useModel ? makeLlm(ai.llm) : null, language, instructions, signal: abort.current.signal, onProgress: (d, t) => setBusy(tr('Continuing… part {done}/{total}', { done: d, total: t })) });
+      update((d) => { if (d.vn) { d.vn.script = script; d.vn.language = language; d.vn.instructions = instructions; d.vn.composed_at = new Date().toISOString(); } });
+      // Start the preview at the first new line.
+      const at = presentation?.events?.length ?? 0;
+      setIndex(at);
+      toast(tr('Continued: {n} new lines, {scenes} new scenes', { n: fresh, scenes: script.scenes.length - firstNew }));
     } catch (e: any) { if (e?.name !== 'AbortError') toast(String(e?.message ?? e), 'error'); }
     finally { setBusy(null); abort.current = null; }
   };
@@ -114,7 +132,8 @@ export default function VnPanel({ p, update, save }: { p: Project; update: (fn: 
         </div>
         {useModel && <textarea rows={2} placeholder={tr('Direction for the writer (optional): tone, what to focus on, what to leave out')} value={instructions} onChange={(e) => setInstructions(e.target.value)} />}
         <div className="row" style={{ gap: 8 }}>
-          <button className="primary small" disabled={!!busy} onClick={compose}>{vn ? tr('Compose again') : tr('Compose the script')}</button>
+          {vn && fresh > 0 && <button className="primary small" disabled={!!busy} onClick={carryOn} title={tr('Writes the lines after line #{n} as new scenes, reusing this novel\'s backgrounds and poses and asking only for new art', { n: lastScriptedSeq(vn.script) })}>{tr('Continue the story ({n} new lines)', { n: fresh })}</button>}
+          <button className={vn && fresh > 0 ? 'small' : 'primary small'} disabled={!!busy} onClick={() => { if (!vn || !fresh || confirm(tr('Compose the whole log again? The current script and its voice lines are replaced.'))) compose(); }}>{vn ? tr('Compose again') : tr('Compose the script')}</button>
           {busy && abort.current && <button className="ghost small" onClick={() => abort.current?.abort()}>{tr('Stop')}</button>}
           {busy && <span className="tiny muted">{busy}</span>}
         </div>

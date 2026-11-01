@@ -43,6 +43,12 @@ public:
     // regroups and reorders events into the script's scenes, applies staging, hiding and delivery.
     // Canonical text is untouched; every asset is re-checked against the presentation's scope.
     void applyScript(const ChannelAccess& a, const std::string& presentationId, const Json::Value& script);
+    // Continues a presentation with a script of new lines (VnScriptService::fitContinuation): rebinds it to the
+    // newer snapshot that holds them, appends their events and scenes after the existing ones (the first scene may
+    // join the last), and re-applies the stored dubbing cast. Existing scenes and events are not touched. Backgrounds
+    // the presentation already shows may be reused even when they are Keeper-only or still waiting for approval.
+    void appendScript(const ChannelAccess& a, const std::string& presentationId, const std::string& snapshotId, const Json::Value& script);
+    bool canEditPresentation(const ChannelAccess& a, const Json::Value& pres) { return canEdit(a, pres); }
     // The image each character shows now: per subtitle (lower-cased) the image its character space holds for it,
     // else the newest approved library standee filed under it; under "" its main portrait (the default).
     // Values: {id, version, expression}. Keeper-only images only when gmOnly.

@@ -613,10 +613,100 @@ Json::Value VnScriptService::normalize(const ScriptInputs &in, const std::vector
   return script;
 }
 
+// ---- continuation ---------------------------------------------------------------------------------
+const std::string &VnScriptService::continuationRules() {
+  static const std::string rules =
+      "\n\nContinuation: this visual novel already exists, and the transcript is the play that came after its last "
+      "line. \"# Story so far\" names the scene it ended on, that scene's background and its last lines; it is context "
+      "only: never output entries for it. Keep the story continuous: while the first lines still play where the story "
+      "ended, use that background's exact name. Reuse the existing backgrounds and portrait subtitles by their exact "
+      "names wherever they fit; list under generate_backgrounds and generate_portraits only places and poses that are new.";
+  return rules;
+}
+
+std::string VnScriptService::storySoFar(const Json::Value &story) {
+  if (!story.isObject()) return "";
+  std::string out = "# Story so far (context only, already in the visual novel)\n";
+  if (!json::str(story, "scene").empty()) out += "Last scene: " + quoted(json::str(story, "scene")) + "\n";
+  if (!json::str(story, "background").empty()) out += "Its background: " + quoted(json::str(story, "background")) + "\n";
+  for (const auto &l : story["lines"]) if (l.isString()) out += "- " + clip(l.asString(), 300) + "\n";
+  return out;
+}
+
+size_t VnScriptService::continuationStart(const std::vector<LogEvent> &events, const std::set<std::string> &presented) {
+  size_t start = 0;
+  for (size_t i = 0; i < events.size(); ++i) if (presented.count(events[i].eventId)) start = i + 1;
+  return start;
+}
+
+Json::Value VnScriptService::fitContinuation(const Json::Value &script, const Json::Value &oldScenes) {
+  Json::Value out = script;
+  std::set<std::string> keys;
+  std::map<std::string, Json::Value> pictureOf;   // lower(title) → the newest old scene's background
+  const Json::Value *last = nullptr;
+  for (const auto &o : oldScenes) {
+    keys.insert(json::str(o, "canonical_scene_key"));
+    if (json::str(o, "canonical_scene_key") == "unplaced") continue;
+    last = &o;
+    if (o["background_asset_id"].isString()) pictureOf[text::lower(json::str(o, "title"))] = o["background_asset_id"];
+  }
+  std::map<std::string, std::string> keyOf;       // the script's key → the key it ends up with
+  std::map<std::string, bool> pictured;           // final key → has a background
+  Json::Value scenes(Json::arrayValue);
+  for (Json::ArrayIndex i = 0; i < out["scenes"].size(); ++i) {
+    Json::Value s = out["scenes"][i];
+    const auto key = json::str(s, "key");
+    const auto low = text::lower(json::str(s, "title"));
+    const bool own = s["background_asset_id"].isString();
+    if (i == 0 && last && text::lower(json::str(*last, "title")) == low &&
+        (!own || !(*last)["background_asset_id"].isString() || s["background_asset_id"] == (*last)["background_asset_id"])) {
+      const auto into = json::str(*last, "canonical_scene_key");
+      s["join_scene_key"] = into;
+      keyOf[key] = into;
+      pictured[into] = own || (*last)["background_asset_id"].isString();
+    } else {
+      if (!own && pictureOf.count(low)) s["background_asset_id"] = pictureOf[low];
+      std::string k = key;
+      for (int n = 2; keys.count(k); ++n) k = text::utf8Prefix(key, 56) + "-" + std::to_string(n);
+      keys.insert(k);
+      keyOf[key] = k;
+      s["key"] = k;
+      pictured[k] = s["background_asset_id"].isString();
+    }
+    scenes.append(s);
+  }
+  out["scenes"] = scenes;
+  Json::Value needs(Json::arrayValue);
+  for (auto n : script["asset_needs"]) {
+    if (n["kind"] == "background") {
+      auto it = keyOf.find(json::str(n, "scene_key"));
+      if (it == keyOf.end() || pictured[it->second]) continue;   // the scene reuses a picture
+      n["scene_key"] = it->second;
+    }
+    needs.append(n);
+  }
+  out["asset_needs"] = needs;
+  return out;
+}
+
+std::set<std::string> VnScriptService::presentedEvents(const std::string &presentationId) {
+  std::set<std::string> ids;
+  for (const auto &r : db_.queryJson("SELECT canonical_event_id FROM presentation_events WHERE presentation_id=$1 AND canonical_event_id IS NOT NULL", {presentationId}))
+    ids.insert(r["canonical_event_id"].asString());
+  return ids;
+}
+
 // ---- inputs ---------------------------------------------------------------------------------------
-ScriptInputs VnScriptService::inputs(const ChannelAccess &a, const std::string &snapshotId, Json::Value *snap) {
+ScriptInputs VnScriptService::inputs(const ChannelAccess &a, const std::string &snapshotId, Json::Value *snap, const std::string &cont) {
   ScriptInputs in;
   in.events = logs_.snapshotEvents(a, snapshotId, snap);
+  std::set<std::string> readable;   // every line the requester may read in this snapshot, before the cut
+  if (!cont.empty()) {
+    for (const auto &e : in.events) readable.insert(e.eventId);
+    // A continuation plans only what came after the visual novel's last line.
+    in.events.erase(in.events.begin(), in.events.begin() + (std::ptrdiff_t)continuationStart(in.events, presentedEvents(cont)));
+    if (in.events.empty()) throw badRequest("there are no new lines after the end of this visual novel");
+  }
   auto ch = db_.queryOne("SELECT era FROM channels WHERE id=$1", {a.channelId});
   if (!ch.isNull()) in.era = ch["era"].asString();
   std::set<std::string> windowIds, speakers;
@@ -684,6 +774,51 @@ ScriptInputs VnScriptService::inputs(const ChannelAccess &a, const std::string &
     x["expression"] = r["expression"];
     in.assets.append(x);
   }
+  if (!cont.empty()) {
+    // The visual novel's own backgrounds, by the scene names the writer gave them, whatever their library status:
+    // the presentation already shows them. Scenes still waiting for a picture are offered by name, like a
+    // background generated earlier in this run, so the writer reuses the name instead of asking again.
+    auto scenes = db_.queryJson("SELECT id, title, canonical_scene_key, background_asset_id, metadata FROM presentation_scenes WHERE presentation_id=$1 ORDER BY position", {cont});
+    auto named = [&](const std::string &name) {
+      for (const auto &x : in.assets) if (x["type"] == "background" && text::lower(json::str(x, "name")) == text::lower(name)) return true;
+      for (const auto &x : in.knownBackgrounds) if (text::lower(json::str(x, "name")) == text::lower(name)) return true;
+      return false;
+    };
+    const Json::Value *last = nullptr;
+    for (const auto &sc : scenes) {
+      auto title = clip(json::str(sc, "title"), 80);
+      if (json::str(sc, "canonical_scene_key") == "unplaced" || title.empty()) continue;
+      last = &sc;
+      if (named(title)) continue;
+      if (sc["background_asset_id"].isString()) {
+        Json::Value x; x["ref"] = "B" + std::to_string(++b); x["id"] = sc["background_asset_id"]; x["type"] = "background"; x["name"] = title;
+        x["tags"] = Json::Value(Json::arrayValue); x["character_id"] = Json::Value(); x["expression"] = Json::Value();
+        in.assets.append(x);
+      } else if (in.knownBackgrounds.size() < 40) {
+        Json::Value k; k["name"] = title; k["prompt"] = clip(json::str(sc["metadata"], "background_brief"), 400);
+        in.knownBackgrounds.append(k);
+      }
+    }
+    in.story = Json::Value(Json::objectValue);
+    in.story["lines"] = Json::Value(Json::arrayValue);
+    if (last) {
+      in.story["scene"] = json::str(*last, "title");
+      in.story["background"] = json::str(*last, "title");
+      std::vector<std::string> lines;
+      for (const auto &r : db_.queryJson("SELECT pe.canonical_event_id, pe.script_text, pe.segment_text, le.content, le.speaker_display_name, c.name AS character_name, pe.display_kind "
+                                         "FROM presentation_events pe LEFT JOIN log_events le ON le.id=pe.canonical_event_id LEFT JOIN characters c ON c.id=pe.speaker_character_id "
+                                         "WHERE pe.scene_id=$1 AND NOT pe.hidden ORDER BY pe.position DESC LIMIT 40", {(*last)["id"].asString()})) {
+        if (!readable.count(json::str(r, "canonical_event_id"))) continue;   // only what the requester may read now
+        auto words = json::str(r, "script_text"); if (words.empty()) words = json::str(r, "segment_text"); if (words.empty()) words = json::str(r, "content");
+        words = text::trim(words);
+        if (words.empty()) continue;
+        auto who = json::str(r, "display_kind") == "narration" ? std::string() : json::str(r, "character_name", json::str(r, "speaker_display_name"));
+        lines.push_back((who.empty() ? "" : who + ": ") + words);
+        if (lines.size() >= 8) break;
+      }
+      for (auto it = lines.rbegin(); it != lines.rend(); ++it) in.story["lines"].append(*it);
+    }
+  }
   return in;
 }
 
@@ -709,7 +844,7 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
   prog["chunks_reused"] = 0;
   progress(a.channelId, id, prog, "running");
 
-  const std::string system =
+  std::string system =
       "You are the script editor turning a tabletop RPG chat log into a visual-novel script.\n"
       "The transcript lists the assets, then one time block of play grouped by chat window. Each line is "
       "[L<n>] Speaker(time): text. Speakers read as a character name, Name(OOC) for out-of-character chatter, "
@@ -738,8 +873,9 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
       "moment (pose, expression), as a full-body standee on a transparent background.\n"
       "Return JSON: {\"generate_backgrounds\":[{\"name\",\"prompt\"}],\"generate_portraits\":[{\"char\":\"C1\",\"subtitle\",\"prompt\"}],"
       "\"script\":[{\"ref\":\"L1\",\"speaker?\":\"C1\",\"background\":\"name\",\"portrait?\":\"SAY\",\"text?\":\"rewritten wording\",\"fold?\":[\"L2\",\"L3\"],\"kind?\":\"narration\"}]}";
+  if (!in.story.isNull()) system += continuationRules();
   std::vector<Json::Value> flats;
-  Json::Value known(Json::arrayValue);
+  Json::Value known = in.knownBackgrounds;   // a continuation starts with the scenes still waiting for a picture
   Json::Value identity;
   identity["model"] = llm_.status(a.channelId);
   identity["cast"] = in.cast;
@@ -751,6 +887,7 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
     std::string user = "Part " + std::to_string(pi + 1) + " of " + std::to_string(parts.size()) + "\n";
     auto direction = clip(json::str(job["params"], "instructions"), 1000);
     if (!direction.empty()) user += "GM direction (data): " + direction + "\n";
+    if (pi == 0 && !in.story.isNull()) user += storySoFar(in.story);   // later parts follow the part before them
     user += transcript(in, parts[pi].first, parts[pi].second, known);
     LlmRequest req;
     req.channelId = a.channelId;
@@ -851,7 +988,7 @@ Json::Value VnScriptService::list(const ChannelAccess &a) {
   DbParams p{a.channelId};
   auto own = ownerClause(a, p);
   return db_.queryJson("SELECT j.id, j.snapshot_id, j.project_id, j.status, j.provider, j.model, j.progress, j.presentation_id, j.error, j.created_at, j.updated_at, j.created_by, "
-                       "j.params->>'title' AS title, s.scope AS snapshot_scope, s.version AS snapshot_version, j.script->'stats' AS stats, j.script->'generation' AS generation "
+                       "j.params->>'title' AS title, j.params->>'continues_presentation_id' AS continues_presentation_id, s.scope AS snapshot_scope, s.version AS snapshot_version, j.script->'stats' AS stats, j.script->'generation' AS generation "
                        "FROM vn_script_jobs j JOIN log_snapshots s ON s.id=j.snapshot_id WHERE j.channel_id=$1" + own + " ORDER BY j.created_at DESC LIMIT 50",
                        p);
 }
@@ -877,7 +1014,25 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
   if (b.isMember("retry_failed_chunks") && !b["retry_failed_chunks"].isBool()) throw badRequest("retry_failed_chunks must be a boolean");
   Json::Value snap;
   std::string snapshotId = json::str(b, "snapshot_id");
-  if (snapshotId.empty()) {
+  const std::string cont = json::str(b, "continue_presentation_id");
+  Json::Value continued;
+  if (!cont.empty()) {
+    // Continue a visual novel: the campaign log frozen again in the presentation's own scope.
+    continued = pres_.presentationRow(a, cont);
+    if (!pres_.canEditPresentation(a, continued)) throw forbidden("only the draft author or GM can continue this visual novel");
+    auto old = db_.queryOne("SELECT project_id, scope, scope_character_id FROM log_snapshots WHERE id=$1", {continued["snapshot_id"].asString()});
+    auto projectId = logs_.campaignProjectId(a.channelId);
+    if (old.isNull() || old["project_id"].asString() != projectId) throw badRequest("only a visual novel made from the campaign log can be continued");
+    if (!db_.queryOne("SELECT id FROM vn_script_jobs WHERE channel_id=$1 AND params->>'continues_presentation_id'=$2 AND status IN ('pending','running')", {a.channelId, cont}).isNull())
+      throw conflict("this visual novel is already being continued");
+    logs_.syncCampaign(a.channelId, projectId);
+    Json::Value sb;
+    sb["scope"] = old["scope"];
+    if (old["scope_character_id"].isString()) sb["scope_character_id"] = old["scope_character_id"];
+    sb["title"] = clip(continued["title"].asString(), 200);
+    sb["selection"]["mode"] = "campaign";
+    snapshotId = logs_.createSnapshot(a, projectId, sb)["id"].asString();
+  } else if (snapshotId.empty()) {
     // Freeze the campaign log now: the script always reads the latest lines in the requester's scope.
     auto projectId = logs_.campaignProjectId(a.channelId);
     logs_.syncCampaign(a.channelId, projectId);
@@ -889,6 +1044,10 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
     snapshotId = logs_.createSnapshot(a, projectId, sb)["id"].asString();
   }
   auto events = logs_.snapshotEvents(a, snapshotId, &snap);
+  if (!cont.empty()) {
+    events.erase(events.begin(), events.begin() + (std::ptrdiff_t)continuationStart(events, presentedEvents(cont)));
+    if (events.empty()) throw badRequest("there are no new lines after the end of this visual novel yet");
+  }
   if (events.empty()) throw badRequest(json::str(b, "scope") == "pl_public" ? "no line of the log is public to every player yet; choose a character's point of view" : "the log has no lines in your scope yet");
   if (events.size() > kMaxLines) throw badRequest("the log has more than " + std::to_string(kMaxLines) + " lines; snapshot a range or a set of scenes");
   bool mock = llm_.isMock(a.channelId);
@@ -900,10 +1059,16 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
   params["title"] = clip(json::str(b, "title", json::str(snap, "title", "Visual novel")), 200);
   params["instructions"] = clip(json::str(b, "instructions"), 1000);
   params["template"] = b.isMember("template") && !b["template"].isNull() ? PresentationService::validateVnTemplate(b["template"]) : PresentationService::validateVnTemplate(Json::Value(Json::objectValue));
+  if (!cont.empty()) {
+    params["title"] = continued["title"];
+    params["continues_presentation_id"] = cont;
+    params["new_lines"] = (Json::UInt64)events.size();
+    params.removeMember("template");   // the presentation keeps its own look
+  }
   params["cloud_authorized"] = !mock || json::toBool(b, "allow_cloud");
   params["generate_art"] = json::toBool(b, "generate_art", true);
   params["retry_failed_chunks"] = json::toBool(b, "retry_failed_chunks", llm_.retryFailedVnChunks());
-  auto j = db_.queryOne("INSERT INTO vn_script_jobs(channel_id, project_id, snapshot_id, provider, model, params, created_by) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING id, status, provider, snapshot_id, created_at",
+  auto j = db_.queryOne("INSERT INTO vn_script_jobs(channel_id, project_id, snapshot_id, provider, model, params, created_by) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING id, status, provider, snapshot_id, created_at, params",
                         {a.channelId, snap["project_id"].asString(), snapshotId, mock ? "mock" : llm_.mode(a.channelId), llm_.modelName(a.channelId), json::dump(params), a.userId});
   logs_.audit(a, "vnscript.request", j);
   cv_.notify_all();
@@ -1005,7 +1170,8 @@ void VnScriptService::run(const Json::Value &j) {
     // snapshotEvents() enforces the snapshot's scope against the requester's current access.
     auto a = auth_.channelAccess(j["created_by"].asString(), channel);
     Json::Value snap;
-    auto in = inputs(a, j["snapshot_id"].asString(), &snap);
+    const auto cont = json::str(j["params"], "continues_presentation_id");
+    auto in = inputs(a, j["snapshot_id"].asString(), &snap, cont);
     Json::Value script;
     if (j["provider"].asString() == "mock") {
       std::vector<Json::Value> flats;
@@ -1019,6 +1185,18 @@ void VnScriptService::run(const Json::Value &j) {
     script["snapshot_id"] = j["snapshot_id"];
     script["snapshot_scope"] = snap["scope"];
     if (db_.queryOne("SELECT status FROM vn_script_jobs WHERE id=$1", {id})["status"] != "running") return;
+    if (!cont.empty()) {
+      // Continue the existing presentation: the new scenes go after its own, which stay as they are.
+      script["continues_presentation_id"] = cont;
+      script = fitContinuation(script, db_.queryJson("SELECT title, canonical_scene_key, background_asset_id FROM presentation_scenes WHERE presentation_id=$1 ORDER BY position", {cont}));
+      pres_.appendScript(a, cont, j["snapshot_id"].asString(), script);
+      if (json::toBool(j["params"], "generate_art", true)) script["generation"] = queueArt(a, script, cont, json::toBool(j["params"], "cloud_authorized"));
+      // The lines are in the presentation now, so the job completes even if it was cancelled meanwhile.
+      db_.exec("UPDATE vn_script_jobs SET status='completed', script=$2::jsonb, presentation_id=$3, error=NULL, updated_at=now() WHERE id=$1", {id, json::dump(script), cont});
+      logs_.audit(a, "vnscript.continued", Json::Value(id));
+      progress(channel, id, j["progress"], "completed");
+      return;
+    }
     // Build the draft presentation with the chosen template, then lay the script over it.
     Json::Value body;
     body["title"] = j["params"]["title"];

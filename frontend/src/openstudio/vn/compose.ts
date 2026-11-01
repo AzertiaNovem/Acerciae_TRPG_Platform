@@ -191,18 +191,115 @@ export function languageName(code: string): string {
   return LANGUAGE_NAMES[code] ?? '';
 }
 /** The system prompt with the gateway's output-language rule appended for a non-English UI language. */
-export function systemPrompt(language: string): string {
+export function systemPrompt(language: string, continuation = false): string {
+  const base = continuation ? SYSTEM_PROMPT + CONTINUE_RULES : SYSTEM_PROMPT;
   const lang = languageName(language);
-  if (!lang) return SYSTEM_PROMPT;
-  return SYSTEM_PROMPT + '\n\nOutput language: write every human-readable string (summaries, titles, rationale, descriptions, drafts) in ' + lang +
+  if (!lang) return base;
+  return base + '\n\nOutput language: write every human-readable string (summaries, titles, rationale, descriptions, drafts) in ' + lang +
     '. Keep JSON keys, enum values, status values and ids exactly as specified.';
 }
 /** The user message of one part. */
-export function userPrompt(inp: ScriptInputs, part: [number, number], index: number, total: number, instructions: string, known: KnownBackground[]): string {
+export function userPrompt(inp: ScriptInputs, part: [number, number], index: number, total: number, instructions: string, known: KnownBackground[], story?: StoryContext): string {
   let user = `Part ${index + 1} of ${total}\n`;
   const direction = clip(instructions, 1000);
   if (direction) user += `GM direction (data): ${direction}\n`;
+  if (story) user += storySoFarText(story);
   return user + transcript(inp, part[0], part[1], known);
+}
+
+// ---- continuation ---------------------------------------------------------------------------------
+/** The rules a continuation adds to the system prompt: carry on from the last scene, reuse before generating. */
+export const CONTINUE_RULES =
+  '\n\nContinuation: this visual novel already exists, and the transcript is the play that came after its last ' +
+  'line. "# Story so far" names the scene it ended on, that scene\'s background and its last lines; it is context ' +
+  'only: never output entries for it. Keep the story continuous: while the first lines still play where the story ' +
+  'ended, use that background\'s exact name. Reuse the existing backgrounds and portrait subtitles by their exact ' +
+  'names wherever they fit; list under generate_backgrounds and generate_portraits only places and poses that are new.';
+
+/** Where the visual novel ended: its last scene, that scene's background name and its last shown lines. */
+export interface StoryContext { scene: string; background: string; lines: string[] }
+
+export function storySoFarText(story: StoryContext): string {
+  let out = '# Story so far (context only, already in the visual novel)\n';
+  if (story.scene) out += `Last scene: ${quoted(story.scene)}\n`;
+  if (story.background) out += `Its background: ${quoted(story.background)}\n`;
+  for (const l of story.lines) out += `- ${clip(l, 300)}\n`;
+  return out;
+}
+
+/** The last line a script covers (0 for none): a continuation composes what comes after it. */
+export function lastScriptedSeq(script: VnScript): number {
+  let last = 0;
+  for (const s of script.scenes) for (const l of s.lines) if (l.seq > last) last = l.seq;
+  return last;
+}
+
+/** Lines of the project after the end of its visual novel (all of them without one). */
+export function unscriptedCount(project: Project): number {
+  const last = project.vn ? lastScriptedSeq(project.vn.script) : 0;
+  return (project.events ?? []).filter((e) => e.seq > last).length;
+}
+
+function storyContext(project: Project, script: VnScript, count = 8): StoryContext {
+  const scene = script.scenes[script.scenes.length - 1];
+  if (!scene) return { scene: '', background: '', lines: [] };
+  const bySeq = new Map((project.events ?? []).map((e) => [e.seq, e]));
+  const lines: string[] = [];
+  for (const l of scene.lines) {
+    if (l.hidden) continue;
+    const e = bySeq.get(l.seq);
+    if (!e) continue;
+    const who = l.speaker || (e.role === 'gm' ? 'KP' : e.speaker_name);
+    lines.push(`${who ? `${who}: ` : ''}${trim(l.text || e.content)}`);
+  }
+  return { scene: scene.title, background: scene.title, lines: lines.slice(-count) };
+}
+
+/**
+ * The continued script: the old scenes untouched, then the new ones. The first new scene joins the last old one when
+ * they share a background name (the story goes on where it ended); a later scene named like an old one takes that
+ * scene's picture. New scene keys never collide with old ones, and art requests for a reused background or an
+ * already requested pose are dropped.
+ */
+export function appendScript(old: VnScript, add: VnScript, note: string): VnScript {
+  const scenes: VnScene[] = old.scenes.map((s) => ({ ...s, lines: s.lines.map((l) => ({ ...l })) }));
+  const keys = new Set(scenes.map((s) => s.key));
+  const keyOf = new Map<string, string>();
+  add.scenes.forEach((s, i) => {
+    const low = lower(s.title);
+    const last = scenes[scenes.length - 1];
+    if (i === 0 && last && lower(last.title) === low && (!s.background || !last.background || s.background === last.background)) {
+      last.lines.push(...s.lines);
+      if (!last.background && s.background) last.background = s.background;
+      keyOf.set(s.key, last.key);
+      return;
+    }
+    const earlier = [...scenes].reverse().find((o) => lower(o.title) === low && o.background);
+    let key = s.key;
+    for (let k = 2; keys.has(key); k++) key = `${s.key}-${k}`;
+    keys.add(key);
+    keyOf.set(s.key, key);
+    scenes.push({ ...s, key, background: s.background || earlier?.background || null });
+  });
+  // Requests still open: a background already painted (or reused) is not asked for again.
+  const pictured = (key?: string) => scenes.some((s) => s.key === key && s.background);
+  const needs: VnAssetNeed[] = old.asset_needs.filter((n) => n.kind !== 'background' || !pictured(n.scene_key)).map((n) => ({ ...n }));
+  for (const n of add.asset_needs) {
+    const x = { ...n };
+    if (x.kind === 'background') {
+      const key = keyOf.get(x.scene_key ?? '') ?? x.scene_key;
+      if (!scenes.some((s) => s.key === key) || pictured(key)) continue;
+      if (needs.some((o) => o.kind === 'background' && o.scene_key === key)) continue;
+      x.scene_key = key;
+    } else if (needs.some((o) => o.kind === 'standee' && o.character === x.character && lower(o.subtitle ?? '') === lower(x.subtitle ?? ''))) continue;
+    needs.push(x);
+  }
+  let shown = 0;
+  let hidden = 0;
+  for (const s of scenes) for (const l of s.lines) { if (l.hidden) hidden++; else shown++; }
+  const notes = [...old.notes];
+  for (const x of [note, ...add.notes]) if (x && !notes.includes(x)) notes.push(x);
+  return { scenes, asset_needs: needs, notes, provider: add.provider, stats: { scenes: scenes.length, shown, hidden } };
 }
 
 // ---- deterministic flat planner ------------------------------------------------------------------
@@ -667,6 +764,35 @@ function abortError(signal: AbortSignal): Error {
 
 /** Turns the project's log into a visual-novel script, with the model when one is given, else by rules. */
 export async function composeScript(project: Project, opts: ComposeOptions): Promise<VnScript> {
+  return compose(project, opts, [], undefined);
+}
+
+/**
+ * Continues the project's visual novel with the lines after its last one (a supplement log, say). The writer sees
+ * only the new lines, with the scene the story ended on as context; the backgrounds the novel already has (painted
+ * or still asked for) and the characters' poses are listed so it reuses them, and it asks only for new art.
+ */
+export async function continueScript(project: Project, opts: ComposeOptions): Promise<VnScript> {
+  const vn = project.vn;
+  if (!vn) throw new Error('there is no visual novel to continue');
+  const from = lastScriptedSeq(vn.script);
+  const events = (project.events ?? []).filter((e) => e.seq > from);
+  if (!events.length) throw new Error('no new lines after the end of the visual novel');
+  const backgrounds: BackgroundAsset[] = [...(opts.backgrounds ?? [])];
+  const known: KnownBackground[] = [];
+  for (const s of vn.script.scenes) {
+    if (!s.title) continue;
+    if (s.background) { if (!backgrounds.some((b) => b.path === s.background || lower(b.name) === lower(s.title))) backgrounds.push({ name: s.title, path: s.background }); }
+    else if (!known.some((k) => lower(k.name) === lower(s.title)) && known.length < 40) known.push({ name: clip(s.title, 80), prompt: clip(s.background_brief, 400) });
+  }
+  const tail = { ...project, events };
+  const added = await compose(tail, { ...opts, backgrounds }, known, storyContext(project, vn.script));
+  const first = events[0].seq;
+  const note = `Continued after line #${from}: ${events.length} new lines from #${first}.`;
+  return appendScript(vn.script, added, note);
+}
+
+async function compose(project: Project, opts: ComposeOptions, seedKnown: KnownBackground[], story: StoryContext | undefined): Promise<VnScript> {
   const inp = buildInputs(project, opts.backgrounds ?? []);
   const signal = opts.signal;
   if (signal?.aborted) throw abortError(signal);
@@ -679,14 +805,15 @@ export async function composeScript(project: Project, opts: ComposeOptions): Pro
   }
   const llm = opts.llm;
   const ps = parts(inp.events);
-  const system = systemPrompt(opts.language ?? '');
+  const system = systemPrompt(opts.language ?? '', !!story);
   const flats: Json[] = [];
-  const known: KnownBackground[] = [];
+  const known: KnownBackground[] = [...seedKnown];
   const notes: string[] = [];
   opts.onProgress?.(0, ps.length);
   for (let pi = 0; pi < ps.length; pi++) {
     if (signal?.aborted) throw abortError(signal);
-    const user = userPrompt(inp, ps[pi], pi, ps.length, opts.instructions ?? '', known);
+    // Only the first part follows the old ending; later parts follow the part before them.
+    const user = userPrompt(inp, ps[pi], pi, ps.length, opts.instructions ?? '', known, pi === 0 ? story : undefined);
     const raw = await llm({ system, user, json: true, max_tokens: VN_MAX_TOKENS });
     if (signal?.aborted) throw abortError(signal);
     const read = readAnswer(inp, ps[pi], raw);

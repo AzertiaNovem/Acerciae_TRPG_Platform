@@ -371,3 +371,66 @@ test('bundleFiles lists index.html, script.json and every image and voice line t
   assert.equal(vn.bundleFolderName('Harbour Nights: 码头'), 'Harbour_Nights__码头');
   assert.equal(vn.bundleFolderName('???'), '___'); assert.equal(vn.bundleFolderName(''), 'visual-novel');
 });
+
+test('continueScript: only the lines after the ending, the story so far, reused backgrounds, new scenes appended', async () => {
+  const H = (type, key, name, role, text, time) => ev(0, { win: 'Main table', scene: 'Harbour', type, key, name, role, text, time });
+  const p = project([
+    H('narration', 'kp', 'Keeper', 'gm', 'Fog rolls over the harbour.', T), H('dialogue', 'ada', 'Ada', 'pc', "Who's there?", T + 60),
+  ], [sheet('Ada', { appearance: 'red-haired librarian', portrait: 'assets/ada.png', poses: { SAY: 'assets/ada-say.png' } })], { era: '1920s Arkham' });
+  // The first visual novel, with its scene painted and a voice line.
+  const first = await vn.composeScript(p, { llm: null, language: 'en' });
+  first.scenes[0].background = 'assets/bg-harbour.png';
+  p.vn = { script: first, template: {}, audio: { 2: { path: 'assets/v2.wav', ms: 900 } }, narrator_voice: '', language: 'en', instructions: '', composed_at: '' };
+  assert.equal(vn.unscriptedCount(p), 0);
+  await assert.rejects(vn.continueScript(p, { llm: null, language: 'en' }), /no new lines/);
+  // The supplement: the harbour goes on, then a new place.
+  p.events.push({ ...H('narration', 'kp', 'Keeper', 'gm', 'The fog lifts.', T + 120), seq: 3 }, { ...H('dialogue', 'ada', 'Ada', 'pc', 'Look, the lighthouse!', T + 180), seq: 4 }, { ...H('narration', 'kp', 'Keeper', 'gm', 'They climb the stairs.', T + 240), seq: 5 });
+  assert.equal(vn.unscriptedCount(p), 3);
+  assert.equal(vn.lastScriptedSeq(first), 2);
+  const calls = [];
+  const llm = async (req) => { calls.push(req); return JSON.stringify({ generate_backgrounds: [{ name: 'Lighthouse stairs', prompt: 'spiral stairs' }], generate_portraits: [{ char: 'C1', subtitle: 'SAY', prompt: 'again' }],
+    script: [{ ref: 'L1', background: 'Harbour' }, { ref: 'L2', speaker: 'C1', background: 'Harbour', portrait: 'SAY' }, { ref: 'L3', background: 'Lighthouse stairs' }] }); };
+  const script = await vn.continueScript(p, { llm, language: 'en' });
+  assert.equal(calls.length, 1);
+  const { system, user } = calls[0];
+  assert.ok(system.startsWith(vn.SYSTEM_PROMPT) && system.includes('Continuation: this visual novel already exists'));
+  assert.ok(user.includes('# Story so far (context only, already in the visual novel)\nLast scene: "Harbour"\nIts background: "Harbour"\n'));
+  assert.ok(user.includes("- Ada: Who's there?"));
+  assert.ok(user.includes('- "Harbour" (existing)'));
+  const lines = user.slice(user.indexOf('# Block'));
+  assert.ok(lines.includes('[L1] KP(Narrative)(22:15): The fog lifts.') && !lines.includes('Fog rolls over') && !lines.includes('[L4]'), 'only the new lines are planned');
+  assert.ok(user.indexOf('# Story so far') < user.indexOf('# Assets'));
+  assert.ok(user.includes('subtitles=[SAY]'));
+  // The old scene is kept and goes on; the new place is a new scene that asks for its picture; Ada's SAY is not redrawn.
+  assert.equal(script.scenes.length, 2);
+  assert.deepEqual(script.scenes[0].lines.map((l) => l.seq), [1, 2, 3, 4]);
+  assert.equal(script.scenes[0].background, 'assets/bg-harbour.png');
+  assert.equal(script.scenes[1].title, 'Lighthouse stairs'); assert.deepEqual(script.scenes[1].lines.map((l) => l.seq), [5]);
+  assert.notEqual(script.scenes[1].key, script.scenes[0].key);
+  assert.deepEqual(script.asset_needs.filter((n) => n.kind === 'background').map((n) => n.scene_key), [script.scenes[1].key]);
+  assert.ok(!script.asset_needs.some((n) => n.kind === 'standee'));
+  assert.deepEqual(script.stats, { scenes: 2, shown: 5, hidden: 0 });
+  assert.ok(script.notes.some((n) => n.startsWith('Continued after line #2: 3 new lines from #3.')));
+  assert.equal(first.scenes[0].lines.length, 2, 'the old script is not changed in place');
+
+  // Without a model: the rule-based planner places the new lines and the harbour scene still goes on.
+  const ruled = await vn.continueScript(p, { llm: null, language: 'en' });
+  assert.equal(ruled.scenes.length, 1);
+  assert.deepEqual(ruled.scenes[0].lines.map((l) => l.seq), [1, 2, 3, 4, 5]);
+  assert.equal(ruled.asset_needs.filter((n) => n.kind === 'background').length, 0);
+});
+
+test('appendScript: a later scene named like an old pictured one takes its picture; keys stay unique', () => {
+  const old = { scenes: [{ key: 'cellar', title: 'Cellar', summary: '', background_brief: '', background: 'assets/cellar.png', environment: 'none', lines: [{ seq: 1, hidden: false }] },
+    { key: 'docks', title: 'Docks', summary: '', background_brief: 'docks', background: null, environment: 'none', lines: [{ seq: 2, hidden: false }] }],
+    asset_needs: [{ kind: 'background', brief: 'docks', scene_key: 'docks' }], notes: [], provider: 'mock', stats: { scenes: 2, shown: 2, hidden: 0 } };
+  const add = { scenes: [{ key: 'pier', title: 'Pier', summary: '', background_brief: '', background: null, environment: 'none', lines: [{ seq: 3, hidden: false }] },
+    { key: 'cellar', title: 'Cellar', summary: '', background_brief: '', background: null, environment: 'none', lines: [{ seq: 4, hidden: true, exclusion_reason: 'x' }] }],
+    asset_needs: [{ kind: 'background', brief: 'a pier', scene_key: 'pier' }, { kind: 'background', brief: 'again', scene_key: 'cellar' }], notes: [], provider: 'llm', stats: { scenes: 2, shown: 1, hidden: 1 } };
+  const out = vn.appendScript(old, add, 'note');
+  assert.deepEqual(out.scenes.map((s) => s.key), ['cellar', 'docks', 'pier', 'cellar-2']);
+  assert.equal(out.scenes[3].background, 'assets/cellar.png');
+  assert.deepEqual(out.asset_needs.map((n) => n.scene_key), ['docks', 'pier']);
+  assert.deepEqual(out.stats, { scenes: 4, shown: 3, hidden: 1 });
+  assert.deepEqual(out.notes, ['note']);
+});
