@@ -72,6 +72,12 @@ Config Config::fromEnv() {
     c.publicUrl = envStr("PUBLIC_URL", c.publicUrl); while (!c.publicUrl.empty() && c.publicUrl.back() == '/') c.publicUrl.pop_back();
     c.trustProxy = envBool("TRUST_PROXY", c.trustProxy);
     c.registerPerHour = envInt("AUTH_REGISTER_PER_HOUR", c.registerPerHour);
+    {   // PLATFORM_ADMINS=alice,bob — usernames; spaces around the commas are ignored.
+        std::string list = envStr("PLATFORM_ADMINS", ""), cur;
+        auto push = [&] { std::size_t b = cur.find_first_not_of(" \t"), e = cur.find_last_not_of(" \t"); if (b != std::string::npos) c.platformAdmins.push_back(cur.substr(b, e - b + 1)); cur.clear(); };
+        for (char ch : list) { if (ch == ',') push(); else cur += ch; }
+        push();
+    }
     c.retentionAuditDays = envInt("RETENTION_AUDIT_DAYS", c.retentionAuditDays);
     c.retentionAiJobDays = envInt("RETENTION_AI_JOB_DAYS", c.retentionAiJobDays);
     c.migrationsDir = envStr("MIGRATIONS_DIR", c.migrationsDir);

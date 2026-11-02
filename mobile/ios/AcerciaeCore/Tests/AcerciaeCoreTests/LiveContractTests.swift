@@ -17,7 +17,7 @@ final class LiveContractTests: XCTestCase {
     func testLocalLiveClient() async throws {
         guard let base = ProcessInfo.processInfo.environment["ACERCIAE_TEST_BASE"] else { throw XCTSkip("Set ACERCIAE_TEST_BASE to a dedicated seeded local test backend") }
         let api = BackendClient(address: try BackendAddress(base, allowLocalHTTP: true))
-        let health = try await api.health(); XCTAssertEqual(health.llmMode, "mock")
+        let health = try await api.health(); XCTAssertEqual(health.status, "ok")
         let auth = try await api.login(username: "alice", password: "password")
         let servers = try await api.servers(token: auth.token)
         let server = try XCTUnwrap(servers.first)

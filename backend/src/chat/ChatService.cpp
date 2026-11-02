@@ -20,7 +20,10 @@ static const std::string MSG_SELECT =
 
 // ---- servers ---------------------------------------------------------------------------------
 Json::Value ChatService::listServers(const Principal& p) {
-    return db_.queryJson("SELECT s.*, sm.role AS my_role FROM servers s JOIN server_members sm ON sm.server_id=s.id AND sm.user_id=$1 ORDER BY s.created_at", {p.userId});
+    // A suspended server is still listed (with the reason), so its members see why it is closed; nothing inside it answers.
+    return db_.queryJson("SELECT s.id, s.name, s.owner_id, s.created_at, sm.role AS my_role, s.suspended_at IS NOT NULL AS suspended, "
+                         "CASE WHEN s.suspended_at IS NULL THEN '' ELSE s.suspended_reason END AS suspended_reason "
+                         "FROM servers s JOIN server_members sm ON sm.server_id=s.id AND sm.user_id=$1 ORDER BY s.created_at", {p.userId});
 }
 Json::Value ChatService::createServer(const Principal& p, const std::string& name) {
     if (name.empty() || name.size() > 80) throw badRequest("server name must be 1-80 chars");
@@ -42,8 +45,9 @@ ChatService::Policy ChatService::policy(const std::string& serverId) {
 static std::string serverRole(Db& db, const std::string& serverId, const std::string& userId);
 Json::Value ChatService::joinServer(const Principal& p, const std::string& serverId, const std::string& inviteCode) {
     if (!Visibility::isUuid(serverId)) throw notFound("server not found");
-    auto s = db_.queryOne("SELECT * FROM servers WHERE id=$1", {serverId});
+    auto s = db_.queryOne("SELECT id, name, owner_id, created_at FROM servers WHERE id=$1", {serverId});
     if (s.isNull()) throw notFound("server not found");
+    auth_.requireServerActive(serverId);
     auto role = serverRole(db_, serverId, p.userId);
     if (!role.empty() && role != "guest") { s["my_role"] = role; return s; }
     auto pol = policy(serverId);
@@ -66,7 +70,7 @@ Json::Value ChatService::discoverServers(const Principal& p, const std::string& 
     for (char c : q) { if (c == '%' || c == '_' || c == '\\') like += '\\'; like += c; }
     return db_.queryJson("SELECT s.id, s.name, (SELECT count(*) FROM server_members m WHERE m.server_id=s.id AND m.role<>'guest') AS member_count "
                          "FROM servers s JOIN server_settings ss ON ss.server_id=s.id AND ss.join_policy='open' "
-                         "WHERE NOT EXISTS (SELECT 1 FROM server_members me WHERE me.server_id=s.id AND me.user_id=$1 AND me.role<>'guest') "
+                         "WHERE s.suspended_at IS NULL AND NOT EXISTS (SELECT 1 FROM server_members me WHERE me.server_id=s.id AND me.user_id=$1 AND me.role<>'guest') "
                          "AND ($2='' OR s.name ILIKE '%' || $2 || '%') ORDER BY member_count DESC, s.created_at LIMIT 50", {p.userId, like});
 }
 static std::string inviteCode() {
@@ -110,14 +114,14 @@ Json::Value ChatService::revokeInvite(const Principal& p, const std::string& ser
     return listInvites(p, serverId);
 }
 Json::Value ChatService::previewInvite(const Principal& p, const std::string& code) {
-    auto r = db_.queryOne("SELECT s.id AS server_id, s.name, coalesce(ss.join_policy, 'invite') AS join_policy, "
+    auto r = db_.queryOne("SELECT s.id AS server_id, s.name, coalesce(ss.join_policy, 'invite') AS join_policy, s.suspended_at IS NULL AS server_active, "
                           "(i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at > now()) AND (i.max_uses=0 OR i.uses < i.max_uses)) AS active, "
                           "(SELECT count(*) FROM server_members m WHERE m.server_id=s.id AND m.role<>'guest') AS member_count "
                           "FROM server_invites i JOIN servers s ON s.id=i.server_id LEFT JOIN server_settings ss ON ss.server_id=s.id WHERE i.code=$1", {text::trim(code)});
     if (r.isNull()) throw notFound("invite not found");
     Json::Value v;
     v["server_id"] = r["server_id"]; v["name"] = r["name"]; v["member_count"] = r["member_count"];
-    v["valid"] = r["active"].asBool() && r["join_policy"].asString() != "closed";
+    v["valid"] = r["active"].asBool() && r["join_policy"].asString() != "closed" && r["server_active"].asBool();
     auto role = serverRole(db_, r["server_id"].asString(), p.userId);
     v["already_member"] = !role.empty() && role != "guest";
     return v;
@@ -345,8 +349,8 @@ Json::Value ChatService::channelMembers(const ChannelAccess& a) {
 // ---- Main Chat spectating ------------------------------------------------------------------
 bool ChatService::canSpectate(const std::string& userId, const std::string& channelId) {
     if (!Visibility::isUuid(channelId)) return false;
-    auto c = db_.queryOne("SELECT server_id FROM channels WHERE id=$1", {channelId});
-    if (c.isNull()) return false;
+    auto c = db_.queryOne("SELECT c.server_id, s.suspended_at FROM channels c JOIN servers s ON s.id=c.server_id WHERE c.id=$1", {channelId});
+    if (c.isNull() || !c["suspended_at"].isNull()) return false;
     auto sid = c["server_id"].asString();
     auto role = serverRole(db_, sid, userId);
     return !role.empty() && role != "guest" && policy(sid).spectators;

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 #include <cstdint>
 
 namespace acerciae {
@@ -41,8 +42,9 @@ struct Config {
     bool allowInsecureDev = false;          // ALLOW_INSECURE_DEV: accept a weak AUTH_SECRET and demo seeding (never in production)
     std::string publicUrl;                  // PUBLIC_URL: the site's address (https://trpg.example.com) for absolute links in exports; "" = the request's host
     std::string corsOrigins;                // CORS_ORIGINS: comma-separated origins allowed cross-origin ("" = same origin only)
-    bool trustProxy = false;
-    int registerPerHour = 20;               // AUTH_REGISTER_PER_HOUR: new accounts per client address per hour                // TRUST_PROXY: take the client address from X-Forwarded-For (behind a reverse proxy)
+    bool trustProxy = false;                // TRUST_PROXY: take the client address from X-Forwarded-For (behind a reverse proxy)
+    int registerPerHour = 20;               // AUTH_REGISTER_PER_HOUR: new accounts per client address per hour
+    std::vector<std::string> platformAdmins; // PLATFORM_ADMINS: usernames that administer the deployment (the admin panel, suspensions)
     int retentionAuditDays = 365;           // studio audit rows
     int retentionAiJobDays = 30;            // finished background AI job rows
     std::string migrationsDir = "./migrations";

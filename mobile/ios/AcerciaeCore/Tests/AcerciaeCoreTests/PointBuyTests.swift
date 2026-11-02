@@ -28,7 +28,7 @@ final class PointBuyTests: XCTestCase {
         let address = try BackendAddress(base, allowLocalHTTP: true)
         XCTAssertTrue(["localhost", "127.0.0.1"].contains(address.url.host ?? ""))
         let api = BackendClient(address: address)
-        let health = try await api.health(); XCTAssertEqual(health.llmMode, "mock")
+        let health = try await api.health(); XCTAssertEqual(health.status, "ok")
         let gm = try await api.login(username: "keeper", password: "password")
         let alice = try await api.login(username: "alice", password: "password")
         let servers = try await api.servers(token: gm.token); let server = try XCTUnwrap(servers.first)
@@ -41,9 +41,15 @@ final class PointBuyTests: XCTestCase {
         let own = try XCTUnwrap(chars.first { $0["user_id"].text == alice.user.id })
         let path = ["channels", channel.id, "characters", own.id]
         var card = try fixture()["card"].object
-        card["career"] = .object(["name": .string("会计师"), "choices": .array([]), "specialties": .array([.string("Science")])])
+        card["career"] = .object(["name": .string("会计师"), "choices": .array([]), "specialties": .array([.string("Science (Biology)")])])
         card["skill_points"] = .object(["Listen": .object(["career": .number(30), "hobby": .number(10), "growth": .number(2)]), "Science (Biology)": .object(["career": .number(20)]), "Credit Rating": .object(["career": .number(30)])])
-        let preview = PointBuy(card: .object(card), rules: rules)
+        let old = try await api.resource(path + ["space"], token: alice.token)
+        var expected = card
+        var expectedPoints = expected["skill_points"]!.object
+        var listen = expectedPoints["Listen"]!.object
+        listen["growth"] = old["character"]["role_card"]["skill_points"]["Listen"]["growth"] == .null ? .number(0) : old["character"]["role_card"]["skill_points"]["Listen"]["growth"]
+        expectedPoints["Listen"] = .object(listen); expected["skill_points"] = .object(expectedPoints)
+        let preview = PointBuy(card: .object(expected), rules: rules)
         let saved = try await api.resource(path + ["card"], token: alice.token, body: .object(["role_card": .object(card)]), method: "PUT")
         XCTAssertTrue(saved["points"]["enabled"].bool)
         XCTAssertEqual(saved["points"]["career_budget"].int, preview.careerBudget)

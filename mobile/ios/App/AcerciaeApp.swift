@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import AcerciaeCore
 
 @main struct AcerciaeApp: App {
@@ -6,6 +7,14 @@ import AcerciaeCore
 }
 
 @MainActor final class AppModel: ObservableObject {
+    @Published var chatNotices: [ChatNotice] = []
+    @Published var initiative: JSONValue = .null
+    @Published var bannersEnabled = UserDefaults.standard.object(forKey: "chatBanners") as? Bool ?? true
+    @Published var readAloud = UserDefaults.standard.bool(forKey: "readAloud")
+    var foreground = false { didSet { if !foreground { metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID(); metadataUpdated = .distantPast } } }
+    var chatVisible = false
+    let speech = AVSpeechSynthesizer()
+    private var readSeq: [String: Int64] = [:]
     @Published var campaign: DemoCampaign?
     @Published var loadError: String?
     @Published var draft = ""
@@ -51,8 +60,9 @@ import AcerciaeCore
     var playable: [Resource] { characters.filter { $0["user_id"].text == session?.user.id || (gm && $0["kind"].text == "npc") } }
     var serverName: String { servers.first { $0.id == serverId }?.name ?? tr("服务器") }
     var windowName: String { windows.first { $0.id == windowId }?.name ?? tr("聊天") }
-    func enabled(_ feature: String) -> Bool { !online || serverSettings["features"][feature].bool }
-    init() {
+    func enabled(_ feature: String) -> Bool { !online || FeatureAccess.enabled(feature, server: serverSettings, channel: channel) }
+    init(client injectedClient: BackendClient? = nil, session injectedSession: Session? = nil) {
+        if let client = injectedClient, let session = injectedSession { self.client = client; self.session = session; return }
         do {
             if let saved = try SessionStore.read() {
                 guard ServiceConfiguration.acceptsSavedEndpoint(saved.endpoint) else { try SessionStore.clear(); return }
@@ -128,6 +138,9 @@ import AcerciaeCore
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
     }
     private func clearChannel() {
+        metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID()
+        metadataUpdated = .distantPast; failedPolls = 0; nextPoll = .distantPast
+        chatNotices = []; initiative = .null; readSeq = [:]; speech.stopSpeaking(at:.immediate)
         channelId = ""; windowId = ""; characterId = ""; channel = .null; speechMode = "ooc"; references = []; jumpMessageId = nil
         windows = []; characters = []; scenes = []; reminders = []; campaign = nil; hasOlder = false; diceHint = ""; result = nil
     }
@@ -135,11 +148,11 @@ import AcerciaeCore
         if !windowId.isEmpty { drafts[windowId] = draft }
         epoch = UUID(); let stamp = epoch
         serverId = id; clearChannel(); channels = []; serverSettings = .null; draft = ""
-        let settings = try await get(["servers", id, "settings"])
         let rows: [Resource] = try await typed(["servers", id, "channels"])
         guard epoch == stamp else { return }
-        serverSettings = settings; channels = rows
+        channels = rows
         if let first = rows.first { try await selectChannel(first.id) }
+        else { serverSettings = try await get(["servers",id,"settings"]) }
     }
     func selectChannel(_ id: String) async throws {
         if !windowId.isEmpty { drafts[windowId] = draft }
@@ -147,17 +160,15 @@ import AcerciaeCore
         clearChannel(); channelId = id; draft = ""
         let info = try await get(["channels", id])
         let wins: [Resource] = try await typed(["channels", id, "windows"])
-        let chars: [Resource] = try await typed(["channels", id, "characters"])
-        let stages: [Resource] = try await typed(["channels", id, "scenes"])
         guard epoch == stamp else { return }
-        channel = info; windows = wins; characters = chars; scenes = stages
+        channel = info; windows = wins
         characterId = playable.first?.id ?? ""; role = playable.first?.name ?? (gm ? tr("旁白") : tr("场外"))
         if let first = wins.first { try await selectWindow(first.id) }
     }
     func selectWindow(_ id: String) async throws {
         if !windowId.isEmpty { drafts[windowId] = draft }
         epoch = UUID(); references = []; jumpMessageId = nil; speechMode = gm ? "narration" : "ic"; windowId = id; draft = drafts[id] ?? ""; campaign = nil; diceHint = ""; result = nil
-        try await refresh(merge: false)
+        try await refresh(merge: false,metadata:false)
     }
     func typed<T: Decodable>(_ path: [String], query: [String: String] = [:]) async throws -> T {
         guard let client, let session else { throw ClientError.http(401) }
@@ -175,35 +186,82 @@ import AcerciaeCore
         guard let client, let session else { throw ClientError.http(401) }
         return try await client.uploadCharacterAsset(channel: channelId, character: character, slot: slot, subtitle: subtitle, data: data, token: session.token)
     }
-    func refresh(merge: Bool = true) async throws {
+    func uploadModule(_ data: Data, title: String) async throws -> JSONValue {
+        guard let client, let session else { throw ClientError.http(401) }
+        return try await client.uploadModule(channel: channelId, title: title, data: data, token: session.token)
+    }
+    private var metadataTask: Task<Void,Never>?
+    private var metadataGeneration = UUID()
+    private var metadataUpdated = Date.distantPast
+    private var failedPolls = 0
+    private var nextPoll = Date.distantPast
+    private func auxiliary<T>(_ work: () async throws -> T, cached: T, empty: T) async throws -> T {
+        do { return try await work() }
+        catch {
+            if Task.isCancelled { throw CancellationError() }
+            if case ClientError.http(401) = error { throw error }
+            if let e = error as? ClientError, [403,404].contains(e.httpStatus ?? 0) { return empty }
+            connection = tr("聊天已连接，部分内容暂未更新，将自动重试")
+            return cached
+        }
+    }
+    func refresh(merge: Bool = true, metadata: Bool = true) async throws {
         guard online, !windowId.isEmpty, !refreshing else { return }
         refreshing = true; defer { refreshing = false }
-        let stamp = epoch; let c = channelId; let w = windowId
-        let messages: [Message] = try await typed(["channels", c, "windows", w, "messages"], query: ["limit": "50"])
-        let info = try await get(["channels", c])
-        let isGM = info["my_role"].text == "gm"
-        let docs: [DocumentSummary] = isGM ? try await typed(["channels", c, "documents"]) : []
-        let hints: [Highlight] = isGM ? try await typed(["channels", c, "highlights"]) : []
-        let reminders: [Resource] = try await typed(["channels", c, "reminders"])
-        let settings = try await get(["servers", serverId, "settings"])
-        let wins: [Resource] = try await typed(["channels", c, "windows"])
-        let chars: [Resource] = try await typed(["channels", c, "characters"])
-        let stages: [Resource] = try await typed(["channels", c, "scenes"])
+        let stamp = epoch; let c = channelId; let w = windowId; let server = serverId
+        async let infoRequest = get(["channels",c])
+        async let windowsRequest: [Resource] = typed(["channels",c,"windows"])
+        let (info,wins) = try await (infoRequest,windowsRequest)
         guard stamp == epoch else { return }
+        let isGM = info["my_role"].text == "gm"
         let permissionsChanged = channel["player_group_id"] != info["player_group_id"] || channel["player_group_version"] != info["player_group_version"] || channel["my_role"] != info["my_role"] || channel["my_character_ids"] != info["my_character_ids"] || channel["knowledge_mode"] != info["knowledge_mode"] || windows.first { $0.id == w }?["members"] != wins.first { $0.id == w }?["members"]
-        if permissionsChanged { result = nil; diceHint = ""; references = []; jumpMessageId = nil; if channel["my_role"] != info["my_role"] { speechMode = info["my_role"].text == "gm" ? "narration" : "ic" } }
+        if permissionsChanged {
+            metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID()
+            chatNotices = []; readSeq = [:]; speech.stopSpeaking(at:.immediate); result = nil; diceHint = ""; references = []; jumpMessageId = nil
+            campaign = nil; characters = []; scenes = []; reminders = []
+            if channel["my_role"] != info["my_role"] { speechMode = isGM ? "narration" : "ic" }
+        }
+        channel = info; windows = wins
+        let messages: [Message] = try await typed(["channels",c,"windows",w,"messages"],query:["limit":"50"])
+        guard stamp == epoch else { return }
         var all = merge && !permissionsChanged ? campaign?.messages ?? [] : []
         for message in messages { all.removeAll { $0.id == message.id }; all.append(message) }
         all.sort { $0.seq < $1.seq }
-        // Decode the view model through the same fixture contract without inventing server fields.
-        let payload: JSONValue = .object(["title": .string(info["name"].text), "scene": .string(wins.first { $0.id == w }?["scene_title"].text ?? ""), "messages": .array([]), "documents": .array([]), "highlights": .array([]), "replay": .array([])])
+        let payload: JSONValue = .object(["title":.string(info["name"].text),"scene":.string(wins.first { $0.id == w }?["scene_title"].text ?? ""),"messages":.array([]),"documents":.array([]),"highlights":.array([]),"replay":.array([])])
         var view = try DemoCampaign.decode(JSONEncoder().encode(payload))
-        view.messages = all; view.documents = docs; view.highlights = hints
-        self.reminders = reminders
-        campaign = view; serverSettings = settings; channel = info; windows = wins; characters = chars; scenes = stages
-        if !characterId.isEmpty && !playable.contains(where: { $0.id == characterId }) { characterId = ""; role = gm ? tr("旁白") : tr("场外") }
+        view.messages = all; view.documents = isGM ? campaign?.documents ?? [] : []; view.highlights = isGM ? campaign?.highlights ?? [] : []
+        campaign = view; channel = info; windows = wins
         if !merge || permissionsChanged { hasOlder = messages.count == 50 }
         connection = "已连接 · 自动刷新"
+        // Publish the authorized chat before optional metadata; one failed hint request must not discard messages.
+        if metadata || permissionsChanged || (metadataTask == nil && Date().timeIntervalSince(metadataUpdated) >= 30) {
+            metadataUpdated = Date()
+            metadataTask?.cancel(); let generation = UUID(); metadataGeneration = generation
+            let scope = scopeKey
+            let updateMetadata: () async throws -> Void = { [self] in
+            async let docs: [DocumentSummary] = auxiliary({ isGM ? try await self.typed(["channels",c,"documents"]) : [] },cached:view.documents,empty:[])
+            async let hints: [Highlight] = auxiliary({ isGM ? try await self.typed(["channels",c,"highlights"]) : [] },cached:view.highlights,empty:[])
+            async let reminders: [Resource] = auxiliary({ try await self.typed(["channels",c,"reminders"]) },cached:self.reminders,empty:[])
+            async let settings = auxiliary({ try await self.get(["servers",server,"settings"]) },cached:serverSettings,empty:.null)
+            async let chars: [Resource] = auxiliary({ try await self.typed(["channels",c,"characters"]) },cached:characters,empty:[])
+            async let stages: [Resource] = auxiliary({ try await self.typed(["channels",c,"scenes"]) },cached:scenes,empty:[])
+            let values = try await (docs,hints,reminders,settings,chars,stages)
+            try Task.checkCancellation()
+            guard stamp == epoch && scope == scopeKey else { return }
+            campaign?.documents = values.0; campaign?.highlights = values.1; self.reminders = values.2
+            serverSettings = values.3; characters = values.4; scenes = values.5
+            if characterId.isEmpty && speechMode == "ic", let first = playable.first { characterId = first.id; role = first.name }
+            }
+            if metadata { try await updateMetadata() }
+            else {
+                metadataTask = Task { [self] in
+                    defer { if metadataGeneration == generation { metadataTask = nil } }
+                    do { try await updateMetadata() }
+                    catch { if !Task.isCancelled && stamp == epoch && scope == scopeKey { handle(error,silent:true) } }
+                }
+            }
+        }
+        if !characterId.isEmpty && !playable.contains(where: { $0.id == characterId }) { characterId = ""; role = gm ? tr("旁白") : tr("场外") }
     }
     // Reconcile membership before reusing cached channel data, including empty accounts.
     func refreshCatalog() async throws {
@@ -212,7 +270,7 @@ import AcerciaeCore
         let profile: User = try await typed(["auth", "me"])
         let fetched: [Resource] = try await typed(["servers"])
         guard stamp == epoch else { return }
-        if let auth = session, profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled {
+        if let auth = session, profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.hasAvatar != auth.user.hasAvatar || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled {
             session = Session(token: auth.token, user: profile); if let code = profile.uiLanguage { MobileLocale.shared.set(code) }
             try? SessionStore.save(SavedLogin(endpoint: endpoint, session: session!))
         }
@@ -232,14 +290,58 @@ import AcerciaeCore
         }
         catalogUpdated = Date()
     }
+    func dismissNotice(_ id: String) { chatNotices.removeAll { $0.id == id } }
+    func setBanners(_ on: Bool) { bannersEnabled = on; UserDefaults.standard.set(on, forKey:"chatBanners"); if !on { chatNotices = [] } }
+    func setReadAloud(_ on: Bool) { readAloud = on; UserDefaults.standard.set(on, forKey:"readAloud"); if !on { speech.stopSpeaking(at:.immediate) } }
+    func initiativeAction(_ action: String, entry: String = "") async { await run { initiative = try await get(["channels",channelId,"windows",windowId,"initiative"],body:.object(["action":.string(action),"entry_id":.string(entry)])) } }
+    private func updateActivity(previous: [Resource], previousMessages: [Message]?, stamp: UUID, allowSpeech: Bool) async throws {
+        guard !Task.isCancelled, foreground, stamp == epoch, let user = session?.user.id else { return }
+        let c = channelId, w = windowId
+        chatNotices.removeAll { n in !windows.contains { $0.id == n.id && ($0["kind"].text == "main" || $0["members"].array.contains { $0["user_id"].text == user }) } || (chatVisible && n.id == w) }
+        if bannersEnabled {
+            for win in windows where WindowActivity.shouldNotify(previous: previous.first { $0.id == win.id }?.value ?? .null,current:win.value,user:user,viewing:chatVisible ? w : "") {
+                let old = previous.first { $0.id == win.id }?["last_seq"].int ?? 0
+                let rows: [Message] = try await typed(["channels",c,"windows",win.id,"messages"],query:["limit":"24"])
+                guard !Task.isCancelled, foreground, stamp == epoch else { return }
+                let incoming = rows.filter { $0.seq > old && $0.authorId != user }
+                if !incoming.isEmpty {
+                    let prior = chatNotices.first { $0.id == win.id }?.messages ?? []
+                    dismissNotice(win.id); let merged = Dictionary((incoming + prior).map { ($0.id,$0) },uniquingKeysWith: { a,_ in a }).values.sorted { $0.seq > $1.seq }
+                    chatNotices.insert(ChatNotice(id:win.id,title:win.name,messages:Array(merged.prefix(24))),at:0); chatNotices = Array(chatNotices.prefix(4))
+                }
+            }
+        }
+        guard stamp == epoch, chatVisible else { return }
+        if channel["rule_system"].text == "dnd2024" { let value = try await get(["channels",c,"windows",w,"initiative"]); guard stamp == epoch else { return }; initiative = value }
+        guard !Task.isCancelled, foreground, chatVisible, stamp == epoch else { return }
+        if allowSpeech && readAloud, let previousMessages, let newest = previousMessages.map(\.seq).max() {
+            let fresh = (campaign?.messages ?? []).filter { $0.seq > newest && $0.authorId != user && $0.kind != "system" }
+            for message in fresh.suffix(5) { let utterance = AVSpeechUtterance(string:String(message.displayText.prefix(1500))); utterance.voice = AVSpeechSynthesisVoice(language:serverSettings["language"].text); speech.speak(utterance) }
+        }
+        if let seq = campaign?.messages.map(\.seq).max(), seq > (readSeq[w] ?? -1), windows.first(where: { $0.id == w })?["unread"] != .null {
+            _ = try await get(["channels",c,"windows",w,"read"],body:.object(["seq":.number(Double(seq))])); guard stamp == epoch else { return }; readSeq[w] = seq
+        }
+    }
     func poll(forceCatalog: Bool = false) async {
-        guard online, !busy, !polling else { return }
+        guard online, !busy, !polling, forceCatalog || Date() >= nextPoll else { return }
         polling = true; defer { polling = false }
         let token = session?.token
+        let previousScope = scopeKey; let previous = windows; let previousMessages = campaign?.messages; let stamp = epoch
         do {
-            if forceCatalog || Date().timeIntervalSince(catalogUpdated) >= 30 { try await refreshCatalog() }
-            try await refresh()
-        } catch { if !Task.isCancelled && session?.token == token { handle(error, silent: true) } }
+            var catalogDeferred = false
+            if forceCatalog || Date().timeIntervalSince(catalogUpdated) >= 30 {
+                do { try await refreshCatalog() }
+                catch {
+                    if Task.isCancelled || windowId.isEmpty { throw error }
+                    if case ClientError.http(401) = error { throw error }
+                    catalogUpdated = Date(); catalogDeferred = true
+                }
+            }
+            try await refresh(metadata:false)
+            failedPolls = 0; nextPoll = .distantPast
+            if previousScope == scopeKey { _ = try await auxiliary({ try await self.updateActivity(previous:previous,previousMessages:previousMessages,stamp:stamp,allowSpeech:!forceCatalog) },cached:(),empty:()) }
+            if catalogDeferred { connection = tr("聊天已连接，部分内容暂未更新，将自动重试") }
+        } catch { if !Task.isCancelled && session?.token == token { failedPolls = min(4,failedPolls + 1); nextPoll = Date().addingTimeInterval(Double(min(30,4 * (1 << failedPolls)))); handle(error, silent: true) } }
     }
     func older() async {
         guard let seq = campaign?.messages.first?.seq else { return }
@@ -286,6 +388,7 @@ import AcerciaeCore
         }
     }
     func assistance(_ type: String) async {
+        guard enabled(type), !windowId.isEmpty else { return }
         guard type != "consistency" || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard online else { notice = tr("请先在设置中连接服务器"); return }
         await run {
@@ -318,9 +421,11 @@ import AcerciaeCore
         do { try await work() } catch { handle(error) }
     }
     func handle(_ error: Error, silent: Bool = false) {
+        if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
         if case ClientError.http(401) = error { logout(); notice = tr("登录已过期，请重新登录"); return }
         if silent, let e = error as? ClientError, [403, 404].contains(e.httpStatus ?? 0) { epoch = UUID(); clearChannel(); catalogUpdated = .distantPast }
-        connection = error is ClientError ? error.localizedDescription : tr("连接失败，请重试")
+        if case ClientError.gateway(let status) = error { connection = tr("服务入口暂时不可用，请稍后重试") + " (HTTP \(status))" }
+        else { connection = tr(ConnectionPolicy.message(error)) }
         if !silent { notice = connection }
     }
     func checkConnection() async {

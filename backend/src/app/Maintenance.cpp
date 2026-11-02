@@ -28,7 +28,8 @@ void Maintenance::revalidateSockets() {
         [&](const std::string& userId, const std::string& key) {
             static const std::string spectate = WsGateway::spectateKey("");
             if (key.rfind(spectate, 0) == 0) return s_.chat->canSpectate(userId, key.substr(spectate.size()));
-            return !db.queryOne("SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2", {key, userId}).isNull();
+            return !db.queryOne("SELECT 1 AS ok FROM channel_members m JOIN channels c ON c.id=m.channel_id JOIN servers s ON s.id=c.server_id "
+                                "WHERE m.channel_id=$1 AND m.user_id=$2 AND s.suspended_at IS NULL", {key, userId}).isNull();
         });
 }
 

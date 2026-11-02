@@ -6,13 +6,18 @@ final class SessionAndCreationTests: XCTestCase {
         XCTAssertTrue(ServiceConfiguration.acceptsSavedEndpoint(ServiceConfiguration.backendRoot + "/"))
         XCTAssertFalse(ServiceConfiguration.acceptsSavedEndpoint("http://localhost:18083"))
         XCTAssertFalse(ServiceConfiguration.acceptsSavedEndpoint("https://another.example"))
+        XCTAssertTrue(ServiceConfiguration.acceptsSavedEndpoint("https://trpg.missazertia.com:15510/"))
+        XCTAssertTrue(ServiceConfiguration.acceptsSavedEndpoint("https://trpg.missazertia.com:443"))
+        XCTAssertFalse(ServiceConfiguration.acceptsSavedEndpoint("http://trpg.missazertia.com:15510"))
+        XCTAssertFalse(ServiceConfiguration.acceptsSavedEndpoint("https://trpg.missazertia.com:15511"))
+        XCTAssertEqual(ServiceConfiguration.backendRoot,"https://trpg.missazertia.com")
     }
     func testLocalRegistrationReturnsSessionAndRejectsDuplicate() async throws {
         guard let base = ProcessInfo.processInfo.environment["ACERCIAE_POINTS_BASE"] else { throw XCTSkip("Requires local mock service") }
         let address = try BackendAddress(base, allowLocalHTTP: true)
         guard ["localhost", "127.0.0.1"].contains(address.url.host ?? "") else { throw XCTSkip("Local test service only") }
         let api = BackendClient(address: address)
-        let health = try await api.health(); XCTAssertEqual(health.llmMode, "mock")
+        let health = try await api.health(); XCTAssertEqual(health.status, "ok")
         let username = "mobile_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20)
         let session = try await api.register(username: username, password: "local-test-password", displayName: "手机注册测试")
         XCTAssertFalse(session.token.isEmpty)
@@ -49,7 +54,7 @@ final class SessionAndCreationTests: XCTestCase {
         let address = try BackendAddress(base, allowLocalHTTP: true)
         guard ["localhost", "127.0.0.1"].contains(address.url.host ?? "") else { throw XCTSkip("Local test service only") }
         let api = BackendClient(address: address)
-        let health = try await api.health(); XCTAssertEqual(health.llmMode, "mock")
+        let health = try await api.health(); XCTAssertEqual(health.status, "ok")
         let alice = try await api.login(username: "alice", password: "password")
         let bob = try await api.login(username: "bob", password: "password")
         let restored = try JSONDecoder().decode(Session.self, from: JSONEncoder().encode(alice))

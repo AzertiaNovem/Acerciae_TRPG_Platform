@@ -41,7 +41,7 @@ struct CharacterView: View {
                 ForEach(attributes["attrs"].object.keys.sorted(), id: \.self) { key in
                     LabeledContent(key, value: String(attributes["attrs"][key].int))
                 }
-                if attributes["editable"].bool && !space["points"]["enabled"].bool {
+                if attributes["editable"].bool && (space["rule_system"].text == "dnd2024" || !space["points"]["enabled"].bool) {
                     TextField(tr("属性或技能名"), text: $attribute)
                     TextField(tr("数值"), text: $value).keyboardType(.numbersAndPunctuation)
                     Button(tr("保存属性")) { Task { await model.run {
@@ -120,7 +120,6 @@ struct LiveServerView: View {
             }
             Section(model.serverName) {
                 Text(model.serverSettings["is_maintainer"].bool ? tr("服务器管理员") : tr("服务器成员"))
-                if model.serverSettings["features"]["coc7_points"] != .null { Toggle(tr("CoC7 购点规则"), isOn: $points) }
                 Toggle(tr("Channel atmosphere backgrounds"), isOn: $atmosphere)
                 Text(tr("Allow automatic image generation from public Keeper narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display.")).font(.caption)
                 Toggle(tr("日志制作"), isOn: $studio)
@@ -132,7 +131,6 @@ struct LiveServerView: View {
                     Button(tr("保存服务器设置")) { Task { await model.run {
                         var features = model.serverSettings["features"].object
                         features["atmosphere"] = .bool(atmosphere); features["log_studio"] = .bool(studio); features["dice"] = .bool(dice); features["consistency"] = .bool(consistency); features["inspiration"] = .bool(inspiration)
-                        if features["coc7_points"] != nil { features["coc7_points"] = .bool(points) }
                         model.serverSettings = try await model.get(["servers", model.serverId, "settings"], body: .object(["language": .string(language), "features": .object(features)]), method: "PUT")
                     } } }
                 }
@@ -143,8 +141,8 @@ struct LiveServerView: View {
         }.navigationTitle(tr("服务器选项")).navigationBarTitleDisplayMode(.inline)
             .task(id: model.serverId) {
                 atmosphere = model.serverSettings["features"]["atmosphere"].bool
-                points = model.enabled("coc7_points"); studio = model.enabled("log_studio")
-                dice = model.enabled("dice"); consistency = model.enabled("consistency"); inspiration = model.enabled("inspiration")
+                studio = model.enabled("log_studio")
+                dice = model.enabled("dice"); consistency = model.serverSettings["features"]["consistency"].bool; inspiration = model.serverSettings["features"]["inspiration"].bool
                 language = InterfaceLanguage.supported(model.serverSettings["language"].text)
             }
     }
@@ -155,7 +153,12 @@ struct LiveChannelView: View {
     @State private var visible = false
     @State private var playerAccess = false
     @State private var autoScenarios = false
+    @State private var ruleSystem = "coc7e"
+    @State private var pointBuy = false
     @State private var ai = false
+    @State private var consistency = true
+    @State private var inspiration = true
+    @State private var atmosphere = true
     @State private var cloud = false
     @State private var budget = "0"
     @State private var studioLoaded = false
@@ -170,6 +173,8 @@ struct LiveChannelView: View {
         Group {
             if model.online && model.gm {
                 Form {
+                    if model.studioAvailable { NavigationLink(tr("Voice settings")) { VoiceSettings(model: model).id(model.scopeKey) } }
+                    NavigationLink(tr("Module imports")) { ModuleImports(model: model).id(model.scopeKey) }
                     Section { Text(model.channel["name"].text).font(.headline); Text(tr("以下设置仅作用于当前频道")).font(.caption) }
                 Section(tr("守密人设置")) {
                     TextField(tr("频道名称"), text: $channelName)
@@ -184,12 +189,17 @@ struct LiveChannelView: View {
                         ForEach(diceGroups) { group in Text(group.name).tag(group.id) }
                         if !diceGroup.isEmpty && !diceGroup.hasPrefix("builtin:") && !diceGroups.contains(where: { $0.id == diceGroup }) { Text(tr("当前自定义回复")).tag(diceGroup) }
                     }
+                    Picker(tr("Rule system"), selection: $ruleSystem) { Text("Call of Cthulhu 7e").tag("coc7e"); Text("D&D 2024 · SRD 5.2").tag("dnd2024") }
+                    Toggle(tr("Point buy for role cards"), isOn: $pointBuy)
                     Toggle(tr("AI 观察与整理"), isOn: $ai)
+                    Toggle(tr("Consistency check"), isOn: $consistency).disabled(!model.serverSettings["features"]["consistency"].bool)
+                    Toggle(tr("Inspiration"), isOn: $inspiration).disabled(!model.serverSettings["features"]["inspiration"].bool)
+                    Toggle(tr("Channel atmosphere backgrounds"), isOn: $atmosphere).disabled(!model.serverSettings["features"]["atmosphere"].bool)
                     Toggle(tr("向成员显示日志制作"), isOn: $visible)
                     Toggle(tr("Players may open the Log Studio before the story ends"), isOn: $playerAccess)
                     Toggle(tr("根据叙述建议新阶段"), isOn: $autoScenarios)
                     Button(tr("保存频道设置")) { Task { await model.run {
-                        model.channel = try await model.get(["channels", model.channelId], body: .object(["name": .string(channelName.trimmingCharacters(in: .whitespacesAndNewlines)), "description": .string(channelDescription), "era": .string(era), "knowledge_mode": .string(knowledgeMode), "dice_text_group": .string(diceGroup), "ai_enabled": .bool(ai), "studio_visible": .bool(visible), "studio_player_access": .bool(playerAccess), "auto_scenarios": .bool(autoScenarios)]), method: "PUT")
+                        model.channel = try await model.get(["channels", model.channelId], body: .object(["name": .string(channelName.trimmingCharacters(in: .whitespacesAndNewlines)), "description": .string(channelDescription), "era": .string(era), "knowledge_mode": .string(knowledgeMode), "dice_text_group": .string(diceGroup), "rule_system": .string(ruleSystem), "point_buy": .bool(pointBuy), "ai_enabled": .bool(ai), "consistency_enabled": .bool(consistency), "inspiration_enabled": .bool(inspiration), "atmosphere_enabled": .bool(atmosphere), "studio_visible": .bool(visible), "studio_player_access": .bool(playerAccess), "auto_scenarios": .bool(autoScenarios)]), method: "PUT")
                         try await model.refreshCatalog(); try await model.refresh(); model.notice = tr("守密人设置已保存")
                     } } }.disabled(channelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || era.count > 80)
                     if studioLoaded {
@@ -219,7 +229,9 @@ struct LiveChannelView: View {
                 guard model.online && model.gm else { return }
                 playerAccess = model.channel["studio_player_access"].bool
                 visible = model.channel["studio_visible"].bool; autoScenarios = model.channel["auto_scenarios"].bool
+                ruleSystem = model.channel["rule_system"].string ?? "coc7e"; pointBuy = model.channel["point_buy"].bool
                 ai = model.channel["ai_enabled"].bool
+                consistency = model.channel["consistency_enabled"] != .bool(false); inspiration = model.channel["inspiration_enabled"] != .bool(false); atmosphere = model.channel["atmosphere_enabled"] != .bool(false)
                 channelName = model.channel["name"].text; channelDescription = model.channel["description"].text
                 era = model.channel["era"].text; knowledgeMode = model.channel["knowledge_mode"].text; diceGroup = model.channel["dice_text_group"].text
                 diceGroups = []; studioLoaded = false
@@ -288,11 +300,7 @@ struct StudioView: View {
                         index = min(max(0, progress["position"].int), max(0, events.count - 1))
                     } } }
                     NavigationLink(tr("配音选角")) { DubbingView(model: model, presentationId: item.id) }
-                    Button(tr("下载独立播放包")) { Task { await perform {
-                        let data = try await model.bytes(base + ["presentations", item.id, "bundle.zip"])
-                        let url = FileManager.default.temporaryDirectory.appendingPathComponent("novel-\(UUID()).zip")
-                        try data.write(to: url, options: .atomic); exported = url
-                    } } }
+                    NovelTools(model:model,presentation:item.id,canContinue:model.gm || item["created_by"].text == model.session?.user.id,exported:$exported)
                 }
                 }
                 if presentations.isEmpty { Text(tr("暂无已发布到当前账号的演出")) }

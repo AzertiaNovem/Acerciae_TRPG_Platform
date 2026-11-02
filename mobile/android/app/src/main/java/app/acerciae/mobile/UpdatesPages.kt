@@ -39,6 +39,7 @@ import kotlinx.serialization.json.*
 }
 
 @Composable fun NovelCreator(state: AppState, model: AppViewModel, close: () -> Unit) {
+    var retryChunks by remember { mutableStateOf(true) }
     var status by remember { mutableStateOf<JsonObject?>(null) }; var jobs by remember { mutableStateOf(emptyList<JsonObject>()) }
     var title by remember { mutableStateOf("") }; var direction by remember { mutableStateOf("") }
     var character by remember { mutableStateOf(state.playable.firstOrNull()?.id.orEmpty()) }
@@ -59,12 +60,13 @@ import kotlinx.serialization.json.*
         item { OutlinedTextField(direction, { direction = it }, label = { Text(tr("改编方向（可选）")) }) }
         item { Text(if (status?.flag("mock") == true) tr("当前使用示例生成服务") else status?.text("note").orEmpty()) }
         if (status?.flag("mock") != true) item { Row { Checkbox(cloud, { cloud = it }, enabled = status?.flag("cloud_allowed") == true); Text(tr("同意将选定日志发送至配置的云端服务")) } }
+        item { Row { Checkbox(retryChunks,{retryChunks=it}); Text(tr("Retry failed chunks")) } }
         item { Row { Checkbox(art, { art = it }, enabled = status?.flag("images") == true); Text(tr("同时生成缺失的背景与立绘")) } }
         item { Button(onClick = { model.launch {
             model.get(base, buildJsonObject {
                 put("scope", scope); if (scope == "character") put("scope_character_id", character)
                 if (title.isNotBlank()) put("title", title); put("instructions", direction)
-                put("template", buildJsonObject { put("base", template) }); put("allow_cloud", cloud); put("generate_art", art)
+                put("template", buildJsonObject { put("base", template) }); put("allow_cloud", cloud); put("generate_art", art); put("retry_failed_chunks",retryChunks)
             }); jobs = model.rows(base)
         } }, enabled = !state.busy && status != null && (status?.flag("mock") == true || (cloud && status?.flag("cloud_allowed") == true)) && (scope != "character" || character.isNotEmpty())) { Text(tr("生成视觉小说")) } }
         items(jobs, key = { it.id }) { job -> Column {
@@ -72,6 +74,7 @@ import kotlinx.serialization.json.*
             Text("${job.text("status")} · ${job.obj("progress").number("chunks_done")} / ${job.obj("progress").number("chunks_total")}")
             if (job.text("error").isNotEmpty()) Text(job.text("error"), color = MaterialTheme.colorScheme.error)
             if (job.text("status") in listOf("pending", "running")) TextButton(onClick = { model.launch { model.get(base + listOf(job.id, "cancel"), JsonObject(emptyMap())); jobs = model.rows(base) } }, enabled = !state.busy) { Text(tr("取消生成")) }
+            var recovery by remember { mutableStateOf(false) }; TextButton(onClick={recovery=!recovery}) { Text(tr("Recovery and backgrounds")) }; if(recovery) NovelRecovery(state,model,job.id)
             if (job.text("presentation_id").isNotEmpty()) Text(tr("已完成，可返回故事回放查看并下载独立播放包"))
         } }
     }
@@ -89,8 +92,10 @@ import kotlinx.serialization.json.*
     var space by remember { mutableStateOf(JsonObject(emptyMap())) }; var card by remember { mutableStateOf(JsonObject(emptyMap())) }
     var name by remember { mutableStateOf("") }; var bio by remember { mutableStateOf("") }; var speakingStyle by remember { mutableStateOf("") }; var prompt by remember { mutableStateOf("") }; var mode by remember { mutableStateOf("uploaded") }; var cloud by remember { mutableStateOf(false) }
     val base = listOf("channels", state.channelId, "characters", character.id)
-    fun apply(v: JsonObject) { space = v; card = v.obj("character").obj("role_card"); name = v.obj("character").text("name"); bio = v.obj("character").text("bio"); speakingStyle = v.obj("character").text("speaking_style"); prompt = v.obj("character").text("appearance_prompt"); mode = v.obj("character").text("asset_mode") }
+    var baselineCard by remember { mutableStateOf(JsonObject(emptyMap())) }; var reloadCard by remember { mutableStateOf(false) }
+    fun apply(v: JsonObject) { space = v; baselineCard = v.obj("character").obj("role_card"); card = v.obj("character").obj("role_card"); name = v.obj("character").text("name"); bio = v.obj("character").text("bio"); speakingStyle = v.obj("character").text("speaking_style"); prompt = v.obj("character").text("appearance_prompt"); mode = v.obj("character").text("asset_mode") }
     var slot by remember { mutableStateOf("portrait") }; var subtitle by remember { mutableStateOf("IDLE") }
+    if (reloadCard) AlertDialog(onDismissRequest = { reloadCard = false }, title = { Text(tr("Discard draft and reload character card?")) }, confirmButton = { TextButton(onClick = { reloadCard = false; model.launch { apply(model.get(base + "space")) } }) { Text(tr("Reload card")) } }, dismissButton = { TextButton(onClick = { reloadCard = false }) { Text(tr("Cancel")) } })
     val context = LocalContext.current
     val upload = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) model.launch {
@@ -102,10 +107,11 @@ import kotlinx.serialization.json.*
         }
     }
     val editable = space.obj("character").flag("editable") && !state.busy
+    val dnd = space.text("rule_system") == "dnd2024" || state.channel.text("rule_system") == "dnd2024"
     val pointsOn = space.obj("points").flag("enabled")
-    val pointsValid = !pointsOn || (pointRules != null && PointBuy(card, pointRules!!).issues.isEmpty())
+    val pointsValid = dnd || !pointsOn || (pointRules != null && PointBuy(card, pointRules!!).issues.isEmpty())
     LaunchedEffect(character.id) { try { apply(model.get(base + "space")) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { model.notice(tr("角色资料加载失败，请重新打开角色卡")) } }
-    LaunchedEffect(pointsOn) { if (pointsOn) { try { pointRules = model.get(listOf("coc7", "rules")); rulesError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { rulesError = tr("职业规则暂不可用，请重试；草稿保留") } } }
+    LaunchedEffect(pointsOn,dnd) { if (pointsOn || dnd) { try { pointRules = model.get(listOf(if (dnd) "dnd" else "coc7", "rules")); rulesError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { rulesError = tr("职业规则暂不可用，请重试；草稿保留") } } }
     val groups = listOf(
         Triple("basic", tr("基本信息"), listOf("player", "occupation", "age", "sex", "residence", "birthplace")),
         Triple("characteristics", tr("CoC7 属性"), listOf("STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK")),
@@ -116,13 +122,16 @@ import kotlinx.serialization.json.*
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         TextButton(onClick = close) { Text(tr("返回角色")) }
         if (space.obj("character").flag("editable")) TextButton(onClick = { model.launch {
+            val latest = model.get(base + "space")
+            if (latest.obj("character").obj("role_card") != baselineCard) { model.notice(tr("The character card changed on the server. Your draft is preserved. Reload the card before saving.")); return@launch }
             apply(model.get(base + "card", buildJsonObject { put("name", name); put("bio", bio); put("speaking_style", speakingStyle); put("role_card", card) }, "PUT")); model.refresh(); model.notice(tr("角色卡已保存"))
         } }, enabled = editable && pointsValid && name.isNotBlank()) { Text(tr("保存")) }
     }
     LazyColumn(Modifier.weight(1f).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text(tr("角色空间"), style = MaterialTheme.typography.titleLarge) }
         item { OutlinedTextField(name, { name = it }, label = { Text(tr("姓名")) }, enabled = editable); OutlinedTextField(bio, { bio = it }, label = { Text(tr("简介")) }, enabled = editable); OutlinedTextField(speakingStyle, { speakingStyle = it }, label = { Text(tr("说话风格")) }, enabled = editable) }
-        items(groups.filter { !pointsOn || it.first != "skills" }) { (group, label, fields) ->
+        if (dnd) item { pointRules?.let { DndCardEditor(card, it, editable, state.gm, pointsOn, state.serverSettings.text("language")) { card = it } } ?: TextButton(onClick = { model.launch { pointRules = model.get(listOf("dnd", "rules")) } }) { Text(tr("Reload rules")) } }
+        items(groups.filter { !dnd }.filter { !pointsOn || it.first != "skills" }) { (group, label, fields) ->
             var expanded by remember { mutableStateOf(false) }
             Column {
                 TextButton(onClick = { expanded = !expanded }) { Text(label) }
@@ -138,14 +147,15 @@ import kotlinx.serialization.json.*
                 }
             }
         }
-        if (pointsOn) item {
+        if (pointsOn && !dnd) item {
             pointRules?.let { PointBuyEditor(card, it, editable, state.gm, space.obj("points").text("language").ifEmpty { state.serverSettings.text("language") }) { updated -> card = updated } } ?: Column {
                 Text(rulesError.ifEmpty { tr("正在读取职业和技能规则…") })
-                TextButton(onClick = { model.launch { pointRules = model.get(listOf("coc7", "rules")); rulesError = "" } }) { Text(tr("重新加载规则")) }
+                TextButton(onClick = { model.launch { pointRules = model.get(listOf(if (dnd) "dnd" else "coc7", "rules")); rulesError = "" } }) { Text(tr("重新加载规则")) }
             }
         }
         items(card.rows("items")) { Text("${it.name} × ${it.number("qty")}\n${it.text("note")}") }
 
+        item { TextButton(onClick = { reloadCard = true }, enabled = !state.busy) { Text(tr("Reload card")) } }
         item { Text(tr("Appearance & images") + " · ${space.text("era")} · ${space.text("narrative_time")}", style = MaterialTheme.typography.titleMedium) }
         items(listOf("avatar", "portrait")) { slot -> val asset = space.obj(slot); if (asset.id.isNotEmpty()) AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(if (slot == "avatar") 80.dp else 220.dp)) }
         items(space.rows("subtitles")) { asset -> Text(asset.text("subtitle")); AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(180.dp)) }
@@ -159,6 +169,12 @@ import kotlinx.serialization.json.*
                 item { Button(onClick = { upload.launch(arrayOf("image/png", "image/jpeg")) }, enabled = editable && (slot != "subtitle" || subtitle.isNotBlank())) { Text(tr("选择图片并上传")) } }
             }
             if (mode == "generated") {
+                item { OutlinedTextField(subtitle, { subtitle = it }, label = { Text(tr("表情名称，如 IDLE")) }) }
+                item { TextButton(onClick = { model.launch {
+                    model.get(base + "appearance", payload("asset_mode" to mode, "appearance_prompt" to prompt), "PUT")
+                    model.get(base + listOf("assets", "generate"), buildJsonObject { put("subtitles", buildJsonArray { add(subtitle) }); put("allow_cloud", cloud) }); space = model.get(base + "space")
+                } }, enabled = editable && space.flag("generation_available") && space.obj("portrait").id.isNotEmpty() && subtitle.isNotBlank()) { Text(tr("Generate transparent pose")) } }
+
                 item { Row { Checkbox(cloud, { cloud = it }); Text(tr("允许本次生成使用云端服务")) } }
                 item { Button(onClick = { model.launch {
                     model.get(base + "appearance", payload("asset_mode" to mode, "appearance_prompt" to prompt), "PUT")
@@ -174,6 +190,9 @@ import kotlinx.serialization.json.*
 private fun fieldLabel(key: String) = mapOf("player" to tr("Player"), "occupation" to tr("职业"), "age" to tr("年龄"), "sex" to tr("性别"), "residence" to tr("现居地"), "birthplace" to tr("出生地"), "personal_description" to tr("外貌描述"), "ideology" to tr("思想信念"), "significant_people" to tr("重要之人"), "meaningful_locations" to tr("重要之地"), "treasured_possessions" to tr("宝贵之物"), "traits" to tr("特质"), "injuries" to tr("伤病"), "phobias" to tr("恐惧与狂躁"), "arcane" to tr("神秘知识"), "encounters" to tr("离奇遭遇"), "cash" to tr("现金"), "assets" to tr("资产"), "spending_level" to tr("消费水平"))[key] ?: key.uppercase()
 
 @Composable fun DubbingPanel(id: String, state: AppState, model: AppViewModel, close: () -> Unit) {
+    var editingVoices by remember { mutableStateOf(false) }
+    if (editingVoices) { VoiceSettings(state, model) { editingVoices = false }; return }
+    var speechProvider by remember { mutableStateOf("") }
     var presentation by remember { mutableStateOf(JsonObject(emptyMap())) }; var voices by remember { mutableStateOf(emptyList<JsonObject>()) }; var presets by remember { mutableStateOf(emptyList<JsonObject>()) }
     var cast by remember { mutableStateOf(JsonObject(emptyMap())) }; var estimate by remember { mutableStateOf<JsonObject?>(null) }; var job by remember { mutableStateOf<JsonObject?>(null) }
     val base = listOf("channels", state.channelId, "studio")
@@ -181,15 +200,17 @@ private fun fieldLabel(key: String) = mapOf("player" to tr("Player"), "occupatio
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(id) { model.run {
         presentation = model.get(base + listOf("presentations", id)); cast = presentation.obj("settings").obj("cast")
-        voices = model.rows(base + "voices"); presets = model.rows(base + listOf("tts", "available-voices"))
+        speechProvider = model.get(base + listOf("tts", "status")).text("provider"); voices = model.rows(base + "voices"); presets = model.rows(base + listOf("tts", "available-voices")); cast = JsonObject(cast.filter { (speaker, value) -> value.jsonPrimitive.content.isEmpty() || voices.any { it.id == value.jsonPrimitive.content && it.text("provider") == speechProvider && (it.text("character_id").isEmpty() || it.text("character_id") == speaker) } }); estimate = null
     } }
     LaunchedEffect(id, lifecycle) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
         while (true) { delay(3000); job?.let { current -> if (current.text("status") in listOf("pending", "running")) model.run { job = model.get(base + listOf("tts", "jobs", current.id)) } } }
     } }
     LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { TextButton(onClick = { editingVoices = true }) { Text(tr("Voice settings")) } }
+        item { TextButton(onClick = { model.launch { speechProvider = model.get(base + listOf("tts", "status")).text("provider"); voices = model.rows(base + "voices"); presets = model.rows(base + listOf("tts", "available-voices")); cast = JsonObject(cast.filter { (speaker, value) -> value.jsonPrimitive.content.isEmpty() || voices.any { it.id == value.jsonPrimitive.content && it.text("provider") == speechProvider && (it.text("character_id").isEmpty() || it.text("character_id") == speaker) } }); estimate = null } }) { Text(tr("Refresh voices")) } }
         item { TextButton(onClick = close) { Text("返回故事回放") }; Text(tr("配音选角"), style = MaterialTheme.typography.titleLarge) }
         items(speakers.keys.sorted()) { speaker ->
-            ChoiceMenu(speakers[speaker].orEmpty(), cast.text(speaker), listOf("" to tr("不配音")) + voices.filter { it.text("character_id").isEmpty() || it.text("character_id") == speaker }.map { it.id to it.name }) { cast = JsonObject(cast + (speaker to JsonPrimitive(it))); estimate = null }
+            ChoiceMenu(speakers[speaker].orEmpty(), cast.text(speaker), listOf("" to tr("不配音")) + voices.filter { it.text("provider") == speechProvider && (it.text("character_id").isEmpty() || it.text("character_id") == speaker) }.map { it.id to it.name }) { cast = JsonObject(cast + (speaker to JsonPrimitive(it))); estimate = null }
         }
         item { ChoiceMenu(tr("添加预设音色"), "", presets.map { it.id to it.name }) { preset -> model.launch {
             model.get(base + "voices", payload("name" to presets.first { it.id == preset }.name, "voice_type" to "preset", "voice_id" to preset)); voices = model.rows(base + "voices")

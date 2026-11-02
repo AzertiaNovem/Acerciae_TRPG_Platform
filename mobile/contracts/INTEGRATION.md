@@ -10,6 +10,10 @@
 
 应用前台每 4 秒自动刷新，回前台立即刷新，后台不轮询。现阶段使用 REST，WebSocket URL 构建器仍是预留能力。通过上下文版本阻止旧消息请求写回新窗口；切换服务器／频道会立即清空旧数据，草稿按窗口保存在内存，退出全部清除。权限角色、所属角色、player_group_id／player_group_version、知识模式或窗口成员变化时丢弃旧消息缓存并重新取当前可见结果；401 退出，前台轮询遇到 403／404 清理频道内容。手动分页不会触发聊天自动滚到底部。
 
+## 停用（平台管理员）
+
+平台管理员可停用服务器或账号（见 `docs/ADMIN.md`）。被停用账号的请求返回 401，登录返回 `403 account_suspended`，message 含原因，应原样展示并留在登录页。被停用服务器在 `GET /servers` 中仍列出，带 `suspended: true` 与 `suspended_reason`；其频道、消息、角色、日志等请求返回 `403 server_suspended`，客户端应显示原因而不是报错重试。移动端无需管理面板。
+
 ## 日志与媒体
 
 移动端使用 `GET /studio/log` 自动汇总单一战役日志；导出 `/studio/log/export?format=json|txt|html|zip`，SealDice JSON 使用 `format=sealdice&chat_window_id=...`，格式 version 105。旧项目和快照接口不再作为移动端导航模型。
@@ -63,3 +67,37 @@ GM 频道设置可控制结团前玩家的 Log Studio 权限、结束／重新�
 提示遵循网页 ContextBubbleDock 的数据和权限：玩家仅提醒；GM 为剧本下一步、备忘、自己的提醒和文档卡片。文档按当前窗口 active_scene_id 加载 entries，保留状态、版本、高亮及出处；剧本下一步显示行动、前置条件、转折与未公开线索，备忘显示未决线索、时间线、已演阶段和已审阅变更。提醒展开使用 context 原文与逐字引用高亮，版本变化重新加载、撤回自动回到列表。来源可跳转原消息或添加最多五条消息引用，发送携带 reference_ids；接口仍重新检查读取权限。浮层按账号/频道权限范围和窗口重建，禁止跨范围沿用旧内容。
 
 验证使用独立 loopback 18085 / acerciae_mobile_atmosphere_demo 的 mock 后端，不写正式服务器、不产生图像费用。`prepare-atmosphere-demo.py` 准备四图样本；后端 atmosphere 集成测试通过，Swift 与 Kotlin 各 22 项测试通过。iPhone 17 模拟器实际发送三种模式，服务端确认 kind 正确且角色选择保留；确认文档浮层、出处原文及跳转。Android APK 编译与 lint 通过，未连接 Android 真机。
+
+## 2026-10-31 — non-GM-Agent sync through 4501670
+
+The native clients consume the channel `consistency_enabled`, `inspiration_enabled`, and `atmosphere_enabled` switches independently of `ai_enabled`. Server feature flags remain the upper bound. Missing channel fields retain the previous enabled behavior. Channel GM controls and server maintainer controls stay separate; client action guards and atmosphere loading use the same effective feature check. No GM-Agent controls or routes are added.
+
+The server TTS selector now includes OpenAI. Native voice settings use `/studio/tts/status.features` for languages, model choices, accents, delivery instructions, and numeric parameters. Preset creation and existing profile parameter edits use the active provider; casting excludes other providers and clears incompatible selections before estimation. Voice design/cloning and dictionary management are not introduced by this mobile update. No synthesis occurs when opening settings or saving a preset. Generation still follows the existing estimate/confirmation flow. VN playback already consumes `display_text` and respects hidden events, so server-side `script_text` rewrites need no client-side rewriting; raw chat content remains unchanged.
+
+GM channel options now expose text/PDF module imports. Text sends `async:true`; PDF uses authenticated multipart, capped at 25 MB on mobile. The task list distinguishes extraction, structuring, knowledge construction, ready and failed; chunk counts appear only during structuring. Warnings do not hide a ready module. Retry uses the existing source and durable knowledge rebuild sends `async:true`. Polling is scoped to the visible foreground page; leaving it does not cancel server work. The native UI does not infer overall completion from an HTTP success response or a chunk counter.
+
+Character saves compare the latest server `role_card` with the editor's original card before PUT. If automatic investigator growth or another editor changed it, the current draft stays intact and the user can explicitly reload with a discard confirmation. This is a client preflight, not an atomic server revision lock; simultaneous writes still need backend optimistic concurrency to eliminate the final GET/PUT race. Artwork-only refreshes keep card drafts. Pose generation requires a main portrait and sends `subtitles` so the backend can use its transparent PNG pipeline. Scenario growth messages and refreshed character data come from the backend; the client never rerolls growth. Page-only keeper citations now show their page even without an excerpt.
+
+User/session DTOs preserve optional `has_avatar`, including accounts whose `avatar_data` is empty after storage migration. Native asset requests retain Authorization headers and the no-redirect policy: current backend contracts return bytes for bearer-authenticated media, while public object URLs are for browser file-token flows. No bearer token is forwarded to a storage host. JSON mutations allow 120 seconds for model work; Android's overall request limit is 125 seconds.
+
+Validation uses the isolated loopback service on port 18086, database `acerciae_mobile_oct31_demo`, and an unmodified `git archive 4501670 backend` build under ignored `mobile/artifacts/oct31-source` / `oct31-build`. `scripts/check-commit-sync.py` checks channel switches, async text/PDF import, duplicate detection, durable rebuilds, OpenAI preset capabilities/parameters without synthesis, and scenario growth. Existing membership/permission checks also pass on this service. Real cloud synthesis, cloud pose generation and R2 network delivery require their configured services and are not exercised by the mock fixture.
+
+## 2026-11-01 — non-GM-Agent sync through 460a8c66
+
+The release service is now `https://trpg.missazertia.com` (443), without an address picker. Saved production sessions from the explicitly migrated same-host HTTPS port 15510 are accepted; arbitrary hosts, HTTP and other ports remain rejected. Clients always construct requests from the compiled root and rewrite the saved endpoint after refresh. HTTPS `/api/health` returned `status: ok`, `db: ok`.
+
+D&D rules come from `/dnd/rules`; the channel's `rule_system` and `point_buy` select its native card editor. Saves use `role_card.dnd`, retaining server-owned live HP/slots/death saves. Initiative `turn` is an entry UUID, not a list offset. Current messages retain server-localized dice text and recognize the D20 `critical` flag, including integer-valued `rolls` arrays. World facts are fetched from `/channels/{ch}/world`; only the GM can declare changes, independently of server administrator permissions, through the existing floating hint panel.
+
+Window summaries supply `unread` and `last_seq`. The client posts `{seq}` to the window `/read` only in the visible foreground chat. Banners are restricted to the main window and actual joined windows, not every private window a GM can inspect. They skip initial history and own messages, clear on scope changes, and reopen messages through the existing permission-aware evidence resolver. Native speech is local, opt-in and stopped on navigation/background/logout; the foreground refresh suppresses backlog narration.
+
+VN creation/retry accepts `retry_failed_chunks`. Job detail provides `background_jobs`, and `/backgrounds/retry` reuses original consent. Presentation owners/GM can request `continue_presentation_id`. Standalone ZIP creation now uses `/presentations/{p}/bundle`, polls caller-scoped `/bundles`, and downloads ready jobs from the fixed `/studio/bundles/{id}/download` route with header authentication. Existing canonical JSON export is byte-preserving and compatible with native log format 2.0. Current character art/version resolution remains server-owned.
+
+Validation: both native builds pass; Swift and Android each pass 27 tests. `check-november-sync.py` exercises the new endpoints on isolated loopback mock service 18087, PostgreSQL 55433. Older `check-commit-sync.py` and `check-current-contract.py` regressions also pass. No production campaign writes or paid model/image/voice calls were made. Browser Kokoro.js, desktop-only file export integrations and all GM-Agent routes remain excluded.
+
+## 2026-11-02 — resilient native channel loading
+
+Initial channel selection now depends only on channel/window access and messages. The 4-second foreground chat refresh checks fresh access metadata before publishing messages. Optional documents/highlights/reminders/settings/characters/scenes run independently at roughly 30-second intervals, preserve authorized cached data on transient errors, clear individual caches on actual API 403/404, and clear all private content on scope changes. Background results are cancelled and checked against both navigation epoch and knowledge scope before publication. Catalog failures can defer that refresh while an already authorized chat continues.
+
+Read-only requests have at most three attempts for selected transient transport errors and 408/502/503/504/520/522/523/524. Mutations/uploads are not replayed. Android cancels the underlying OkHttp call with its coroutine and disables implicit transport retries; iOS uses waitsForConnectivity. Poll failures back off to 30 seconds. Redirects and invalid certificates remain rejected. HTTP error bodies must contain the API's JSON error field before driving authentication/permission handling; edge HTML/text denials are separate gateway errors. Decoder failures are reported as incompatible data rather than network loss.
+
+Run `xcodebuild ... -scheme Acerciae test` for the new AppModel fault-injection target. Core production health probing is opt-in via `ACERCIAE_HEALTH_PROBE=1`; it uses only unauthenticated GET `/api/health`. Validation on November 2: 34 Core tests (including loopback integration and six production health reads), 5 AppModel tests, 33 Android tests, lint and native builds passed. Production account data and Cloudflare settings were not changed by the diagnostic probes.

@@ -41,6 +41,9 @@ struct RootView: View {
                     }
                 }
                 .accessibilityHidden(reveal > 0)
+                .overlay(alignment:.topTrailing) {
+                    if reveal == 0 && !model.chatNotices.isEmpty { ChatActivityBanners(model:model) { page = "chat"; detail = nil }.padding(.top,64) }
+                }
 
                 if reveal > 0 {
                     Color.black.opacity(0.42 * reveal / width).ignoresSafeArea()
@@ -69,8 +72,11 @@ struct RootView: View {
         } }
         .id(locale.language)
         .environment(\.locale, Locale(identifier: locale.language))
+        .task(id:"\(page)-\(sidebarOpen)-\(detail != nil)-\(scenePhase)") { model.chatVisible = page == "chat" && !sidebarOpen && detail == nil && scenePhase == .active; if !model.chatVisible { model.speech.stopSpeaking(at:.immediate) } }
         .onChange(of: model.online) { _, _ in page = "chat"; sidebarOpen = false; dragOffset = 0; detail = nil }
         .task(id: "\(model.session?.user.id ?? "")-\(scenePhase)") {
+            model.foreground = scenePhase == .active
+            if scenePhase != .active { model.speech.stopSpeaking(at:.immediate); model.chatNotices = [] }
             guard model.online, scenePhase == .active else { return }
             await model.poll(forceCatalog: true)
             while !Task.isCancelled {
@@ -153,7 +159,7 @@ private struct SidebarView: View {
                         if model.gm { row(tr("频道选项"), icon: "slider.horizontal.3") { select("channel") } }
                         Text(tr("聊天窗口")).font(.caption).foregroundStyle(.secondary)
                         ForEach(model.windows) { item in
-                            row(item.name, icon: "bubble.left", selected: model.windowId == item.id) { Task { await model.run { try await model.selectWindow(item.id); select("chat") } } }
+                            row(item.name + (item["unread"].int > 0 ? " · " + (item["unread"].int > 99 ? "99+" : String(item["unread"].int)) : ""), icon: "bubble.left", selected: model.windowId == item.id) { Task { await model.run { try await model.selectWindow(item.id); select("chat") } } }
                         }
                         DisclosureGroup(tr("角色"), isExpanded: $charactersExpanded) {
                             if !model.channelId.isEmpty { row(tr("添加角色"), icon: "person.badge.plus") { creatingCharacter = true } }
@@ -250,6 +256,8 @@ private struct ChatView: View {
         Group {
             if let campaign = model.campaign {
                 ScrollViewReader { proxy in
+                    VStack(spacing:0) {
+                    if model.channel["rule_system"].text == "dnd2024" { InitiativeView(model:model) }
                     ScrollView {
                         LazyVStack(spacing: 20) {
                             Text(campaign.scene).font(.caption).foregroundStyle(accent)
@@ -271,6 +279,7 @@ private struct ChatView: View {
                     .onChange(of: campaign.messages.last?.id) { _, _ in
                         if let id = campaign.messages.last?.id { withAnimation { proxy.scrollTo(id, anchor: .bottom) } }
                     }
+                }
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) { Composer(model: model) }
                 .navigationTitle(model.online ? model.windowName : campaign.title)
@@ -452,6 +461,12 @@ private struct SettingsView: View {
             Section(tr("Channel atmosphere backgrounds")) {
                 Toggle(tr("Show channel atmosphere backgrounds"), isOn: Binding(get: { model.session?.user.atmosphereEnabled == true }, set: { value in Task { await model.changeAtmosphere(value) } })).disabled(model.busy)
                 Text(tr("Backgrounds follow the app theme and screen orientation. The server must also enable this feature.")).font(.caption)
+            }
+            Section(tr("Messages")) {
+                Toggle(tr("Message banners"), isOn: Binding(get: { model.bannersEnabled },set: model.setBanners))
+                Toggle(tr("Read aloud"), isOn: Binding(get: { model.readAloud },set: model.setReadAloud))
+                Text(tr("Uses this phone’s speech voices. Only new messages in the visible chat are read.")).font(.caption)
+                Button(tr("Stop reading")) { model.speech.stopSpeaking(at:.immediate) }
             }
             Section(tr("内容同步")) {
                 Button(tr("立即刷新")) { Task { await model.poll(forceCatalog: true) } }.disabled(model.busy)

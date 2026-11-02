@@ -1,4 +1,5 @@
 #include "AuthService.h"
+#include "../ws/WsGateway.h"
 #include "../core/Crypto.h"
 #include <ctime>
 #include "../core/Errors.h"
@@ -35,9 +36,13 @@ Json::Value AuthService::registerUser(const std::string& username, const std::st
 }
 
 Json::Value AuthService::login(const std::string& username, const std::string& password) {
-    auto row = db_.queryOne("SELECT id, username, display_name, password_hash FROM users WHERE username=$1", {username});
+    auto row = db_.queryOne("SELECT id, username, display_name, password_hash, suspended_at, suspended_reason FROM users WHERE username=$1", {username});
     if (row.isNull() || !crypto::verifyPassword(password, row["password_hash"].asString()))
         throw unauthorized("invalid username or password");
+    if (!row["suspended_at"].isNull()) {
+        auto reason = row["suspended_reason"].asString();
+        throw ApiError(403, "account_suspended", "This account is suspended" + (reason.empty() ? std::string(".") : ": " + reason));
+    }
     auto token = crypto::randomHex(32);
     db_.exec("INSERT INTO auth_tokens(token_hash, user_id, expires_at) VALUES($1,$2, now() + ($3 || ' hours')::interval)",
              {tokenHash(token), row["id"].asString(), std::to_string(cfg_.authTokenTtlHours)});
@@ -50,7 +55,9 @@ Json::Value AuthService::login(const std::string& username, const std::string& p
 Json::Value AuthService::profile(const std::string& userId) {
     // avatar_data is only filled for an avatar not yet moved into the object store; clients load the picture from
     // /api/users/{id}/avatar?v=<avatar_version> when has_avatar is true.
-    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, atmosphere_enabled, avatar_data, avatar_version, (avatar_data<>'' OR avatar_key IS NOT NULL) AS has_avatar FROM users WHERE id=$1", {userId});
+    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, atmosphere_enabled, avatar_data, avatar_version, (avatar_data<>'' OR avatar_key IS NOT NULL) AS has_avatar, is_admin FROM users WHERE id=$1", {userId});
+    if (result.isNull()) throw notFound("user not found");
+    result["is_admin"] = isPlatformAdmin(result["username"].asString(), result["is_admin"].asBool());
     result["languages"] = Json::arrayValue;
     for (const auto& code : ServerSettingsService::languages()) result["languages"].append(code);
     return result;
@@ -153,6 +160,18 @@ AuthService::Avatar AuthService::avatar(const Principal& principal, const std::s
 void AuthService::logout(const std::string& token) {
     db_.exec("DELETE FROM auth_tokens WHERE token_hash=$1", {tokenHash(token)});
 }
+void AuthService::revokeUserSessions(const std::string& userId) {
+    auto rows = db_.queryJson("DELETE FROM auth_tokens WHERE user_id=$1 RETURNING token_hash", {userId});
+    for (const auto& r : rows) WsGateway::instance().closeSession(r["token_hash"].asString());
+}
+bool AuthService::listedAdmin(const std::string& username) const {
+    for (const auto& u : cfg_.platformAdmins) if (u == username) return true;
+    return false;
+}
+bool AuthService::isPlatformAdmin(const std::string& username, bool isAdminColumn) const { return isAdminColumn || listedAdmin(username); }
+void AuthService::requireAdmin(const Principal& p) const {
+    if (!p.isAdmin) throw ApiError(403, "admin_required", "platform administrator required");
+}
 
 static const int kFileTokenSeconds = 6 * 3600;
 Json::Value AuthService::issueFileToken(const std::string& sessionToken) {
@@ -177,9 +196,9 @@ std::optional<Principal> AuthService::authenticateFileToken(const std::string& t
     if (!splitFileToken(token, hash, exp, sig)) return std::nullopt;
     if (!crypto::constantTimeEquals(sig, crypto::hmacSha256Hex(cfg_.authSecret, "file-token|" + hash + "|" + exp))) return std::nullopt;
     if (std::stoll(exp) < (long long)std::time(nullptr)) return std::nullopt;
-    auto row = db_.queryOne("SELECT u.id, u.username, u.display_name FROM auth_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at > now()", {hash});
+    auto row = db_.queryOne("SELECT u.id, u.username, u.display_name, u.is_admin FROM auth_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at > now() AND u.suspended_at IS NULL", {hash});
     if (row.isNull()) return std::nullopt;
-    return Principal{row["id"].asString(), row["username"].asString(), row["display_name"].asString()};
+    return principalOf(row);
 }
 std::string AuthService::sessionHashOf(const std::string& token) {
     std::string hash, exp, sig;
@@ -189,21 +208,27 @@ std::string AuthService::sessionHashOf(const std::string& token) {
 std::optional<Principal> AuthService::authenticate(const std::string& token) {
     if (token.empty()) return std::nullopt;
     auto row = db_.queryOne(
-        "SELECT u.id, u.username, u.display_name FROM auth_tokens t JOIN users u ON u.id=t.user_id "
-        "WHERE t.token_hash=$1 AND t.expires_at > now()", {tokenHash(token)});
+        "SELECT u.id, u.username, u.display_name, u.is_admin FROM auth_tokens t JOIN users u ON u.id=t.user_id "
+        "WHERE t.token_hash=$1 AND t.expires_at > now() AND u.suspended_at IS NULL", {tokenHash(token)});
     if (row.isNull()) return std::nullopt;
-    return Principal{row["id"].asString(), row["username"].asString(), row["display_name"].asString()};
+    return principalOf(row);
+}
+Principal AuthService::principalOf(const Json::Value& row) const {
+    Principal p{row["id"].asString(), row["username"].asString(), row["display_name"].asString()};
+    p.isAdmin = isPlatformAdmin(p.username, row["is_admin"].asBool());
+    return p;
 }
 
 ChannelAccess AuthService::channelAccess(const std::string& userId, const std::string& channelId) {
     auto row = db_.queryOne(
-        "SELECT c.id, c.server_id, c.knowledge_mode, m.role FROM channels c "
+        "SELECT c.id, c.server_id, c.knowledge_mode, m.role, s.suspended_at FROM channels c JOIN servers s ON s.id=c.server_id "
         "JOIN channel_members m ON m.channel_id=c.id AND m.user_id=$2 WHERE c.id=$1", {channelId, userId});
     if (row.isNull()) {
         auto exists = db_.queryOne("SELECT id FROM channels WHERE id=$1", {channelId});
         if (exists.isNull()) throw notFound("channel not found");
         throw forbidden("not a member of this channel");
     }
+    if (!row["suspended_at"].isNull()) throw serverSuspended();
     ChannelAccess a;
     a.channelId = channelId; a.serverId = row["server_id"].asString(); a.userId = userId;
     a.isGm = row["role"].asString() == "gm";
@@ -218,13 +243,20 @@ ChannelAccess AuthService::channelAccess(const std::string& userId, const std::s
     return a;
 }
 
+ApiError AuthService::serverSuspended() { return ApiError(403, "server_suspended", "This server is suspended by the platform administrators"); }
+void AuthService::requireServerActive(const std::string& serverId) {
+    auto r = db_.queryOne("SELECT suspended_at FROM servers WHERE id=$1", {serverId});
+    if (!r.isNull() && !r["suspended_at"].isNull()) throw serverSuspended();
+}
 void AuthService::requireServerMember(const std::string& userId, const std::string& serverId) {
-    auto r = db_.queryOne("SELECT 1 AS ok FROM server_members WHERE server_id=$1 AND user_id=$2", {serverId, userId});
+    auto r = db_.queryOne("SELECT s.suspended_at FROM server_members m JOIN servers s ON s.id=m.server_id WHERE m.server_id=$1 AND m.user_id=$2", {serverId, userId});
     if (r.isNull()) throw forbidden("not a member of this server");
+    if (!r["suspended_at"].isNull()) throw serverSuspended();
 }
 void AuthService::requireServerAdmin(const std::string& userId, const std::string& serverId) {
-    auto r = db_.queryOne("SELECT role FROM server_members WHERE server_id=$1 AND user_id=$2", {serverId, userId});
+    auto r = db_.queryOne("SELECT m.role, s.suspended_at FROM server_members m JOIN servers s ON s.id=m.server_id WHERE m.server_id=$1 AND m.user_id=$2", {serverId, userId});
     if (r.isNull() || (r["role"].asString() != "owner" && r["role"].asString() != "admin")) throw forbidden("server admin required");
+    if (!r["suspended_at"].isNull()) throw serverSuspended();
 }
 void AuthService::requireGm(const ChannelAccess& a) {
     if (!a.isGm) throw forbidden("GM role required");
