@@ -95,5 +95,5 @@ its sign-in with `403 account_suspended`; a suspended server's requests fail wit
 - Set `PLATFORM_ADMINS` before exposing a deployment; the accounts need not exist yet (they become administrators when
   they register with that username).
 - The tests start the backend with `PLATFORM_ADMINS=platform_admin` (`scripts/test.sh`).
-- Migration `0043_platform_admin.sql` adds the columns and the `admin_actions` table; nothing changes for existing
+- Migration `0045_platform_admin.sql` adds the columns and the `admin_actions` table; nothing changes for existing
   accounts and servers.
