@@ -1069,3 +1069,35 @@ test("casual: addressing picks the longest name, prefers a full name, and needs 
   assert.equal(parseAddress("@Silasx hi", c).to, null);
   assert.deepEqual(parseAddress("no at", c), { to: null, body: "no at", addressed: false });
 });
+
+test("a co-player in another timeline never learns what happens in the Main Chat meanwhile, nor after it returns", async () => {
+  // A Keeper that does not quote the chat back (the mock's placeholder narration repeats the newest line, which would
+  // put an old Main Chat line in front of her as something said after her return).
+  const llm = new MockLlm();
+  llm.director = () => ({ actions: [{ type: "narrate", text: "Time passes." }], coplayers_may_act: true });
+  const { t, api, clock } = await table({ llm, bob: true, cfg: { autonomySideIntervalMs: MIN } });
+  await alicePosts(t, api, "We search the study together.");
+  await settle(t);
+  await t.command({ cmd: "split", who: ["Harriet Vance"], place: "Lighthouse", span: "long" });
+  await settle(t);
+  const side = t.timelines.of("c-harriet").windowId;
+  // While she is away, Alice plays on in the Main Chat and the Keeper answers there.
+  await alicePosts(t, api, "MAIN-WHILE-AWAY: I open the safe and find the ledger.");
+  await settle(t);
+  clock.t += MIN + 1;
+  await t.tick(); await settle(t);                         // her side thread moves on its own
+  const harriet = () => llm.calls.filter((c) => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet")).at(-1).messages[0].content;
+  const away = harriet();
+  assert.ok(away.includes("We search the study together."), "she remembers what she saw before leaving");
+  assert.ok(!away.includes("MAIN-WHILE-AWAY"), "she never sees the Main Chat while she is away");
+  assert.ok(!llm.calls.some((c) => c.purpose === "coplayer_memory" && c.messages[0].content.includes("MAIN-WHILE-AWAY")));
+  // She comes back: only what is said from then on reaches her.
+  await t.command({ cmd: "rejoin", timeline: "Lighthouse" });
+  await settle(t);
+  await alicePosts(t, api, "Harriet, you're back! What did you find?");
+  await settle(t);
+  const back = harriet();
+  assert.ok(back.includes("you're back"), "she hears the Main Chat again");
+  assert.ok(!back.includes("MAIN-WHILE-AWAY"), "but not what happened there while she was away");
+  assert.ok(side && t.timelines.retired(side));
+});
