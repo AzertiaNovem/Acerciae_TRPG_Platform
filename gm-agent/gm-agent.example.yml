@@ -1,0 +1,90 @@
+# gm-agent.yml — the AI Keeper's settings. Copy to gm-agent.yml next to where you run the client (or point at it with
+# --config / GM_AGENT_CONFIG). Secrets and deployment stay in the environment or .env: GM_PASSWORD, ANTHROPIC_API_KEY,
+# LLM_API_KEY, PLANNER_API_KEY, ACERCIAE_API_BASE, CHANNEL_ID, STATE_DIR. A command-line flag overrides any key for one run.
+
+account:
+  username: aikeeper          # the Keeper account (its password is GM_PASSWORD)
+  display_name: AI Keeper
+  register: false             # register the account on first run
+
+channel:                      # only used by `setup --create`; otherwise the client keeps a channel the account is GM of
+  create: false
+  server_id: ""
+  server_name: AI Keeper's table
+  channel_name: A campaign with an AI Keeper
+  era: ""                     # e.g. 1920s
+
+table:
+  coplayers: 2                # AI investigators playing alongside the players (0–8)
+  coplayer_windows: []        # window names or ids the co-players start in (default: the Main Chat)
+  language: ""                # GM language; empty follows the server's
+  kickoff: false              # open the session without waiting for a player
+  verbose: false
+
+llm:                          # the GM's, NPCs' and co-players' model
+  provider: anthropic         # anthropic | openai_compatible (Responses API) | mock
+  api_base: ""                # openai_compatible: e.g. https://api.openai.com/v1
+  model: claude-opus-5-5
+  effort: medium              # low | medium | high (openai_compatible ignores it)
+  max_tokens: 16000
+  fallbacks: true             # Anthropic server-side refusal fallbacks
+  timeout_ms: 600000
+  stream: true
+  cache_ttl: 1h               # Anthropic prompt cache: 1h | 5m | off
+  trace: ""                   # a file: every request and reply as JSON lines (audit)
+
+planner:                      # the story planner: a slower model above the GM that plans twists and tells it when to move on
+  enabled: true
+  provider: ""                # empty: the same as llm (its key: PLANNER_API_KEY, else the provider's key)
+  api_base: ""
+  model: ""
+  effort: high
+  interval_minutes: 30        # play time between automatic plans (0: only `plan now`)
+  min_lines: 40               # lines since the last plan before an interval plan
+  cooldown_minutes: 10        # least gap between two runs, any trigger
+  stall_turns: 6              # turns in the same place with no world change, truth, move or scenario change
+  max_runs_per_hour: 4
+  impulse_lines: 60           # how many lines a co-player's impulse lives
+  plan_tokens: 1500           # budget of the GM's "Story plan" section
+
+pacing:
+  debounce_ms: 4000           # quiet time after a player's line before the GM answers
+  post_delay_ms: 1200         # pause between the GM's posts
+  max_actions_per_turn: 6
+
+context:
+  gm_tokens: 60000            # the GM's context budget; older history is compacted into chapters
+  coplayer_tokens: 24000      # each co-player's
+  page_lines: 100             # lines fetched per page when syncing the local copy of the chat
+  backfill_lines: 1000        # how far back the first sync goes
+  daily_token_budget: 0       # billable-equivalent tokens a day for autonomous turns and plans (0: no limit)
+
+autonomy:
+  enabled: true
+  tick_ms: 30000
+  side_interval_ms: 90000     # a co-players-only thread moves this often
+  quiet_ms: 180000            # a silent shared window moves after this
+  quiet_turns: 2              # ... at most this many times
+  max_turns_per_hour: 20
+  idle_minutes: 30            # "away" once nobody has posted for this long: shared windows wait
+  away_side_interval_ms: 21600000   # while away, co-players-only threads move this rarely (0: never)
+
+timelines:
+  auto: true                  # proactive splitting and reunions
+  guard_turns: 2
+  guard_ms: 180000
+  max_active: 4
+  pc_cooldown_ms: 300000
+  max_arrivals_per_hour: 12
+
+scenarios:
+  auto: true                  # the GM opens the next scenario itself, from the Main Chat only
+  min_minutes: 20             # ... after at least this long and this many lines (lifted when the planner says move on)
+  min_lines: 30
+
+modes:                        # set with `setup`, `world`, `casual`; then kept in the state file. Empty = leave as it is.
+  improv:                     # true: improvisation mode (no module; your world setting)
+  world_file: ""              # the world setting (plain text or Markdown), relative to this file
+  secrets_file: ""            # the Keeper's hidden layer
+  casual:                     # true: casual mode (a phone per player character; needs an isolated channel)
+  casual_max_delay_minutes: 240

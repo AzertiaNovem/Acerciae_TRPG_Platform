@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Api } from "./api.mjs";
-import { buildConfig, loadEnvFile, parseArgs } from "./config.mjs";
+import { buildConfig, configPath, loadConfigFile, loadEnvFile, parseArgs } from "./config.mjs";
 import { createLlm } from "./llm/index.mjs";
 import { withProgress } from "./llm/progress.mjs";
 import { Realtime } from "./realtime.mjs";
@@ -292,7 +292,8 @@ async function status(cfg) {
 const args = parseArgs(process.argv.slice(2));
 loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
 loadEnvFile(path.join(here, "..", ".env"));
-const cfg = buildConfig(args);
+const cfg = buildConfig(args, process.env, loadConfigFile(configPath(args, process.env, process.cwd(), path.join(here, ".."))));
+for (const w of cfg.warnings) console.error(`warning: ${w}`);
 const command = args._[0] ?? "run";
 // `casual on|off`: casual mode's phones, during a campaign.
 function casual(cfg, args) {

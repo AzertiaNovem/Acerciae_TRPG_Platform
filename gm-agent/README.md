@@ -65,7 +65,7 @@ The JSON state file stays the source of truth for the table itself.
 
 **Long context, compacted.** The models read as much of the campaign as fits a token budget, not a fixed number of
 lines.
-- **The GM and real NPCs** (`GM_CONTEXT_TOKENS`, default 60,000) read:
+- **The GM and real NPCs** (`context.gm_tokens`, default 60,000) read:
   - every window's chapters, which hold the story so far;
   - this window's lines since its last chapter, word for word;
   - the newest lines of the other windows.
@@ -74,7 +74,7 @@ lines.
   keeps names, clues, promises, decisions, injuries, where each investigator ended up, and the line numbers of key
   moments. When a window's chapters pass about 25% of the budget, the oldest half merge into one. A scene that ends
   (a thread merged) becomes a chapter whole.
-- **Each co-player** (`COPLAYER_CONTEXT_TOKENS`, default 24,000) has its own memory in the same way. Its chapters are
+- **Each co-player** (`context.coplayer_tokens`, default 24,000) has its own memory in the same way. Its chapters are
   written in the first person, only from the lines it witnessed. They never include Keeper notes, others' whispers or
   another timeline's lines, and no one else reads them.
 - **Keeper documents** keep their newest entries when they are too long; a note says how many older ones were left
@@ -91,13 +91,13 @@ Compaction runs beside the turns, so a turn never waits for it.
    and are never cached.
 
 Providers:
-- **Anthropic** gets cache markers with a one-hour lifetime by default (`LLM_CACHE_TTL=1h|5m|off`).
+- **Anthropic** gets cache markers with a one-hour lifetime by default (`llm.cache_ttl: 1h|5m|off`).
 - **OpenAI's own API** gets a `prompt_cache_key` per purpose. Other compatible gateways rely on the stable order alone.
 
 One player line costs several calls (the GM, each co-player, a follow-up), and they share most of their prompt.
 
 **Usage.** Every call's input, cache reads and writes, and output tokens are recorded. `status` shows today's and the
-week's totals and the share of input read from cache. `LLM_DAILY_TOKEN_BUDGET` caps billable-equivalent tokens a day
+week's totals and the share of input read from cache. `context.daily_token_budget` caps billable-equivalent tokens a day
 (cache reads count a tenth); once it is spent, the table stops starting turns of its own, and answers to players still
 run.
 
@@ -117,7 +117,7 @@ platform without the record (404) is noted once, and the table carries on with i
 
 ## How a turn runs
 
-1. A real person posts a line in a window. After `DEBOUNCE_MS` of quiet, one turn starts.
+1. A real person posts a line in a window. After `pacing.debounce_ms` of quiet, one turn starts.
 2. **The GM's move** (`src/director.mjs`). One model call with the GM context returns the Keeper's actions:
 
    | Action | What happens |
@@ -139,7 +139,7 @@ platform without the record (404) is noted once, and the table carries on with i
 4. **The Keeper answers the co-players at once.** If any co-player acted, a follow-up GM round runs in the same turn,
    so a co-player's choice gets its consequence now, not at the next human line. The GM prompt says every player,
    co-players included, needs an immediate response that propels the story.
-5. At most `MAX_ACTIONS_PER_TURN` lines are posted per turn. Lines the client posted never start a turn by themselves.
+5. At most `pacing.max_actions_per_turn` lines are posted per turn. Lines the client posted never start a turn by themselves.
 
 The client never decides memory proposals; those stay with the human Keeper in the web app.
 
@@ -175,12 +175,12 @@ The rules that keep this safe:
   lines in that window (not an old line, not an out-of-character one, not another player's or a co-player's
   suggestion). Co-players move only after their own lines. The Keeper decides for no one.
 - **No flip-flopping.** A co-player's move that would undo a recent change needs two agreeing turns after it
-  (`TIMELINE_GUARD_TURNS`, `TIMELINE_GUARD_MS`). Players' own moves are never deferred.
+  (`timelines.guard_turns`, `timelines.guard_ms`). Players' own moves are never deferred.
 - **No history leaks.** Nobody is ever added to an existing window (its whole past would open to them). A player
   joining a thread whose window they are not in regroups the thread into a fresh window. A window is reused only for
   exactly the same people at the same place.
-- **Bounded.** At most `TIMELINE_MAX_ACTIVE` threads at once; a new window for a player at most once per
-  `TIMELINE_PC_COOLDOWN_MS`; at most `TIMELINE_MAX_ARRIVALS_PER_HOUR` arrival turns; arrivals never start further
+- **Bounded.** At most `timelines.max_active` threads at once; a new window for a player at most once per
+  `timelines.pc_cooldown_ms`; at most `timelines.max_arrivals_per_hour` arrival turns; arrivals never start further
   splits.
 - **Relay.** A split-off player who keeps writing in the Main Chat is answered in their own scene; the Main Chat only
   gets a whisper pointer. A roll asked of an away player is asked in their window.
@@ -209,7 +209,7 @@ node src/cli.mjs advance --channel <id> --title "The next morning"    # open the
 node src/cli.mjs status --channel <id>                                # read-only: threads, seats, settings
 ```
 
-`TIMELINE_AUTO=false` goes back to the older, model-led `split`/`rejoin` actions for co-players only.
+`timelines.auto: false` goes back to the older, model-led `split`/`rejoin` actions for co-players only.
 
 ### Scenarios
 
@@ -222,28 +222,28 @@ unless:
 - the turn is in the **Main Chat**, never in a split window;
 - it is a turn after a player's or co-player's line, never an autonomous or arrival turn;
 - **no short split** is active (a long one carries on into the new scenario);
-- at least `SCENARIO_MIN_MINUTES` have passed since the current scenario began and it has at least
-  `SCENARIO_MIN_LINES` events.
+- at least `scenarios.min_minutes` have passed since the current scenario began and it has at least
+  `scenarios.min_lines` events.
 
-Each turn the GM is told whether a change is possible now. `SCENARIO_AUTO=false` leaves scenarios to you (`advance`).
+Each turn the GM is told whether a change is possible now. `scenarios.auto: false` leaves scenarios to you (`advance`).
 
 ### Autonomy
 
-On its own clock (`AUTONOMY_TICK_MS`) the table also runs:
+On its own clock (`autonomy.tick_ms`) the table also runs:
 
-- **side** turns: a co-players-only window moves on, turn after turn, every `AUTONOMY_SIDE_INTERVAL_MS`, with no human
+- **side** turns: a co-players-only window moves on, turn after turn, every `autonomy.side_interval_ms`, with no human
   line. The co-players drive the thread; the GM runs the world and answers them at once;
-- **quiet** turns: a scene with human players that has been silent for `AUTONOMY_QUIET_MS` moves on a little: the
+- **quiet** turns: a scene with human players that has been silent for `autonomy.quiet_ms` moves on a little: the
   world, the NPCs, a question to a named player, the co-players. The GM is told never to decide, speak or roll for a
-  player character; the client enforces it too. After `AUTONOMY_QUIET_TURNS` quiet turns the window waits for a human
+  player character; the client enforces it too. After `autonomy.quiet_turns` quiet turns the window waits for a human
   again. Only windows where a human spoke recently are moved; the Main Chat never runs side turns.
 
-Autonomy is capped at `AUTONOMY_MAX_TURNS_PER_HOUR` (and by `LLM_DAILY_TOKEN_BUDGET`), never runs while another turn
-is pending, and any human line wakes the table up. `AUTONOMY=false` turns it off.
+Autonomy is capped at `autonomy.max_turns_per_hour` (and by `context.daily_token_budget`), never runs while another turn
+is pending, and any human line wakes the table up. `autonomy.enabled: false` turns it off.
 
 **Fragmented play.** A campaign can also go on for weeks with people dropping in hours or days apart:
-- **Away mode.** Once no human has posted in the channel for `AUTONOMY_IDLE_MINUTES`, the table is "away". Shared
-  windows wait. Co-players-only threads still move, but only every `AWAY_SIDE_INTERVAL_MS` (default 6 hours; 0 makes
+- **Away mode.** Once no human has posted in the channel for `autonomy.idle_minutes`, the table is "away". Shared
+  windows wait. Co-players-only threads still move, but only every `autonomy.away_side_interval_ms` (default 6 hours; 0 makes
   them wait too), so the story moves on a little between visits without spending much.
 - **Returning players.** A player who writes after being away for longer than that gets a welcome back in the GM's
   answer: where their character is now and what has moved on meanwhile, then the scene is theirs. Recaps of the story
@@ -328,7 +328,7 @@ node src/cli.mjs casual off
 - **Replies:**
   - A real NPC answers through the GM, as that NPC, after a believable delay of its choosing, or leaves the message on
     read.
-  - A co-player answers in character the same way, at most `CASUAL_MAX_DELAY_MINUTES` later.
+  - A co-player answers in character the same way, at most `modes.casual_max_delay_minutes` later.
   - Pending replies are kept in the state file, so they survive a restart and still arrive while everyone is away.
 - **Other players.** A text to another player appears in their phone at once, posted as the sender's character.
 - **First contact.** The GM may have an NPC text a player (a hook, news, an invitation), and a co-player may text a
@@ -348,16 +348,19 @@ Requirements: Node 22.13+ and a running Acerciae backend.
 ```bash
 cd gm-agent
 npm install
+cp gm-agent.example.yml gm-agent.yml
 cp .env.example .env
 ```
 
-In `.env`, set:
+Settings live in `gm-agent.yml` (every key is explained in `gm-agent.example.yml` and the table under Configuration);
+the environment or `.env` holds only secrets and what differs between deployments:
 
-- `ACERCIAE_API_BASE`;
-- the account (`GM_USERNAME` and `GM_PASSWORD`; `GM_REGISTER=true` creates it if it does not exist);
-- the model: `ANTHROPIC_API_KEY` for Claude, or `LLM_PROVIDER=openai_compatible` with `LLM_API_BASE`, `LLM_MODEL` and
-  `LLM_API_KEY`. `openai_compatible` talks to the OpenAI Responses API (`{LLM_API_BASE}/responses`), so the endpoint must
-  implement it; servers that only offer Chat Completions do not work.
+- `ACERCIAE_API_BASE`, `CHANNEL_ID`, `STATE_DIR`;
+- `GM_PASSWORD` (the account's name is `account.username` in the file; `account.register: true` creates it);
+- the model's key: `ANTHROPIC_API_KEY` for Claude, or `LLM_API_KEY` with `llm.provider: openai_compatible`,
+  `llm.api_base` and `llm.model` in the file. `openai_compatible` talks to the OpenAI Responses API
+  (`{api_base}/responses`), so the endpoint must implement it; servers that only offer Chat Completions do not work;
+- `PLANNER_API_KEY`, when the story planner uses another provider than the GM.
 
 The client keeps a channel you already run. In the web app, create a server and a channel (or open an existing one)
 and make the Keeper account its GM (channel members → role GM). Then:
@@ -369,7 +372,7 @@ node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2
 Without `--channel`, `setup` lists the channels the account is GM of and asks which one to keep (or, with none, says how
 to create one). The client never creates a server, a channel or an invite code on its own. If you want it to anyway (for
 scripts and tests), `setup --create` makes a new server and channel, prints an invite code for the players, and uses
-`SERVER_NAME`, `CHANNEL_NAME` and `--era`:
+`channel.server_name`, `channel.channel_name` and `--era`:
 
 ```bash
 node src/cli.mjs setup --create --coplayers 3 --era 1920s
@@ -379,7 +382,7 @@ node src/cli.mjs setup --create --coplayers 3 --era 1920s
 Every setup first checks existing co-players on the
 platform: it fills missing appearance prompts, basic information, characteristics and background fields while preserving
 filled values (including current HP/SAN). Complete characters are skipped without a model call. It then creates only
-the additional co-players needed to reach `COPLAYERS`. It never recreates existing characters or fills human players' cards.
+the additional co-players needed to reach `table.coplayers`. It never recreates existing characters or fills human players' cards.
 
 Appearance prompts are generated alongside new role cards (also for new NPCs during play) and saved under Appearance &
 images. Saving the prompt does not change uploaded/generated image mode or automatically spend image-generation credits.
@@ -401,53 +404,65 @@ node src/cli.mjs status --channel <id>
 
 ## Configuration
 
-Every option is an environment variable (or `.env`). The matching `--flag` overrides it.
+Ordinary settings live in `gm-agent.yml`, found as `--config <file>`, `GM_AGENT_CONFIG`, `./gm-agent.yml` or the file
+beside the client. A `--flag` overrides a key for one run. The environment (or `.env`) is read only for the seven
+names in the last rows. Other variables older versions read are ignored, with a warning that names the key to use.
 
-| Variable | Flag | Default | Meaning |
+| Key in `gm-agent.yml` | Flag | Default | Meaning |
 |---|---|---|---|
-| `ACERCIAE_API_BASE` | `--api` | `http://localhost:8080` | backend address |
-| `GM_USERNAME`, `GM_PASSWORD` | `--username`, `--password` | – | the Keeper account the client signs in as |
-| `GM_REGISTER`, `GM_DISPLAY_NAME` | `--register`, `--display-name` | `false`, `AI Keeper` | register the account when sign-in fails |
-| `CHANNEL_ID` | `--channel` | – | the channel to keep; without it `setup` lists the channels the account keeps and asks |
-| `CREATE_CHANNEL` | `--create` | `false` | let `setup` create a new server and channel (and an invite code) instead |
-| `SERVER_ID`, `SERVER_NAME`, `CHANNEL_NAME`, `CAMPAIGN_ERA` | `--server`, `--server-name`, `--channel-name`, `--era` | | used only with `--create` |
-| `COPLAYERS` | `--coplayers` | `2` | number of co-players (0–8) |
-| `COPLAYER_WINDOWS` | `--coplayer-windows` | Main Chat | comma-separated window ids or names the co-players sit in |
-| `GM_LANGUAGE` | `--language` | server language | language of everything the client writes |
-| `LLM_PROVIDER` | `--llm-provider` | `anthropic` if `ANTHROPIC_API_KEY` is set, else `mock` | `anthropic`, `openai_compatible` (the OpenAI Responses API) or `mock` |
-| `LLM_MODEL` | `--llm-model` | `claude-opus-5-5` for Claude | model id |
-| `LLM_API_BASE`, `LLM_API_KEY` | | | endpoint and key (Claude reads `ANTHROPIC_API_KEY` too) |
-| `LLM_EFFORT` | `--llm-effort` | `medium` | Claude effort (`low` … `max`) |
-| `LLM_FALLBACKS` | | `true` | Claude: re-run a declined request on Anthropic's recommended fallback model |
-| `LLM_TRACE` | `--llm-trace` | – | append every model request and reply to this JSONL file, to audit what each role was shown |
-| `LLM_STREAM` | `--llm-stream` | `true` | OpenAI Responses: receive streaming replies; set `false` only if the endpoint does not support streaming |
-| `LLM_TIMEOUT_MS` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a proxy/gateway's own timeout |
-| `DEBOUNCE_MS`, `POST_DELAY_MS` | | `4000`, `1200` | quiet time before a turn; pause between posted lines |
-| `MAX_ACTIONS_PER_TURN` | | `6` | lines per turn |
-| `GM_CONTEXT_TOKENS`, `COPLAYER_CONTEXT_TOKENS` | | `60000`, `24000` | context budget for the GM and for each co-player; older history is compacted into chapters |
-| `CONTEXT_LINES`, `HISTORY_BACKFILL_LINES` | | `100`, `1000` | lines fetched per page when syncing the local copy of the chat; how far back the first sync goes |
-| `LLM_CACHE_TTL` | `--llm-cache-ttl` | `1h` | Anthropic prompt-cache lifetime: `1h`, `5m` or `off` |
-| `LLM_DAILY_TOKEN_BUDGET` | | `0` (off) | billable-equivalent tokens a day; once spent, no autonomous turns until tomorrow |
-| `AUTONOMY` | `--autonomy` | `true` | side timelines and quiet windows move on the table's own clock |
-| `AUTONOMY_TICK_MS` | | `30000` | how often the table looks for a window that should move |
-| `AUTONOMY_SIDE_INTERVAL_MS` | | `90000` | pause between turns in a side window |
-| `AUTONOMY_QUIET_MS`, `AUTONOMY_QUIET_TURNS` | | `180000`, `2` | silence before a shared window moves on, and how many such turns until a human posts again |
-| `AUTONOMY_MAX_TURNS_PER_HOUR`, `AUTONOMY_IDLE_MINUTES` | | `20`, `30` | hourly cap on autonomous turns; "away" once nobody has posted for this long |
-| `AWAY_SIDE_INTERVAL_MS` | | `21600000` (6 h) | while away, how often a co-players-only thread moves (0: never) |
-| `TIMELINE_AUTO` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: model-led co-player splits |
-| `TIMELINE_GUARD_TURNS`, `TIMELINE_GUARD_MS` | | `2`, `180000` | a co-player's move that undoes a recent change waits for two agreeing turns within this window |
-| `TIMELINE_MAX_ACTIVE` | | `4` | at most this many threads at once (the main one included) |
-| `TIMELINE_PC_COOLDOWN_MS` | | `300000` | a player gets a new window at most this often |
-| `TIMELINE_MAX_ARRIVALS_PER_HOUR` | | `12` | arrival turns (opening a new or changed scene) per hour |
-| `SCENARIO_AUTO` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the Main Chat only) |
-| `SCENARIO_MIN_MINUTES`, `SCENARIO_MIN_LINES` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it |
-| `CASUAL` | `--casual` | off | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
-| `CASUAL_MAX_DELAY_MINUTES` | | `240` | longest delay before an NPC's or co-player's reply to a text |
-| `IMPROV` | `--improv` | off | improvisation mode (with `setup` or `world`; it is then kept in the state file) |
-| `WORLD_FILE`, `SECRETS_FILE` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` |
-| `STATE_DIR` | `--state-dir` | `./.state` | the state file (co-players, real NPCs, seats, timelines, guard, scenario, improvisation setting), its lock and the command inbox |
+| `account.username`, `account.display_name` | `--username`, `--display-name` | –, `AI Keeper` | the Keeper account the client signs in as (its password: `GM_PASSWORD`) |
+| `account.register` | `--register` | `false` | register the account when sign-in fails |
+| `channel.create` | `--create` | `false` | let `setup` create a new server and channel (and an invite code) instead of keeping one the account is GM of |
+| `channel.server_id`, `channel.server_name`, `channel.channel_name`, `channel.era` | `--server`, `--server-name`, `--channel-name`, `--era` | | used only with `--create` |
+| `table.coplayers` | `--coplayers` | `2` | number of co-players (0–8) |
+| `table.coplayer_windows` | `--coplayer-windows` | Main Chat | window ids or names the co-players sit in |
+| `table.language` | `--language` | server language | language of everything the client writes |
+| `table.kickoff`, `table.verbose` | `--kickoff`, `--verbose` | `false` | open the session without waiting; log every post |
+| `llm.provider` | `--llm-provider` | `anthropic` if `ANTHROPIC_API_KEY` is set, else `mock` | `anthropic`, `openai_compatible` (the OpenAI Responses API) or `mock` |
+| `llm.model` | `--llm-model` | `claude-opus-5-5` for Claude | model id |
+| `llm.api_base` | `--llm-api-base` | | the endpoint (`openai_compatible`); the key is `LLM_API_KEY` or `ANTHROPIC_API_KEY` |
+| `llm.effort` | `--llm-effort` | `medium` | Claude effort (`low` … `max`) |
+| `llm.fallbacks` | `--llm-fallbacks` | `true` | Claude: re-run a declined request on Anthropic's recommended fallback model |
+| `llm.trace` | `--llm-trace` | – | append every model request and reply to this JSONL file, to audit what each role was shown |
+| `llm.stream` | `--llm-stream` | `true` | OpenAI Responses: streaming replies; `false` only if the endpoint does not support it |
+| `llm.timeout_ms` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a gateway's own timeout |
+| `llm.cache_ttl` | `--llm-cache-ttl` | `1h` | Anthropic prompt-cache lifetime: `1h`, `5m` or `off` |
+| `planner.enabled` | `--planner` | `true` | the story planner (see "The story planner") |
+| `planner.provider`, `planner.api_base`, `planner.model` | `--planner-provider`, `--planner-api-base`, `--planner-model` | the GM's | the planner's own model and endpoint (its key: `PLANNER_API_KEY`, else the provider's key) |
+| `planner.effort` | `--planner-effort` | `high` | the planner's reasoning effort (ignored by `openai_compatible`) |
+| `planner.interval_minutes`, `planner.min_lines` | | `30`, `40` | play time and lines since the last plan before an automatic one (`interval_minutes: 0`: only `plan now`) |
+| `planner.cooldown_minutes`, `planner.max_runs_per_hour` | | `10`, `4` | least gap between runs; hourly cap |
+| `planner.stall_turns` | | `6` | turns in the same place with no world change, truth, move or scenario change before the planner is asked |
+| `planner.impulse_lines`, `planner.plan_tokens` | | `60`, `1500` | how long a co-player's impulse lives; budget of the GM's "Story plan" section |
+| `pacing.debounce_ms`, `pacing.post_delay_ms` | `--debounce-ms`, `--post-delay-ms` | `4000`, `1200` | quiet time before a turn; pause between posted lines |
+| `pacing.max_actions_per_turn` | `--max-actions` | `6` | lines per turn |
+| `context.gm_tokens`, `context.coplayer_tokens` | | `60000`, `24000` | context budget for the GM and for each co-player; older history is compacted into chapters |
+| `context.page_lines`, `context.backfill_lines` | | `100`, `1000` | lines fetched per page when syncing the local copy of the chat; how far back the first sync goes |
+| `context.daily_token_budget` | | `0` (off) | billable-equivalent tokens a day; once spent, no autonomous turns or plans until tomorrow |
+| `autonomy.enabled` | `--autonomy` | `true` | side timelines and quiet windows move on the table's own clock |
+| `autonomy.tick_ms` | | `30000` | how often the table looks for a window that should move |
+| `autonomy.side_interval_ms` | | `90000` | pause between turns in a side window |
+| `autonomy.quiet_ms`, `autonomy.quiet_turns` | | `180000`, `2` | silence before a shared window moves on, and how many such turns until a human posts again |
+| `autonomy.max_turns_per_hour`, `autonomy.idle_minutes` | | `20`, `30` | hourly cap on autonomous turns; "away" once nobody has posted for this long |
+| `autonomy.away_side_interval_ms` | | `21600000` (6 h) | while away, how often a co-players-only thread moves (0: never) |
+| `timelines.auto` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: model-led co-player splits |
+| `timelines.guard_turns`, `timelines.guard_ms` | | `2`, `180000` | a co-player's move that undoes a recent change waits for two agreeing turns within this window |
+| `timelines.max_active` | | `4` | at most this many threads at once (the main one included) |
+| `timelines.pc_cooldown_ms` | | `300000` | a player gets a new window at most this often |
+| `timelines.max_arrivals_per_hour` | | `12` | arrival turns (opening a new or changed scene) per hour |
+| `scenarios.auto` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the Main Chat only) |
+| `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
+| `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
+| `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` (relative to the file) |
+| `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
+| `modes.casual_max_delay_minutes` | | `240` | longest delay before an NPC's or co-player's reply to a text |
+| env `ACERCIAE_API_BASE` | `--api` | `http://localhost:8080` | backend address |
+| env `CHANNEL_ID` | `--channel` | – | the channel to keep; without it `setup` lists the channels the account keeps and asks |
+| env `STATE_DIR` | `--state-dir` | `./.state` | the state file, the SQLite store, the lock and the command inbox |
+| env `GM_PASSWORD`, `ANTHROPIC_API_KEY`, `LLM_API_KEY`, `PLANNER_API_KEY` | | | secrets |
+| env `GM_AGENT_CONFIG` | `--config` | | where `gm-agent.yml` is |
 
-**Mock mode.** `LLM_PROVIDER=mock` writes labelled placeholder text (`[mock Keeper] …`). It exercises every pipeline
+**Mock mode.** `llm.provider: mock` writes labelled placeholder text (`[mock Keeper] …`). It exercises every pipeline
 without a provider. It is for tests and demos, not for play.
 
 During setup, the CLI prints which co-player it is generating and reports elapsed time every 15 seconds while waiting
@@ -480,7 +495,7 @@ The tests need no backend and no model. They cover:
   co-player's in-character guess may be recorded as established. Log Studio and the players' group memory count them
   as the investigator's lines (the character is a PC); the Keeper-side observers, reminders and script tracking still
   see a Keeper line.
-- Co-players start in the windows of `COPLAYER_WINDOWS` and move only through whereabouts (or `split` and `rejoin`). A
+- Co-players start in the windows of `table.coplayer_windows` and move only through whereabouts (or `split` and `rejoin`). A
   private window the Keeper creates in the web app does not seat them automatically and is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side
   thread's events reach the Keeper documents like any other lines.
