@@ -10,6 +10,10 @@
 
 应用前台每 4 秒自动刷新，回前台立即刷新，后台不轮询。现阶段使用 REST，WebSocket URL 构建器仍是预留能力。通过上下文版本阻止旧消息请求写回新窗口；切换服务器／频道会立即清空旧数据，草稿按窗口保存在内存，退出全部清除。权限角色、所属角色、player_group_id／player_group_version、知识模式或窗口成员变化时丢弃旧消息缓存并重新取当前可见结果；401 退出，前台轮询遇到 403／404 清理频道内容。手动分页不会触发聊天自动滚到底部。
 
+## 停用（平台管理员）
+
+平台管理员可停用服务器或账号（见 `docs/ADMIN.md`）。被停用账号的请求返回 401，登录返回 `403 account_suspended`，message 含原因，应原样展示并留在登录页。被停用服务器在 `GET /servers` 中仍列出，带 `suspended: true` 与 `suspended_reason`；其频道、消息、角色、日志等请求返回 `403 server_suspended`，客户端应显示原因而不是报错重试。移动端无需管理面板。
+
 ## 日志与媒体
 
 移动端使用 `GET /studio/log` 自动汇总单一战役日志；导出 `/studio/log/export?format=json|txt|html|zip`，SealDice JSON 使用 `format=sealdice&chat_window_id=...`，格式 version 105。旧项目和快照接口不再作为移动端导航模型。

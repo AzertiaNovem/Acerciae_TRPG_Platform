@@ -1,6 +1,7 @@
 #pragma once
 #include "../core/Db.h"
 #include "../core/Config.h"
+#include "../core/Errors.h"
 #include <json/json.h>
 #include <string>
 #include <vector>
@@ -13,6 +14,7 @@ struct Principal {
     std::string userId;
     std::string username;
     std::string displayName;
+    bool isAdmin = false;   // administers the deployment (PLATFORM_ADMINS, or granted from the admin panel)
 };
 
 // Everything the permission model needs to know about a user inside one channel.
@@ -43,6 +45,13 @@ public:
     // Avatars are objects in the media store; without one (unit tests) they stay inline in users.avatar_data.
     void setObjectStore(logstudio::ObjectStore* store) { store_ = store; }
     void logout(const std::string& token);
+    // A suspended account's sessions end at once: every token is deleted and its WebSockets closed.
+    void revokeUserSessions(const std::string& userId);
+    // Whether this user administers the deployment: named in PLATFORM_ADMINS, or granted is_admin by another administrator.
+    bool isPlatformAdmin(const std::string& username, bool isAdminColumn) const;
+    bool listedAdmin(const std::string& username) const;   // named in PLATFORM_ADMINS (cannot be demoted or suspended)
+    const std::vector<std::string>& listedAdminUsernames() const { return cfg_.platformAdmins; }
+    void requireAdmin(const Principal& p) const;
     std::optional<Principal> authenticate(const std::string& token);
     // Short-lived tokens for URLs a browser loads by itself (images, audio, downloads, the WebSocket), so the session
     // token never lands in a URL, a proxy log or the browser history. Bound to the session: logging out revokes them.
@@ -53,6 +62,8 @@ public:
 
     // Authorisation helpers (throw ApiError 403/404)
     ChannelAccess channelAccess(const std::string& userId, const std::string& channelId);
+    // Every route into a server or its channels passes one of these; a suspended server answers 403 server_suspended.
+    void requireServerActive(const std::string& serverId);
     void requireServerMember(const std::string& userId, const std::string& serverId);
     void requireServerAdmin(const std::string& userId, const std::string& serverId);
     void requireGm(const ChannelAccess& a);
@@ -61,6 +72,8 @@ public:
     std::optional<std::string> windowCharacter(const std::string& userId, const std::string& chatWindowId);
 
 private:
+    static ApiError serverSuspended();
+    Principal principalOf(const Json::Value& row) const;
     logstudio::ObjectStore* store_ = nullptr;
     std::string tokenHash(const std::string& token) const;
     Db& db_;
