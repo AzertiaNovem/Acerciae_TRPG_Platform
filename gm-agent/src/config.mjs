@@ -41,6 +41,8 @@ export function buildConfig(args = {}, env = process.env) {
     password: pick("password", "GM_PASSWORD", ""),
     displayName: pick("display-name", "GM_DISPLAY_NAME", "AI Keeper"),
     register: bool(pick("register", "GM_REGISTER"), false),
+    // The client never creates a server or channel unless asked (`setup --create`): it keeps one the account is GM of.
+    create: bool(pick("create", "CREATE_CHANNEL"), false),
     serverId: pick("server", "SERVER_ID", ""),
     channelId: pick("channel", "CHANNEL_ID", ""),
     serverName: pick("server-name", "SERVER_NAME", "AI Keeper's table"),

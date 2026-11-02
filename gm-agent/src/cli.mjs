@@ -18,6 +18,7 @@ import { Roster, openSeat, openWindows } from "./roles/roster.mjs";
 import { generateCoplayer, saveCharacter } from "./roles/cardgen.mjs";
 import { completeExistingCharacter } from "./roles/complete.mjs";
 import { SECRETS_MAX, WORLD_MAX, readSetting } from "./improv.mjs";
+import { channelListAdvice, chooseChannel, keptChannels, noChannelAdvice } from "./channels.mjs";
 import { Store, billableTokens } from "./store.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
@@ -40,7 +41,9 @@ async function signIn(cfg) {
   return api;
 }
 
-// The channel to keep: --channel (must already be GM there), or a new server and channel created by this account.
+// The channel to keep: --channel (the account must already be GM there). Without it, `setup` lists the channels the
+// account keeps and asks which one (on a terminal), or says how to create one in the web app. Nothing is created on
+// the platform unless `setup --create` asks for a new server and channel.
 async function resolveChannel(api, cfg, { create }) {
   if (cfg.channelId) {
     const ch = await api.channel(cfg.channelId);
@@ -48,14 +51,25 @@ async function resolveChannel(api, cfg, { create }) {
     if (ch.rule_system && ch.rule_system !== "coc7e") throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent builds Call of Cthulhu 7e investigators only`);
     return { channel: ch, created: false };
   }
-  if (!create) throw new Error("set CHANNEL_ID (or --channel); run `setup` first to create one");
+  if (!create) throw new Error("set CHANNEL_ID (or --channel); `setup` lists the channels this account keeps");
+  if (!cfg.create) {
+    const kept = await keptChannels(api);
+    if (!kept.length) throw new Error(noChannelAdvice(cfg.username));
+    if (!process.stdin.isTTY) throw new Error(channelListAdvice(kept));
+    const picked = await chooseChannel(kept);
+    if (!picked) throw new Error("no channel chosen");
+    return resolveChannel(api, { ...cfg, channelId: picked.id }, { create });
+  }
   let serverId = cfg.serverId;
   if (!serverId) { serverId = (await api.createServer(cfg.serverName)).id; log(`created server "${cfg.serverName}"`); }
   // Casual mode's phones are private only when each player is in a group of their own.
   const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: cfg.casual ? "isolated" : "public", rule_system: "coc7e" });
   if (cfg.era) await api.updateChannel(ch.id, { era: cfg.era });
   log(`created channel "${cfg.channelName}"`);
-  return { channel: await api.channel(ch.id), created: true };
+  // A channel this client made has no players yet: an invite code gets them onto the server.
+  let invite = null;
+  try { invite = await api.createInvite(serverId); } catch { /* not a maintainer, or the server is closed */ }
+  return { channel: await api.channel(ch.id), created: true, invite };
 }
 
 function seatWindows(cfg, windows) {
@@ -66,7 +80,7 @@ function seatWindows(cfg, windows) {
 
 async function setup(cfg) {
   const api = await signIn(cfg);
-  const { channel } = await resolveChannel(api, cfg, { create: true });
+  const { channel, created, invite } = await resolveChannel(api, cfg, { create: true });
   const llm = withProgress(createLlm(cfg.llm), log);
   const settings = await api.serverSettings(channel.server_id);
   const language = languageName(cfg.language || settings?.language || "en");
@@ -117,9 +131,7 @@ async function setup(cfg) {
   }
   if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
   const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
-  let invite = null;
-  try { invite = await api.createInvite(channel.server_id); } catch { /* not a maintainer, or the server is closed */ }
-  console.log(`\nchannel: ${channel.name}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  LLM: ${cfg.llm.provider}${cfg.llm.model ? ` ${cfg.llm.model}` : ""}${cfg.llm.provider === "mock" ? " (placeholder text, for testing only)" : ""}\n\nInvite players to the channel in the web app, then: CHANNEL_ID=${channel.id} npm start`);
+  console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  LLM: ${cfg.llm.provider}${cfg.llm.model ? ` ${cfg.llm.model}` : ""}${cfg.llm.provider === "mock" ? " (placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
 }
 
 // The table for a channel: roster, timelines, guard and scenario from the state file. `write` saves changes back

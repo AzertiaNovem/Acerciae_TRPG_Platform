@@ -263,7 +263,7 @@ group's derived memory (journals, reminders) and web clients refresh. Every spli
 Without a module, the table can improvise a campaign from a world setting you write yourself:
 
 ```bash
-node src/cli.mjs setup --coplayers 2 --improv --world world.md --secrets secrets.md
+node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2 --improv --world world.md --secrets secrets.md
 ```
 
 - **`world.md`, the world setting** (your own text, used as written, up to 30,000 characters): places, factions, people,
@@ -310,7 +310,7 @@ For casual roleplaying, usually (not necessarily) together with improvisation. I
 knows nothing of it. Without it the game is solemn and there are no phones.
 
 ```bash
-node src/cli.mjs setup --coplayers 2 --casual --improv --world world.md
+node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2 --casual --improv --world world.md
 ```
 
 ```bash
@@ -336,7 +336,8 @@ node src/cli.mjs casual off
 - **Who knows what.** A text never starts a scene turn and never moves anyone between scenes. The GM reads every
   phone; a co-player knows only the messages it sent or received.
 - **Privacy.** Phones are private only on an **isolated** channel with one player per group, so casual mode stays off
-  anywhere else. `setup --casual` creates isolated channels.
+  anywhere else. Create the channel with knowledge mode *isolated* in the web app (with `setup --create --casual`, a
+  new channel is made isolated).
 
 `status` shows the phones and the texts still on their way.
 
@@ -358,19 +359,24 @@ In `.env`, set:
   `LLM_API_KEY`. `openai_compatible` talks to the OpenAI Responses API (`{LLM_API_BASE}/responses`), so the endpoint must
   implement it; servers that only offer Chat Completions do not work.
 
-```bash
-# a new server and channel with three co-players
-node src/cli.mjs setup --coplayers 3 --era 1920s
-```
-
-To use an existing channel, the account must be its GM:
+The client keeps a channel you already run. In the web app, create a server and a channel (or open an existing one)
+and make the Keeper account its GM (channel members → role GM). Then:
 
 ```bash
 node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2
 ```
 
-`setup` prints the channel id and, when it can, an invite code. Players join the server with that code. Then add them to
-the channel in the web app, or with `POST /api/channels/{id}/members`. Every setup first checks existing co-players on the
+Without `--channel`, `setup` lists the channels the account is GM of and asks which one to keep (or, with none, says how
+to create one). The client never creates a server, a channel or an invite code on its own. If you want it to anyway (for
+scripts and tests), `setup --create` makes a new server and channel, prints an invite code for the players, and uses
+`SERVER_NAME`, `CHANNEL_NAME` and `--era`:
+
+```bash
+node src/cli.mjs setup --create --coplayers 3 --era 1920s
+```
+
+`setup` prints the channel id. Add the players to the channel in the web app, or with `POST /api/channels/{id}/members`.
+Every setup first checks existing co-players on the
 platform: it fills missing appearance prompts, basic information, characteristics and background fields while preserving
 filled values (including current HP/SAN). Complete characters are skipped without a model call. It then creates only
 the additional co-players needed to reach `COPLAYERS`. It never recreates existing characters or fills human players' cards.
@@ -402,8 +408,9 @@ Every option is an environment variable (or `.env`). The matching `--flag` overr
 | `ACERCIAE_API_BASE` | `--api` | `http://localhost:8080` | backend address |
 | `GM_USERNAME`, `GM_PASSWORD` | `--username`, `--password` | – | the Keeper account the client signs in as |
 | `GM_REGISTER`, `GM_DISPLAY_NAME` | `--register`, `--display-name` | `false`, `AI Keeper` | register the account when sign-in fails |
-| `CHANNEL_ID` | `--channel` | – | the channel to keep (`setup` creates one when empty) |
-| `SERVER_ID`, `SERVER_NAME`, `CHANNEL_NAME`, `CAMPAIGN_ERA` | `--server`, `--server-name`, `--channel-name`, `--era` | | used when `setup` creates the channel |
+| `CHANNEL_ID` | `--channel` | – | the channel to keep; without it `setup` lists the channels the account keeps and asks |
+| `CREATE_CHANNEL` | `--create` | `false` | let `setup` create a new server and channel (and an invite code) instead |
+| `SERVER_ID`, `SERVER_NAME`, `CHANNEL_NAME`, `CAMPAIGN_ERA` | `--server`, `--server-name`, `--channel-name`, `--era` | | used only with `--create` |
 | `COPLAYERS` | `--coplayers` | `2` | number of co-players (0–8) |
 | `COPLAYER_WINDOWS` | `--coplayer-windows` | Main Chat | comma-separated window ids or names the co-players sit in |
 | `GM_LANGUAGE` | `--language` | server language | language of everything the client writes |
