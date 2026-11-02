@@ -19,6 +19,15 @@ no KP module graph, scene description, character sheet, journal text or entity r
 readable source chat from the authorized batch; a summary cannot import a KP fact ID or another group's fact. Source status
 is still distinguished: a player's claim does not become a confirmed fact merely by being summarized.
 
+Each partition also keeps a world record on its entities: what is true now (status `active|inactive|missing|dead|destroyed|unknown`,
+a short state line, whereabouts as another entity of the same partition), versioned with an `entity_state_history`. Both observers
+maintain it with `entity_state` operations under the same provenance rules. The KP alone receives `gm.declared` events — Keeper
+declarations about the world made through `POST /world/declare`, often off-screen — which are authoritative: their facts are
+confirmed (or `gm_secret` when secret) and their state changes are marked `state_by='gm'`; a later AI change to such a state waits
+for KP review. Declarations are `gm_only` events, never chat, so no player group can read them or learn their effects; a group's
+record only changes from its own readable chat. `GET /world` returns the caller's partition and `world.updated` reaches only that
+partition's audience. Regrouping resets a group's entities, and with them its world record and history.
+
 The server scopes HTTP reads, source viewers, tool calls, consistency/inspiration, revision history and WebSocket delivery.
 PostgreSQL constraints reject cross-partition document/entity/relation links. Every group has a generation number; commits
 lock and check it so an in-flight AI response cannot restore knowledge after a membership change.

@@ -116,6 +116,13 @@ void Notifier::documentUpdated(const std::string& channelId, const Json::Value& 
     else for(const auto& r : db_.queryJson("SELECT user_id FROM player_group_members WHERE group_id=$1",{doc["player_group_id"].asString()})) allowed.insert(r["user_id"].asString());
     WsGateway::instance().broadcast("context",channelId,msg,setFilter(std::move(allowed)));
 }
+void Notifier::worldUpdated(const std::string& channelId, const std::string& groupId, int64_t version) {
+    Json::Value msg; msg["type"] = "world.updated"; msg["channel_id"] = channelId; msg["version"] = (Json::Int64)version;
+    std::set<std::string> allowed;
+    if (!groupId.empty()) for (const auto& m : db_.queryJson("SELECT user_id FROM player_group_members WHERE group_id=$1", {groupId})) allowed.insert(m["user_id"].asString());
+    else for (const auto& u : gmUsers(channelId)) allowed.insert(u);
+    WsGateway::instance().broadcast("context", channelId, msg, setFilter(std::move(allowed)));
+}
 void Notifier::highlightCreated(const std::string& channelId, const Json::Value& h) {
     Json::Value msg; msg["type"] = "highlight.created"; msg["channel_id"] = channelId; msg["highlight"] = h;
     auto doc=db_.queryOne("SELECT player_group_id FROM documents WHERE id=$1 AND channel_id=$2",{json::str(h,"document_id"),channelId});

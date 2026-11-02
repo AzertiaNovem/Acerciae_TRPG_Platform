@@ -34,8 +34,34 @@ test("Claude: Messages API with adaptive effort and server-side refusal fallback
     assert.equal(r.body.model, "claude-opus-5-5");
     assert.equal(r.body.fallbacks, "default");
     assert.deepEqual(r.body.output_config, { effort: "medium" });
-    assert.equal(r.body.system, "sys");
+    assert.deepEqual(r.body.system, [{ type: "text", text: "sys", cache_control: { type: "ephemeral", ttl: "1h" } }], "the system prompt is cached for an hour");
     assert.equal(r.body.betas, undefined, "betas travel as a header");
+  } finally { s.close(); }
+});
+
+test("Claude: cache markers go on the marked parts (newest first, at most 4 with the system prompt), and usage is reported whole", async () => {
+  const s = await stub({ id: "msg_3", type: "message", role: "assistant", model: "claude-opus-5-5", stop_reason: "end_turn", content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, cache_read_input_tokens: 900, cache_creation_input_tokens: 90, output_tokens: 7 } });
+  try {
+    const llm = createLlm({ provider: "anthropic", apiKey: "k", apiBase: s.base, fallbacks: false, timeoutMs: 5000, cacheTtl: "5m" });
+    const usage = [];
+    const parts = [{ text: "A", cache: true }, { text: "B", cache: true }, { text: "C", cache: true }, { text: "D", cache: true }, { text: "tail" }];
+    await llm.complete({ system: "sys", messages: [{ role: "user", content: parts }], onUsage: (u) => usage.push(u) });
+    const [r] = s.seen;
+    assert.deepEqual(r.body.system[0].cache_control, { type: "ephemeral" }, "5-minute TTL when configured");
+    const marked = r.body.messages[0].content.map((b) => Boolean(b.cache_control));
+    assert.deepEqual(marked, [false, true, true, true, false], "three markers left after the system prompt, on the newest marked parts");
+    assert.ok(r.body.messages[0].content.every((b) => b.type === "text" && !("mark" in b)));
+    assert.deepEqual(usage, [{ model: "claude-opus-5-5", input: 1000, cacheRead: 900, cacheWrite: 90, output: 7 }]);
+  } finally { s.close(); }
+});
+
+test("Claude: LLM_CACHE_TTL=off sends no markers", async () => {
+  const s = await stub({ id: "m", type: "message", role: "assistant", model: "x", stop_reason: "end_turn", content: [{ type: "text", text: "{}" }], usage: { input_tokens: 1, output_tokens: 1 } });
+  try {
+    const llm = createLlm({ provider: "anthropic", apiKey: "k", apiBase: s.base, fallbacks: false, timeoutMs: 5000, cacheTtl: "off" });
+    await llm.complete({ system: "sys", messages: [{ role: "user", content: [{ text: "A", cache: true }, { text: "B" }] }] });
+    assert.equal(s.seen[0].body.system, "sys");
+    assert.ok(!JSON.stringify(s.seen[0].body).includes("cache_control"));
   } finally { s.close(); }
 });
 
@@ -138,5 +164,17 @@ test("OpenAI-compatible: a 400 is an error after one request", async () => {
     const llm = createLlm({ provider: "openai_compatible", apiKey: "k", apiBase: `${s.base}/v1`, model: "gpt-x", timeoutMs: 5000 });
     await assert.rejects(llm.complete(request), /LLM 400: The model 'gpt-x' does not exist/);
     assert.equal(s.seen.length, 1);
+  } finally { s.close(); }
+});
+
+test("OpenAI-compatible: parts are sent as one text, usage with cached tokens is reported, and prompt_cache_key goes only to api.openai.com", async () => {
+  const s = await stub(responseObject("{}", { usage: { input_tokens: 500, input_tokens_details: { cached_tokens: 400 }, output_tokens: 9 } }));
+  try {
+    const llm = createLlm({ provider: "openai_compatible", apiKey: "k", apiBase: `${s.base}/v1`, model: "gpt-x", timeoutMs: 5000, stream: false });
+    const usage = [];
+    await llm.complete({ system: "sys", messages: [{ role: "user", content: [{ text: "A\n", cache: true }, { text: "B" }] }], cacheKey: "key-1", onUsage: (u) => usage.push(u) });
+    assert.equal(s.seen[0].body.input[0].content, "A\nB");
+    assert.equal(s.seen[0].body.prompt_cache_key, undefined, "a local gateway gets no cache key");
+    assert.deepEqual(usage, [{ model: "gpt-x", input: 500, cacheRead: 400, cacheWrite: 0, output: 9 }]);
   } finally { s.close(); }
 });

@@ -47,7 +47,7 @@ import kotlinx.serialization.json.*
         } else if (area == "AI") {
             Text(tr("AI on this server runs only on the providers configured here, with this server's own keys. Without them it runs in mock mode."))
             listOf("llm", "image", "tts").forEach { group ->
-                val providers = when(group) { "llm" -> listOf("mock", "openai_compatible", "anthropic"); "image" -> listOf("disabled", "mock", "gpt_image"); else -> listOf("disabled", "mock", "qwen") }
+                val providers = when(group) { "llm" -> listOf("mock", "openai_compatible", "anthropic"); "image" -> listOf("disabled", "mock", "gpt_image"); else -> listOf("disabled", "mock", "qwen", "openai") }
                 Text(tr(when(group) { "llm" -> "Language model"; "image" -> "Image generation"; else -> "Voice" }), style = MaterialTheme.typography.titleMedium)
                 Choice(tr("Provider"), draft.obj(group).text("provider"), providers.map { it to it }, !state.busy) { set(group, "provider", JsonPrimitive(it)) }
                 (listOf("api_base", "model") + when(group) { "llm" -> listOf("embedding_model", "reasoning_effort"); "image" -> listOf("size", "quality"); else -> listOf("voice") }).forEach { key ->
@@ -60,6 +60,7 @@ import kotlinx.serialization.json.*
             Text(tr("AI policy"), style = MaterialTheme.typography.titleMedium)
             listOf("token_budget", "image_budget", "max_concurrent").forEach { key -> OutlinedTextField(draft.obj("ai_policy").text(key), { text -> text.toLongOrNull()?.takeIf { it >= 0 }?.let { set("ai_policy", key, JsonPrimitive(it)) } }, label = { Text(tr(fieldName(key))) }, enabled = !state.busy) }
             Choice(tr("Budget period"), draft.obj("ai_policy").text("period"), listOf("month" to tr("Each calendar month"), "total" to tr("Total")), !state.busy) { set("ai_policy", "period", JsonPrimitive(it)) }
+            Text(tr("Tokens used")+": "+state.serverSettings.obj("ai_policy").number("tokens_used")+" · "+tr("Cached tokens")+": "+state.serverSettings.obj("ai_policy").number("cached_tokens_used")+" · "+tr("Images used")+": "+state.serverSettings.obj("ai_policy").number("images_used"))
             Button(onClick = { save(listOf("llm", "image", "tts", "ai_policy")) }, enabled = !state.busy) { Text(tr("Save")) }
         } else {
             channels.forEach { item -> Text(item.name); TextButton(onClick = { doomed = item; phrase = "" }, enabled = !state.busy) { Text(tr("Delete channel")) } }

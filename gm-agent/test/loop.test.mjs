@@ -23,7 +23,7 @@ class FakeApi {
     this.characters_ = [
       { id: "c-alice", name: "Alice Hale", kind: "pc", user_id: "u-alice", player_name: "alice", bio: "ALICE-BIO: raised above a print shop",
         role_card: { basic: { occupation: "ALICE-JOB journalist", age: "31" }, background: { significant_people: "ALICE-TIES: her editor, Mr. Byrne" } } },
-      { id: "c-harriet", name: "Harriet Vance", kind: "npc", user_id: null, speaking_style: markStyle("dry wit"), bio: "A sharp antiquarian.",
+      { id: "c-harriet", name: "Harriet Vance", kind: "pc", user_id: "u-bot", player_name: "AI Keeper", speaking_style: "dry wit", bio: "A sharp antiquarian.",
         role_card: { basic: { occupation: "HARRIET-JOB antiquarian" }, background: { ideology: "HARRIET-IDEOLOGY: the past teaches" } } },
       { id: "c-butler", name: "Mr. Grimsby", kind: "npc", user_id: null, speaking_style: "", bio: "The butler; knows where the key is.",
         role_card: { background: { arcane: "SECRET-NPC: serves the Society" } } },
@@ -47,13 +47,15 @@ class FakeApi {
   async coc7Rules() { return { skills: [{ name: "Spot Hidden", base: 25, names: {} }], families: [] }; }
   async characters() { return structuredClone(this.characters_); }
   async windows() { return structuredClone(this.windows_.map((w) => ({ ...w, last_seq: Math.max(0, ...this.lines.filter((m) => m.chat_window_id === w.id).map((m) => m.seq)) }))); }
-  async messages(_ch, w, limit) { return this.lines.filter((m) => m.chat_window_id === w).slice(-limit); }
+  async messages(_ch, w, limit, beforeSeq = 0) { return this.lines.filter((m) => m.chat_window_id === w && (!beforeSeq || m.seq < beforeSeq)).slice(-limit); }
   async postMessage(_ch, w, body) {
     this.posts.push({ window: w, ...body });
     return this.add({ chat_window_id: w, author_id: "u-bot", author_role: "gm", ...body, kind: body.content.startsWith(".") ? "roll" : body.kind });
   }
   async characterSpace(_ch, cid) { return { character: { id: cid, role_card: { characteristics: { INT: 70 }, skills: { "Spot Hidden": 60 } } } }; }
   async playerGroups() { return this.groups ?? []; }
+  async world() { if (this.noWorld) throw Object.assign(new Error("not found"), { status: 404 }); return this.world_ ?? { version: 0, entities: [], recent_changes: [] }; }
+  async declareWorld(_ch, body) { if (this.noWorld) throw Object.assign(new Error("not found"), { status: 404 }); (this.declared ??= []).push(body); return { event_id: `ev${this.declared.length}`, seq: 0 }; }
   async createWindow(_ch, body) {
     for (const m of body.members ?? []) if (!this.channelUsers.includes(m.user_id)) throw Object.assign(new Error("user is not a channel member"), { status: 400 });
     this.createAttempts = (this.createAttempts ?? 0) + 1;
@@ -65,7 +67,7 @@ class FakeApi {
   }
   async advanceScenario(_ch, body) { const scene = { id: `sc${this.scenes_.length + 1}`, title: body.title, status: "active", location: body.location, narrative_time: body.narrative_time, event_count: 0, created_at: new Date().toISOString() }; for (const x of this.scenes_) if (x.id === this.currentScene) x.status = "closed"; this.scenes_.push(scene); this.currentScene = scene.id; this.advanced.push(body); return { scene }; }
   async enterScenario(_ch, id) { for (const x of this.scenes_) if (x.id === this.currentScene) x.status = "closed"; this.currentScene = id; this.advanced.push({ entered: id }); return { scene: this.scenes_.find((x) => x.id === id) }; }
-  async createCharacter(_ch, body) { const c = { id: `c-new${this.created.length}`, user_id: null, ...body }; this.created.push(c); this.characters_.push(c); return c; }
+  async createCharacter(_ch, body) { const c = { id: `c-new${this.created.length}`, user_id: body.kind === "pc" ? this.user.id : null, ...body }; this.created.push(c); this.characters_.push(c); return c; }
   async putCard() { return {}; }
   async putAppearance() { return {}; }
   async scenes() { return structuredClone(this.scenes_); }
@@ -81,7 +83,7 @@ class FakeApi {
 
 const SECRETS = ["SECRET-ONE", "SECRET-TWO", "SECRET-THREE", "SECRET-BOARD", "SECRET-REMINDER", "SECRET-SCRIPT", "SECRET-DOC"];
 
-async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [], clock = { t: 1_700_000_000_000 }, bob = false } = {}) {
+async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [], clock = { t: 1_700_000_000_000 }, bob = false, improv = null, heal = false } = {}) {
   const api = new FakeApi();
   api.characters_.push(...extraCharacters);
   if (bob) {
@@ -97,7 +99,7 @@ async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = []
   old({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "SECRET-THREE in Alice's own window" });
   old({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "The study is cold and smells of pipe smoke." });
   const cfg = { ...buildConfig({}, {}), debounceMs: 0, postDelayMs: 0, ...over };
-  const t = await new Table({ api, llm, cfg, channelId: "ch", roster: new Roster(), sleep: async () => {}, now: () => clock.t }).init();
+  const t = await new Table({ api, llm, cfg, channelId: "ch", roster: new Roster(), improv, sleep: async () => {}, now: () => clock.t, log: process.env.TEST_LOG ? console.log : () => {} }).init({ heal });
   return { t, api, llm, clock };
 }
 const playerSays = (t, api, content, w = "w-main") => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content }) });
@@ -201,7 +203,7 @@ test("lines in quick succession make one turn, and every caller learns when it r
 });
 
 test("the investigators' basic details and backgrounds reach the Keeper and the co-players, real NPCs' details only the Keeper", async () => {
-  const tomas = { id: "c-tomas", name: "Tomas Leclerc", kind: "npc", user_id: null, speaking_style: markStyle("eager"), bio: "TOMAS-BIO: a reporter who owes Alice",
+  const tomas = { id: "c-tomas", name: "Tomas Leclerc", kind: "pc", user_id: "u-bot", speaking_style: "eager", bio: "TOMAS-BIO: a reporter who owes Alice",
     role_card: { basic: { occupation: "TOMAS-JOB photographer" }, background: { traits: "TOMAS-TRAITS: never sits still" } } };
   const { t, api, llm } = await table({ extraCharacters: [tomas] });
   await playerSays(t, api, "Who here has been to the docks?");
@@ -675,4 +677,395 @@ test("isolated channels warn only when players share a player group", async () =
   api.groups = [{ id: "g1", name: "Party", members: [{ user_id: "u-alice" }, { user_id: "u-bob" }] }];
   const t2 = await new Table({ api, llm: new MockLlm(), cfg: { ...buildConfig({}, {}), debounceMs: 0 }, channelId: "ch", roster: new Roster(), sleep: async () => {} }).init();
   assert.match(t2.splitWarning, /share a player group \(Party\)/);
+});
+
+test("co-players are GM-cast PCs: every PC the Keeper account owns is one, older marked NPCs still are, and none is taken for a player", async () => {
+  const legacy = { id: "c-old", name: "Old Ned", kind: "npc", user_id: null, speaking_style: markStyle("gruff"), bio: "An older co-player." };
+  const { t } = await table({ extraCharacters: [legacy] });
+  assert.ok(t.roster.isCoplayer("c-harriet"), "a PC the Keeper owns is a co-player");
+  assert.ok(t.roster.isCoplayer("c-old"), "a marked NPC from an older version still is");
+  assert.ok(t.roster.isNpc("c-butler"), "an unmarked NPC is a real NPC");
+  assert.equal(t.isPc("c-harriet"), false, "a GM-cast PC is not a player character");
+  assert.equal(t.isPc("c-alice"), true);
+  const ctx = await t.gm.build({ windowId: "w-main", roster: t.roster, characters: t.characters, windows: t.windows, timelines: t.timelines, sceneOf: (w) => t.scene(w) });
+  const cast = ctx.text.slice(ctx.text.indexOf("## Cast"));
+  assert.ok(cast.indexOf("Harriet Vance") > cast.indexOf("Co-players"), "listed with the co-players, not the player characters");
+});
+
+// ---- improvisation mode
+const IMPROV = { on: true, world: "WORLD-PUBLIC: Kingsport, 1923. A fog-bound port; the Harbour Guild runs the docks.", secrets: "WORLD-SECRET: the Guild master drowned the lighthouse keeper." };
+
+test("improvisation: the world is posted once for the players, and the GM and co-players get it as a section of its own", async () => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true });
+  const posted = api.posts.filter((p) => p.window === "w-main" && p.content.includes("WORLD-PUBLIC"));
+  assert.equal(posted.length, 1, "posted in the Main Chat"); assert.equal(posted[0].visibility, "window"); assert.match(posted[0].content, /^World setting/);
+  await t.publishWorld();
+  assert.equal(api.posts.filter((p) => p.content.includes("WORLD-PUBLIC")).length, 1, "never posted twice for the same text");
+  await alicePosts(t, api, "I look out over the harbour.");
+  await settle(t);
+  const director = llm.calls.find((c) => c.purpose === "director");
+  const ctx = director.messages[0].content;
+  assert.ok(ctx.includes("## World setting") && ctx.includes("WORLD-PUBLIC"));
+  assert.ok(ctx.includes("## Hidden truths") && ctx.includes("WORLD-SECRET"), "the GM keeps the secrets");
+  assert.equal(ctx.split("WORLD-PUBLIC").length - 1, 1, "the posted copy is left out of the chat");
+  assert.ok(!ctx.includes("SECRET-SCRIPT"), "no module script knowledge");
+  assert.match(director.system, /there is no module/); assert.match(director.system, /"type": "truth"/);
+  const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
+  assert.ok(cp.includes("THE WORLD") && cp.includes("WORLD-PUBLIC"), "the co-player knows the world");
+  assert.equal(cp.split("WORLD-PUBLIC").length - 1, 1, "once, not again from the chat");
+  assert.ok(!cp.includes("WORLD-SECRET"), "never the Keeper's secrets");
+  assert.ok(cp.includes("PERSONA: A sharp antiquarian."), "and its own personality and background");
+});
+
+test("improvisation: a hidden truth the GM decides is kept for the GM and never reaches a co-player", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (user.includes("Who did it") ? { actions: [{ type: "truth", text: "TRUTH-X: the harbour master forged the manifest." }, { type: "narrate", text: "The clerk looks away." }], coplayers_may_act: true } : base(user));
+  const { t, api } = await table({ llm, improv: IMPROV });
+  await alicePosts(t, api, "Who did it?");
+  await settle(t);
+  assert.deepEqual(t.improv.truths.map((x) => x.text), ["TRUTH-X: the harbour master forged the manifest."]);
+  assert.ok(!api.posts.some((p) => p.content.includes("TRUTH-X")), "nothing is posted");
+  await alicePosts(t, api, "Anything else?");
+  await settle(t);
+  assert.ok(llm.calls.filter((c) => c.purpose === "director").at(-1).messages[0].content.includes("TRUTH-X"), "the GM keeps to it");
+  assert.ok(!llm.calls.filter((c) => c.purpose === "coplayer_turn").some((c) => c.messages[0].content.includes("TRUTH-X")));
+});
+
+test("improvisation off: the module guides the GM, no world, and truth is not an action", async () => {
+  const { t, api, llm } = await table();
+  await alicePosts(t, api, "Hello.");
+  await settle(t);
+  const director = llm.calls.find((c) => c.purpose === "director");
+  assert.ok(director.messages[0].content.includes("SECRET-SCRIPT")); assert.ok(!director.messages[0].content.includes("## World setting"));
+  assert.ok(!/"type": "truth"/.test(director.system));
+  assert.equal(t.improv.on, false);
+});
+
+test("the world command turns the mode on, posts a long setting in parts, and posts it again only when it changes", async () => {
+  const { t, api } = await table();
+  const long = Array.from({ length: 6 }, (_, i) => `PART-${i} ${"x".repeat(1500)}`).join("\n\n");
+  await t.command({ cmd: "world", on: true, world: long, secrets: "S" });
+  const parts = api.posts.filter((p) => p.content.startsWith("World setting ("));
+  assert.ok(parts.length >= 3 && parts.every((p) => p.content.length <= 4100), `${parts.length} parts`);
+  assert.ok(parts.at(-1).content.includes("PART-5"));
+  await t.command({ cmd: "world", on: true, world: long });
+  assert.equal(api.posts.filter((p) => p.content.startsWith("World setting (")).length, parts.length, "unchanged: not posted again");
+  await t.command({ cmd: "world", world: "A new world." });
+  assert.ok(api.posts.some((p) => p.content === "World setting\n\nA new world."));
+  assert.equal(t.improv.secrets, "S", "secrets kept when not given");
+});
+
+// ---- long context: local history, compaction, co-player memory, cache layout, usage
+const many = (api, n, { w = "w-main", text = (i) => `Line ${i}: the rain keeps falling over the harbour while we argue about the lighthouse keeper and his debts.` } = {}) => {
+  for (let i = 0; i < n; i++) api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content: text(i) });
+};
+
+test("history: a long window is copied once into the store, paging back past the first page", async () => {
+  const api0 = new FakeApi();
+  many(api0, 250);
+  const { History } = await import("../src/memory.mjs");
+  const { Store } = await import("../src/store.mjs");
+  const store = new Store();
+  const h = new History({ api: api0, store, channelId: "ch", pageSize: 100, backfill: 1000 });
+  await h.sync("w-main");
+  assert.equal(h.lines("w-main").length, 250);
+  many(api0, 120);
+  await h.sync("w-main");
+  assert.equal(h.lines("w-main").length, 370, "the gap since the last sync is filled");
+});
+
+test("long context: old lines become a Keeper chapter, the newest stay word for word, and the GM keeps reading both", async () => {
+  const { t, api, llm } = await table({ cfg: { gmContextTokens: 4000 } });
+  many(api, 300);
+  await alicePosts(t, api, "Where were we?");
+  await settle(t); await t.memoryIdle();
+  const chapters = t.store.chapters("gm", "w-main");
+  assert.ok(chapters.length >= 1, "a chapter was written");
+  const compact = llm.calls.find((c) => c.purpose === "compact");
+  assert.ok(compact.messages[0].content.includes("LINES:") && compact.messages[0].content.includes("Line 0:"), "the oldest lines were summarised");
+  await alicePosts(t, api, "And now?");
+  await settle(t);
+  const ctx = directorCalls(llm).at(-1);
+  assert.ok(ctx.includes("## The story so far") && ctx.includes("[mock compact]"), "the chapter is in the GM's context");
+  assert.ok(ctx.includes("And now?"), "the newest lines are word for word");
+  assert.ok(!ctx.includes("Line 0: the rain"), "the compacted lines are not repeated");
+});
+
+test("co-player memory: its chapters come only from lines it witnessed, and it reads them in its turn", async () => {
+  const { t, api, llm } = await table({ cfg: { coplayerContextTokens: 2500 } });
+  for (let i = 0; i < 150; i++) {
+    api.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: `Witnessed ${i}: we search the study for the ledger and find dust, letters and old receipts.` });
+    if (i % 30 === 0) api.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: `KEEPER-ONLY-${i}: the ledger is in the clock`, visibility: "gm_only" });
+  }
+  await alicePosts(t, api, "Harriet, what do you think?");
+  await settle(t); await t.memoryIdle();
+  const mem = llm.calls.filter((c) => c.purpose === "coplayer_memory");
+  assert.ok(mem.length >= 1, "a memory chapter was written");
+  assert.ok(mem.every((c) => !c.messages[0].content.includes("KEEPER-ONLY")), "never from Keeper-only lines");
+  assert.match(mem[0].system, /You are Harriet Vance/);
+  await alicePosts(t, api, "Harriet?");
+  await settle(t);
+  const turn = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
+  assert.ok(turn.includes("WHAT YOU REMEMBER") && turn.includes("[mock coplayer_memory]"));
+  assert.ok(!turn.includes("KEEPER-ONLY"));
+});
+
+test("cache layout: the GM's prompt is stable-first, its cached parts unchanged between turns, the turn's details last", async () => {
+  const { t, api, llm } = await table();
+  await alicePosts(t, api, "Hello.");
+  await settle(t);
+  await alicePosts(t, api, "Hello again.");
+  await settle(t);
+  const calls = llm.calls.filter((c) => c.purpose === "director");
+  const [first, second] = [calls.at(-2).parts[0], calls.at(-1).parts[0]];
+  assert.ok(first[0].cache && first[0].text.includes("## Campaign") && first[0].text.includes("## Cast"));
+  assert.ok(!first[0].text.includes("events so far"), "the per-turn event count is not in the cached prefix");
+  assert.equal(first[0].text, second[0].text, "the campaign part is byte-identical across turns");
+  assert.ok(!first.at(-1).cache && first.at(-1).text.includes("NEWEST LINE"), "the turn's details are last and uncached");
+  assert.ok(first.filter((p) => p.cache).length <= 3, "at most three cache marks besides the system prompt");
+  const cp = llm.calls.find((c) => c.purpose === "coplayer_turn").parts[0];
+  assert.ok(cp[0].cache && cp[0].text.startsWith("YOU ARE: Harriet Vance"));
+  assert.ok(cp.at(-1).text.includes("Your move?") && !cp.at(-1).cache);
+});
+
+test("usage is recorded per call, and the daily budget stops autonomous turns", async () => {
+  const { t, api, clock } = await table({ cfg: { autonomyQuietMs: MIN } });
+  await alicePosts(t, api, "Hm.");
+  await settle(t);
+  const u = t.store.usageSince(0);
+  assert.ok(u.calls >= 2 && u.input > 0 && u.output > 0);
+  t.cfg.dailyTokenBudget = 1;
+  clock.t += MIN + 1;
+  assert.equal(await t.tick(), null, "no quiet turn once the budget is spent");
+  t.cfg.dailyTokenBudget = 0;
+  assert.notEqual(await t.tick(), null);
+  await settle(t);
+});
+
+test("Keeper documents keep their newest entries when they are too long", async () => {
+  const { t, api } = await table({ cfg: { gmContextTokens: 16000 } });
+  const entries = Array.from({ length: 60 }, (_, i) => ({ id: `e${i}`, section: "Clues", content_md: `CLUE-${i}: ${"a long clue about the harbour ".repeat(6)}`, updated_version: i + 1 }));
+  api.document = async () => ({ entries });
+  await alicePosts(t, api, "Clues?");
+  await settle(t);
+  const docs = await t.gm.documents();
+  assert.ok(docs[0].includes("CLUE-59") && !docs[0].includes("CLUE-0:"), "newest kept, oldest dropped");
+  assert.match(docs[0], /\(\d+ older entries not shown\)/);
+});
+
+test("a scene that ends becomes a chapter of the Keeper's memory", async () => {
+  const { t, api } = await table({ bob: true });
+  await alicePosts(t, api, "I go to the docks.");
+  await settle(t);
+  const side = t.timelines.of("c-alice");
+  await alicePosts(t, api, "Nothing here. I go back to the others.", side.windowId);
+  await settle(t); await t.memoryIdle();
+  assert.equal(t.store.chapters("gm", side.windowId).length, 1);
+});
+
+// ---- fragmented play: away mode, pace, returning players
+test("away mode: with nobody around, a co-players-only thread still moves, rarely; shared windows wait", async () => {
+  const { t, api, clock } = await table({ cfg: { autonomyIdleMinutes: 30, awaySideIntervalMs: 6 * 3600000, autonomySideIntervalMs: MIN, autonomyQuietMs: MIN } });
+  await t.command({ cmd: "split", who: ["Harriet Vance"], place: "Lighthouse", span: "long" });
+  await settle(t);
+  await alicePosts(t, api, "Back soon.");
+  await settle(t);
+  clock.t += 2 * 3600000;                                   // two hours: away
+  assert.equal(await t.tick(), null, "away: the side thread waits for AWAY_SIDE_INTERVAL_MS");
+  clock.t += 5 * 3600000;                                   // seven hours since anyone posted
+  const before = t.turns;
+  assert.notEqual(await t.tick(), null, "the side thread moves after the away interval");
+  await settle(t);
+  assert.equal(t.turns, before + 1);
+  assert.equal(t.scene(api.createdWindows[0].id).members[0], "c-harriet");
+  t.cfg.awaySideIntervalMs = 0;
+  clock.t += 7 * 3600000;
+  assert.equal(await t.tick(), null, "AWAY_SIDE_INTERVAL_MS=0: nothing moves while everyone is away");
+});
+
+test("pace: in a quiet turn a co-player who already answered the last human line stays quiet", async () => {
+  const llm = new MockLlm();
+  const { t, api, clock } = await table({ llm, cfg: { autonomyQuietMs: MIN, autonomyQuietTurns: 2 } });
+  await alicePosts(t, api, "Harriet, the clock?");
+  await settle(t);
+  const turnsOf = () => llm.calls.filter((c) => c.purpose === "coplayer_turn").length;
+  const afterHuman = turnsOf();
+  assert.equal(afterHuman, 1, "she answers the human line");
+  clock.t += MIN + 1;
+  await t.tick(); await settle(t);
+  assert.equal(turnsOf(), afterHuman, "not again in the quiet turn that follows");
+  await alicePosts(t, api, "Well?");
+  await settle(t);
+  assert.equal(turnsOf(), afterHuman + 1, "a new human line gives her another go");
+});
+
+test("a player back after being away is welcomed back, and away players are marked for the Keeper", async () => {
+  const llm = new MockLlm();
+  const { t, api, clock } = await table({ llm, bob: true, cfg: { autonomyIdleMinutes: 30 } });
+  await alicePosts(t, api, "I sit by the fire.");
+  t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: "w-main", author_id: "u-bob", author_role: "player", character_id: "c-bob", content: "I read the paper." }) });
+  await settle(t);
+  clock.t += 9 * 3600000;
+  await alicePosts(t, api, "Morning. Anything new?");
+  await settle(t);
+  const u = directorCalls(llm).find((x) => x.includes("Morning. Anything new?") && !/^MODE: /m.test(x));
+  assert.match(u, /RETURNING: Alice Hale's player is back after 9 h away/);
+  assert.match(u, /Bob Price \(player away 9 h\)/, "Bob, who has not posted, is marked away");
+  assert.match(llm.calls.find((c) => c.purpose === "director").system, /player away/);
+  const n = directorCalls(llm).length;
+  await alicePosts(t, api, "Let's go.");
+  await settle(t);
+  assert.ok(!directorCalls(llm).slice(n).some((x) => x.includes("RETURNING")), "only once");
+});
+
+// ---- the platform's living world record
+test("the world record is in the GM's context, never a co-player's, and world_change declares to the platform", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (user.includes("Meanwhile?") && !/^MODE: /m.test(user) ? { actions: [{ type: "world_change", text: "WORLD-CHANGE: the Guild closes the docks at night.", secret: true }, { type: "narrate", text: "Night falls." }], coplayers_may_act: true } : base(user));
+  const { t, api } = await table({ llm });
+  api.world_ = { version: 3, entities: [
+    { id: "e1", kind: "npc", name: "Silas Mott", status: "dead", state: "RECORD-SILAS found drowned under the pier", location: null, state_by: "gm", state_updated_at: "2026-11-01T10:00:00Z" },
+    { id: "e2", kind: "location", name: "Old Mill", status: "unknown", state: "", location: null },
+  ], recent_changes: [{ entity_id: "e1", name: "Silas Mott", status: "dead", state: "RECORD-SILAS found drowned", actor: "gm" }] };
+  await alicePosts(t, api, "Meanwhile?");
+  await settle(t);
+  const director = llm.calls.find((c) => c.purpose === "director");
+  const ctx = director.messages[0].content;
+  assert.match(ctx, /## The world now/); assert.match(ctx, /\[npc\] Silas Mott — dead: RECORD-SILAS found drowned under the pier \[set by you\]/);
+  assert.ok(!ctx.includes("Old Mill"), "entities with nothing known are left out");
+  assert.match(director.system, /"type": "world_change"/);
+  assert.ok(!llm.calls.filter((c) => c.purpose === "coplayer_turn").some((c) => c.messages[0].content.includes("RECORD-SILAS")), "co-players never read the Keeper's record");
+  assert.deepEqual(api.declared, [{ text: "WORLD-CHANGE: the Guild closes the docks at night.", secret: true }]);
+  assert.ok(!api.posts.some((p) => p.content.includes("WORLD-CHANGE")), "a declaration is never a chat line");
+});
+
+test("improvisation: the world and secrets are handed to the platform's world record once per version, truths as secrets", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (user.includes("Who did it") ? { actions: [{ type: "truth", text: "TRUTH-Y: the clerk forged it." }], coplayers_may_act: false } : base(user));
+  const { t, api } = await table({ llm, improv: IMPROV, heal: true });
+  assert.deepEqual(api.declared.map((d) => [d.text.slice(0, 12), d.secret]), [["WORLD-PUBLIC", false], ["WORLD-SECRET", true]]);
+  await t.publishWorld(); await t.seedWorld();
+  assert.equal(api.declared.length, 2, "not again for the same texts");
+  await t.command({ cmd: "world", secrets: "WORLD-SECRET-2: the keeper lives." });
+  assert.equal(api.declared.at(-1).text, "WORLD-SECRET-2: the keeper lives."); assert.equal(api.declared.at(-1).secret, true);
+  await alicePosts(t, api, "Who did it?");
+  await settle(t);
+  assert.deepEqual(api.declared.at(-1), { text: "TRUTH-Y: the clerk forged it.", secret: true });
+});
+
+test("a platform without the world record: declarations are dropped once, the table carries on", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (user.includes("Meanwhile?") ? { actions: [{ type: "world_change", text: "X" }, { type: "narrate", text: "Ok." }], coplayers_may_act: false } : base(user));
+  const { t, api } = await table({ llm });
+  api.noWorld = true;
+  await alicePosts(t, api, "Meanwhile?");
+  await settle(t);
+  assert.equal(t.worldUnsupported, true);
+  assert.ok(api.posts.some((p) => p.content === "Ok."), "the turn went on");
+  assert.equal(await t.declare("Y"), false);
+});
+
+// ---- casual mode: phones
+const isolated = async (opts = {}) => {
+  const r = await table({ ...opts, bob: true, heal: false });
+  r.api.knowledgeMode = "isolated";
+  r.t.channel.knowledge_mode = "isolated"; r.t.publicSplits = false; r.t.splitWarning = null;
+  await r.t.setCasual(true); await settle(r.t);
+  await r.t.refresh();
+  return r;
+};
+const phoneOf = (t, id) => t.casual.phones[id];
+const texts = (t, api, id) => api.posts.filter((p) => p.window === phoneOf(t, id) && p.kind === "ic");
+const textFrom = (t, api, who, content) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: phoneOf(t, who), author_id: who === "c-bob" ? "u-bob" : "u-alice", author_role: "player", character_id: who, content }) });
+
+test("casual mode is refused on a public channel: phones would not be private", async () => {
+  const { t, api } = await table({ bob: true });
+  await t.setCasual(true);
+  assert.deepEqual(t.casual.phones, {}); assert.equal(api.createdWindows.length, 0);
+  assert.equal(t.casualOn(), false);
+});
+
+test("casual: each player character gets a private phone; a phone line never starts a scene turn", async () => {
+  const { t, api, llm } = await isolated();
+  assert.deepEqual(Object.keys(t.casual.phones).sort(), ["c-alice", "c-bob"]);
+  const alicePhone = api.createdWindows.find((w) => w.id === phoneOf(t, "c-alice"));
+  assert.equal(alicePhone.name, "Phone: Alice Hale"); assert.equal(alicePhone.kind, "private");
+  assert.deepEqual(alicePhone.members.map((m) => m.user_id), ["u-bot", "u-alice"], "only her player");
+  await t.setCasual(true);
+  assert.equal(api.createdWindows.length, 2, "phones are opened once");
+  const before = directorCalls(llm).length;
+  await textFrom(t, api, "c-alice", "@Bob Price meet me at the pier");
+  await settle(t);
+  assert.equal(directorCalls(llm).length, before, "no scene turn");
+  assert.deepEqual(texts(t, api, "c-bob").map((p) => [p.content, p.character_id]), [["meet me at the pier", "c-alice"]], "relayed to Bob's phone at once, as Alice");
+  await textFrom(t, api, "c-bob", "On my way.");
+  await settle(t);
+  assert.deepEqual(texts(t, api, "c-alice").map((p) => [p.content, p.character_id]), [["On my way.", "c-bob"]], "a reply without @ goes back to the sender");
+  assert.equal(await t.tick(), null, "phones never get autonomous turns");
+});
+
+test("casual: an NPC answers a text through the GM after a believable delay, and nothing happens in any scene", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (user) => (/^MODE: phone/m.test(user) ? { actions: [{ type: "text", from: "Mr. Grimsby", to: "Alice Hale", text: "Under the clock, miss.", delay_minutes: 30 }, { type: "narrate", text: "NOT-IN-A-SCENE" }], coplayers_may_act: true } : base(user));
+  const { t, api, clock } = await isolated({ llm });
+  await textFrom(t, api, "c-alice", "@Mr. Grimsby where is the key?");
+  await settle(t);
+  const call = llm.calls.filter((c) => c.purpose === "director").at(-1);
+  assert.match(call.messages[0].content, /MODE: phone — Alice Hale texted Mr\. Grimsby/);
+  assert.match(call.system, /"type": "text"/); assert.match(call.system, /Casual mode/);
+  assert.equal(texts(t, api, "c-alice").length, 0, "not yet");
+  assert.ok(!api.posts.some((p) => p.content === "NOT-IN-A-SCENE"), "a phone turn narrates nothing");
+  clock.t += 31 * MIN;
+  assert.equal(await t.deliverDue(), 1);
+  assert.deepEqual(texts(t, api, "c-alice").map((p) => [p.content, p.character_id]), [["Under the clock, miss.", "c-butler"]]);
+  assert.deepEqual(t.store.thread("c-alice", "c-butler").map((r) => r.text), ["where is the key?", "Under the clock, miss."]);
+});
+
+test("casual: a co-player answers a text in character, knowing only its own messages", async () => {
+  const { t, api, llm, clock } = await isolated();
+  await textFrom(t, api, "c-alice", "@Harriet are you coming?");
+  await settle(t);
+  const call = llm.calls.find((c) => c.purpose === "coplayer_phone");
+  assert.ok(call.messages[0].content.includes("are you coming?") && call.messages[0].content.startsWith("YOU ARE: Harriet Vance"));
+  assert.ok(!SECRETS.some((s) => call.messages[0].content.includes(s)), "no Keeper secrets");
+  clock.t += 6 * MIN;
+  await t.deliverDue();
+  assert.deepEqual(texts(t, api, "c-alice").map((p) => p.character_id), ["c-harriet"]);
+});
+
+test("casual: a co-player may text a player first; without casual mode the GM has no text action", async () => {
+  const llm = new MockLlm();
+  llm.coplayer = (user) => (user.includes("YOUR PHONE") || /casual/i.test(user) ? { action: "text", to: "Alice Hale", text: "psst, look at the clock" } : { action: "text", to: "Alice Hale", text: "psst, look at the clock" });
+  const { t, api } = await isolated({ llm });
+  await alicePosts(t, api, "Hm.");
+  await settle(t);
+  assert.ok(texts(t, api, "c-alice").some((p) => p.character_id === "c-harriet" && p.content === "psst, look at the clock"));
+  const plain = await table();
+  await alicePosts(plain.t, plain.api, "Hm.");
+  await settle(plain.t);
+  assert.ok(!/"type": "text"/.test(plain.llm.calls.find((c) => c.purpose === "director").system));
+});
+
+test("casual: a line naming no known contact gets a hint, and nobody is texted", async () => {
+  const { t, api } = await isolated();
+  await textFrom(t, api, "c-alice", "@Nobody Atall hello?");
+  await settle(t);
+  assert.ok(api.posts.some((p) => p.window === phoneOf(t, "c-alice") && p.content.startsWith("(No one by that name")));
+  assert.equal(t.store.phoneOf("c-alice").length, 0);
+});
+
+test("casual: addressing picks the longest name, prefers a full name, and needs no separator after a CJK name", async () => {
+  const { parseAddress } = await import("../src/casual.mjs");
+  const c = [{ id: "a", name: "Silas Mott" }, { id: "b", name: "Silas" }, { id: "z", name: "张三" }, { id: "m", name: "Mr. Grimsby" }];
+  assert.deepEqual(parseAddress("@Silas Mott where?", c), { to: "a", body: "where?", addressed: true });
+  assert.equal(parseAddress("@Silas hi", c).to, "b");
+  assert.deepEqual(parseAddress("@张三在吗", c), { to: "z", body: "在吗", addressed: true });
+  assert.equal(parseAddress("@Mr. Grimsby key?", c).to, "m");
+  assert.equal(parseAddress("@Silasx hi", c).to, null);
+  assert.deepEqual(parseAddress("no at", c), { to: null, body: "no at", addressed: false });
 });

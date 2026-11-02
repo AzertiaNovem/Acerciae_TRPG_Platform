@@ -46,6 +46,7 @@ struct HintOverlay: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if !error.isEmpty { Text(error).foregroundStyle(.red); Button(tr("Retry")) { Task { await load() } } }
                     if selection.isEmpty { cards }
+                    else if selection == "world" { WorldRecord(model: model).id(model.scopeKey) }
                     else if selection == "next" || selection == "notes" { KeeperHintBody(board: board, slot: selection) }
                     else if loading { ProgressView() }
                     else if let reminder { reminderBody(reminder) }
@@ -65,6 +66,7 @@ struct HintOverlay: View {
     }
     private var cards: some View {
         Group {
+            card(tr("World record"), tr("What is true now"), "world")
             if model.gm {
                 card(tr("Next per the script"), board["next"]["has_script"].bool ? board["next"]["next"]["title"].text : tr("No module imported yet."), "next")
                 card(tr("Notes"), board["notes"]["open_threads"].array.first?["summary"].text ?? tr("Open threads, timeline and reviewed changes."), "notes")
@@ -196,7 +198,7 @@ private struct KeeperHintBody: View {
                 strings("What the Keeper does there", next["next"]["data"]["keeper_actions"])
                 strings("Needs first", next["next"]["data"]["prerequisites"])
                 strings("Twists planted here", next["next"]["data"]["twists"])
-                Text(next["next"]["citation"]["excerpt"].text).font(.caption)
+                Text((next["next"]["citation"]["page"].int > 0 ? tr("Page") + " \(next["next"]["citation"]["page"].int) · " : "") + next["next"]["citation"]["excerpt"].text).font(.caption)
                 rows("Still unrevealed", next["pending_clues"]); rows("Foreshadowing not yet paid off", next["pending_foreshadowing"])
                 Text("\(next["stages_done"].int)/\(next["stages_total"].int) " + tr("stages done")).font(.caption)
             }

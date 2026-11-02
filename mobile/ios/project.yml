@@ -36,6 +36,16 @@ targets:
           INFOPLIST_FILE: Config/Debug-Info.plist
         Release:
           INFOPLIST_FILE: Config/Release-Info.plist
+  AcerciaeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: Acerciae
+      - package: AcerciaeCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Acerciae:
     build:
@@ -43,3 +53,5 @@ schemes:
         Acerciae: all
     run:
       config: Debug
+    test:
+      targets: [AcerciaeTests]

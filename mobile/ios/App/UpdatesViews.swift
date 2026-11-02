@@ -37,6 +37,7 @@ struct NovelCreator: View {
     @State private var template = "adv"
     @State private var cloud = false
     @State private var art = false
+    @State private var retryChunks = true
     private var base: [String] { ["channels", model.channelId, "studio", "vn-scripts"] }
     var body: some View {
         Form {
@@ -52,9 +53,10 @@ struct NovelCreator: View {
                 TextField(tr("改编方向（可选）"), text: $instructions, axis: .vertical)
                 Text(status["mock"].bool ? tr("当前使用示例生成服务") : status["note"].text).font(.caption)
                 if !status["mock"].bool { Toggle(tr("同意将选定日志发送至配置的云端服务"), isOn: $cloud).disabled(!status["cloud_allowed"].bool) }
+                Toggle(tr("Retry failed chunks"),isOn:$retryChunks)
                 Toggle(tr("同时生成缺失的背景与立绘"), isOn: $art).disabled(!status["images"].bool)
                 Button(tr("生成视觉小说")) { Task { await model.run {
-                    var body: [String: JSONValue] = ["scope": .string(scope), "template": .object(["base": .string(template)]), "allow_cloud": .bool(cloud), "generate_art": .bool(art), "instructions": .string(instructions)]
+                    var body: [String: JSONValue] = ["scope": .string(scope), "template": .object(["base": .string(template)]), "allow_cloud": .bool(cloud), "generate_art": .bool(art), "retry_failed_chunks": .bool(retryChunks), "instructions": .string(instructions)]
                     if !title.isEmpty { body["title"] = .string(title) }
                     if scope == "character" { body["scope_character_id"] = .string(character) }
                     _ = try await model.get(base, body: .object(body)); try await load()
@@ -67,6 +69,7 @@ struct NovelCreator: View {
                         Text("\(job["status"].text) · \(job["progress"]["chunks_done"].int) / \(job["progress"]["chunks_total"].int)")
                         if !job["error"].text.isEmpty { Text(job["error"].text).foregroundStyle(.orange) }
                         if ["pending", "running"].contains(job["status"].text) { Button(tr("取消生成")) { Task { await model.run { _ = try await model.get(base + [job.id, "cancel"], body: .object([:])); try await load() } } }.disabled(model.busy) }
+                        DisclosureGroup(tr("Recovery and backgrounds")) { NovelRecovery(model:model,jobId:job.id) }
                         if !job["presentation_id"].text.isEmpty { Text(tr("已完成，可返回故事回放查看并下载独立播放包")).font(.caption) }
                     }
                 }
@@ -74,7 +77,7 @@ struct NovelCreator: View {
         }.navigationTitle(tr("制作视觉小说"))
             .task {
                 character = model.playable.first?.id ?? ""; scope = model.gm ? "gm_full" : (character.isEmpty ? "pl_public" : "character")
-                await model.run { status = try await model.get(base + ["status"]); try await load() }
+                await model.run { status = try await model.get(base + ["status"]); retryChunks = status["retry_failed_chunks"] != .bool(false); try await load() }
             }
             .task(id: phase) {
                 guard phase == .active else { return }
@@ -92,6 +95,8 @@ struct CharacterSpace: View {
     let character: Resource
     @State private var space: JSONValue = .null
     @State private var card: [String: JSONValue] = [:]
+    @State private var baselineCard: JSONValue = .null
+    @State private var reloadCard = false
     @State private var pointRules: JSONValue = .null
     @State private var rulesError = ""
     @State private var name = ""
@@ -106,7 +111,8 @@ struct CharacterSpace: View {
     private var base: [String] { ["channels", model.channelId, "characters", character.id] }
     private var editable: Bool { space["character"]["editable"].bool && !model.busy }
     private var pointsOn: Bool { space["points"]["enabled"].bool }
-    private var pointsValid: Bool { !pointsOn || (pointRules != .null && PointBuy(card: .object(card), rules: pointRules).issues.isEmpty) }
+    private var dnd: Bool { space["rule_system"].text == "dnd2024" || model.channel["rule_system"].text == "dnd2024" }
+    private var pointsValid: Bool { dnd || !pointsOn || (pointRules != .null && PointBuy(card: .object(card), rules: pointRules).issues.isEmpty) }
     private let groups: [(String, String, [String])] = [
         ("basic", tr("基本信息"), ["player", "occupation", "age", "sex", "residence", "birthplace"]),
         ("characteristics", tr("CoC7 属性"), ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK"]),
@@ -116,6 +122,9 @@ struct CharacterSpace: View {
     var body: some View {
         Form {
             Section(tr("角色资料")) { TextField(tr("姓名"), text: $name); TextField(tr("简介"), text: $bio, axis: .vertical); TextField(tr("说话风格"), text: $speakingStyle, axis: .vertical) }.disabled(!editable)
+            if dnd {
+                if pointRules != .null { DndCardEditor(card: $card, rules: pointRules, editable: editable, gm: model.gm, points: pointsOn, language: model.serverSettings["language"].text) } else { Button(tr("Reload rules")) { Task { await loadRules() } }; Text(rulesError) }
+            } else {
             ForEach(groups, id: \.0) { group in
                 DisclosureGroup(group.1) {
                     ForEach(group.2, id: \.self) { field in
@@ -128,6 +137,7 @@ struct CharacterSpace: View {
                 else { Section(tr("CoC7 购点")) { Text(rulesError.isEmpty ? tr("正在读取职业和技能规则…") : rulesError); Button(tr("重新加载规则")) { Task { await loadRules() } } } }
             } else { DisclosureGroup(tr("技能")) {
                 ForEach((card["skills"]?.object ?? [:]).keys.sorted(), id: \.self) { field in TextField(field, text: binding("skills", field)).disabled(!editable) }
+            }
             }
             }
             DisclosureGroup(tr("随身物品")) {
@@ -151,6 +161,13 @@ struct CharacterSpace: View {
                         Button(tr("选择图片并上传")) { importing = true }.disabled(model.busy || (slot == "subtitle" && subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                     }
                     if mode == "generated" {
+                        TextField(tr("表情名称，如 IDLE"), text: $subtitle)
+                        Button(tr("Generate transparent pose")) { Task { await model.run {
+                            _ = try await model.get(base + ["appearance"], body: .object(["asset_mode": .string(mode), "appearance_prompt": .string(prompt)]), method: "PUT")
+                            _ = try await model.get(base + ["assets", "generate"], body: .object(["subtitles": .array([.string(subtitle)]), "allow_cloud": .bool(cloud)]))
+                            space = try await model.get(base + ["space"])
+                        } } }.disabled(model.busy || !space["generation_available"].bool || space["portrait"]["id"].text.isEmpty || subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
                         Toggle(tr("允许本次生成使用云端服务"), isOn: $cloud)
                         Button(tr("生成头像与主立绘")) { Task { await model.run {
                             _ = try await model.get(base + ["appearance"], body: .object(["asset_mode": .string(mode), "appearance_prompt": .string(prompt)]), method: "PUT")
@@ -160,6 +177,7 @@ struct CharacterSpace: View {
                     }
                 }
                 ForEach(Array(space["jobs"].array.enumerated()), id: \.offset) { _, job in Text("\(job["kind"].text) · \(job["status"].text)\n\(job["error"].text)").font(.caption) }
+                Button(tr("Reload card")) { reloadCard = true }.disabled(model.busy)
                 Button(tr("刷新素材")) { Task { await model.run { space = try await model.get(base + ["space"]) } } }.disabled(model.busy)
             }
         }.fileImporter(isPresented: $importing, allowedContentTypes: [.png, .jpeg], allowsMultipleSelection: false) { result in
@@ -169,21 +187,24 @@ struct CharacterSpace: View {
                 guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 10 * 1024 * 1024 else { model.notice = tr("请选择小于 10 MB 的图片"); return }
                 space = try await model.uploadArtwork(Data(contentsOf: url), character: character.id, slot: slot, subtitle: subtitle)
             } }
-        }.navigationTitle(tr("角色空间"))
+        }.confirmationDialog(tr("Discard draft and reload character card?"), isPresented: $reloadCard) { Button(tr("Reload card"), role: .destructive) { Task { await model.run { apply(try await model.get(base + ["space"])) } } } }
+        .navigationTitle(tr("角色空间"))
             .toolbar { ToolbarItem(placement: .confirmationAction) { if space["character"]["editable"].bool { Button(tr("保存")) { Task { await saveCard() } }.disabled(!editable || !pointsValid || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } } }
-            .task { do { apply(try await model.get(base + ["space"])) } catch { model.handle(error) }; if pointsOn { await loadRules() } }
+            .task { do { apply(try await model.get(base + ["space"])) } catch { model.handle(error) }; if pointsOn || dnd { await loadRules() } }
     }
     private func saveCard() async {
         await model.run {
+            let latest = try await model.get(base + ["space"])
+            guard latest["character"]["role_card"] == baselineCard else { model.notice = tr("The character card changed on the server. Your draft is preserved. Reload the card before saving."); return }
             let updated = try await model.get(base + ["card"], body: .object(["name": .string(name), "bio": .string(bio), "speaking_style": .string(speakingStyle), "role_card": .object(card)]), method: "PUT")
             apply(updated); try await model.refresh(); model.notice = tr("角色卡已保存")
         }
     }
     private func loadRules() async {
-        do { pointRules = try await model.get(["coc7", "rules"]); rulesError = "" }
+        do { pointRules = try await model.get([dnd ? "dnd" : "coc7", "rules"]); rulesError = "" }
         catch { rulesError = tr("职业规则暂不可用，请重试；草稿保留") }
     }
-    private func apply(_ value: JSONValue) { space = value; card = value["character"]["role_card"].object; name = value["character"]["name"].text; bio = value["character"]["bio"].text; speakingStyle = value["character"]["speaking_style"].text; mode = value["character"]["asset_mode"].text; prompt = value["character"]["appearance_prompt"].text }
+    private func apply(_ value: JSONValue) { space = value; baselineCard = value["character"]["role_card"]; card = value["character"]["role_card"].object; name = value["character"]["name"].text; bio = value["character"]["bio"].text; speakingStyle = value["character"]["speaking_style"].text; mode = value["character"]["asset_mode"].text; prompt = value["character"]["appearance_prompt"].text }
     private func binding(_ group: String, _ key: String) -> Binding<String> {
         Binding(get: { let value = card[group]?[key] ?? .null; return value.string ?? (value == .null ? "" : String(value.int)) }, set: { text in
             var section = card[group]?.object ?? [:]
@@ -203,6 +224,7 @@ struct DubbingView: View {
     @State private var presentation: JSONValue = .null
     @State private var voices: [Resource] = []
     @State private var presets: [Resource] = []
+    @State private var speechProvider = ""
     @State private var cast: [String: JSONValue] = [:]
     @State private var estimate: JSONValue = .null
     @State private var job: JSONValue = .null
@@ -215,17 +237,19 @@ struct DubbingView: View {
     }
     var body: some View {
         Form {
+            NavigationLink(tr("Voice settings")) { VoiceSettings(model: model).id(model.scopeKey) }
             Section(tr("演出配音")) {
                 ForEach(speakers.keys.sorted(), id: \.self) { id in
                     Picker(speakers[id] ?? tr("角色"), selection: Binding(get: { cast[id]?.text ?? "" }, set: { cast[id] = .string($0); estimate = .null })) {
                         Text(tr("不配音")).tag("")
-                        ForEach(voices.filter { $0["character_id"].text.isEmpty || $0["character_id"].text == id }) { voice in Text(voice.name).tag(voice.id) }
+                        ForEach(voices.filter { $0["provider"].text == speechProvider && ($0["character_id"].text.isEmpty || $0["character_id"].text == id) }) { voice in Text(voice.name).tag(voice.id) }
                     }
                 }
                 Menu(tr("添加预设音色")) { ForEach(presets) { preset in Button(preset.name) { Task { await model.run {
                     _ = try await model.get(base + ["voices"], body: .object(["name": .string(preset.name), "voice_type": .string("preset"), "voice_id": .string(preset.id)]))
                     voices = try await model.typed(base + ["voices"])
                 } } } } }
+                Button(tr("Refresh voices")) { Task { await model.run { speechProvider = try await model.get(base + ["tts", "status"])["provider"].text; voices = try await model.typed(base + ["voices"]); presets = try await model.typed(base + ["tts", "available-voices"]); cast = cast.filter { entry in entry.value.text.isEmpty || voices.contains { $0.id == entry.value.text && $0["provider"].text == speechProvider && ($0["character_id"].text.isEmpty || $0["character_id"].text == entry.key) } }; estimate = .null } } }
                 Button(tr("保存选角并估算配音")) { Task { await model.run {
                     presentation = try await model.get(base + ["presentations", presentationId, "cast"], body: .object(["cast": .object(cast)]))
                     estimate = try await model.get(base + ["presentations", presentationId, "tts", "estimate"], body: .object([:]))
@@ -245,7 +269,7 @@ struct DubbingView: View {
         }.navigationTitle(tr("配音选角"))
             .task { await model.run {
                 presentation = try await model.get(base + ["presentations", presentationId]); cast = presentation["settings"]["cast"].object
-                voices = try await model.typed(base + ["voices"]); presets = try await model.typed(base + ["tts", "available-voices"])
+                speechProvider = try await model.get(base + ["tts", "status"])["provider"].text; voices = try await model.typed(base + ["voices"]); presets = try await model.typed(base + ["tts", "available-voices"]); cast = cast.filter { entry in entry.value.text.isEmpty || voices.contains { $0.id == entry.value.text && $0["provider"].text == speechProvider && ($0["character_id"].text.isEmpty || $0["character_id"].text == entry.key) } }; estimate = .null
             } }
             .task(id: phase) {
                 guard phase == .active else { return }

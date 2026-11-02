@@ -12,6 +12,11 @@ class BackendClientTest {
         assertTrue(ServiceConfiguration.acceptsSavedEndpoint(ServiceConfiguration.BACKEND_ROOT + "/"))
         assertFalse(ServiceConfiguration.acceptsSavedEndpoint("http://localhost:18083"))
         assertFalse(ServiceConfiguration.acceptsSavedEndpoint("https://another.example"))
+        assertTrue(ServiceConfiguration.acceptsSavedEndpoint("https://trpg.missazertia.com:15510/"))
+        assertTrue(ServiceConfiguration.acceptsSavedEndpoint("https://trpg.missazertia.com:443"))
+        assertFalse(ServiceConfiguration.acceptsSavedEndpoint("http://trpg.missazertia.com:15510"))
+        assertFalse(ServiceConfiguration.acceptsSavedEndpoint("https://trpg.missazertia.com:15511"))
+        assertEquals("https://trpg.missazertia.com",ServiceConfiguration.BACKEND_ROOT)
     }
     @Test fun registrationUsesPublicEndpointAndReturnsSession() = runBlocking {
         MockWebServer().use { server ->

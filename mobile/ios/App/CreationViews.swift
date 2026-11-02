@@ -8,9 +8,11 @@ struct CreateChannelView: View {
     @State private var name = ""
     @State private var description = ""
     @State private var mode = "isolated"
+    @State private var ruleSystem = "coc7e"
     @State private var createdId: String?
     var body: some View {
         Form {
+                Picker(tr("Rule system"), selection: $ruleSystem) { Text("Call of Cthulhu 7e").tag("coc7e"); Text("D&D 2024 · SRD 5.2").tag("dnd2024") }
             TextField(tr("频道名称"), text: $name)
             TextField(tr("频道介绍"), text: $description, axis: .vertical)
             Picker(tr("角色知识"), selection: $mode) {
@@ -26,7 +28,7 @@ struct CreateChannelView: View {
                         if createdId == nil {
                             let value = try await model.get(["servers", serverId, "channels"], body: .object([
                                 "name": .string(name.trimmingCharacters(in: .whitespacesAndNewlines)),
-                                "description": .string(description), "knowledge_mode": .string(mode), "rule_system": .string("coc7e")]))
+                                "description": .string(description), "knowledge_mode": .string(mode), "rule_system": .string(ruleSystem)]))
                             createdId = value["id"].text
                         }
                         guard model.serverId == serverId, let id = createdId else { dismiss(); return }

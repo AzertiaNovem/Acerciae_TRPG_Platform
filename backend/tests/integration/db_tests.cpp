@@ -1068,6 +1068,85 @@ int main() {
         S.presentations->updateEvent(gm, pe["id"].asString(), edit);
         CHECK(S.db->queryOne("SELECT script_text FROM presentation_events WHERE id=$1", {pe["id"].asString()})["script_text"] == repeat("😀", 1000));
     });
+    test("world record: entity_state creates, updates, cites its batch, stays in its partition; Keeper state needs review", [&] {
+        Json::Value cbw; cbw["name"] = "World record"; cbw["knowledge_mode"] = "isolated";
+        auto ch = S.chat->createChannel(gmP, server["id"].asString(), cbw)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, ch);
+        S.chat->addChannelMember(keeper, p1User, "player");
+        auto pl = S.auth->channelAccess(p1User, ch);
+        auto win = S.chat->listWindows(keeper)[0]["id"].asString();
+        auto post = [&](const ChannelAccess& ac, const std::string& content, const std::string& kind) { Json::Value b; b["content"] = content; b["kind"] = kind; return eventOf(S.chat->postMessage(ac, win, b)["id"].asString())["id"].asString(); };
+        auto op = [](const std::string& entity, const std::string& kind, const std::string& status, const std::string& state, const std::string& src) {
+            Json::Value o; o["op"] = "entity_state"; o["entity"] = entity; if (!kind.empty()) o["kind"] = kind; if (!status.empty()) o["status"] = status; if (!state.empty()) o["state"] = state;
+            if (!src.empty()) o["source_event_ids"].append(src); return o; };
+        auto kpWorld = [&](const Json::Value& o, const std::vector<std::string>& batch) { Proposal p; p.channelId = ch; p.actor = "ai"; p.allowedSourceEventIds = batch; p.ops.append(o); return S.documents->commitWorld(p); };
+        auto find = [](const Json::Value& world, const std::string& name) { for (const auto& e : world["entities"]) if (e["name"] == name) return e; return Json::Value(); };
+
+        auto e1 = post(keeper, "Constable Barnes is dead.", "narration");
+        auto r = kpWorld(op("Constable Barnes", "npc", "dead", "Shot at the docks.", e1), {e1});
+        CHECK(r.applied == 1); CHECK(r.log[0]["created"].asBool()); CHECK(r.log[0]["state_by"] == "ai");
+        auto barnes = r.log[0]["entity_id"].asString();
+        auto v1 = S.documents->world(keeper)["version"].asInt64();
+        // Update by id; an unknown place is created in the same partition.
+        auto e2 = post(keeper, "Barnes is carried to Saint Mary Chapel.", "narration");
+        auto move = op(barnes, "", "", "His body lies in the chapel crypt.", e2); move["location"] = "Saint Mary Chapel";
+        r = kpWorld(move, {e2}); CHECK(r.applied == 1); CHECK(r.log[0]["state_version"].asInt() == 2);
+        auto w = S.documents->world(keeper);
+        auto b = find(w, "Constable Barnes");
+        CHECK(b["status"] == "dead"); CHECK(b["state"] == "His body lies in the chapel crypt."); CHECK(b["location"]["name"] == "Saint Mary Chapel"); CHECK(b["state_version"].asInt() == 2);
+        CHECK(w["version"].asInt64() > v1);
+        CHECK(w["recent_changes"].size() == 2); CHECK(w["recent_changes"][0]["location_name"] == "Saint Mary Chapel"); CHECK(w["recent_changes"][1]["status"] == "dead");
+        CHECK(S.db->queryJson("SELECT version FROM entity_state_history WHERE entity_id=$1 ORDER BY version", {barnes}).size() == 2);
+        r = kpWorld(move, {e2}); CHECK(r.applied == 0); CHECK(r.log[0]["decision"] == "skipped");   // repetition is not a change
+        // Citations: required, from the batch, and a new entity needs a kind.
+        r = kpWorld(op("Constable Barnes", "", "missing", "", ""), {e2}); CHECK(r.rejected == 1);
+        r = kpWorld(op("Constable Barnes", "", "missing", "", e1), {e2}); CHECK(r.rejected == 1);
+        r = kpWorld(op("Unheard Of", "", "dead", "", e2), {e2}); CHECK(r.rejected == 1);
+        r = kpWorld(op("Constable Barnes", "", "undead", "", e2), {e2}); CHECK(r.rejected == 1);
+        CHECK(find(S.documents->world(keeper), "Constable Barnes")["status"] == "dead");
+
+        // A Keeper declaration is authoritative: state_by gm, its facts confirmed (or gm_secret when secret).
+        NewEvent d; d.channelId = ch; d.actorUserId = gmUser; d.actorRole = "gm"; d.kind = "gm.declared"; d.visibility = "gm_only";
+        d.payload["content"] = "Doctor Mora is missing."; d.payload["secret"] = true;
+        auto decl = S.events->append(d)["id"].asString();
+        r = kpWorld(op("Doctor Mora", "npc", "missing", "Vanished from her surgery overnight.", decl), {decl});
+        CHECK(r.applied == 1); CHECK(r.log[0]["state_by"] == "gm");
+        Proposal fp; fp.channelId = ch; fp.documentType = "timeline"; fp.actor = "ai"; fp.allowedSourceEventIds = {decl};
+        Json::Value fo; fo["op"] = "add_entry"; fo["fact"]["summary"] = "Doctor Mora vanished overnight"; fo["fact"]["status"] = "confirmed"; fo["fact"]["source_event_ids"].append(decl); fp.ops.append(fo);
+        auto fr = S.documents->commit(fp); CHECK(fr.applied == 1); CHECK(fr.log[0]["status"] == "gm_secret");
+        d.payload["content"] = "The harbour is closed by order of the mayor."; d.payload["secret"] = false;
+        auto decl2 = S.events->append(d)["id"].asString();
+        fp.allowedSourceEventIds = {decl2}; fp.ops = Json::Value(Json::arrayValue);
+        fo["fact"]["summary"] = "The harbour is closed"; fo["fact"]["source_event_ids"] = Json::Value(Json::arrayValue); fo["fact"]["source_event_ids"].append(decl2); fp.ops.append(fo);
+        fr = S.documents->commit(fp); CHECK(fr.applied == 1); CHECK(fr.log[0]["status"] == "confirmed");   // gm.declared backs "confirmed"
+        // An AI change contradicting the Keeper's state waits for review; accepting it makes it the Keeper's.
+        auto e3 = post(pl, "Doctor Mora is dead, I saw her body.", "ic");
+        r = kpWorld(op("Doctor Mora", "", "dead", "", e3), {e3});
+        CHECK(r.applied == 0); CHECK(r.pendingReview == 1);
+        CHECK(find(S.documents->world(keeper), "Doctor Mora")["status"] == "missing");
+        auto pid = r.log[0]["proposal_id"].asString(); bool listed = false;
+        for (const auto& pr : S.documents->listProposals(keeper, "needs_gm_review")) if (pr["id"] == pid) listed = true;
+        CHECK(listed);
+        CHECK(S.documents->decideProposal(keeper, pid, true)["status"] == "committed");
+        auto mora = find(S.documents->world(keeper), "Doctor Mora");
+        CHECK(mora["status"] == "dead"); CHECK(mora["state_by"] == "gm"); CHECK(mora["state"] == "");
+
+        // Partitions: the player group keeps its own record from readable chat only.
+        auto groupWorld = [&](const Json::Value& o, const std::vector<std::string>& batch) { Proposal p; p.channelId = ch; p.playerGroupId = pl.playerGroupId; p.playerGroupVersion = pl.playerGroupVersion; p.allowedSourceEventIds = batch; p.ops.append(o); return S.documents->commitWorld(p); };
+        auto gr = groupWorld(op("Constable Barnes", "npc", "dead", "Shot.", e1), {e1, decl});
+        CHECK(gr.applied == 1); CHECK(gr.log[0]["entity_id"] != barnes);
+        auto groupBarnes = gr.log[0]["entity_id"].asString();
+        CHECK(groupWorld(op("Doctor Mora", "npc", "missing", "", decl), {e1, decl}).rejected == 1);   // a declaration is never group evidence
+        CHECK(groupWorld(op(barnes, "", "missing", "", e1), {e1}).rejected == 1);                     // a Keeper entity is out of reach
+        bool threw = false;
+        try { S.db->exec("UPDATE entities SET location_entity_id=$2 WHERE id=$1", {barnes, groupBarnes}); } catch (const std::exception&) { threw = true; }
+        CHECK(threw);
+        auto pw = S.documents->world(pl);
+        CHECK(find(pw, "Constable Barnes")["id"] == groupBarnes); CHECK(find(pw, "Constable Barnes")["state"] == "Shot.");
+        auto dump = json::dump(pw);
+        CHECK(dump.find("Mora") == std::string::npos); CHECK(dump.find("Saint Mary") == std::string::npos); CHECK(dump.find("harbour") == std::string::npos);
+        CHECK(pw["recent_changes"].size() == 1);
+    });
     test("storage cleanup deletes replaced character images, unpinned old versions and unreferenced objects, and keeps the rest", [&] {
         const std::string png = drogon::utils::base64Decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
         auto p2 = S.auth->channelAccess(p2User, channelId);

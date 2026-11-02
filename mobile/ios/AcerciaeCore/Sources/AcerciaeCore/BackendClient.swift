@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ClientError: Error, LocalizedError {
-    case invalidAddress, insecureAddress, http(Int), invalidResponse, pointsRule(String)
+    case invalidAddress, insecureAddress, http(Int), gateway(Int), invalidResponse, pointsRule(String)
     public var httpStatus: Int? { if case .http(let code) = self { return code }; return nil }
     public var errorDescription: String? {
         switch self {
@@ -12,7 +12,8 @@ public enum ClientError: Error, LocalizedError {
         case .http(404): "内容不可用，或服务版本尚未提供此功能"
         case .http(429): "请求过多或已达到预算限制，请稍后重试"
         case .http(let status): "服务请求失败（HTTP \(status)）"
-        case .invalidResponse: "服务响应无效"
+        case .gateway(let status): "服务入口暂时不可用（HTTP \(status)），请稍后重试"
+        case .invalidResponse: "服务返回的数据格式不兼容，请更新客户端或联系管理员"
         case .pointsRule(let message): "购点校验未通过：" + message
         }
     }
@@ -49,24 +50,19 @@ public enum RealtimeStream: String, Sendable { case chat, context }
 public struct BackendClient: Sendable {
     private let address: BackendAddress
     private let session: URLSession
-    public init(address: BackendAddress, session: URLSession = URLSession(configuration: .ephemeral)) {
-        self.address = address; self.session = session
+    public init(address: BackendAddress, session: URLSession? = nil) {
+        self.address = address; self.session = session ?? Self.makeSession()
     }
     public func request<T: Decodable>(_ path: [String], token: String? = nil, body: Data? = nil, method: String? = nil, query: [String: String] = [:]) async throws -> T {
         var components = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) } }
         var request = URLRequest(url: components.url!)
-        request.timeoutInterval = 15
+        request.timeoutInterval = body == nil ? 30 : 120
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body { request.httpMethod = "POST"; request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let method { request.httpMethod = method }
-        let (data, response) = try await session.data(for: request, delegate: NoRedirects())
-        guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
-        guard (200..<300).contains(response.statusCode) else {
-            if response.statusCode == 400, let error = try? APIJSON.decoder().decode(JSONValue.self, from: data), error["error"].text == "points_rule" { throw ClientError.pointsRule(String(error["message"].text.prefix(2000))) }
-            throw ClientError.http(response.statusCode)
-        }
-        return try APIJSON.decoder().decode(T.self, from: data)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return try decode(T.self, data: await send(request))
     }
     public func resource(_ path: [String], token: String, body: JSONValue? = nil, method: String? = nil, query: [String: String] = [:]) async throws -> JSONValue {
         try await request(path, token: token, body: try body.map { try JSONEncoder().encode($0) }, method: method, query: query)
@@ -74,12 +70,9 @@ public struct BackendClient: Sendable {
     public func bytes(_ path: [String], token: String, query: [String: String] = [:]) async throws -> Data {
         var c = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
         c.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
-        var r = URLRequest(url: c.url!); r.timeoutInterval = 30
+        var r = URLRequest(url: c.url!); r.timeoutInterval = 120
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await session.data(for: r, delegate: NoRedirects())
-        guard let h = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
-        guard (200..<300).contains(h.statusCode) else { throw ClientError.http(h.statusCode) }
-        return data
+        return try await send(r)
     }
     public func uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, data: Data, token: String) async throws -> JSONValue {
         guard data.count <= 10 * 1024 * 1024, ["avatar", "portrait", "subtitle"].contains(slot), !subtitle.contains("\r"), !subtitle.contains("\n") else { throw ClientError.invalidResponse }
@@ -94,10 +87,58 @@ public struct BackendClient: Sendable {
         request.httpMethod = "POST"; request.httpBody = body; request.timeoutInterval = 60
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        let (responseData, response) = try await session.data(for: request, delegate: NoRedirects())
-        guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
-        guard (200..<300).contains(response.statusCode) else { throw ClientError.http(response.statusCode) }
-        return try APIJSON.decoder().decode(JSONValue.self, from: responseData)
+        return try decode(JSONValue.self, data: await send(request))
+    }
+    public func uploadModule(channel: String, title: String, data: Data, token: String) async throws -> JSONValue {
+        guard data.count <= 25 * 1024 * 1024 else { throw ClientError.invalidResponse }
+        let boundary = "Mobile-" + UUID().uuidString
+        var body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n\(title)\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"module.pdf\"\r\nContent-Type: application/pdf\r\n\r\n".utf8)
+        body.append(data); body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var request = URLRequest(url: address.api(["channels", channel, "modules"]))
+        request.httpMethod = "POST"; request.httpBody = body; request.timeoutInterval = 120
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        return try decode(JSONValue.self, data: await send(request))
+    }
+    private static func makeSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.waitsForConnectivity = true
+        config.timeoutIntervalForResource = 180
+        config.httpMaximumConnectionsPerHost = 4
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }
+    private func decode<T: Decodable>(_ type: T.Type, data: Data) throws -> T {
+        do { return try APIJSON.decoder().decode(type, from: data) }
+        catch { throw ClientError.invalidResponse }
+    }
+    private func send(_ original: URLRequest) async throws -> Data {
+        var request = original
+        request.setValue("AcerciaeMobile/0.1 (iOS)", forHTTPHeaderField: "User-Agent")
+        let readOnly = ["GET", "HEAD"].contains(request.httpMethod ?? "GET")
+        for attempt in 0..<3 {
+            try Task.checkCancellation()
+            do {
+                let (data, response) = try await session.data(for: request, delegate: NoRedirects())
+                guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
+                if readOnly && attempt < 2 && ConnectionPolicy.retryStatus(response.statusCode) {
+                    try await Task.sleep(for: .milliseconds(400 * (1 << attempt))); continue
+                }
+                guard (200..<300).contains(response.statusCode) else {
+                    // Edge/WAF HTML or text is not an application authorization decision.
+                    let value = try? APIJSON.decoder().decode(JSONValue.self, from: data)
+                    guard let error = value, !error["error"].text.isEmpty else { throw ClientError.gateway(response.statusCode) }
+                    if response.statusCode == 400 && error["error"].text == "points_rule" { throw ClientError.pointsRule(String(error["message"].text.prefix(2000))) }
+                    throw ClientError.http(response.statusCode)
+                }
+                return data
+            } catch {
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                guard readOnly && attempt < 2 && ConnectionPolicy.retryTransport(error) else { throw error }
+                try await Task.sleep(for: .milliseconds(400 * (1 << attempt)))
+            }
+        }
+        throw ClientError.invalidResponse
     }
     public func health() async throws -> Health { try await request(["health"]) }
     public func register(username: String, password: String, displayName: String) async throws -> Session {

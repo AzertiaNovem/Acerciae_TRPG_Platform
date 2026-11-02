@@ -16,7 +16,7 @@ struct AvatarView: View {
     var size: CGFloat = 32
     @State private var image: UIImage?
     private var ownData: String { ownerId == model.session?.user.id ? model.session?.user.avatarData ?? "" : "" }
-    private var key: String { (model.session?.user.id ?? "") + model.scopeKey + assetId + version + ownerId + String(ownerVersion) + String(model.session?.user.avatarVersion ?? 0) }
+    private var key: String { (model.session?.user.id ?? "") + model.scopeKey + assetId + version + ownerId + String(ownerVersion) + String(model.session?.user.avatarVersion ?? 0) + String(describing: model.session?.user.hasAvatar) }
     var body: some View {
         ZStack {
             Circle().fill(Color(red: 0.28, green: 0.32, blue: 0.29))
@@ -32,7 +32,7 @@ struct AvatarView: View {
                 bytes = try? await model.bytes(["channels", model.channelId, "media", assetId], query: Int(version).map { $0 > 0 ? ["v": String($0)] : [:] } ?? [:])
             } else if ownData.hasPrefix("data:image/"), let comma = ownData.firstIndex(of: ",") {
                 bytes = Data(base64Encoded: String(ownData[ownData.index(after: comma)...]))
-            } else if !ownerId.isEmpty && ownerVersion > 0 {
+            } else if !ownerId.isEmpty && (ownerId == model.session?.user.id ? (model.session?.user.hasAvatar ?? (ownerVersion > 0)) : ownerVersion > 0) {
                 bytes = try? await model.bytes(["users", ownerId, "avatar"], query: ["v": String(ownerVersion)])
             }
             guard !Task.isCancelled, requestKey == key, let bytes,

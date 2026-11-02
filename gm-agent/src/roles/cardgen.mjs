@@ -2,7 +2,6 @@
 // checked against COC7 before it is saved: characteristics clamped to the creation ranges, derived values computed,
 // skill names matched to the platform's list (GET /api/coc7/rules), so the platform's dice read it correctly.
 import { completeJson } from "../llm/index.mjs";
-import { markStyle } from "./roster.mjs";
 import { allocatePointBuy, careerCatalog, findCareer } from "./pointbuy.mjs";
 
 const CHARS = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK"];
@@ -120,13 +119,16 @@ function validateCard(x) {
 }
 
 // One co-player: a fellow investigator who plays alongside the real players.
-export async function generateCoplayer(llm, { language, era, rules, pointsMode, takenNames, partyNotes, index, total }) {
+// `world` (improvisation mode) is the setting the investigator comes from: their persona and background are written
+// into it.
+export async function generateCoplayer(llm, { language, era, rules, pointsMode, takenNames, partyNotes, index, total, world = "" }) {
   const system = `You create investigator characters for a Call of Cthulhu 7th edition campaign. They are co-players: AI-played investigators who join the human players' party as equals. Make them distinct, playable and grounded in the era; no Mythos knowledge beyond a trace. Write every text field in ${language}. Reply with only one JSON object of this shape: ${CARD_SHAPE}`;
   const user = [
     `CAMPAIGN ERA: ${era || "1920s"}`,
     `CO-PLAYER: ${index + 1} of ${total}`,
     `TAKEN NAMES: ${takenNames.join(", ")}`,
     partyNotes ? `THE PARTY SO FAR:\n${partyNotes}` : "",
+    world ? `WORLD SETTING (there is no module: the story is improvised in this world). Make the investigator someone from it: a full personality in the persona and a background story rooted in its places, people and tensions:\n${world}` : "",
     "Use COC7 creation values: STR CON DEX APP POW LUK 15-90, SIZ INT EDU 40-90, occupation skills at 40-75, a few hobby skills at 20-50.",
     rulesSummary(rules, pointsMode),
   ].filter(Boolean).join("\n");
@@ -166,9 +168,10 @@ export async function putCardWithPoints(api, channelId, characterId, card, { hea
 
 export async function saveCharacter(api, channelId, generated, { kind, rules, llm, language, pointsMode = false }) {
   const card = normalizeCard(generated.role_card, { rules, kind });
-  const style = kind === "coplayer" ? markStyle(generated.speaking_style) : s(generated.speaking_style, 300);
+  // A co-player is a GM-cast PC: a PC the Keeper account owns (the platform makes the creator the owner).
+  const style = s(generated.speaking_style, 300);
   const bio = s(generated.persona ?? generated.brief, 6000);
-  const ch = await api.createCharacter(channelId, { name: s(generated.name), kind: "npc", speaking_style: style, description: bio.slice(0, 500) });
+  const ch = await api.createCharacter(channelId, { name: s(generated.name), kind: kind === "coplayer" ? "pc" : "npc", speaking_style: style, description: bio.slice(0, 500) });
   const savedCard = await putCardWithPoints(api, channelId, ch.id, card, {
     head: { name: s(generated.name), speaking_style: style, bio }, rules, llm, language, pointsMode,
   });

@@ -10,6 +10,7 @@
 		039D1340A645D161408B8F91 /* HintOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC3EB74214B37676E372B35 /* HintOverlay.swift */; };
 		068B2EE3DEB3523C793397A4 /* CreationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9FC950E84B9437A84109729 /* CreationViews.swift */; };
 		06B8381C81C89F1E6B918017 /* ServerUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */; };
+		096F37C2B601DE8AE96EE64A /* ModuleImports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9023445777ECE23D1A4B9E14 /* ModuleImports.swift */; };
 		167429C6B0221FBBE5E2EA06 /* AcerciaeCore in Frameworks */ = {isa = PBXBuildFile; productRef = CB999693C894963A109E438A /* AcerciaeCore */; };
 		18330CF4F1B9AEBE2473D895 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC6444ED5044B03D351E38E /* SessionStore.swift */; };
 		1AB79194F4720D82CF94D9FD /* UpdatesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */; };
@@ -17,39 +18,72 @@
 		338ABC7F7F5110D46FF98A88 /* PointBuyEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D13375635157268425659E /* PointBuyEditor.swift */; };
 		3AA96D4256D0F43585F1CED5 /* AtmosphereViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */; };
 		4439570B3956321A6C1F0AF7 /* MobileLocale.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4076670B772E960683FE289B /* MobileLocale.swift */; };
+		45A0D8229C29617F16BA5508 /* NovelTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9928E8F2845509585EE45903 /* NovelTools.swift */; };
+		50E17E7EEDF599CE1465535D /* VoiceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F160A0F7343F07B57F6F6F /* VoiceSettings.swift */; };
 		593759825ED2354F226F6207 /* demo-campaign.json in Resources */ = {isa = PBXBuildFile; fileRef = 88F5C70043EB6160B449B58C /* demo-campaign.json */; };
+		6B564872DEEDBA5520BE3F68 /* RefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6621C651660C09CA8DFA0B54 /* RefreshTests.swift */; };
 		6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD29F793ED520DE30805D951 /* AcerciaeApp.swift */; };
+		89A82BD3E8B2D3715FAC2169 /* DndCardEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 004C7128C9479F2D44AE27BA /* DndCardEditor.swift */; };
 		8B7524D9FCF680961BA0ACFA /* ServerBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F0BB20E2F39962964229196 /* ServerBrowser.swift */; };
+		9ABB1DEA4DEF1AC135D97D88 /* AcerciaeCore in Frameworks */ = {isa = PBXBuildFile; productRef = F149A2BB922FD63D7056AB49 /* AcerciaeCore */; };
+		9BDF72B8AC40D45BE1DE1BC3 /* WorldRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 998A889DBAFA58F06F0D5ECD /* WorldRecord.swift */; };
 		AC85A09514A76069E5F687D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FAC5919B71481D5AC4123308 /* Assets.xcassets */; };
 		B4B48AA53FC159C465B20EA8 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4DAED716228D5F0F309AFF5 /* AvatarView.swift */; };
 		C73D4F68E61D21D11304FCCC /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6939EEBC9E27B78760CC323 /* RootView.swift */; };
+		D451C6D4B0699D181EAB16E7 /* ChatActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80A7C19F14D51A4A7371E0FA /* ChatActivity.swift */; };
 		F22AD2AD42D2D07D68085CBA /* DiceResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 953B6532E71274B94654EDD3 /* DiceResultView.swift */; };
 		FE1C46FC2DEEDA1630E21A46 /* mobile-localizations.json in Resources */ = {isa = PBXBuildFile; fileRef = A30897111065BED1758906FD /* mobile-localizations.json */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A263205EC4ADEFEF2086C841 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C8F2FF33088E1401E546F29A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F8D0ACD9D0BB601B072BDDB8;
+			remoteInfo = Acerciae;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		004C7128C9479F2D44AE27BA /* DndCardEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DndCardEditor.swift; sourceTree = "<group>"; };
 		0FD20B35E61DBF04AC07F32E /* LiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViews.swift; sourceTree = "<group>"; };
 		2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesViews.swift; sourceTree = "<group>"; };
 		26DDBFB968D5E77BDFF18A05 /* Acerciae.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Acerciae.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtmosphereViews.swift; sourceTree = "<group>"; };
 		4076670B772E960683FE289B /* MobileLocale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLocale.swift; sourceTree = "<group>"; };
+		43F160A0F7343F07B57F6F6F /* VoiceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSettings.swift; sourceTree = "<group>"; };
 		4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerUpdates.swift; sourceTree = "<group>"; };
 		4EC3EB74214B37676E372B35 /* HintOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HintOverlay.swift; sourceTree = "<group>"; };
 		4F0BB20E2F39962964229196 /* ServerBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBrowser.swift; sourceTree = "<group>"; };
+		6621C651660C09CA8DFA0B54 /* RefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshTests.swift; sourceTree = "<group>"; };
+		80A7C19F14D51A4A7371E0FA /* ChatActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatActivity.swift; sourceTree = "<group>"; };
 		88F5C70043EB6160B449B58C /* demo-campaign.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "demo-campaign.json"; sourceTree = "<group>"; };
+		9023445777ECE23D1A4B9E14 /* ModuleImports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleImports.swift; sourceTree = "<group>"; };
 		953B6532E71274B94654EDD3 /* DiceResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceResultView.swift; sourceTree = "<group>"; };
+		9928E8F2845509585EE45903 /* NovelTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NovelTools.swift; sourceTree = "<group>"; };
+		998A889DBAFA58F06F0D5ECD /* WorldRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorldRecord.swift; sourceTree = "<group>"; };
 		9FCB2098DEE29344380E6E33 /* AcerciaeCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AcerciaeCore; path = AcerciaeCore; sourceTree = SOURCE_ROOT; };
 		A2D13375635157268425659E /* PointBuyEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointBuyEditor.swift; sourceTree = "<group>"; };
 		A30897111065BED1758906FD /* mobile-localizations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "mobile-localizations.json"; sourceTree = "<group>"; };
 		B6939EEBC9E27B78760CC323 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		C9FC950E84B9437A84109729 /* CreationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreationViews.swift; sourceTree = "<group>"; };
 		CD29F793ED520DE30805D951 /* AcerciaeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcerciaeApp.swift; sourceTree = "<group>"; };
+		D598991A3669777F06153ECC /* AcerciaeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AcerciaeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFC6444ED5044B03D351E38E /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		F4DAED716228D5F0F309AFF5 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		FAC5919B71481D5AC4123308 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		16F74866751AAA550A3C2597 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9ABB1DEA4DEF1AC135D97D88 /* AcerciaeCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		30AF9B8181123588A23988AD /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -65,8 +99,17 @@
 			isa = PBXGroup;
 			children = (
 				26DDBFB968D5E77BDFF18A05 /* Acerciae.app */,
+				D598991A3669777F06153ECC /* AcerciaeTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		0D96F62D861F20002D0FB2B9 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				6621C651660C09CA8DFA0B54 /* RefreshTests.swift */,
+			);
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		30E47F804F6BA230CC3CA9AA = {
@@ -75,6 +118,7 @@
 				7E0D7065CB891C728E853320 /* App */,
 				483D75676101B19A3DE6A203 /* fixtures */,
 				885B06140E340649B9778362 /* Packages */,
+				0D96F62D861F20002D0FB2B9 /* Tests */,
 				060A8A4C3F36C4BA24A1C21E /* Products */,
 			);
 			sourceTree = "<group>";
@@ -103,17 +147,23 @@
 				FAC5919B71481D5AC4123308 /* Assets.xcassets */,
 				26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */,
 				F4DAED716228D5F0F309AFF5 /* AvatarView.swift */,
+				80A7C19F14D51A4A7371E0FA /* ChatActivity.swift */,
 				C9FC950E84B9437A84109729 /* CreationViews.swift */,
 				953B6532E71274B94654EDD3 /* DiceResultView.swift */,
+				004C7128C9479F2D44AE27BA /* DndCardEditor.swift */,
 				4EC3EB74214B37676E372B35 /* HintOverlay.swift */,
 				0FD20B35E61DBF04AC07F32E /* LiveViews.swift */,
 				4076670B772E960683FE289B /* MobileLocale.swift */,
+				9023445777ECE23D1A4B9E14 /* ModuleImports.swift */,
+				9928E8F2845509585EE45903 /* NovelTools.swift */,
 				A2D13375635157268425659E /* PointBuyEditor.swift */,
 				B6939EEBC9E27B78760CC323 /* RootView.swift */,
 				4F0BB20E2F39962964229196 /* ServerBrowser.swift */,
 				4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */,
 				DFC6444ED5044B03D351E38E /* SessionStore.swift */,
 				2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */,
+				43F160A0F7343F07B57F6F6F /* VoiceSettings.swift */,
+				998A889DBAFA58F06F0D5ECD /* WorldRecord.swift */,
 				3B541BCB000426A75CF9C96C /* Localization */,
 			);
 			path = App;
@@ -130,6 +180,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		58F61248A08117BD5EB83129 /* AcerciaeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1FC55488C41347B2C640F779 /* Build configuration list for PBXNativeTarget "AcerciaeTests" */;
+			buildPhases = (
+				E61EB3230E4D516E8A015310 /* Sources */,
+				16F74866751AAA550A3C2597 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AC7AC03739DAAB9AC8B97BD9 /* PBXTargetDependency */,
+			);
+			name = AcerciaeTests;
+			packageProductDependencies = (
+				F149A2BB922FD63D7056AB49 /* AcerciaeCore */,
+			);
+			productName = AcerciaeTests;
+			productReference = D598991A3669777F06153ECC /* AcerciaeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		F8D0ACD9D0BB601B072BDDB8 /* Acerciae */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3D5A57EF22C3E77E59EBAD65 /* Build configuration list for PBXNativeTarget "Acerciae" */;
@@ -159,6 +229,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					58F61248A08117BD5EB83129 = {
+						ProvisioningStyle = Automatic;
+					};
 					F8D0ACD9D0BB601B072BDDB8 = {
 						ProvisioningStyle = Automatic;
 					};
@@ -182,6 +255,7 @@
 			projectRoot = "";
 			targets = (
 				F8D0ACD9D0BB601B072BDDB8 /* Acerciae */,
+				58F61248A08117BD5EB83129 /* AcerciaeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -207,23 +281,62 @@
 				6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */,
 				3AA96D4256D0F43585F1CED5 /* AtmosphereViews.swift in Sources */,
 				B4B48AA53FC159C465B20EA8 /* AvatarView.swift in Sources */,
+				D451C6D4B0699D181EAB16E7 /* ChatActivity.swift in Sources */,
 				068B2EE3DEB3523C793397A4 /* CreationViews.swift in Sources */,
 				F22AD2AD42D2D07D68085CBA /* DiceResultView.swift in Sources */,
+				89A82BD3E8B2D3715FAC2169 /* DndCardEditor.swift in Sources */,
 				039D1340A645D161408B8F91 /* HintOverlay.swift in Sources */,
 				1D156065915D5B9D4759BC08 /* LiveViews.swift in Sources */,
 				4439570B3956321A6C1F0AF7 /* MobileLocale.swift in Sources */,
+				096F37C2B601DE8AE96EE64A /* ModuleImports.swift in Sources */,
+				45A0D8229C29617F16BA5508 /* NovelTools.swift in Sources */,
 				338ABC7F7F5110D46FF98A88 /* PointBuyEditor.swift in Sources */,
 				C73D4F68E61D21D11304FCCC /* RootView.swift in Sources */,
 				8B7524D9FCF680961BA0ACFA /* ServerBrowser.swift in Sources */,
 				06B8381C81C89F1E6B918017 /* ServerUpdates.swift in Sources */,
 				18330CF4F1B9AEBE2473D895 /* SessionStore.swift in Sources */,
 				1AB79194F4720D82CF94D9FD /* UpdatesViews.swift in Sources */,
+				50E17E7EEDF599CE1465535D /* VoiceSettings.swift in Sources */,
+				9BDF72B8AC40D45BE1DE1BC3 /* WorldRecord.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E61EB3230E4D516E8A015310 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6B564872DEEDBA5520BE3F68 /* RefreshTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		AC7AC03739DAAB9AC8B97BD9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F8D0ACD9D0BB601B072BDDB8 /* Acerciae */;
+			targetProxy = A263205EC4ADEFEF2086C841 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		3B3B4DCF915F11F3A26F0D3E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.acerciae.AcerciaeTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Acerciae.app/Acerciae";
+			};
+			name = Release;
+		};
 		570008470A343A110688CEEB /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -391,9 +504,35 @@
 			};
 			name = Release;
 		};
+		7ABE97C9DF7D38BCFEE3B14F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.acerciae.AcerciaeTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Acerciae.app/Acerciae";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1FC55488C41347B2C640F779 /* Build configuration list for PBXNativeTarget "AcerciaeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7ABE97C9DF7D38BCFEE3B14F /* Debug */,
+				3B3B4DCF915F11F3A26F0D3E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		3D5A57EF22C3E77E59EBAD65 /* Build configuration list for PBXNativeTarget "Acerciae" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -423,6 +562,10 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		CB999693C894963A109E438A /* AcerciaeCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AcerciaeCore;
+		};
+		F149A2BB922FD63D7056AB49 /* AcerciaeCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AcerciaeCore;
 		};

@@ -390,6 +390,25 @@ void registerRoutes() {
     route3("/api/channels/{1}/documents/{2}/entries/{3}", {Put}, [&](auto& req, auto& p, auto& a) { return S.documents->gmCorrectEntry(access(p, a[0]), a[1], a[2], body(req)); });
     route2("/api/channels/{1}/entries/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.documents->getEntry(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/entries/{2}/related", {Get}, [&](auto&, auto& p, auto& a) { return S.documents->relatedEntries(access(p, a[0]), a[1]); });
+    // ---- the living world record (the caller's memory partition) ----
+    route1("/api/channels/{1}/world", {Get}, [&](auto&, auto& p, auto& a) { return S.documents->world(access(p, a[0])); });
+    // A Keeper declaration about the world, often off-screen: a GM-only event (no chat message) that the Keeper's
+    // observer treats as authoritative. Player groups never read it. ?observe=true runs the observer like observe-now.
+    ai1("/api/channels/{1}/world/declare", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto ac = access(p, a[0]); S.auth->requireGm(ac);
+        auto b = body(req); auto content = text::trim(json::str(b, "text"));
+        std::size_t chars = 0; for (unsigned char c : content) if ((c & 0xC0) != 0x80) chars++;
+        if (chars < 1 || chars > 4000) throw badRequest("text must be 1 to 4000 characters");
+        NewEvent e; e.channelId = a[0]; e.actorUserId = p.userId; e.actorRole = "gm"; e.kind = "gm.declared"; e.visibility = "gm_only";
+        auto ch = S.db->queryOne("SELECT current_scene_id FROM channels WHERE id=$1", {a[0]});
+        if (!ch.isNull() && ch["current_scene_id"].isString()) e.sceneId = ch["current_scene_id"].asString();
+        e.payload["content"] = content; e.payload["secret"] = json::toBool(b, "secret", false);
+        auto ev = S.events->append(e);
+        Json::Value out; out["event_id"] = ev["id"]; out["seq"] = ev["seq"];
+        auto observe = req->getParameter("observe");
+        if (observe == "true" || observe == "1") out["jobs"] = S.observer->observeChannel(a[0], true);
+        return out;
+    });
     route1("/api/channels/{1}/proposals", {Get}, [&](auto& req, auto& p, auto& a) { return S.documents->listProposals(access(p, a[0]), req->getParameter("status")); });
     route2("/api/channels/{1}/proposals/{2}/decide", {Post}, [&](auto& req, auto& p, auto& a) { return S.documents->decideProposal(access(p, a[0]), a[1], json::toBool(body(req), "accept", false)); });
 

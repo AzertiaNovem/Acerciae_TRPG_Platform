@@ -1,3 +1,4 @@
+import { isPlayerCharacter } from "../roles/roster.mjs";
 // The investigators' basic details and backgrounds, as written on their role cards (and the character's bio). The GM
 // and the real NPCs read every investigator's profile; a co-player reads its companions' profiles, the way a human
 // player can open any player character's page. Real NPCs are never investigators, and characteristics and skills are
@@ -32,5 +33,5 @@ export function renderProfile(character, note = "") {
 // The investigators at the table: player characters first, then co-players; never real NPCs.
 export function investigatorsFor(characters, roster, { except } = {}) {
   const others = characters.filter((c) => c.id !== except);
-  return [...others.filter((c) => c.kind === "pc"), ...others.filter((c) => c.kind !== "pc" && roster.isCoplayer(c.id))];
+  return [...others.filter((c) => isPlayerCharacter(c, roster)), ...others.filter((c) => roster.isCoplayer(c.id))];
 }
