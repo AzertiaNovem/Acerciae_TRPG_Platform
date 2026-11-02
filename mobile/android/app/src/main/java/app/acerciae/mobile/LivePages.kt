@@ -40,18 +40,18 @@ import java.io.File
     image?.let { asset -> androidx.compose.ui.window.Dialog(onDismissRequest = { image = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) { Column(Modifier.safeDrawingPadding()) {
             TextButton(onClick = { image = null }) { Text(tr("返回角色")) }
-            AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().weight(1f))
+            AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().weight(1f), asset.text("hash"))
         } }
     } }
     LazyColumn(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             val portrait = space.obj("portrait")
-            if (portrait.id.isNotEmpty()) TextButton(onClick = { image = portrait }, modifier = Modifier.fillMaxWidth()) { AuthenticatedArtwork(model, state.channelId, portrait.id, portrait.number("version"), Modifier.fillMaxWidth().height(360.dp)) }
+            if (portrait.id.isNotEmpty()) TextButton(onClick = { image = portrait }, modifier = Modifier.fillMaxWidth()) { AuthenticatedArtwork(model, state.channelId, portrait.id, portrait.number("version"), Modifier.fillMaxWidth().height(360.dp), portrait.text("hash")) }
             else if (loading) CircularProgressIndicator() else Text(tr("尚无立绘"), Modifier.padding(32.dp))
         }
         item { Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             val avatar = space.obj("avatar")
-            if (avatar.id.isNotEmpty()) TextButton(onClick = { image = avatar }) { AuthenticatedArtwork(model, state.channelId, avatar.id, avatar.number("version"), Modifier.size(72.dp)) }
+            if (avatar.id.isNotEmpty()) TextButton(onClick = { image = avatar }) { AuthenticatedArtwork(model, state.channelId, avatar.id, avatar.number("version"), Modifier.size(72.dp), avatar.text("hash")) }
             Column { Text(space.obj("character").text("name").ifEmpty { character.name }, style = MaterialTheme.typography.titleLarge)
                 Text(character.text("kind").uppercase() + " · " + character.text("player_name")); Text(space.text("era")) }
         } }
@@ -61,7 +61,7 @@ import java.io.File
         if (space.rows("subtitles").isNotEmpty()) item { Text(tr("表情立绘"), style = MaterialTheme.typography.titleMedium) }
         items(space.rows("subtitles"), key = { it.id + it.text("subtitle") }) { asset ->
             Text(asset.text("subtitle"))
-            TextButton(onClick = { image = asset }, modifier = Modifier.fillMaxWidth()) { AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(260.dp)) }
+            TextButton(onClick = { image = asset }, modifier = Modifier.fillMaxWidth()) { AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(260.dp), asset.text("hash")) }
         }
         items(attrs.obj("attrs").keys.sorted()) { key -> Text("$key  ${attrs.obj("attrs")[key]}") }
         if (attrs.flag("editable") && (space.text("rule_system") == "dnd2024" || !space.obj("points").flag("enabled"))) {
@@ -243,9 +243,9 @@ import java.io.File
         events.getOrNull(index)?.let { event ->
             item { Text(tr("Play") + " · ${index + 1} / ${events.size}", style = MaterialTheme.typography.titleMedium) }
             val scene = performanceScenes.find { it.id == event.text("scene_id") }
-            if (scene != null && scene.text("background_asset_id").isNotEmpty()) item { AuthenticatedArtwork(model, state.channelId, scene.text("background_asset_id"), scene.number("background_asset_version"), Modifier.fillMaxWidth().height(180.dp)) }
+            if (scene != null && scene.text("background_asset_id").isNotEmpty()) item { AuthenticatedArtwork(model, state.channelId, scene.text("background_asset_id"), scene.number("background_asset_version"), Modifier.fillMaxWidth().height(180.dp), scene.text("background_asset_hash")) }
             val standees = event.rows("character_asset_ids").filter { it.text("asset_id").isNotEmpty() }
-            if (standees.isNotEmpty()) item { Row { standees.forEach { item -> AuthenticatedArtwork(model, state.channelId, item.text("asset_id"), item.number("asset_version"), Modifier.weight(1f).height(140.dp)) } } }
+            if (standees.isNotEmpty()) item { Row { standees.forEach { item -> AuthenticatedArtwork(model, state.channelId, item.text("asset_id"), item.number("asset_version"), Modifier.weight(1f).height(140.dp), item.text("asset_hash")) } } }
             item { Text(event.text("speaker_name_override").ifEmpty { event.text("speaker_display_name") }) }
             item { Text(if (event.text("display_kind") == "dice") event.obj("dice").text("text").ifEmpty { event.text("display_text") } else event.text("display_text"), style = MaterialTheme.typography.bodyLarge) }
             item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -301,11 +301,11 @@ import java.io.File
     }
 }
 
-@Composable fun AuthenticatedArtwork(model: AppViewModel, channelId: String, assetId: String, version: Int, modifier: Modifier) {
-    var bitmap by remember(channelId, assetId, version) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(channelId, assetId, version) {
+@Composable fun AuthenticatedArtwork(model: AppViewModel, channelId: String, assetId: String, version: Int, modifier: Modifier, hash: String = "") {
+    var bitmap by remember(channelId, assetId, version, hash) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(channelId, assetId, version, hash) {
         try {
-            val bytes = model.bytes(listOf("channels", channelId, "media", assetId), if (version > 0) mapOf("v" to version.toString()) else emptyMap())
+            val bytes = model.bytes(listOf("channels", channelId, "media", assetId), if (version > 0) mapOf("v" to version.toString()) else emptyMap(), hash.ifEmpty { null })
             bitmap = withContext(Dispatchers.Default) {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)

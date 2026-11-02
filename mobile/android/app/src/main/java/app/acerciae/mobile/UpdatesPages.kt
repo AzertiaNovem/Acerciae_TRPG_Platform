@@ -166,8 +166,8 @@ import kotlinx.serialization.json.*
 
         item { TextButton(onClick = { reloadCard = true }, enabled = !state.busy) { Text(tr("Reload card")) } }
         item { Text(tr("Appearance & images") + " · ${space.text("era")} · ${space.text("narrative_time")}", style = MaterialTheme.typography.titleMedium) }
-        items(listOf("avatar", "portrait")) { slot -> val asset = space.obj(slot); if (asset.id.isNotEmpty()) AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(if (slot == "avatar") 80.dp else 220.dp)) }
-        items(space.rows("subtitles")) { asset -> Text(asset.text("subtitle")); AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(180.dp)) }
+        items(listOf("avatar", "portrait")) { slot -> val asset = space.obj(slot); if (asset.id.isNotEmpty()) AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(if (slot == "avatar") 80.dp else 220.dp), asset.text("hash")) }
+        items(space.rows("subtitles")) { asset -> Text(asset.text("subtitle")); AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(180.dp), asset.text("hash")) }
         if (space.obj("character").flag("editable")) {
             item { ChoiceMenu(tr("素材来源"), mode, listOf("uploaded" to tr("上传素材"), "generated" to tr("生成素材"))) { mode = it } }
             item { OutlinedTextField(prompt, { prompt = it }, label = { Text(tr("外观与统一画风描述")) }, enabled = editable) }

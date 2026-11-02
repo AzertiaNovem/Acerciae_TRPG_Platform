@@ -78,13 +78,15 @@ class BackendClient(
         }
     suspend fun resource(path: List<String>, token: String, body: JsonObject? = null, method: String? = null, query: Map<String, String> = emptyMap()): JsonObject = request(path, token, body?.toString(), method, query)
     suspend fun resources(path: List<String>, token: String, query: Map<String, String> = emptyMap()): List<JsonObject> = request(path, token, query = query)
-    suspend fun bytes(path: List<String>, token: String, query: Map<String, String> = emptyMap()): ByteArray = withContext(Dispatchers.IO) {
-        val key = cacheKey(path, query)
+    /** Media bytes; with the picture's content [hash] the disk cache serves them by content (see [AssetDiskCache.key]). */
+    suspend fun bytes(path: List<String>, token: String, query: Map<String, String> = emptyMap(), hash: String? = null): ByteArray = withContext(Dispatchers.IO) {
+        val url = cacheKey(path, query)
+        val key = AssetDiskCache.key(hash, url)
         val task = transferLock.withLock {
             transfers[key] ?: transferScope.async(start = CoroutineStart.LAZY) {
                 val cache = assets; val generation = cache?.generation()
                 cache?.get(key)?.let { return@async it }
-                val fetched = sendFetched(Request.Builder().url(key).header("Authorization", "Bearer $token").build())
+                val fetched = sendFetched(Request.Builder().url(url).header("Authorization", "Bearer $token").build())
                 if (cache != null && AssetDiskCache.keepable(fetched.cacheControl)) cache.put(key, fetched.bytes, generation)
                 fetched.bytes
             }.also { pending ->

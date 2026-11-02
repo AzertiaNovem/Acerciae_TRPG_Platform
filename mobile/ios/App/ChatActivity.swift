@@ -28,7 +28,7 @@ private struct ChatNoticeCard: View {
             ForEach(Array(notice.messages.prefix(expanded ? 6 : 1))) { m in
                 Button { Task { await model.run { try await model.openEvidence(.object(["message_id":.string(m.id),"chat_window_id":.string(notice.id)]), quote:false); model.dismissNotice(notice.id); open() } } } label: {
                     HStack(alignment:.top) {
-                        AvatarView(model:model,name:WindowActivity.speaker(m),assetId:m.kind == "ooc" ? "" : m.characterAvatarAssetId ?? "",version:String(m.characterAvatarVersion ?? 0),ownerId:m.authorId ?? "",ownerVersion:m.authorAvatarVersion ?? 0)
+                        AvatarView(model:model,name:WindowActivity.speaker(m),assetId:m.kind == "ooc" ? "" : m.characterAvatarAssetId ?? "",version:String(m.characterAvatarVersion ?? 0),ownerId:m.authorId ?? "",ownerVersion:m.authorAvatarVersion ?? 0,hash:m.kind == "ooc" ? "" : m.characterAvatarHash ?? "",ownerHash:m.authorAvatarHash ?? "")
                         VStack(alignment:.leading) { Text(WindowActivity.speaker(m)).font(.caption.weight(.semibold)); Text(m.displayText).font(.caption).lineLimit(2) }.frame(maxWidth:.infinity,alignment:.leading)
                     }
                 }.buttonStyle(.plain)

@@ -166,7 +166,7 @@ private struct SidebarView: View {
                             ForEach(model.characters) { item in
                                 Button { model.result = nil; selectedCharacter = item } label: {
                                     HStack(spacing: 10) {
-                                        AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["updated_at"].text)
+                                        AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["updated_at"].text, hash: item["avatar_asset_hash"].text)
                                         Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
                                     }.padding(.vertical, 6)
                                 }.buttonStyle(.plain)
@@ -358,7 +358,8 @@ private struct MessageBubble: View {
         let character = ooc ? nil : model.characters.first(where: { $0.id == message.characterId })
         let asset = ooc ? "" : character.map { $0["avatar_asset_id"].text } ?? message.characterAvatarAssetId ?? ""
         let revision = ooc ? "" : (character?["updated_at"].text ?? "") + ":" + String(message.characterAvatarVersion ?? 0)
-        return AvatarView(model: model, name: name, assetId: asset, version: revision, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0)
+        let hash = ooc ? "" : (character?["avatar_asset_hash"].string).flatMap { $0.isEmpty ? nil : $0 } ?? message.characterAvatarHash ?? ""
+        return AvatarView(model: model, name: name, assetId: asset, version: revision, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0, hash: hash, ownerHash: message.authorAvatarHash ?? "")
     }
 }
 
@@ -452,7 +453,7 @@ private struct SettingsView: View {
         Form {
             Section(tr("账号")) {
                 if let user = model.session?.user {
-                    HStack(spacing: 12) { AvatarView(model: model, name: user.displayName, ownerId: user.id, ownerVersion: user.avatarVersion ?? 0, size: 48); Text(user.displayName) }
+                    HStack(spacing: 12) { AvatarView(model: model, name: user.displayName, ownerId: user.id, ownerVersion: user.avatarVersion ?? 0, size: 48, ownerHash: user.avatarHash ?? ""); Text(user.displayName) }
                     Text(user.username).foregroundStyle(.secondary)
                 }
                 Button(tr("退出登录"), role: .destructive) { model.logout() }.disabled(model.busy)

@@ -19426,5 +19426,29 @@
     "Администратор отозван",
     "Administrador revogado",
     "Amministratore revocato"
+  ],
+  "Media kept on this device: {n} files, {size}": [
+    "此设备上缓存的媒体：{n} 个文件，{size}",
+    "此裝置上快取的媒體：{n} 個檔案，{size}",
+    "この端末に保存されたメディア：{n} ファイル、{size}",
+    "이 기기에 보관된 미디어: 파일 {n}개, {size}",
+    "Medios guardados en este dispositivo: {n} archivos, {size}",
+    "Médias conservés sur cet appareil : {n} fichiers, {size}",
+    "Auf diesem Gerät behaltene Medien: {n} Dateien, {size}",
+    "Медиа на этом устройстве: {n} файлов, {size}",
+    "Mídia guardada neste dispositivo: {n} arquivos, {size}",
+    "Media conservati su questo dispositivo: {n} file, {size}"
+  ],
+  "Portraits, backgrounds, avatars and voice clips stay on this device for 30 days after they were last shown, so they open without downloading again. Clearing only frees space.": [
+    "立绘、背景、头像和语音片段在最后一次显示后会在此设备上保留 30 天，再次打开时无需重新下载。清除只会释放空间。",
+    "立繪、背景、頭像和語音片段在最後一次顯示後會在此裝置上保留 30 天，再次開啟時無需重新下載。清除只會釋放空間。",
+    "立ち絵、背景、アバター、音声は最後に表示されてから 30 日間この端末に残り、再ダウンロードなしで開けます。消去しても空き容量が増えるだけです。",
+    "초상화, 배경, 아바타, 음성 클립은 마지막으로 표시된 뒤 30일 동안 이 기기에 남아 다시 내려받지 않고 열립니다. 지우면 공간만 확보됩니다.",
+    "Retratos, fondos, avatares y clips de voz permanecen en este dispositivo 30 días desde la última vez que se mostraron, así se abren sin volver a descargarlos. Borrar solo libera espacio.",
+    "Portraits, décors, avatars et extraits vocaux restent sur cet appareil 30 jours après leur dernier affichage, pour s'ouvrir sans nouveau téléchargement. Effacer ne fait que libérer de la place.",
+    "Porträts, Hintergründe, Avatare und Sprachclips bleiben 30 Tage nach der letzten Anzeige auf diesem Gerät und öffnen sich ohne erneuten Download. Löschen schafft nur Platz.",
+    "Портреты, фоны, аватары и голосовые фрагменты остаются на этом устройстве 30 дней после последнего показа и открываются без повторной загрузки. Очистка лишь освобождает место.",
+    "Retratos, fundos, avatares e trechos de voz ficam neste dispositivo por 30 dias após a última exibição, abrindo sem baixar de novo. Limpar apenas libera espaço.",
+    "Ritratti, sfondi, avatar e clip vocali restano su questo dispositivo per 30 giorni dall'ultima visualizzazione, così si aprono senza scaricarli di nuovo. Cancellare libera solo spazio."
   ]
 }

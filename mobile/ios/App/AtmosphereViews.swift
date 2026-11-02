@@ -54,7 +54,7 @@ private struct ChannelBackdrop: View {
         guard let id = Atmosphere.asset(current, dark: dark, portrait: portrait) else { image = nil; loadedAsset = ""; return }
         if id != loadedAsset {
             let key = (model.session?.user.id ?? "") + model.scopeKey + ":atmosphere:" + id
-            image = try await ArtworkImages.load(key) { try await model.bytes(["channels",model.channelId,"atmosphere","assets",id]) }
+            image = try await ArtworkImages.load(key) { try await model.bytes(["channels",model.channelId,"atmosphere","assets",id], hash: Atmosphere.hash(current, dark: dark, portrait: portrait)) }
             loadedAsset = image == nil ? "" : id
         }
         mock = current["mock"].bool

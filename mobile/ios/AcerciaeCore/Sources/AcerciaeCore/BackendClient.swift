@@ -98,10 +98,11 @@ public struct BackendClient: Sendable {
     public func resource(_ path: [String], token: String, body: JSONValue? = nil, method: String? = nil, query: [String: String] = [:]) async throws -> JSONValue {
         try await request(path, token: token, body: try body.map { try JSONEncoder().encode($0) }, method: method, query: query)
     }
-    public func bytes(_ path: [String], token: String, query: [String: String] = [:]) async throws -> Data {
+    /// Media bytes; with the picture's content `hash` the disk cache serves them by content (see `AssetDiskCache.key`).
+    public func bytes(_ path: [String], token: String, query: [String: String] = [:], hash: String? = nil) async throws -> Data {
         var c = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
         c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
-        let url = c.url!; let key = url.absoluteString
+        let url = c.url!; let key = AssetDiskCache.key(hash: hash, url: url.absoluteString)
         return try await transfers.load(key: key, cache: assets) {
             var r = URLRequest(url: url); r.timeoutInterval = 120
             r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

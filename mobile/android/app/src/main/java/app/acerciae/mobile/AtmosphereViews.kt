@@ -37,7 +37,7 @@ import kotlinx.serialization.json.*
     if (id == null) { bitmap = null; loadedAsset = "" }
     else {
         if (id != loadedAsset) {
-            val bytes = model.bytes(listOf("channels", state.channelId, "atmosphere", "assets", id))
+            val bytes = model.bytes(listOf("channels", state.channelId, "atmosphere", "assets", id), hash = Atmosphere.hash(current, dark, portrait))
             val decoded = withContext(Dispatchers.Default) {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)

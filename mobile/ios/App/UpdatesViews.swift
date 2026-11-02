@@ -146,10 +146,10 @@ struct CharacterSpace: View {
             Section(tr("外观")) {
                 Text("\(space["era"].text) · \(space["narrative_time"].text)").font(.caption)
                 ForEach(["avatar", "portrait"], id: \.self) { slot in
-                    if !space[slot]["id"].text.isEmpty { AuthenticatedArtwork(model: model, assetId: space[slot]["id"].text, version: space[slot]["version"].int).frame(height: slot == "avatar" ? 80 : 220) }
+                    if !space[slot]["id"].text.isEmpty { AuthenticatedArtwork(model: model, assetId: space[slot]["id"].text, version: space[slot]["version"].int, hash: space[slot]["hash"].text).frame(height: slot == "avatar" ? 80 : 220) }
                 }
                 ForEach(Array(space["subtitles"].array.enumerated()), id: \.offset) { _, asset in
-                    Text(asset["subtitle"].text); AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int).frame(height: 180)
+                    Text(asset["subtitle"].text); AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int, hash: asset["hash"].text).frame(height: 180)
                 }
                 if editable {
                     Picker(tr("素材来源"), selection: $mode) { Text(tr("上传素材")).tag("uploaded"); Text(tr("生成素材")).tag("generated") }

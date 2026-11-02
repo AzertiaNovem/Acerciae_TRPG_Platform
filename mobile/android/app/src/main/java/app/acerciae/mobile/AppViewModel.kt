@@ -133,7 +133,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun token() = session?.token ?: error(tr("请先登录"))
     suspend fun get(path: List<String>, body: JsonObject? = null, method: String? = null, query: Map<String, String> = emptyMap()) = client().resource(path, token(), body, method, query)
     suspend fun rows(path: List<String>, query: Map<String, String> = emptyMap()) = client().resources(path, token(), query)
-    suspend fun bytes(path: List<String>, query: Map<String, String> = emptyMap()) = client().bytes(path, token(), query)
+    suspend fun bytes(path: List<String>, query: Map<String, String> = emptyMap(), hash: String? = null) = client().bytes(path, token(), query, hash)
     suspend fun uploadModule(bytes: ByteArray, title: String): JsonObject = client().uploadModule(state.value.channelId, title, bytes, token())
     suspend fun uploadArtwork(bytes: ByteArray, character: String, slot: String, subtitle: String) = client().uploadCharacterAsset(state.value.channelId, character, slot, subtitle, bytes, token())
     fun login(username: String, password: String, registering: Boolean = false, displayName: String = "") = launch {

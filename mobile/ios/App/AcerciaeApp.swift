@@ -260,9 +260,9 @@ import AcerciaeCore
         guard let client, let session else { throw ClientError.http(401) }
         return try await client.resource(path, token: session.token, body: body, method: method, query: query)
     }
-    func bytes(_ path: [String], query: [String: String] = [:]) async throws -> Data {
+    func bytes(_ path: [String], query: [String: String] = [:], hash: String? = nil) async throws -> Data {
         guard let client, let session else { throw ClientError.http(401) }
-        return try await client.bytes(path, token: session.token, query: query)
+        return try await client.bytes(path, token: session.token, query: query, hash: hash)
     }
     func uploadArtwork(_ data: Data, character: String, slot: String, subtitle: String) async throws -> JSONValue {
         guard let client, let session else { throw ClientError.http(401) }

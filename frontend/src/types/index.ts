@@ -1,5 +1,5 @@
 // Shared API types (mirrors backend JSON shapes).
-export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; languages?: string[]; is_admin?: boolean }
+export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; avatar_hash?: string | null; languages?: string[]; is_admin?: boolean }
 export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest'; suspended?: boolean; suspended_reason?: string }
 // Platform administration (/api/admin): what the deployment holds and who uses it; suspensions.
 export interface AdminPage<R> { rows: R[]; total: number; limit: number; offset: number }
@@ -51,7 +51,7 @@ export interface ChatWindow {
   id: string; channel_id: string; name: string; kind: 'main' | 'group' | 'private'; active_scene_id: string | null;
   scene_title?: string | null; members: WindowMember[] | null; last_seq: number | null; unread?: number;
 }
-export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean }
+export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; avatar_asset_version?: number | null; avatar_asset_hash?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean }
 // The COC7-styled role card. Numbers are mirrored into sheet.attrs for the dice.
 export interface RoleCard {
   basic: { player: string; occupation: string; age: string; sex: string; residence: string; birthplace: string };
@@ -93,13 +93,13 @@ export interface PointsReport { enabled: boolean; rule_system?: string; method?:
 export interface Coc7Option { skill: string; label: string; any?: boolean; spec?: string }
 export interface Coc7Career { id: number; name: string; credit: [number, number] | null; points: { attrs: string[]; mult: number }[]; formula: string; fixed: Coc7Option[]; choices: { pick: number; from: Coc7Option[] }[]; free: number; description: string; names?: Record<string, string>; descriptions?: Record<string, string> }
 export interface Coc7Rules { skills: { name: string; base: number | 'DEX/2' | 'EDU'; names?: Record<string, string> }[]; families: { name: string; base: number; names?: Record<string, string> }[]; careers: Coc7Career[]; characteristics?: { name: string; names?: Record<string, string> }[]; hobby_formula: string }
-export interface CharacterAssetRef { id: string; version: number; mime: string; width: number | null; height: number | null; source_type: string; approval_status: string; subtitle?: string }
+export interface CharacterAssetRef { id: string; version: number; hash?: string | null; mime: string; width: number | null; height: number | null; source_type: string; approval_status: string; subtitle?: string }
 export interface CharacterSpace { character: Character & { role_card: RoleCard; editable: boolean }; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[]; jobs: { id: string; kind: string; status: string; error: string | null; attach: { slot: string; subtitle: string } | null; created_at: string; finished_at: string | null }[]; era: string; narrative_time: string | null; attrs: Record<string, number>; generation_available: boolean; points: PointsReport; rule_system?: 'coc7e' | 'dnd2024' | string }
 export interface PlayerGroup { id: string; channel_id: string; name: string; version: number; members: {user_id: string; display_name: string}[] }
 export interface Message {
   reference_ids?: string[];
   id: string; channel_id: string; chat_window_id: string; scene_id: string | null; author_id: string; author_role: 'gm' | 'player';
-  character_id: string | null; character_name: string | null; character_avatar_asset_id?: string | null; character_avatar_version?: number | null; author_name: string; author_avatar_version?: number; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
+  character_id: string | null; character_name: string | null; character_avatar_asset_id?: string | null; character_avatar_version?: number | null; character_avatar_hash?: string | null; author_name: string; author_avatar_version?: number; author_avatar_hash?: string | null; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
   content: string; visibility: 'window' | 'gm_only' | 'whisper'; whisper_to: string[]; seq: number; created_at: string;
   dice?: DiceResult | null;
 }
@@ -163,9 +163,9 @@ export interface LogSnapshot { id: string; project_id: string; version: number; 
 export interface LogImport { id: string; adapter: string; file_name: string; encoding: string; status: string; stats: Record<string, any>; created_at: string; committed_at: string | null; issue_count?: number; speaker_map?: Record<string, SpeakerMapEntry>; speakers?: Record<string, SpeakerMapEntry>; preview?: LogEvent[]; issues?: { line_no: number; raw: string; reason: string; severity: string }[]; start_text?: string }
 export interface SpeakerMapEntry { display_name: string; role: string; im_user_id?: string; message_count?: number; character_id: string | null; suggested?: boolean; drop?: boolean }
 
-export interface MediaAsset { id: string; channel_id: string; asset_type: string; source_type: string; name: string; mime: string; bytes: number; width: number | null; height: number | null; duration_ms: number | null; character_id: string | null; expression: string; outfit: string; generation_provider: string | null; generation_model: string | null; prompt: string | null; approval_status: 'candidate' | 'approved' | 'rejected'; visibility_scope: 'channel' | 'gm'; version: number; tags: string[]; created_at: string; license_metadata: Record<string, unknown>; style_profile_id?: string | null }
-export interface CharacterPlacement { character_id: string; asset_id?: string | null; asset_version?: number; position: 'left' | 'center' | 'right' | string; active?: boolean; expression?: string; scale?: number; flip?: boolean }
-export interface PresentationScene { id: string; presentation_id: string; position: number; title: string; canonical_scene_key: string; background_asset_id: string | null; background_asset_version: number | null; bgm_asset_id: string | null; environment: Record<string, any>; transition_in: string; locked: boolean }
+export interface MediaAsset { id: string; channel_id: string; asset_type: string; source_type: string; name: string; mime: string; bytes: number; width: number | null; height: number | null; duration_ms: number | null; character_id: string | null; expression: string; outfit: string; generation_provider: string | null; generation_model: string | null; prompt: string | null; approval_status: 'candidate' | 'approved' | 'rejected'; visibility_scope: 'channel' | 'gm'; version: number; content_hash?: string | null; tags: string[]; created_at: string; license_metadata: Record<string, unknown>; style_profile_id?: string | null }
+export interface CharacterPlacement { character_id: string; asset_id?: string | null; asset_version?: number; asset_hash?: string | null; position: 'left' | 'center' | 'right' | string; active?: boolean; expression?: string; scale?: number; flip?: boolean }
+export interface PresentationScene { id: string; presentation_id: string; position: number; title: string; canonical_scene_key: string; background_asset_id: string | null; background_asset_version: number | null; background_asset_hash?: string | null; bgm_asset_id: string | null; environment: Record<string, any>; transition_in: string; locked: boolean }
 export interface PresentationEvent {
   id: string; scene_id: string | null; position: number; canonical_event_id: string; merged_event_ids: string[]; segment_index: number; segment_text: string | null;
   display_kind: 'dialogue' | 'narration' | 'action' | 'ooc' | 'dice' | 'scene_change' | 'system' | 'media'; hidden: boolean; speaker_character_id: string | null; speaker_name_override: string | null;

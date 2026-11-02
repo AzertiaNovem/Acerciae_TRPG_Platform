@@ -55,53 +55,31 @@ Keys contain random UUIDs and an R2 bucket is never listable, but a URL, once ha
 that is why only the media above is placed there. Native apps send an Authorization header and keep receiving the bytes
 (some HTTP stacks would forward the header across the redirect).
 
-Give the public bucket a CORS rule allowing `GET` from your site's origin; the visual-novel player's sound effects
-are fetched by script and need it (pictures and voices play through `<img>`/`<audio>` and do not).
+## On the device
 
-**Moving existing media: automatic.** Every start runs the media migration in the background (`MEDIA_MIGRATION=false`
-turns it off; `acerciae-server --migrate-media` runs it in the foreground and prints a report):
+The web client keeps media on the device in IndexedDB (`frontend/src/lib/assetCache.ts`; the native apps keep theirs in
+`AssetDiskCache`): character avatars and portraits, poses, asset-library thumbnails, visual-novel backgrounds, standees
+and voice clips, user avatars and atmosphere backgrounds.
 
-1. avatars still stored inline in PostgreSQL become media objects;
-2. with a public bucket, existing AI art, voice clips and avatars are copied there and their rows repointed to the
-   `pub/` key (only after the copy succeeded);
-3. everything still in the local directory that now belongs in object storage is uploaded, once (recorded in
-   `object_migrations`).
+**Keys.** The server stores the SHA-256 of every picture it keeps (`asset_versions.content_hash`, mirrored to
+`media_assets.content_hash` for the current version; `users.avatar_hash`) and names it wherever the picture is
+referenced (`content_hash` on media rows, `hash` on the character space's avatar, portrait and poses,
+`avatar_asset_hash` on the character list, `character_avatar_hash` / `author_avatar_hash` on messages, `avatar_hash` on
+the profile, `background_asset_hash` on visual-novel scenes and `asset_hash` on their placements, `hashes` on the
+atmosphere state). A reference that carries a hash is cached by it: the same bytes are one entry however many assets,
+versions or users show them, and a picture is downloaded again only when its hash changes or its entry expired. New
+objects are hashed as they are written; an object stored before hashes existed is hashed the first time it is served
+(read once, even when the browser is then sent to the public bucket); until then the entry is keyed by the URL without
+its file token, so a renewed token never reloads anything either. Keys are scoped to the account and server.
 
-So turning R2 on is enough: the next start sends the local media up. Local files are kept unless
-`MEDIA_MIGRATION_DELETE_LOCAL=true`; failures are logged and retried on the next start.
+**What is kept.** Only responses the server marks `immutable`: a named version (`?v=`) of something a player may see, an
+atmosphere image, a player's voice clip. The current version of an asset and GM-private material (GM-only assets,
+NPC art, the Keeper's voice clips) are never marked and never written to disk; they revalidate by ETag (304) instead.
+Media that redirects to the public bucket is left to the browser, which keeps it for a year.
 
-**Cleaning up: automatic.** Every start, and then once a day, the backend deletes stored media nothing uses any
-more, its database rows and its files on every backend (local disk, R2/S3, the public bucket). `STORAGE_CLEANUP=false`
-turns that off; `acerciae-server --clean-storage --dry-run` prints what would go, `acerciae-server --clean-storage`
-deletes it now (with Docker Compose: `docker compose run --rm backend /app/acerciae-server --clean-storage --dry-run`).
+**How long.** Each time an entry is shown its lifespan starts over: it lives until it has not been shown for 30 days
+(`ASSET_CACHE_MAX_AGE_MS`) or the cache passes 768 MB (`ASSET_CACHE_MAX_BYTES`, least recently used first); files over
+64 MB are not kept. A sweep runs once per session start. The cache stays across sign-out; when another account signs in
+on the same browser it is emptied first. Personal settings show its size with a **Clear** button. Without IndexedDB
+(private windows, blocked storage) or on any error the direct URL is used as before, so the cache is never required.
 
-1. character images that are not their character's current image: an older avatar, portrait or pose of the same
-   character and subtitle, a library standee a newer one of the same subtitle replaced, rejected images (a character
-   keeps one image per subtitle; new uploads and generations already replace the old one at once);
-2. earlier versions of an approved asset, unless a visual-novel scene or a live publication pins that version;
-3. replaced images a revoked publication was the last to show;
-4. stored objects no database row names, e.g. left behind by earlier versions, failed jobs or deleted drafts, and the
-   media migrator's old copies under their pre-`pub/` keys.
-
-Nothing younger than a day is touched, nor anything a character, a style, a visual-novel scene or a live publication
-still uses. Only the platform's own folders (`channels/`, `users/` and their `pub/` twins) are listed, and only objects
-of channels and users this database knows are deleted, so a bucket shared with another installation keeps that
-installation's files. A backend that cannot be listed in full (for example missing `s3:ListBucket` permission) is
-skipped and reported, never treated as empty. Local copies of media already uploaded to R2/S3 stay governed by
-`MEDIA_MIGRATION_DELETE_LOCAL`. Backgrounds and other library media stay until someone deletes them: they are there
-to be reused.
-
-**Switching back.** Set `OBJECT_STORE`/`IMAGE_STORE` back to `local` and remove `R2_PUBLIC_BASE_URL` (keep
-`R2_PUBLIC_BUCKET` and the credentials for a while): new media is written locally, everything is streamed by the backend
-again, and reads still find objects in R2. To leave R2 for good, copy first, then remove the R2 settings:
-
-```bash
-acerciae-server --copy-media r2public local   # the public bucket (avatars, voices, AI art)
-acerciae-server --copy-media r2 local         # the private bucket
-acerciae-server --copy-images local r2        # only images, e.g. into the private bucket
-```
-
-Copies keep the keys, skip what the destination already has, never delete, and can be re-run. With Docker Compose:
-`docker compose run --rm backend /app/acerciae-server --copy-media r2public local`.
-
-For MinIO development, set S3 variables in `.env`, use `docker compose --profile s3 up`, create a private bucket and provision a bucket-scoped access key. The profile has a development-only fallback password; configure a strong `S3_SECRET_KEY` before using shared infrastructure. The local object-store path was integration-tested; Docker/MinIO were not run in this environment.

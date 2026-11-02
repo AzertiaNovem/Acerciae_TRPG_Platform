@@ -69,10 +69,10 @@ struct CharacterView: View {
     }
     private func artwork(_ asset: JSONValue, height: CGFloat) -> some View {
         NavigationLink {
-            ScrollView { AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int).frame(minHeight: 480).padding() }
+            ScrollView { AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int, hash: asset["hash"].string ?? asset["content_hash"].text).frame(minHeight: 480).padding() }
                 .navigationTitle(asset["subtitle"].string ?? character.name)
         } label: {
-            AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int).frame(maxWidth: .infinity).frame(height: height)
+            AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int, hash: asset["hash"].string ?? asset["content_hash"].text).frame(maxWidth: .infinity).frame(height: height)
         }.buttonStyle(.plain)
     }
 }
@@ -276,11 +276,11 @@ struct StudioView: View {
                 Section(tr("Play") + " · \(index + 1) / \(events.count)") {
                     let scene = performanceScenes.first { $0["id"].text == event["scene_id"].text }
                     if let asset = scene?["background_asset_id"].string {
-                        AuthenticatedArtwork(model: model, assetId: asset, version: scene?["background_asset_version"].int ?? 0).frame(height: 180)
+                        AuthenticatedArtwork(model: model, assetId: asset, version: scene?["background_asset_version"].int ?? 0, hash: scene?["background_asset_hash"].text ?? "").frame(height: 180)
                     }
                     let standees = event["character_asset_ids"].array.filter { !$0["asset_id"].text.isEmpty }
                     if !standees.isEmpty { HStack { ForEach(Array(standees.enumerated()), id: \.offset) { _, item in
-                        AuthenticatedArtwork(model: model, assetId: item["asset_id"].text, version: item["asset_version"].int).frame(maxWidth: .infinity).frame(height: 140)
+                        AuthenticatedArtwork(model: model, assetId: item["asset_id"].text, version: item["asset_version"].int, hash: item["asset_hash"].text).frame(maxWidth: .infinity).frame(height: 140)
                     } } }
                     Text(event["speaker_name_override"].string ?? event["speaker_display_name"].text).font(.headline)
                     Text(event["display_kind"].text == "dice" ? (event["dice"]["text"].string ?? event["display_text"].text) : event["display_text"].text).textSelection(.enabled)
@@ -378,15 +378,16 @@ struct AuthenticatedArtwork: View {
     @ObservedObject var model: AppModel
     let assetId: String
     let version: Int
+    var hash = ""   // the picture's content hash, when the server named one
     @State private var image: UIImage?
     var body: some View {
         Group {
             if let image { Image(uiImage: image).resizable().scaledToFit() }
             else { Text(tr("素材加载中或不可用")).font(.caption).foregroundStyle(.secondary) }
-        }.task(id: (model.session?.user.id ?? "") + model.scopeKey + assetId + String(version)) {
-            let key = (model.session?.user.id ?? "") + model.scopeKey + assetId + String(version)
+        }.task(id: (model.session?.user.id ?? "") + model.scopeKey + assetId + String(version) + hash) {
+            let key = (model.session?.user.id ?? "") + model.scopeKey + assetId + String(version) + hash
             image = ArtworkImages.cached(key)
-            image = try? await ArtworkImages.load(key) { try await model.bytes(["channels", model.channelId, "media", assetId], query: version > 0 ? ["v": String(version)] : [:]) }
+            image = try? await ArtworkImages.load(key) { try await model.bytes(["channels", model.channelId, "media", assetId], query: version > 0 ? ["v": String(version)] : [:], hash: hash.isEmpty ? nil : hash) }
         }
     }
 }

@@ -45,4 +45,40 @@ class AssetDiskCacheTest {
         assertTrue(AssetDiskCache.keepable("private, max-age=31536000, immutable"))
         assertFalse(AssetDiskCache.keepable("private, max-age=3600")); assertFalse(AssetDiskCache.keepable(null))
     }
+
+    @Test fun keysByContentHashSoTheSameBytesAreOneEntryWhateverNamesThem() = runBlocking {
+        val dir = Files.createTempDirectory("assets").toFile()
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setHeader("Cache-Control", "private, max-age=31536000, immutable").setBody("PIXELS"))
+            server.enqueue(MockResponse().setHeader("Cache-Control", "private, max-age=31536000, immutable").setBody("OTHER"))
+            val client = BackendClient(BackendAddress(server.url("/").toString(), true), assets = AssetDiskCache(dir))
+            val h = "a".repeat(64)
+            assertEquals("PIXELS", String(client.bytes(listOf("channels", "c", "media", "m1"), "t", mapOf("v" to "2"), h)))
+            // Another asset, another user avatar, a new version: the same hash is the same entry, nothing is downloaded.
+            assertEquals("PIXELS", String(client.bytes(listOf("channels", "d", "media", "m9"), "t", mapOf("v" to "1"), h)))
+            assertEquals("PIXELS", String(client.bytes(listOf("users", "u", "avatar"), "t", mapOf("v" to "3"), h)))
+            assertEquals(1, server.requestCount)
+            // A changed hash is a new entry.
+            assertEquals("OTHER", String(client.bytes(listOf("channels", "c", "media", "m1"), "t", mapOf("v" to "3"), "b".repeat(64))))
+            assertEquals(2, server.requestCount)
+            assertEquals("sha:$h", AssetDiskCache.key(h, "http://x/")); assertEquals("http://x/", AssetDiskCache.key("", "http://x/")); assertEquals("http://x/", AssetDiskCache.key(null, "http://x/"))
+        }
+    }
+
+    @Test fun dropsWhatWasNotUsedForThirtyDaysAndEveryUseRenewsTheLifespan() {
+        val dir = Files.createTempDirectory("assets").toFile()
+        var now = 1_000_000_000_000L
+        val day = 24L * 60 * 60 * 1000
+        val cache = AssetDiskCache(dir, maxAgeMs = 30 * day, clock = { now })
+        cache.put("a", ByteArray(4)); cache.put("b", ByteArray(4))
+        now += 20 * day
+        assertNotNull("used on day 20: a's lifespan starts over", cache.get("a"))
+        now += 15 * day
+        assertNotNull("a: 15 days since its last use", cache.get("a"))
+        assertNull("b: 35 days without a use", cache.get("b"))
+        assertEquals(1, dir.listFiles()!!.count { !it.name.endsWith(".tmp") })
+        now += 31 * day
+        assertNull(cache.get("a"))
+        assertEquals(0, dir.listFiles()!!.count { !it.name.endsWith(".tmp") })
+    }
 }
