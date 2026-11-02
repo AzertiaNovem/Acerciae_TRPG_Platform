@@ -144,7 +144,7 @@ private struct SidebarView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         Menu(model.serverName) {
-                            ForEach(model.servers) { server in Button(server.name) { Task { await model.run { try await model.selectServer(server.id) } } } }
+                            ForEach(model.servers) { server in Button(server.name) { model.navigate { try await model.selectServer(server.id) } } }
                         }.font(.headline)
                         row(tr("Servers"), icon: "globe") { browsingServers = true }
                         if model.serverSettings["is_maintainer"].bool { row(tr("服务器选项"), icon: "server.rack") { select("server") } }
@@ -154,12 +154,12 @@ private struct SidebarView: View {
                             Button { creatingChannel = true } label: { Image(systemName: "plus") }.accessibilityLabel(tr("添加频道")).disabled(model.serverId.isEmpty || !model.canCreateChannel)
                         }
                         ForEach(model.channels) { item in
-                            row(item.name, icon: "number", selected: model.channelId == item.id) { Task { await model.run { try await model.selectChannel(item.id) } } }
+                            row(item.name, icon: "number", selected: model.channelId == item.id) { model.navigate { try await model.selectChannel(item.id) } }
                         }
                         if model.gm { row(tr("频道选项"), icon: "slider.horizontal.3") { select("channel") } }
                         Text(tr("聊天窗口")).font(.caption).foregroundStyle(.secondary)
                         ForEach(model.windows) { item in
-                            row(item.name + (item["unread"].int > 0 ? " · " + (item["unread"].int > 99 ? "99+" : String(item["unread"].int)) : ""), icon: "bubble.left", selected: model.windowId == item.id) { Task { await model.run { try await model.selectWindow(item.id); select("chat") } } }
+                            row(item.name + (item["unread"].int > 0 ? " · " + (item["unread"].int > 99 ? "99+" : String(item["unread"].int)) : ""), icon: "bubble.left", selected: model.windowId == item.id) { select("chat"); model.navigate { try await model.selectWindow(item.id) } }
                         }
                         DisclosureGroup(tr("角色"), isExpanded: $charactersExpanded) {
                             if !model.channelId.isEmpty { row(tr("添加角色"), icon: "person.badge.plus") { creatingCharacter = true } }

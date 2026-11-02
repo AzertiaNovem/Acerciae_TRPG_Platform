@@ -30,7 +30,7 @@ import kotlin.math.roundToInt
             put("synthesis_parameters", buildJsonObject { features.rows("params").forEach { p -> put(p.text("key"), v.obj("synthesis_parameters")[p.text("key")] ?: p["default"] ?: JsonPrimitive(0)) } })
         }
     }
-    LaunchedEffect(state.channelId) { model.run { status = model.get(base + listOf("tts", "status")); profiles = model.rows(base + "voices"); presets = model.rows(base + listOf("tts", "available-voices")); reset() } }
+    LaunchedEffect(state.channelId) { model.load { status = model.get(base + listOf("tts", "status")); profiles = model.rows(base + "voices"); presets = model.rows(base + listOf("tts", "available-voices")); reset() } }
     Column {
         TextButton(onClick = close) { Text(tr("Back")) }
         LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

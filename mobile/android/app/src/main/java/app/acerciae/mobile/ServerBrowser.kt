@@ -20,7 +20,7 @@ import kotlinx.serialization.json.*
         if (state.serverId.isNotEmpty() && state.serverRole != "guest" && state.serverSettings.obj("policy").flag("main_chat_spectators")) watching = model.rows(listOf("servers", state.serverId, "spectate"))
     }
     suspend fun joined(id: String) { model.refreshCatalog(); model.selectServer(id); close() }
-    LaunchedEffect(state.serverId) { model.run { load() } }
+    LaunchedEffect(state.serverId) { model.load { load() } }
     if (selected != null) { SpectatorPage(selected!!, state, model) { selected = null }; return }
     LazyColumn(Modifier.fillMaxSize().imePadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { TextButton(onClick = close) { Text(tr("Done")) }; Text(tr("Servers"), style = MaterialTheme.typography.titleLarge) }
@@ -28,7 +28,7 @@ import kotlinx.serialization.json.*
         item { OutlinedTextField(code, { code = it; invite = null }, label = { Text(tr("Invite code")) }) }
         item { TextButton(onClick = { model.launch { invite = model.get(listOf("invites", code.trim())) } }, enabled = code.isNotBlank() && !state.busy) { Text(tr("Preview")) } }
         invite?.let { value -> item { Text(value.name); Button(onClick = { model.launch { val s = model.get(listOf("invites", code.trim(), "accept"), JsonObject(emptyMap())); joined(s.id) } }, enabled = value.flag("valid") && !state.busy) { Text(tr("Join")) } } }
-        item { Text(tr("Open servers"), style = MaterialTheme.typography.titleMedium); OutlinedTextField(query, { query = it }, label = { Text(tr("Search")) }); TextButton(onClick = { model.launch { load() } }, enabled = !state.busy) { Text(tr("Search")) } }
+        item { Text(tr("Open servers"), style = MaterialTheme.typography.titleMedium); OutlinedTextField(query, { query = it }, label = { Text(tr("Search")) }); TextButton(onClick = { model.loadAsync { load() } }, enabled = !state.busy) { Text(tr("Search")) } }
         items(servers, key = { it.id }) { item ->
             Text(item.name + " · ${item.number("member_count")} " + tr("Members"))
             val member = state.servers.any { it.id == item.id }
@@ -47,10 +47,10 @@ import kotlinx.serialization.json.*
             val next = value.rows("messages"); messages = if (older) next + messages else next; more = next.size >= 50
         } catch (e: Exception) { messages = emptyList(); more = false; throw e }
     }
-    LaunchedEffect(channel.id) { model.run { load() } }
+    LaunchedEffect(channel.id) { model.load { load() } }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { TextButton(onClick = close) { Text(tr("Back")) }; Text(channel.name, style = MaterialTheme.typography.titleLarge); Text(tr("Read-only Main Chat")) }
-        item { TextButton(onClick = { model.launch { load() } }, enabled = !state.busy) { Text(tr("Refresh")) } }
+        item { TextButton(onClick = { model.loadAsync { load() } }, enabled = !state.busy) { Text(tr("Refresh")) } }
         if (more) item { TextButton(onClick = { model.launch { load(true) } }, enabled = !state.busy) { Text(tr("Load earlier messages")) } }
         items(messages, key = { it.id }) { item -> Text(item.text("author_name"), style = MaterialTheme.typography.labelSmall); Text(item.text("content")) }
     }

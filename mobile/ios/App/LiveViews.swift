@@ -53,7 +53,15 @@ struct CharacterView: View {
             }
         }.navigationTitle(tr("角色主页")).navigationBarTitleDisplayMode(.inline)
             .toolbar { Button(tr("完成")) { dismiss() } }
-            .task { do { try await load() } catch { model.handle(error) }; loading = false }
+             .task {
+                let base = ["channels", model.channelId, "characters", character.id]
+                if let kept: JSONValue = await model.cached(base + ["space"]) { space = kept; loading = false }
+                if let kept: JSONValue = await model.cached(base + ["attributes"]) { attributes = kept }
+                do { try await load() } catch {
+                    if let e = error as? ClientError, [401,403,404].contains(e.httpStatus ?? 0) { space = .null; attributes = .null }
+                    model.handle(error)
+                }; loading = false
+            }
     }
     private func load() async throws {
         space = try await model.get(["channels", model.channelId, "characters", character.id, "space"])
@@ -237,7 +245,7 @@ struct LiveChannelView: View {
                 diceGroups = []; studioLoaded = false
                 diceGroups = (try? await model.typed(["servers", model.serverId, "dice-texts"])) ?? []
                 guard model.studioAvailable else { return }
-                await model.run {
+                await model.load {
                     let v = try await model.get(["channels", model.channelId, "studio", "settings"])
                     cloud = v["studio_cloud_allowed"].bool; budget = String(v["tts_budget_chars"].int); studioLoaded = true
                 }
@@ -370,14 +378,15 @@ struct AuthenticatedArtwork: View {
     @ObservedObject var model: AppModel
     let assetId: String
     let version: Int
-    @State private var data: Data?
+    @State private var image: UIImage?
     var body: some View {
         Group {
-            if let data, let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFit() }
+            if let image { Image(uiImage: image).resizable().scaledToFit() }
             else { Text(tr("素材加载中或不可用")).font(.caption).foregroundStyle(.secondary) }
-        }.task(id: assetId + String(version)) {
-            data = nil
-            data = try? await model.bytes(["channels", model.channelId, "media", assetId], query: version > 0 ? ["v": String(version)] : [:])
+        }.task(id: (model.session?.user.id ?? "") + model.scopeKey + assetId + String(version)) {
+            let key = (model.session?.user.id ?? "") + model.scopeKey + assetId + String(version)
+            image = ArtworkImages.cached(key)
+            image = try? await ArtworkImages.load(key) { try await model.bytes(["channels", model.channelId, "media", assetId], query: version > 0 ? ["v": String(version)] : [:]) }
         }
     }
 }

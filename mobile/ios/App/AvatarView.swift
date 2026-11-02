@@ -3,7 +3,7 @@ import ImageIO
 import AcerciaeCore
 
 // Decoded, small thumbnails only; keys include account, channel permissions and asset revision.
-@MainActor private enum AvatarCache {
+@MainActor enum AvatarCache {
     static let images: NSCache<NSString, UIImage> = { let cache = NSCache<NSString, UIImage>(); cache.countLimit = 128; return cache }()
 }
 struct AvatarView: View {

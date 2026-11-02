@@ -52,11 +52,22 @@ public struct BackendClient: Sendable {
     private let session: URLSession
     /// Downloaded media kept on disk for the signed-in account (see `AssetDiskCache`); nil keeps nothing.
     public let assets: AssetDiskCache?
-    public init(address: BackendAddress, session: URLSession? = nil, assets: AssetDiskCache? = nil) {
-        self.address = address; self.session = session ?? Self.makeSession(); self.assets = assets
+    public let reads: AssetDiskCache?
+    private let transfers = AssetTransfers()
+    public init(address: BackendAddress, session: URLSession? = nil, assets: AssetDiskCache? = nil, reads: AssetDiskCache? = nil) {
+        self.address = address; self.session = session ?? Self.makeSession(); self.assets = assets; self.reads = reads
     }
     /// The same client, keeping media in `assets` (once the account is known, after signing in).
-    public func withAssets(_ assets: AssetDiskCache?) -> BackendClient { BackendClient(address: address, session: session, assets: assets) }
+    public func withAssets(_ assets: AssetDiskCache?, reads: AssetDiskCache? = nil) -> BackendClient { BackendClient(address: address, session: session, assets: assets, reads: reads) }
+    private func cacheKey(_ path: [String], _ query: [String: String]) -> String {
+        var c = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
+        if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        return c.url!.absoluteString
+    }
+    public func cached<T: Decodable>(_ path: [String], query: [String: String] = [:]) async -> T? {
+        guard let data = await reads?.read(cacheKey(path, query)) else { return nil }
+        return try? APIJSON.decoder().decode(T.self, from: data)
+    }
     public func request<T: Decodable>(_ path: [String], token: String? = nil, body: Data? = nil, method: String? = nil, query: [String: String] = [:]) async throws -> T {
         var components = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) } }
@@ -66,22 +77,39 @@ public struct BackendClient: Sendable {
         if let body { request.httpMethod = "POST"; request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let method { request.httpMethod = method }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        return try decode(T.self, data: await send(request))
+        let generation = reads?.generation ?? 0
+        let ticket = (request.httpMethod ?? "GET") == "GET" && ReadCachePolicy.keep(path) ? reads?.reserve(cacheKey(path,query)) : nil
+        let data: Data
+        do { data = try await send(request) }
+        catch {
+            if let e = error as? ClientError, [401,403,404].contains(e.httpStatus ?? 0), let reads {
+                let key = cacheKey(path, query)
+                await Task.detached(priority: .utility) { reads.remove(key) }.value
+            }
+            throw error
+        }
+        let value = try decode(T.self, data: data)
+        // Explicit stale-first reads only. Authorization and write preconditions always use the network.
+        if (request.httpMethod ?? "GET") == "GET", ReadCachePolicy.keep(path), let reads {
+            await reads.write(cacheKey(path, query), data, generation: generation, ticket: ticket)
+        }
+        return value
     }
     public func resource(_ path: [String], token: String, body: JSONValue? = nil, method: String? = nil, query: [String: String] = [:]) async throws -> JSONValue {
         try await request(path, token: token, body: try body.map { try JSONEncoder().encode($0) }, method: method, query: query)
     }
     public func bytes(_ path: [String], token: String, query: [String: String] = [:]) async throws -> Data {
         var c = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
-        c.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
-        let key = c.url!.absoluteString
-        if let kept = assets?.get(key) { return kept }
-        var r = URLRequest(url: c.url!); r.timeoutInterval = 120
-        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await sendResponse(r)
-        if let assets, AssetDiskCache.keepable(response.value(forHTTPHeaderField: "Cache-Control")) { assets.put(key, data) }
-        return data
+        c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        let url = c.url!; let key = url.absoluteString
+        return try await transfers.load(key: key, cache: assets) {
+            var r = URLRequest(url: url); r.timeoutInterval = 120
+            r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await sendResponse(r)
+            return (data, AssetDiskCache.keepable(response.value(forHTTPHeaderField: "Cache-Control")))
+        }
     }
+
     public func uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, data: Data, token: String) async throws -> JSONValue {
         guard data.count <= 10 * 1024 * 1024, ["avatar", "portrait", "subtitle"].contains(slot), !subtitle.contains("\r"), !subtitle.contains("\n") else { throw ClientError.invalidResponse }
         let boundary = "Mobile-" + UUID().uuidString

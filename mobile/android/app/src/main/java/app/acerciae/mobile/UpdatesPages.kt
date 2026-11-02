@@ -47,7 +47,7 @@ import kotlinx.serialization.json.*
     var template by remember { mutableStateOf("adv") }; var cloud by remember { mutableStateOf(false) }; var art by remember { mutableStateOf(false) }
     val base = listOf("channels", state.channelId, "studio", "vn-scripts")
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(state.channelId) { model.run { status = model.get(base + "status"); jobs = model.rows(base) } }
+    LaunchedEffect(state.channelId) { model.load { status = model.get(base + "status"); jobs = model.rows(base) } }
     LaunchedEffect(state.channelId, lifecycle) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
         while (true) { delay(4000); if (jobs.any { it.text("status") in listOf("pending", "running") }) model.run { jobs = model.rows(base) } }
     } }
@@ -110,7 +110,16 @@ import kotlinx.serialization.json.*
     val dnd = space.text("rule_system") == "dnd2024" || state.channel.text("rule_system") == "dnd2024"
     val pointsOn = space.obj("points").flag("enabled")
     val pointsValid = dnd || !pointsOn || (pointRules != null && PointBuy(card, pointRules!!).issues.isEmpty())
-    LaunchedEffect(character.id) { try { apply(model.get(base + "space")) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { model.notice(tr("角色资料加载失败，请重新打开角色卡")) } }
+    LaunchedEffect(character.id) {
+        (model.cached(base + "space") as? JsonObject)?.let { apply(it) }
+        val initialCard = card; val initialText = listOf(name,bio,speakingStyle,prompt,mode)
+        try { val fresh = model.get(base + "space")
+            if (card == initialCard && listOf(name,bio,speakingStyle,prompt,mode) == initialText) apply(fresh) else space = fresh
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+            if (e is BackendException && e.apiResponse && e.status in listOf(401,403,404)) space = JsonObject(emptyMap())
+            model.notice(tr("角色资料加载失败，请重新打开角色卡"))
+        }
+    }
     LaunchedEffect(pointsOn,dnd) { if (pointsOn || dnd) { try { pointRules = model.get(listOf(if (dnd) "dnd" else "coc7", "rules")); rulesError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { rulesError = tr("职业规则暂不可用，请重试；草稿保留") } } }
     val groups = listOf(
         Triple("basic", tr("基本信息"), listOf("player", "occupation", "age", "sex", "residence", "birthplace")),
@@ -183,7 +192,7 @@ import kotlinx.serialization.json.*
             }
         }
         items(space.rows("jobs")) { Text("${it.text("kind")} · ${it.text("status")}\n${it.text("error")}") }
-        item { TextButton(onClick = { model.launch { space = model.get(base + "space") } }, enabled = !state.busy) { Text(tr("刷新素材")) } }
+        item { TextButton(onClick = { model.loadAsync { space = model.get(base + "space") } }, enabled = !state.busy) { Text(tr("刷新素材")) } }
     }
 }
 }
@@ -198,7 +207,7 @@ private fun fieldLabel(key: String) = mapOf("player" to tr("Player"), "occupatio
     val base = listOf("channels", state.channelId, "studio")
     val speakers = buildMap { put("narrator", tr("旁白")); presentation.rows("events").filter { !it.flag("hidden") && it.text("speaker_character_id").isNotEmpty() }.forEach { put(it.text("speaker_character_id"), it.text("speaker_display_name")) } }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(id) { model.run {
+    LaunchedEffect(id) { model.load {
         presentation = model.get(base + listOf("presentations", id)); cast = presentation.obj("settings").obj("cast")
         speechProvider = model.get(base + listOf("tts", "status")).text("provider"); voices = model.rows(base + "voices"); presets = model.rows(base + listOf("tts", "available-voices")); cast = JsonObject(cast.filter { (speaker, value) -> value.jsonPrimitive.content.isEmpty() || voices.any { it.id == value.jsonPrimitive.content && it.text("provider") == speechProvider && (it.text("character_id").isEmpty() || it.text("character_id") == speaker) } }); estimate = null
     } }

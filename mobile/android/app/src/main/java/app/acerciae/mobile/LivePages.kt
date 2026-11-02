@@ -30,7 +30,13 @@ import java.io.File
     var attribute by remember { mutableStateOf("") }
     var value by remember { mutableStateOf("") }
     val path = listOf("channels", state.channelId, "characters", character.id, "attributes")
-    LaunchedEffect(character.id) { model.run { space = model.get(path.dropLast(1) + "space"); attrs = model.get(path) }; loading = false }
+    LaunchedEffect(character.id) {
+        (model.cached(path.dropLast(1) + "space") as? JsonObject)?.let { space = it; loading = false }
+        (model.cached(path) as? JsonObject)?.let { attrs = it }
+        model.load { try { space = model.get(path.dropLast(1) + "space"); attrs = model.get(path) }
+            catch (e: BackendException) { if (e.apiResponse && e.status in listOf(401,403,404)) { space = JsonObject(emptyMap()); attrs = JsonObject(emptyMap()) }; throw e } }
+        loading = false
+    }
     image?.let { asset -> androidx.compose.ui.window.Dialog(onDismissRequest = { image = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) { Column(Modifier.safeDrawingPadding()) {
             TextButton(onClick = { image = null }) { Text(tr("返回角色")) }
@@ -296,11 +302,16 @@ import java.io.File
 }
 
 @Composable fun AuthenticatedArtwork(model: AppViewModel, channelId: String, assetId: String, version: Int, modifier: Modifier) {
-    var bitmap by remember(assetId, version) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(assetId, version) {
+    var bitmap by remember(channelId, assetId, version) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(channelId, assetId, version) {
         try {
             val bytes = model.bytes(listOf("channels", channelId, "media", assetId), if (version > 0) mapOf("v" to version.toString()) else emptyMap())
-            bitmap = withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+            bitmap = withContext(Dispatchers.Default) {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                val options = BitmapFactory.Options().apply { inSampleSize = 1; while (maxOf(bounds.outWidth, bounds.outHeight) / inSampleSize > 1920) inSampleSize *= 2 }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+            }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { bitmap = null }
     }
     bitmap?.let { Image(it, contentDescription = tr("演出素材"), modifier = modifier) } ?: Text(tr("素材加载中或不可用"), modifier, style = MaterialTheme.typography.bodySmall)

@@ -31,6 +31,7 @@ private struct ChannelBackdrop: View {
             }
         }.task(id: phase) {
             guard phase == .active else { return }
+            if let kept: JSONValue = await model.cached(["channels",model.channelId,"atmosphere"]) { try? await display(kept) }
             while !Task.isCancelled {
                 await load()
                 do { try await Task.sleep(for: .seconds(30)) } catch { break }
@@ -41,19 +42,22 @@ private struct ChannelBackdrop: View {
         let channel = model.channelId
         do {
             let current = try await model.get(["channels", channel, "atmosphere"])
-            try Task.checkCancellation()
-            guard let id = Atmosphere.asset(current, dark: dark, portrait: portrait) else { image = nil; loadedAsset = ""; return }
-            if id != loadedAsset {
-                // Preview assets are candidates; use their dedicated authorized endpoint, never /media or a provider URL.
-                let data = try await model.bytes(["channels", channel, "atmosphere", "assets", id])
-                try Task.checkCancellation()
-                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                      let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1920, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { image = nil; loadedAsset = ""; return }
-                image = UIImage(cgImage: decoded); loadedAsset = id
-            }
-            mock = current["mock"].bool
+            try await display(current)
         } catch is CancellationError { return }
-        catch { if !Task.isCancelled { image = nil; loadedAsset = "" } }
+        catch {
+            if let e = error as? ClientError, [401,403,404].contains(e.httpStatus ?? 0) { image = nil; loadedAsset = "" }
+            // A transient refresh failure must not remove the already rendered background.
+        }
+    }
+    @MainActor private func display(_ current: JSONValue) async throws {
+        try Task.checkCancellation()
+        guard let id = Atmosphere.asset(current, dark: dark, portrait: portrait) else { image = nil; loadedAsset = ""; return }
+        if id != loadedAsset {
+            let key = (model.session?.user.id ?? "") + model.scopeKey + ":atmosphere:" + id
+            image = try await ArtworkImages.load(key) { try await model.bytes(["channels",model.channelId,"atmosphere","assets",id]) }
+            loadedAsset = image == nil ? "" : id
+        }
+        mock = current["mock"].bool
     }
 }
 struct AtmosphereHistory: View {

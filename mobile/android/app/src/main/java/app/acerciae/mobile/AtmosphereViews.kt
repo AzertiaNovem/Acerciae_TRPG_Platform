@@ -32,27 +32,30 @@ import kotlinx.serialization.json.*
         var bitmap by remember { mutableStateOf<Bitmap?>(null) }
         var loadedAsset by remember { mutableStateOf("") }; var mock by remember { mutableStateOf(false) }
         val lifecycle = LocalLifecycleOwner.current.lifecycle
+        suspend fun display(current: JsonObject) {
+    val id = Atmosphere.asset(current, dark, portrait)
+    if (id == null) { bitmap = null; loadedAsset = "" }
+    else {
+        if (id != loadedAsset) {
+            val bytes = model.bytes(listOf("channels", state.channelId, "atmosphere", "assets", id))
+            val decoded = withContext(Dispatchers.Default) {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                val opts = BitmapFactory.Options().apply { inSampleSize = 1; while (maxOf(bounds.outWidth, bounds.outHeight) / inSampleSize > 1920) inSampleSize *= 2 }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            }
+            kotlin.coroutines.coroutineContext.ensureActive(); bitmap = decoded; loadedAsset = if (decoded == null) "" else id
+        }
+        mock = current.flag("mock")
+    }
+        }
         LaunchedEffect(lifecycle) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                (model.cached(listOf("channels",state.channelId,"atmosphere")) as? JsonObject)?.let { try { display(it) } catch (e: CancellationException) { throw e } catch (_: Exception) {} }
                 while (isActive) {
-                    try {
-                        val current = model.get(listOf("channels", state.channelId, "atmosphere"))
-                        val id = Atmosphere.asset(current, dark, portrait)
-                        if (id == null) { bitmap = null; loadedAsset = "" }
-                        else {
-                            if (id != loadedAsset) {
-                                val bytes = model.bytes(listOf("channels", state.channelId, "atmosphere", "assets", id))
-                                val decoded = withContext(Dispatchers.Default) {
-                                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                                    val opts = BitmapFactory.Options().apply { inSampleSize = 1; while (maxOf(bounds.outWidth, bounds.outHeight) / inSampleSize > 1920) inSampleSize *= 2 }
-                                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-                                }
-                                ensureActive(); bitmap = decoded; loadedAsset = if (decoded == null) "" else id
-                            }
-                            mock = current.flag("mock")
-                        }
-                    } catch (e: CancellationException) { throw e } catch (_: Exception) { bitmap = null; loadedAsset = "" }
+                    try { display(model.get(listOf("channels",state.channelId,"atmosphere"))) }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { if (e is BackendException && e.apiResponse && e.status in listOf(401,403,404)) { bitmap = null; loadedAsset = "" } }
                     delay(30000)
                 }
             }

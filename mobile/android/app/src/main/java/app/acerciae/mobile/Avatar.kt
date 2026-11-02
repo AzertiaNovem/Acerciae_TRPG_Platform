@@ -22,6 +22,7 @@ import app.acerciae.mobile.core.*
 import kotlinx.coroutines.*
 
 private val avatarImages = LruCache<String, Bitmap>(128)
+internal fun clearAvatarImages() { avatarImages.evictAll() }
 @Composable fun ProfileAvatar(name: String, state: AppState, model: AppViewModel, assetId: String = "", version: String = "", ownerId: String = "", ownerVersion: Int = 0, size: Dp = 32.dp) {
     val key = "${state.user?.id}:${state.scopeKey}:$assetId:$version:$ownerId:$ownerVersion:${state.user?.avatarVersion}:${state.user?.hasAvatar}"
     var bitmap by remember(key) { mutableStateOf<Bitmap?>(avatarImages.get(key)) }
