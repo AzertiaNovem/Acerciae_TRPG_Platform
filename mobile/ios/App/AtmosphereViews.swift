@@ -7,7 +7,7 @@ struct AtmosphereBackdrop: View {
     @Environment(\.colorScheme) private var theme
     var body: some View {
         GeometryReader { geometry in
-            if model.online && !model.channelId.isEmpty && model.session?.user.atmosphereEnabled == true && model.serverSettings["features"]["atmosphere"].bool {
+            if model.online && !model.channelId.isEmpty && model.session?.user.atmosphereEnabled == true && model.enabled("atmosphere") {
                 let variant = Atmosphere.variant(dark: theme == .dark, portrait: geometry.size.height >= geometry.size.width)
                 ChannelBackdrop(model: model, dark: theme == .dark, portrait: geometry.size.height >= geometry.size.width)
                     .id((model.session?.user.id ?? "") + model.scopeKey + variant)

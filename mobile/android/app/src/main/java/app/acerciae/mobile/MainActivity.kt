@@ -77,10 +77,12 @@ class MainActivity : ComponentActivity() {
     val lifecycle = LocalLifecycleOwner.current
     LaunchedEffect(state.user?.id) {
         if (state.online) lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            model.poll(forceCatalog = true)
-            while (true) { delay(4000); model.poll() }
+            model.foreground = true
+            try { model.poll(forceCatalog = true); while (true) { delay(4000); model.poll() } } finally { model.foreground=false; model.stopSpeech() }
         }
     }
+    SideEffect { model.chatVisible = page == 0 && detail == null && !drawer.isOpen }
+    LaunchedEffect(page,detail,drawer.isOpen) { if(page != 0 || detail != null || drawer.isOpen) model.stopSpeech() }
     LaunchedEffect(state.draft, state.characterId) { delay(400); model.previewDice() }
     BackHandler(enabled = drawer.isOpen || page != 0) {
         if (drawer.isOpen) scope.launch { drawer.close() } else page = 0
@@ -132,6 +134,7 @@ class MainActivity : ComponentActivity() {
                 4 -> key(state.channelId) { LiveChannelPage(state, model) }
                 else -> SettingsPage(state, model)
             }
+            if(!drawer.isOpen) ChatActivityBanners(state,model) { page=0; detail=null }
         }
     }
     }
@@ -194,7 +197,7 @@ class MainActivity : ComponentActivity() {
                 items(state.channels, key = { "channel:" + it.id }) { channel -> SidebarRow(channel.name, channel.id == state.channelId) { model.launch { model.selectChannel(channel.id) } } }
                 if (state.gm) item { SidebarRow(tr("频道选项")) { select(4) } }
                 item { Text(tr("聊天窗口"), style = MaterialTheme.typography.labelMedium) }
-                items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name, window.id == state.windowId) { model.launch { model.selectWindow(window.id); select(0) } } }
+                items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { model.launch { model.selectWindow(window.id); select(0) } } }
                 item { TextButton(onClick = { charactersExpanded = !charactersExpanded }) { Text(tr("Characters") + if (charactersExpanded) " −" else " +") } }
                 if (charactersExpanded && state.channelId.isNotEmpty()) item { TextButton(onClick = { showDetail("create-character") }, enabled = !state.busy) { Text(tr("添加角色")) } }
                 if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.text("updated_at")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }
@@ -255,6 +258,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     LaunchedEffect(campaign.messages.lastOrNull()?.id) { if (campaign.messages.isNotEmpty()) scroll.animateScrollToItem(campaign.messages.lastIndex + if (state.online && state.hasOlder) 2 else 1) }
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().imePadding()) {
+        if(state.channel.text("rule_system")=="dnd2024") InitiativePanel(state,model)
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
         LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -382,6 +386,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         item { Button(onClick = model::logout, enabled = !state.busy) { Text(tr("退出登录")) } }
         item { LanguagePicker(state, model); Text(tr("This changes your interface only. Server AI output language stays unchanged."), style = MaterialTheme.typography.bodySmall) }
         item { Row(verticalAlignment = Alignment.CenterVertically) { Text(tr("Show channel atmosphere backgrounds"), Modifier.weight(1f)); Switch(state.user?.atmosphereEnabled == true, model::changeAtmosphere, enabled = !state.busy) }; Text(tr("Backgrounds follow the app theme and screen orientation. The server must also enable this feature."), style = MaterialTheme.typography.bodySmall) }
+        item { SettingToggle(tr("Message banners"),state.bannersEnabled,true,model::setBanners); SettingToggle(tr("Read aloud"),state.readAloud,true,model::setReadAloud); Text(tr("Uses this phone’s speech voices. Only new messages in the visible chat are read.")); TextButton(onClick=model::stopSpeech) { Text(tr("Stop reading")) } }
         item { Text(tr("内容同步"), style = MaterialTheme.typography.titleMedium) }
         item { TextButton(onClick = { scope.launch { model.poll(forceCatalog = true) } }, enabled = !state.busy) { Text(tr("立即刷新")) } }
         item { Text(tr(state.connection), color = Accent) }

@@ -25,16 +25,17 @@ import kotlinx.serialization.json.*
     val server = remember { state.serverId }
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var mode by remember { mutableStateOf("isolated") }
+    var mode by remember { mutableStateOf("isolated") }; var ruleSystem by remember { mutableStateOf("coc7e") }
     var createdId by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(tr("添加频道"), style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(name, { name = it }, label = { Text(tr("频道名称")) }, enabled = createdId == null && !state.busy)
         OutlinedTextField(description, { description = it }, label = { Text(tr("频道介绍")) }, enabled = createdId == null && !state.busy)
+        Choice(tr("Rule system"), ruleSystem, listOf("coc7e" to "Call of Cthulhu 7e", "dnd2024" to "D&D 2024 · SRD 5.2"), createdId == null && !state.busy) { ruleSystem = it }
         Choice(tr("角色知识"), mode, listOf("isolated" to tr("隔离：各自掌握线索"), "public" to tr("公开：共享知识")), createdId == null && !state.busy) { mode = it }
         Text(tr("创建后你将成为此频道的守密人，并自动建立主聊天窗口。"))
         Button(onClick = { model.launch {
-            if (createdId == null) createdId = model.get(listOf("servers", server, "channels"), payload("name" to name.trim(), "description" to description, "knowledge_mode" to mode, "rule_system" to "coc7e")).id
+            if (createdId == null) createdId = model.get(listOf("servers", server, "channels"), payload("name" to name.trim(), "description" to description, "knowledge_mode" to mode, "rule_system" to ruleSystem)).id
             if (model.state.value.serverId == server) { model.refreshCatalog(); model.selectChannel(createdId!!) }
             close()
         } }, enabled = !state.busy && name.isNotBlank()) { Text(if (createdId == null) tr("创建") else tr("打开频道")) }

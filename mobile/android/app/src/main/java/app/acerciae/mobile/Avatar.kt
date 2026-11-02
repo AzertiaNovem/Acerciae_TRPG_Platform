@@ -23,7 +23,7 @@ import kotlinx.coroutines.*
 
 private val avatarImages = LruCache<String, Bitmap>(128)
 @Composable fun ProfileAvatar(name: String, state: AppState, model: AppViewModel, assetId: String = "", version: String = "", ownerId: String = "", ownerVersion: Int = 0, size: Dp = 32.dp) {
-    val key = "${state.user?.id}:${state.scopeKey}:$assetId:$version:$ownerId:$ownerVersion:${state.user?.avatarVersion}"
+    val key = "${state.user?.id}:${state.scopeKey}:$assetId:$version:$ownerId:$ownerVersion:${state.user?.avatarVersion}:${state.user?.hasAvatar}"
     var bitmap by remember(key) { mutableStateOf<Bitmap?>(avatarImages.get(key)) }
     LaunchedEffect(key) {
         if (bitmap != null) return@LaunchedEffect
@@ -32,7 +32,7 @@ private val avatarImages = LruCache<String, Bitmap>(128)
             val bytes = when {
                 assetId.isNotEmpty() -> model.bytes(listOf("channels", state.channelId, "media", assetId), version.toIntOrNull()?.takeIf { it > 0 }?.let { mapOf("v" to it.toString()) } ?: emptyMap())
                 ownData.startsWith("data:image/") && ownData.contains(',') -> Base64.decode(ownData.substringAfter(','), Base64.DEFAULT)
-                ownerId.isNotEmpty() && ownerVersion > 0 -> model.bytes(listOf("users", ownerId, "avatar"), mapOf("v" to ownerVersion.toString()))
+                ownerId.isNotEmpty() && (if (ownerId == state.user?.id) state.user?.hasAvatar ?: (ownerVersion > 0) else ownerVersion > 0) -> model.bytes(listOf("users", ownerId, "avatar"), mapOf("v" to ownerVersion.toString()))
                 else -> return@LaunchedEffect
             }
             val decoded = withContext(Dispatchers.Default) {

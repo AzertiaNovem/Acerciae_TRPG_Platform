@@ -25,7 +25,7 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 
 @Composable fun AtmosphereBackdrop(state: AppState, model: AppViewModel) {
-    if (!state.online || state.channelId.isEmpty() || state.user?.atmosphereEnabled != true || !state.serverSettings.obj("features").flag("atmosphere")) return
+    if (!state.online || state.channelId.isEmpty() || state.user?.atmosphereEnabled != true || !state.enabled("atmosphere")) return
     val portrait = LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     key(state.user?.id, state.scopeKey, dark, portrait) {

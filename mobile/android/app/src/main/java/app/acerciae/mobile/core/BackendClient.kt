@@ -1,6 +1,10 @@
 package app.acerciae.mobile.core
 
 import java.io.IOException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -29,7 +33,8 @@ class BackendAddress(value: String, allowLocalHttp: Boolean) {
 
 enum class RealtimeStream(val path: String) { CHAT("chat"), CONTEXT("context") }
 class PointRuleException(message: String) : IllegalArgumentException("购点校验未通过：" + message.take(2000))
-class BackendException(val status: Int) : IOException(when (status) {
+class InvalidBackendResponse : IOException("服务返回的数据格式不兼容，请更新客户端或联系管理员")
+class BackendException(val status: Int, val apiResponse: Boolean = true) : IOException(if (!apiResponse) "服务入口暂时不可用（HTTP $status），请稍后重试" else when (status) {
     401 -> "登录已过期，请重新登录"
     403 -> "当前账号没有权限，或管理员已关闭此功能"
     404 -> "内容不可用，或服务版本尚未提供此功能"
@@ -41,8 +46,8 @@ class BackendException(val status: Int) : IOException(when (status) {
 class BackendClient(
     private val address: BackendAddress,
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS)
-        .callTimeout(20, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build(),
+        .connectTimeout(20, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS)
+        .callTimeout(150, TimeUnit.SECONDS).retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build(),
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private suspend inline fun <reified T> request(path: List<String>, token: String? = null, body: String? = null, method: String? = null, query: Map<String, String> = emptyMap()): T =
@@ -50,35 +55,58 @@ class BackendClient(
             val request = Request.Builder().url(address.api(*path.toTypedArray()).newBuilder().apply { query.forEach { (k, v) -> addQueryParameter(k, v) } }.build())
                 .apply { if (token != null) header("Authorization", "Bearer $token") }
                 .apply { if (body != null || method != null) method(method ?: "POST", body?.toRequestBody("application/json".toMediaType())) }.build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    if (response.code == 400) {
-                        val error = runCatching { json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject }.getOrNull()
-                        if (error?.text("error") == "points_rule") throw PointRuleException(error.text("message"))
-                    }
-                    throw BackendException(response.code)
-                }
-                json.decodeFromString<T>(response.body?.string() ?: throw IOException("服务返回空内容"))
-            }
+            decode<T>(send(request.newBuilder().header("Accept","application/json").build()).toString(Charsets.UTF_8))
         }
     suspend fun resource(path: List<String>, token: String, body: JsonObject? = null, method: String? = null, query: Map<String, String> = emptyMap()): JsonObject = request(path, token, body?.toString(), method, query)
     suspend fun resources(path: List<String>, token: String, query: Map<String, String> = emptyMap()): List<JsonObject> = request(path, token, query = query)
     suspend fun bytes(path: List<String>, token: String, query: Map<String, String> = emptyMap()): ByteArray = withContext(Dispatchers.IO) {
         val url = address.api(*path.toTypedArray()).newBuilder().apply { query.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
-        client.newCall(Request.Builder().url(url).header("Authorization", "Bearer $token").build()).execute().use {
-            if (!it.isSuccessful) throw BackendException(it.code)
-            it.body?.bytes() ?: throw IOException("空文件")
-        }
+        send(Request.Builder().url(url).header("Authorization", "Bearer $token").build())
     }
     suspend fun uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, bytes: ByteArray, token: String): JsonObject = withContext(Dispatchers.IO) {
         require(bytes.size <= 10 * 1024 * 1024) { "请选择小于 10 MB 的图片" }
         val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
             .addFormDataPart("slot", slot).addFormDataPart("subtitle", subtitle)
             .addFormDataPart("file", "artwork.png", bytes.toRequestBody("application/octet-stream".toMediaType())).build()
-        client.newCall(Request.Builder().url(address.api("channels", channel, "characters", character, "assets")).header("Authorization", "Bearer $token").post(body).build()).execute().use {
-            if (!it.isSuccessful) throw BackendException(it.code)
-            json.decodeFromString<JsonObject>(it.body?.string() ?: throw IOException("空响应"))
+        decode<JsonObject>(send(Request.Builder().url(address.api("channels",channel,"characters",character,"assets")).header("Authorization","Bearer $token").post(body).build()).toString(Charsets.UTF_8))
+    }
+    suspend fun uploadModule(channel: String, title: String, bytes: ByteArray, token: String): JsonObject = withContext(Dispatchers.IO) {
+        require(bytes.size <= 25 * 1024 * 1024)
+        val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM).addFormDataPart("title", title)
+            .addFormDataPart("file", "module.pdf", bytes.toRequestBody("application/pdf".toMediaType())).build()
+        decode<JsonObject>(send(Request.Builder().url(address.api("channels",channel,"modules")).header("Authorization","Bearer $token").post(body).build()).toString(Charsets.UTF_8))
+    }
+    private inline fun <reified T> decode(text: String): T = try { json.decodeFromString<T>(text) } catch(e:kotlinx.serialization.SerializationException) { throw InvalidBackendResponse() }
+    private suspend fun send(original: Request): ByteArray {
+        val request=original.newBuilder().header("User-Agent","AcerciaeMobile/0.1 (Android)").build()
+        for(attempt in 0..2) {
+            try { return execute(request) } catch(e:IOException) {
+                if(request.method !in listOf("GET","HEAD") || attempt==2 || !ConnectionPolicy.retry(e)) throw e
+                delay(400L shl attempt)
+            }
         }
+        throw InvalidBackendResponse()
+    }
+    private suspend fun execute(request: Request): ByteArray = suspendCancellableCoroutine { continuation ->
+        val call=client.newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object:okhttp3.Callback {
+            override fun onFailure(call:okhttp3.Call,e:IOException) { if(continuation.isActive) continuation.resumeWithException(e) }
+            override fun onResponse(call:okhttp3.Call,response:okhttp3.Response) {
+                try {
+                    val data=response.use {
+                        val bytes=it.body?.bytes() ?: throw InvalidBackendResponse()
+                        if(!it.isSuccessful) {
+                            val error=runCatching { json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject }.getOrNull()
+                            if(it.code==400 && error?.text("error")=="points_rule") throw PointRuleException(error.text("message"))
+                            throw BackendException(it.code,!error?.text("error").isNullOrEmpty())
+                        }
+                        bytes
+                    }
+                    if(continuation.isActive) continuation.resume(data)
+                } catch(e:Exception) { if(continuation.isActive) continuation.resumeWithException(e) }
+            }
+        })
     }
     suspend fun health(): Health = request(listOf("health"))
     suspend fun register(username: String, password: String, displayName: String): Session = request(

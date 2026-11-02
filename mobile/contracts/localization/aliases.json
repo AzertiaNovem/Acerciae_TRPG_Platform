@@ -234,5 +234,13 @@
   "刷新日志": "Refresh",
   "暂无可访问的演出": "No presentations yet.",
   "请先登录": "Sign in",
-  "已连接": "Connected"
+  "已连接": "Connected",
+  "ac": "Armor Class",
+  "hp_max": "Hit Point maximum",
+  "speed": "Speed",
+  "initiative": "Initiative",
+  "features": "Features",
+  "spells": "Spells",
+  "notes": "Notes",
+  "background": "Background"
 }

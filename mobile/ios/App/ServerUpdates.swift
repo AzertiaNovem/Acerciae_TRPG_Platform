@@ -44,11 +44,11 @@ struct ServerManagementView: View {
                     Text(tr("AI on this server runs only on the providers configured here, with this server's own keys. Without them it runs in mock mode.")).font(.caption)
                     provider("llm", title: "Language model", providers: ["mock", "openai_compatible", "anthropic"], fields: ["api_base", "model", "embedding_model", "reasoning_effort"])
                     provider("image", title: "Image generation", providers: ["disabled", "mock", "gpt_image"], fields: ["api_base", "model", "size", "quality"])
-                    provider("tts", title: "Voice", providers: ["disabled", "mock", "qwen"], fields: ["api_base", "model", "voice"])
+                    provider("tts", title: "Voice", providers: ["disabled", "mock", "qwen", "openai"], fields: ["api_base", "model", "voice"])
                     Section(tr("AI policy")) {
                         ForEach(["token_budget", "image_budget", "max_concurrent"], id: \.self) { key in LabeledContent(tr(fieldName(key))) { TextField(tr(fieldName(key)), text: number("ai_policy", key)).keyboardType(.numberPad).multilineTextAlignment(.trailing) } }
                         choice("ai_policy", "period", "Budget period", [("month", "Each calendar month"), ("total", "Total")])
-                        Text("\(tr("Tokens used")): \(model.serverSettings["ai_policy"]["tokens_used"].int) · \(tr("Images used")): \(model.serverSettings["ai_policy"]["images_used"].int)").font(.caption)
+                        Text("\(tr("Tokens used")): \(model.serverSettings["ai_policy"]["tokens_used"].int) · \(tr("Cached tokens")): \(model.serverSettings["ai_policy"]["cached_tokens_used"].int) · \(tr("Images used")): \(model.serverSettings["ai_policy"]["images_used"].int)").font(.caption)
                     }
                     save(["llm", "image", "tts", "ai_policy"])
                 } else {
