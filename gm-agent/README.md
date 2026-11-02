@@ -27,8 +27,10 @@ never get them.
 
 - every line in every chat window, including Keeper-only notes, whispers and hidden rolls (older history as compacted
   chapters; see "Long campaigns");
-- the cast: every player character and co-player with its basic details (occupation, age, sex, residence, birthplace),
-  bio and background from its role card, and each real NPC with its brief;
+- the cast: every player character and co-player with its basic details (occupation, age, gender, residence,
+  birthplace), its most distinctive traits, bio and background from its role card, and each real NPC with its gender,
+  age, distinctive traits and brief (see "Time and people");
+- in a casual game, the story's calendar and everyday routine; in every game, the relationships between characters;
 - the current scenario and the summaries of earlier ones;
 - the platform's AI tips:
   - `GET /kp/board`
@@ -51,10 +53,15 @@ Besides the log, its prompt holds:
 - at most one private impulse from the story planner: an in-character urge, never the plan or a secret (see "The
   story planner");
 - its own role card and persona;
-- the other investigators' basic details, bio and background (`src/context/profiles.mjs`): the player characters and
-  the other co-players, as a human player can read any player character's page.
+- the other investigators' basic details, distinctive traits, bio and background (`src/context/profiles.mjs`): the
+  player characters and the other co-players, as a human player can read any player character's page;
+- in a casual game, the story's date, the everyday routine, and how much time passed since it last spoke;
+- the real NPCs it has seen speak in its own scenes, with what anyone would notice about them (gender, age,
+  distinctive traits);
+- the relationships it is part of, and the public ones between people it knows.
 
-It never gets a real NPC's details, or another investigator's characteristics and skills.
+It never gets a real NPC's brief, an NPC it has not met, a secret relationship it is not part of, or anyone's
+characteristic and skill numbers.
 
 ## Long campaigns: memory, compaction and caching
 
@@ -131,6 +138,8 @@ platform without the record (404) is noted once, and the table carries on with i
    | `truth` | improvisation mode: a hidden fact the GM just decided, kept for later turns and declared as a secret |
    | `text` | casual mode: a real NPC texts a player character's phone |
    | `planner_note` | a word for the story planner: what the players did that changed the plan, or that the beat is done |
+   | `date` | casual mode: moves the story's calendar on (`advance_days`, the time of day) or to a later YYYY-MM-DD date; never backwards |
+   | `bond` | records, changes or ends a relationship between two characters (`secret`: the investigators do not know it) |
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
    | `whisper` | posts a whisper to one character |
    | `request_roll` | asks a player to roll; for the client's own characters, the platform rolls against their sheet |
@@ -281,8 +290,19 @@ event has run its course.
 - **It plans slowly.** A plan is made at a turn boundary, never during a turn, when one of these holds: the first ten
   lines of a campaign; the GM asked (a `planner_note` action); the scenario changed; the story stalled
   (`planner.stall_turns` turns in the same place with no world change, no new truth, no split and no scenario change);
-  or `planner.interval_minutes` of play and `planner.min_lines` lines have passed. Never while everyone is away, never
-  over the daily token budget, at most `planner.max_runs_per_hour` and `planner.cooldown_minutes` apart.
+  or `planner.interval_minutes` of play and `planner.min_lines` lines have passed. Never while everyone is away (no
+  player line for `autonomy.idle_minutes`; co-players' and NPCs' lines do not count), never over the daily token
+  budget, at most `planner.max_runs_per_hour` and `planner.cooldown_minutes` apart. The only run without anyone at the
+  table is the final review below.
+- **The final review closes every session.** A session is a stretch of player lines with no gap longer than
+  `autonomy.idle_minutes`. When one with at least `planner.final_review_min_lines` player lines ends (nobody has
+  written for the idle time, or `run` is stopped), the planner reviews the whole session once, reading every window's
+  lines of it, and prepares the next one. It is bolder than a plan made during play: in a casual game it moves the
+  calendar on (up to `planner.final_review_max_days`; one day when it does not say) and sets the routine for the new
+  date; it records what the world did meanwhile in the world record (improvisation mode only; secret when the
+  investigators would not know it), and writes how the next session should open. The Keeper gets a Keeper-only note;
+  the first GM turn of the next session is told how many days passed, what happened off-screen and how to open. Ctrl-C
+  on `run` waits for the review; a second Ctrl-C skips it.
 - **It reviews itself.** One run is three calls in one conversation, so the big context is cached once: a draft; a
   critique by "a second Keeper, a harsh script editor who did not write this" (what is boring, implausible or contradicts
   the world and the truths, which threads are stale or should be merged, whether the beat is done, whether the verdict
@@ -311,6 +331,58 @@ node src/cli.mjs plan off
 
 The planner's own provider, endpoint, model and effort are `planner.*` in `gm-agent.yml` (defaults: the GM's, at
 `high` effort); its key is `PLANNER_API_KEY`, or the provider's. Its calls count toward `context.daily_token_budget`.
+
+## Time and people
+
+**The calendar (casual games only).** In casual mode the story keeps a date (`src/calendar.mjs`), always YYYY-MM-DD
+with its weekday: "1923-10-02 (Tuesday), morning". A solemn game has no date from the agent: no calendar section, no
+`date` action, and no date in the plan or the final review.
+- **The first date is the planner's.** With no date set, the first plan runs at the first turn boundary. It picks a
+  date and a time of day that fit the era, the World setting and the plots it plans. A year outside the channel's era
+  (`1920s`, `1890-1899`, `1923`) is moved to the nearest year inside it. Until then, the GM keeps the day vague, and a
+  first date from the GM is left to the planner.
+- **Everyday life follows a routine.** With the date, the planner sets what everyday life is busy with on that date
+  and the routine events of the next weeks. It takes them from the world's own calendar when world.md describes one (a
+  school year, a fishing season, holidays, festivals) and from the era, and invents fitting ones where world.md says
+  nothing. The routine is common knowledge: a routine that quotes a secret or a hidden truth is dropped. Each plan and
+  each final review refreshes it. Once the date moves past it, it is marked with the date it was set for.
+- **Who reads it.** The GM reads the date, the routine and the latest changes in its context. Each co-player reads
+  "TODAY IN THE STORY", with its own thread's time of day, and the routine. It also reads a line when time passed
+  since it last spoke.
+- **It moves forward only.** The GM moves it with the `date` action when time passes in play, or with `advance_days`
+  on a scenario change. The planner says in its plan when it should move next. The final review after each session
+  moves it on between sessions, and the operator can use the `date` command.
+
+Calendar features beyond the date and the routine are not part of this stage.
+
+```bash
+node src/cli.mjs date --days 2 --time morning
+```
+
+```bash
+node src/cli.mjs date
+```
+
+**What is striking about people.** Characteristics are never shown as numbers. The extremes are turned into words
+(`src/context/traits.mjs`): 80 and above is "extremely good-looking, striking" for APP or "extremely intelligent" for
+INT. Near the bottom of the range is the opposite, such as "very plain" or "slow-witted": 25 for STR, CON, DEX, APP and
+POW, and 45 for SIZ, INT and EDU, which start at 40. Luck is left out. At most three traits are given, the most extreme
+first, with gender and age. The GM and the planner read them for everyone; a co-player reads them for its companions
+and for the NPCs it has met.
+
+**Relationships.** Who lives with, loves, is related to, works with or is at odds with whom (`src/bonds.mjs`). The GM
+records them with the `bond` action. The planner adds the ones the profiles state and, in improvisation mode, the ones
+it invents to tie plots to people. It records a bond with a player character only when that character's profile or the
+chat already states it. The operator can use the `bond` command. The GM and the planner read every bond. A co-player
+reads its own bonds, secret or not, and the public bonds between people it knows.
+
+```bash
+node src/cli.mjs bond "Alice Hale" "Harriet Vance" "lives with" --note "they share rooms above the shop"
+```
+
+```bash
+node src/cli.mjs bond end "Alice Hale" "Mr. Grimsby" rivals
+```
 
 ## Improvisation mode
 
@@ -488,6 +560,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `planner.cooldown_minutes`, `planner.max_runs_per_hour` | | `10`, `4` | least gap between runs; hourly cap |
 | `planner.stall_turns` | | `6` | turns in the same place with no world change, truth, move or scenario change before the planner is asked |
 | `planner.impulse_lines`, `planner.plan_tokens` | | `60`, `1500` | how long a co-player's impulse lives; budget of the GM's "Story plan" section |
+| `planner.final_review`, `planner.final_review_min_lines`, `planner.final_review_max_days` | `--final-review`, `--final-review-min-lines`, `--final-review-max-days` | `true`, `10`, `30` | the review when a session of human play ends: on or off, how many player lines a session needs, how many story days it may move the calendar |
 | `pacing.debounce_ms`, `pacing.post_delay_ms` | `--debounce-ms`, `--post-delay-ms` | `4000`, `1200` | quiet time before a turn; pause between posted lines |
 | `pacing.max_actions_per_turn` | `--max-actions` | `6` | lines per turn |
 | `context.gm_tokens`, `context.coplayer_tokens` | | `60000`, `24000` | context budget for the GM and for each co-player; older history is compacted into chapters |
@@ -543,7 +616,9 @@ The tests need no backend and no model. They cover:
 - the request shape of the Claude and OpenAI Responses providers;
 - the configuration file and its precedence;
 - the story planner: triggers, the three-step review, the plan's place in the GM's context, impulses and their
-  privacy, pace-only in module play, the lifted pace guard.
+  privacy, pace-only in module play, the lifted pace guard, no run while nobody is at the table, and the final review
+  after a session;
+- the calendar, the distinctive traits and the relationships, and which role reads which of them.
 
 ## Known limitations
 
@@ -555,6 +630,13 @@ The tests need no backend and no model. They cover:
 - The story planner's impulses are planner text in a co-player's prompt: quoted, capped and filtered, but not provably
   inert. Its stall detector counts turns, so a long, talky scene can cost one extra advisory run. The GM may ignore the
   plan, and a plan can change every ten minutes: the "Story plan" section re-caches each time (parts A and B do not).
+- The era check reads years from the channel's era text only. An era with no year in it ("Victorian") is not
+  checked.
+- The calendar is the campaign's: a long split shares one date, and each thread keeps only its own time of day.
+  Traits come from the characteristics alone, so a background that says otherwise ("a plain face") is not reconciled.
+- The final review on Ctrl-C makes three planner calls before `run` exits; with a slow model at high effort that can
+  take minutes (a second Ctrl-C skips it). If the client was down when the players left, the review runs at the next
+  start, unless a player writes first.
 - Co-players start in the windows of `table.coplayer_windows` and move only through whereabouts (or `split` and `rejoin`). A
   private window the Keeper creates in the web app does not seat them automatically and is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side

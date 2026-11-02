@@ -6,6 +6,7 @@
 //   split   send investigators off to a place of their own (a window with the GM); rejoin brings a thread back
 //   advance open the next scenario now
 //   status  show the channel, the cast, the timelines and how each role is fed (read-only)
+//   date    casual games: move the story's calendar on (or to a later date); bond records or ends a relationship
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,7 @@ import { Store, billableTokens } from "./store.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
+import { describeCalendar, renderCalendar } from "./calendar.mjs";
 import { Guard } from "./whereabouts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -144,7 +146,7 @@ async function openTable(cfg, { llm = null, plannerLlm = null, write = true, hea
   let version = Number(state.version) || 0;
   const persist = write
     ? (t) => {
-      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, casual: t.casual, planner: t.planner, journal: t.journal, owedArrivals: t.owedArrivals };
+      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, casual: t.casual, planner: t.planner, calendar: t.calendar, bonds: t.bonds, journal: t.journal, owedArrivals: t.owedArrivals };
       delete next.version;
       try { version = saveState(cfg.stateDir, next, { expectVersion: version }); }
       catch (e) { if (!(e instanceof StateConflict)) throw e; onConflict(e); }
@@ -152,7 +154,7 @@ async function openTable(cfg, { llm = null, plannerLlm = null, write = true, hea
     : () => {};
   const table = new Table({
     api, llm, cfg, channelId: channel.id, store: Store.open(cfg.stateDir, channel.id), roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
-    scenario: state.scenario ?? null, improv: state.improv ?? null, casual: state.casual ?? null, planner: state.planner ?? null, plannerLlm, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
+    scenario: state.scenario ?? null, improv: state.improv ?? null, casual: state.casual ?? null, planner: state.planner ?? null, calendar: state.calendar ?? null, bonds: state.bonds ?? null, plannerLlm, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
   });
   await table.init({ heal });
   if (write) table.save();
@@ -177,7 +179,7 @@ async function run(cfg) {
   const { api, channel, table } = opened;
   const roster = table.roster;
   const rt = new Realtime({ apiBase: cfg.apiBase, token: api.token, channelId: channel.id, log });
-  rt.on("event", (ev) => table.onEvent(ev));
+  rt.on("event", (ev) => { try { table.onEvent(ev)?.catch?.((e) => log(`event ${ev.type}: ${e.message}`)); } catch (e) { log(`event ${ev.type}: ${e.message}`); } });
   rt.on("reconnected", () => table.refresh().catch(() => {}));
   rt.start();
   table.startTicker();
@@ -196,8 +198,17 @@ async function run(cfg) {
     const main = table.mainWindow();
     if (main) table.schedule(main.id, { kickoff: true, delay: 0 });
   }
-  const stop = () => { table.stopTicker(); fs.unwatchFile(inbox); rt.stop(); table.store.close(); release(); process.exit(0); };
-  process.on("SIGINT", stop);
+  // Stopping ends the session: one with enough play gets its final review first (a second signal skips it).
+  let stopping = false;
+  const stop = async () => {
+    if (stopping) { log("stopping now, without the final review"); finish(); return; }
+    stopping = true;
+    table.stopTicker(); fs.unwatchFile(inbox); rt.stop();
+    try { if (await table.finishSession()) log("final review done"); } catch (e) { log(`final review failed: ${e.message}`); }
+    finish();
+  };
+  const finish = () => { table.store.close(); release(); process.exit(0); };
+  process.on("SIGINT", () => { if (!stopping && cfg.planner.finalReview && table.planner.session?.lines >= cfg.planner.finalReviewMinLines) log("stopping: the session's final review runs first (Ctrl-C again to skip it)"); stop(); });
   process.on("SIGTERM", stop);
 }
 
@@ -286,10 +297,15 @@ async function status(cfg) {
   console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} Keeper chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
   const ca = table.casual;
   console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min)`) : "off (a solemn game: no phones)"}`);
+  console.log(`calendar: ${table.calendarOn() ? `${describeCalendar(table.calendar) || "no date yet (the story planner chooses the first one)"}${table.calendar.log.length ? `; last change by ${table.calendar.log.at(-1).by}` : ""}${table.calendar.routine ? `; routine: ${table.calendar.routine.text}` : ""}` : "off (a solemn game keeps no date; casual mode has one)"}`);
+  const nameOf = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
+  console.log(`relationships: ${table.bonds.length ? table.bonds.map((b) => `${nameOf(b.a)} — ${nameOf(b.b)}: ${b.kind}${b.secret ? " (secret)" : ""}`).join("; ") : "(none recorded)"}`);
   const pl = table.planner, arc = pl.arc;
   const plMode = !pl.on ? "off" : table.improv.on ? "full plotting" : "pace only: module-led campaign";
   console.log(`story planner: ${pl.on ? `on (${plMode})${arc ? ` — plan v${arc.version}, ${Math.round((Date.now() - Date.parse(arc.updatedAt)) / 60000)} min ago (${arc.trigger}); beat "${arc.beat.title}", verdict: ${arc.verdict?.moveOn ? "move on" : "continue"}; ${arc.threads.length} thread(s)${pl.impulses.length ? `; impulses: ${pl.impulses.map((i) => i.name).join(", ")}` : ""}` : " — no plan yet (needs 10 lines, or `plan now`)"}; automatic after ${cfg.planner.intervalMs / 60000} min and ${cfg.planner.minLines} lines, cooldown ${cfg.planner.cooldownMs / 60000} min, ≤ ${cfg.planner.maxRunsPerHour}/h; model ${cfg.planner.provider}${cfg.planner.model ? ` ${cfg.planner.model}` : ""} effort ${cfg.planner.effort}` : "off"}`);
   const im = table.improv;
+  const ses = pl.session;
+  console.log(`final review: ${cfg.planner.finalReview && pl.on ? `on — after a session of ≥ ${cfg.planner.finalReviewMinLines} player lines, once nobody has written for ${cfg.autonomyIdleMinutes} min (or when run stops); moves the calendar up to ${cfg.planner.finalReviewMaxDays} days` : "off"}${ses ? `; session in progress: ${ses.lines} player line(s) since ${new Date(ses.startedAt).toISOString().slice(0, 16).replace("T", " ")}` : ""}${pl.between ? "; the next session opens from the last review" : ""}`);
   console.log(`improvisation: ${im.on ? `on — world ${im.world.length} characters (${im.published.hash ? "posted in the Main Chat" : "not posted yet; run posts it"}), secrets ${im.secrets.length} characters, ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
   console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
   console.log(`timelines: ${cfg.timelineAuto ? `proactive (at most ${cfg.timelineMaxActive} at once, ${cfg.timelineMaxArrivalsPerHour} arrivals an hour)` : "model-led (TIMELINE_AUTO=false)"}; scenarios: ${cfg.scenarioAuto ? `GM-driven from the Main Chat after ${cfg.scenarioMinMinutes} min and ${cfg.scenarioMinLines} lines; never during a short split` : "manual only"}`);
@@ -317,6 +333,28 @@ async function plan(cfg, args) {
   return manual(cfg, { cmd: "plan", action: v }, `story planner: ${v}`);
 }
 
+// `date [--days N] [--time morning] [--set 1925-03-14] [--why …]`: the story's calendar in a casual game (forward
+// only); no flag shows it.
+async function date(cfg, args) {
+  if (args.days === undefined && args.set === undefined && args.time === undefined) {
+    const { table } = await openTable(cfg, { write: false });
+    console.log(renderCalendar(table.calendar));
+    return;
+  }
+  const days = args.days === undefined ? 0 : Number(args.days);
+  if (!Number.isFinite(days) || days < 0) throw new Error("date --days needs a number of days, 0 or more");
+  return manual(cfg, { cmd: "date", days, date: args.set === undefined ? undefined : String(args.set), time: args.time === undefined ? undefined : String(args.time), why: args.why ? String(args.why) : undefined }, `calendar${days ? ` +${days} day(s)` : ""}${args.set ? ` to ${args.set}` : ""}`);
+}
+
+// `bond "<a>" "<b>" "<kind>" [--note …] [--secret]` records a relationship; `bond end "<a>" "<b>" [kind]` ends it.
+function bond(cfg, args) {
+  const [, first, ...rest] = args._ ?? [];
+  const end = first === "end";
+  const [a, b, kind] = end ? rest : [first, ...rest];
+  if (!a || !b || (!end && !kind)) throw new Error('bond needs "<character>" "<character>" "<kind>" (or bond end "<a>" "<b>" [kind])');
+  return manual(cfg, { cmd: "bond", a, b, kind: kind ?? "", note: args.note === undefined ? undefined : String(args.note), secret: args.secret === undefined ? undefined : args.secret === true || args.secret === "true", end }, `${end ? "end " : ""}bond ${a} — ${b}${kind ? `: ${kind}` : ""}`);
+}
+
 // `casual on|off`: casual mode's phones, during a campaign.
 function casual(cfg, args) {
   const v = String(args._?.[1] ?? (cfg.casual === undefined ? "" : cfg.casual)).toLowerCase();
@@ -325,9 +363,9 @@ function casual(cfg, args) {
   return manual(cfg, { cmd: "casual", on }, `casual mode ${on ? "on" : "off"}`);
 }
 
-const commands = { setup, run, status, split, rejoin, advance, world, casual, plan };
+const commands = { setup, run, status, split, rejoin, advance, world, casual, plan, date, bond };
 if (!commands[command]) {
-  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance|world|casual|plan> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance|world|casual|plan|date|bond> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
   process.exit(2);
 }
 commands[command](cfg, args).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });

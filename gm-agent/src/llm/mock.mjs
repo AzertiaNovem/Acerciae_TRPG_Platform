@@ -112,7 +112,12 @@ export class MockLlm {
     if (step === "critique") return { boring: [], implausible: [], contradictions: [], stale: [], merge: [], beat_done: null, must_fix: [] };
     const pace = /pace only|Do not invent plots/.test(user) || !/Co-players you may give an impulse/.test(user);
     const beat = { title: "[mock beat] The present trouble", purpose: "let the investigators commit to a course", exit: "someone acts on what they learned" };
-    if (pace) return { beat, verdict: { move_on: false, why: "the scene is still fresh" }, played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "" };
+    // The first date when none is set; a final review moves the calendar on two days and acts off-screen.
+    const routine = { routine: "[mock routine] The herring season: the boats go out before dawn and the fish market is loud every morning.", upcoming: [{ when: "next Saturday", what: "[mock] the Harbour Fair on the quay" }] };
+    const calendar = { ...(/Today in the story: no date set yet/.test(user) ? { start: "1923-10-02", time: "early morning" } : {}), advice: "[mock] let a night pass after the docks", ...routine };
+    const final = /This is the FINAL REVIEW/.test(user);
+    const between = final ? { advance_days: 2, time: "morning", why: "[mock] the town sleeps on it", ...(pace ? {} : { offscreen: [{ text: "[mock offscreen] The Guild doubled the night watch at the docks.", secret: true }] }), opening: "[mock opening] A knock at the door at dawn.", recap: "[mock recap] They asked around the harbour." } : undefined;
+    if (pace) return { beat, verdict: { move_on: false, why: "the scene is still fresh" }, played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...(between ? { between } : {}) };
     const who = (user.match(/^## Co-players you may give an impulse\n([\s\S]*?)(?:\n\n|$)/m)?.[1] ?? "").split("\n").map((l) => l.replace(/^- /, "").trim()).filter(Boolean);
     return {
       throughline: "[mock] a town that hides what the sea brings in",
@@ -120,7 +125,7 @@ export class MockLlm {
       beat, next: [{ what: "[mock] a stranger offers a boat ride", when: "after the docks" }],
       verdict: { move_on: false, why: "the scene is still fresh" },
       impulses: who.slice(0, 1).map((w) => ({ who: w, text: `[mock impulse] You keep thinking about the docks at night; you want to see them for yourself.` })),
-      played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "",
+      played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...(between ? { between } : {}),
     };
   }
 

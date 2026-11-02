@@ -46,6 +46,11 @@ planner:                      # the story planner: a slower model above the GM t
   max_runs_per_hour: 4
   impulse_lines: 60           # how many lines a co-player's impulse lives
   plan_tokens: 1500           # budget of the GM's "Story plan" section
+  final_review: true          # one review when a session of human play ends (no player line for autonomy.idle_minutes,
+                              # or `run` is stopped): moves the calendar on, records off-screen developments, prepares
+                              # the next session's opening. The planner never runs on its own otherwise while nobody is there.
+  final_review_min_lines: 10  # player lines a session needs to be reviewed
+  final_review_max_days: 30   # casual games: the most story days one final review may move the calendar
 
 pacing:
   debounce_ms: 4000           # quiet time after a player's line before the GM answers

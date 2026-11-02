@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { leaksSecret, narrationRepeats, plannerDue, plannerModeOf, plannerState, renderPlanNote, renderStoryPlan, stallSignature, validateCritique, validateImpulses, validateStoryPlan } from "../src/planner.mjs";
+import { leaksSecret, narrationRepeats, noteSessionLine, plannerDue, plannerModeOf, plannerState, plannerSystem, renderFinalNote, renderPlanNote, renderStoryPlan, sessionEnded, stallSignature, validateBetween, validateCritique, validateImpulses, validateStoryPlan } from "../src/planner.mjs";
 import { estimateTokens } from "../src/memory.mjs";
 
 const CFG = { intervalMs: 30 * 60000, minLines: 40, cooldownMs: 10 * 60000, stallTurns: 6, maxRunsPerHour: 4 };
@@ -100,4 +100,43 @@ test("renderStoryPlan stays within its budget by dropping resolved, then seed th
   const note = renderPlanNote({ ...arc, trigger: "stall", verdict: { moveOn: true, why: "six turns in one room" } }, [{ name: "Harriet Vance" }]);
   assert.match(note, /^Story plan v1 \(stall\) — beat "B": exit when e\. Verdict: MOVE ON — six turns in one room\./);
   assert.match(note, /Impulse for Harriet Vance\./); assert.ok(note.length <= 900);
+});
+
+test("plannerDue: nobody at the table means no automatic run, whatever else asks for one", () => {
+  const away = { lastHumanAt: 10_000_000 - 31 * 60000, lastRunAt: 0 };
+  for (const over of [{ asked: { why: "x" } }, { plannerScenarioId: "old" }, { stallTurns: 100 }, { lastSeq: 10_000 }, { arc: null, lastSeq: 500 }]) assert.equal(plannerDue(snap({ ...away, ...over }), CFG), null, JSON.stringify(over));
+});
+
+test("sessions: lines within the idle time make one session; a gap ends it; a short one is not reviewed", () => {
+  const p = plannerState(null);
+  const idleMs = 30 * 60000;
+  assert.equal(noteSessionLine(p, { at: 0, seq: 5, idleMs }), null);
+  for (let i = 1; i <= 9; i++) noteSessionLine(p, { at: i * 60000, seq: 5 + i, idleMs });
+  assert.deepEqual(p.session, { startedAt: 0, lastAt: 9 * 60000, lines: 10, fromSeq: 5 });
+  assert.equal(sessionEnded(p.session, { now: 9 * 60000 + idleMs, idleMs, minLines: 10 }), null, "still going");
+  assert.equal(sessionEnded(p.session, { now: 9 * 60000 + idleMs + 1, idleMs, minLines: 10 }), "review");
+  assert.equal(sessionEnded(p.session, { now: 9 * 60000 + idleMs + 1, idleMs, minLines: 11 }), "short");
+  assert.equal(sessionEnded(null, { now: 0, idleMs, minLines: 1 }), null);
+  const stale = noteSessionLine(p, { at: 10 * 3600000, seq: 99, idleMs });
+  assert.equal(stale.lines, 10, "a session never reviewed comes back when a new one begins");
+  assert.deepEqual(p.session, { startedAt: 10 * 3600000, lastAt: 10 * 3600000, lines: 1, fromSeq: 99 });
+  assert.deepEqual(plannerState(JSON.parse(JSON.stringify(p))).session, p.session);
+});
+
+test("the final review: between is clipped, a missing advance counts as a day, pace mode records nothing off-screen", () => {
+  assert.equal(validateBetween({}).advanceDays, 1, "the world moves on between sessions");
+  assert.equal(validateBetween({ advance_days: 0 }).advanceDays, 0, "unless the next session picks up the same moment");
+  assert.equal(validateBetween({ advance_days: 90 }, { maxDays: 30 }).advanceDays, 30);
+  assert.equal(validateBetween({ advance_days: -3 }).advanceDays, 0);
+  const full = validateBetween({ offscreen: ["a", { text: "b", secret: "true" }, { text: "" }, "c", "d", "e"], opening: "x".repeat(900) });
+  assert.deepEqual(full.offscreen.map((o) => [o.text, o.secret]), [["a", false], ["b", true], ["c", false], ["d", false]]); assert.equal(full.opening.length, 400);
+  assert.deepEqual(validateBetween({ offscreen: ["a"] }, { mode: "pace" }).offscreen, []);
+  assert.match(plannerSystem("English", { final: true }), /FINAL REVIEW/); assert.doesNotMatch(plannerSystem("English"), /FINAL REVIEW/);
+  assert.match(plannerSystem("English", { mode: "pace", final: true }), /record no off-screen developments/);
+  const note = renderFinalNote({ session: { startedAt: 0, lastAt: 45 * 60000, lines: 12 }, between: { why: "they slept", opening: "A knock.", recap: "They asked around." }, calendar: { changed: true, from: "Tuesday", to: "Thursday" }, declared: 2, secret: 1, bonds: 1 });
+  assert.match(note, /^Final review of the session \(12 player lines over 45 min\)\. Calendar: Tuesday → Thursday — they slept\. Off-screen: 2 development\(s\) recorded in the world record \(1 secret\)\. Relationships: 1 change\(s\)\. Next session opens: A knock\. Recap: They asked around\.$/);
+  const { arc } = validateStoryPlan({ beat: { title: "B" }, calendar: { start: "1923-10-02", advice: "a night after the docks" } }, { mode: "pace" });
+  assert.deepEqual(arc.calendar, { start: "1923-10-02", time: "", advice: "a night after the docks", routine: "", upcoming: [] });
+  assert.equal(plannerDue(snap({ arc: null, lastSeq: 1, noDate: true }), CFG), "first", "no date yet: the first plan comes at once");
+  assert.match(renderStoryPlan(arc, 1000), /Calendar: a night after the docks/);
 });

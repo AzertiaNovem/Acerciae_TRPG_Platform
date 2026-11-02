@@ -71,6 +71,7 @@ const SETTINGS = [
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
   ["planner-interval-minutes", null, "planner.interval_minutes"], ["planner-min-lines", null, "planner.min_lines"], ["planner-cooldown-minutes", null, "planner.cooldown_minutes"], ["planner-stall-turns", null, "planner.stall_turns"],
   ["planner-max-runs-per-hour", null, "planner.max_runs_per_hour"], ["planner-impulse-lines", null, "planner.impulse_lines"], ["planner-plan-tokens", null, "planner.plan_tokens"],
+  ["final-review", null, "planner.final_review"], ["final-review-min-lines", null, "planner.final_review_min_lines"], ["final-review-max-days", null, "planner.final_review_max_days"],
   ["debounce-ms", null, "pacing.debounce_ms"], ["post-delay-ms", null, "pacing.post_delay_ms"], ["max-actions", null, "pacing.max_actions_per_turn"],
   ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
   ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-side-interval-ms", null, "autonomy.side_interval_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
@@ -153,6 +154,10 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     maxRunsPerHour: Math.max(1, int(pick("planner-max-runs-per-hour", 4), 4)),
     impulseLines: Math.max(1, int(pick("planner-impulse-lines", 60), 60)),
     planTokens: Math.max(300, int(pick("planner-plan-tokens", 1500), 1500)),
+    // The final review after a session of human play (planner.mjs): on unless turned off, from this many player lines.
+    finalReview: bool(pick("final-review"), true),
+    finalReviewMinLines: Math.max(1, int(pick("final-review-min-lines", 10), 10)),
+    finalReviewMaxDays: Math.max(0, int(pick("final-review-max-days", 30), 30)),
   };
   const cfg = {
     warnings,

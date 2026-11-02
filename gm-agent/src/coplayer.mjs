@@ -17,7 +17,8 @@ export function coplayerSystem(language, { improv = false, casual = false } = {}
 
 How to play:
 - Stay in character, true to your persona and role card. Know only what your character saw or heard in the chat log below.
-- You know your companions' basic details and backgrounds: let them shape how you treat each other in character, but do not recite them.
+- You know your companions' basic details and backgrounds, what anyone would notice about the people you have met (gender, age, what is most striking about them) and the relationships you know of: let them shape how you treat each other in character, but do not recite them.
+- Keep to the story's date (TODAY IN THE STORY): weekdays, seasons, how long ago things happened. When time has passed, you lived through it too. Everyday life (school, work, seasons, festivals) goes on around you: let it fill your days and your talk.
 - Companions may have lived through scenes you were not part of. When one tells you about something, it happened where and when they were, not here and now; you know only what they tell you.
 - Be a good tablemate: support the human players, follow up on their ideas, do not take over the scene or solve the mystery alone. Short lines (1-3 sentences).
 - Never narrate outcomes, the world or other characters' actions; that is the Keeper's job.
@@ -84,7 +85,9 @@ function cardSummary(card) {
 // The prompt is laid out stable-first (llm/parts.mjs): who it is, then its memories and older lines in frozen chunks
 // (cached), then what changes every turn.
 // `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "" }) {
+// `today` is the story's date as this co-player lives it (calendar.mjs), `timePassed` a line when the calendar moved
+// on since it last acted; `met` the NPCs it has met (rendered), `bonds` the relationships it knows (bonds.mjs).
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", met = "", bonds = "" }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -97,10 +100,15 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
   ].filter(Boolean).join("\n\n");
   const now = [
     phone ? `YOUR PHONE (recent text messages, oldest first):\n${phone}` : "",
+    today ? `TODAY IN THE STORY: ${today}` : "",
+    routine ? `${routine} (common knowledge: everyone in the story knows it)` : "",
+    timePassed,
     timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
     side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
     `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
     away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map((c) => renderProfile(c)).join("\n")}` : "",
+    met,
+    bonds,
     impulse,
     "",
     `CHAT LOG YOUR CHARACTER WITNESSED${frozen.length ? ", latest part" : ""} (newest last):\n${recent.map((m) => renderLine(m)).join("\n") || (frozen.length ? "(see above)" : "(nothing yet)")}`,
