@@ -1,6 +1,9 @@
 package app.acerciae.mobile.core
 
 import java.io.IOException
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -48,21 +51,53 @@ class BackendClient(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS)
         .callTimeout(150, TimeUnit.SECONDS).retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build(),
+    /** Downloaded media kept on disk for the signed-in account (see [AssetDiskCache]); null keeps nothing. */
+    var assets: AssetDiskCache? = null,
+    var reads: AssetDiskCache? = null,
 ) {
+    private val transfers = mutableMapOf<String, Deferred<ByteArray>>()
+    private val transferLock = Mutex()
+    private val transferScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private fun cacheKey(path: List<String>, query: Map<String, String>) = address.api(*path.toTypedArray()).newBuilder().apply { query.toSortedMap().forEach { (k, v) -> addQueryParameter(k, v) } }.build().toString()
+    suspend fun cachedValue(path: List<String>, query: Map<String, String> = emptyMap()): JsonElement? = withContext(Dispatchers.IO) {
+        reads?.get(cacheKey(path, query))?.let { runCatching { json.parseToJsonElement(it.toString(Charsets.UTF_8)) }.getOrNull() }
+    }
     private val json = Json { ignoreUnknownKeys = true }
     private suspend inline fun <reified T> request(path: List<String>, token: String? = null, body: String? = null, method: String? = null, query: Map<String, String> = emptyMap()): T =
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(address.api(*path.toTypedArray()).newBuilder().apply { query.forEach { (k, v) -> addQueryParameter(k, v) } }.build())
                 .apply { if (token != null) header("Authorization", "Bearer $token") }
                 .apply { if (body != null || method != null) method(method ?: "POST", body?.toRequestBody("application/json".toMediaType())) }.build()
-            decode<T>(send(request.newBuilder().header("Accept","application/json").build()).toString(Charsets.UTF_8))
+            val cache = reads; val generation = cache?.generation()
+            val ticket = if(request.method == "GET" && ReadCachePolicy.keep(path)) cache?.reserve(cacheKey(path,query)) else null
+            val bytes = try { send(request.newBuilder().header("Accept","application/json").build()) }
+                catch (e: BackendException) { if(e.apiResponse && e.status in listOf(401,403,404)) cache?.remove(cacheKey(path,query)); throw e }
+            val value = decode<T>(bytes.toString(Charsets.UTF_8))
+            if (request.method == "GET" && ReadCachePolicy.keep(path)) cache?.put(cacheKey(path, query), bytes, generation, ticket)
+            value
         }
     suspend fun resource(path: List<String>, token: String, body: JsonObject? = null, method: String? = null, query: Map<String, String> = emptyMap()): JsonObject = request(path, token, body?.toString(), method, query)
     suspend fun resources(path: List<String>, token: String, query: Map<String, String> = emptyMap()): List<JsonObject> = request(path, token, query = query)
-    suspend fun bytes(path: List<String>, token: String, query: Map<String, String> = emptyMap()): ByteArray = withContext(Dispatchers.IO) {
-        val url = address.api(*path.toTypedArray()).newBuilder().apply { query.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
-        send(Request.Builder().url(url).header("Authorization", "Bearer $token").build())
+    /** Media bytes; with the picture's content [hash] the disk cache serves them by content (see [AssetDiskCache.key]). */
+    suspend fun bytes(path: List<String>, token: String, query: Map<String, String> = emptyMap(), hash: String? = null): ByteArray = withContext(Dispatchers.IO) {
+        val url = cacheKey(path, query)
+        val key = AssetDiskCache.key(hash, url)
+        val task = transferLock.withLock {
+            transfers[key] ?: transferScope.async(start = CoroutineStart.LAZY) {
+                val cache = assets; val generation = cache?.generation()
+                cache?.get(key)?.let { return@async it }
+                val fetched = sendFetched(Request.Builder().url(url).header("Authorization", "Bearer $token").build())
+                if (cache != null && AssetDiskCache.keepable(fetched.cacheControl)) cache.put(key, fetched.bytes, generation)
+                fetched.bytes
+            }.also { pending ->
+                transfers[key] = pending
+                pending.invokeOnCompletion { transferScope.launch { transferLock.withLock { if (transfers[key] === pending) transfers.remove(key) } } }
+                pending.start()
+            }
+        }
+        task.await()
     }
+
     suspend fun uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, bytes: ByteArray, token: String): JsonObject = withContext(Dispatchers.IO) {
         require(bytes.size <= 10 * 1024 * 1024) { "请选择小于 10 MB 的图片" }
         val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
@@ -77,7 +112,10 @@ class BackendClient(
         decode<JsonObject>(send(Request.Builder().url(address.api("channels",channel,"modules")).header("Authorization","Bearer $token").post(body).build()).toString(Charsets.UTF_8))
     }
     private inline fun <reified T> decode(text: String): T = try { json.decodeFromString<T>(text) } catch(e:kotlinx.serialization.SerializationException) { throw InvalidBackendResponse() }
-    private suspend fun send(original: Request): ByteArray {
+    /** A response's bytes and its Cache-Control header (the disk cache keeps only what the server marks immutable). */
+    class Fetched(val bytes: ByteArray, val cacheControl: String?)
+    private suspend fun send(original: Request): ByteArray = sendFetched(original).bytes
+    private suspend fun sendFetched(original: Request): Fetched {
         val request=original.newBuilder().header("User-Agent","AcerciaeMobile/0.1 (Android)").build()
         for(attempt in 0..2) {
             try { return execute(request) } catch(e:IOException) {
@@ -87,7 +125,7 @@ class BackendClient(
         }
         throw InvalidBackendResponse()
     }
-    private suspend fun execute(request: Request): ByteArray = suspendCancellableCoroutine { continuation ->
+    private suspend fun execute(request: Request): Fetched = suspendCancellableCoroutine { continuation ->
         val call=client.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object:okhttp3.Callback {
@@ -101,7 +139,7 @@ class BackendClient(
                             if(it.code==400 && error?.text("error")=="points_rule") throw PointRuleException(error.text("message"))
                             throw BackendException(it.code,!error?.text("error").isNullOrEmpty())
                         }
-                        bytes
+                        Fetched(bytes, it.header("Cache-Control"))
                     }
                     if(continuation.isActive) continuation.resume(data)
                 } catch(e:Exception) { if(continuation.isActive) continuation.resumeWithException(e) }

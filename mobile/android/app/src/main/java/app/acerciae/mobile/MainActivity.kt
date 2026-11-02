@@ -185,7 +185,7 @@ class MainActivity : ComponentActivity() {
                     var expanded by remember { mutableStateOf(false) }
                     TextButton(onClick = { expanded = true }) { Text(state.serverName) }
                     DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                        state.servers.forEach { server -> DropdownMenuItem(text = { Text(server.name) }, onClick = { expanded = false; model.launch { model.selectServer(server.id) } }) }
+                        state.servers.forEach { server -> DropdownMenuItem(text = { Text(server.name) }, onClick = { expanded = false; model.navigate { model.selectServer(server.id) } }) }
                     }
                 }
                 item { SidebarRow(tr("Servers")) { select(5) } }
@@ -194,13 +194,13 @@ class MainActivity : ComponentActivity() {
                     Text(tr("频道"), style = MaterialTheme.typography.labelMedium)
                     TextButton(onClick = { showDetail("create-channel") }, enabled = state.serverId.isNotEmpty() && state.canCreateChannel && !state.busy) { Text(tr("添加")) }
                 } }
-                items(state.channels, key = { "channel:" + it.id }) { channel -> SidebarRow(channel.name, channel.id == state.channelId) { model.launch { model.selectChannel(channel.id) } } }
+                items(state.channels, key = { "channel:" + it.id }) { channel -> SidebarRow(channel.name, channel.id == state.channelId) { model.navigate { model.selectChannel(channel.id) } } }
                 if (state.gm) item { SidebarRow(tr("频道选项")) { select(4) } }
                 item { Text(tr("聊天窗口"), style = MaterialTheme.typography.labelMedium) }
-                items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { model.launch { model.selectWindow(window.id); select(0) } } }
+                items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { select(0); model.navigate { model.selectWindow(window.id) } } }
                 item { TextButton(onClick = { charactersExpanded = !charactersExpanded }) { Text(tr("Characters") + if (charactersExpanded) " −" else " +") } }
                 if (charactersExpanded && state.channelId.isNotEmpty()) item { TextButton(onClick = { showDetail("create-character") }, enabled = !state.busy) { Text(tr("添加角色")) } }
-                if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.text("updated_at")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }
+                if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.text("updated_at"), hash = item.text("avatar_asset_hash")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }
                 item { TextButton(onClick = { stagesExpanded = !stagesExpanded }) { Text(tr("Scenarios") + if (stagesExpanded) " −" else " +") } }
                 if (stagesExpanded) items(state.scenes, key = { "scene:" + it.id }) { item -> SidebarRow(item.name) { showDetail("scene:" + item.id) } }
                 if (state.windows.isEmpty()) item { Text(tr("Pick a server and channel, or create one from the left.")) }
@@ -286,10 +286,11 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     val ooc = message.kind == "ooc"
     val asset = if (ooc) "" else character?.text("avatar_asset_id") ?: message.characterAvatarAssetId.orEmpty()
     val revision = if (ooc) "" else character?.text("updated_at").orEmpty() + ":" + (message.characterAvatarVersion ?: 0)
+    val hash = if (ooc) "" else character?.text("avatar_asset_hash")?.ifEmpty { null } ?: message.characterAvatarHash.orEmpty()
     val name = (if (ooc) null else message.characterName) ?: message.authorName
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {
-        if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0); Spacer(Modifier.width(8.dp)) }
+        if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()); Spacer(Modifier.width(8.dp)) }
         Column(Modifier.widthIn(max = 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
             Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
@@ -300,7 +301,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
                 Text(message.displayText, Modifier.padding(14.dp), style = MaterialTheme.typography.bodyLarge)
             }
         }
-        if (mine) { Spacer(Modifier.width(8.dp)); ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0) }
+        if (mine) { Spacer(Modifier.width(8.dp)); ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()) }
     }
 }
 

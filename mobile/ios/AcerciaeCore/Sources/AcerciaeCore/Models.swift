@@ -21,6 +21,7 @@ public struct User: Codable, Sendable {
     public let hasAvatar: Bool?
     public let avatarData: String?
     public let avatarVersion: Int?
+    public var avatarHash: String? = nil
 }
 public struct Session: Codable, Sendable, CustomStringConvertible {
     public let token: String
@@ -43,6 +44,8 @@ public struct Message: Codable, Identifiable, Sendable {
     public var characterAvatarAssetId: String? = nil
     public var characterAvatarVersion: Int? = nil
     public var authorAvatarVersion: Int? = nil
+    public var characterAvatarHash: String? = nil
+    public var authorAvatarHash: String? = nil
     public var dice: JSONValue? = nil
     public var visibility: String? = nil
     public var displayText: String { dice?["text"].string ?? (diceTone == .notice ? "" : content) }

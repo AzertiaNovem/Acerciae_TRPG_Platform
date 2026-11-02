@@ -205,17 +205,32 @@ bool MediaService::publicEligible(const std::string& sourceType, const std::stri
     // SVG can carry script, so it is never served from a public origin; uploads and imports stay private.
     return (sourceType == "generated" || sourceType == "mock") && mime.rfind("image/", 0) == 0 && mime != "image/svg+xml";
 }
-bool MediaService::fetch(const ChannelAccess& a, const std::string& id, int version, std::string& bytes, std::string& mime, std::string& fileName, std::string* redirectUrl) {
-    auto cur = db_.queryOne("SELECT * FROM media_assets WHERE id=$1 AND channel_id=$2", {id, a.channelId});
+bool MediaService::resolve(const ChannelAccess& a, const std::string& id, int version, MediaMeta& meta) {
+    std::string mime, name;
+    return fetchRow(a, id, version, mime, name, meta);
+}
+
+bool MediaService::fetchRow(const ChannelAccess& a, const std::string& id, int version, std::string& mime, std::string& fileName, MediaMeta& meta) {
+    auto cur = db_.queryOne("SELECT m.*, c.kind AS character_kind FROM media_assets m LEFT JOIN characters c ON c.id=m.character_id WHERE m.id=$1 AND m.channel_id=$2", {id, a.channelId});
     if (cur.isNull()) return false;
-    if (!a.isGm && (cur["visibility_scope"].asString() == "gm" || cur["approval_status"] != "approved")) return false;
+    bool playerVisible = cur["visibility_scope"].asString() != "gm" && cur["approval_status"] == "approved" && json::str(cur, "character_kind", "pc") != "npc";
+    if (!a.isGm && !playerVisible) return false;
     std::string key = cur["object_key"].asString(); mime = cur["mime"].asString();
-    int servedVersion = cur["version"].asInt(); bool hashed = cur["content_hash"].isString() && !cur["content_hash"].asString().empty();
-    if (version > 0 && version != cur["version"].asInt()) { auto v = db_.queryOne("SELECT object_key, mime, content_hash FROM asset_versions WHERE asset_id=$1 AND version=$2", {id, (int64_t)version}); if (v.isNull()) return false; servedVersion = version; hashed = v["content_hash"].isString() && !v["content_hash"].asString().empty(); key = v["object_key"].asString(); mime = v["mime"].asString(); }
+    std::string hash = json::str(cur, "content_hash"); int servedVersion = cur["version"].asInt();
+    if (version > 0 && version != cur["version"].asInt()) { auto v = db_.queryOne("SELECT object_key, mime, content_hash FROM asset_versions WHERE asset_id=$1 AND version=$2", {id, (int64_t)version}); if (v.isNull()) return false; key = v["object_key"].asString(); mime = v["mime"].asString(); hash = json::str(v, "content_hash"); servedVersion = version; }
     fileName = cur["name"].asString();
+    meta.objectKey = key; meta.pinned = version > 0; meta.playerVisible = playerVisible; meta.contentHash = hash; meta.version = servedVersion;
+    return true;
+}
+
+bool MediaService::fetch(const ChannelAccess& a, const std::string& id, int version, std::string& bytes, std::string& mime, std::string& fileName, std::string* redirectUrl, MediaMeta* metaOut) {
+    MediaMeta meta;
+    if (!fetchRow(a, id, version, mime, fileName, meta)) return false;
+    const auto& key = meta.objectKey;
     // An object stored before content hashes existed is hashed the first time it is served (read once, even when the
     // browser is then sent to the public bucket); from then on every listing names the hash.
-    if (!hashed) { if (auto data = store_.get(key)) recordHash(id, servedVersion, crypto::sha256Hex(*data)); }
+    if (meta.contentHash.empty()) { if (auto data = store_.get(key)) { meta.contentHash = crypto::sha256Hex(*data); recordHash(id, meta.version, meta.contentHash); } }
+    if (metaOut) *metaOut = meta;
     if (redirectUrl) { *redirectUrl = store_.publicUrl(key); if (!redirectUrl->empty()) return true; }
     auto data = store_.get(key); if (!data) return false;
     bytes = std::move(*data); return true;

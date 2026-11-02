@@ -1,10 +1,12 @@
 import type { ImgHTMLAttributes, ReactNode } from 'react';
-import { useAssetUrl } from '../hooks/useAssetUrl';
+import { useCachedSrc } from '../hooks/useCachedSrc';
 
-// An <img> whose bytes come from the device cache when they are there (see lib/assetCache). While the asset is being
-// fetched the first time, `fallback` is shown (nothing by default) instead of a broken image.
-export default function CachedImg({ cacheKey, src, fallback = null, ...img }: { cacheKey: string | null; src: string; fallback?: ReactNode } & Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>) {
-  const url = useAssetUrl(cacheKey, src);
-  if (!url) return <>{fallback}</>;
-  return <img src={url} {...img} />;
+// An <img> whose source comes from the local asset cache (lib/assetCache.ts). `hash` is the picture's content hash
+// when the server named one, so the entry outlives versions and tokens. While the picture is being fetched the first
+// time, `fallback` is shown (nothing by default) instead of a broken image.
+export function CachedImg({ src, hash, fallback = null, ...rest }: Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & { src?: string | null; hash?: string | null; fallback?: ReactNode }) {
+  const cached = useCachedSrc(src, hash);
+  if (!cached) return <>{fallback}</>;
+  return <img {...rest} src={cached} />;
 }
+export default CachedImg;

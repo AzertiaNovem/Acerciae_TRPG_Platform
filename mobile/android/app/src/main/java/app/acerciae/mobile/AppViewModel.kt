@@ -4,18 +4,24 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.acerciae.mobile.core.*
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
+import java.io.File
 import java.util.UUID
 
 private val emptyObject = JsonObject(emptyMap())
 data class AppState(
+    val cacheRevision: Long = 0,
     val chatNotices: List<ChatNotice> = emptyList(), val initiative: JsonObject = emptyObject, val bannersEnabled: Boolean = true, val readAloud: Boolean = false,
     val campaign: DemoCampaign? = null, val error: String? = null,
     val speechMode: String = "ooc", val references: List<Message> = emptyList(), val jumpMessageId: String? = null,
@@ -31,7 +37,7 @@ data class AppState(
     val hasOlder: Boolean = false, val diceHint: String = "", val result: String? = null, val resultType: String = "",
 ) {
     val online get() = user != null
-    val scopeKey get() = channelId + channel.text("my_role") + channel.text("player_group_id") + channel["player_group_version"].toString() + channel["my_character_ids"].toString()
+    val scopeKey get() = cacheRevision.toString() + channelId + channel.text("my_role") + channel.text("player_group_id") + channel["player_group_version"].toString() + channel["my_character_ids"].toString()
     val studioAccess get() = AccessRules.studio(channel, serverSettings)
     val studioAvailable get() = studioAccess == "open"
     val serverRole get() = servers.find { it.id == serverId }?.text("my_role").orEmpty()
@@ -50,7 +56,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var session: Session? = null
     private var epoch = 0L
     private val drafts = mutableMapOf<String, String>()
-    private var refreshing = false
+    private val refreshing = mutableSetOf<Long>()
     private var polling = false
     private var catalogUpdated = 0L
     var foreground = false
@@ -90,13 +96,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private val sessionStore = SessionStore(application)
+    // Downloaded media, one directory per account and server (core/AssetDiskCache.kt); deleted on sign-out.
+    private val assetRoot = File(application.filesDir, "offline/assets")
+    private fun assetsFor(endpoint: String, user: User) = AssetDiskCache(File(assetRoot, AssetDiskCache.hex("$endpoint|${user.id}")), legacyDir = File(getApplication<Application>().cacheDir, "assets/" + AssetDiskCache.hex("$endpoint|${user.id}")))
+    private fun readsFor(endpoint: String, user: User) = AssetDiskCache(File(getApplication<Application>().filesDir, "offline/pages/" + AssetDiskCache.hex("$endpoint|${user.id}")), 64L * 1024 * 1024)
     init {
         update { copy(bannersEnabled=preferences.getBoolean("banners",true),readAloud=preferences.getBoolean("readAloud",false)) }
         MobileLocale.initialize(application)
         try {
             sessionStore.read()?.let { saved ->
                 if (!ServiceConfiguration.acceptsSavedEndpoint(saved.endpoint)) { sessionStore.clear(); return@let }
-                api = BackendClient(BackendAddress(ServiceConfiguration.BACKEND_ROOT, BuildConfig.DEBUG)); session = saved.session
+                api = BackendClient(BackendAddress(ServiceConfiguration.BACKEND_ROOT, BuildConfig.DEBUG), assets = assetsFor(ServiceConfiguration.BACKEND_ROOT, saved.session.user), reads = readsFor(ServiceConfiguration.BACKEND_ROOT, saved.session.user)); session = saved.session
                 saved.session.user.uiLanguage?.let { MobileLocale.set(it) }
                 update { copy(user = saved.session.user, campaign = null, connection = "正在恢复登录…") }
             }
@@ -110,6 +120,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun chooseRole(id: String) { update { copy(characterId = id, role = playable.find { it.id == id }?.name ?: if (gm) tr("旁白") else tr("场外"), diceHint = "") } }
     fun notice(value: String?) { update { copy(notice = value) } }
     fun result(value: String?) { update { copy(result = value) } }
+    fun loadAsync(work: suspend () -> Unit) { viewModelScope.launch { load(work) } }
     fun launch(work: suspend () -> Unit) { viewModelScope.launch { run(work) } }
     suspend fun run(work: suspend () -> Unit) {
         if (state.value.busy) return
@@ -122,7 +133,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun token() = session?.token ?: error(tr("请先登录"))
     suspend fun get(path: List<String>, body: JsonObject? = null, method: String? = null, query: Map<String, String> = emptyMap()) = client().resource(path, token(), body, method, query)
     suspend fun rows(path: List<String>, query: Map<String, String> = emptyMap()) = client().resources(path, token(), query)
-    suspend fun bytes(path: List<String>, query: Map<String, String> = emptyMap()) = client().bytes(path, token(), query)
+    suspend fun bytes(path: List<String>, query: Map<String, String> = emptyMap(), hash: String? = null) = client().bytes(path, token(), query, hash)
     suspend fun uploadModule(bytes: ByteArray, title: String): JsonObject = client().uploadModule(state.value.channelId, title, bytes, token())
     suspend fun uploadArtwork(bytes: ByteArray, character: String, slot: String, subtitle: String) = client().uploadCharacterAsset(state.value.channelId, character, slot, subtitle, bytes, token())
     fun login(username: String, password: String, registering: Boolean = false, displayName: String = "") = launch {
@@ -136,13 +147,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 else -> throw e
             }
         }
+        client.assets = assetsFor(state.value.endpoint, auth.user); client.reads = readsFor(state.value.endpoint, auth.user)
         epoch++; api = client; session = auth; drafts.clear(); catalogUpdated = 0L
         auth.user.uiLanguage?.let { MobileLocale.set(it) }
         update { AppState(endpoint = endpoint, user = auth.user, busy = true, connection = "已连接") }
         try { sessionStore.save(SavedLogin(state.value.endpoint, auth)) }
         catch (_: Exception) { notice(tr("登录成功，但设备未能安全保存登录状态")) }
-        val stamp = epoch; val servers = rows(listOf("servers")); if (stamp != epoch) return@launch; update { copy(servers = servers) }
-        servers.firstOrNull()?.let { selectServer(it.id) }
+        update { copy(busy = false) }
+        restoreCachedCatalog()
+        navigate { refreshCatalog(); refresh(metadata = false) }
     }
     fun changeLanguage(code: String) {
         if (code !in InterfaceLanguage.codes) return
@@ -169,6 +182,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         epoch++; api = null; session = null; drafts.clear(); catalogUpdated = 0L
         update { AppState(connection = "已退出登录") }
         try { sessionStore.clear() } catch (_: Exception) { notice(tr("设备未能清除登录记录，请保持联网完成退出")) }
+        oldApi?.assets?.invalidate(); oldApi?.reads?.invalidate(); navigationJob?.cancel(); clearAvatarImages()
         if (oldApi != null && oldToken != null) viewModelScope.launch { runCatching { oldApi.resource(listOf("auth", "logout"), oldToken, emptyObject) } }
     }
     private fun rememberDraft() { if (state.value.windowId.isNotEmpty()) drafts[state.value.windowId] = state.value.draft }
@@ -178,24 +192,95 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun selectServer(id: String) {
         rememberDraft(); epoch++; val stamp = epoch; clearChannel()
         update { copy(serverId = id, serverSettings = emptyObject, channels = emptyList()) }
+        restoreCachedServer(id, stamp)
+        coroutineContext.ensureActive(); if (stamp != epoch) return
         val channels = rows(listOf("servers", id, "channels"))
         if (stamp != epoch) return
         update { copy(channels = channels) }
-        channels.firstOrNull()?.let { selectChannel(it.id) } ?: run { val settings=get(listOf("servers",id,"settings")); if(stamp==epoch) update { copy(serverSettings=settings) } }
+        (channels.find { it.id == state.value.channelId } ?: channels.firstOrNull())?.let { selectChannel(it.id) } ?: run { val settings=get(listOf("servers",id,"settings")); if(stamp==epoch) update { copy(serverSettings=settings) } }
     }
     suspend fun selectChannel(id: String) {
         rememberDraft(); epoch++; val stamp = epoch; clearChannel(); update { copy(channelId = id) }
+        restoreCachedChannel(id, stamp)
+        coroutineContext.ensureActive(); if (stamp != epoch) return
         val info = get(listOf("channels", id)); val windows = rows(listOf("channels", id, "windows"))
         if (stamp != epoch) return
+        if (state.value.channel.isNotEmpty() && permissionsDiffer(state.value.channel, state.value.windows, info, windows)) { purgeCachedAccess(); update { copy(campaign = null, characters = emptyList(), scenes = emptyList(), reminders = emptyList()) } }
         update { copy(channel = info, windows = windows) }
         chooseRole(state.value.playable.firstOrNull()?.id.orEmpty())
-        windows.firstOrNull()?.let { selectWindow(it.id) }
+        (windows.find { it.id == state.value.windowId } ?: windows.firstOrNull())?.let { selectWindow(it.id) }
     }
     suspend fun selectWindow(id: String) {
         rememberDraft(); epoch++
         update { copy(speechMode = if (gm) "narration" else "ic", references = emptyList(), jumpMessageId = null, windowId = id, draft = drafts[id].orEmpty(), campaign = null, diceHint = "", result = null) }
+        val stamp = epoch
+        restoreCachedWindow(id, stamp)
+        coroutineContext.ensureActive(); if (stamp != epoch) return
+        rememberSelection()
         refresh(false,metadata=false)
     }
+    private var navigationJob: Job? = null
+    fun navigate(work: suspend () -> Unit) {
+        navigationJob?.cancel()
+        navigationJob = viewModelScope.launch { try { work() } catch (e: CancellationException) { throw e } catch (e: Exception) { handle(e, true) } }
+    }
+    suspend fun load(work: suspend () -> Unit) { try { work() } catch (e: CancellationException) { throw e } catch (e: Exception) { handle(e) } }
+    suspend fun cached(path: List<String>, query: Map<String,String> = emptyMap()): JsonElement? {
+        val auth = session?.token ?: return null
+        val value = api?.cachedValue(path, query)
+        coroutineContext.ensureActive()
+        return if (session?.token == auth) value else null
+    }
+    private suspend fun cachedRows(path: List<String>) = (cached(path) as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+    private suspend fun rememberSelection() {
+        val s = state.value; val store = api?.reads ?: return; val revision = store.generation(); val ticket = store.reserve("selection")
+        withContext(Dispatchers.IO) { store.put("selection", payload("server" to s.serverId, "channel" to s.channelId, "window" to s.windowId).toString().toByteArray(), revision, ticket) }
+    }
+    private suspend fun restoreCachedCatalog() {
+        if (state.value.serverId.isNotEmpty()) return
+        val stamp = epoch
+        val rows = cachedRows(listOf("servers"))
+        val store = api?.reads
+        val selection = withContext(Dispatchers.IO) { store?.get("selection")?.let { runCatching { Json.parseToJsonElement(it.toString(Charsets.UTF_8)) as? JsonObject }.getOrNull() } } ?: emptyObject
+        if (stamp != epoch) return
+        update { copy(servers = rows) }
+        val server = rows.find { it.id == selection.text("server") } ?: rows.firstOrNull() ?: return
+        update { copy(serverId = server.id) }
+        restoreCachedServer(server.id, stamp, selection.text("channel"), selection.text("window"))
+    }
+    private suspend fun restoreCachedServer(id: String, stamp: Long, preferredChannel: String = "", preferredWindow: String = "") {
+        val rows = cachedRows(listOf("servers",id,"channels")); val settings = cached(listOf("servers",id,"settings")) as? JsonObject ?: emptyObject
+        if (stamp != epoch) return
+        update { copy(channels = rows, serverSettings = settings) }
+        (rows.find { it.id == preferredChannel } ?: rows.firstOrNull())?.let { update { copy(channelId = it.id) }; restoreCachedChannel(it.id, stamp, preferredWindow) }
+    }
+    private suspend fun restoreCachedChannel(id: String, stamp: Long, preferredWindow: String = "") {
+        val info = cached(listOf("channels",id)) as? JsonObject ?: return
+        val wins = cachedRows(listOf("channels",id,"windows")); val chars = cachedRows(listOf("channels",id,"characters"))
+        val scenes = cachedRows(listOf("channels",id,"scenes")); val reminders = cachedRows(listOf("channels",id,"reminders"))
+        if (stamp != epoch) return
+        update { copy(channel = info, windows = wins, characters = chars, scenes = scenes, reminders = reminders) }
+        chooseRole(state.value.playable.firstOrNull()?.id.orEmpty())
+        (wins.find { it.id == preferredWindow } ?: wins.firstOrNull())?.let { win ->
+            update { copy(windowId = win.id, draft = drafts[win.id].orEmpty(), speechMode = if(gm) "narration" else "ic") }
+            restoreCachedWindow(win.id, stamp)
+        }
+    }
+    private suspend fun restoreCachedWindow(id: String, stamp: Long) {
+        val s = state.value
+        val messages = cached(listOf("channels",s.channelId,"windows",id,"messages"), mapOf("limit" to "50")) ?: return
+        val docs = cached(listOf("channels",s.channelId,"documents")) ?: JsonArray(emptyList())
+        val hints = cached(listOf("channels",s.channelId,"highlights")) ?: JsonArray(emptyList())
+        if (stamp != epoch) return
+        val campaign = runCatching { Json { ignoreUnknownKeys = true }.decodeFromJsonElement<DemoCampaign>(buildJsonObject {
+            put("title", s.channel.name); put("scene", s.windows.find { it.id == id }?.text("scene_title").orEmpty()); put("messages", messages)
+            put("documents", if(s.gm) docs else JsonArray(emptyList())); put("highlights", if(s.gm) hints else JsonArray(emptyList())); put("replay", JsonArray(emptyList()))
+        }) }.getOrNull() ?: return
+        update { copy(campaign = campaign, hasOlder = campaign.messages.size == 50) }
+    }
+    private fun purgeCachedAccess() { clearAvatarImages(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
+    private fun permissionsDiffer(old: JsonObject, oldWindows: List<JsonObject>, fresh: JsonObject, freshWindows: List<JsonObject>) =
+        listOf("player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode").any { old[it] != fresh[it] } || oldWindows.any { win -> freshWindows.find { it.id == win.id }?.get("members") != win["members"] }
     private var metadataJob: Job? = null
     private var metadataGeneration = 0L
     private var metadataUpdated = 0L
@@ -211,8 +296,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     } }
     suspend fun refresh(merge: Boolean = true, metadata:Boolean = true) {
         val s=state.value
-        if(!s.online || s.windowId.isEmpty() || refreshing) return
-        refreshing=true; val stamp=epoch
+        if(!s.online || s.windowId.isEmpty() || epoch in refreshing) return
+        val stamp=epoch; refreshing.add(stamp)
         try {
             val (info,wins)=coroutineScope {
                 val i=async { get(listOf("channels",s.channelId)) }
@@ -223,6 +308,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val isGM=info.text("my_role")=="gm"
             val permissionsChanged=s.channel["player_group_id"]!=info["player_group_id"] || s.channel["player_group_version"]!=info["player_group_version"] || s.channel["my_role"]!=info["my_role"] || s.channel["my_character_ids"]!=info["my_character_ids"] || s.channel["knowledge_mode"]!=info["knowledge_mode"] || s.windows.find { it.id==s.windowId }?.get("members")!=wins.find { it.id==s.windowId }?.get("members")
             if(permissionsChanged) {
+                purgeCachedAccess()
                 metadataJob?.cancel(); metadataJob=null; metadataGeneration++
                 stopSpeech(); readSeq.clear()
                 update { copy(campaign=null,characters=emptyList(),scenes=emptyList(),reminders=emptyList(),chatNotices=emptyList(),result=null,diceHint="",references=emptyList(),jumpMessageId=null,speechMode=if(s.channel["my_role"]!=info["my_role"]) if(isGM) "narration" else "ic" else speechMode) }
@@ -261,7 +347,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             if(stamp==epoch && state.value.characterId.isNotEmpty() && state.value.playable.none { it.id==state.value.characterId }) chooseRole("")
-        } finally { refreshing=false }
+        } finally { refreshing.remove(stamp) }
     }
     suspend fun refreshCatalog() {
         if (!state.value.online) return
@@ -276,6 +362,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         update { copy(servers = servers) }
         if (servers.none { it.id == state.value.serverId }) {
+            if(state.value.serverId.isNotEmpty()) purgeCachedAccess()
             epoch++; clearChannel(); update { copy(serverId = "", channels = emptyList(), serverSettings = emptyObject) }
             servers.firstOrNull()?.let { selectServer(it.id) }
         } else {
@@ -284,6 +371,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (stamp != epoch) return
             update { copy(channels = channels, serverSettings = settings) }
             if (channels.none { it.id == state.value.channelId }) {
+                if(state.value.channelId.isNotEmpty()) purgeCachedAccess()
                 epoch++; clearChannel(); channels.firstOrNull()?.let { selectChannel(it.id) }
             } else if (state.value.windowId.isEmpty()) selectChannel(state.value.channelId)
         }
@@ -295,6 +383,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val token = session?.token
         val previous=state.value; val stamp=epoch
         try {
+            restoreCachedCatalog()
             var catalogDeferred=false
             if (forceCatalog || catalogUpdated == 0L || android.os.SystemClock.elapsedRealtime() - catalogUpdated >= 30_000) {
                 try { refreshCatalog() } catch(e:CancellationException) { throw e } catch(e:Exception) {
@@ -340,7 +429,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         get(listOf("channels", s.channelId, "windows", s.windowId, "messages"), body)
         if (stamp != epoch) return@launch
-        update { copy(draft = if (draft.trim() == text) "" else draft, diceHint = "", references = emptyList()) }; refresh()
+        update { copy(draft = if (draft.trim() == text) "" else draft, diceHint = "", references = emptyList()) }; refreshSoon()
+    }
+    private fun refreshSoon() {
+        val stamp = epoch
+        viewModelScope.launch { if(stamp != epoch) return@launch; try { refresh(metadata = false) } catch(e:CancellationException) { throw e } catch(e:Exception) { if(stamp == epoch) handle(e, true) } }
     }
     fun assistance(type: String) {
         if (!state.value.enabled(type) || state.value.windowId.isEmpty()) return
@@ -367,7 +460,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun handle(e: Exception, silent: Boolean = false) {
         if (e is BackendException && e.apiResponse && e.status == 401) { logout(); notice(tr("登录已过期，请重新登录")); return }
-        if (e is BackendException && e.apiResponse && e.status in listOf(403, 404) && silent) { epoch++; clearChannel(); catalogUpdated = 0L }
+        if (e is BackendException && e.apiResponse && e.status in listOf(403, 404) && silent) { purgeCachedAccess(); epoch++; clearChannel(); catalogUpdated = 0L }
         val message = if (e is BackendException && !e.apiResponse) tr("服务入口暂时不可用，请稍后重试")+" (HTTP ${e.status})" else if (e is BackendException || e is IllegalArgumentException) e.message ?: "请求失败" else tr(ConnectionPolicy.message(e))
         update { copy(connection = message, notice = if (silent) notice else message) }
     }

@@ -24,7 +24,7 @@ import kotlinx.serialization.json.*
         val body = buildJsonObject { keys.forEach { group -> put(group, JsonObject(draft.obj(group).filterKeys { it !in listOf("api_key_set", "api_key_hint") && (group != "ai_policy" || it in listOf("token_budget", "image_budget", "period", "max_concurrent")) })) } }
         draft = model.get(listOf("servers", state.serverId, "settings"), body, "PUT"); model.refreshCatalog(); model.notice(tr("Saved"))
     } }
-    LaunchedEffect(state.serverId, area) { model.run { if (area == "Access") loadInvites(); if (area == "Channels") channels = model.rows(listOf("servers", state.serverId, "all-channels")) } }
+    LaunchedEffect(state.serverId, area) { model.load { if (area == "Access") loadInvites(); if (area == "Channels") channels = model.rows(listOf("servers", state.serverId, "all-channels")) } }
     Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = close) { Text(tr("Back")) }; Text(tr(area), style = MaterialTheme.typography.titleLarge)
         if (area == "Access") {

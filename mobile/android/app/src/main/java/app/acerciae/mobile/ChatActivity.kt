@@ -17,7 +17,7 @@ data class ChatNotice(val id:String,val title:String,val messages:List<Message>)
             Card(Modifier.widthIn(max=320.dp)) { Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) { TextButton(onClick={expanded=!expanded},modifier=Modifier.weight(1f)) { Text(n.title+if(n.messages.size>1) " · ${n.messages.size}" else "") }; TextButton(onClick={model.dismissNotice(n.id)}) { Text(tr("Close")) } }
                 n.messages.take(if(expanded) 6 else 1).forEach { m -> TextButton(onClick={model.launch { model.openEvidence(payload("message_id" to m.id,"chat_window_id" to n.id),false); model.dismissNotice(n.id); open() }}) {
-                    ProfileAvatar(WindowActivity.speaker(m),state,model,if(m.kind=="ooc") "" else m.characterAvatarAssetId.orEmpty(),(m.characterAvatarVersion?:0).toString(),m.authorId.orEmpty(),m.authorAvatarVersion?:0)
+                    ProfileAvatar(WindowActivity.speaker(m),state,model,if(m.kind=="ooc") "" else m.characterAvatarAssetId.orEmpty(),(m.characterAvatarVersion?:0).toString(),m.authorId.orEmpty(),m.authorAvatarVersion?:0,hash=if(m.kind=="ooc") "" else m.characterAvatarHash.orEmpty(),ownerHash=m.authorAvatarHash.orEmpty())
                     Column(Modifier.padding(start=8.dp).weight(1f)) { Text(WindowActivity.speaker(m),style=MaterialTheme.typography.labelMedium); Text(m.displayText,maxLines=2,style=MaterialTheme.typography.bodySmall) }
                 } }
             } }

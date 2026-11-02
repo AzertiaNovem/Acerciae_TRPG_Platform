@@ -56,7 +56,7 @@ struct VoiceSettings: View {
                     profiles = try await model.typed(base + ["voices"]); selected = value["id"].text; reset(); model.notice = tr("Saved")
                 } } }.disabled(!canEdit || fields["name"]?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false || fields["voice_id"]?.text.isEmpty != false)
             }
-        }.navigationTitle(tr("Voice settings")).task { await model.run {
+        }.navigationTitle(tr("Voice settings")).task { await model.load {
             status = try await model.get(base + ["tts", "status"]); profiles = try await model.typed(base + ["voices"]); presets = try await model.typed(base + ["tts", "available-voices"]); reset()
         } }
     }

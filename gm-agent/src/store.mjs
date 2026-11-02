@@ -7,7 +7,8 @@
 //              chapters;
 //   usage    – one row per model call (input, cache reads and writes, output tokens);
 //   kv       – small values;
-//   phone    – casual mode's text messages (who to whom), so a thread can be read back (casual.mjs).
+//   phone    – casual mode's text messages (who to whom), so a thread can be read back (casual.mjs);
+//   plans    – every version of the story plan in full (draft, critique, final), for `plan show --full` (planner.mjs).
 // The process that keeps the state file (the `run` lock) is the only writer.
 import fs from "node:fs";
 import path from "node:path";
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS usage (
   input INTEGER NOT NULL DEFAULT 0, cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS usage_at ON usage(at);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS plans (version INTEGER PRIMARY KEY, at INTEGER NOT NULL, trigger TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS phone (
   id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL DEFAULT 0, window_id TEXT NOT NULL, from_id TEXT NOT NULL,
   to_id TEXT NOT NULL, text TEXT NOT NULL, at INTEGER NOT NULL);
@@ -59,6 +61,9 @@ export class Store {
       usage: this.db.prepare("INSERT INTO usage(at, purpose, model, input, cache_read, cache_write, output) VALUES(?, ?, ?, ?, ?, ?, ?)"),
       usageSince: this.db.prepare("SELECT count(*) AS calls, coalesce(sum(input),0) AS input, coalesce(sum(cache_read),0) AS cacheRead, coalesce(sum(cache_write),0) AS cacheWrite, coalesce(sum(output),0) AS output FROM usage WHERE at >= ?"),
       get: this.db.prepare("SELECT value FROM kv WHERE key = ?"),
+      addPlan: this.db.prepare("INSERT INTO plans(version, at, trigger, json) VALUES(?, ?, ?, ?) ON CONFLICT(version) DO UPDATE SET at = excluded.at, trigger = excluded.trigger, json = excluded.json"),
+      plan: this.db.prepare("SELECT version, at, trigger, json FROM plans WHERE version = ?"),
+      latestPlan: this.db.prepare("SELECT version, at, trigger, json FROM plans ORDER BY version DESC LIMIT 1"),
       addPhone: this.db.prepare("INSERT INTO phone(seq, window_id, from_id, to_id, text, at) VALUES(?, ?, ?, ?, ?, ?)"),
       thread: this.db.prepare("SELECT seq, from_id AS \"from\", to_id AS \"to\", text, at FROM phone WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?) ORDER BY id DESC LIMIT ?"),
       phoneOf: this.db.prepare("SELECT seq, from_id AS \"from\", to_id AS \"to\", text, at FROM phone WHERE from_id = ? OR to_id = ? ORDER BY id DESC LIMIT ?"),
@@ -108,6 +113,11 @@ export class Store {
   thread(a, b, limit = 40) { return this.q.thread.all(a, b, b, a, limit).map((r) => ({ ...r })).reverse(); }
   // Every message to or from one character, oldest first (the newest `limit`).
   phoneOf(id, limit = 30) { return this.q.phoneOf.all(id, id, limit).map((r) => ({ ...r })).reverse(); }
+
+  // ---- story plans (planner.mjs)
+  addPlan({ version, at = Date.now(), trigger = "", record }) { this.q.addPlan.run(version | 0, at, trigger, JSON.stringify(record)); }
+  plan(version) { const r = this.q.plan.get(version | 0); return r ? { ...r, record: JSON.parse(r.json) } : null; }
+  latestPlan() { const r = this.q.latestPlan.get(); return r ? { ...r, record: JSON.parse(r.json) } : null; }
 
   // ---- kv
   get(key, fallback = null) { const r = this.q.get.get(key); return r ? JSON.parse(r.value) : fallback; }

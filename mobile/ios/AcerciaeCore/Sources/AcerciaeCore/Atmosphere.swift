@@ -7,4 +7,9 @@ public enum Atmosphere {
         guard current["enabled"].bool, variants.allSatisfy({ !current["assets"][$0].text.isEmpty }) else { return nil }
         return current["assets"][variant(dark: dark, portrait: portrait)].text
     }
+    /// The content hash of the variant's image, when the server named one (`hashes`).
+    public static func hash(_ current: JSONValue, dark: Bool, portrait: Bool) -> String? {
+        let h = current["hashes"][variant(dark: dark, portrait: portrait)].text
+        return h.isEmpty ? nil : h
+    }
 }

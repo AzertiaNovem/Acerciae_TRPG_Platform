@@ -1,8 +1,6 @@
 import { t as tr } from '../../i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
-import { mediaKey } from '../../lib/assetCache';
-import CachedImg from '../CachedImg';
 import BundleDownload from './BundleDownload';
 import { contextSocket } from '../../api/ws';
 import { useNav } from '../../store/nav';
@@ -10,6 +8,7 @@ import { useUi } from '../../store/ui';
 import type { Presentation, TtsJob, VnScriptJob, VoiceProfile } from '../../types';
 import VNPlayer from './vn/VNPlayer';
 import { VN_BASE_INFO, VN_BASES, type VnBase } from './vn/templates';
+import { CachedImg } from '../CachedImg';
 
 type Step = 'script' | 'art' | 'cast' | 'export';
 const STEPS: { id: Step; label: string }[] = [{ id: 'script', label: 'Script' }, { id: 'art', label: 'Art' }, { id: 'cast', label: 'Dubbing cast' }, { id: 'export', label: 'Export' }];
@@ -217,7 +216,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
               const state = s.background_asset_id ? 'completed' : bg?.status ?? 'missing';
               const label = state === 'running' ? tr('painting…') : state === 'pending' ? tr('Queued') : state === 'missing' ? tr('Background not generated') : tr(state);
               return <div key={s.id} className="wizard-tile">
-                {s.background_asset_id ? <CachedImg cacheKey={mediaKey(channelId!, s.background_asset_id, s.background_asset_version, s.background_asset_hash)} src={api.mediaUrl(channelId!, s.background_asset_id, s.background_asset_version)} alt="" /> : <div className="placeholder">{label}</div>}
+                {s.background_asset_id ? <CachedImg src={api.mediaUrl(channelId!, s.background_asset_id, s.background_asset_version)} hash={s.background_asset_hash} alt="" /> : <div className="placeholder">{label}</div>}
                 <div className="tiny"><b>{s.title}</b></div>
                 {!s.background_asset_id && bg?.error && <div className="tiny" style={{ color: 'var(--danger)', overflowWrap: 'anywhere' }}>{bg.error}</div>}
                 {!s.background_asset_id && ['missing', 'failed', 'cancelled'].includes(state) && <button className="small" disabled={artRetryBlocked} onClick={() => retryBackgrounds(s.canonical_scene_key)}>{tr('Retry background')}</button>}

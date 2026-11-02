@@ -3,6 +3,7 @@
 // hints), and every chat line in every window. Co-players never get this (see coplayerContext.mjs).
 import { renderLine } from "./coplayerContext.mjs";
 import { renderProfile } from "./profiles.mjs";
+import { impression } from "./traits.mjs";
 import { isPlayerCharacter } from "../roles/roster.mjs";
 import { improvSections } from "../improv.mjs";
 import { CHUNK_LINES, estimateTokens } from "../memory.mjs";
@@ -66,7 +67,10 @@ export class GmContext {
   // `improv` (improv.mjs): in improvisation mode the module's script knowledge and hints are left out, and the world
   // setting and hidden truths are added. `hide` holds message ids left out of the chat (the posted world setting).
   // `awayOf(characterId)` is how long a player character's player has been away (ms), or null when they are around.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null }) {
+  // `storyPlan` is the planner's rendered section (planner.mjs) for part C; `peek` leaves the live tips for the GM (the
+  // planner reads the context too, in the background). `calendar` and `bonds` are the rendered calendar.mjs and
+  // bonds.mjs sections, also for part C.
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, storyPlan = "", peek = false, calendar = "", bonds = "" }) {
     const ch = this.channelId;
     const module = !improv?.on;
     await this.history.sync(windowId);
@@ -84,7 +88,7 @@ export class GmContext {
     ]);
     const charName = new Map(characters.map((c) => [c.id, c.name]));
     const current = (scenes ?? []).find((s) => s.id === channel?.current_scene_id);
-    const tips = this.liveTips.splice(0);
+    const tips = peek ? [...this.liveTips] : this.liveTips.splice(0);
     const nameOf = (id) => charName.get(id) ?? id;
     const windowName = (id) => windows.find((w) => w.id === id)?.name ?? id;
     // Every line carries the timeline it comes from, so a story told in one window is never taken as happening now.
@@ -112,8 +116,8 @@ export class GmContext {
       ...(pcs.length ? pcs.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`)) : ["- (none yet)"]),
       "Co-players (AI investigators that play alongside the players; they act on their own turn, so never speak or decide for them either), with their basic details and background:",
       ...(coplayers.length ? coplayers.map((c) => renderProfile(c)) : ["- (none)"]),
-      "Real NPCs (you voice them):",
-      ...(roster.npcs.length ? roster.npcs.map((c) => `- ${c.name}: ${clip(c.brief, 200)}`) : ["- (none yet; introduce them with new_npc)"]),
+      "Real NPCs (you voice them), with gender, age and what is most striking about them:",
+      ...(roster.npcs.length ? roster.npcs.map((c) => { const look = impression(characters.find((x) => x.id === c.characterId)?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}`; }) : ["- (none yet; introduce them with new_npc)"]),
     ].join("\n"));
     // Every window's chapters (the story so far, compacted), windows in a fixed order.
     const chaptered = windows.map((w) => ({ w, chapters: this.memory.gmChapters(w.id) })).filter((x) => x.chapters.length);
@@ -133,6 +137,9 @@ export class GmContext {
     // ---- C: changes every few turns
     const c = [];
     if (hiddenSection) c.push(hiddenSection);
+    if (storyPlan) c.push(storyPlan);
+    if (calendar) c.push(calendar);
+    if (bonds) c.push(bonds);
     if (timelines) {
       // Every active thread, always; then the most recent merged ones for context.
       const listed = [...timelines.active(), ...timelines.list.filter((t) => t.status !== "active" && t.mergedInto).slice(-6)];
@@ -188,7 +195,7 @@ export class GmContext {
       { text: d.join("\n\n") },
     ];
     const here = [...frozen, ...tail];
-    return { parts, text: parts.map((p) => p.text).join(""), newest: here.at(-1) ?? null, current, render, lines: (w) => linesOf(w) };
+    return { parts, text: parts.map((p) => p.text).join(""), newest: here.at(-1) ?? null, current, world, render, lines: (w) => linesOf(w) };
   }
 }
 

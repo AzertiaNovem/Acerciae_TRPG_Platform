@@ -3,65 +3,142 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
-// The device media cache (lib/assetCache): what is cacheable, how it is keyed, and what eviction drops.
-const source = fs.readFileSync(path.join(__dirname, '../src/lib/assetCache.ts'), 'utf8');
-const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
-const mod = { exports: {} };
+
+// A minimal in-memory IndexedDB: the calls assetCache.ts and cachePolyfill.ts make.
+function fakeIndexedDB() {
+  const stores = new Map();
+  const req = (fn) => { const r = {}; setTimeout(() => { try { r.result = fn(); r.onsuccess && r.onsuccess(); } catch (e) { r.error = e; r.onerror && r.onerror(); } }, 0); return r; };
+  const objectStore = (name) => {
+    const rows = stores.get(name);
+    return {
+      get: (k) => req(() => rows.get(k)),
+      put: (v) => req(() => { rows.set(v.key, v); return v.key; }),
+      delete: (k) => req(() => { rows.delete(k); }),
+      clear: () => req(() => rows.clear()),
+      getAll: () => req(() => [...rows.values()]),
+      index: () => ({ getAll: () => req(() => [...rows.values()].sort((a, b) => (a.lastUsed ?? a.used) - (b.lastUsed ?? b.used))) }),
+    };
+  };
+  const db = { objectStoreNames: { contains: (n) => stores.has(n) }, deleteObjectStore: (n) => stores.delete(n), createObjectStore: (n) => { stores.set(n, new Map()); return { createIndex() {} }; }, transaction: () => ({ objectStore }) };
+  let created = false;   // like a real database, upgraded only the first time it is opened
+  return { stores, open: () => { const r = {}; setTimeout(() => { r.result = db; if (!created) { created = true; r.onupgradeneeded && r.onupgradeneeded(); } r.onsuccess(); }, 0); return r; } };
+}
+
+// localStorage stand-in shared by every page (module instance) of one test: it is the browser profile.
 const stored = new Map();
-new Function('require', 'module', 'exports', js)((name) => name === '../api/client' ? { getToken: () => 'tok' } : { readStorage: (k) => stored.get(k) ?? null, writeStorage: (k, v) => (v === null ? stored.delete(k) : stored.set(k, v)) }, mod, mod.exports);
-const { planEviction, mediaKey, avatarKey, atmosphereKey, ttsKey, contentKey, ASSET_CACHE_MAX_AGE_MS, ASSET_CACHE_MAX_BYTES, formatCacheSize, resolveAsset, peekAsset } = mod.exports;
+function load(file, globals) {
+  const js = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src', file), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+  const module = { exports: {} };
+  const require = (name) => name === './storage' ? { readStorage: (k) => stored.get(k) ?? null, writeStorage: (k, v) => (v === null ? stored.delete(k) : stored.set(k, v)) } : {};
+  new Function('require', 'module', 'exports', ...Object.keys(globals), js)(require, module, module.exports, ...Object.values(globals));
+  return module.exports;
+}
+const response = (body, headers = {}, init = {}) => ({ type: init.type ?? 'basic', ok: init.ok ?? true, headers: new Headers(headers), blob: async () => new Blob([body]) });
+const tick = () => new Promise((r) => setTimeout(r, 10));
+test.beforeEach(() => stored.clear());
 const DAY = 24 * 60 * 60 * 1000;
+const H = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
-test('the content hash names the entry when the server knows it; a version stands in until then', () => {
-  const h = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-  assert.equal(contentKey(h), `sha:${h}`); assert.equal(contentKey(null), null); assert.equal(contentKey(''), null);
-  assert.equal(mediaKey('ch', 'a', 3, h), `sha:${h}`, 'the same bytes are one entry whatever asset shows them');
-  assert.equal(mediaKey('other', 'b', 9, h), `sha:${h}`);
-  assert.equal(mediaKey('ch', 'a', undefined, h), `sha:${h}`, 'a hash makes an unversioned reference cacheable');
-  assert.equal(avatarKey('u', 2, h), `sha:${h}`); assert.equal(atmosphereKey('ch', 'img', h), `sha:${h}`);
-  assert.notEqual(mediaKey('ch', 'a', 3, h), mediaKey('ch', 'a', 3, 'f'.repeat(64)), 'a changed hash is a new entry');
+test('assets are keyed by content hash when the server names one, else by the URL without its token, and per account', () => {
+  const c = load('lib/assetCache.ts', { indexedDB: fakeIndexedDB(), fetch: async () => response(''), location: { href: 'http://app.test/' } });
+  c.setAssetScope('http://api.test|u1');
+  const a = 'http://api.test/api/channels/c/media/m1?token=T1&v=2';
+  assert.equal(c.assetKey(a), c.assetKey('http://api.test/api/channels/c/media/m1?v=2&token=T2'), 'a new token is the same asset');
+  assert.equal(c.assetKey(a, H), c.assetKey('http://api.test/api/users/u9/avatar?v=7&token=X', H), 'the same bytes are one entry whatever shows them');
+  assert.notEqual(c.assetKey(a, H), c.assetKey(a, 'f'.repeat(64)), 'a changed hash is a new entry');
+  assert.notEqual(c.assetKey(a, H), c.assetKey(a), 'hash and URL keys never collide');
+  assert.equal(c.assetKey('data:image/png;base64,AA'), ''); assert.equal(c.assetKey('blob:http://x/1'), '');
+  assert.equal(c.contentKey(null), null); assert.equal(c.contentKey(''), null);
+  const u1 = c.assetKey(a, H); c.setAssetScope('http://api.test|u2');
+  assert.notEqual(c.assetKey(a, H), u1, 'another account is another scope');
 });
 
-test('only immutable content gets a cache key: versioned media and avatars, atmosphere images, voice clips', () => {
-  assert.equal(mediaKey('ch', 'a', 3), 'media:ch:a:v3');
-  assert.equal(mediaKey('ch', 'a', undefined), null, 'an asset without a version may change under the same URL');
-  assert.equal(mediaKey('ch', 'a', null), null);
-  assert.equal(avatarKey('u', 2), 'avatar:u:v2'); assert.equal(avatarKey('u', 0), null);
-  assert.equal(atmosphereKey('ch', 'img'), 'atmosphere:ch:img'); assert.equal(ttsKey('ch', 'clip'), 'tts:ch:clip');
-});
-
-test('eviction drops what was not used for 30 days, then the least recently used until the budget fits', () => {
+test('eviction drops what was not shown for 30 days, then the least recently used until the budget fits', () => {
+  const c = load('lib/assetCache.ts', { indexedDB: fakeIndexedDB(), fetch: async () => response(''), location: { href: 'http://app.test/' } });
   const now = 100 * DAY;
-  assert.ok(ASSET_CACHE_MAX_AGE_MS >= 30 * DAY, 'assets live at least 30 days');
+  assert.ok(c.ASSET_CACHE_MAX_AGE_MS >= 30 * DAY);
   const entries = [
-    { key: 'fresh', bytes: 10, lastUsed: now - 1 * DAY, storedAt: now - 60 * DAY },      // old but used yesterday: stays
-    { key: 'stale', bytes: 10, lastUsed: now - 31 * DAY, storedAt: now - 31 * DAY },     // unused for 31 days: goes
-    { key: 'edge', bytes: 10, lastUsed: now - 30 * DAY, storedAt: now - 30 * DAY },      // exactly 30 days: stays
+    { key: 'fresh', bytes: 10, lastUsed: now - 1 * DAY, storedAt: now - 60 * DAY },   // stored long ago but shown yesterday: stays
+    { key: 'stale', bytes: 10, lastUsed: now - 31 * DAY, storedAt: now - 31 * DAY },  // not shown for 31 days: goes
+    { key: 'edge', bytes: 10, lastUsed: now - 30 * DAY, storedAt: now - 30 * DAY },   // exactly 30 days: stays
   ];
-  assert.deepEqual(planEviction(entries, now), ['stale']);
-  // Over budget: the least recently used go first, only as many as needed.
+  assert.deepEqual(c.planEviction(entries, now), ['stale']);
   const big = [
-    { key: 'a', bytes: 40, lastUsed: now - 5 * DAY, storedAt: now },
-    { key: 'b', bytes: 40, lastUsed: now - 2 * DAY, storedAt: now },
-    { key: 'c', bytes: 40, lastUsed: now - 1 * DAY, storedAt: now },
-    { key: 'old', bytes: 1, lastUsed: now - 40 * DAY, storedAt: now },
+    { key: 'a', bytes: 40, lastUsed: now - 5 * DAY, storedAt: now }, { key: 'b', bytes: 40, lastUsed: now - 2 * DAY, storedAt: now },
+    { key: 'c', bytes: 40, lastUsed: now - 1 * DAY, storedAt: now }, { key: 'old', bytes: 1, lastUsed: now - 40 * DAY, storedAt: now },
   ];
-  assert.deepEqual(planEviction(big, now, { maxAgeMs: 30 * DAY, maxBytes: 85 }).sort(), ['a', 'old']);
-  assert.deepEqual(planEviction(big, now, { maxAgeMs: 30 * DAY, maxBytes: 200 }), ['old']);
-  assert.deepEqual(planEviction([], now), []);
-  assert.ok(ASSET_CACHE_MAX_BYTES >= 256 * 1024 * 1024);
+  assert.deepEqual(c.planEviction(big, now, { maxAgeMs: 30 * DAY, maxBytes: 85 }).sort(), ['a', 'old']);
+  assert.deepEqual(c.planEviction(big, now, { maxAgeMs: 30 * DAY, maxBytes: 200 }), ['old']);
+  assert.deepEqual(c.planEviction([], now), []);
+  assert.equal(c.formatCacheSize(1.5 * 1024 * 1024), '1.5 MB');
 });
 
-test('without IndexedDB the direct URL is used, and nothing is remembered as resolved', async () => {
-  // No indexedDB and no fetch in this process: resolution must fall back to the URL it was given, without throwing.
-  const url = 'https://example.test/api/channels/ch/media/a?token=t&v=1';
-  assert.equal(await resolveAsset(mediaKey('ch', 'a', 1), url), url);
-  assert.equal(peekAsset(mediaKey('ch', 'a', 1)), undefined);
-  assert.equal(await resolveAsset(null, url), url, 'uncacheable content is passed through');
-  assert.equal(await resolveAsset(mediaKey('ch', 'a', 1), ''), '');
+test('only immutable responses are kept; a kept picture is served from the store across pages and token renewals', async () => {
+  const idb = fakeIndexedDB(); const seen = [];
+  let reply = () => response('PIXELS', { 'Cache-Control': 'private, max-age=31536000, immutable' });
+  const fetch = async (url, init) => { seen.push({ url, init }); return reply(url); };
+  const c = load('lib/assetCache.ts', { indexedDB: idb, fetch, location: { href: 'http://app.test/' } });
+  c.setAssetScope('http://api.test|u1');
+  const a = 'http://api.test/api/channels/c/media/m1?token=T1&v=2';
+  assert.match(await c.cachedSrc(a, H), /^blob:/);
+  assert.equal(seen[0].init.redirect, 'manual');
+  await tick();
+  const rows = [...idb.stores.get('assets').values()];
+  assert.equal(rows.length, 1, 'kept on disk'); assert.ok(rows[0].key.endsWith(`sha:${H}`)); assert.ok(rows[0].lastUsed > 0); assert.equal(rows[0].bytes, 6);
+  // A fresh page with a renewed token, and another asset that shows the same bytes: served from the store, no download.
+  const c2 = load('lib/assetCache.ts', { indexedDB: idb, fetch, location: { href: 'http://app.test/' } });
+  c2.setAssetScope('http://api.test|u1');
+  assert.match(await c2.cachedSrc('http://api.test/api/channels/c/media/m1?v=2&token=T9', H), /^blob:/);
+  assert.match(await c2.cachedSrc('http://api.test/api/channels/other/media/m7?v=1&token=T9', H), /^blob:/);
+  assert.equal(seen.length, 1, 'not downloaded again');
+  // Showing it refreshed its lifespan; an entry not shown for 30 days is dropped and downloaded afresh.
+  const row = [...idb.stores.get('assets').values()][0];
+  row.lastUsed = Date.now() - 31 * DAY;
+  const c3 = load('lib/assetCache.ts', { indexedDB: idb, fetch, location: { href: 'http://app.test/' } });
+  c3.setAssetScope('http://api.test|u1');
+  assert.match(await c3.cachedSrc(a, H), /^blob:/);
+  assert.equal(seen.length, 2, 'expired: downloaded again');
+  // Another account on the same device starts empty.
+  const c4 = load('lib/assetCache.ts', { indexedDB: idb, fetch, location: { href: 'http://app.test/' } });
+  c4.setAssetScope('http://api.test|u2'); await tick();
+  assert.equal(idb.stores.get('assets').size, 0, 'another account signing in empties the device');
+  await c4.cachedSrc(a, H); assert.equal(seen.length, 3);
+  // Not immutable (the current version, GM-private material): used, never kept.
+  reply = () => response('X', { 'Cache-Control': 'private, max-age=3600' });
+  const secret = 'http://api.test/api/channels/c/media/secret?v=1&token=T';
+  assert.match(await c4.cachedSrc(secret), /^blob:/, 'shown from the bytes just downloaded');
+  assert.equal(c4.peekSrc(secret), undefined, 'but not remembered');
+  await tick();
+  assert.equal([...idb.stores.get('assets').keys()].filter((k) => k.includes('secret')).length, 0);
+  // A redirect to the public bucket is left to the browser; data URIs pass through; Clear empties the store.
+  reply = () => response('', {}, { type: 'opaqueredirect', ok: false });
+  const pub = 'http://api.test/api/channels/c/media/art?v=1&token=T';
+  assert.equal(await c4.cachedSrc(pub), pub);
+  assert.equal(await c4.cachedSrc('data:image/png;base64,AA'), 'data:image/png;base64,AA');
+  assert.deepEqual(await c4.cacheStats(), { entries: 1, bytes: 6 });
+  await c4.clearAssetCache();
+  assert.equal(idb.stores.get('assets').size, 0);
 });
 
-test('cache sizes read naturally', () => {
-  assert.equal(formatCacheSize(0), '1 KB'); assert.equal(formatCacheSize(512 * 1024), '512 KB');
-  assert.equal(formatCacheSize(1.5 * 1024 * 1024), '1.5 MB'); assert.equal(formatCacheSize(2 * 1024 * 1024 * 1024), '2.00 GB');
+test('a failed download, or no IndexedDB, falls back to the URL itself', async () => {
+  const c = load('lib/assetCache.ts', { indexedDB: fakeIndexedDB(), fetch: async () => { throw new Error('offline'); }, location: { href: 'http://app.test/' } });
+  const u = 'http://api.test/api/users/u1/avatar?v=3&token=T';
+  assert.equal(await c.cachedSrc(u), u);
+  const none = load('lib/assetCache.ts', { fetch: async () => { throw new Error('offline'); }, location: { href: 'http://app.test/' } });
+  assert.equal(await none.cachedSrc(u, H), u);
+  assert.deepEqual(await none.cacheStats(), { entries: 0, bytes: 0 });
+});
+
+test('the model cache stand-in keeps files where the webview has no Cache API', async () => {
+  const idb = fakeIndexedDB();
+  const p = load('lib/speech/cachePolyfill.ts', { indexedDB: idb });
+  const scope = {};
+  assert.equal(p.installCachePolyfill(scope), true);
+  const cache = await scope.caches.open('transformers-cache');
+  assert.equal(await cache.match('https://hf.co/model.onnx'), undefined);
+  await cache.put('https://hf.co/model.onnx', new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'application/octet-stream' } }));
+  const hit = await cache.match('https://hf.co/model.onnx');
+  assert.deepEqual([...new Uint8Array(await hit.arrayBuffer())], [1, 2, 3]);
+  assert.equal(hit.headers.get('content-type'), 'application/octet-stream');
+  assert.equal(p.installCachePolyfill({ caches: {} }), false, 'a real Cache API is left alone');
 });

@@ -144,6 +144,7 @@ AuthService::Avatar AuthService::avatar(const Principal& principal, const std::s
     auto remember = [&](const std::string& bytes) { if (!hashed) { try { db_.exec("UPDATE users SET avatar_hash=$2 WHERE id=$1 AND avatar_hash IS NULL", {userId, crypto::sha256Hex(bytes)}); } catch (const std::exception&) {} } };
     if (row["avatar_key"].isString() && store_) {
         auto key = row["avatar_key"].asString();
+        out.etag = "\"" + key + "\"";   // a new avatar is a new object
         out.mime = row["avatar_mime"].isString() ? row["avatar_mime"].asString() : "image/png";
         if (allowRedirect) { out.url = store_->publicUrl(key); if (!out.url.empty()) { if (!hashed) { if (auto b = store_->get(key)) remember(*b); } return out; } }
         auto bytes = store_->get(key);
@@ -154,6 +155,7 @@ AuthService::Avatar AuthService::avatar(const Principal& principal, const std::s
     }
     auto data = row["avatar_data"].asString();
     if (data.empty()) throw notFound("avatar not found");
+    out.etag = "\"" + drogon::utils::getMd5(data) + "\"";
     out.mime = data.substr(5, data.find(';') - 5);
     out.bytes = drogon::utils::base64Decode(data.substr(data.find(',') + 1));
     remember(out.bytes);

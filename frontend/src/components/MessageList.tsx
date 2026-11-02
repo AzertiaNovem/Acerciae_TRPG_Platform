@@ -2,12 +2,11 @@ import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../store/auth';
 import { api } from '../api/client';
-import { avatarKey, mediaKey } from '../lib/assetCache';
-import { useAssetUrl } from '../hooks/useAssetUrl';
 import { useChat } from '../store/chat';
 import { useNav } from '../store/nav';
 import ChatReference from './ChatReference';
 import type { Message } from '../types';
+import { CachedImg } from './CachedImg';
 
 // Colour a check by its (last) outcome so successes and failures read at a glance.
 function diceTone(m: Message): string {
@@ -30,17 +29,16 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   // Out of character the player speaks: their own avatar and name. Otherwise the character's avatar first, the
   // player's when the character has none.
   const ooc = m.kind === 'ooc';
-  const avatarSrc = !ooc && m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? api.ownAvatarUrl(user) : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
-  // Avatars are kept on this device (lib/assetCache); the signed-in user's inline data-URI avatar needs no cache.
-  const avatarCacheKey = !ooc && m.character_avatar_asset_id ? mediaKey(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version, m.character_avatar_hash) : own ? (user.avatar_data ? null : avatarKey(user.id, user.avatar_version, user.avatar_hash)) : avatarKey(m.author_id, m.author_avatar_version, m.author_avatar_hash);
-  const avatar = useAssetUrl(avatarCacheKey, avatarSrc);
+  const avatar = !ooc && m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? api.ownAvatarUrl(user) : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
+  // The picture's content hash (lib/assetCache): the signed-in user's inline data-URI avatar needs none.
+  const avatarHash = !ooc && m.character_avatar_asset_id ? m.character_avatar_hash : own ? (user.avatar_data ? null : user.avatar_hash) : m.author_avatar_hash;
   const [failedAvatar, setFailedAvatar] = useState('');
   const author = own ? user.display_name : m.author_name;
   const speaker = ooc ? null : m.character_name;
   const name = speaker ?? (m.author_role === 'gm' ? `${author} (GM)` : author);
   return (
     <div className={`message ${m.kind} ${m.visibility}`} id={`msg-${m.id}`}>
-      <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <img src={avatar} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
+      <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <CachedImg src={avatar} hash={avatarHash} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
         <div className="meta"><span className="author">{name}</span>
           {m.kind !== 'ic' && !m.dice && <span className="pill">{tr(m.kind)}</span>}
