@@ -7,6 +7,7 @@ HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile app
 |---|---|---|---|
 | **GM (Keeper)** | the client's account, channel role `gm` | – | everything the Keeper may read (below) |
 | **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the Keeper by hand) | **the same context as the GM** |
+| **Story planner** | nothing on the platform | – | the Keeper's whole context plus the previous plan, in the background, with its own model |
 | **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its COC7 role card** at setup (or the Keeper made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
 Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
@@ -47,6 +48,8 @@ platform AI tip.
 
 Besides the log, its prompt holds:
 - its own memories: chapters it wrote, in the first person, from lines it witnessed (see "Long campaigns");
+- at most one private impulse from the story planner: an in-character urge, never the plan or a secret (see "The
+  story planner");
 - its own role card and persona;
 - the other investigators' basic details, bio and background (`src/context/profiles.mjs`): the player characters and
   the other co-players, as a human player can read any player character's page.
@@ -124,6 +127,10 @@ platform without the record (404) is noted once, and the table carries on with i
    |---|---|
    | `narrate` | posts narration |
    | `npc` | a line from a real NPC |
+   | `world_change` | a change to the world the chat does not show, recorded by the platform's world record (`secret` keeps it Keeper-only) |
+   | `truth` | improvisation mode: a hidden fact the GM just decided, kept for later turns and declared as a secret |
+   | `text` | casual mode: a real NPC texts a player character's phone |
+   | `planner_note` | a word for the story planner: what the players did that changed the plan, or that the beat is done |
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
    | `whisper` | posts a whisper to one character |
    | `request_roll` | asks a player to roll; for the client's own characters, the platform rolls against their sheet |
@@ -257,6 +264,53 @@ is pending, and any human line wakes the table up. `autonomy.enabled: false` tur
 **Costs.** Every player split creates a window with that player as a member; the platform then rebuilds that player
 group's derived memory (journals, reminders) and web clients refresh. Every split or reunion also costs an arrival turn
 (a GM call, the co-players and a follow-up).
+
+## The story planner
+
+The GM reads the recent chat and plays step by step. In a long casual campaign nobody holds the whole story: one
+trivial event stretches over many turns, and neither the GM nor the co-players dare to move on. The **story planner**
+is a second, slower model role above the GM (`src/planner.mjs`): now and then, in the background and with its own model,
+it rereads the campaign, keeps a plan of the twists and turns, reviews its own draft, and tells the GM when the current
+event has run its course.
+
+- **It advises; the GM decides.** The plan is a section of the GM's context: the throughline, the current beat with
+  its exit condition, the verdict (continue or move on), the next twists and the threads to weave in. The GM steers
+  toward it and deviates when the players surprise it. When the planner says the event has run its course, the GM gets
+  a note to bring it to a close, and the scenario pace guard (`scenarios.min_minutes` / `min_lines`) is lifted until the
+  scenario changes.
+- **It plans slowly.** A plan is made at a turn boundary, never during a turn, when one of these holds: the first ten
+  lines of a campaign; the GM asked (a `planner_note` action); the scenario changed; the story stalled
+  (`planner.stall_turns` turns in the same place with no world change, no new truth, no split and no scenario change);
+  or `planner.interval_minutes` of play and `planner.min_lines` lines have passed. Never while everyone is away, never
+  over the daily token budget, at most `planner.max_runs_per_hour` and `planner.cooldown_minutes` apart.
+- **It reviews itself.** One run is three calls in one conversation, so the big context is cached once: a draft; a
+  critique by "a second Keeper, a harsh script editor who did not write this" (what is boring, implausible or contradicts
+  the world and the truths, which threads are stale or should be merged, whether the beat is done, whether the verdict
+  is honest); and a revision that must fix every fault. The critique is kept with the plan.
+- **It dares.** In improvisation mode it invents original plots, weaves several into one situation and raises the
+  stakes, within the world setting and the hidden truths; each invention is a secret twist the GM reveals through play.
+- **Co-players get impulses.** Each co-player may get one private urge, written in character ("you want to see the
+  docks tonight"), shown only to it as its own thought and dropped after `planner.impulse_lines` lines. An impulse that
+  quotes a secret or a truth, or talks about the game itself, is discarded. The GM sees only who got one.
+- **Module-led campaigns: pace only.** With a module, the planner invents nothing and judges only when to let an event
+  go.
+- **The Keeper sees it.** Every new plan version is announced once as a Keeper-only note in the Main Chat; `status`
+  shows the plan, and `plan show` prints it (`--full`: the draft, the critique and the revision).
+
+```bash
+node src/cli.mjs plan show --full
+```
+
+```bash
+node src/cli.mjs plan now
+```
+
+```bash
+node src/cli.mjs plan off
+```
+
+The planner's own provider, endpoint, model and effort are `planner.*` in `gm-agent.yml` (defaults: the GM's, at
+`high` effort); its key is `PLANNER_API_KEY`, or the provider's. Its calls count toward `context.daily_token_budget`.
 
 ## Improvisation mode
 
@@ -486,7 +540,10 @@ The tests need no backend and no model. They cover:
 - the co-player filter (Keeper notes, other characters' whispers, other windows and AI tips never reach a co-player);
 - role-card checks;
 - a whole turn against an in-memory platform, with the mock model recording every prompt;
-- the request shape of the Claude and OpenAI Responses providers.
+- the request shape of the Claude and OpenAI Responses providers;
+- the configuration file and its precedence;
+- the story planner: triggers, the three-step review, the plan's place in the GM's context, impulses and their
+  privacy, pace-only in module play, the lifted pace guard.
 
 ## Known limitations
 
@@ -495,6 +552,9 @@ The tests need no backend and no model. They cover:
   co-player's in-character guess may be recorded as established. Log Studio and the players' group memory count them
   as the investigator's lines (the character is a PC); the Keeper-side observers, reminders and script tracking still
   see a Keeper line.
+- The story planner's impulses are planner text in a co-player's prompt: quoted, capped and filtered, but not provably
+  inert. Its stall detector counts turns, so a long, talky scene can cost one extra advisory run. The GM may ignore the
+  plan, and a plan can change every ten minutes: the "Story plan" section re-caches each time (parts A and B do not).
 - Co-players start in the windows of `table.coplayer_windows` and move only through whereabouts (or `split` and `rejoin`). A
   private window the Keeper creates in the web app does not seat them automatically and is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side

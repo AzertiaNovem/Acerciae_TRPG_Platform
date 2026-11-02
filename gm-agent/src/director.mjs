@@ -37,6 +37,7 @@ const SCENARIO_RULES = `- Scenarios are the story's stages, for the whole campai
 
 const IMPROV_RULES = `- Improvisation: there is no module. The story grows from the World setting, your Hidden truths, the investigators' own personalities and backgrounds, and the players' choices. Build mysteries, places and people that fit the world, and tie threads to the investigators' backgrounds. Stay consistent with the World setting and every Hidden truth. When you decide something true behind the scenes (who did it, what someone wants, what is really in the cellar), record it at once with truth, so later turns keep to it. Reveal hidden truths only through play: clues, NPCs, consequences, rolls.`;
 
+const PLANNER_RULE = `- Story plan: your private plan from the story planner, a slower reader of the whole campaign (see Story plan). Steer toward the current beat's exit and weave the listed threads in; deviate when the players surprise you, and tell the planner what changed with planner_note. When it says the current event has run its course, close it and open the next beat instead of stretching it. Never state the plan or its twists outright.`;
 const CASUAL_RULES = `- Casual mode: light, everyday and slice-of-life play is welcome alongside the story. Every player character has a phone (a private window "Phone: <name>"); texting is part of this game even when the setting has no phones, so treat it as natural. Real NPCs may text a player character with text (from: the NPC, to: the player character, delay_minutes: when it arrives): use it for hooks, invitations, news and consequences, not to flood anyone. Lines in a phone are text messages, not things said in the scene.`;
 
 // Improvised campaigns are Basic Roleplaying (BRP) games on the Call of Cthulhu 7th edition presets: rules, skills and
@@ -45,7 +46,7 @@ const framing = (improv) => (improv
   ? "the Keeper (Game Master) of a Basic Roleplaying (BRP) campaign that uses the Call of Cthulhu 7th edition presets (characteristics, skills, dice, sanity); its genre and tone follow the campaign's world setting, not necessarily horror,"
   : "the Keeper (Game Master) of a Call of Cthulhu 7th edition campaign");
 
-export function directorSystem(language, { auto = true, improv = false, casual = false } = {}) {
+export function directorSystem(language, { auto = true, improv = false, casual = false, planner = false } = {}) {
   return `You are ${framing(improv)} on an online table. Human players play their investigators; some investigators are AI co-players that act on their own turn after you. You voice the world and every real NPC.
 
 How to keep the table:
@@ -53,7 +54,7 @@ ${COMMON_RULES}
 ${AWAY_RULE}
 ${WORLD_RULE}
 ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
-${SCENARIO_RULES}${improv ? `\n${IMPROV_RULES}` : ""}${casual ? `\n${CASUAL_RULES}` : ""}
+${SCENARIO_RULES}${improv ? `\n${IMPROV_RULES}` : ""}${casual ? `\n${CASUAL_RULES}` : ""}${planner ? `\n${PLANNER_RULE}` : ""}
 - Keep each line short enough for chat (1-5 sentences). One to three actions per turn is typical. Return no actions if nothing needs the Keeper now (for example players talking among themselves out of character).
 - Write all text in ${language}.
 
@@ -68,6 +69,7 @@ Reply with only one JSON object:
   {"type": "world_change", "text": "<what is now true in the world, e.g. 'The Harbour Guild has closed the docks at night.'>", "secret": true | false},
 ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for your own memory>"},
 ` : ""}${casual ? `  {"type": "text", "from": "<a real NPC>", "to": "<a player character>", "text": "<the text message>", "delay_minutes": <0 = now; or when it arrives>},
+` : ""}${planner ? `  {"type": "planner_note", "text": "<for the story planner: what the players did that changed the plan, or what you need>", "beat_done": true | false},
 ` : ""}${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-player names>"], "location": "...", "narrative_time": "...", "opening": "<first narration of the thread>"},
   {"type": "rejoin", "timeline": "<thread name>", "into": "<window name, optional>", "text": "<optional narration where they return>"},
 `}  {"type": "timeline", "timeline": "<handle or thread name>", "narrative_time": "...", "location": "...", "notes": "<your private notes>", "span": "short" | "long"},
@@ -79,9 +81,9 @@ ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for yo
  "whereabouts": [{"who": ["<investigator names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": "<first narration there>"}]` : ""}}`;
 }
 
-export function validateDirector(x, { auto = true, improv = false, casual = false } = {}) {
+export function validateDirector(x, { auto = true, improv = false, casual = false, planner = false } = {}) {
   if (!x || typeof x !== "object" || !Array.isArray(x.actions)) throw new Error("actions must be an array");
-  const allowed = [...BASE_ACTIONS, ...(auto ? [] : LEGACY_ACTIONS), ...(improv ? ["truth"] : []), ...(casual ? ["text"] : [])];
+  const allowed = [...BASE_ACTIONS, ...(auto ? [] : LEGACY_ACTIONS), ...(improv ? ["truth"] : []), ...(casual ? ["text"] : []), ...(planner ? ["planner_note"] : [])];
   const actions = x.actions
     .filter((a) => a && allowed.includes(a.type))
     .map((a) => ({ ...a, text: String(a.text ?? "").trim() }))
@@ -107,12 +109,14 @@ const MODE_NOTES = {
 
 // `context` is the Keeper's context as parts (gmContext.mjs) or text; this turn's notes follow it, uncached.
 // `whereabouts` is the brief from whereabouts.mjs; `scenario` says whether a scenario change is possible this turn.
-export async function directTurn(llm, { language, context, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, improv = false, casual = false, ...extra }) {
+// `planner` is {on, moveOn, beat, why, next}: the planner's verdict, a turn note when it says the event is over.
+export async function directTurn(llm, { language, context, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, improv = false, casual = false, planner = null, ...extra }) {
   if (kickoff) mode = "kickoff";
   const note = MODE_NOTES[mode]?.(extra) ?? "";
   const arrivalNote = mode !== "arrival" && extra.arrival ? MODE_NOTES.arrival(extra) : "";   // an arrival folded into another turn
   const back = (extra.returning ?? []).map((r) => `${r.name}'s player is back after ${r.away} away.`).join(" ");
   const returningNote = back ? `RETURNING: ${back} Welcome them back into the story: where their character is now and what has moved on meanwhile, if anything, then hand them the scene.` : "";
+  const plannerNote = planner?.moveOn ? `PLANNER: the story planner judges the current event ("${planner.beat}") has run its course${planner.why ? ` (${planner.why})` : ""}. Bring it to a close now or next turn and open the next beat${planner.next ? ` (${planner.next})` : ""}. The scenario pace guard is lifted while this stands.` : "";
   const turn = [
     "",
     auto ? whereabouts : "",
@@ -120,9 +124,11 @@ export async function directTurn(llm, { language, context, newest, mode = "human
     note,
     arrivalNote,
     returningNote,
+    plannerNote,
     newest ? `NEWEST LINE: ${newest.character_name || newest.author_name || "someone"}: ${newest.content}` : "",
     "Decide the Keeper's actions for this turn.",
   ].filter(Boolean).join("\n");
   const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
-  return completeJson(llm, { system: directorSystem(language, { auto, improv, casual }), user, purpose: "director" }, (x) => validateDirector(x, { auto, improv, casual }));
+  const on = Boolean(planner?.on);
+  return completeJson(llm, { system: directorSystem(language, { auto, improv, casual, planner: on }), user, purpose: "director" }, (x) => validateDirector(x, { auto, improv, casual, planner: on }));
 }

@@ -30,6 +30,7 @@ import { Timelines, MAIN, placeKey } from "./timelines.mjs";
 import { Guard, planWhereabouts, whereaboutsBrief } from "./whereabouts.mjs";
 import { addTruth, hashText, improvState, worldMessages } from "./improv.mjs";
 import { PHONE_PREFIX, casualState, coplayerPhoneReply, dueAt, parseAddress, renderThread } from "./casual.mjs";
+import { planStory, plannerDue, plannerModeOf, plannerState, renderImpulse, renderPlanNote, renderStoryPlan, stallSignature } from "./planner.mjs";
 
 const LANGUAGES = { en: "English", zh: "Simplified Chinese", "zh-CN": "Simplified Chinese", "zh-TW": "Traditional Chinese", ja: "Japanese", ko: "Korean", es: "Spanish", fr: "French", de: "German", ru: "Russian", pt: "Portuguese", it: "Italian" };
 export const languageName = (code) => LANGUAGES[code] ?? LANGUAGES[String(code ?? "").split("-")[0]] ?? (code || "English");
@@ -58,7 +59,7 @@ const HOUR = 3600000;
 
 export class Table {
   // `deferArrivals`: a short-lived CLI process records arrivals in the state file for the `run` process to play.
-  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, casual = null, journal = null, owedArrivals = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now }) {
+  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, casual = null, planner = null, plannerLlm = null, journal = null, owedArrivals = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now }) {
     this.api = api;
     // The client's own store (store.mjs): the chat's local copy, compacted chapters, token usage. In memory when none
     // is given (tests, read-only commands).
@@ -73,6 +74,9 @@ export class Table {
     this.scenario = scenario;            // {id, since}: when the client saw the current scenario begin
     this.improv = improvState(improv);   // improvisation mode: world setting, hidden truths (improv.mjs)
     this.casual = casualState(casual);   // casual mode: phones, pending replies (casual.mjs)
+    this.planner = plannerState(planner); // the story planner's plan, impulses and clocks (planner.mjs)
+    // The planner's own model, metered into the same usage so the daily budget counts it; the GM's when none is given.
+    this.plannerLlm = plannerLlm ? metered(plannerLlm, { sink: (u) => this.store.recordUsage({ ...u, at: this.now() }), channelId }) : this.llm;
     this.journal = journal;              // an applyPlan in progress, for roll-forward after a crash
     this.owedArrivals = [...owedArrivals];
     this.deferArrivals = deferArrivals;
@@ -273,6 +277,7 @@ export class Table {
     if (ev.type === "window.changed") this.refresh().catch((e) => this.log(`refresh: ${e.message}`));
     if (ev.type === "scene.changed" && ev.scene?.status === "active" && ev.scene.id !== this.scenario?.id) {
       this.scenario = { id: ev.scene.id, since: this.now() };
+      this.beatClosed();
       this.save();
     }
     if (ev.type === "message.posted") return this.onMessage(ev.message);
@@ -313,7 +318,7 @@ export class Table {
       pending.resolvers.push(resolve);
       pending.timer = setTimeout(() => {
         this.timers.delete(windowId);
-        const done = () => { this.pending--; for (const r of pending.resolvers) r(); };
+        const done = () => { this.pending--; for (const r of pending.resolvers) r(); this.maybePlan(); };
         this.queue = this.queue.then(() => this.turn(windowId, { kickoff: pending.kickoff, mode: pending.mode, ...pending.extra })).catch((e) => this.log(`turn failed: ${e.message}`)).then(done);
       }, delay);
     });
@@ -321,6 +326,7 @@ export class Table {
 
   // ---- one turn
   async turn(windowId, { kickoff = false, mode = "human", ...extra } = {}) {
+    await this.adoptPlan();
     if (mode === "phone") { this.turns++; await this.refresh(); return this.phoneTurn(windowId, extra.phone ?? {}); }
     this.turns++;
     const turnNo = this.guard.beginTurn();
@@ -366,9 +372,11 @@ export class Table {
     let budget = this.cfg.maxActionsPerTurn;
     const timeline = this.timelines.ofWindow(windowId);
     let here = null;                       // an arrival that lands in this very window
+    let lastCtx = null;
     const round = async (roundMode, roundExtra) => {
       scene = this.scene(windowId);
-      const ctx = await this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines(), awayOf: (id) => this.awayOf(id) });
+      const ctx = await this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines(), awayOf: (id) => this.awayOf(id), storyPlan: this.storyPlanSection() });
+      lastCtx = ctx;
       // Compaction runs beside the turn: this round's prompt is already built.
       this.memory.maintainGm(windowId, ctx.lines(windowId), ctx.render, { windowName: this.windowName(windowId) });
       const scope = new Set([...(scene?.members ?? []), ...visitorsIn]);
@@ -377,8 +385,8 @@ export class Table {
         ? whereaboutsBrief({ timelines: this.timelines, scene: { timeline: scene }, nameOf: (id) => this.nameOf(id), windowName: (id) => this.windowName(id), isPc: (id) => this.isPc(id), mayMove, capReached: this.timelines.active().length >= this.cfg.timelineMaxActive })
         : "";
       const verdict = await this.scenarioVerdict(windowId, roundMode, mode);
-      const scenario = this.cfg.scenarioAuto ? `Scenario change: ${verdict.ok ? "possible this turn, if the story as a whole has moved on." : `not this turn (${verdict.reason}).`}` : "";
-      const plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, improv: this.improv.on, casual: this.casualOn(), ...roundExtra });
+      const scenario = this.cfg.scenarioAuto ? `Scenario change: ${verdict.ok ? (verdict.planner ? "possible this turn (the story planner judges the current event has run its course)." : "possible this turn, if the story as a whole has moved on.") : `not this turn (${verdict.reason}).`}` : "";
+      const plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), ...roundExtra });
       this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} Keeper action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
       for (const action of plan.actions) {
         if (budget <= 0) break;
@@ -404,6 +412,7 @@ export class Table {
     const returning = takesLines ? [...new Set(batch.map((l) => l.id))].filter((id) => this.returning.has(id)).map((id) => ({ name: this.nameOf(id), away: duration(this.returning.get(id)) })) : [];
     for (const l of batch) this.returning.delete(l.id);
     let plan = await round(kickoff ? "kickoff" : mode, returning.length ? { ...extra, returning } : extra);
+    if (!kickoff && mode !== "arrival") this.noteStall(windowId, lastCtx);
     if (here) { const arrival = here; here = null; plan = await round("arrival", { arrival }); }
     if (!this.scene(windowId) && sceneThread) return;                    // this window's scene just ended
     const side = mode === "side" || (mode === "arrival" && !this.presentPlayers(windowId).length);
@@ -628,6 +637,7 @@ export class Table {
         if (this.improv.on && addTruth(this.improv, a.text)) { this.log(`hidden truth recorded: ${a.text.slice(0, 100)}`); this.save(); this.declare(a.text, true); }
         return 0;
       case "world_change": this.declare(a.text, a.secret === true || a.secret === "true"); return 0;
+      case "planner_note": return this.plannerNote(a);
       case "text": return this.casualOn() ? this.sendText(a) : 0;
       case "npc":
       case "new_npc": {
@@ -682,6 +692,8 @@ export class Table {
     const short = this.timelines.active().find((t) => t.id !== MAIN && t.span !== "long");
     if (short) return { ok: false, reason: `the party is briefly split ("${short.name}"): bring them together first` };
     const minutes = (this.now() - (this.scenario?.since ?? 0)) / 60000;
+    // The story planner's "move on" lifts the pace guard (not the other rules).
+    if (this.planner.arc?.verdict?.moveOn) return { ok: true, planner: true };
     if (minutes < this.cfg.scenarioMinMinutes) return { ok: false, reason: `the current scenario began ${Math.floor(minutes)} min ago (at least ${this.cfg.scenarioMinMinutes})` };
     const scenes = (await this.api.scenes(this.channelId).catch(() => [])) ?? [];
     const cur = scenes.find((s) => s.id === this.channel.current_scene_id || s.id === this.scenario?.id);
@@ -707,6 +719,7 @@ export class Table {
       this.channel.current_scene_id = scene?.id ?? this.channel.current_scene_id;
       this.scenario = { id: this.channel.current_scene_id, since: this.now() };
       this.timelines.relocate(MAIN, { location: scene?.location || a.location, narrativeTime: scene?.narrative_time || a.narrative_time });
+      this.beatClosed();   // the planner's "move on" is spent; the next plan opens the next beat
       this.save();
       this.log(`scenario: ${scene?.title ?? a.title ?? a.scenario} (${a.reason ?? "the story moved on"})`);
       return 0;
@@ -722,6 +735,7 @@ export class Table {
     const resolveAll = (list) => names(list).map((n) => this.investigatorByName(n)).filter(Boolean);
     if (cmd.cmd === "world") return this.setWorld(cmd);
     if (cmd.cmd === "casual") return this.setCasual(cmd.on);
+    if (cmd.cmd === "plan") return this.planCommand(cmd.action);
     if (cmd.cmd === "advance") return this.changeScenario(this.mainWindow().id, { type: "advance_scenario", title: cmd.title, location: cmd.location, narrative_time: cmd.time, reason: "by the operator" }, "manual");
     let reports;
     let windowId = this.mainWindow().id;
@@ -740,6 +754,114 @@ export class Table {
     const scope = new Set(investigatorsFor(this.characters, this.roster).map((c) => c.id));
     const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: scene, windowId }, reports, scopeIds: scope, mode: "manual", resolve: (n) => this.investigatorByName(n), isPc: (id) => this.isPc(id), userOf: (id) => this.userOf(id), windowUsers: (w) => this.windowUsers(w), guard: this.guard, turn: turnNo, now: this.now(), cfg: this.cfg });
     return this.applyPlan(result, { windowId, mode: "manual", turn: turnNo });
+  }
+
+  // ---- the story planner (planner.mjs)
+  // off unless the configuration (planner.enabled) and the table (`plan on|off`) both say on.
+  plannerMode() { return this.cfg.planner && this.cfg.planner.enabled === false ? "off" : plannerModeOf(this.planner, this.improv); }
+  storyPlanSection() { return this.plannerMode() === "off" ? "" : renderStoryPlan(this.planner.arc, this.cfg.planner?.planTokens ?? 1500); }
+  plannerVerdict() {
+    const arc = this.planner.arc;
+    if (this.plannerMode() === "off") return null;
+    return { on: true, moveOn: Boolean(arc?.verdict?.moveOn && !arc.beat?.closed), beat: arc?.beat?.title ?? "", why: arc?.verdict?.why ?? "", next: arc?.next?.[0]?.what ?? "" };
+  }
+  impulseFor(coplayerId) {
+    if (this.plannerMode() !== "full") return null;
+    const i = this.planner.impulses.find((x) => x.coplayerId === coplayerId);
+    return i && this.lastSeq <= i.expiresSeq ? i : null;
+  }
+
+  // After a turn: the same scenario, place, world record, truths and threads as last time means the story stood still.
+  noteStall(windowId, ctx) {
+    const scene = this.scene(windowId);
+    const sig = stallSignature({ scenarioId: this.scenario?.id, place: placeKey(scene?.location), worldVersion: ctx?.world?.version, worldChange: ctx?.world?.recent_changes?.[0]?.created_at ?? ctx?.world?.recent_changes?.[0]?.version, truths: this.improv.truths.length, threads: this.timelines.active().length });
+    const st = this.planner.stall;
+    if (st.sig === sig) st.turns++; else { st.turns = 0; st.sig = sig; }
+  }
+
+  // The GM's planner_note action: a signal for the next plan (and "this beat is done").
+  async plannerNote(a) {
+    const text = String(a.text ?? "").trim();
+    if (!text) return 0;
+    this.planner.notes = [...this.planner.notes, { text: text.slice(0, 400), beatDone: a.beat_done === true || a.beat_done === "true", seq: this.lastSeq }].slice(-5);
+    this.planner.asked = { why: text.slice(0, 200), at: this.now() };
+    if (a.beat_done === true || a.beat_done === "true") this.beatClosed();
+    this.save();
+    return this.post(this.mainWindow().id, { content: `Planner note: ${text}`, kind: "narration", visibility: "gm_only" }, { count: false });
+  }
+  beatClosed() {
+    const arc = this.planner.arc;
+    if (!arc) return;
+    arc.beat.closed = true;
+    arc.verdict = { ...arc.verdict, moveOn: false };
+  }
+
+  async planCommand(action) {
+    if (action === "on" || action === "off") { this.planner.on = action === "on"; this.save(); this.log(`story planner ${action}`); return; }
+    if (action !== "now") throw new Error(`unknown plan action ${action}`);
+    if (this.overBudget()) throw new Error("the daily token budget is spent; the planner waits for tomorrow");
+    await this.runPlanner("manual");
+    await this.adoptPlan();
+  }
+
+  // At a turn boundary: plan now if due (in the background, beside the turns).
+  maybePlan() {
+    const cfg = this.cfg.planner;
+    if (!cfg || this.plannerMode() === "off" || (cfg.intervalMs === 0 && !this.planner.asked && this.planner.arc)) return null;
+    const p = this.planner;
+    const reason = plannerDue({
+      on: p.on, busy: this.memory.jobs.has("planner"), overBudget: this.overBudget(), now: this.now(), lastHumanAt: this.lastHumanAt, idleMs: this.cfg.autonomyIdleMinutes * 60000,
+      runs: p.runs, lastRunAt: p.lastRunAt, lastRunSeq: p.lastRunSeq, lastSeq: this.lastSeq, arc: p.arc, asked: p.asked, scenarioId: this.scenario?.id ?? null, plannerScenarioId: p.scenarioId, stallTurns: p.stall.turns,
+    }, cfg);
+    if (!reason) return null;
+    return this.runPlanner(reason);
+  }
+
+  // The planning job: the Keeper's context plus the planner's briefing, three model calls, the result parked for the
+  // next turn boundary. One at a time; failures are logged, never thrown.
+  runPlanner(reason) {
+    const p = this.planner;
+    p.runs = [...p.runs.filter((t) => this.now() - t < 3600000), this.now()];
+    p.lastRunAt = this.now();
+    const notes = p.notes.splice(0); p.asked = null; this.save();
+    const since = p.lastRunSeq;
+    return this.memory.run("planner", async () => {
+      const windowId = this.mainWindow()?.id;
+      if (!windowId) return;
+      const ctx = await this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines(), awayOf: (id) => this.awayOf(id), peek: true });
+      const fresh = this.history.lines(windowId).filter((m) => m.seq > since && !this.hiddenLines().has(m.id)).slice(-200).map(ctx.render).join("\n");
+      const sinceText = [
+        `${this.lastSeq - since} lines since (the newest ${Math.min(200, this.lastSeq - since)} of this window below)`,
+        notes.length ? `The Keeper's notes to you: ${notes.map((n) => `"${n.text}"${n.beatDone ? " (beat done)" : ""}`).join("; ")}` : "",
+        p.scenarioId && p.scenarioId !== this.scenario?.id ? "The scenario changed since the last plan." : "",
+        fresh ? `Recent lines:\n${fresh}` : "",
+      ].filter(Boolean).join("\n");
+      const mode = this.plannerMode();
+      const out = await planStory(this.plannerLlm, {
+        language: this.language, mode, contextText: ctx.text, prev: p.arc, since: sinceText, coplayers: this.roster.coplayers, secrets: [this.improv.secrets, ...this.improv.truths.map((t) => t.text)],
+        nextId: p.nextThreadId, lastSeq: this.lastSeq, trigger: reason, now: this.now(), impulseLines: this.cfg.planner?.impulseLines ?? 60, log: this.log,
+      });
+      p.pending = { ...out, at: this.now(), trigger: reason };
+      this.save();
+      if (this.pending === 0) await this.adoptPlan();
+    });
+  }
+
+  // Makes a finished plan the current one (idempotent), records it and tells the Keeper once per version.
+  async adoptPlan() {
+    const p = this.planner;
+    const pend = p.pending;
+    if (!pend) return;
+    p.pending = null;
+    p.arc = pend.arc; p.impulses = pend.impulses ?? []; p.nextThreadId = pend.nextId ?? p.nextThreadId;
+    p.lastRunSeq = this.lastSeq; p.scenarioId = this.scenario?.id ?? null; p.stall = { turns: 0, sig: null };
+    this.store.addPlan({ version: pend.arc.version, at: pend.at ?? this.now(), trigger: pend.trigger ?? pend.arc.trigger, record: pend.record ?? {} });
+    this.save();
+    if (p.notedVersion < pend.arc.version) {
+      p.notedVersion = pend.arc.version; this.save();
+      const main = this.mainWindow();
+      if (main) await this.post(main.id, { content: renderPlanNote(pend.arc, p.impulses), kind: "narration", visibility: "gm_only" }, { count: false });
+    }
   }
 
   // ---- casual mode: phones (casual.mjs)
@@ -819,7 +941,7 @@ export class Table {
       const memories = this.memory.coplayerChapters(cp).map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`);
       const self = [coplayerSelf({ coplayer: cp, card: await this.card(toId), world: this.improv.on ? this.improv.world : "" }), memories.length ? `WHAT YOU REMEMBER:\n${memories.join("\n\n")}` : ""].filter(Boolean).join("\n\n");
       let r;
-      try { r = await coplayerPhoneReply(this.llm, { language: this.language, self, name: cp.name, from: this.nameOf(fromId), thread, maxDelay: max }); }
+      try { r = await coplayerPhoneReply(this.llm, { language: this.language, self: [self, renderImpulse(this.impulseFor(toId))].filter(Boolean).join("\n\n"), name: cp.name, from: this.nameOf(fromId), thread, maxDelay: max }); }
       catch (e) { this.log(`co-player ${cp.name} (phone): ${e.message}`); return; }
       if (r.reply) this.queueText({ windowId, from: toId, to: fromId, text: r.reply, minutes: r.delay });
       else this.log(`casual: ${cp.name} leaves ${this.nameOf(fromId)}'s message on read`);
@@ -1093,7 +1215,7 @@ export class Table {
     try {
       const companions = investigatorsFor(this.characters, this.roster, { except: me });
       const phone = this.casualOn() ? renderThread(this.store.phoneOf(me, 12), (id) => this.nameOf(id)) : "";
-      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "", improv: this.improv.on, casual: this.casualOn(), phone });
+      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "", improv: this.improv.on, casual: this.casualOn(), phone, impulse: renderImpulse(this.impulseFor(me)) });
     } catch (e) { this.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
     this.memory.maintainCoplayer(coplayer, witnessed, (m) => renderLine(m));
     if (move.action === "text") {

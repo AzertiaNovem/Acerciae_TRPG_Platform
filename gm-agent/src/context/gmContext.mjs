@@ -66,7 +66,9 @@ export class GmContext {
   // `improv` (improv.mjs): in improvisation mode the module's script knowledge and hints are left out, and the world
   // setting and hidden truths are added. `hide` holds message ids left out of the chat (the posted world setting).
   // `awayOf(characterId)` is how long a player character's player has been away (ms), or null when they are around.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null }) {
+  // `storyPlan` is the planner's rendered section (planner.mjs) for part C; `peek` leaves the live tips for the GM (the
+  // planner reads the context too, in the background).
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, storyPlan = "", peek = false }) {
     const ch = this.channelId;
     const module = !improv?.on;
     await this.history.sync(windowId);
@@ -84,7 +86,7 @@ export class GmContext {
     ]);
     const charName = new Map(characters.map((c) => [c.id, c.name]));
     const current = (scenes ?? []).find((s) => s.id === channel?.current_scene_id);
-    const tips = this.liveTips.splice(0);
+    const tips = peek ? [...this.liveTips] : this.liveTips.splice(0);
     const nameOf = (id) => charName.get(id) ?? id;
     const windowName = (id) => windows.find((w) => w.id === id)?.name ?? id;
     // Every line carries the timeline it comes from, so a story told in one window is never taken as happening now.
@@ -133,6 +135,7 @@ export class GmContext {
     // ---- C: changes every few turns
     const c = [];
     if (hiddenSection) c.push(hiddenSection);
+    if (storyPlan) c.push(storyPlan);
     if (timelines) {
       // Every active thread, always; then the most recent merged ones for context.
       const listed = [...timelines.active(), ...timelines.list.filter((t) => t.status !== "active" && t.mergedInto).slice(-6)];
@@ -188,7 +191,7 @@ export class GmContext {
       { text: d.join("\n\n") },
     ];
     const here = [...frozen, ...tail];
-    return { parts, text: parts.map((p) => p.text).join(""), newest: here.at(-1) ?? null, current, render, lines: (w) => linesOf(w) };
+    return { parts, text: parts.map((p) => p.text).join(""), newest: here.at(-1) ?? null, current, world, render, lines: (w) => linesOf(w) };
   }
 }
 

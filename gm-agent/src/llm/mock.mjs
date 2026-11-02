@@ -24,6 +24,7 @@ export class MockLlm {
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user));
       case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
+      case "planner": return JSON.stringify(this.planner(user));
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }
@@ -103,6 +104,24 @@ export class MockLlm {
       if (/\bnext morning\b/i.test(text)) actions.push({ type: "advance_scenario", title: "The next morning", location: "", narrative_time: "next morning", reason: "a night passes" });
     }
     return { actions, coplayers_may_act: true, ...(whereabouts.length ? { whereabouts } : {}) };
+  }
+
+  // The story planner's three steps, told apart by the STEP line of the newest request; tests overwrite this.
+  planner(user) {
+    const step = (user.match(/^STEP: (\w+)/gm) ?? []).at(-1)?.slice(6) ?? "draft";
+    if (step === "critique") return { boring: [], implausible: [], contradictions: [], stale: [], merge: [], beat_done: null, must_fix: [] };
+    const pace = /pace only|Do not invent plots/.test(user) || !/Co-players you may give an impulse/.test(user);
+    const beat = { title: "[mock beat] The present trouble", purpose: "let the investigators commit to a course", exit: "someone acts on what they learned" };
+    if (pace) return { beat, verdict: { move_on: false, why: "the scene is still fresh" }, played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "" };
+    const who = (user.match(/^## Co-players you may give an impulse\n([\s\S]*?)(?:\n\n|$)/m)?.[1] ?? "").split("\n").map((l) => l.replace(/^- /, "").trim()).filter(Boolean);
+    return {
+      throughline: "[mock] a town that hides what the sea brings in",
+      threads: [{ id: "P1", title: "[mock] The night boats", status: "live", stakes: "who profits", hooks: ["a sailor talks"], twist: "[mock twist] the Guild lands cargo at the lighthouse", ripe_when: "the investigators reach the docks at night", weave_with: null }],
+      beat, next: [{ what: "[mock] a stranger offers a boat ride", when: "after the docks" }],
+      verdict: { move_on: false, why: "the scene is still fresh" },
+      impulses: who.slice(0, 1).map((w) => ({ who: w, text: `[mock impulse] You keep thinking about the docks at night; you want to see them for yourself.` })),
+      played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "",
+    };
   }
 
   coplayer(user) {

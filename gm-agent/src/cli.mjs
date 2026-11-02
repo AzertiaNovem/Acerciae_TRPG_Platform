@@ -137,14 +137,14 @@ async function setup(cfg) {
 // The table for a channel: roster, timelines, guard and scenario from the state file. `write` saves changes back
 // (compare-and-swap); read-only commands pass write:false and never touch the file.
 // A save refused because another process changed the file is fatal: `onConflict` decides how to stop (default: throw).
-async function openTable(cfg, { llm = null, write = true, heal = false, deferArrivals = false, channel: known = null, onConflict = (e) => { throw e; } } = {}) {
+async function openTable(cfg, { llm = null, plannerLlm = null, write = true, heal = false, deferArrivals = false, channel: known = null, onConflict = (e) => { throw e; } } = {}) {
   const api = known?.api ?? (await signIn(cfg));
   const channel = known?.channel ?? (await resolveChannel(api, cfg, { create: false })).channel;
   const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
   let version = Number(state.version) || 0;
   const persist = write
     ? (t) => {
-      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, casual: t.casual, journal: t.journal, owedArrivals: t.owedArrivals };
+      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, casual: t.casual, planner: t.planner, journal: t.journal, owedArrivals: t.owedArrivals };
       delete next.version;
       try { version = saveState(cfg.stateDir, next, { expectVersion: version }); }
       catch (e) { if (!(e instanceof StateConflict)) throw e; onConflict(e); }
@@ -152,7 +152,7 @@ async function openTable(cfg, { llm = null, write = true, heal = false, deferArr
     : () => {};
   const table = new Table({
     api, llm, cfg, channelId: channel.id, store: Store.open(cfg.stateDir, channel.id), roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
-    scenario: state.scenario ?? null, improv: state.improv ?? null, casual: state.casual ?? null, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
+    scenario: state.scenario ?? null, improv: state.improv ?? null, casual: state.casual ?? null, planner: state.planner ?? null, plannerLlm, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
   });
   await table.init({ heal });
   if (write) table.save();
@@ -169,7 +169,10 @@ async function run(cfg) {
   // Another writer changed the state file under us: continuing would act on a stale table, so stop loudly.
   const onConflict = (e) => { log(`stopping: ${e.message}. Restart \`run\` to continue from the file.`); release(); process.exit(3); };
   let opened;
-  try { opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), heal: true, channel: { api: signedIn, channel: ch }, onConflict }); }
+  // The story planner's own model, when it differs from the GM's (otherwise the table reuses the GM's instance).
+  const sameModel = ["provider", "apiBase", "model", "effort", "apiKey"].every((k) => cfg.planner[k] === cfg.llm[k]);
+  const plannerLlm = sameModel ? null : withProgress(createLlm(cfg.planner), log);
+  try { opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), plannerLlm, heal: true, channel: { api: signedIn, channel: ch }, onConflict }); }
   catch (e) { release(); throw e; }
   const { api, channel, table } = opened;
   const roster = table.roster;
@@ -188,7 +191,7 @@ async function run(cfg) {
   const inbox = inboxPath(cfg.stateDir, channel.id);
   fs.watchFile(inbox, { interval: 1000 }, take);
   take();
-  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; LLM: ${cfg.llm.provider}; autonomy: ${cfg.autonomy ? `on (side every ${cfg.autonomySideIntervalMs / 1000}s, quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
+  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; LLM: ${cfg.llm.provider}; autonomy: ${cfg.autonomy ? `on (side every ${cfg.autonomySideIntervalMs / 1000}s, quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? `${cfg.planner.provider}${cfg.planner.model ? ` ${cfg.planner.model}` : ""} (${cfg.planner.effort})` : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
   if (cfg.kickoff) {
     const main = table.mainWindow();
     if (main) table.schedule(main.id, { kickoff: true, delay: 0 });
@@ -283,6 +286,9 @@ async function status(cfg) {
   console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} Keeper chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
   const ca = table.casual;
   console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min)`) : "off (a solemn game: no phones)"}`);
+  const pl = table.planner, arc = pl.arc;
+  const plMode = !pl.on ? "off" : table.improv.on ? "full plotting" : "pace only: module-led campaign";
+  console.log(`story planner: ${pl.on ? `on (${plMode})${arc ? ` — plan v${arc.version}, ${Math.round((Date.now() - Date.parse(arc.updatedAt)) / 60000)} min ago (${arc.trigger}); beat "${arc.beat.title}", verdict: ${arc.verdict?.moveOn ? "move on" : "continue"}; ${arc.threads.length} thread(s)${pl.impulses.length ? `; impulses: ${pl.impulses.map((i) => i.name).join(", ")}` : ""}` : " — no plan yet (needs 10 lines, or `plan now`)"}; automatic after ${cfg.planner.intervalMs / 60000} min and ${cfg.planner.minLines} lines, cooldown ${cfg.planner.cooldownMs / 60000} min, ≤ ${cfg.planner.maxRunsPerHour}/h; model ${cfg.planner.provider}${cfg.planner.model ? ` ${cfg.planner.model}` : ""} effort ${cfg.planner.effort}` : "off"}`);
   const im = table.improv;
   console.log(`improvisation: ${im.on ? `on — world ${im.world.length} characters (${im.published.hash ? "posted in the Main Chat" : "not posted yet; run posts it"}), secrets ${im.secrets.length} characters, ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
   console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
@@ -295,6 +301,22 @@ loadEnvFile(path.join(here, "..", ".env"));
 const cfg = buildConfig(args, process.env, loadConfigFile(configPath(args, process.env, process.cwd(), path.join(here, ".."))));
 for (const w of cfg.warnings) console.error(`warning: ${w}`);
 const command = args._[0] ?? "run";
+// `plan now|on|off|show [--full]`: the story planner, during a campaign. `show` is read-only.
+async function plan(cfg, args) {
+  const v = String(args._?.[1] ?? "").toLowerCase();
+  if (v === "show") {
+    const { table } = await openTable(cfg, { write: false });
+    const { renderStoryPlan } = await import("./planner.mjs");
+    if (!table.planner.arc) { console.log("no story plan yet"); return; }
+    console.log(renderStoryPlan(table.planner.arc, 100000));
+    if (table.planner.impulses.length) console.log(`\nimpulses: ${table.planner.impulses.map((i) => `${i.name}: "${i.text}"`).join("\n          ")}`);
+    if (args.full) { const rec = table.store.latestPlan(); if (rec) console.log(`\n--- v${rec.version} (${rec.trigger}) in full ---\n${JSON.stringify(rec.record, null, 2)}`); }
+    return;
+  }
+  if (!["now", "on", "off"].includes(v)) throw new Error("plan needs now, on, off or show");
+  return manual(cfg, { cmd: "plan", action: v }, `story planner: ${v}`);
+}
+
 // `casual on|off`: casual mode's phones, during a campaign.
 function casual(cfg, args) {
   const v = String(args._?.[1] ?? (cfg.casual === undefined ? "" : cfg.casual)).toLowerCase();
@@ -303,9 +325,9 @@ function casual(cfg, args) {
   return manual(cfg, { cmd: "casual", on }, `casual mode ${on ? "on" : "off"}`);
 }
 
-const commands = { setup, run, status, split, rejoin, advance, world, casual };
+const commands = { setup, run, status, split, rejoin, advance, world, casual, plan };
 if (!commands[command]) {
-  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance|world|casual> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance|world|casual|plan> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
   process.exit(2);
 }
 commands[command](cfg, args).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });

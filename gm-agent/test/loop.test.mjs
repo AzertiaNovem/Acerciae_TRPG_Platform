@@ -1101,3 +1101,116 @@ test("a co-player in another timeline never learns what happens in the Main Chat
   assert.ok(!back.includes("MAIN-WHILE-AWAY"), "but not what happened there while she was away");
   assert.ok(side && t.timelines.retired(side));
 });
+
+// ---- the story planner
+const pcfg = (over = {}) => ({ planner: { ...buildConfig({}, {}).planner, cooldownMs: 0, stallTurns: 1000, ...over } });
+const plannerCalls = (llm) => llm.calls.filter((c) => c.purpose === "planner");
+const stepOf = (c) => (c.messages.at(-1).content.match(/^STEP: (\w+)/m) ?? [])[1];
+const planned = async (t, api, n = 10) => { for (let i = 0; i < n; i++) { await alicePosts(t, api, `Line ${i}: we ask around the harbour about the keeper.`); await settle(t); } await t.memoryIdle(); await settle(t); };
+
+test("the first story plan: drafted, critiqued and revised in one cached conversation, adopted at the turn boundary, noted once", async () => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  await planned(t, api);
+  const arc = t.planner.arc;
+  assert.ok(arc, "a plan was adopted"); assert.equal(arc.version, 1); assert.equal(arc.trigger, "first"); assert.equal(arc.mode, "full");
+  assert.equal(arc.beat.title, "[mock beat] The present trouble"); assert.equal(arc.threads[0].id, "P1");
+  const calls = plannerCalls(llm);
+  assert.deepEqual(calls.map(stepOf), ["draft", "critique", "revise"], "three steps, in order");
+  assert.ok(calls[1].messages[0].content === calls[0].messages[0].content && calls[1].messages[1].role === "assistant", "the critique continues the draft's conversation");
+  assert.ok(calls[0].parts[0][0].cache && calls[0].parts[0][0].text.includes("## Campaign") && calls[0].parts[0][0].text.includes("## Previous story plan"), "the context is one cached part");
+  assert.ok(calls[2].parts.flat().filter((p) => p.cache).length <= 3, "at most three cache marks");
+  assert.match(calls[0].system, /story planner/); assert.match(calls[0].system, /Be bold/);
+  const notes = api.posts.filter((p) => p.visibility === "gm_only" && p.content.startsWith("Story plan v1"));
+  assert.equal(notes.length, 1); assert.match(notes[0].content, /beat "\[mock beat\] The present trouble"/); assert.match(notes[0].content, /Impulse for Harriet Vance/);
+  await t.adoptPlan();
+  assert.equal(api.posts.filter((p) => p.content.startsWith("Story plan v1")).length, 1, "adoption is idempotent");
+  assert.ok(t.store.latestPlan().record.draft && t.store.latestPlan().record.critique && t.store.latestPlan().record.final);
+  // The GM reads the plan in part C only; a co-player reads its impulse, never the plan; the GM never reads the impulse.
+  await alicePosts(t, api, "Harriet, what do you think?");
+  await settle(t);
+  const director = llm.calls.filter((c) => c.purpose === "director").at(-1);
+  const parts = director.parts[0];
+  assert.ok(!parts[0].text.includes("## Story plan"), "not in A");
+  assert.ok(parts.slice(1, -1).some((p) => p.cache && p.text.includes("## Story plan") && p.text.includes("[mock twist]")), "in a cached middle part");
+  assert.match(director.system, /Story plan: your private plan/); assert.match(director.system, /"type": "planner_note"/);
+  assert.ok(!director.messages[0].content.includes("[mock impulse]"), "the GM never reads an impulse");
+  const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet")).at(-1).messages[0].content;
+  assert.ok(cp.includes("SOMETHING ON YOUR MIND") && cp.includes("[mock impulse]"), "Harriet has her impulse");
+  assert.ok(!cp.includes("[mock twist]") && !cp.includes("Story plan"), "and nothing of the plan");
+  assert.deepEqual(require_(plannerStateRoundTrip(t)), require_(t.planner), "the state survives a save and reload");
+});
+import { plannerState as _plannerState } from "../src/planner.mjs";
+const plannerStateRoundTrip = (t) => _plannerState(JSON.parse(JSON.stringify(t.planner)));
+const require_ = (x) => JSON.parse(JSON.stringify(x));
+
+test("the planner's MOVE ON lifts the scenario pace guard; the change closes the beat and spends the verdict", async () => {
+  const llm = new MockLlm();
+  const base = llm.planner.bind(llm);
+  // Only the first plan says move on; the replan after the scenario change (trigger "scenario") goes back to "continue".
+  llm.planner = (u) => { const r = base(u); if (r.verdict && u.includes("(none yet: this is the first plan)")) r.verdict = { move_on: true, why: "they have searched the same office for six turns" }; return r; };
+  const { t, api, clock } = await table({ llm, improv: IMPROV, heal: true, cfg: { ...pcfg(), scenarioMinMinutes: 20, scenarioMinLines: 30 } });
+  t.scenario = { id: "sc1", since: clock.t };
+  await planned(t, api);
+  assert.equal(t.planner.arc.verdict.moveOn, true);
+  const v = await t.scenarioVerdict("w-main", "human");
+  assert.equal(v.planner, true, JSON.stringify(v));
+  assert.equal((await t.scenarioVerdict("w-main", "quiet")).ok, false, "still never in an autonomous turn");
+  const before = api.advanced.length;
+  await alicePosts(t, api, "We sleep. The next morning we set out.");
+  await settle(t);
+  assert.equal(api.advanced.length, before + 1, "advanced before the 20 minutes and 30 lines");
+  assert.match(directorCalls(llm).find((u) => u.includes("The next morning we set out.") && !/^MODE: /m.test(u)), /PLANNER: the story planner judges the current event/);
+  await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.version, 2); assert.equal(t.planner.arc.trigger, "scenario", "the change asked for a new plan");
+  assert.equal(t.planner.arc.verdict.moveOn, false, "spent");
+  assert.equal((await t.scenarioVerdict("w-main", "human")).ok, false, "the guard is back");
+});
+
+test("module-led campaign: the planner judges pace only", async () => {
+  const { t, api, llm } = await table({ cfg: pcfg() });
+  await planned(t, api);
+  assert.equal(t.planner.arc.mode, "pace");
+  assert.match(plannerCalls(llm)[0].system, /the module has the plots/); assert.doesNotMatch(plannerCalls(llm)[0].system, /Be bold/);
+  assert.deepEqual([t.planner.arc.threads, t.planner.arc.next, t.planner.impulses], [[], [], []]);
+  assert.match(t.storyPlanSection(), /^## Story plan \(pace only/);
+  await alicePosts(t, api, "Harriet?"); await settle(t);
+  assert.ok(!llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content.includes("SOMETHING ON YOUR MIND"));
+});
+
+test("a stalled story asks the planner again; a planner_note from the GM does too, and closes the beat", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (u) => (u.includes("I give up") && !/^MODE: /m.test(u) ? { actions: [{ type: "planner_note", text: "They skipped the warehouse entirely.", beat_done: true }, { type: "narrate", text: "Noted." }], coplayers_may_act: false } : base(u));
+  const { t, api } = await table({ llm, improv: IMPROV, heal: true, cfg: pcfg({ intervalMs: 10 * 3600000, minLines: 100000 }) });
+  await planned(t, api);
+  assert.equal(t.planner.arc.version, 1);
+  t.cfg.planner.stallTurns = 3;
+  for (let i = 0; i < 4; i++) { await alicePosts(t, api, `Still here ${i}.`); await settle(t); }
+  await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.version, 2); assert.equal(t.planner.arc.trigger, "stall");
+  await alicePosts(t, api, "I give up on the office."); await settle(t);
+  assert.ok(api.posts.some((p) => p.visibility === "gm_only" && p.content === "Planner note: They skipped the warehouse entirely."));
+  await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.trigger, "asked"); assert.equal(t.planner.arc.version, 3);
+  const briefing = plannerCalls(llm).at(-3).messages[0].content;
+  assert.ok(briefing.includes('"They skipped the warehouse entirely." (beat done)'), "the note, and that the beat is done, reached the planner");
+});
+
+test("the planner stays quiet when off, over budget, or with the interval at 0; plan now still works", async () => {
+  const off = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  await off.t.command({ cmd: "plan", action: "off" });
+  await planned(off.t, off.api);
+  assert.equal(off.t.planner.arc, null); assert.equal(plannerCalls(off.llm).length, 0); assert.equal(off.t.storyPlanSection(), "");
+  const budget = await table({ improv: IMPROV, heal: true, cfg: { ...pcfg(), dailyTokenBudget: 1 } });
+  await alicePosts(budget.t, budget.api, "Hm."); await settle(budget.t);
+  await planned(budget.t, budget.api);
+  assert.equal(budget.t.planner.arc, null);
+  await assert.rejects(budget.t.command({ cmd: "plan", action: "now" }), /budget/);
+  const manual = await table({ improv: IMPROV, heal: true, cfg: pcfg({ intervalMs: 0 }) });
+  await planned(manual.t, manual.api);
+  assert.equal(manual.t.planner.arc.version, 1, "a first plan still happens");
+  await planned(manual.t, manual.api, 50);
+  assert.equal(manual.t.planner.arc.version, 1, "then nothing automatic");
+  await manual.t.command({ cmd: "plan", action: "now" });
+  assert.equal(manual.t.planner.arc.version, 2); assert.equal(manual.t.planner.arc.trigger, "manual");
+});

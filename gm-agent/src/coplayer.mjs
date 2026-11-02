@@ -83,7 +83,8 @@ function cardSummary(card) {
 // compacted chapters (memory.mjs); `log` the lines it witnessed since them.
 // The prompt is laid out stable-first (llm/parts.mjs): who it is, then its memories and older lines in frozen chunks
 // (cached), then what changes every turn.
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "" }) {
+// `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "" }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -100,6 +101,7 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
     `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
     away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map((c) => renderProfile(c)).join("\n")}` : "",
+    impulse,
     "",
     `CHAT LOG YOUR CHARACTER WITNESSED${frozen.length ? ", latest part" : ""} (newest last):\n${recent.map((m) => renderLine(m)).join("\n") || (frozen.length ? "(see above)" : "(nothing yet)")}`,
     newest ? `NEWEST LINE: ${renderLine(newest)}` : "",
