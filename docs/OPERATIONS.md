@@ -54,6 +54,14 @@ Migrations in `backend/migrations` run automatically at startup, in order, each 
 Take a backup first, then `git pull && docker compose up -d --build`. `acerciae-server --migrate-only` applies them
 without serving.
 
+## Platform administration
+
+Name the deployment's administrators in `PLATFORM_ADMINS` (comma-separated usernames) before exposing it. They get the
+🛡 panel in the web client: accounts, servers, stored media by kind, the database and its largest tables, AI use, and
+per-server and per-user storage, with **suspend** / **reinstate** for servers and accounts (reversible; nothing is
+deleted; every action and its reason is kept in `admin_actions`). Administrators named in the variable cannot be
+suspended or demoted from the panel; they can grant the role to other accounts. See [ADMIN.md](ADMIN.md).
+
 ## Housekeeping and limits
 
 - Visual-novel downloads are packed on the background pool and kept for `VN_BUNDLE_TTL_HOURS` (default 24). The

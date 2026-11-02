@@ -9,7 +9,7 @@ val Message.diceTone: DiceTone get() {
     val last = (dice["rolls"] as? JsonArray)?.lastOrNull() as? JsonObject
     val level = (last?.get("level") as? JsonPrimitive)?.contentOrNull ?: dice.text("level")
     return when {
-        level == "critical" -> DiceTone.CRITICAL
+        dice["critical"] == JsonPrimitive(true) || level == "critical" -> DiceTone.CRITICAL
         level == "fumble" -> DiceTone.FUMBLE
         last?.get("success") == JsonPrimitive(true) || dice["success"] == JsonPrimitive(true) -> DiceTone.SUCCESS
         last?.get("success") == JsonPrimitive(false) || dice["success"] == JsonPrimitive(false) -> DiceTone.FAILURE

@@ -58,7 +58,7 @@ import java.io.File
             TextButton(onClick = { image = asset }, modifier = Modifier.fillMaxWidth()) { AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(260.dp)) }
         }
         items(attrs.obj("attrs").keys.sorted()) { key -> Text("$key  ${attrs.obj("attrs")[key]}") }
-        if (attrs.flag("editable") && !space.obj("points").flag("enabled")) {
+        if (attrs.flag("editable") && (space.text("rule_system") == "dnd2024" || !space.obj("points").flag("enabled"))) {
             item { OutlinedTextField(attribute, { attribute = it }, label = { Text(tr("属性或技能名")) }) }
             item { OutlinedTextField(value, { value = it }, label = { Text(tr("数值")) }) }
             item { Button(onClick = { model.launch {
@@ -90,18 +90,16 @@ import java.io.File
     if (area.isNotEmpty()) { ServerManagementPage(state, model, area) { area = "" }; return }
     val maintainer = state.serverSettings.flag("is_maintainer")
     if (!state.online || !maintainer) { Text(tr("仅服务器管理员可访问"), Modifier.padding(20.dp)); return }
-    var points by remember(state.serverId) { mutableStateOf(state.enabled("coc7_points")) }
     var atmosphere by remember(state.serverId) { mutableStateOf(state.serverSettings.obj("features").flag("atmosphere")) }
     var studio by remember(state.serverId) { mutableStateOf(state.enabled("log_studio")) }
     var dice by remember(state.serverId) { mutableStateOf(state.enabled("dice")) }
-    var consistency by remember(state.serverId) { mutableStateOf(state.enabled("consistency")) }
-    var inspiration by remember(state.serverId) { mutableStateOf(state.enabled("inspiration")) }
+    var consistency by remember(state.serverId) { mutableStateOf(state.serverSettings.obj("features").flag("consistency")) }
+    var inspiration by remember(state.serverId) { mutableStateOf(state.serverSettings.obj("features").flag("inspiration")) }
     var language by remember(state.serverId) { mutableStateOf(InterfaceLanguage.supported(state.serverSettings.text("language"))) }
     LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text(state.serverName, style = MaterialTheme.typography.titleLarge) }
         items(listOf("Access", "AI", "Channels")) { item -> TextButton(onClick = { area = item }) { Text(tr(item)) } }
         item { Text(if (maintainer) tr("服务器管理员") else tr("服务器成员")) }
-        if (state.serverSettings.obj("features").containsKey("coc7_points")) item { SettingToggle(tr("CoC7 购点规则"), points, maintainer && !state.busy) { points = it } }
         item { SettingToggle(tr("Channel atmosphere backgrounds"), atmosphere, !state.busy) { atmosphere = it }; Text(tr("Allow automatic image generation from public Keeper narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display."), style = MaterialTheme.typography.bodySmall) }
         item { SettingToggle(tr("日志制作"), studio, maintainer && !state.busy) { studio = it } }
         item { SettingToggle(tr("骰子"), dice, maintainer && !state.busy) { dice = it } }
@@ -110,7 +108,7 @@ import java.io.File
         if (maintainer) {
             item { Choice(tr("Language"), language, InterfaceLanguage.codes.zip(InterfaceLanguage.names), !state.busy) { language = it } }
             item { Button(onClick = { model.launch {
-                model.get(listOf("servers", state.serverId, "settings"), buildJsonObject { put("language", language); put("features", buildJsonObject { state.serverSettings.obj("features").forEach { (k,v) -> put(k,v) }; if (state.serverSettings.obj("features").containsKey("coc7_points")) put("coc7_points", points); put("atmosphere", atmosphere); put("log_studio", studio); put("dice", dice); put("consistency", consistency); put("inspiration", inspiration) }) }, "PUT")
+                model.get(listOf("servers", state.serverId, "settings"), buildJsonObject { put("language", language); put("features", buildJsonObject { state.serverSettings.obj("features").forEach { (k,v) -> put(k,v) }; put("atmosphere", atmosphere); put("log_studio", studio); put("dice", dice); put("consistency", consistency); put("inspiration", inspiration) }) }, "PUT")
                 model.refreshCatalog(); model.notice(tr("服务器设置已保存"))
             } }, enabled = !state.busy) { Text(tr("保存服务器设置")) } }
         }
@@ -118,12 +116,20 @@ import java.io.File
 }
 
 @Composable fun LiveChannelPage(state: AppState, model: AppViewModel) {
+    var voiceSettings by remember { mutableStateOf(false) }
+    if (voiceSettings) { VoiceSettings(state, model) { voiceSettings = false }; return }
+    var moduleImports by remember { mutableStateOf(false) }
+    if (moduleImports) { ModuleImports(state, model) { moduleImports = false }; return }
     var history by remember(state.channelId) { mutableStateOf(false) }
     if (history && state.gm) { AtmosphereHistory(state, model) { history = false }; return }
     if (!state.online || !state.gm) { Text(tr("仅当前频道的 GM 可访问"), Modifier.padding(20.dp)); return }
     var playerAccess by remember(state.channelId) { mutableStateOf(state.channel.flag("studio_player_access")) }
     var visible by remember(state.channelId) { mutableStateOf(state.channel.flag("studio_visible")) }
     var autoScenarios by remember(state.channelId) { mutableStateOf(state.channel.flag("auto_scenarios")) }
+    var consistency by remember(state.channelId) { mutableStateOf(state.channel["consistency_enabled"] != JsonPrimitive(false)) }
+    var inspiration by remember(state.channelId) { mutableStateOf(state.channel["inspiration_enabled"] != JsonPrimitive(false)) }
+    var atmosphere by remember(state.channelId) { mutableStateOf(state.channel["atmosphere_enabled"] != JsonPrimitive(false)) }
+    var ruleSystem by remember(state.channelId) { mutableStateOf(state.channel.text("rule_system").ifEmpty { "coc7e" }) }; var pointBuy by remember(state.channelId) { mutableStateOf(state.channel.flag("point_buy")) }
     var ai by remember(state.channelId) { mutableStateOf(state.channel.flag("ai_enabled")) }
     var cloud by remember(state.channelId) { mutableStateOf(false) }
     var budget by remember(state.channelId) { mutableStateOf("0") }
@@ -146,6 +152,8 @@ import java.io.File
         }
     }
     LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if(state.gm && state.studioAvailable) item { TextButton(onClick = { voiceSettings = true }) { Text(tr("Voice settings")) } }
+        if(state.gm) item { TextButton(onClick = { moduleImports = true }) { Text(tr("Module imports")) } }
         item { Text(state.channel.text("name"), style = MaterialTheme.typography.titleLarge); Text(tr("以下设置仅作用于当前频道")) }
             item { HorizontalDivider(); Text(tr("守密人设置"), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium) }
             item { OutlinedTextField(channelName, { channelName = it }, label = { Text(tr("频道名称")) }) }
@@ -154,7 +162,11 @@ import java.io.File
             item { Choice(tr("角色知识"), knowledgeMode, listOf("isolated" to tr("隔离：各自掌握线索"), "public" to tr("公开：共享知识")), !state.busy) { knowledgeMode = it }
                 Text(tr("公开模式会让角色共享频道知识；隔离模式按角色可见范围提供线索。")) }
             item { Choice(tr("骰子回复"), diceGroup, listOf("" to tr("跟随服务器"), "builtin:zh" to "中文", "builtin:en" to "English") + diceGroups.map { it.id to it.name }, !state.busy) { diceGroup = it } }
-            item { SettingToggle(tr("AI 观察与整理"), ai, !state.busy) { ai = it } }
+            item { ChoiceMenu(tr("Rule system"), ruleSystem, listOf("coc7e" to "Call of Cthulhu 7e", "dnd2024" to "D&D 2024 · SRD 5.2")) { ruleSystem = it }; SettingToggle(tr("Point buy for role cards"), pointBuy, !state.busy) { pointBuy = it } }
+        item { SettingToggle(tr("AI 观察与整理"), ai, !state.busy) { ai = it } }
+        item { SettingToggle(tr("Consistency check"), consistency, !state.busy && state.serverSettings.obj("features").flag("consistency")) { consistency = it } }
+        item { SettingToggle(tr("Inspiration"), inspiration, !state.busy && state.serverSettings.obj("features").flag("inspiration")) { inspiration = it } }
+        item { SettingToggle(tr("Channel atmosphere backgrounds"), atmosphere, !state.busy && state.serverSettings.obj("features").flag("atmosphere")) { atmosphere = it } }
             item { SettingToggle(tr("向成员显示日志制作"), visible, !state.busy) { visible = it } }
             item { SettingToggle(tr("根据叙述建议新阶段"), autoScenarios, !state.busy) { autoScenarios = it } }
             item { ScenarioControls(state, model) }
@@ -162,7 +174,7 @@ import java.io.File
             item { TextButton(onClick = { history = true }) { Text(tr("Atmosphere background history")) } }
             item { SettingToggle(tr("Players may open the Log Studio before the story ends"), playerAccess, !state.busy) { playerAccess = it } }
             item { Button(onClick = { model.launch {
-                model.get(listOf("channels", state.channelId), buildJsonObject { put("name", channelName.trim()); put("description", channelDescription); put("era", era); put("knowledge_mode", knowledgeMode); put("dice_text_group", diceGroup); put("ai_enabled", ai); put("studio_visible", visible); put("studio_player_access", playerAccess); put("auto_scenarios", autoScenarios) }, "PUT"); model.refreshCatalog(); model.refresh(); model.notice(tr("守密人设置已保存"))
+                model.get(listOf("channels", state.channelId), buildJsonObject { put("name", channelName.trim()); put("description", channelDescription); put("era", era); put("knowledge_mode", knowledgeMode); put("dice_text_group", diceGroup); put("rule_system",ruleSystem); put("point_buy",pointBuy); put("ai_enabled", ai); put("consistency_enabled", consistency); put("inspiration_enabled", inspiration); put("atmosphere_enabled", atmosphere); put("studio_visible", visible); put("studio_player_access", playerAccess); put("auto_scenarios", autoScenarios) }, "PUT"); model.refreshCatalog(); model.refresh(); model.notice(tr("守密人设置已保存"))
             } }, enabled = !state.busy && channelName.isNotBlank() && era.length <= 80) { Text(tr("保存频道设置")) } }
             item { OutlinedTextField(inviteUsername, { inviteUsername = it }, label = { Text(tr("邀请玩家：账号名")) }) }
             item { Text(tr(if (state.serverSettings.flag("is_maintainer") || state.serverSettings.obj("policy").flag("guest_invites")) "You may invite registered users outside this server as channel guests." else "You may invite existing server members to this channel.")) }
@@ -179,7 +191,7 @@ import java.io.File
             }
     }
 }
-@Composable private fun SettingToggle(title: String, value: Boolean, enabled: Boolean, change: (Boolean) -> Unit) {
+@Composable fun SettingToggle(title: String, value: Boolean, enabled: Boolean, change: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(title, Modifier.weight(1f)); Switch(value, change, enabled = enabled) }
 }
 
@@ -258,7 +270,7 @@ import java.io.File
             performanceScenes = v.rows("scenes"); events = v.rows("events").filter { !it.flag("hidden") }; presentationId = item.id; index = progress.number("position").coerceIn(0, maxOf(0, events.lastIndex))
         } }, enabled = !loading) { Text(tr("开始回放")) }
             TextButton(onClick = { dubbing = item.id }) { Text(tr("配音选角")) }
-            TextButton(onClick = { task { exportBytes = model.bytes(base + listOf("presentations", item.id, "bundle.zip")); save.launch("novel-${item.id}.zip") } }, enabled = !loading) { Text(tr("下载独立播放包")) }
+            NovelTools(state,model,item.id,state.gm || item.text("created_by")==state.user?.id) { bytes,name -> exportBytes=bytes; save.launch(name) }
             }
             }
         }

@@ -410,3 +410,19 @@ table.simple tr.selected td {background:rgba(127,127,127,.08)}
 @media (max-width: 1100px) { .open-studio-vn { grid-template-columns: 1fr; } }
 fieldset { border: 1px solid var(--bg-4); border-radius: 10px; padding: 8px 12px 12px; }
 fieldset legend { font-size: 12px; color: var(--fg-1); padding: 0 6px; }
+
+/* Platform administration */
+.server-icon.admin { font-size: 18px; color: var(--warn); border: 2px dashed var(--bg-4); background: transparent; }
+.server-icon.suspended { opacity: .45; text-decoration: line-through; }
+.admin-panel { padding: 16px 20px; overflow: auto; height: 100%; display: flex; flex-direction: column; gap: 10px; }
+.admin-panel .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.admin-panel .kpi { background: var(--bg-2); border: 1px solid var(--bg-4); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.admin-panel .kpi b { font-size: 11px; color: var(--fg-2); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.admin-panel .kpi .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.admin-panel .kpi .sub { font-size: 11px; color: var(--fg-3); }
+.admin-panel table.simple td.num, .admin-panel table.simple th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.admin-panel table.simple tr.clickable { cursor: pointer; } .admin-panel table.simple tr.clickable:hover td { background: var(--bg-2); }
+.admin-panel .bar { height: 6px; background: var(--bg-3); border-radius: 3px; overflow: hidden; } .admin-panel .bar i { display: block; height: 100%; background: var(--accent); }
+.admin-panel .detail { background: var(--bg-2); border: 1px solid var(--bg-4); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.admin-panel .toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.admin-panel .toolbar input { min-width: 220px; }

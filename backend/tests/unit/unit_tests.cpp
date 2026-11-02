@@ -46,6 +46,14 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("PLATFORM_ADMINS names the deployment's administrators: comma-separated usernames, spaces ignored, empty by default", [] {
+        unsetenv("PLATFORM_ADMINS");
+        CHECK(Config::fromEnv().platformAdmins.empty());
+        setenv("PLATFORM_ADMINS", " alice ,bob,, carol", 1);
+        auto admins = Config::fromEnv().platformAdmins;
+        CHECK(admins.size() == 3); CHECK(admins[0] == "alice"); CHECK(admins[1] == "bob"); CHECK(admins[2] == "carol");
+        unsetenv("PLATFORM_ADMINS");
+    });
     test("UTF-8 text limits keep complete Chinese, accented and four-byte characters", [] {
         const std::vector<std::string> points = {"A", "é", "密", "😀", "e", "\xcc\x81", "Z"};
         const auto input = text::join(points, "");

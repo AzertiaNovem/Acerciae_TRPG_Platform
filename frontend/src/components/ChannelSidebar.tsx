@@ -72,17 +72,25 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
       await nav.refreshWindows();
     } catch (e: any) { toast(e.message, 'error'); }
   };
-  const serverName = nav.servers.find((s) => s.id === nav.serverId)?.name;
+  const currentServer = nav.servers.find((s) => s.id === nav.serverId);
+  const serverName = currentServer?.name;
 
   return (
     <div className={`channel-sidebar ${open ? 'open' : ''}`}>
       <div className="section"><span>{serverName ?? tr("Channels")}</span>
         <span className="row" style={{ gap: 2 }}>
-          {nav.serverId && isMaintainer && <button className="ghost small" title={tr("Server settings (maintainers)")} onClick={() => setServerSettingsOpen(true)}>⚙</button>}
-          {nav.serverId && canCreateChannel && <button className="ghost small" title={tr("New campaign channel")} onClick={() => setDialog('channel')}>+</button>}
+          {nav.serverId && isMaintainer && !currentServer?.suspended && <button className="ghost small" title={tr("Server settings (maintainers)")} onClick={() => setServerSettingsOpen(true)}>⚙</button>}
+          {nav.serverId && canCreateChannel && !currentServer?.suspended && <button className="ghost small" title={tr("New campaign channel")} onClick={() => setDialog('channel')}>+</button>}
         </span>
       </div>
       <div className="sidebar-scroll">
+        {currentServer?.suspended && (
+          <div className="small" style={{ padding: '6px 12px', color: 'var(--danger)' }}>
+            <div><b>{tr("This server is suspended by the platform administrators.")}</b></div>
+            {currentServer.suspended_reason && <div className="tiny" style={{ marginTop: 4 }}>{currentServer.suspended_reason}</div>}
+            <div className="tiny muted" style={{ marginTop: 4 }}>{tr("Its channels, characters and logs stay stored but cannot be opened until it is reinstated.")}</div>
+          </div>
+        )}
         {nav.channels.map((c) => (
           <div key={c.id} className={`item ${c.id === nav.channelId && !nav.spectateChannelId ? 'active' : ''}`} {...activate(() => { nav.selectChannel(c.id); onClose(); })}>
             <span className="muted">#</span><span className="name">{c.name}</span>{c.my_role === 'gm' && <span className="pill gm">{tr("GM")}</span>}

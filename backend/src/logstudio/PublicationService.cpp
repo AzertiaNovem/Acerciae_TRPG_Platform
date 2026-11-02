@@ -407,8 +407,9 @@ Json::Value PublicationService::publication(const ChannelAccess &a,
 }
 Json::Value PublicationService::shared(const std::string &token) {
   auto r =
-      db_.queryOne("SELECT id,title,kind,frozen_content FROM published_logs "
-                   "WHERE share_token=$1 AND visibility='link' AND NOT revoked",
+      db_.queryOne("SELECT p.id,p.title,p.kind,p.frozen_content FROM published_logs p "
+                   "JOIN channels c ON c.id=p.channel_id JOIN servers s ON s.id=c.server_id "
+                   "WHERE p.share_token=$1 AND p.visibility='link' AND NOT p.revoked AND s.suspended_at IS NULL",
                    {token});
   if (r.isNull())
     throw notFound("share link revoked or missing");
@@ -434,8 +435,9 @@ Json::Value PublicationService::revoke(const ChannelAccess &a,
 std::string PublicationService::sharedFile(const std::string &token,
                                            const std::string &id,
                                            std::string &mime) {
-  auto r = db_.queryOne("SELECT * FROM published_logs WHERE share_token=$1 AND "
-                        "visibility='link' AND NOT revoked",
+  auto r = db_.queryOne("SELECT p.* FROM published_logs p JOIN channels c ON c.id=p.channel_id "
+                        "JOIN servers s ON s.id=c.server_id WHERE p.share_token=$1 AND "
+                        "p.visibility='link' AND NOT p.revoked AND s.suspended_at IS NULL",
                         {token});
   if (r.isNull())
     throw notFound("share link revoked or missing");

@@ -18,6 +18,7 @@ public struct User: Codable, Sendable {
     public let displayName: String
     public let uiLanguage: String?
     public let atmosphereEnabled: Bool?
+    public let hasAvatar: Bool?
     public let avatarData: String?
     public let avatarVersion: Int?
 }

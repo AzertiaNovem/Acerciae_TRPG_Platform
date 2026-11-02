@@ -8,6 +8,7 @@ import { api } from '../api/client';
 import type { DirectoryServer, InvitePreview } from '../types';
 import { isDesktop } from '../lib/platform';
 import { useOpenStudio } from '../openstudio/ui/state';
+import { useAuth } from '../store/auth';
 
 // An invite link is `…?invite=CODE`; people may also paste the bare code.
 const codeOf = (text: string) => { const t = text.trim(); try { return new URL(t).searchParams.get('invite') ?? t; } catch { return t.split('invite=').pop() ?? t; } };
@@ -59,7 +60,8 @@ function JoinServer({ initialCode, onJoined }: { initialCode: string; onJoined: 
 }
 
 export default function ServerSidebar({ onPick }: { onPick: () => void }) {
-  const { servers, serverId, selectServer, loadServers } = useNav();
+  const { servers, serverId, selectServer, loadServers, adminOpen, setAdminOpen } = useNav();
+  const isAdmin = useAuth((s) => s.user?.is_admin === true);
   const [dialog, setDialog] = useState<null | 'create' | 'join'>(null);
   const [name, setName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
@@ -81,9 +83,10 @@ export default function ServerSidebar({ onPick }: { onPick: () => void }) {
   return (
     <div className="server-sidebar">
       {servers.map((s) => (
-        <div key={s.id} className={`server-icon ${s.id === serverId ? 'active' : ''}`} title={s.my_role === 'guest' ? `${s.name} (${tr("guest")})` : s.name} aria-label={s.name} {...activate(() => { selectServer(s.id); onPick(); })}>{s.name.slice(0, 2).toUpperCase()}</div>
+        <div key={s.id} className={`server-icon ${s.id === serverId && !adminOpen ? 'active' : ''} ${s.suspended ? 'suspended' : ''}`} title={s.suspended ? `${s.name} (${tr("suspended")})` : s.my_role === 'guest' ? `${s.name} (${tr("guest")})` : s.name} aria-label={s.name} {...activate(() => { selectServer(s.id); onPick(); })}>{s.name.slice(0, 2).toUpperCase()}</div>
       ))}
       <div className="server-icon add" title={tr("Create or join a server")} aria-label={tr("Create or join a server")} {...activate(() => setDialog('create'))}>+</div>
+      {isAdmin && <div className={`server-icon admin ${adminOpen ? 'active' : ''}`} title={tr('Platform administration')} aria-label={tr('Platform administration')} {...activate(() => setAdminOpen(true))}>🛡</div>}
       {isDesktop && <div className="server-icon studio" title={tr('Open Log Studio')} aria-label={tr('Open Log Studio')} {...activate(() => useOpenStudio.getState().setOpen(true))}>✎</div>}
       {dialog && (
         <div className="modal-backdrop" onClick={() => setDialog(null)}>

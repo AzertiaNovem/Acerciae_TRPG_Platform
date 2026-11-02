@@ -2,7 +2,7 @@
 
 Android 使用 Kotlin / Jetpack Compose，iOS 使用 SwiftUI，独立于 React 网页。首次打开或退出登录后直接显示登录页，提供手机端注册；不加载示例对话。已有当前服务的登录会话会自动恢复。登录后的主界面为聊天与左侧抽屉，没有底部选项卡。普通直板 iPhone 17 是当前 iOS 验收设备。
 
-服务固定为 `https://trpg.missazertia.com:15510`，UI 不提供后端地址或连接配置入口。仅通过修改 `ios/AcerciaeCore/Sources/AcerciaeCore/ServiceConfiguration.swift` 与 `android/app/src/main/java/app/acerciae/mobile/core/ServiceConfiguration.kt` 并重新编译切换服务。旧偏好中的地址不再读取；保存会话的地址若不匹配编译配置，会清除该会话，且不会将旧令牌发送到新服务。
+服务固定为 `https://trpg.missazertia.com`（HTTPS 443），UI 不提供后端地址或连接配置入口。仅通过修改 `ios/AcerciaeCore/Sources/AcerciaeCore/ServiceConfiguration.swift` 与 `android/app/src/main/java/app/acerciae/mobile/core/ServiceConfiguration.kt` 并重新编译切换服务。旧偏好中的地址不再读取；仅允许同一正式域名从 15510 迁移到 443 时复用原登录；其他地址若不匹配编译配置，会清除该会话，且不会将旧令牌发送到新服务。
 
 ## 当前功能
 
@@ -105,3 +105,37 @@ iOS／Android 已同步职业与技能的 11 种语言、专长购点限制和�
 本机背景验证（仅 loopback、mock 服务）可执行 `python3 mobile/scripts/prepare-atmosphere-demo.py`；再使用 `ACERCIAE_TEST_BASE=http://localhost:18082 ACERCIAE_POINTS_BASE=http://localhost:18083 ACERCIAE_ATMOSPHERE_BASE=http://localhost:18085 swift test --package-path mobile/ios/AcerciaeCore`。两端当前各 22 项测试通过，Android assembleDebug / lintDebug 通过。测试图片明确标为模拟背景，正式安装包继续固定连接 `https://trpg.missazertia.com:15510`。
 
 本次签名 Release 构建及 codesign 校验已通过。模拟器和 Atlas iPhone 真机均已安装正式地址版本；2026-10-29 重新连接数据线后，devicectl 确认安装成功并成功启动 app.acerciae.mobile。
+
+## 2026-10-31 移动端同步（不含 GM-Agent）
+
+跟进至 `4501670` 的非 GM-Agent 提交：频道一致性/灵感/背景独立开关、OpenAI 配音服务及按能力呈现的预设音色编辑、GM 的文本/PDF 异步模组导入和任务重试/知识重建、自动成长后的角色卡保存冲突提示、透明背景表情立绘入口、页码引用和对象存储头像兼容。模组与音色入口位于频道选项；服务器服务商配置仍仅在管理员的服务器选项。正式后端地址不变，首次启动仍要求登录。
+
+本机新版联调使用 `http://localhost:18086`，数据库 `acerciae_mobile_oct31_demo`。新接口验证可运行 `python3 mobile/scripts/check-commit-sync.py`；权限回归可运行 `ACERCIAE_SYNC_BASE=http://localhost:18086 python3 mobile/scripts/check-current-contract.py`。完整 Swift 测试使用 `ACERCIAE_TEST_BASE=http://localhost:18086 ACERCIAE_POINTS_BASE=http://localhost:18086 ACERCIAE_ATMOSPHERE_BASE=http://localhost:18086 swift test --package-path mobile/ios/AcerciaeCore`，先运行 `ACERCIAE_ATMOSPHERE_BASE=http://localhost:18086 python3 mobile/scripts/prepare-atmosphere-demo.py` 准备 mock 背景。测试脚本只允许 loopback 服务。
+
+标准 iPhone 17 模拟器已验证登录、GM 频道设置、文本导入和 OpenAI 能力表单；设备键盘捕获保持关闭。Swift 25 项（含本地接口）通过，Android 25 项单元测试及 assembleDebug/lintDebug 通过。配音设置不触发真实合成，云端出图和 R2 实际网络链路未进行付费或生产写入验证。
+
+2026-10-31 正式 Release 已通过本地账户签名验证，并安装到 Atlas iPhone（`00008150-0010793A26D8401C`）。Android 安装包为 `android/app/build/outputs/apk/debug/app-debug.apk`。安装包继续使用固定正式后端；本地 mock 联调地址只用于独立的模拟器验证构建。
+
+安装后的自动启动被 iPhone 锁屏拒绝（CoreDevice `Locked`）；安装本身成功，解锁后可手动打开 Acerciae。
+
+## 2026-11-01 移动端同步（至 460a8c66，不含 GM-Agent）
+
+已拉取远端，恢复并保留此前未提交的移动端更新。双端新增 D&D 2024/SRD 5.2 角色卡、频道规则和频道级购点开关、先攻顺序及 D20 暴击显示；角色构筑与当前 HP/法术位仍由后端区分保存。服务器管理员选项不再提供旧的 CoC 全服务器购点开关。
+
+聊天侧栏显示服务器返回的未读数；前台其他已加入窗口的新消息以可展开横幅提示，跳转重新检查权限。实际显示聊天时才上报已读，切到其他页面或后台不会清除未读。新增系统语音朗读，默认关闭，只读当前聊天的新消息；切换页面或进入后台停止，恢复前台不补读旧消息。世界现状、近期变化和 GM 宣告位于聊天“提示”浮层。
+
+视觉小说新增续写、失败脚本重试、缺失背景重试及后台 ZIP 打包下载，保留服务端进度和当前角色素材版本。文件下载使用同源固定路径与 Bearer 认证，不转发令牌到打包结果中的任意 URL。增加缓存词元用量，打包最新网页语言目录和移动端补充翻译，共 1650 条、11 种语言。桌面 Open Log Studio、GM-Agent 和浏览器专用 Kokoro.js 不在原生实现范围内；手机朗读使用系统已有语音。
+
+正式默认地址已按用户要求从 15510 改为 `https://trpg.missazertia.com`（HTTPS 443），健康检查正常。仅为这个明确迁移的同域服务复用旧端口登录，其他主机、HTTP 和任意端口仍拒绝迁移；下次刷新将凭据写回当前地址。UI 仍不提供地址配置。
+
+验证服务使用本地 `18087`、独立 PostgreSQL `55433` / `acerciae_mobile_nov01_demo`，源码归档在忽略的 `artifacts/nov01-source`，模型与图像均为 mock。`ACERCIAE_SYNC_BASE=http://localhost:18087 python3 mobile/scripts/check-november-sync.py` 验证 D&D 构筑/实时 HP、先攻权限、未读单调标记、世界宣告、VN 续写和后台 ZIP 下载；此前两组导入/权限回归也通过。Swift 27 项（含本地接口）、Android 27 项及 lintDebug/assembleDebug 通过。标准 iPhone 17 模拟器检查了登录、半屏侧栏未读和 D&D 角色编辑，键盘捕获关闭。正式签名包已安装并启动于 Atlas iPhone。真实云端生成、对象存储外网链路及安卓真机 UI 尚未在本次验证。
+
+## 2026-11-02 正式服务连接与刷新修复
+
+登录/选频道原先必须等角色、场景等辅助接口全部成功，随后每轮又串行等待最多九项接口，最后才发布聊天数据；任意辅助请求出错都可能被显示为“连接失败”。现在先验证频道/窗口权限并加载聊天，辅助信息约每 30 秒独立更新，失败保留仍有权限的缓存；首次进入频道不再等待辅助接口。权限或知识分区变更仍立即清除旧内容，后台任务带频道/权限范围检查，切换频道或进入后台取消。
+
+原生请求统一标明 Acerciae 客户端身份。只对 GET/HEAD 的暂时网络错误和网关 5xx/超时进行最多两次重试；POST/PUT/DELETE 和上传不自动重放。轮询失败后逐步延后至最多 30 秒，避免弱网连续轰炸。Android 的协程取消会取消实际 HTTP 请求；iOS 使用可等待联网的会话。TLS 校验和拒绝重定向策略不变。
+
+入口返回的 HTML/纯文本 401/403 不再被当成后端账号失效或频道权限变化；只有符合后端 JSON 错误结构的响应才执行这类处理。数据解码失败、网络中断、超时和安全连接错误分别提示。排查时普通 Python UA 收到 Cloudflare 1010，原生/明确客户端标识的健康请求返回 200；这是入口存在客户端差异的证据，不足以证明手机的每次失败都来自 Cloudflare，未修改线上防火墙配置。
+
+验证：Swift Core 34 项（包含显式启用的 6 次正式 HTTPS 健康请求，以及 loopback 接口回归）、iPhone 17 模拟器 AppModel 故障注入 5 项、Android 33 项和 lint 均通过。新增用例验证连续 503 不阻断首次进入聊天、辅助权限撤销仅清除对应缓存、权限变化后即使消息失败也不保留旧私密数据、只读重试上限、写请求不重放、取消和入口错误分类。正式地址仍为 HTTPS 443。

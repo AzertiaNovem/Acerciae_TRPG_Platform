@@ -79,7 +79,9 @@ import kotlinx.serialization.json.*
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (error.isNotEmpty()) item { Text(error, color = MaterialTheme.colorScheme.error); TextButton(onClick = { retry++ }) { Text(tr("Retry")) } }
+            if (selection == "world") item { WorldRecord(state, model) }
             if (selection.isEmpty()) {
+                item { HintCard(tr("World record"), tr("What is true now")) { selection = "world" } }
                 if (state.gm) {
                     item { HintCard(tr("Next per the script"), if (board?.obj("next")?.flag("has_script") == true) board?.obj("next")?.obj("next")?.text("title").orEmpty() else tr("No module imported yet.")) { selection = "next" } }
                     item { HintCard(tr("Notes"), board?.obj("notes")?.rows("open_threads")?.firstOrNull()?.text("summary") ?: tr("Open threads, timeline and reviewed changes.")) { selection = "notes" } }
@@ -164,7 +166,7 @@ import kotlinx.serialization.json.*
                     val values = next.obj("next").obj("data")[key] as? JsonArray
                     if (!values.isNullOrEmpty()) { Text(tr(title), style = MaterialTheme.typography.titleSmall); values.forEach { Text(it.jsonPrimitive.content) } }
                 }
-                Text(next.obj("next").obj("citation").text("excerpt"), style = MaterialTheme.typography.bodySmall)
+                Text((if(next.obj("next").obj("citation").number("page") > 0) tr("Page") + " ${next.obj("next").obj("citation").number("page")} · " else "") + next.obj("next").obj("citation").text("excerpt"), style = MaterialTheme.typography.bodySmall)
                 HintRows("Still unrevealed", next.rows("pending_clues")); HintRows("Foreshadowing not yet paid off", next.rows("pending_foreshadowing"))
                 Text("${next.number("stages_done")}/${next.number("stages_total")} " + tr("stages done"))
             }

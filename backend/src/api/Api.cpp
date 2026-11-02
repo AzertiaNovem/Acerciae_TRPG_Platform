@@ -33,6 +33,7 @@
 #include "../logstudio/VnScriptService.h"
 #include "../servers/ServerSettingsService.h"
 #include "../servers/DeletionService.h"
+#include "../admin/AdminService.h"
 #include "../dice/DiceService.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
@@ -283,6 +284,17 @@ void registerRoutes() {
     route0("/api/servers", {Get}, [&](auto&, auto& p, auto&) { return S.chat->listServers(p); });
     route0("/api/servers", {Post}, [&](auto& req, auto& p, auto&) { return S.chat->createServer(p, json::requireStr(body(req), "name")); });
     route1("/api/servers/{1}", {Delete}, [&](auto& req, auto& p, auto& a) { return S.deletion->deleteServer(p, a[0], body(req)); });   // owner only
+    // ---- platform administration (PLATFORM_ADMINS / users.is_admin) ----
+    route0("/api/admin/overview", {Get}, [&](auto&, auto& p, auto&) { return S.admin->overview(p); });
+    route0("/api/admin/servers", {Get}, [&](auto& req, auto& p, auto&) { return S.admin->servers(p, req->getParameter("q"), req->getParameter("sort"), qint(req, "limit", 50), qint(req, "offset", 0)); });
+    route0("/api/admin/users", {Get}, [&](auto& req, auto& p, auto&) { return S.admin->users(p, req->getParameter("q"), req->getParameter("sort"), qint(req, "limit", 50), qint(req, "offset", 0)); });
+    route1("/api/admin/servers/{1}", {Get}, [&](auto&, auto& p, auto& a) { return S.admin->server(p, a[0]); });
+    route1("/api/admin/users/{1}", {Get}, [&](auto&, auto& p, auto& a) { return S.admin->user(p, a[0]); });
+    route1("/api/admin/servers/{1}/suspension", {Put}, [&](auto& req, auto& p, auto& a) { return S.admin->suspendServer(p, a[0], body(req)); });
+    route1("/api/admin/users/{1}/suspension", {Put}, [&](auto& req, auto& p, auto& a) { return S.admin->suspendUser(p, a[0], body(req)); });
+    route1("/api/admin/users/{1}/admin", {Put}, [&](auto& req, auto& p, auto& a) { return S.admin->setAdmin(p, a[0], body(req)); });
+    route0("/api/admin/actions", {Get}, [&](auto& req, auto& p, auto&) { return S.admin->actions(p, qint(req, "limit", 50), qint(req, "offset", 0)); });
+
     route1("/api/servers/{1}/join", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->joinServer(p, a[0], json::str(b, "invite_code")); });
     route0("/api/server-directory", {Get}, [&](auto& req, auto& p, auto&) { return S.chat->discoverServers(p, req->getParameter("q")); });
     route1("/api/servers/{1}/invites", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->listInvites(p, a[0]); });
