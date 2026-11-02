@@ -37,7 +37,7 @@ export default function AtmosphereBackdrop() {
         const id = current.assets?.[atmosphereVariant(dark, portrait)];
         if (!current.enabled || !id) { if (!cancelled && seq === sequence) setBackdrop(null); return; }
         await ensureFileToken();
-        if (!cancelled && seq === sequence) setBackdrop({ channel, url: api.atmosphereImage(channel, id), key: atmosphereKey(channel, id), mock: !!current.mock });
+        if (!cancelled && seq === sequence) setBackdrop({ channel, url: api.atmosphereImage(channel, id), key: atmosphereKey(channel, id, current.hashes?.[atmosphereVariant(dark, portrait)]), mock: !!current.mock });
       } catch { if (!cancelled && seq === sequence) setBackdrop(null); }
     };
     void load(); const timer = setInterval(load, 30000);

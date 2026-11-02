@@ -9,8 +9,18 @@ const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind
 const mod = { exports: {} };
 const stored = new Map();
 new Function('require', 'module', 'exports', js)((name) => name === '../api/client' ? { getToken: () => 'tok' } : { readStorage: (k) => stored.get(k) ?? null, writeStorage: (k, v) => (v === null ? stored.delete(k) : stored.set(k, v)) }, mod, mod.exports);
-const { planEviction, mediaKey, avatarKey, atmosphereKey, ttsKey, ASSET_CACHE_MAX_AGE_MS, ASSET_CACHE_MAX_BYTES, formatCacheSize, resolveAsset, peekAsset } = mod.exports;
+const { planEviction, mediaKey, avatarKey, atmosphereKey, ttsKey, contentKey, ASSET_CACHE_MAX_AGE_MS, ASSET_CACHE_MAX_BYTES, formatCacheSize, resolveAsset, peekAsset } = mod.exports;
 const DAY = 24 * 60 * 60 * 1000;
+
+test('the content hash names the entry when the server knows it; a version stands in until then', () => {
+  const h = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  assert.equal(contentKey(h), `sha:${h}`); assert.equal(contentKey(null), null); assert.equal(contentKey(''), null);
+  assert.equal(mediaKey('ch', 'a', 3, h), `sha:${h}`, 'the same bytes are one entry whatever asset shows them');
+  assert.equal(mediaKey('other', 'b', 9, h), `sha:${h}`);
+  assert.equal(mediaKey('ch', 'a', undefined, h), `sha:${h}`, 'a hash makes an unversioned reference cacheable');
+  assert.equal(avatarKey('u', 2, h), `sha:${h}`); assert.equal(atmosphereKey('ch', 'img', h), `sha:${h}`);
+  assert.notEqual(mediaKey('ch', 'a', 3, h), mediaKey('ch', 'a', 3, 'f'.repeat(64)), 'a changed hash is a new entry');
+});
 
 test('only immutable content gets a cache key: versioned media and avatars, atmosphere images, voice clips', () => {
   assert.equal(mediaKey('ch', 'a', 3), 'media:ch:a:v3');

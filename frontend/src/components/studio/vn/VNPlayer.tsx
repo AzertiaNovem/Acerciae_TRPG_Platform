@@ -117,7 +117,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   const stageStyle = templateStyle(tpl) as React.CSSProperties;
   if (!cur) return <div className={stageClass} style={stageStyle} ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">{tr("No visible lines in this presentation.")}</div></div></div>;
 
-  const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : resolve(mediaKey(channelId, scene.background_asset_id, scene.background_asset_version), api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version))) || null : null;
+  const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : resolve(mediaKey(channelId, scene.background_asset_id, scene.background_asset_version, scene.background_asset_hash), api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version))) || null : null;
   const placements = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' ? [] : (cur.character_asset_ids ?? []);
   const speaker = cur.speaker_name_override ?? cur.character_name ?? cur.speaker_display_name;
   const isNarr = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' || cur.display_kind === 'system';
@@ -144,7 +144,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
           <AnimatePresence>
             {placements.map((p) => {
               const active = p.character_id === cur.speaker_character_id || p.active;
-              const url = p.asset_id ? (assetUrl ? assetUrl(p.asset_id) : resolve(mediaKey(channelId, p.asset_id, p.asset_version), api.mediaUrl(channelId, p.asset_id, p.asset_version))) || null : null;
+              const url = p.asset_id ? (assetUrl ? assetUrl(p.asset_id) : resolve(mediaKey(channelId, p.asset_id, p.asset_version, p.asset_hash), api.mediaUrl(channelId, p.asset_id, p.asset_version))) || null : null;
               return (
                 <motion.div key={p.character_id} className={`vn-char ${POS_CLASS[p.position] ?? 'pos-center'}`} layout={animations}
                   initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0, scale: active || !tpl.dim_inactive ? 1 : 0.94, filter: active || !tpl.dim_inactive ? 'brightness(1)' : 'brightness(0.55)', zIndex: active ? 2 : 1 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: fadeDur }}>

@@ -32,7 +32,7 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const ooc = m.kind === 'ooc';
   const avatarSrc = !ooc && m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? api.ownAvatarUrl(user) : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
   // Avatars are kept on this device (lib/assetCache); the signed-in user's inline data-URI avatar needs no cache.
-  const avatarCacheKey = !ooc && m.character_avatar_asset_id ? mediaKey(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version) : own ? (user.avatar_data ? null : avatarKey(user.id, user.avatar_version)) : avatarKey(m.author_id, m.author_avatar_version);
+  const avatarCacheKey = !ooc && m.character_avatar_asset_id ? mediaKey(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version, m.character_avatar_hash) : own ? (user.avatar_data ? null : avatarKey(user.id, user.avatar_version, user.avatar_hash)) : avatarKey(m.author_id, m.author_avatar_version, m.author_avatar_hash);
   const avatar = useAssetUrl(avatarCacheKey, avatarSrc);
   const [failedAvatar, setFailedAvatar] = useState('');
   const author = own ? user.display_name : m.author_name;

@@ -30,7 +30,7 @@ Json::Value AuthService::registerUser(const std::string& username, const std::st
     auto existing = db_.queryOne("SELECT id FROM users WHERE username=$1", {username});
     if (!existing.isNull()) throw conflict("username already taken");
     auto row = db_.queryOne(
-        "INSERT INTO users(username, display_name, password_hash) VALUES($1,$2,$3) RETURNING id, username, display_name, ui_language, atmosphere_enabled, avatar_version, avatar_data, created_at",
+        "INSERT INTO users(username, display_name, password_hash) VALUES($1,$2,$3) RETURNING id, username, display_name, ui_language, atmosphere_enabled, avatar_version, avatar_hash, avatar_data, created_at",
         {username, displayName.empty() ? username : displayName, crypto::hashPassword(password)});
     return row;
 }
@@ -55,7 +55,7 @@ Json::Value AuthService::login(const std::string& username, const std::string& p
 Json::Value AuthService::profile(const std::string& userId) {
     // avatar_data is only filled for an avatar not yet moved into the object store; clients load the picture from
     // /api/users/{id}/avatar?v=<avatar_version> when has_avatar is true.
-    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, atmosphere_enabled, avatar_data, avatar_version, (avatar_data<>'' OR avatar_key IS NOT NULL) AS has_avatar, is_admin FROM users WHERE id=$1", {userId});
+    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, atmosphere_enabled, avatar_data, avatar_version, avatar_hash, (avatar_data<>'' OR avatar_key IS NOT NULL) AS has_avatar, is_admin FROM users WHERE id=$1", {userId});
     if (result.isNull()) throw notFound("user not found");
     result["is_admin"] = isPlatformAdmin(result["username"].asString(), result["is_admin"].asBool());
     result["languages"] = Json::arrayValue;
@@ -114,12 +114,12 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
             bool had = current["avatar_data"].asString() != "" || current["avatar_key"].isString();
             if (current["avatar_key"].isString()) oldKey = current["avatar_key"].asString();
             if (avatarBytes.empty()) {
-                if (had) Db::exec(w, "UPDATE users SET avatar_data='', avatar_key=NULL, avatar_mime=NULL, avatar_version=avatar_version+1 WHERE id=$1", {principal.userId});
+                if (had) Db::exec(w, "UPDATE users SET avatar_data='', avatar_key=NULL, avatar_mime=NULL, avatar_hash=NULL, avatar_version=avatar_version+1 WHERE id=$1", {principal.userId});
             } else if (!newKey.empty()) {
-                Db::exec(w, "UPDATE users SET avatar_data='', avatar_key=$2, avatar_mime=$3, avatar_version=avatar_version+1 WHERE id=$1", {principal.userId, newKey, avatarMime});
+                Db::exec(w, "UPDATE users SET avatar_data='', avatar_key=$2, avatar_mime=$3, avatar_hash=$4, avatar_version=avatar_version+1 WHERE id=$1", {principal.userId, newKey, avatarMime, crypto::sha256Hex(avatarBytes)});
             } else {
                 auto data = body["avatar_data"].asString();
-                Db::exec(w, "UPDATE users SET avatar_data=$2, avatar_key=NULL, avatar_mime=NULL, avatar_version=avatar_version + CASE WHEN avatar_data<>$2 THEN 1 ELSE 0 END WHERE id=$1", {principal.userId, data});
+                Db::exec(w, "UPDATE users SET avatar_data=$2, avatar_key=NULL, avatar_mime=NULL, avatar_hash=$3, avatar_version=avatar_version + CASE WHEN avatar_data<>$2 THEN 1 ELSE 0 END WHERE id=$1", {principal.userId, data, crypto::sha256Hex(avatarBytes)});
             }
         });
     } catch (const pqxx::unique_violation&) {
@@ -136,22 +136,27 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
 }
 
 AuthService::Avatar AuthService::avatar(const Principal& principal, const std::string& userId, bool allowRedirect) {
-    auto row = db_.queryOne("SELECT avatar_data, avatar_key, avatar_mime FROM users WHERE id=$1 AND (id=$2 OR EXISTS (SELECT 1 FROM server_members a JOIN server_members b ON a.server_id=b.server_id WHERE a.user_id=$1 AND b.user_id=$2))", {userId, principal.userId});
+    auto row = db_.queryOne("SELECT avatar_data, avatar_key, avatar_mime, avatar_hash FROM users WHERE id=$1 AND (id=$2 OR EXISTS (SELECT 1 FROM server_members a JOIN server_members b ON a.server_id=b.server_id WHERE a.user_id=$1 AND b.user_id=$2))", {userId, principal.userId});
     if (row.isNull()) throw notFound("avatar not found");
     Avatar out;
+    // An avatar stored before content hashes existed is hashed the first time it is served.
+    const bool hashed = row["avatar_hash"].isString() && !row["avatar_hash"].asString().empty();
+    auto remember = [&](const std::string& bytes) { if (!hashed) { try { db_.exec("UPDATE users SET avatar_hash=$2 WHERE id=$1 AND avatar_hash IS NULL", {userId, crypto::sha256Hex(bytes)}); } catch (const std::exception&) {} } };
     if (row["avatar_key"].isString() && store_) {
         auto key = row["avatar_key"].asString();
         out.mime = row["avatar_mime"].isString() ? row["avatar_mime"].asString() : "image/png";
-        if (allowRedirect) { out.url = store_->publicUrl(key); if (!out.url.empty()) return out; }
+        if (allowRedirect) { out.url = store_->publicUrl(key); if (!out.url.empty()) { if (!hashed) { if (auto b = store_->get(key)) remember(*b); } return out; } }
         auto bytes = store_->get(key);
         if (!bytes) throw notFound("avatar not found");
         out.bytes = std::move(*bytes);
+        remember(out.bytes);
         return out;
     }
     auto data = row["avatar_data"].asString();
     if (data.empty()) throw notFound("avatar not found");
     out.mime = data.substr(5, data.find(';') - 5);
     out.bytes = drogon::utils::base64Decode(data.substr(data.find(',') + 1));
+    remember(out.bytes);
     return out;
 }
 

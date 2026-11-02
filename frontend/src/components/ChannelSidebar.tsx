@@ -136,7 +136,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             <div className="section"><span>{tr("Characters")}</span><button className="ghost small" title={tr("New character")} onClick={() => setDialog('character')}>+</button></div>
             {characters.map((c) => (
               <div key={c.id} className={`item ${nav.characterSpaceId === c.id ? 'active' : ''}`} {...activate(() => { nav.openCharacter(c.id); onClose(); })} title={tr("Open character space")}>
-                {c.avatar_asset_id && nav.channelId ? <CachedImg className="mini-avatar" cacheKey={mediaKey(nav.channelId, c.avatar_asset_id, null)} src={api.mediaUrl(nav.channelId, c.avatar_asset_id, undefined)} alt="" fallback={<span className="mini-avatar text">{c.name.slice(0, 1)}</span>} /> : <span className="mini-avatar text">{c.name.slice(0, 1)}</span>}
+                {c.avatar_asset_id && nav.channelId ? <CachedImg className="mini-avatar" cacheKey={mediaKey(nav.channelId, c.avatar_asset_id, c.avatar_asset_version, c.avatar_asset_hash)} src={api.mediaUrl(nav.channelId, c.avatar_asset_id, c.avatar_asset_version)} alt="" fallback={<span className="mini-avatar text">{c.name.slice(0, 1)}</span>} /> : <span className="mini-avatar text">{c.name.slice(0, 1)}</span>}
                 <span className="name small">{c.name}</span><span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span>
               </div>
             ))}
@@ -157,7 +157,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
         )}
       </div>
       <div className="sidebar-footer">
-        <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{user && api.ownAvatarUrl(user) ? <CachedImg cacheKey={user.avatar_data ? null : avatarKey(user.id, user.avatar_version)} src={api.ownAvatarUrl(user)} alt="" fallback={user.display_name.slice(0, 2).toUpperCase()} /> : user?.display_name.slice(0, 2).toUpperCase()}</div>
+        <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{user && api.ownAvatarUrl(user) ? <CachedImg cacheKey={user.avatar_data ? null : avatarKey(user.id, user.avatar_version, user.avatar_hash)} src={api.ownAvatarUrl(user)} alt="" fallback={user.display_name.slice(0, 2).toUpperCase()} /> : user?.display_name.slice(0, 2).toUpperCase()}</div>
         <div className="grow small"><div>{user?.display_name}</div><div className="tiny muted">@{user?.username}</div></div>
         <button className="ghost small" title={tr("User settings")} aria-label={tr("User settings")} onClick={() => setUserSettingsOpen(true)}>⚙</button>
         <button className="ghost small" onClick={logout}>{tr("Sign out")}</button>

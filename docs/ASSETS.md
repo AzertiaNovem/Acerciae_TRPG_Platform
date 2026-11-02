@@ -59,11 +59,18 @@ that is why only the media above is placed there. Native apps send an Authorizat
 
 The web client keeps media on the device in IndexedDB (`frontend/src/lib/assetCache.ts`): character avatars and
 portraits, poses, asset-library thumbnails, visual-novel backgrounds, standees and voice clips, user avatars and
-atmosphere backgrounds. Only immutable content is cached, keyed by what makes it immutable: a media asset by id and
-version (an asset shown without a version is never cached), a user avatar by id and version, an atmosphere image and a
-voice clip by id. An entry lives until it has not been shown for 30 days (`ASSET_CACHE_MAX_AGE_MS`) or the cache passes
-768 MB (`ASSET_CACHE_MAX_BYTES`, least recently used first); files over 64 MB are not kept. A sweep runs once per session
-start. The cache belongs to the account that filled it: when another account signs in on the same browser, it is
+atmosphere backgrounds. Entries are keyed by **content hash**: the server stores the SHA-256 of every picture it keeps
+(`asset_versions.content_hash`, mirrored to `media_assets.content_hash` for the current version; `users.avatar_hash`) and
+names it wherever the picture is referenced (`content_hash` on media rows, `hash` on the character space's avatar,
+portrait and poses, `avatar_asset_hash` on the character list, `character_avatar_hash` / `author_avatar_hash` on
+messages, `avatar_hash` on the profile, `background_asset_hash` on visual-novel scenes and `asset_hash` on their
+placements, `hashes` on the atmosphere state). The same bytes are one entry however many assets, versions or users show
+them; a picture is downloaded again only when its hash changes or its entry expired. New objects are hashed as they are
+written; an object stored before hashes existed is hashed the first time it is served (read once, even when the
+browser is then sent to the public bucket), so until then the client keys it by asset id and version (an asset with
+neither is never cached) and a voice clip by its id. Each time an entry is shown its lifespan starts over: it lives
+until it has not been shown for 30 days (`ASSET_CACHE_MAX_AGE_MS`) or the cache passes 768 MB (`ASSET_CACHE_MAX_BYTES`,
+least recently used first); files over 64 MB are not kept. A sweep runs once per session start. The cache belongs to the account that filled it: when another account signs in on the same browser, it is
 cleared. Personal settings show its size with a **Clear** button. Without IndexedDB (private windows, blocked storage)
 or on any error the direct URL is used as before, so the cache is never required.
 

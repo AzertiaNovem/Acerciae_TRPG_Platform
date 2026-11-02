@@ -125,12 +125,12 @@ export default function CharacterSpace({ characterId }: { characterId: string })
       <div className="content">
         <div className="card hero">
           <div>
-            <div className="portrait">{space.portrait ? <CachedImg cacheKey={mediaKey(channelId, space.portrait.id, space.portrait.version)} src={url(space.portrait)} alt="" /> : <span className="small muted">{tr('No portrait yet')}</span>}</div>
+            <div className="portrait">{space.portrait ? <CachedImg cacheKey={mediaKey(channelId, space.portrait.id, space.portrait.version, space.portrait.hash)} src={url(space.portrait)} alt="" /> : <span className="small muted">{tr('No portrait yet')}</span>}</div>
             {editable && <div className="row" style={{ marginTop: 6, flexWrap: 'wrap' }}><button className="small" onClick={() => pickFile('portrait')}>{tr('Upload portrait')}</button>{look.asset_mode === 'generated' && <button className="small" onClick={() => generate(['portrait'], [])} disabled={!canGenerate || busy}>{tr('Generate portrait')}</button>}{space.portrait && <button className="ghost small" onClick={() => remove(space.portrait!.id)}>{tr('remove')}</button>}</div>}
           </div>
           <div className="col">
             <div className="row">
-              <div className="big-avatar">{space.avatar ? <CachedImg cacheKey={mediaKey(channelId, space.avatar.id, space.avatar.version)} src={url(space.avatar)} alt="" /> : c.name.slice(0, 1)}</div>
+              <div className="big-avatar">{space.avatar ? <CachedImg cacheKey={mediaKey(channelId, space.avatar.id, space.avatar.version, space.avatar.hash)} src={url(space.avatar)} alt="" /> : c.name.slice(0, 1)}</div>
               <div className="col grow">
                 {editable ? <input value={head.name} onChange={(e) => { setHead({ ...head, name: e.target.value }); setDirty(true); }} style={{ fontSize: 18, fontWeight: 700 }} /> : <h2 style={{ margin: 0 }}>{c.name}</h2>}
                 <div className="row tiny muted"><span className="pill">{c.kind === 'npc' ? tr('NPC') : tr('PC')}</span>{c.player_name && <span>{tr('played by')} {c.player_name}</span>}<span className="pill">{look.asset_mode === 'generated' ? tr('Generated assets') : tr('Uploaded assets')}</span>{space.era && <span>{space.era}</span>}</div>
@@ -197,7 +197,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
             <div className="tiny muted">{tr('Era')}: {space.era || '—'}{space.narrative_time ? ` · ${tr('now')}: ${space.narrative_time}` : ''}</div>
             <h4 style={{ marginTop: 12 }}>{tr('Subtitle portraits')}</h4>
             <div className="subtitle-grid">
-              {space.subtitles.map((s) => <div key={s.id} className="tile"><CachedImg cacheKey={mediaKey(channelId, s.id, s.version)} src={url(s)} alt="" /><div className="cap row"><b className="grow">{s.subtitle}</b>{editable && <button className="ghost small" onClick={() => remove(s.id)}>×</button>}</div></div>)}
+              {space.subtitles.map((s) => <div key={s.id} className="tile"><CachedImg cacheKey={mediaKey(channelId, s.id, s.version, s.hash)} src={url(s)} alt="" /><div className="cap row"><b className="grow">{s.subtitle}</b>{editable && <button className="ghost small" onClick={() => remove(s.id)}>×</button>}</div></div>)}
               {space.subtitles.length === 0 && <div className="small muted">{tr('No subtitle portraits yet.')}</div>}
             </div>
             {editable && look.asset_mode === 'uploaded' && (

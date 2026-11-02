@@ -35,6 +35,8 @@ public:
     int purgeSuperseded(const std::string& channelId);
     ObjectStore& store() { return store_; }
     static void probeDimensions(const std::string& bytes, const std::string& mime, int& w, int& h);
+    // Stores the SHA-256 of a version's bytes (content_hash) when it was not known yet.
+    void recordHash(const std::string& assetId, int version, const std::string& hash);
 private:
     const Config& cfg_; Db& db_; ObjectStore& store_;
 };

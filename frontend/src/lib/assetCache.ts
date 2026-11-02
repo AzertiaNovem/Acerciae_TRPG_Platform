@@ -11,18 +11,22 @@ import { readStorage, writeStorage } from './storage';
 export const ASSET_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;   // unused for 30 days → gone
 export const ASSET_CACHE_MAX_BYTES = 768 * 1024 * 1024;          // the whole cache
 export const ASSET_CACHE_MAX_ITEM_BYTES = 64 * 1024 * 1024;      // bigger files stream from the server every time
-const TOUCH_INTERVAL_MS = 60 * 60 * 1000;                        // how often a hit rewrites lastUsed
+const TOUCH_INTERVAL_MS = 10 * 60 * 1000;                        // a hit refreshes lastUsed (the 30 days start over), at most this often
 const DB_NAME = 'acerciae-media', STORE = 'assets', DB_VERSION = 1;
 const OWNER_KEY = 'acerciae.media-cache-owner';
 
 export type CacheEntry = { key: string; bytes: number; lastUsed: number; storedAt: number };
 type StoredEntry = CacheEntry & { blob: Blob; mime: string };
 
-// ---- keys: only immutable content is cacheable -------------------------------------------------------------------
-// A media asset without a version could change under the same URL, so it is not cached.
-export const mediaKey = (channelId: string, assetId: string, version?: number | null) => (version ? `media:${channelId}:${assetId}:v${version}` : null);
-export const avatarKey = (userId: string, version?: number | null) => (version ? `avatar:${userId}:v${version}` : null);
-export const atmosphereKey = (channelId: string, assetId: string) => `atmosphere:${channelId}:${assetId}`;   // one generated image per id
+// ---- keys: content first, then whatever else makes the bytes immutable ---------------------------------------------
+// The server names the SHA-256 of every stored picture (`content_hash`, `avatar_hash`, …): the same bytes are one entry
+// however many assets, versions or users show them, and a changed hash is a new entry. An object stored before hashes
+// existed is hashed the first time it is served, so until then a version number stands in; a media asset with neither
+// could change under the same URL and is not cached.
+export const contentKey = (hash?: string | null) => (hash ? `sha:${hash}` : null);
+export const mediaKey = (channelId: string, assetId: string, version?: number | null, hash?: string | null) => contentKey(hash) ?? (version ? `media:${channelId}:${assetId}:v${version}` : null);
+export const avatarKey = (userId: string, version?: number | null, hash?: string | null) => contentKey(hash) ?? (version ? `avatar:${userId}:v${version}` : null);
+export const atmosphereKey = (channelId: string, assetId: string, hash?: string | null) => contentKey(hash) ?? `atmosphere:${channelId}:${assetId}`;   // one generated image per id
 export const ttsKey = (channelId: string, audioId: string) => `tts:${channelId}:${audioId}`;                   // content-addressed by the server
 
 // ---- eviction: expired entries, then the least recently used until the rest fits the budget -------------------------

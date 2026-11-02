@@ -217,7 +217,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
               const state = s.background_asset_id ? 'completed' : bg?.status ?? 'missing';
               const label = state === 'running' ? tr('painting…') : state === 'pending' ? tr('Queued') : state === 'missing' ? tr('Background not generated') : tr(state);
               return <div key={s.id} className="wizard-tile">
-                {s.background_asset_id ? <CachedImg cacheKey={mediaKey(channelId!, s.background_asset_id, s.background_asset_version)} src={api.mediaUrl(channelId!, s.background_asset_id, s.background_asset_version)} alt="" /> : <div className="placeholder">{label}</div>}
+                {s.background_asset_id ? <CachedImg cacheKey={mediaKey(channelId!, s.background_asset_id, s.background_asset_version, s.background_asset_hash)} src={api.mediaUrl(channelId!, s.background_asset_id, s.background_asset_version)} alt="" /> : <div className="placeholder">{label}</div>}
                 <div className="tiny"><b>{s.title}</b></div>
                 {!s.background_asset_id && bg?.error && <div className="tiny" style={{ color: 'var(--danger)', overflowWrap: 'anywhere' }}>{bg.error}</div>}
                 {!s.background_asset_id && ['missing', 'failed', 'cancelled'].includes(state) && <button className="small" disabled={artRetryBlocked} onClick={() => retryBackgrounds(s.canonical_scene_key)}>{tr('Retry background')}</button>}

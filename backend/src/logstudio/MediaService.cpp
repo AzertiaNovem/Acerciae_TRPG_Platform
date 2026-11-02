@@ -1,4 +1,5 @@
 #include "MediaService.h"
+#include "../core/Crypto.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
@@ -42,7 +43,7 @@ void MediaService::probeDimensions(const std::string& b, const std::string& mime
     else if (mime == "image/jpeg") { size_t i = 2; while (i + 9 < b.size()) { if ((unsigned char)b[i] != 0xFF) { i++; continue; } unsigned char m = b[i+1]; if (m == 0xC0 || m == 0xC1 || m == 0xC2) { h = ((unsigned char)b[i+5] << 8) | (unsigned char)b[i+6]; w = ((unsigned char)b[i+7] << 8) | (unsigned char)b[i+8]; break; } size_t len = ((unsigned char)b[i+2] << 8) | (unsigned char)b[i+3]; i += 2 + len; } }
 }
 
-static const std::string ASSET_COLS = "id, channel_id, asset_type, source_type, name, mime, bytes, width, height, duration_ms, character_id, expression, outfit, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, version, license_metadata, tags, created_by, created_at, updated_at";
+static const std::string ASSET_COLS = "id, channel_id, asset_type, source_type, name, mime, bytes, width, height, duration_ms, character_id, expression, outfit, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, version, content_hash, license_metadata, tags, created_by, created_at, updated_at";
 
 Json::Value MediaService::list(const ChannelAccess& a, const std::string& type, const std::string& characterId, const std::string& approval) {
     std::string sql = "SELECT " + ASSET_COLS + " FROM media_assets WHERE channel_id=$1 AND NOT (source_reference ? 'superseded_by')"; DbParams p{a.channelId};
@@ -81,10 +82,11 @@ Json::Value MediaService::upload(const ChannelAccess& a, const std::string& file
     if (!charId.empty()) { auto c = db_.queryOne("SELECT id FROM characters WHERE id=$1 AND channel_id=$2", {charId, a.channelId}); if (c.isNull()) throw badRequest("character not in channel"); }
     Json::Value lic = meta.isMember("license_metadata") && meta["license_metadata"].isObject() ? meta["license_metadata"] : Json::Value(Json::objectValue);
     Json::Value srcRef; srcRef["file_name"] = fileName; srcRef["uploaded_by"] = a.userId;
-    auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, outfit, source_reference, approval_status, visibility_scope, license_metadata, tags, created_by) "
-        "VALUES($1,$2,'upload',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,'approved',$13,$14::jsonb,$15::text[],$16) RETURNING " + ASSET_COLS,
-        {a.channelId, type, json::str(meta, "name", fileName), key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull(), opt(charId), json::str(meta, "expression"), json::str(meta, "outfit"), json::dump(srcRef), a.isGm && json::toBool(meta, "gm_only") ? "gm" : "channel", json::dump(lic), pgArrayLiteral(json::strArray(meta["tags"])), a.userId});
-    db_.exec("INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note) VALUES($1,1,$2,$3,$4,'initial upload')", {row["id"].asString(), key, mime, (int64_t)bytes.size()});
+    auto hash = crypto::sha256Hex(bytes);
+    auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, outfit, source_reference, approval_status, visibility_scope, license_metadata, tags, created_by, content_hash) "
+        "VALUES($1,$2,'upload',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,'approved',$13,$14::jsonb,$15::text[],$16,$17) RETURNING " + ASSET_COLS,
+        {a.channelId, type, json::str(meta, "name", fileName), key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull(), opt(charId), json::str(meta, "expression"), json::str(meta, "outfit"), json::dump(srcRef), a.isGm && json::toBool(meta, "gm_only") ? "gm" : "channel", json::dump(lic), pgArrayLiteral(json::strArray(meta["tags"])), a.userId, hash});
+    db_.exec("INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note, content_hash) VALUES($1,1,$2,$3,$4,'initial upload',$5)", {row["id"].asString(), key, mime, (int64_t)bytes.size(), hash});
     return row;
 }
 Json::Value MediaService::storeInternal(const std::string& channelId, const std::string& assetType, const std::string& sourceType, const std::string& bytes, const std::string& mime, const Json::Value& meta) {
@@ -92,12 +94,12 @@ Json::Value MediaService::storeInternal(const std::string& channelId, const std:
     auto key = publicEligible(sourceType, mime) ? publicObjectKey(store_, channelId, assetType, ext) : safeObjectKey(channelId, assetType, ext);
     store_.put(key, bytes, mime);
     int w = 0, h = 0; probeDimensions(bytes, mime, w, h);
-    auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, license_metadata, created_by) "
-        "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16::uuid[],$17,$18,$19,$22,$20::jsonb,$21) RETURNING " + ASSET_COLS,
+    auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, license_metadata, created_by, content_hash) "
+        "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16::uuid[],$17,$18,$19,$22,$20::jsonb,$21,$23) RETURNING " + ASSET_COLS,
         {channelId, assetType, sourceType, json::str(meta, "name", assetType), key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull(), opt(json::str(meta, "character_id")), json::str(meta, "expression"),
          json::dump(meta.isMember("source_reference") ? meta["source_reference"] : Json::Value(Json::objectValue)), opt(json::str(meta, "generation_provider")), opt(json::str(meta, "generation_model")), opt(json::str(meta, "prompt")), pgArrayLiteral(json::strArray(meta["reference_asset_ids"])),
-         opt(json::str(meta, "style_profile_id")), meta["style_profile_version"].isNumeric() ? DbParam((int64_t)meta["style_profile_version"].asInt()) : dbNull(), json::str(meta, "approval_status", "candidate"), json::dump(meta.isMember("license_metadata") ? meta["license_metadata"] : Json::Value(Json::objectValue)), opt(json::str(meta, "created_by")), json::str(meta,"visibility_scope","gm")});
-    db_.exec("INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note) VALUES($1,1,$2,$3,$4,$5)", {row["id"].asString(), key, mime, (int64_t)bytes.size(), sourceType});
+         opt(json::str(meta, "style_profile_id")), meta["style_profile_version"].isNumeric() ? DbParam((int64_t)meta["style_profile_version"].asInt()) : dbNull(), json::str(meta, "approval_status", "candidate"), json::dump(meta.isMember("license_metadata") ? meta["license_metadata"] : Json::Value(Json::objectValue)), opt(json::str(meta, "created_by")), json::str(meta,"visibility_scope","gm"), crypto::sha256Hex(bytes)});
+    db_.exec("INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note, content_hash) VALUES($1,1,$2,$3,$4,$5,$6)", {row["id"].asString(), key, mime, (int64_t)bytes.size(), sourceType, row["content_hash"].asString()});
     return row;
 }
 Json::Value MediaService::update(const ChannelAccess& a, const std::string& id, const Json::Value& body) {
@@ -124,8 +126,9 @@ Json::Value MediaService::newVersion(const ChannelAccess& a, const std::string& 
     store_.put(key, bytes, mime);
     int w = 0, h = 0; probeDimensions(bytes, mime, w, h);
     return db_.tx([&](pqxx::work& w2) {
-        auto v = Db::queryOne(w2, "UPDATE media_assets SET approval_status='candidate', version=version+1, object_key=$2, mime=$3, bytes=$4, width=$5, height=$6, updated_at=now() WHERE id=$1 RETURNING " + ASSET_COLS, {id, key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull()});
-        Db::exec(w2, "INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note) VALUES($1,$2,$3,$4,$5,$6)", {id, (int64_t)v["version"].asInt(), key, mime, (int64_t)bytes.size(), note});
+        auto hash = crypto::sha256Hex(bytes);
+        auto v = Db::queryOne(w2, "UPDATE media_assets SET approval_status='candidate', version=version+1, object_key=$2, mime=$3, bytes=$4, width=$5, height=$6, content_hash=$7, updated_at=now() WHERE id=$1 RETURNING " + ASSET_COLS, {id, key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull(), hash});
+        Db::exec(w2, "INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note, content_hash) VALUES($1,$2,$3,$4,$5,$6,$7)", {id, (int64_t)v["version"].asInt(), key, mime, (int64_t)bytes.size(), note, hash});
         return v;
     });
 }
@@ -207,11 +210,21 @@ bool MediaService::fetch(const ChannelAccess& a, const std::string& id, int vers
     if (cur.isNull()) return false;
     if (!a.isGm && (cur["visibility_scope"].asString() == "gm" || cur["approval_status"] != "approved")) return false;
     std::string key = cur["object_key"].asString(); mime = cur["mime"].asString();
-    if (version > 0 && version != cur["version"].asInt()) { auto v = db_.queryOne("SELECT object_key, mime FROM asset_versions WHERE asset_id=$1 AND version=$2", {id, (int64_t)version}); if (v.isNull()) return false; key = v["object_key"].asString(); mime = v["mime"].asString(); }
+    int servedVersion = cur["version"].asInt(); bool hashed = cur["content_hash"].isString() && !cur["content_hash"].asString().empty();
+    if (version > 0 && version != cur["version"].asInt()) { auto v = db_.queryOne("SELECT object_key, mime, content_hash FROM asset_versions WHERE asset_id=$1 AND version=$2", {id, (int64_t)version}); if (v.isNull()) return false; servedVersion = version; hashed = v["content_hash"].isString() && !v["content_hash"].asString().empty(); key = v["object_key"].asString(); mime = v["mime"].asString(); }
     fileName = cur["name"].asString();
+    // An object stored before content hashes existed is hashed the first time it is served (read once, even when the
+    // browser is then sent to the public bucket); from then on every listing names the hash.
+    if (!hashed) { if (auto data = store_.get(key)) recordHash(id, servedVersion, crypto::sha256Hex(*data)); }
     if (redirectUrl) { *redirectUrl = store_.publicUrl(key); if (!redirectUrl->empty()) return true; }
     auto data = store_.get(key); if (!data) return false;
     bytes = std::move(*data); return true;
+}
+void MediaService::recordHash(const std::string& assetId, int version, const std::string& hash) {
+    try {
+        db_.exec("UPDATE asset_versions SET content_hash=$3 WHERE asset_id=$1 AND version=$2 AND content_hash IS NULL", {assetId, (int64_t)version, hash});
+        db_.exec("UPDATE media_assets SET content_hash=$3 WHERE id=$1 AND version=$2 AND content_hash IS NULL", {assetId, (int64_t)version, hash});
+    } catch (const std::exception&) { /* the next read tries again */ }
 }
 
 } // namespace
