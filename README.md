@@ -85,6 +85,7 @@ Everything is read from environment variables; see [`.env.example`](.env.example
 | `CORS_ORIGINS` | origins allowed to call the API cross-origin (empty = same origin only) |
 | `TRUST_PROXY` | take the client address from the reverse proxy's `X-Real-IP` / `X-Forwarded-For` (login throttling) |
 | `AUTH_REGISTER_PER_HOUR`, `RETENTION_AI_JOB_DAYS`, `RETENTION_AUDIT_DAYS` | registration throttle and retention of old rows |
+| `PLATFORM_ADMINS` | comma-separated usernames of the deployment's administrators: the 🛡 admin panel (storage, database and account use per server and user) and the power to suspend servers and accounts. See [docs/ADMIN.md](docs/ADMIN.md) |
 
 There are no platform AI keys. Each server's maintainers set its language model, embedding model, image and speech providers
 with the server's own keys (sealed at rest, never sent to browsers); a server without a provider runs in **Mock mode** (banner in
@@ -262,6 +263,11 @@ Disadvantage (`.rc stealth dc 15`, `.rc attack +5 ac 13`), Initiative (`.ri`, `.
 the chat window, Death Saving Throws (`.ds`) and spell slots (`.ss`), AI prompts that name the game and the Dungeon
 Master, and creature stat blocks in module import. See [D&D 2024](docs/DND_2024.md).
 
+Platform administrators (`PLATFORM_ADMINS`) get a 🛡 panel over the whole deployment: accounts, servers, stored media by
+kind, the database and its largest tables, AI use, and storage per server and per user, with **suspend** / **reinstate**
+for servers and accounts when content or image storage breaks the deployment's policies. Suspension is reversible and
+logged with its reason; nothing is deleted. See [platform administration](docs/ADMIN.md).
+
 See [Log Studio guide](docs/LOG_STUDIO.md), [speech provider](docs/TTS_PROVIDER.md), [media/generation](docs/ASSETS.md),
 [PDF templates](docs/PDF_TEMPLATES.md), and [example fixtures](examples/logstudio/README.md). `docs/API.md` includes the
 shared mobile-facing contracts; `mobile/` development is maintained independently.
@@ -312,6 +318,7 @@ reproduce it by hand with the demo campaign.
 * [docs/API.md](docs/API.md) — HTTP and WebSocket reference
 * [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) — the seven scenarios
 * [docs/OPERATIONS.md](docs/OPERATIONS.md) — deployment checklist, TLS, backups and restore, upgrades, housekeeping
+* [docs/ADMIN.md](docs/ADMIN.md) — platform administration: inspecting storage, database and account use; suspending servers and accounts
 * [docs/SERVER_AI_SETTINGS.zh-CN.md](docs/SERVER_AI_SETTINGS.zh-CN.md) — server AI providers and AI policy
 * [gm-agent/README.md](gm-agent/README.md) — the AI Game Master client: roles, what each role sees, configuration
 

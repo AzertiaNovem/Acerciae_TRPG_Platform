@@ -1,6 +1,37 @@
 // Shared API types (mirrors backend JSON shapes).
-export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; languages?: string[] }
-export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest' }
+export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; languages?: string[]; is_admin?: boolean }
+export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest'; suspended?: boolean; suspended_reason?: string }
+// Platform administration (/api/admin): what the deployment holds and who uses it; suspensions.
+export interface AdminPage<R> { rows: R[]; total: number; limit: number; offset: number }
+export interface AdminServerRow {
+  id: string; name: string; created_at: string; suspended: boolean; suspended_reason: string; suspended_at?: string | null; suspended_by_name?: string | null;
+  owner_id: string | null; owner_username: string | null; owner_name: string | null;
+  member_count: number; channel_count: number; message_count: number; last_message_at: string | null;
+  bytes: number; objects: number; images: number; image_bytes: number; ai_images_30d: number; ai_tokens_30d: number;
+}
+export interface AdminServerDetail extends AdminServerRow {
+  channels: { id: string; name: string; rule_system: string; created_at: string; story_status: string; bytes: number; objects: number; images: number; member_count: number; message_count: number; last_message_at: string | null }[];
+  members: { id: string; username: string; display_name: string; role: string; joined_at: string; suspended: boolean }[];
+  actions: AdminAction[];
+}
+export interface AdminUserRow {
+  id: string; username: string; display_name: string; created_at: string; is_admin: boolean; listed_admin: boolean; suspended: boolean; suspended_reason: string; suspended_at?: string | null; suspended_by_name?: string | null;
+  last_seen_at: string | null; sessions?: number; server_count: number; owned_count: number; message_count: number; character_count?: number;
+  bytes: number; objects: number; images: number; image_bytes: number;
+}
+export interface AdminUserDetail extends AdminUserRow {
+  servers: { id: string; name: string; role: string; joined_at: string; suspended: boolean; channel_count: number }[];
+  actions: AdminAction[];
+}
+export interface AdminAction { id: string; admin_id?: string | null; admin_name: string; action: string; target_type?: 'user' | 'server'; target_id?: string; target_name?: string; reason: string; created_at: string }
+export interface AdminOverview {
+  users: { total: number; suspended: number; admins: number; new_7d: number; new_30d: number; active_sessions: number; signed_in_7d: number; listed_admins: string[] };
+  servers: { total: number; suspended: number; new_30d: number; channels: number; messages: number; messages_7d: number };
+  storage: { bytes: number; objects: number; image_bytes: number; images: number; audio_bytes: number; audio: number; pdf_bytes: number; pdfs: number; bundle_bytes: number; bundles: number; other_bytes: number; other: number; store: string; avatars: number; images_7d: number };
+  database: { bytes: number; tables: { name: string; bytes: number; rows: number }[] };
+  ai: { tokens_30d: number; images_30d: number; servers_30d: number };
+  recent_actions: AdminAction[];
+}
 export interface DirectoryServer { id: string; name: string; member_count: number }
 export interface ServerInvite { id: string; code: string; max_uses: number; uses: number; expires_at: string | null; revoked_at: string | null; created_at: string; created_by_name?: string | null; active: boolean }
 export interface InvitePreview { server_id: string; name: string; member_count: number; valid: boolean; already_member: boolean }

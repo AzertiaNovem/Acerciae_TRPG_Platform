@@ -1,5 +1,6 @@
 #include "../atmosphere/AtmosphereService.h"
 #include "Services.h"
+#include "../admin/AdminService.h"
 #include <cstdlib>
 #include "Maintenance.h"
 #include "../auth/AuthService.h"
@@ -82,6 +83,7 @@ Services& Services::build(const Config& cfg) {
     s.studio->setObjectStore(s.objectStore.get());   // public links in the native log export
     s.storageCleanup = std::make_unique<logstudio::StorageCleanup>(*s.db, static_cast<logstudio::RoutingObjectStore&>(*s.objectStore), *s.media);
     s.deletion = std::make_unique<DeletionService>(*s.db, *s.objectStore, *s.notifier);
+    s.admin = std::make_unique<AdminService>(*s.db, *s.auth, *s.objectStore);
     s.presentations = std::make_unique<logstudio::PresentationService>(s.cfg, *s.db, *s.notifier, *s.studio);
     s.styles = std::make_unique<logstudio::StyleService>(*s.db);
     s.tts = std::make_unique<logstudio::TtsService>(s.cfg, *s.db, *s.objectStore, *s.notifier, *s.presentations, *s.settings, *s.aiPolicy);

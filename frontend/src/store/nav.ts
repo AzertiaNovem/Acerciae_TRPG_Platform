@@ -10,6 +10,7 @@ interface NavState {
   servers: Server[]; channels: Channel[]; windows: ChatWindow[]; characters: Character[]; scenes: Scene[];
   serverId: string | null; channelId: string | null; windowId: string | null; channel: Channel | null;
   gmWorkspaceOpen: boolean; studioOpen: boolean; characterSpaceId: string | null; error: string | null;
+  adminOpen: boolean;   // the platform admin panel (administrators only)
   serverSettings: ServerSettings | null;
   // Channels of this server the user may read (Main Chat only) without being a member, and the one being read.
   spectatable: SpectatableChannel[]; spectateChannelId: string | null;
@@ -24,6 +25,7 @@ interface NavState {
   refreshCharacters: () => Promise<void>;
   setGmWorkspaceOpen: (o: boolean) => void;
   setStudioOpen: (o: boolean) => void;
+  setAdminOpen: (o: boolean) => void;
   openCharacter: (id: string | null) => void;
   applyWindowChange: (w: ChatWindow) => void;
   setUnread: (windowId: string, unread: number | ((n: number) => number)) => void;
@@ -36,7 +38,7 @@ interface NavState {
   forgetServer: (id: string) => Promise<void>;
   forgetChannel: (id: string) => Promise<void>;
 }
-const initial = (): Pick<NavState, 'servers' | 'channels' | 'windows' | 'characters' | 'scenes' | 'serverId' | 'channelId' | 'windowId' | 'channel' | 'gmWorkspaceOpen' | 'studioOpen' | 'characterSpaceId' | 'error' | 'serverSettings' | 'spectatable' | 'spectateChannelId'> => ({ servers: [], channels: [], windows: [], characters: [], scenes: [], serverId: null, channelId: null, windowId: null, channel: null, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null, error: null, serverSettings: null, spectatable: [], spectateChannelId: null });
+const initial = (): Pick<NavState, 'servers' | 'channels' | 'windows' | 'characters' | 'scenes' | 'serverId' | 'channelId' | 'windowId' | 'channel' | 'gmWorkspaceOpen' | 'studioOpen' | 'characterSpaceId' | 'error' | 'serverSettings' | 'spectatable' | 'spectateChannelId' | 'adminOpen'> => ({ servers: [], channels: [], windows: [], characters: [], scenes: [], serverId: null, channelId: null, windowId: null, channel: null, gmWorkspaceOpen: false, studioOpen: false, characterSpaceId: null, error: null, serverSettings: null, spectatable: [], spectateChannelId: null, adminOpen: false });
 export const useNav = create<NavState>((set, get) => ({
   ...initial(),
   reset: () => { const prev = get().channelId; if (prev) { chatSocket.unsubscribe(prev); contextSocket.unsubscribe(prev); } const sp = get().spectateChannelId; if (sp) chatSocket.stopSpectating(sp); set(initial()); },
@@ -67,12 +69,18 @@ export const useNav = create<NavState>((set, get) => ({
   selectServer: async (id) => {
     writeStorage('acerciae.server', id);
     const e = sessionEpoch();
+    // A suspended server answers nothing; its members see the notice instead of its channels.
+    if (get().servers.find((s) => s.id === id)?.suspended) {
+      const prev = get().channelId; if (prev) { chatSocket.unsubscribe(prev); contextSocket.unsubscribe(prev); }
+      set({ serverId: id, channels: [], channelId: null, windowId: null, channel: null, windows: [], scenes: [], serverSettings: null, spectatable: [], spectateChannelId: null, adminOpen: false });
+      return;
+    }
     const channels = await api.channels(id);
     if (isStale(e)) return;
     const sp = get().spectateChannelId; if (sp) chatSocket.stopSpectating(sp);
     // The previous server's channel stops streaming to this client.
     const prevChannel = get().channelId; if (prevChannel) { chatSocket.unsubscribe(prevChannel); contextSocket.unsubscribe(prevChannel); }
-    set({ serverId: id, channels, channelId: null, windowId: null, channel: null, windows: [], scenes: [], serverSettings: null, spectatable: [], spectateChannelId: null });
+    set({ serverId: id, channels, channelId: null, windowId: null, channel: null, windows: [], scenes: [], serverSettings: null, spectatable: [], spectateChannelId: null, adminOpen: false });
 
     const remembered = readStorage('acerciae.channel');
     const pick = channels.find((c) => c.id === remembered) ?? channels[0];
@@ -104,6 +112,7 @@ export const useNav = create<NavState>((set, get) => ({
   refreshCharacters: async () => { const ch = get().channelId; if (!ch) return; const e = sessionEpoch(); const characters = await api.characters(ch); if (isStale(e) || get().channelId !== ch) return; set({ characters }); },
   setGmWorkspaceOpen: (o) => set({ gmWorkspaceOpen: o, studioOpen: o ? false : get().studioOpen, characterSpaceId: o ? null : get().characterSpaceId }),
   setStudioOpen: (o) => set({ studioOpen: o, gmWorkspaceOpen: o ? false : get().gmWorkspaceOpen, characterSpaceId: o ? null : get().characterSpaceId }),
+  setAdminOpen: (o) => set({ adminOpen: o }),
   openCharacter: (id) => set({ characterSpaceId: id, gmWorkspaceOpen: id ? false : get().gmWorkspaceOpen, studioOpen: id ? false : get().studioOpen }),
   applyWindowChange: (w) => set((s) => ({ windows: s.windows.some((x) => x.id === w.id) ? s.windows.map((x) => (x.id === w.id ? { ...x, ...w } : x)) : s.windows })),
   setUnread: (id, unread) => set((s) => ({ windows: s.windows.map((x) => (x.id === id ? { ...x, unread: Math.max(0, typeof unread === 'function' ? unread(x.unread ?? 0) : unread) } : x)) })),

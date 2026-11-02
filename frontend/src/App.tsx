@@ -20,6 +20,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 // The workspaces (and pdf.js behind the Studio) load on first use, not with the chat.
 const GMWorkspace = lazy(() => import('./components/GMWorkspace'));
 const StudioWorkspace = lazy(() => import('./components/studio/StudioWorkspace'));
+const AdminPanel = lazy(() => import('./components/AdminPanel'));
 const SharedPublication = lazy(() => import('./components/studio/PublicationViewer'));
 // Open Log Studio (desktop app): the Log Studio on this computer, signed in or not.
 const OpenLogStudio = lazy(() => import('./openstudio/ui/OpenLogStudio'));
@@ -27,7 +28,7 @@ const OpenLogStudio = lazy(() => import('./openstudio/ui/OpenLogStudio'));
 function Shell() {
   useRealtime();
   useReadTracking();
-  const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers, spectateChannelId } = useNav();
+  const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers, spectateChannelId, adminOpen } = useNav();
   const toasts = useUi((s) => s.toasts);
   const aiActivity = useUi((s) => s.aiActivity);
   const llmMode = useNav((s) => s.serverSettings?.llm_mode);   // AI belongs to each server; there is no platform key
@@ -41,8 +42,8 @@ function Shell() {
         {llmMode === 'mock' && <div className="mode-banner">{tr("MOCK LLM MODE — this server has no language model configured (a maintainer sets one in Server settings → AI); the background chronicler runs on rule-based extraction so every flow is demonstrable end to end.")}</div>}
         {aiActivity && <div className="ai-activity">✎ {aiActivity}</div>}
         <Suspense fallback={<div style={{ padding: 40 }} className="muted">{tr('Loading…')}</div>}>
-        <ErrorBoundary resetKey={[spectateChannelId, channelId, windowId, characterSpaceId, studioOpen, gmWorkspaceOpen].join('|')}>
-        {spectateChannelId ? <SpectatorView key={spectateChannelId} channelId={spectateChannelId} /> : channelId && characterSpaceId ? <CharacterSpace key={characterSpaceId} characterId={characterSpaceId} /> : channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
+        <ErrorBoundary resetKey={[adminOpen, spectateChannelId, channelId, windowId, characterSpaceId, studioOpen, gmWorkspaceOpen].join('|')}>
+        {adminOpen ? <AdminPanel /> : spectateChannelId ? <SpectatorView key={spectateChannelId} channelId={spectateChannelId} /> : channelId && characterSpaceId ? <CharacterSpace key={characterSpaceId} characterId={characterSpaceId} /> : channelId && studioOpen ? <StudioWorkspace key={channelId} /> : channelId && gmWorkspaceOpen && channel?.my_role === 'gm' ? <GMWorkspace /> : channelId && windowId ? <ChatWindow /> : (
           <div style={{ padding: 40 }} className="muted">{tr("Pick a server and channel, or create one from the left.")}</div>
         )}
         </ErrorBoundary>

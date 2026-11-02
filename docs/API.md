@@ -28,13 +28,19 @@ User objects now include `ui_language`, `avatar_data` (empty once the avatar is 
 | PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?,atmosphere_enabled?}`. A data URI replaces the avatar, `""` removes it, an absent `avatar_data` keeps it; duplicate username returns 409. |
 | GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. With `?token=` (browsers) an avatar in the public media bucket is answered with a `302` to its public URL. |
 | POST | `/auth/register` | `{username, password, display_name}` → `{token, user}` |
-| POST | `/auth/login` | `{username, password}` → `{token, user}` |
+| POST | `/auth/login` | `{username, password}` → `{token, user}`; a suspended account answers `403 account_suspended` with the reason in the message |
 | POST | `/auth/logout` | ends the session and closes its WebSockets |
 | POST | `/auth/file-token` | `{token, expires_at}` for `?token=` on file URLs and the WebSocket |
-| GET | `/auth/me` | |
+| GET | `/auth/me` | includes `is_admin` (a platform administrator, see [ADMIN.md](ADMIN.md)) |
+
+## Platform administration
+
+Administrators of the deployment (`PLATFORM_ADMINS`, or granted `is_admin`) inspect accounts, servers, storage,
+database and AI use and suspend servers or accounts under `/api/admin/*`; others answer `403 admin_required`. Routes,
+fields and the effects of a suspension are in [ADMIN.md](ADMIN.md).
 
 ## Servers
-| GET/POST | `/servers` | list mine / create `{name}` |
+| GET/POST | `/servers` | list mine `[{id, name, owner_id, created_at, my_role, suspended, suspended_reason}]` (a server the platform administrators suspended stays listed, marked, with the reason; everything inside it answers `403 server_suspended`) / create `{name}` |
 | POST | `/servers/{id}/join` | `{invite_code?}` — follows the server's join policy: `open` servers take anyone, `invite` servers need a valid code (410 `invite_invalid` when expired, used up or revoked), `closed` servers refuse (403). A guest who joins becomes a member. |
 | GET | `/server-directory?q=` | open servers the caller is not a member of: `[{id, name, member_count}]` |
 | GET/POST | `/servers/{id}/invites` | maintainers list / create `{max_uses (0 = unlimited), expires_in_hours (0 = never, default 168)}` → `{id, code, max_uses, uses, expires_at, revoked_at, active}`; refused while the server is closed; at most 50 active |
