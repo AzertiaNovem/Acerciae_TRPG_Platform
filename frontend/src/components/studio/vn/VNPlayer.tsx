@@ -2,6 +2,8 @@ import { t as tr } from '../../../i18n';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { api } from '../../../api/client';
+import { mediaKey, resolveAsset, ttsKey } from '../../../lib/assetCache';
+import { useAssetResolver } from '../../../hooks/useAssetUrl';
 import type { Presentation, PresentationEvent, PresentationScene } from '../../../types';
 import { VnAudio } from './audio';
 import { inkFor, resolveVnTemplate, speakerColor, templateStyle } from './templates';
@@ -32,6 +34,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   const prevSceneId = useRef<string | null>(null);
   const [sceneTitleFlash, setSceneTitleFlash] = useState<string | null>(null);
   const audio = useMemo(() => new VnAudio(), []);
+  const resolve = useAssetResolver();   // backgrounds and portraits from this device once seen (lib/assetCache)
   const [needUnlock, setNeedUnlock] = useState(false);
   const [playing, setPlaying] = useState(false);           // auto-play
   const [speed, setSpeed] = useState(1);
@@ -63,9 +66,12 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
     const total = chars.length;
     const finishLine = () => { if (cancelled || doneRef.current) return; doneRef.current = true; setTyped(total); };
     if (hasAudio && cur.audio_asset_id) {
-      const src = (audioUrl ? audioUrl(cur.audio_asset_id) : api.ttsAudioUrl(channelId, cur.audio_asset_id));
+      const direct = (audioUrl ? audioUrl(cur.audio_asset_id) : api.ttsAudioUrl(channelId, cur.audio_asset_id));
       const fmt = cur.audio_mime === 'audio/wav' ? 'wav' : cur.audio_mime === 'audio/mpeg' ? 'mp3' : undefined;
-      audio.unlock().then((ok) => {
+      // A voice clip with a known format can play from the device cache (howler needs the format for a blob: URL).
+      const lineId = cur.audio_asset_id;
+      const srcPromise = !audioUrl && fmt ? resolveAsset(ttsKey(channelId, lineId), direct) : Promise.resolve(direct);
+      Promise.all([audio.unlock(), srcPromise]).then(([ok, src]) => {
         if (cancelled) return;
         if (!ok) { setNeedUnlock(true); return; }
         audio.setRate(speed);
@@ -111,7 +117,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
   const stageStyle = templateStyle(tpl) as React.CSSProperties;
   if (!cur) return <div className={stageClass} style={stageStyle} ref={stageRef} tabIndex={0}><div className="vn-layer vn-bg empty" /><div className="vn-dialogue narration"><div className="vn-text">{tr("No visible lines in this presentation.")}</div></div></div>;
 
-  const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version)) : null;
+  const bgUrl = scene?.background_asset_id ? (assetUrl ? assetUrl(scene.background_asset_id) : resolve(mediaKey(channelId, scene.background_asset_id, scene.background_asset_version), api.mediaUrl(channelId, scene.background_asset_id, scene.background_asset_version))) || null : null;
   const placements = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' ? [] : (cur.character_asset_ids ?? []);
   const speaker = cur.speaker_name_override ?? cur.character_name ?? cur.speaker_display_name;
   const isNarr = cur.display_kind === 'narration' || cur.display_kind === 'scene_change' || cur.display_kind === 'system';
@@ -138,7 +144,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
           <AnimatePresence>
             {placements.map((p) => {
               const active = p.character_id === cur.speaker_character_id || p.active;
-              const url = p.asset_id ? (assetUrl ? assetUrl(p.asset_id) : api.mediaUrl(channelId, p.asset_id, p.asset_version)) : null;
+              const url = p.asset_id ? (assetUrl ? assetUrl(p.asset_id) : resolve(mediaKey(channelId, p.asset_id, p.asset_version), api.mediaUrl(channelId, p.asset_id, p.asset_version))) || null : null;
               return (
                 <motion.div key={p.character_id} className={`vn-char ${POS_CLASS[p.position] ?? 'pos-center'}`} layout={animations}
                   initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0, scale: active || !tpl.dim_inactive ? 1 : 0.94, filter: active || !tpl.dim_inactive ? 'brightness(1)' : 'brightness(0.55)', zIndex: active ? 2 : 1 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: fadeDur }}>

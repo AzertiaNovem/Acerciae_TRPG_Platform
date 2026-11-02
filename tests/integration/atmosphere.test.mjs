@@ -40,7 +40,8 @@ test('atmosphere: both opt-ins, four generated variants, personal/GM permissions
  for(const [variant,id] of Object.entries(current.assets)){
    const r=await fetch(base+root+'/assets/'+id,{headers:{Authorization:`Bearer ${pl.token}`}});
    assert.equal(r.status,200);assert.equal(r.headers.get('content-type'),'image/png');
-   assert.match(r.headers.get('cache-control'),/no-store/);
+   // One id names one generated image for good, so the browser (and the web client's device cache) may keep it; it stays private to the viewer.
+   assert.match(r.headers.get('cache-control'),/^private, max-age=\d+, immutable$/);
    const bytes=Buffer.from(await r.arrayBuffer());assert.equal(bytes.readUInt32BE(20)>bytes.readUInt32BE(16),variant.endsWith('portrait'));
  }
  await assert.rejects(call(pl.token,'GET',root+'/history'),e=>e.status===403);

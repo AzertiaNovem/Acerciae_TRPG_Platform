@@ -5,6 +5,7 @@ import { connectSockets, closeSockets } from '../api/ws';
 import { bumpEpoch } from './session';
 import { useLocale } from '../i18n';
 import { resetUserStores } from './reset';
+import { adoptCacheOwner, scheduleSweep } from '../lib/assetCache';
 
 interface AuthState {
   user: User | null; loading: boolean; error: string | null;
@@ -20,17 +21,17 @@ export const useAuth = create<AuthState>((set) => ({
   user: null, loading: true, error: null,
   bootstrap: async () => {
     if (!getToken()) { set({ loading: false }); return; }
-    try { const me = await api.me(); await ensureFileToken().catch(() => ''); useLocale.getState().setLanguage(me.ui_language || 'en'); set({ user: me, loading: false }); connectSockets(); }
+    try { const me = await api.me(); await ensureFileToken().catch(() => ''); useLocale.getState().setLanguage(me.ui_language || 'en'); set({ user: me, loading: false }); connectSockets(); adoptCacheOwner(me.id); scheduleSweep(); }
     catch { setToken(null); set({ user: null, loading: false }); }
   },
   login: async (u, p) => {
     set({ error: null });
-    try { const r = await api.login(u, p); bumpEpoch(); resetUserStores(); setToken(r.token); await ensureFileToken().catch(() => ''); useLocale.getState().setLanguage(r.user.ui_language || 'en'); set({ user: r.user }); connectSockets(); }
+    try { const r = await api.login(u, p); bumpEpoch(); resetUserStores(); setToken(r.token); await ensureFileToken().catch(() => ''); useLocale.getState().setLanguage(r.user.ui_language || 'en'); set({ user: r.user }); connectSockets(); adoptCacheOwner(r.user.id); scheduleSweep(); }
     catch (e: any) { set({ error: e.message }); }
   },
   register: async (u, p, d) => {
     set({ error: null });
-    try { const r = await api.register(u, p, d); bumpEpoch(); resetUserStores(); setToken(r.token); await ensureFileToken().catch(() => ''); useLocale.getState().setLanguage(r.user.ui_language || 'en'); set({ user: r.user }); connectSockets(); }
+    try { const r = await api.register(u, p, d); bumpEpoch(); resetUserStores(); setToken(r.token); await ensureFileToken().catch(() => ''); useLocale.getState().setLanguage(r.user.ui_language || 'en'); set({ user: r.user }); connectSockets(); adoptCacheOwner(r.user.id); scheduleSweep(); }
     catch (e: any) { set({ error: e.message }); }
   },
   logout: async () => {

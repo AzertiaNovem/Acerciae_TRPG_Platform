@@ -55,6 +55,24 @@ Keys contain random UUIDs and an R2 bucket is never listable, but a URL, once ha
 that is why only the media above is placed there. Native apps send an Authorization header and keep receiving the bytes
 (some HTTP stacks would forward the header across the redirect).
 
+## On the device
+
+The web client keeps media on the device in IndexedDB (`frontend/src/lib/assetCache.ts`): character avatars and
+portraits, poses, asset-library thumbnails, visual-novel backgrounds, standees and voice clips, user avatars and
+atmosphere backgrounds. Only immutable content is cached, keyed by what makes it immutable: a media asset by id and
+version (an asset shown without a version is never cached), a user avatar by id and version, an atmosphere image and a
+voice clip by id. An entry lives until it has not been shown for 30 days (`ASSET_CACHE_MAX_AGE_MS`) or the cache passes
+768 MB (`ASSET_CACHE_MAX_BYTES`, least recently used first); files over 64 MB are not kept. A sweep runs once per session
+start. The cache belongs to the account that filled it: when another account signs in on the same browser, it is
+cleared. Personal settings show its size with a **Clear** button. Without IndexedDB (private windows, blocked storage)
+or on any error the direct URL is used as before, so the cache is never required.
+
+The first load of a cached asset is fetched with the session's Authorization header, so it streams through the backend
+rather than following the redirect to the public bucket; every later load comes from the device. For `<img>` loads that
+stay direct, the backend now answers versioned media (`?v=`), versioned avatars, atmosphere images and voice clips with
+`Cache-Control: private, max-age=31536000, immutable` (unversioned media keep one hour; an avatar without `?v=` is
+`no-store`).
+
 Give the public bucket a CORS rule allowing `GET` from your site's origin; the visual-novel player's sound effects
 are fetched by script and need it (pictures and voices play through `<img>`/`<audio>` and do not).
 

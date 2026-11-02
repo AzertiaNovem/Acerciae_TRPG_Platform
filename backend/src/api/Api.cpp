@@ -268,12 +268,14 @@ void registerRoutes() {
             auto principal = fileAuth(req);
             if (!principal) throw unauthorized("missing or invalid token");
             auto av = services().auth->avatar(*principal, userId, mayRedirect(req));
-            if (!av.url.empty()) { cb(redirectTo(av.url, "private, max-age=600")); return; }
+            // Clients ask for a version (?v=): that picture never changes, so it may be kept; without one, never cache.
+            const char* cache = qint(req, "v", 0) > 0 ? "private, max-age=31536000, immutable" : "private, no-store";
+            if (!av.url.empty()) { cb(redirectTo(av.url, qint(req, "v", 0) > 0 ? cache : "private, max-age=600")); return; }
             auto response = HttpResponse::newHttpResponse();
             response->setContentTypeString(av.mime);
             response->setBody(std::move(av.bytes));
             response->addHeader("X-Content-Type-Options", "nosniff");
-            response->addHeader("Cache-Control", "private, no-store");
+            response->addHeader("Cache-Control", cache);
             cb(response);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
           catch (const std::exception&) { cb(errResp(400, "bad_request", "invalid avatar request")); }
@@ -418,7 +420,7 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/atmosphere/assets/{2}", [&](const HttpRequestPtr& req,Cb&& cb,std::string ch,std::string id){
         try { auto p=fileAuth(req);if(!p)throw unauthorized("authentication required");auto a=access(*p,ch);std::string bytes,mime;
             if(!S.atmosphere->fetch(a,id,bytes,mime))throw notFound("background unavailable");
-            auto r=HttpResponse::newHttpResponse();r->setBody(std::move(bytes));r->setContentTypeString(mime);r->addHeader("Cache-Control","private, no-store");r->addHeader("X-Content-Type-Options","nosniff");cb(r);
+            auto r=HttpResponse::newHttpResponse();r->setBody(std::move(bytes));r->setContentTypeString(mime);r->addHeader("Cache-Control","private, max-age=31536000, immutable");r->addHeader("X-Content-Type-Options","nosniff");cb(r);   // an id names one generated image for good
         }catch(const ApiError& e){cb(errResp(e.status(),e.code(),e.what()));}catch(const std::exception& e){cb(internalErr(e,req));}
     },{Get});
     route1("/api/channels/{1}/reminders", {Get}, [&](auto&, auto& p, auto& a) { return S.reminders->list(access(p, a[0])); });
@@ -576,8 +578,10 @@ void registerRoutes() {
             auto ac = access(*pr, ch); std::string bytes, mime, name; int v = qint(req, "v", 0);
             std::string direct;
             if (!S.media->fetch(ac, id, v, bytes, mime, name, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "asset not found")); return; }
-            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=3600")); return; }
-            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=3600"); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
+            // A version's bytes never change (a new version is a new object): browsers may keep them for a year.
+            const char* cache = v > 0 ? "private, max-age=31536000, immutable" : "private, max-age=3600";
+            if (!direct.empty()) { cb(redirectTo(direct, cache)); return; }
+            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cache); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
             if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
             cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
@@ -655,8 +659,8 @@ void registerRoutes() {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             std::string bytes, mime, direct; if (!S.tts->fetchAudio(studioAccess(*pr, ch), id, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "audio not found")); return; }
-            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=86400")); return; }
-            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=86400"); cb(r);
+            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=31536000, immutable")); return; }
+            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=31536000, immutable"); cb(r);   // content-addressed: never changes
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 
