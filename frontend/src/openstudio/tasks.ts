@@ -11,17 +11,17 @@
 // script or voice lines are being made (they work on the script it replaces or extends). The same task (the same
 // voicing, the same character slot) never runs twice at once.
 import { create } from 'zustand';
-import type { LlmCall } from './types';
+import type { LlmCall, Project } from './types';
 import { getProject, holdProject, openProject, updateProject } from './projects';
 import { loadAiSettings } from './providers/settings';
 import { makeLlm } from './providers/providers';
-import { appendScript, composeContinuation, composeScript } from './vn';
+import { appendScript, composeDraft, continueDraft, resumeDraft, type DraftResult } from './vn';
 import {
   applyBackground, applyCharacterArt, applyVoice, makeBackground, makeCharacterArt, makeVoice, needLabel, openNeeds, slotName, voiceJobs, type ArtSlot,
 } from './actions';
 
 export type TaskKind = 'compose' | 'continue' | 'paint' | 'voice' | 'art';
-export type TaskStatus = 'running' | 'done' | 'failed' | 'cancelled';
+export type TaskStatus = 'running' | 'waiting' | 'done' | 'failed' | 'cancelled';   // waiting: the script editor asked the user something
 export interface StudioTask {
   id: string;
   key: string;                 // what it works on: two tasks with the same key never run at once
@@ -109,6 +109,7 @@ export interface TaskContext {
   progress: (done: number, total: number) => void;
   step: () => void;              // one more piece done
   fail: (what: string) => void;  // one piece could not be made
+  pause: () => void;             // the task ends waiting for the user (a script whose editor asked questions)
 }
 
 const controllers = new Map<string, AbortController>();
@@ -132,7 +133,9 @@ export function startTask(spec: { projectId: string; kind: TaskKind; key: string
   const ctrl = new AbortController();
   controllers.set(id, ctrl);
   const release = holdProject(spec.projectId);
+  let paused = false;
   const ctx: TaskContext = {
+    pause: () => { paused = true; },
     signal: ctrl.signal,
     projectId: spec.projectId,
     inSlot: (fn) => inSlot(ctrl.signal, fn),
@@ -146,7 +149,7 @@ export function startTask(spec: { projectId: string; kind: TaskKind; key: string
     try {
       await openProject(spec.projectId);
       const result = await spec.run(ctx);
-      end = ctrl.signal.aborted ? { status: 'cancelled' } : { status: 'done', result: result ?? '' };
+      end = ctrl.signal.aborted ? { status: 'cancelled' } : { status: paused ? 'waiting' : 'done', result: result ?? '' };
     } catch (e: any) {
       end = ctrl.signal.aborted || e?.name === 'AbortError' ? { status: 'cancelled' } : { status: 'failed', error: String(e?.message ?? e) };
     } finally {
@@ -180,16 +183,37 @@ const pooledLlm = (llm: LlmCall | null, ctx: TaskContext): LlmCall | null =>
 // ---- the tasks the UI starts --------------------------------------------------------------------------------
 export interface ScriptOptions { useModel: boolean; language: string; instructions: string }
 
+// The script tasks end in one of two ways: the script (into the project), or a draft whose parts wait for the user's
+// answers (also into the project, so the questions keep until they are answered, across restarts); answering starts
+// the task again (startResume), which redoes only those parts.
+function settle(ctx: TaskContext, projectId: string, o: ScriptOptions, r: DraftResult & { note?: string; lines?: number }, mode: 'compose' | 'continue'): string {
+  if ('draft' in r) {
+    ctx.update((d) => { d.vn_draft = r.draft; });
+    ctx.pause();
+    return String(r.draft.pending.length);
+  }
+  if (mode === 'compose') {
+    ctx.update((d) => { d.vn = { script: r.script, template: d.vn?.template ?? {}, audio: {}, narrator_voice: d.vn?.narrator_voice ?? '', language: o.language, instructions: o.instructions, composed_at: new Date().toISOString() }; delete d.vn_draft; });
+    return `${r.script.stats.scenes}/${r.script.stats.shown}`;
+  }
+  ctx.update((d) => {
+    delete d.vn_draft;
+    if (!d.vn) return;
+    d.vn.script = appendScript(d.vn.script, r.script, r.note ?? '');
+    d.vn.language = o.language; d.vn.instructions = o.instructions; d.vn.composed_at = new Date().toISOString();
+  });
+  return `${r.lines ?? 0}/${r.script.scenes.length}`;
+}
+const scriptBackgrounds = (p: Project) => (p.vn?.script.scenes ?? []).filter((s) => s.background).map((s) => ({ name: s.title, path: s.background! }));
+
 /** Composes the visual novel from the whole log (replacing the script and its voice lines). */
 export function startCompose(projectId: string, o: ScriptOptions): StudioTask {
   return startTask({ projectId, kind: 'compose', key: `compose:${projectId}`, run: async (ctx) => {
     const p = getProject(projectId)!;
     const ai = loadAiSettings();
-    const backgrounds = (p.vn?.script.scenes ?? []).filter((s) => s.background).map((s) => ({ name: s.title, path: s.background! }));
-    const script = await composeScript(p, { llm: pooledLlm(o.useModel ? makeLlm(ai.llm) : null, ctx), language: o.language, instructions: o.instructions, backgrounds, signal: ctx.signal, onProgress: ctx.progress });
+    const r = await composeDraft(p, { llm: pooledLlm(o.useModel ? makeLlm(ai.llm) : null, ctx), language: o.language, instructions: o.instructions, backgrounds: scriptBackgrounds(p), signal: ctx.signal, onProgress: ctx.progress });
     if (ctx.signal.aborted) return;
-    ctx.update((d) => { d.vn = { script, template: d.vn?.template ?? {}, audio: {}, narrator_voice: d.vn?.narrator_voice ?? '', language: o.language, instructions: o.instructions, composed_at: new Date().toISOString() }; });
-    return `${script.stats.scenes}/${script.stats.shown}`;
+    return settle(ctx, projectId, o, r, 'compose');
   } });
 }
 
@@ -198,16 +222,40 @@ export function startContinue(projectId: string, o: ScriptOptions): StudioTask {
   return startTask({ projectId, kind: 'continue', key: `compose:${projectId}`, run: async (ctx) => {
     const p = getProject(projectId)!;
     const ai = loadAiSettings();
-    const { added, note, lines } = await composeContinuation(p, { llm: pooledLlm(o.useModel ? makeLlm(ai.llm) : null, ctx), language: o.language, instructions: o.instructions, signal: ctx.signal, onProgress: ctx.progress });
+    const r = await continueDraft(p, { llm: pooledLlm(o.useModel ? makeLlm(ai.llm) : null, ctx), language: o.language, instructions: o.instructions, signal: ctx.signal, onProgress: ctx.progress });
     if (ctx.signal.aborted) return;
-    ctx.update((d) => {
-      if (!d.vn) return;
-      d.vn.script = appendScript(d.vn.script, added, note);
-      d.vn.language = o.language; d.vn.instructions = o.instructions; d.vn.composed_at = new Date().toISOString();
-    });
-    return `${lines}/${added.scenes.length}`;
+    return settle(ctx, projectId, o, r, 'continue');
   } });
 }
+
+/** Takes the draft's pending parts up again with the user's answers; the finished parts are kept. */
+export function startResume(projectId: string): StudioTask {
+  const draft = getProject(projectId)?.vn_draft;
+  if (!draft) throw new Error('no draft');
+  const o: ScriptOptions = { useModel: true, language: draft.language, instructions: draft.instructions };
+  return startTask({ projectId, kind: draft.mode, key: `compose:${projectId}`, run: async (ctx) => {
+    const p = getProject(projectId)!;
+    if (!p.vn_draft) return;
+    const ai = loadAiSettings();
+    const r = await resumeDraft(p, { llm: pooledLlm(makeLlm(ai.llm), ctx), language: draft.language, instructions: draft.instructions, backgrounds: draft.mode === 'compose' ? scriptBackgrounds(p) : undefined, signal: ctx.signal, onProgress: ctx.progress }, p.vn_draft);
+    if (ctx.signal.aborted) return;
+    return settle(ctx, projectId, o, r, draft.mode);
+  } });
+}
+/** Records the user's answers to one pending part (or the choice to keep its draft); when every part is answered, the script goes on. */
+export function answerDraft(projectId: string, index: number, answers: Record<string, string>, skip: boolean): StudioTask | null {
+  updateProject(projectId, (d) => {
+    const part = d.vn_draft?.pending.find((x) => x.index === index);
+    if (!part) return;
+    const given = Object.fromEntries(Object.entries(answers).filter(([, v]) => typeof v === 'string' && v.trim()).map(([k, v]) => [k, v.trim().slice(0, 2000)]));
+    if (skip || !Object.keys(given).length) { part.skip = true; part.answers = null; } else { part.answers = given; part.skip = false; }
+  });
+  const draft = getProject(projectId)?.vn_draft;
+  if (!draft || draft.pending.some((x) => !x.skip && !x.answers)) return null;
+  return startResume(projectId);
+}
+/** Drops a draft: the questions are forgotten and the project's script stays as it was. */
+export function discardDraft(projectId: string) { updateProject(projectId, (d) => { delete d.vn_draft; }); }
 
 /** Paints the backgrounds and poses the script asks for, several at once. */
 export function startPaint(projectId: string): StudioTask {

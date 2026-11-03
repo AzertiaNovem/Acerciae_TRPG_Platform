@@ -51,7 +51,7 @@ import kotlinx.serialization.json.*
     var owner by remember { mutableStateOf("") }
     var members by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     var created by remember { mutableStateOf<JsonObject?>(null) }
-    LaunchedEffect(channel) { if (state.gm) model.run { members = model.rows(listOf("channels", channel, "members")) } }
+    LaunchedEffect(channel) { if (state.gm) model.load { members = model.rows(listOf("channels", channel, "members")) } }
     if (created != null) { CharacterSpace(created!!, state, model, close); return }
     Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(tr("添加角色"), style = MaterialTheme.typography.titleLarge)

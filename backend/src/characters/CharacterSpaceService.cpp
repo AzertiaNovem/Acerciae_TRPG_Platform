@@ -139,7 +139,7 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
     auto c = characterFor(a, characterId, false);
     Json::Value out; out["character"] = c;
     out["character"]["role_card"] = normalizeRoleCard(c["role_card"]);
-    auto asset = [&](const Json::Value& id) { if (!id.isString()) return Json::Value(); return db_.queryOne("SELECT id, version, mime, width, height, source_type, approval_status FROM media_assets WHERE id=$1 AND channel_id=$2", {id.asString(), a.channelId}); };
+    auto asset = [&](const Json::Value& id) { if (!id.isString()) return Json::Value(); return db_.queryOne("SELECT id, version, content_hash AS hash, mime, width, height, source_type, approval_status FROM media_assets WHERE id=$1 AND channel_id=$2", {id.asString(), a.channelId}); };
     out["avatar"] = asset(c["avatar_asset_id"]); out["portrait"] = asset(c["portrait_asset_id"]);
     out["subtitles"] = Json::Value(Json::arrayValue);
     auto vis = db_.queryOne("SELECT expressions, description, color FROM character_visual_profiles WHERE character_id=$1", {characterId});

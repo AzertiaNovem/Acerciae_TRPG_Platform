@@ -61,6 +61,9 @@ struct LlmRequest {
     double temperature = 0.2;
     int maxTokens = 2048;
     LlmCache cache = LlmCache::off;
+    // Ask for the model's reasoning in a replayable, sealed form (OpenAI: reasoning.encrypted_content), so the
+    // turn can be continued later with the user's answers (see Replay.h).
+    bool keepReasoning = false;
 };
 
 struct LlmResponse {

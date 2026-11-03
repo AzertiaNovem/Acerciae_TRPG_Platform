@@ -6,6 +6,13 @@ There are eleven interface languages, matching `ServerSettingsService::languages
 
 The English source-key catalog is `frontend/src/i18n/catalog.json`; each row contains translations in the explicit locale order in `i18n/index.ts`, excluding English. Application text is translated during React rendering, never by rewriting the DOM. Unknown provider errors and new unregistered runtime messages fall back to their original text. API identifiers, dice commands, model IDs and technical abbreviations stay literal. `npm --prefix frontend test` checks catalog completeness for static UI calls, all eleven language preferences, whitespace/interpolation behavior, and stable form option values. New UI copy should use `t`/`tr` and add all ten translations. Dynamic catalog labels need to be translated at render time, not when a module is loaded.
 
+## Media kept on the device
+
+The web client keeps portraits, backgrounds, avatars and voice clips in the browser's IndexedDB for 30 days after they
+were last shown (see [ASSETS.md](ASSETS.md), "On the device"). Personal settings show how many files and how much space
+that is, with a **Clear** button that only frees the space; the media is downloaded again when shown. Signing in with
+another account on the same browser clears it.
+
 ## Client API
 
 `GET /api/auth/me`, login and registration responses include `ui_language`, `avatar_data`, `has_avatar`, `avatar_version`, `atmosphere_enabled`, and `languages` in the user object. Avatars are stored as media objects (locally or in object storage, see [ASSETS.md](ASSETS.md)), so `avatar_data` is empty for them: when `has_avatar` is true, load the picture from `GET /api/users/{id}/avatar?v=<avatar_version>`. Only an avatar not yet moved by the media migration still arrives inline in `avatar_data`. `languages` is the same backend list used by server settings. Native clients may continue ignoring these additive fields until they implement personal settings.

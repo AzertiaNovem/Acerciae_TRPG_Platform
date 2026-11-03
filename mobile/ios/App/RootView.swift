@@ -8,6 +8,7 @@ private let accent = Color(red: 0.79, green: 0.85, blue: 0.74)
 struct RootView: View {
     @StateObject private var model = AppModel()
     @ObservedObject private var locale = MobileLocale.shared
+    @State private var studioOpen = false
     @State private var page = "chat"
     @State private var sidebarOpen = false
     @State private var dragOffset: CGFloat = 0
@@ -57,7 +58,7 @@ struct RootView: View {
                 }
                 if reveal > 0 {
                     SidebarView(model: model, page: page, select: { destination in
-                        page = destination; closeSidebar()
+                        if destination == "openstudio" { studioOpen = true } else { page = destination }; closeSidebar()
                     }, showDetail: { item in
                         closeSidebar(); detail = item
                     }, close: closeSidebar)
@@ -72,7 +73,7 @@ struct RootView: View {
         } }
         .id(locale.language)
         .environment(\.locale, Locale(identifier: locale.language))
-        .task(id:"\(page)-\(sidebarOpen)-\(detail != nil)-\(scenePhase)") { model.chatVisible = page == "chat" && !sidebarOpen && detail == nil && scenePhase == .active; if !model.chatVisible { model.speech.stopSpeaking(at:.immediate) } }
+        .task(id:"\(page)-\(sidebarOpen)-\(detail != nil)-\(scenePhase)-\(studioOpen)") { model.chatVisible = page == "chat" && !studioOpen && !sidebarOpen && detail == nil && scenePhase == .active; if !model.chatVisible { model.speech.stopSpeaking(at:.immediate) } }
         .onChange(of: model.online) { _, _ in page = "chat"; sidebarOpen = false; dragOffset = 0; detail = nil }
         .task(id: "\(model.session?.user.id ?? "")-\(scenePhase)") {
             model.foreground = scenePhase == .active
@@ -84,6 +85,7 @@ struct RootView: View {
                 await model.poll()
             }
         }
+        .fullScreenCover(isPresented:$studioOpen) { LocalStudioView() }
         .tint(accent)
         .sheet(item: $detail) { item in
             NavigationStack {
@@ -144,7 +146,7 @@ private struct SidebarView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         Menu(model.serverName) {
-                            ForEach(model.servers) { server in Button(server.name) { Task { await model.run { try await model.selectServer(server.id) } } } }
+                            ForEach(model.servers) { server in Button(server.name) { model.navigate { try await model.selectServer(server.id) } } }
                         }.font(.headline)
                         row(tr("Servers"), icon: "globe") { browsingServers = true }
                         if model.serverSettings["is_maintainer"].bool { row(tr("服务器选项"), icon: "server.rack") { select("server") } }
@@ -154,19 +156,19 @@ private struct SidebarView: View {
                             Button { creatingChannel = true } label: { Image(systemName: "plus") }.accessibilityLabel(tr("添加频道")).disabled(model.serverId.isEmpty || !model.canCreateChannel)
                         }
                         ForEach(model.channels) { item in
-                            row(item.name, icon: "number", selected: model.channelId == item.id) { Task { await model.run { try await model.selectChannel(item.id) } } }
+                            row(item.name, icon: "number", selected: model.channelId == item.id) { model.navigate { try await model.selectChannel(item.id) } }
                         }
                         if model.gm { row(tr("频道选项"), icon: "slider.horizontal.3") { select("channel") } }
                         Text(tr("聊天窗口")).font(.caption).foregroundStyle(.secondary)
                         ForEach(model.windows) { item in
-                            row(item.name + (item["unread"].int > 0 ? " · " + (item["unread"].int > 99 ? "99+" : String(item["unread"].int)) : ""), icon: "bubble.left", selected: model.windowId == item.id) { Task { await model.run { try await model.selectWindow(item.id); select("chat") } } }
+                            row(item.name + (item["unread"].int > 0 ? " · " + (item["unread"].int > 99 ? "99+" : String(item["unread"].int)) : ""), icon: "bubble.left", selected: model.windowId == item.id) { select("chat"); model.navigate { try await model.selectWindow(item.id) } }
                         }
                         DisclosureGroup(tr("角色"), isExpanded: $charactersExpanded) {
                             if !model.channelId.isEmpty { row(tr("添加角色"), icon: "person.badge.plus") { creatingCharacter = true } }
                             ForEach(model.characters) { item in
                                 Button { model.result = nil; selectedCharacter = item } label: {
                                     HStack(spacing: 10) {
-                                        AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["updated_at"].text)
+                                        AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["updated_at"].text, hash: item["avatar_asset_hash"].text)
                                         Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
                                     }.padding(.vertical, 6)
                                 }.buttonStyle(.plain)
@@ -236,6 +238,7 @@ private struct SidebarView: View {
             Divider()
             VStack(spacing: 0) {
                 row(tr("故事回放"), icon: "play.rectangle", selected: page == "replay") { select("replay") }
+                row(tr("Open Log Studio"), icon: "books.vertical", selected:false) { select("openstudio") }
                 row(tr("设置"), icon: "slider.horizontal.3", selected: page == "settings") { select("settings") }
                 Text(model.online ? "\(model.session?.user.displayName ?? "") · \(model.gm ? "GM" : tr("Player"))" : "本地演示 · 内容不上传").font(.caption2).foregroundStyle(.secondary).padding(.vertical, 10)
             }.padding(.horizontal, 16).padding(.top, 8)
@@ -358,7 +361,8 @@ private struct MessageBubble: View {
         let character = ooc ? nil : model.characters.first(where: { $0.id == message.characterId })
         let asset = ooc ? "" : character.map { $0["avatar_asset_id"].text } ?? message.characterAvatarAssetId ?? ""
         let revision = ooc ? "" : (character?["updated_at"].text ?? "") + ":" + String(message.characterAvatarVersion ?? 0)
-        return AvatarView(model: model, name: name, assetId: asset, version: revision, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0)
+        let hash = ooc ? "" : (character?["avatar_asset_hash"].string).flatMap { $0.isEmpty ? nil : $0 } ?? message.characterAvatarHash ?? ""
+        return AvatarView(model: model, name: name, assetId: asset, version: revision, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0, hash: hash, ownerHash: message.authorAvatarHash ?? "")
     }
 }
 
@@ -452,7 +456,7 @@ private struct SettingsView: View {
         Form {
             Section(tr("账号")) {
                 if let user = model.session?.user {
-                    HStack(spacing: 12) { AvatarView(model: model, name: user.displayName, ownerId: user.id, ownerVersion: user.avatarVersion ?? 0, size: 48); Text(user.displayName) }
+                    HStack(spacing: 12) { AvatarView(model: model, name: user.displayName, ownerId: user.id, ownerVersion: user.avatarVersion ?? 0, size: 48, ownerHash: user.avatarHash ?? ""); Text(user.displayName) }
                     Text(user.username).foregroundStyle(.secondary)
                 }
                 Button(tr("退出登录"), role: .destructive) { model.logout() }.disabled(model.busy)
@@ -478,6 +482,7 @@ private struct SettingsView: View {
 }
 
 private struct AuthenticationView: View {
+    @State private var studioOpen = false
     @ObservedObject var model: AppModel
     @State private var registering = false
     @State private var username = ""
@@ -514,8 +519,10 @@ private struct AuthenticationView: View {
             }.disabled(model.busy)
             Section {
                 Button(registering ? tr("已有账号？返回登录") : tr("还没有账号？注册")) { registering.toggle(); password = ""; confirmation = ""; model.notice = nil }.disabled(model.busy)
+                Button(tr("Open Log Studio (offline, no account) →")) { studioOpen = true }
                 Text(tr("登录状态安全保存在此设备，退出登录后清除。")).font(.caption).foregroundStyle(.secondary)
             }
         }.navigationTitle(registering ? tr("注册") : tr("登录")).navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented:$studioOpen) { LocalStudioView() }
     }
 }

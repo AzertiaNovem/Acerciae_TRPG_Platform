@@ -23,6 +23,7 @@ export function conflictText(code: string | null | undefined): string {
 taskEvents.finished = (t) => {
   const toast = useUi.getState().toast;
   if (t.status === 'failed') { toast(`${taskLabel(t)}: ${t.error}`, 'error'); return; }
+  if (t.status === 'waiting') { toast(`${t.projectTitle ? `${t.projectTitle}: ` : ''}${tr('The script editor has questions about {n} parts; answer them in Visual novel', { n: Number(t.result) || 1 })}`, 'ai'); return; }
   if (t.status !== 'done') return;
   const [a, b] = t.result.split('/').map(Number);
   let text = t.kind === 'compose' ? tr('Composed: {scenes} scenes, {shown} lines', { scenes: a, shown: b })
@@ -36,7 +37,7 @@ taskEvents.finished = (t) => {
 // One task: what it does, how far it is, and Stop (or ✕ once it has ended).
 export function TaskRow({ task: t, project }: { task: StudioTask; project?: boolean }) {
   const running = t.status === 'running';
-  const status = running ? (t.total ? `${t.done}/${t.total}` : tr('Starting…')) : t.status === 'done' ? tr('Done') : t.status === 'cancelled' ? tr('Stopped') : tr('Failed');
+  const status = running ? (t.total ? `${t.done}/${t.total}` : tr('Starting…')) : t.status === 'done' ? tr('Done') : t.status === 'waiting' ? tr('waiting for your answers') : t.status === 'cancelled' ? tr('Stopped') : tr('Failed');
   return (
     <div className={`studio-task ${t.status}`}>
       <div className="row" style={{ gap: 6 }}>

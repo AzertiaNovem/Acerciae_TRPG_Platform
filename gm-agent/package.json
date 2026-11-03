@@ -5,8 +5,12 @@
   "version": "0.1.0",
   "description": "An AI Game Master client for Acerciae: plays the GM, the NPCs and LLM-made co-players through the Web/Mobile API",
   "type": "module",
-  "bin": { "acerciae-gm": "src/cli.mjs" },
-  "engines": { "node": ">=22.13" },
+  "bin": {
+    "acerciae-gm": "src/cli.mjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "start": "node src/cli.mjs run",
     "setup": "node src/cli.mjs setup",
@@ -14,6 +18,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "yaml": "^2.9.1"
   }
 }

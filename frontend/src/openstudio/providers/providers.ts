@@ -1,6 +1,7 @@
 // The AI services, called from this computer with the user's own keys. Requests go through the desktop app's
 // native HTTP client (no browser CORS rules), straight to the provider.
-import type { LlmCall } from '../types';
+import type { LlmCall, LlmTurn } from '../types';
+import { carriesReasoning, replayableBlocks } from '../vn/replay';
 import { getSecret } from '../storage';
 import { type AiSettings, KEY_NAMES } from './settings';
 
@@ -30,24 +31,40 @@ async function key(kind: keyof typeof KEY_NAMES, service: string): Promise<strin
 const trimBase = (u: string) => u.replace(/\/+$/, '');
 
 // ---- language model -------------------------------------------------------------------------------------
+// The answer is returned with the model's turn as the provider gave it, so a script part can be resumed later with
+// the user's answers in the same conversation (`replay`). Anthropic's thinking blocks are sent back only unmodified,
+// signed and for the same model (vn/replay.ts); when the API still rejects the replay, the turn goes back as text.
 export function makeLlm(s: AiSettings['llm']): LlmCall | null {
   if (s.provider === 'none') return null;
-  return async ({ system, user, json, max_tokens, signal }) => {
+  return async ({ system, user, json, max_tokens, signal, replay }) => {
     if (s.provider === 'anthropic') {
-      const res = await http(`${trimBase(s.base_url)}/messages`, { method: 'POST', signal,
-        headers: { 'content-type': 'application/json', 'x-api-key': await key('llm', 'Anthropic'), 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: s.model, max_tokens: max_tokens ?? 16000, system, messages: [{ role: 'user', content: user }] }) });
+      const headers = { 'content-type': 'application/json', 'x-api-key': await key('llm', 'Anthropic'), 'anthropic-version': '2023-06-01' };
+      const ask = async (assistant: unknown[] | string | null) => {
+        const messages: unknown[] = [{ role: 'user', content: user }];
+        if (replay) messages.push({ role: 'assistant', content: assistant ?? replay.turn.text }, { role: 'user', content: replay.followUp });
+        return http(`${trimBase(s.base_url)}/messages`, { method: 'POST', signal, headers, body: JSON.stringify({ model: s.model, max_tokens: max_tokens ?? 16000, system, messages }) });
+      };
+      const blocks = replay ? replayableBlocks(replay.turn, 'anthropic', s.model) : null;
+      let res = await ask(blocks);
+      if (!res.ok && res.status === 400 && carriesReasoning(blocks)) res = await ask(null);   // the turn's reasoning was not accepted: text only
       if (!res.ok) throw await failure(res, 'Anthropic');
       const j = await res.json();
-      return (j.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+      const content: unknown[] = Array.isArray(j.content) ? j.content : [];
+      const text = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+      const turn: LlmTurn = { provider: 'anthropic', model: typeof j.model === 'string' ? j.model : s.model, text, blocks: content };
+      return { text, turn };
     }
-    const body: Record<string, unknown> = { model: s.model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
+    // Chat completions: the turn is replayed as its text (a gateway's reasoning_content is never sent back).
+    const messages: unknown[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
+    if (replay) messages.push({ role: 'assistant', content: replay.turn.text }, { role: 'user', content: replay.followUp });
+    const body: Record<string, unknown> = { model: s.model, messages };
     if (json) body.response_format = { type: 'json_object' };
     if (max_tokens) body.max_completion_tokens = max_tokens;
     const res = await http(`${trimBase(s.base_url)}/chat/completions`, { method: 'POST', signal, headers: { 'content-type': 'application/json', authorization: `Bearer ${await key('llm', 'the language model')}` }, body: JSON.stringify(body) });
     if (!res.ok) throw await failure(res, 'The language model');
     const j = await res.json();
-    return j.choices?.[0]?.message?.content ?? '';
+    const text = j.choices?.[0]?.message?.content ?? '';
+    return { text, turn: { provider: 'openai', model: typeof j.model === 'string' ? j.model : s.model, text, blocks: [] } };
   };
 }
 

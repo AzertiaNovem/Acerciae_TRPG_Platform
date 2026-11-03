@@ -11351,18 +11351,6 @@
     "Criar um romance visual",
     "Crea una visual novel"
   ],
-  "The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on and which portrait each speaker shows. It never rewrites or adds lines.": [
-    "AI 按时间块逐段阅读战役日志（一小时无发言即为新块），编写脚本：每句台词使用哪个背景、每位发言者显示哪张立绘。它从不改写或新增台词。",
-    "AI 按時間塊逐段閱讀戰役日誌（一小時無發言即為新塊），編寫腳本：每句台詞使用哪個背景、每位發言者顯示哪張立繪。它從不改寫或新增台詞。",
-    "AI はキャンペーンログをブロックごとに読み（1時間発言がないと次のブロック）、各行の背景と話者の立ち絵を決めた台本を書きます。行を書き換えたり追加したりはしません。",
-    "AI가 캠페인 로그를 블록 단위로 읽고(한 시간 동안 발언이 없으면 새 블록) 각 줄의 배경과 화자의 초상화를 정한 대본을 씁니다. 줄을 고쳐 쓰거나 추가하지 않습니다.",
-    "La IA lee el registro de campaña por bloques (un bloque termina tras una hora sin líneas) y escribe el guion: en qué fondo va cada línea y qué retrato muestra cada hablante. Nunca reescribe ni añade líneas.",
-    "L’IA lit le journal de campagne bloc par bloc (un bloc se termine après une heure sans ligne) et écrit le script : le décor de chaque ligne et le portrait de chaque locuteur. Elle ne réécrit ni n’ajoute jamais de ligne.",
-    "Die KI liest das Kampagnenprotokoll blockweise (ein Block endet nach einer Stunde ohne Zeilen) und schreibt das Skript: welcher Hintergrund zu jeder Zeile gehört und welches Porträt jeder Sprecher zeigt. Sie schreibt nie Zeilen um und fügt keine hinzu.",
-    "ИИ читает журнал кампании блоками (блок заканчивается после часа без реплик) и пишет сценарий: на каком фоне идёт каждая реплика и какой портрет показывает каждый говорящий. Он никогда не переписывает и не добавляет реплики.",
-    "A IA lê o registro da campanha por blocos (um bloco termina após uma hora sem falas) e escreve o roteiro: em que cenário cada fala acontece e que retrato cada falante mostra. Nunca reescreve nem acrescenta falas.",
-    "L’IA legge il registro della campagna a blocchi (un blocco finisce dopo un’ora senza righe) e scrive il copione: su quale sfondo va ogni riga e quale ritratto mostra ogni personaggio. Non riscrive né aggiunge mai righe."
-  ],
   "Lines to read": [
     "读取的发言",
     "讀取的發言",
@@ -19426,5 +19414,149 @@
     "Администратор отозван",
     "Administrador revogado",
     "Amministratore revocato"
+  ],
+  "Media kept on this device: {n} files, {size}": [
+    "此设备上缓存的媒体：{n} 个文件，{size}",
+    "此裝置上快取的媒體：{n} 個檔案，{size}",
+    "この端末に保存されたメディア：{n} ファイル、{size}",
+    "이 기기에 보관된 미디어: 파일 {n}개, {size}",
+    "Medios guardados en este dispositivo: {n} archivos, {size}",
+    "Médias conservés sur cet appareil : {n} fichiers, {size}",
+    "Auf diesem Gerät behaltene Medien: {n} Dateien, {size}",
+    "Медиа на этом устройстве: {n} файлов, {size}",
+    "Mídia guardada neste dispositivo: {n} arquivos, {size}",
+    "Media conservati su questo dispositivo: {n} file, {size}"
+  ],
+  "Portraits, backgrounds, avatars and voice clips stay on this device for 30 days after they were last shown, so they open without downloading again. Clearing only frees space.": [
+    "立绘、背景、头像和语音片段在最后一次显示后会在此设备上保留 30 天，再次打开时无需重新下载。清除只会释放空间。",
+    "立繪、背景、頭像和語音片段在最後一次顯示後會在此裝置上保留 30 天，再次開啟時無需重新下載。清除只會釋放空間。",
+    "立ち絵、背景、アバター、音声は最後に表示されてから 30 日間この端末に残り、再ダウンロードなしで開けます。消去しても空き容量が増えるだけです。",
+    "초상화, 배경, 아바타, 음성 클립은 마지막으로 표시된 뒤 30일 동안 이 기기에 남아 다시 내려받지 않고 열립니다. 지우면 공간만 확보됩니다.",
+    "Retratos, fondos, avatares y clips de voz permanecen en este dispositivo 30 días desde la última vez que se mostraron, así se abren sin volver a descargarlos. Borrar solo libera espacio.",
+    "Portraits, décors, avatars et extraits vocaux restent sur cet appareil 30 jours après leur dernier affichage, pour s'ouvrir sans nouveau téléchargement. Effacer ne fait que libérer de la place.",
+    "Porträts, Hintergründe, Avatare und Sprachclips bleiben 30 Tage nach der letzten Anzeige auf diesem Gerät und öffnen sich ohne erneuten Download. Löschen schafft nur Platz.",
+    "Портреты, фоны, аватары и голосовые фрагменты остаются на этом устройстве 30 дней после последнего показа и открываются без повторной загрузки. Очистка лишь освобождает место.",
+    "Retratos, fundos, avatares e trechos de voz ficam neste dispositivo por 30 dias após a última exibição, abrindo sem baixar de novo. Limpar apenas libera espaço.",
+    "Ritratti, sfondi, avatar e clip vocali restano su questo dispositivo per 30 giorni dall'ultima visualizzazione, così si aprono senza scaricarli di nuovo. Cancellare libera solo spazio."
+  ],
+  "waiting for your answers": [
+    "等待你的回答",
+    "等待你的回答",
+    "回答待ち",
+    "답변 대기 중",
+    "esperando tus respuestas",
+    "en attente de vos réponses",
+    "wartet auf Ihre Antworten",
+    "ждёт ваших ответов",
+    "aguardando suas respostas",
+    "in attesa delle tue risposte"
+  ],
+  "{n} parts wait for your answers": [
+    "{n} 个片段等待你的回答",
+    "{n} 個片段等待你的回答",
+    "{n} 個のパートが回答待ち",
+    "{n}개 부분이 답변을 기다립니다",
+    "{n} partes esperan tus respuestas",
+    "{n} parties attendent vos réponses",
+    "{n} Teile warten auf Ihre Antworten",
+    "{n} частей ждут ваших ответов",
+    "{n} partes aguardam suas respostas",
+    "{n} parti attendono le tue risposte"
+  ],
+  "The script editor asks about lines {a}–{b}. The other parts go on meanwhile; your answers finish this one. Skipping keeps its draft.": [
+    "脚本编辑对第 {a}–{b} 行有疑问。其他片段会继续处理；你的回答用于完成这一段。跳过则保留它的草稿。",
+    "腳本編輯對第 {a}–{b} 行有疑問。其他片段會繼續處理；你的回答用於完成這一段。跳過則保留它的草稿。",
+    "脚本編集者が {a}–{b} 行目について質問しています。他のパートはその間も進みます。回答でこのパートが仕上がり、スキップすると下書きのまま残ります。",
+    "대본 편집자가 {a}–{b}행에 대해 질문합니다. 다른 부분은 그동안 계속 진행되며, 답변하면 이 부분이 완성됩니다. 건너뛰면 초안이 유지됩니다.",
+    "El editor del guion pregunta por las líneas {a}–{b}. Las demás partes siguen mientras tanto; tus respuestas terminan esta. Omitir conserva su borrador.",
+    "L'éditeur du script a une question sur les lignes {a}–{b}. Les autres parties continuent entre-temps ; vos réponses achèvent celle-ci. Passer conserve son brouillon.",
+    "Der Skript-Editor fragt zu den Zeilen {a}–{b}. Die anderen Teile laufen unterdessen weiter; Ihre Antworten schließen diesen ab. Überspringen behält seinen Entwurf.",
+    "Редактор сценария спрашивает о строках {a}–{b}. Остальные части продолжаются; ваши ответы завершают эту. Пропуск оставляет её черновик.",
+    "O editor do roteiro pergunta sobre as linhas {a}–{b}. As outras partes seguem enquanto isso; suas respostas concluem esta. Pular mantém o rascunho dela.",
+    "L'editor del copione chiede delle righe {a}–{b}. Le altre parti proseguono intanto; le tue risposte completano questa. Saltare ne conserva la bozza."
+  ],
+  "Your answer (optional)": [
+    "你的回答（可选）",
+    "你的回答（可選）",
+    "回答（任意）",
+    "답변 (선택)",
+    "Tu respuesta (opcional)",
+    "Votre réponse (facultatif)",
+    "Ihre Antwort (optional)",
+    "Ваш ответ (необязательно)",
+    "Sua resposta (opcional)",
+    "La tua risposta (facoltativa)"
+  ],
+  "Answer and continue": [
+    "回答并继续",
+    "回答並繼續",
+    "回答して続ける",
+    "답변하고 계속",
+    "Responder y continuar",
+    "Répondre et continuer",
+    "Antworten und fortfahren",
+    "Ответить и продолжить",
+    "Responder e continuar",
+    "Rispondi e continua"
+  ],
+  "Skip (use the draft)": [
+    "跳过（使用草稿）",
+    "跳過（使用草稿）",
+    "スキップ（下書きを使う）",
+    "건너뛰기 (초안 사용)",
+    "Omitir (usar el borrador)",
+    "Passer (garder le brouillon)",
+    "Überspringen (Entwurf verwenden)",
+    "Пропустить (взять черновик)",
+    "Pular (usar o rascunho)",
+    "Salta (usa la bozza)"
+  ],
+  "The script editor has questions about {n} parts; answer them in Visual novel": [
+    "脚本编辑对 {n} 个片段有疑问；请在“视觉小说”中回答",
+    "腳本編輯對 {n} 個片段有疑問；請在「視覺小說」中回答",
+    "脚本編集者が {n} 個のパートについて質問しています。「ビジュアルノベル」で回答してください",
+    "대본 편집자가 {n}개 부분에 대해 질문합니다. 비주얼 노벨에서 답해 주세요",
+    "El editor del guion tiene preguntas sobre {n} partes; respóndelas en Novela visual",
+    "L'éditeur du script a des questions sur {n} parties ; répondez-y dans Roman visuel",
+    "Der Skript-Editor hat Fragen zu {n} Teilen; beantworten Sie sie unter Visual Novel",
+    "У редактора сценария есть вопросы по {n} частям; ответьте на них в разделе «Визуальная новелла»",
+    "O editor do roteiro tem perguntas sobre {n} partes; responda em Visual novel",
+    "L'editor del copione ha domande su {n} parti; rispondi in Visual novel"
+  ],
+  "Drop this draft? The questions are forgotten and the current script stays.": [
+    "放弃这份草稿？问题将被忘记，当前脚本保持不变。",
+    "放棄這份草稿？問題將被忘記，目前腳本保持不變。",
+    "この下書きを破棄しますか？質問は忘れられ、現在の脚本はそのまま残ります。",
+    "이 초안을 버릴까요? 질문은 사라지고 현재 대본은 그대로 유지됩니다.",
+    "¿Descartar este borrador? Las preguntas se olvidan y el guion actual se mantiene.",
+    "Abandonner ce brouillon ? Les questions sont oubliées et le script actuel reste.",
+    "Diesen Entwurf verwerfen? Die Fragen werden vergessen, das aktuelle Skript bleibt.",
+    "Отбросить этот черновик? Вопросы будут забыты, текущий сценарий останется.",
+    "Descartar este rascunho? As perguntas são esquecidas e o roteiro atual permanece.",
+    "Scartare questa bozza? Le domande vengono dimenticate e il copione attuale resta."
+  ],
+  "Drop the draft": [
+    "放弃草稿",
+    "放棄草稿",
+    "下書きを破棄",
+    "초안 버리기",
+    "Descartar el borrador",
+    "Abandonner le brouillon",
+    "Entwurf verwerfen",
+    "Отбросить черновик",
+    "Descartar o rascunho",
+    "Scarta la bozza"
+  ],
+  "The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on, which portrait each speaker shows, and the wording of the story. It leaves out chatter, bot messages and placeholders, never adds lines, and asks you when a line is unclear; the log keeps every original.": [
+    "AI 会逐块阅读战役记录（一小时没有新台词即为一块的结束）并撰写脚本：每句台词使用哪张背景、每位发言者显示哪张立绘，以及故事的措辞。它会略去闲聊、骰娘消息和占位内容，绝不新增台词，遇到不明确的台词会向你提问；记录本身保留全部原文。",
+    "AI 會逐塊閱讀戰役記錄（一小時沒有新台詞即為一塊的結束）並撰寫腳本：每句台詞使用哪張背景、每位發言者顯示哪張立繪，以及故事的措辭。它會略去閒聊、骰娘訊息和佔位內容，絕不新增台詞，遇到不明確的台詞會向你提問；記錄本身保留全部原文。",
+    "AI はキャンペーンログをブロックごとに読み（台詞のない時間が1時間続くとブロックが終わります）、脚本を書きます。各台詞の背景、各話者の立ち絵、そして物語の言い回しです。雑談やボットのメッセージ、仮置きの文は省き、台詞を追加することはなく、不明な台詞があればあなたに質問します。ログには原文がすべて残ります。",
+    "AI가 캠페인 기록을 블록 단위로 읽고(대사 없이 한 시간이 지나면 블록이 끝납니다) 대본을 씁니다. 각 대사의 배경, 각 화자의 초상화, 그리고 이야기의 표현입니다. 잡담, 봇 메시지, 자리표시 문구는 빼고, 대사를 추가하지 않으며, 불분명한 대사는 당신에게 묻습니다. 기록에는 원문이 모두 남습니다.",
+    "La IA lee el registro de campaña bloque a bloque (un bloque termina tras una hora sin líneas) y escribe el guion: qué fondo usa cada línea, qué retrato muestra cada hablante y la redacción de la historia. Deja fuera la charla, los mensajes del bot y los marcadores, nunca añade líneas y te pregunta cuando una línea no está clara; el registro conserva cada original.",
+    "L’IA lit le journal de campagne bloc par bloc (un bloc se termine après une heure sans répliques) et écrit le script : le décor de chaque réplique, le portrait de chaque locuteur et la formulation du récit. Elle écarte les bavardages, les messages du bot et les textes provisoires, n’ajoute jamais de répliques et vous interroge quand une réplique est ambiguë ; le journal garde chaque original.",
+    "Die KI liest das Kampagnenprotokoll Block für Block (ein Block endet nach einer Stunde ohne Zeilen) und schreibt das Skript: den Hintergrund jeder Zeile, das Porträt jedes Sprechers und die Formulierung der Geschichte. Sie lässt Geplauder, Bot-Nachrichten und Platzhalter weg, fügt nie Zeilen hinzu und fragt Sie, wenn eine Zeile unklar ist; das Protokoll behält jedes Original.",
+    "ИИ читает журнал кампании блок за блоком (блок заканчивается после часа без реплик) и пишет сценарий: фон каждой реплики, портрет каждого говорящего и формулировки истории. Он опускает болтовню, сообщения бота и заглушки, никогда не добавляет реплики и спрашивает вас, когда реплика неясна; в журнале остаются все оригиналы.",
+    "A IA lê o registro da campanha bloco a bloco (um bloco termina após uma hora sem falas) e escreve o roteiro: o fundo de cada fala, o retrato de cada falante e a redação da história. Ela deixa de fora conversa paralela, mensagens do bot e marcadores, nunca acrescenta falas e pergunta a você quando uma fala não está clara; o registro guarda cada original.",
+    "L'IA legge il registro della campagna blocco per blocco (un blocco finisce dopo un'ora senza battute) e scrive il copione: lo sfondo di ogni battuta, il ritratto di ogni parlante e la formulazione della storia. Lascia fuori chiacchiere, messaggi del bot e segnaposto, non aggiunge mai battute e ti chiede quando una battuta non è chiara; il registro conserva ogni originale."
   ]
 }

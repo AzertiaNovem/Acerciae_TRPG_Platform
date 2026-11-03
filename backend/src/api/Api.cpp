@@ -100,6 +100,23 @@ HttpResponsePtr redirectTo(const std::string& url, const char* cacheControl) {
     r->addHeader("Referrer-Policy", "no-referrer");   // the backend URL carries the file token
     return r;
 }
+// Client caching. A stored object is never rewritten (a new upload or version is a new object), so a response naming
+// one exactly may be kept for good: it is marked immutable. Only content a player could see gets that mark, so clients
+// that keep assets on disk (web, desktop and mobile caches keep only immutable responses) never store GM-private
+// material. Every binary carries an ETag, so the rest revalidate with a 304 instead of downloading again.
+const char* kKeep = "private, max-age=31536000, immutable";
+std::string etagOf(const std::string& key) { return "\"" + key + "\""; }
+bool notModified(const HttpRequestPtr& req, const std::string& etag) {
+    auto h = req->getHeader("If-None-Match");
+    return !h.empty() && !etag.empty() && (h == "*" || h.find(etag) != std::string::npos);
+}
+HttpResponsePtr notModifiedResponse(const std::string& etag, const std::string& cacheControl) {
+    auto r = HttpResponse::newHttpResponse();
+    r->setStatusCode(k304NotModified);
+    r->addHeader("ETag", etag);
+    r->addHeader("Cache-Control", cacheControl);
+    return r;
+}
 std::optional<Principal> fileAuth(const HttpRequestPtr& req) {
     auto h = bearer(req);
     if (!h.empty()) return services().auth->authenticate(h);
@@ -269,11 +286,15 @@ void registerRoutes() {
             if (!principal) throw unauthorized("missing or invalid token");
             auto av = services().auth->avatar(*principal, userId, mayRedirect(req));
             if (!av.url.empty()) { cb(redirectTo(av.url, "private, max-age=600")); return; }
+            // ?v= names the avatar version the client saw: that URL may be kept; a bare URL revalidates.
+            std::string cc = req->getParameter("v").empty() ? "private, no-cache" : kKeep;
+            if (notModified(req, av.etag)) { cb(notModifiedResponse(av.etag, cc)); return; }
             auto response = HttpResponse::newHttpResponse();
             response->setContentTypeString(av.mime);
             response->setBody(std::move(av.bytes));
             response->addHeader("X-Content-Type-Options", "nosniff");
-            response->addHeader("Cache-Control", "private, no-store");
+            response->addHeader("ETag", av.etag);
+            response->addHeader("Cache-Control", cc);
             cb(response);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
           catch (const std::exception&) { cb(errResp(400, "bad_request", "invalid avatar request")); }
@@ -418,7 +439,9 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/atmosphere/assets/{2}", [&](const HttpRequestPtr& req,Cb&& cb,std::string ch,std::string id){
         try { auto p=fileAuth(req);if(!p)throw unauthorized("authentication required");auto a=access(*p,ch);std::string bytes,mime;
             if(!S.atmosphere->fetch(a,id,bytes,mime))throw notFound("background unavailable");
-            auto r=HttpResponse::newHttpResponse();r->setBody(std::move(bytes));r->setContentTypeString(mime);r->addHeader("Cache-Control","private, no-store");r->addHeader("X-Content-Type-Options","nosniff");cb(r);
+            // A backdrop id names one stored image, shown to everyone in the channel.
+            auto etag=etagOf(id);if(notModified(req,etag)){cb(notModifiedResponse(etag,kKeep));return;}
+            auto r=HttpResponse::newHttpResponse();r->setBody(std::move(bytes));r->setContentTypeString(mime);r->addHeader("Cache-Control",kKeep);r->addHeader("ETag",etag);r->addHeader("X-Content-Type-Options","nosniff");cb(r);
         }catch(const ApiError& e){cb(errResp(e.status(),e.code(),e.what()));}catch(const std::exception& e){cb(internalErr(e,req));}
     },{Get});
     route1("/api/channels/{1}/reminders", {Get}, [&](auto&, auto& p, auto& a) { return S.reminders->list(access(p, a[0])); });
@@ -495,6 +518,7 @@ void registerRoutes() {
     route2("/api/channels/{1}/studio/vn-scripts/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.vnScripts->cancel(studioAccess(p,a[0]),a[1]); });
     route2("/api/channels/{1}/studio/vn-scripts/{2}/backgrounds/retry", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->retryBackgrounds(studioAccess(p,a[0]),a[1],body(req)); });
     route2("/api/channels/{1}/studio/vn-scripts/{2}/retry", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->retry(studioAccess(p,a[0]),a[1],body(req)); });
+    route2("/api/channels/{1}/studio/vn-scripts/{2}/answers", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->answer(studioAccess(p,a[0]),a[1],body(req)); });
     ai2("/api/channels/{1}/studio/presentations/{2}/suggest", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->suggest(studioAccess(p,a[0]),a[1],body(req)); });
     route1("/api/channels/{1}/studio/pdf/templates", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->templates(studioAccess(p,a[0])); });
     route1("/api/channels/{1}/studio/pdf/templates", {Post}, [&](auto& req, auto& p, auto& a) { return S.publication->saveTemplate(studioAccess(p,a[0]),body(req)); });
@@ -574,10 +598,17 @@ void registerRoutes() {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             auto ac = access(*pr, ch); std::string bytes, mime, name; int v = qint(req, "v", 0);
+            // A named version of a player-visible asset is kept for good; the current version (no ?v=) revalidates;
+            // GM-private material is never marked for keeping.
+            logstudio::MediaService::MediaMeta meta;
+            if (!S.media->resolve(ac, id, v, meta)) { cb(errResp(404, "not_found", "asset not found")); return; }
+            auto etag = etagOf(meta.objectKey);
+            std::string cc = !meta.playerVisible ? "private, max-age=3600" : meta.pinned ? kKeep : "private, no-cache";
+            if (notModified(req, etag)) { cb(notModifiedResponse(etag, cc)); return; }
             std::string direct;
             if (!S.media->fetch(ac, id, v, bytes, mime, name, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "asset not found")); return; }
             if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=3600")); return; }
-            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=3600"); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
+            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("ETag", etag); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
             if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
             cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
@@ -654,9 +685,14 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/studio/tts/audio/{2}", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string id) {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
-            std::string bytes, mime, direct; if (!S.tts->fetchAudio(studioAccess(*pr, ch), id, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "audio not found")); return; }
+            auto ac = studioAccess(*pr, ch);
+            // A clip id names one recording. A player was checked to be allowed to hear it, so theirs may be kept;
+            // the Keeper hears every line, GM-only ones too, so the Keeper's copy is never marked for keeping.
+            std::string cc = ac.isGm ? "private, max-age=86400" : kKeep, etag = etagOf(id);
+            std::string bytes, mime, direct; if (!S.tts->fetchAudio(ac, id, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "audio not found")); return; }
             if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=86400")); return; }
-            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", "private, max-age=86400"); cb(r);
+            if (notModified(req, etag)) { cb(notModifiedResponse(etag, cc)); return; }
+            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("ETag", etag); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 

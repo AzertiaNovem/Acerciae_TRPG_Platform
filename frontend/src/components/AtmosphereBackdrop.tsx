@@ -5,6 +5,7 @@ import { useAuth } from '../store/auth';
 import { contextSocket } from '../api/ws';
 import { t } from '../i18n';
 import { atmosphereVariant } from '../lib/atmosphere';
+import { CachedImg } from './CachedImg';
 
 // One channel backdrop across all its chat windows; personal opt-out unmounts and releases the image.
 export default function AtmosphereBackdrop() {
@@ -13,7 +14,7 @@ export default function AtmosphereBackdrop() {
   const channelEnabled = useNav(s => s.channel?.atmosphere_enabled !== false);
   const personalEnabled = useAuth(s => !!s.user?.atmosphere_enabled);
   const enabled = serverEnabled && channelEnabled && personalEnabled;
-  const [backdrop, setBackdrop] = useState<{ channel: string; url: string; mock: boolean } | null>(null);
+  const [backdrop, setBackdrop] = useState<{ channel: string; url: string; hash?: string | null; mock: boolean } | null>(null);
   const [portrait, setPortrait] = useState(() => matchMedia('(orientation: portrait)').matches);
   const [dark, setDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
   useEffect(() => {
@@ -35,7 +36,7 @@ export default function AtmosphereBackdrop() {
         const id = current.assets?.[atmosphereVariant(dark, portrait)];
         if (!current.enabled || !id) { if (!cancelled && seq === sequence) setBackdrop(null); return; }
         await ensureFileToken();
-        if (!cancelled && seq === sequence) setBackdrop({ channel, url: api.atmosphereImage(channel, id), mock: !!current.mock });
+        if (!cancelled && seq === sequence) setBackdrop({ channel, url: api.atmosphereImage(channel, id), hash: current.hashes?.[atmosphereVariant(dark, portrait)], mock: !!current.mock });
       } catch { if (!cancelled && seq === sequence) setBackdrop(null); }
     };
     void load(); const timer = setInterval(load, 30000);
@@ -44,7 +45,7 @@ export default function AtmosphereBackdrop() {
   }, [channel, enabled, portrait, dark]);
   if (!enabled || !backdrop || backdrop.channel !== channel) return null;
   return <div className="atmosphere-backdrop" aria-hidden="true">
-    <img src={backdrop.url} alt="" onError={() => setBackdrop(null)} />
+    <CachedImg src={backdrop.url} hash={backdrop.hash} alt="" onError={() => setBackdrop(null)} />
     {backdrop.mock && <span className="atmosphere-mock">{t('Mock background')}</span>}
   </div>;
 }

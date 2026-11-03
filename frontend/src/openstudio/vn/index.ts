@@ -4,6 +4,14 @@ export {
   composeScript,
   continueScript,
   composeContinuation,
+  composeDraft,
+  continueDraft,
+  resumeDraft,
+  finishDraft,
+  skipPending,
+  answersPrompt,
+  questionsOf,
+  EDITING_RULES,
   appendScript,
   lastScriptedSeq,
   unscriptedCount,
@@ -33,7 +41,8 @@ export {
   PART_MAX_CHARS,
   VN_MAX_TOKENS,
 } from './compose';
-export type { ComposeOptions, KnownBackground, StoryContext } from './compose';
+export type { ComposeOptions, DraftResult, KnownBackground, StoryContext } from './compose';
+export { replayableBlocks, carriesReasoning } from './replay';
 export { buildInputs, planLines, assetModeOf, subtitlesOf, standeeFor, MAIN_WINDOW } from './inputs';
 export type { BackgroundAsset, ScriptInputs, CastEntry, AssetEntry, PlanLine, AssetMode } from './inputs';
 export { toPresentation, sanitizeTemplate, characterNames, characterImages, defaultKind, estimatedDuration } from './presentation';

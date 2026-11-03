@@ -59,9 +59,11 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun AcerciaeApp(model: AppViewModel = viewModel()) {
+    var studioOpen by rememberSaveable { mutableStateOf(false) }
+    if(studioOpen) { LocalStudioScreen({studioOpen=false}); return }
     val state by model.state.collectAsStateWithLifecycle()
     if (!state.online) {
-        AuthenticationPage(state, model)
+        AuthenticationPage(state, model) { studioOpen=true }
         state.notice?.let { message -> AlertDialog(onDismissRequest = { model.notice(null) }, title = { Text(tr("提示")) }, text = { Text(message) }, confirmButton = { TextButton(onClick = { model.notice(null) }) { Text(tr("知道了")) } }) }
         return
     }
@@ -91,7 +93,7 @@ class MainActivity : ComponentActivity() {
     val drawerWidth = minOf(maxWidth * 0.64f, 320.dp)
     ModalNavigationDrawer(drawerState = drawer, drawerContent = {
         ModalDrawerSheet(Modifier.width(drawerWidth), drawerContainerColor = Panel) {
-            SidebarPanel(state, model, page, select = { page = it; scope.launch { drawer.close() } },
+            SidebarPanel(state, model, page, select = { if(it==6) studioOpen=true else page = it; scope.launch { drawer.close() } },
                 showDetail = { detail = it; scope.launch { drawer.close() } },
                 close = { scope.launch { drawer.close() } })
         }
@@ -185,7 +187,7 @@ class MainActivity : ComponentActivity() {
                     var expanded by remember { mutableStateOf(false) }
                     TextButton(onClick = { expanded = true }) { Text(state.serverName) }
                     DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                        state.servers.forEach { server -> DropdownMenuItem(text = { Text(server.name) }, onClick = { expanded = false; model.launch { model.selectServer(server.id) } }) }
+                        state.servers.forEach { server -> DropdownMenuItem(text = { Text(server.name) }, onClick = { expanded = false; model.navigate { model.selectServer(server.id) } }) }
                     }
                 }
                 item { SidebarRow(tr("Servers")) { select(5) } }
@@ -194,13 +196,13 @@ class MainActivity : ComponentActivity() {
                     Text(tr("频道"), style = MaterialTheme.typography.labelMedium)
                     TextButton(onClick = { showDetail("create-channel") }, enabled = state.serverId.isNotEmpty() && state.canCreateChannel && !state.busy) { Text(tr("添加")) }
                 } }
-                items(state.channels, key = { "channel:" + it.id }) { channel -> SidebarRow(channel.name, channel.id == state.channelId) { model.launch { model.selectChannel(channel.id) } } }
+                items(state.channels, key = { "channel:" + it.id }) { channel -> SidebarRow(channel.name, channel.id == state.channelId) { model.navigate { model.selectChannel(channel.id) } } }
                 if (state.gm) item { SidebarRow(tr("频道选项")) { select(4) } }
                 item { Text(tr("聊天窗口"), style = MaterialTheme.typography.labelMedium) }
-                items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { model.launch { model.selectWindow(window.id); select(0) } } }
+                items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { select(0); model.navigate { model.selectWindow(window.id) } } }
                 item { TextButton(onClick = { charactersExpanded = !charactersExpanded }) { Text(tr("Characters") + if (charactersExpanded) " −" else " +") } }
                 if (charactersExpanded && state.channelId.isNotEmpty()) item { TextButton(onClick = { showDetail("create-character") }, enabled = !state.busy) { Text(tr("添加角色")) } }
-                if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.text("updated_at")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }
+                if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.text("updated_at"), hash = item.text("avatar_asset_hash")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }
                 item { TextButton(onClick = { stagesExpanded = !stagesExpanded }) { Text(tr("Scenarios") + if (stagesExpanded) " −" else " +") } }
                 if (stagesExpanded) items(state.scenes, key = { "scene:" + it.id }) { item -> SidebarRow(item.name) { showDetail("scene:" + item.id) } }
                 if (state.windows.isEmpty()) item { Text(tr("Pick a server and channel, or create one from the left.")) }
@@ -225,6 +227,7 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
         SidebarRow(tr("故事回放"), page == 1) { select(1) }
+        SidebarRow(tr("Open Log Studio"), false) { select(6) }
         SidebarRow(tr("设置"), page == 2) { select(2) }
         Text(if (state.online) "${state.user?.displayName} · ${if (state.gm) "GM" else tr("Player")}" else "本地演示 · 内容不上传", Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -286,10 +289,11 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     val ooc = message.kind == "ooc"
     val asset = if (ooc) "" else character?.text("avatar_asset_id") ?: message.characterAvatarAssetId.orEmpty()
     val revision = if (ooc) "" else character?.text("updated_at").orEmpty() + ":" + (message.characterAvatarVersion ?: 0)
+    val hash = if (ooc) "" else character?.text("avatar_asset_hash")?.ifEmpty { null } ?: message.characterAvatarHash.orEmpty()
     val name = (if (ooc) null else message.characterName) ?: message.authorName
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {
-        if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0); Spacer(Modifier.width(8.dp)) }
+        if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()); Spacer(Modifier.width(8.dp)) }
         Column(Modifier.widthIn(max = 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
             Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
@@ -300,7 +304,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
                 Text(message.displayText, Modifier.padding(14.dp), style = MaterialTheme.typography.bodyLarge)
             }
         }
-        if (mine) { Spacer(Modifier.width(8.dp)); ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0) }
+        if (mine) { Spacer(Modifier.width(8.dp)); ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()) }
     }
 }
 
@@ -394,7 +398,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     }
 }
 
-@Composable private fun AuthenticationPage(state: AppState, model: AppViewModel) {
+@Composable private fun AuthenticationPage(state: AppState, model: AppViewModel, openStudio: () -> Unit) {
     var registering by rememberSaveable { mutableStateOf(false) }
     var username by rememberSaveable { mutableStateOf("") }
     var displayName by rememberSaveable { mutableStateOf("") }
@@ -417,6 +421,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         }
         item { Button(onClick = { model.login(cleanUsername, password, registering, displayName.trim()); password = ""; confirmation = "" }, enabled = valid && !state.busy, modifier = Modifier.fillMaxWidth()) { Text(if (state.busy) tr("请稍候…") else if (registering) tr("注册并登录") else tr("登录")) } }
         item { TextButton(onClick = { registering = !registering; password = ""; confirmation = ""; model.notice(null) }, enabled = !state.busy) { Text(if (registering) tr("已有账号？返回登录") else tr("还没有账号？注册")) } }
+        item { TextButton(onClick = openStudio) { Text(tr("Open Log Studio (offline, no account) →")) } }
         item { Text(tr("登录状态安全保存在此设备，退出登录后清除。"), style = MaterialTheme.typography.bodySmall) }
     }
 }

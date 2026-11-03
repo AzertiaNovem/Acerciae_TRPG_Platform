@@ -52,6 +52,8 @@ public:
   Json::Value cancel(const ChannelAccess &a, const std::string &id);
   Json::Value retry(const ChannelAccess &a, const std::string &id, const Json::Value &body);
   Json::Value retryBackgrounds(const ChannelAccess &a, const std::string &id, const Json::Value &body);
+  // Answers to a waiting part's questions ({part_index, answers:{id: text}} or {part_index, skip: true}).
+  Json::Value answer(const ChannelAccess &a, const std::string &id, const Json::Value &body);
   // Synchronous run of one pending job (tests and the worker).
   bool processNext();
 
@@ -84,6 +86,11 @@ public:
   // The label a line carries in the transcript: "Ada Quill", "Ada Quill(OOC)", "KP(Narrative)", "KP(as Old Tom)".
   static std::string speakerLabel(const LogEvent &e, const std::string &gm = "KP");
   // ---- continuation ----
+  // The system prompt's editing rules: edit boldly, leave out what is not the play (with reasons), ask the table
+  // rather than guess. Shared with Open Log Studio's composer.
+  static const std::string &editingRules();
+  // The user turn that resumes a part: the questions it asked and the answers given.
+  static std::string answersPrompt(const Json::Value &questions, const Json::Value &answers);
   // The system prompt's extra rules when the transcript continues an existing visual novel.
   static const std::string &continuationRules();
   // "# Story so far": the scene the visual novel ended on, its background name and its last lines (context only).

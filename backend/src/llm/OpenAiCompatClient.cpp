@@ -48,6 +48,18 @@ Json::Value OpenAiCompatClient::requestBody(const LlmRequest& req, const LlmEndp
             Json::Value j; j["type"] = "function_call_output"; j["call_id"] = m.toolCallId; j["output"] = m.content; input.append(j);
             continue;
         }
+        // An assistant turn kept as the provider returned it is replayed item by item: its messages and calls, and its
+        // reasoning only in the sealed form (with store:false an unsealed reasoning item cannot be given back).
+        if (m.role == "assistant" && m.providerContent.isArray() && !m.providerContent.empty()) {
+            bool any = false;
+            for (const auto& item : m.providerContent) {
+                const auto type = item["type"].asString();
+                if (type == "reasoning" && !(item["encrypted_content"].isString() && !item["encrypted_content"].asString().empty())) continue;
+                if (type != "message" && type != "reasoning" && type != "function_call") continue;
+                input.append(item); any = true;
+            }
+            if (any) continue;
+        }
         if (!m.content.empty() || !(m.role == "assistant" && m.toolCalls.isArray() && !m.toolCalls.empty())) {
             Json::Value j; j["role"] = m.role == "assistant" ? "assistant" : m.role == "system" ? "system" : "user"; j["content"] = m.content; input.append(j);
         }
@@ -66,6 +78,9 @@ Json::Value OpenAiCompatClient::requestBody(const LlmRequest& req, const LlmEndp
         body["tools"] = tools; body["tool_choice"] = "auto";
     }
     if (!req.responseSchema.isNull()) body["text"]["format"]["type"] = "json_object";
+    // With store:false the reasoning of a turn is gone unless its sealed form is asked for. Only OpenAI's own API is
+    // sent the field: other gateways may reject it.
+    if (req.keepReasoning && officialOpenAi(ep.apiBase)) { body["include"] = Json::Value(Json::arrayValue); body["include"].append("reasoning.encrypted_content"); }
     return body;
 }
 
@@ -80,6 +95,7 @@ LlmResponse OpenAiCompatClient::parseResponse(const Json::Value& j) {
     if (status == "incomplete" && reason == "max_output_tokens") { r.error = "the model stopped at its output token limit before finishing"; return r; }
     if (status == "incomplete" && reason == "content_filter") { r.error = "the model declined this request"; return r; }
     if (!j["output"].isArray() || j["output"].empty()) { r.error = "no output in response"; return r; }
+    r.providerContent = j["output"];   // the turn as returned: replayable later (Replay.h)
     for (const auto& item : j["output"]) {
         auto type = item["type"].asString();
         if (type == "message") {

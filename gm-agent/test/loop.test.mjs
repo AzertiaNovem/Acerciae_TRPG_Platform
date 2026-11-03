@@ -41,8 +41,14 @@ class FakeApi {
   }
   async me() { return this.user; }
   async channel() { return { id: "ch", server_id: "s", name: "Hale house", my_role: "gm", era: "1920s", current_scene_id: this.currentScene, knowledge_mode: this.knowledgeMode }; }
-  async channelMembers() { return this.channelUsers.map((id) => ({ id })); }
-  async addWindowMember() { this.membershipWrites++; return []; }
+  async channelMembers() { return this.channelUsers.map((id) => ({ id, role: id === "u-bot" ? "gm" : "player", display_name: id.slice(2) })); }
+  async addWindowMember(_ch, w, body) {
+    this.membershipWrites++;
+    (this.addedMembers ??= []).push({ window: w, ...body });
+    const win = this.windows_.find((x) => x.id === w);
+    if (win && body?.user_id && !win.members.some((m) => m.user_id === body.user_id)) win.members.push({ user_id: body.user_id, character_id: this.characters_.find((c) => c.user_id === body.user_id && c.kind === "pc")?.id ?? null });
+    return [];
+  }
   async serverSettings() { return { language: "en", features: {} }; }
   async coc7Rules() { return { skills: [{ name: "Spot Hidden", base: 25, names: {} }], families: [] }; }
   async characters() { return structuredClone(this.characters_); }
@@ -83,7 +89,7 @@ class FakeApi {
 
 const SECRETS = ["SECRET-ONE", "SECRET-TWO", "SECRET-THREE", "SECRET-BOARD", "SECRET-REMINDER", "SECRET-SCRIPT", "SECRET-DOC"];
 
-async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [], clock = { t: 1_700_000_000_000 }, bob = false, improv = null, heal = false } = {}) {
+async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [], clock = { t: 1_700_000_000_000 }, bob = false, improv = null, casual = null, heal = false } = {}) {
   const api = new FakeApi();
   api.characters_.push(...extraCharacters);
   if (bob) {
@@ -98,8 +104,10 @@ async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = []
   old({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "SECRET-TWO: you alone hear a whisper", visibility: "whisper", whisper_to: ["c-alice"] });
   old({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "SECRET-THREE in Alice's own window" });
   old({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "The study is cold and smells of pipe smoke." });
-  const cfg = { ...buildConfig({}, {}), debounceMs: 0, postDelayMs: 0, ...over };
-  const t = await new Table({ api, llm, cfg, channelId: "ch", roster: new Roster(), improv, sleep: async () => {}, now: () => clock.t, log: process.env.TEST_LOG ? console.log : () => {} }).init({ heal });
+  // The story planner is off unless a test turns it on (pcfg): with no date set, it would plan after the first line.
+  const base = buildConfig({}, {});
+  const cfg = { ...base, debounceMs: 0, postDelayMs: 0, planner: { ...base.planner, enabled: false }, ...over };
+  const t = await new Table({ api, llm, cfg, channelId: "ch", roster: new Roster(), improv, casual, sleep: async () => {}, now: () => clock.t, log: process.env.TEST_LOG ? console.log : () => {} }).init({ heal });
   return { t, api, llm, clock };
 }
 const playerSays = (t, api, content, w = "w-main") => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content }) });
@@ -995,8 +1003,10 @@ test("casual: each player character gets a private phone; a phone line never sta
   const alicePhone = api.createdWindows.find((w) => w.id === phoneOf(t, "c-alice"));
   assert.equal(alicePhone.name, "Phone: Alice Hale"); assert.equal(alicePhone.kind, "private");
   assert.deepEqual(alicePhone.members.map((m) => m.user_id), ["u-bot", "u-alice"], "only her player");
+  const log = api.createdWindows.find((w) => w.id === t.casual.log);
+  assert.equal(log.name, "Phone log (Keeper only)"); assert.deepEqual(log.members.map((m) => m.user_id), ["u-bot"], "the Keeper alone");
   await t.setCasual(true);
-  assert.equal(api.createdWindows.length, 2, "phones are opened once");
+  assert.equal(api.createdWindows.length, 3, "two phones and the log, opened once");
   const before = directorCalls(llm).length;
   await textFrom(t, api, "c-alice", "@Bob Price meet me at the pier");
   await settle(t);
@@ -1068,4 +1078,463 @@ test("casual: addressing picks the longest name, prefers a full name, and needs 
   assert.equal(parseAddress("@Mr. Grimsby key?", c).to, "m");
   assert.equal(parseAddress("@Silasx hi", c).to, null);
   assert.deepEqual(parseAddress("no at", c), { to: null, body: "no at", addressed: false });
+});
+
+test("a co-player in another timeline never learns what happens in the Main Chat meanwhile, nor after it returns", async () => {
+  // A Keeper that does not quote the chat back (the mock's placeholder narration repeats the newest line, which would
+  // put an old Main Chat line in front of her as something said after her return).
+  const llm = new MockLlm();
+  llm.director = () => ({ actions: [{ type: "narrate", text: "Time passes." }], coplayers_may_act: true });
+  const { t, api, clock } = await table({ llm, bob: true, cfg: { autonomySideIntervalMs: MIN } });
+  await alicePosts(t, api, "We search the study together.");
+  await settle(t);
+  await t.command({ cmd: "split", who: ["Harriet Vance"], place: "Lighthouse", span: "long" });
+  await settle(t);
+  const side = t.timelines.of("c-harriet").windowId;
+  // While she is away, Alice plays on in the Main Chat and the Keeper answers there.
+  await alicePosts(t, api, "MAIN-WHILE-AWAY: I open the safe and find the ledger.");
+  await settle(t);
+  clock.t += MIN + 1;
+  await t.tick(); await settle(t);                         // her side thread moves on its own
+  const harriet = () => llm.calls.filter((c) => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet")).at(-1).messages[0].content;
+  const away = harriet();
+  assert.ok(away.includes("We search the study together."), "she remembers what she saw before leaving");
+  assert.ok(!away.includes("MAIN-WHILE-AWAY"), "she never sees the Main Chat while she is away");
+  assert.ok(!llm.calls.some((c) => c.purpose === "coplayer_memory" && c.messages[0].content.includes("MAIN-WHILE-AWAY")));
+  // She comes back: only what is said from then on reaches her.
+  await t.command({ cmd: "rejoin", timeline: "Lighthouse" });
+  await settle(t);
+  await alicePosts(t, api, "Harriet, you're back! What did you find?");
+  await settle(t);
+  const back = harriet();
+  assert.ok(back.includes("you're back"), "she hears the Main Chat again");
+  assert.ok(!back.includes("MAIN-WHILE-AWAY"), "but not what happened there while she was away");
+  assert.ok(side && t.timelines.retired(side));
+});
+
+// ---- the story planner
+const pcfg = (over = {}) => ({ planner: { ...buildConfig({}, {}).planner, cooldownMs: 0, stallTurns: 1000, ...over } });
+const plannerCalls = (llm) => llm.calls.filter((c) => c.purpose === "planner");
+const stepOf = (c) => (c.messages.at(-1).content.match(/^STEP: (\w+)/m) ?? [])[1];
+const planned = async (t, api, n = 10) => { for (let i = 0; i < n; i++) { await alicePosts(t, api, `Line ${i}: we ask around the harbour about the keeper.`); await settle(t); } await t.memoryIdle(); await settle(t); };
+
+test("the first story plan: drafted, critiqued and revised in one cached conversation, adopted at the turn boundary, noted once", async () => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  await planned(t, api);
+  const arc = t.planner.arc;
+  assert.ok(arc, "a plan was adopted"); assert.equal(arc.version, 1); assert.equal(arc.trigger, "first"); assert.equal(arc.mode, "full");
+  assert.equal(arc.beat.title, "[mock beat] The present trouble"); assert.equal(arc.threads[0].id, "P1");
+  const calls = plannerCalls(llm);
+  assert.deepEqual(calls.map(stepOf), ["draft", "critique", "revise"], "three steps, in order");
+  assert.ok(calls[1].messages[0].content === calls[0].messages[0].content && calls[1].messages[1].role === "assistant", "the critique continues the draft's conversation");
+  assert.ok(calls[0].parts[0][0].cache && calls[0].parts[0][0].text.includes("## Campaign") && calls[0].parts[0][0].text.includes("## Previous story plan"), "the context is one cached part");
+  assert.ok(calls[2].parts.flat().filter((p) => p.cache).length <= 3, "at most three cache marks");
+  assert.match(calls[0].system, /story planner/); assert.match(calls[0].system, /Be bold/);
+  const notes = api.posts.filter((p) => p.visibility === "gm_only" && p.content.startsWith("Story plan v1"));
+  assert.equal(notes.length, 1); assert.match(notes[0].content, /beat "\[mock beat\] The present trouble"/); assert.match(notes[0].content, /Impulse for Harriet Vance/);
+  await t.adoptPlan();
+  assert.equal(api.posts.filter((p) => p.content.startsWith("Story plan v1")).length, 1, "adoption is idempotent");
+  assert.ok(t.store.latestPlan().record.draft && t.store.latestPlan().record.critique && t.store.latestPlan().record.final);
+  // The GM reads the plan in part C only; a co-player reads its impulse, never the plan; the GM never reads the impulse.
+  await alicePosts(t, api, "Harriet, what do you think?");
+  await settle(t);
+  const director = llm.calls.filter((c) => c.purpose === "director").at(-1);
+  const parts = director.parts[0];
+  assert.ok(!parts[0].text.includes("## Story plan"), "not in A");
+  assert.ok(parts.slice(1, -1).some((p) => p.cache && p.text.includes("## Story plan") && p.text.includes("[mock twist]")), "in a cached middle part");
+  assert.match(director.system, /Story plan: your private plan/); assert.match(director.system, /"type": "planner_note"/);
+  assert.ok(!director.messages[0].content.includes("[mock impulse]"), "the GM never reads an impulse");
+  const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet")).at(-1).messages[0].content;
+  assert.ok(cp.includes("SOMETHING ON YOUR MIND") && cp.includes("[mock impulse]"), "Harriet has her impulse");
+  assert.ok(!cp.includes("[mock twist]") && !cp.includes("Story plan"), "and nothing of the plan");
+  assert.deepEqual(require_(plannerStateRoundTrip(t)), require_(t.planner), "the state survives a save and reload");
+});
+import { plannerState as _plannerState } from "../src/planner.mjs";
+const plannerStateRoundTrip = (t) => _plannerState(JSON.parse(JSON.stringify(t.planner)));
+const require_ = (x) => JSON.parse(JSON.stringify(x));
+
+test("the planner's MOVE ON lifts the scenario pace guard; the change closes the beat and spends the verdict", async () => {
+  const llm = new MockLlm();
+  const base = llm.planner.bind(llm);
+  // Only the first plan says move on; the replan after the scenario change (trigger "scenario") goes back to "continue".
+  llm.planner = (u) => { const r = base(u); if (r.verdict && u.includes("(none yet: this is the first plan)")) r.verdict = { move_on: true, why: "they have searched the same office for six turns" }; return r; };
+  const { t, api, clock } = await table({ llm, improv: IMPROV, heal: true, cfg: { ...pcfg(), scenarioMinMinutes: 20, scenarioMinLines: 30 } });
+  t.scenario = { id: "sc1", since: clock.t };
+  await planned(t, api);
+  assert.equal(t.planner.arc.verdict.moveOn, true);
+  const v = await t.scenarioVerdict("w-main", "human");
+  assert.equal(v.planner, true, JSON.stringify(v));
+  assert.equal((await t.scenarioVerdict("w-main", "quiet")).ok, false, "still never in an autonomous turn");
+  const before = api.advanced.length;
+  await alicePosts(t, api, "We sleep. The next morning we set out.");
+  await settle(t);
+  assert.equal(api.advanced.length, before + 1, "advanced before the 20 minutes and 30 lines");
+  assert.match(directorCalls(llm).find((u) => u.includes("The next morning we set out.") && !/^MODE: /m.test(u)), /PLANNER: the story planner judges the current event/);
+  await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.version, 2); assert.equal(t.planner.arc.trigger, "scenario", "the change asked for a new plan");
+  assert.equal(t.planner.arc.verdict.moveOn, false, "spent");
+  assert.equal((await t.scenarioVerdict("w-main", "human")).ok, false, "the guard is back");
+});
+
+test("module-led campaign: the planner judges pace only", async () => {
+  const { t, api, llm } = await table({ cfg: pcfg() });
+  await planned(t, api);
+  assert.equal(t.planner.arc.mode, "pace");
+  assert.match(plannerCalls(llm)[0].system, /the module has the plots/); assert.doesNotMatch(plannerCalls(llm)[0].system, /Be bold/);
+  assert.deepEqual([t.planner.arc.threads, t.planner.arc.next, t.planner.impulses], [[], [], []]);
+  assert.match(t.storyPlanSection(), /^## Story plan \(pace only/);
+  await alicePosts(t, api, "Harriet?"); await settle(t);
+  assert.ok(!llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content.includes("SOMETHING ON YOUR MIND"));
+});
+
+test("a stalled story asks the planner again; a planner_note from the GM does too, and closes the beat", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (u) => (u.includes("I give up") && !/^MODE: /m.test(u) ? { actions: [{ type: "planner_note", text: "They skipped the warehouse entirely.", beat_done: true }, { type: "narrate", text: "Noted." }], coplayers_may_act: false } : base(u));
+  const { t, api } = await table({ llm, improv: IMPROV, heal: true, cfg: pcfg({ intervalMs: 10 * 3600000, minLines: 100000 }) });
+  await planned(t, api);
+  assert.equal(t.planner.arc.version, 1);
+  t.cfg.planner.stallTurns = 3;
+  for (let i = 0; i < 4; i++) { await alicePosts(t, api, `Still here ${i}.`); await settle(t); }
+  await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.version, 2); assert.equal(t.planner.arc.trigger, "stall");
+  await alicePosts(t, api, "I give up on the office."); await settle(t);
+  assert.ok(api.posts.some((p) => p.visibility === "gm_only" && p.content === "Planner note: They skipped the warehouse entirely."));
+  await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.trigger, "asked"); assert.equal(t.planner.arc.version, 3);
+  const briefing = plannerCalls(llm).at(-3).messages[0].content;
+  assert.ok(briefing.includes('"They skipped the warehouse entirely." (beat done)'), "the note, and that the beat is done, reached the planner");
+});
+
+test("the planner stays quiet when off, over budget, or with the interval at 0; plan now still works", async () => {
+  const off = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  await off.t.command({ cmd: "plan", action: "off" });
+  await planned(off.t, off.api);
+  assert.equal(off.t.planner.arc, null); assert.equal(plannerCalls(off.llm).length, 0); assert.equal(off.t.storyPlanSection(), "");
+  const budget = await table({ improv: IMPROV, heal: true, cfg: { ...pcfg(), dailyTokenBudget: 1 } });
+  await alicePosts(budget.t, budget.api, "Hm."); await settle(budget.t);
+  await planned(budget.t, budget.api);
+  assert.equal(budget.t.planner.arc, null);
+  await assert.rejects(budget.t.command({ cmd: "plan", action: "now" }), /budget/);
+  const manual = await table({ improv: IMPROV, heal: true, cfg: pcfg({ intervalMs: 0 }) });
+  await planned(manual.t, manual.api);
+  assert.equal(manual.t.planner.arc.version, 1, "a first plan still happens");
+  await planned(manual.t, manual.api, 50);
+  assert.equal(manual.t.planner.arc.version, 1, "then nothing automatic");
+  await manual.t.command({ cmd: "plan", action: "now" });
+  assert.equal(manual.t.planner.arc.version, 2); assert.equal(manual.t.planner.arc.trigger, "manual");
+});
+
+// ---- sessions, the final review, the calendar, and what everyone knows about each other
+test("nobody online: an away side turn never starts the planner, even when a plan is due", async () => {
+  const { t, api, llm, clock } = await table({ improv: IMPROV, heal: true, cfg: { ...pcfg(), autonomyIdleMinutes: 30, awaySideIntervalMs: 6 * 3600000, autonomySideIntervalMs: MIN } });
+  await planned(t, api);
+  const calls = plannerCalls(llm).length;
+  await t.command({ cmd: "split", who: ["Harriet Vance"], place: "Lighthouse", span: "long" });
+  await settle(t);
+  t.planner.asked = { why: "the Keeper asked", at: clock.t };   // due, if anyone were here
+  t.planner.session = null;
+  clock.t += 7 * 3600000;
+  const before = t.turns;
+  assert.notEqual(await t.tick(), null); await settle(t); await t.memoryIdle(); await settle(t);
+  assert.equal(t.turns, before + 1, "the side thread moved on its own");
+  assert.equal(plannerCalls(llm).length, calls, "but the planner did not run");
+  await alicePosts(t, api, "I'm back."); await settle(t); await t.memoryIdle(); await settle(t);
+  assert.equal(plannerCalls(llm).length, calls + 3, "a player's line, and it runs");
+});
+
+test("the final review: when the players leave, one review moves the calendar on, acts off-screen and prepares the next session", async () => {
+  const { t, api, llm, clock } = await table({ improv: IMPROV, casual: { on: true }, heal: true, cfg: { ...pcfg(), autonomyIdleMinutes: 30 } });
+  await planned(t, api);                                   // ten player lines; the first plan sets the first date
+  assert.deepEqual([t.calendar.date, t.calendar.time], ["1923-10-02", "early morning"]); assert.equal(t.calendar.log.at(-1).by, "planner");
+  assert.equal(t.planner.session.lines, 10);
+  const calls = plannerCalls(llm).length;
+  clock.t += 29 * 60000;
+  assert.equal(t.checkSessionEnd(), null, "not yet: the players may still be thinking");
+  clock.t += 2 * 60000;
+  const job = t.checkSessionEnd();
+  assert.ok(job, "the session is over"); await job; await t.memoryIdle(); await settle(t);
+  const review = plannerCalls(llm).slice(calls);
+  assert.equal(review.length, 3, "draft, critique, revise");
+  assert.match(review[0].system, /FINAL REVIEW/); assert.match(review[0].messages[0].content, /This is the FINAL REVIEW/);
+  assert.match(review[0].messages[0].content, /The session that just ended: 10 player lines/);
+  assert.match(review[1].messages.at(-1).content, /final review of a session/);
+  assert.deepEqual([t.calendar.date, t.calendar.time], ["1923-10-04", "morning"]);
+  assert.equal(t.calendar.log.at(-1).by, "final review");
+  assert.deepEqual(api.declared.at(-1), { text: "[mock offscreen] The Guild doubled the night watch at the docks.", secret: true });
+  const note = api.posts.find((p) => p.visibility === "gm_only" && p.content.startsWith("Final review of the session"));
+  assert.ok(note, "a Keeper-only note");
+  assert.match(note.content, /Calendar: 1923-10-02 \(Tuesday\), early morning → 1923-10-04 \(Thursday\), morning/); assert.match(note.content, /1 secret/); assert.match(note.content, /Next session opens: \[mock opening\]/);
+  assert.equal(t.planner.session, null); assert.equal(t.planner.arc.trigger, "final");
+  clock.t += 3600000;
+  assert.equal(t.checkSessionEnd(), null, "once per session");
+  // The next session opens from what the review prepared, once.
+  await alicePosts(t, api, "Good morning, everyone."); await settle(t);
+  const first = directorCalls(llm).find((u) => u.includes("Good morning, everyone.") && !/^MODE: /m.test(u));
+  assert.match(first, /BETWEEN SESSIONS: this is the first turn of a new session\. Since the last one, 2 day\(s\) passed in the story \(now: 1923-10-04 \(Thursday\), morning\)/);
+  assert.match(first, /\[mock offscreen\] The Guild doubled the night watch at the docks\. \[secret/); assert.match(first, /\[mock opening\] A knock at the door at dawn\./);
+  assert.match(first, /Today in the story: 1923-10-04 \(Thursday\), morning/);
+  assert.equal(t.planner.between, null);
+  const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
+  assert.match(cp, /TODAY IN THE STORY: 1923-10-04 \(Thursday\), morning/);
+  assert.match(cp, /TIME HAS PASSED since you last spoke: 2 day\(s\)/);
+  assert.ok(!cp.includes("[mock offscreen]") && !cp.includes("[mock opening]") && !cp.includes("[mock recap]"), "nothing of the review itself");
+  await alicePosts(t, api, "Shall we?"); await settle(t);
+  assert.doesNotMatch(directorCalls(llm).find((u) => u.includes("NEWEST LINE: Alice Hale: Shall we?")), /BETWEEN SESSIONS/);
+});
+
+test("a short session, or the final review turned off, ends without one; stopping run reviews the session first", async () => {
+  const short = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  await alicePosts(short.t, short.api, "Just checking in."); await settle(short.t);
+  short.clock.t += 31 * 60000;
+  const before = plannerCalls(short.llm).length;
+  assert.equal(short.t.checkSessionEnd(), null); assert.equal(short.t.planner.session, null, "closed without a review");
+  await short.t.memoryIdle();
+  assert.equal(plannerCalls(short.llm).length, before, "no final review");
+  const off = await table({ improv: IMPROV, heal: true, cfg: pcfg({ finalReview: false, finalReviewMinLines: 1 }) });
+  await alicePosts(off.t, off.api, "Hm."); await settle(off.t);
+  off.clock.t += 31 * 60000;
+  const offCalls = plannerCalls(off.llm).length;
+  assert.equal(off.t.checkSessionEnd(), null); await off.t.memoryIdle();
+  assert.equal(plannerCalls(off.llm).length, offCalls);
+  const stop = await table({ improv: IMPROV, casual: { on: true }, heal: true, cfg: pcfg({ finalReviewMinLines: 2 }) });
+  await alicePosts(stop.t, stop.api, "One."); await settle(stop.t);
+  await alicePosts(stop.t, stop.api, "Two, and I have to go."); await settle(stop.t);
+  assert.equal(await stop.t.finishSession(), true);
+  assert.equal(stop.t.planner.arc.trigger, "final");
+  assert.equal(stop.t.calendar.date, "1923-10-04", "the first date, then two days on");
+  assert.equal(await stop.t.finishSession(), false, "nothing left to review");
+});
+
+test("the Keeper's date and bond actions; traits, gender and relationships, and who knows what about whom", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (u) => (u.includes("NEWEST LINE: Alice Hale: We rest for the night.") && !/^MODE: /m.test(u)
+    ? { actions: [
+      { type: "date", date: "1923-10-02", time: "night" }, { type: "date", advance_days: 1, time: "dawn", reason: "a night's rest" }, { type: "date", date: "1923-09-01" },
+      { type: "bond", a: "Alice Hale", b: "Harriet Vance", kind: "lives with", note: "they share rooms" },
+      { type: "bond", a: "Mr. Grimsby", b: "Lady Ashcombe", kind: "lovers", secret: true },
+      { type: "bond", a: "Mr. Grimsby", b: "Harriet Vance", kind: "family", note: "her uncle", secret: true },
+      { type: "bond", a: "Mr. Grimsby", b: "Alice Hale", kind: "rivals" },
+      { type: "npc", name: "Mr. Grimsby", text: "Good night, miss." }, { type: "narrate", text: "Dawn comes grey." }], coplayers_may_act: true }
+    : base(u));
+  const lady = { id: "c-lady", name: "Lady Ashcombe", kind: "npc", user_id: null, bio: "LADY-BRIEF: owns the mill", role_card: { basic: { sex: "female", age: "40" }, characteristics: { APP: 90, INT: 85 } } };
+  const { t, api } = await table({ llm, casual: { on: true }, extraCharacters: [lady] });
+  api.characters_[0].role_card.characteristics = { INT: 88, APP: 50 };
+  api.characters_[0].role_card.basic.sex = "female";
+  Object.assign(api.characters_[2].role_card, { basic: { sex: "male", age: "62" }, characteristics: { SIZ: 90 } });
+  await alicePosts(t, api, "We rest for the night."); await settle(t);
+  assert.deepEqual([t.calendar.date, t.calendar.time], ["1923-10-03", "dawn"], "set, moved on a day; the earlier date refused");
+  assert.equal(t.bonds.length, 4);
+  const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
+  assert.match(cp, /TODAY IN THE STORY: 1923-10-03 \(Wednesday\), dawn/);
+  assert.match(cp, /notable: extremely intelligent/, "she knows what is striking about Alice");
+  assert.doesNotMatch(cp, /\b88\b/, "never the number");
+  assert.match(cp, /PEOPLE YOU HAVE MET[^\n]*\n- Mr\. Grimsby \(male, 62; very large, imposing build\)/, "Grimsby spoke in her scene");
+  assert.ok(!cp.includes("Lady Ashcombe"), "Lady Ashcombe she has never met, nor her secret affair");
+  assert.ok(!cp.includes("knows where the key is") && !cp.includes("LADY-BRIEF"), "never the Keeper's brief");
+  assert.match(cp, /Alice Hale — Harriet Vance \(you\): lives with \(they share rooms\)/);
+  assert.match(cp, /Mr\. Grimsby — Harriet Vance \(you\): family \(her uncle\)/, "her own secret bond");
+  assert.match(cp, /Mr\. Grimsby — Alice Hale: rivals/);
+  await alicePosts(t, api, "Morning, Mr. Grimsby."); await settle(t);
+  const gm = directorCalls(llm).find((u) => u.includes("NEWEST LINE: Alice Hale: Morning, Mr. Grimsby.") && !/^MODE: /m.test(u));
+  assert.match(gm, /## Calendar[^\n]*\nToday in the story: 1923-10-03 \(Wednesday\), dawn/);
+  assert.match(gm, /## Relationships[\s\S]*Mr\. Grimsby — Lady Ashcombe: lovers \[secret\]/);
+  assert.match(gm, /- Lady Ashcombe \(female, 40; extremely good-looking, striking; extremely intelligent\): /, "the Keeper's cast");
+  assert.match(gm, /- Mr\. Grimsby \(male, 62; very large, imposing build\): /);
+  assert.match(gm, /- Alice Hale \(played by alice\)\n[^\n]*gender: female[\s\S]*notable: extremely intelligent/);
+  assert.match(llm.calls.find((c) => c.purpose === "director").system, /"type": "date"[\s\S]*"type": "bond"/);
+  // The operator's commands.
+  await t.command({ cmd: "bond", a: "Alice Hale", b: "Mr. Grimsby", kind: "rivals", end: true });
+  assert.equal(t.bonds.length, 3);
+  await t.command({ cmd: "date", days: 2, time: "noon" });
+  assert.deepEqual([t.calendar.date, t.calendar.time, t.calendar.log.at(-1).by], ["1923-10-05", "noon", "operator"]);
+  await assert.rejects(t.command({ cmd: "date", date: "1900-01-01" }), /never runs backwards/);
+  await assert.rejects(t.command({ cmd: "bond", a: "Nobody", b: "Alice Hale", kind: "friends" }), /no character named Nobody/);
+});
+
+test("the first date and the everyday routine come from the planner, from the world's own calendar; the GM and the co-players read them", async () => {
+  const llm = new MockLlm();
+  const baseDirector = llm.director.bind(llm);
+  llm.director = (u) => (u.includes("NEWEST LINE: Alice Hale: What day is it?") && !/^MODE: /m.test(u) ? { actions: [{ type: "date", date: "1999-12-31", time: "noon" }, { type: "narrate", text: "Hard to say." }], coplayers_may_act: true } : baseDirector(u));
+  const world = `${IMPROV.world}\n\n## The fishing year\nWORLD-CALENDAR: the herring run starts in October; the Harbour Fair is held on the first Saturday after the run begins.`;
+  const { t, api } = await table({ llm, improv: { ...IMPROV, world }, casual: { on: true }, heal: true, cfg: pcfg() });
+  await alicePosts(t, api, "What day is it?"); await settle(t);
+  await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.trigger, "first", "no date: the first plan comes after the first line");
+  assert.deepEqual([t.calendar.date, t.calendar.time], ["1923-10-02", "early morning"], "the planner's date and time of day, not the Keeper's");
+  assert.equal(t.calendar.log.find((e) => e.to.includes("1923")).by, "planner");
+  const draft = plannerCalls(llm)[0];
+  assert.match(draft.system, /choosing the first one is your job/); assert.match(draft.system, /Routine: everyday life follows a calendar/);
+  assert.ok(draft.messages[0].content.includes("WORLD-CALENDAR"), "the planner reads the world's own calendar");
+  assert.match(draft.messages[0].content, /"routine": "what everyday life is busy with/);
+  assert.match(t.calendar.routine.text, /\[mock routine\] The herring season/);
+  await alicePosts(t, api, "Harriet, shall we go down to the market?"); await settle(t);
+  const gm = directorCalls(llm).find((u) => u.includes("shall we go down to the market?") && !/^MODE: /m.test(u));
+  assert.match(gm, /Today in the story: 1923-10-02 \(Tuesday\), early morning\nEveryday life now: \[mock routine\] The herring season[^\n]*Coming up: \[mock\] the Harbour Fair on the quay \(next Saturday\)\./);
+  assert.match(llm.calls.find((c) => c.purpose === "director").system, /The story planner chooses the first date/);
+  const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
+  assert.match(cp, /TODAY IN THE STORY: 1923-10-02 \(Tuesday\), early morning/);
+  assert.match(cp, /Everyday life now: \[mock routine\] The herring season.*\(common knowledge: everyone in the story knows it\)/);
+  // A routine is common knowledge: one quoting a secret is dropped; the next date move marks it as dated.
+  t.applyRoutine({ routine: "Everyone says the Guild master drowned the lighthouse keeper.", upcoming: [] });
+  assert.match(t.calendar.routine.text, /herring season/, "kept the old one");
+  t.moveCalendar({ days: 1, by: "keeper" });
+  assert.match(renderCalendarOf(t), /Everyday life now \(as of 1923-10-02 \(Tuesday\)\)/);
+});
+import { renderCalendar as _renderCalendar } from "../src/calendar.mjs";
+const renderCalendarOf = (t) => _renderCalendar(t.calendar);
+
+test("a solemn game keeps no date: no calendar for anyone, no date action, and the final review moves no calendar", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  llm.director = (u) => (u.includes("NEWEST LINE: Alice Hale: We rest.") && !/^MODE: /m.test(u) ? { actions: [{ type: "date", date: "1923-10-02", advance_days: 1 }, { type: "narrate", text: "Night falls." }], coplayers_may_act: true } : base(u));
+  const { t, api, clock } = await table({ llm, improv: IMPROV, heal: true, cfg: { ...pcfg(), autonomyIdleMinutes: 30 } });
+  await alicePosts(t, api, "We rest."); await settle(t);
+  await planned(t, api);
+  assert.equal(t.planner.arc.trigger, "first"); assert.equal(t.calendar.date, "", "no date");
+  const director = llm.calls.find((c) => c.purpose === "director");
+  assert.doesNotMatch(director.system, /"type": "date"|advance_days|- Time:/);
+  assert.ok(!director.messages[0].content.includes("## Calendar"));
+  const draft = plannerCalls(llm)[0];
+  assert.doesNotMatch(draft.system, /Time \(a casual game|Routine:/); assert.doesNotMatch(draft.messages[0].content, /"calendar": \{/);
+  assert.ok(!llm.calls.filter((c) => c.purpose === "coplayer_turn").some((c) => c.messages[0].content.includes("TODAY IN THE STORY")));
+  clock.t += 31 * 60000;
+  await t.checkSessionEnd(); await t.memoryIdle(); await settle(t);
+  const review = plannerCalls(llm).filter((c) => c.messages[0].content.includes("This is the FINAL REVIEW"));
+  assert.equal(review.length, 3, "the final review still runs");
+  assert.doesNotMatch(review[0].system, /advance_days/); assert.doesNotMatch(review[0].messages[0].content, /"advance_days"/);
+  assert.equal(t.calendar.date, ""); assert.equal(t.calendar.log.length, 0);
+  const note = api.posts.find((p) => p.content.startsWith("Final review of the session"));
+  assert.doesNotMatch(note.content, /Calendar/); assert.match(note.content, /Off-screen: 1 development/);
+  await alicePosts(t, api, "Back again."); await settle(t);
+  const first = directorCalls(llm).find((u) => u.includes("NEWEST LINE: Alice Hale: Back again.") && !/^MODE: /m.test(u));
+  assert.match(first, /BETWEEN SESSIONS: this is the first turn of a new session\. Meanwhile, off-screen:/);
+  assert.doesNotMatch(first, /day\(s\) passed|what day and time/);
+  await assert.rejects(t.command({ cmd: "date", days: 1 }), /only in a casual game/);
+});
+
+test("a plan made before the platform's first scenario is not redone when that scenario opens; a later change still is", async () => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  t.scenario = null;
+  await planned(t, api);
+  assert.equal(t.planner.arc.version, 1); assert.equal(t.planner.scenarioId, null);
+  t.onEvent({ stream: "chat", type: "scene.changed", channel_id: "ch", scene: { id: "sc1", status: "active" } });
+  await alicePosts(t, api, "Onward."); await settle(t); await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.version, 1, "the first scenario is no change");
+  t.onEvent({ stream: "chat", type: "scene.changed", channel_id: "ch", scene: { id: "sc2", status: "active" } });
+  await alicePosts(t, api, "Onward again."); await settle(t); await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.version, 2); assert.equal(t.planner.arc.trigger, "scenario");
+  assert.ok(plannerCalls(llm).length === 6);
+});
+
+test("turning casual mode on mid-campaign asks the planner for the story's first date", async () => {
+  const { t, api } = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  await planned(t, api);
+  assert.equal(t.planner.arc.calendar, null, "a solemn game's plan carries no calendar");
+  assert.doesNotMatch(t.storyPlanSection(), /Calendar:/);
+  await t.command({ cmd: "casual", on: true });
+  await alicePosts(t, api, "Let's take it easy for a while."); await settle(t); await t.memoryIdle(); await settle(t);
+  assert.equal(t.planner.arc.trigger, "asked");
+  assert.deepEqual([t.calendar.date, t.calendar.time], ["1923-10-02", "early morning"]);
+});
+
+// ---- the table's own windows: the phone log, the planner window, new players
+const COPLAYER2 = { id: "c-tomas", name: "Tomas Leclerc", kind: "pc", user_id: "u-bot", player_name: "AI Keeper", bio: "A journalist.", role_card: {} };
+const logLines = (t, api) => api.posts.filter((p) => p.window === t.casual.log && p.kind === "ic");
+
+test("casual: texts between co-players and NPCs go to the Keeper's phone log, answered in their own time, and stop before they run away", async () => {
+  const llm = new MockLlm();
+  const baseCp = llm.coplayer.bind(llm);
+  // Harriet texts Tomas when Alice asks her to; Tomas and Harriet then answer each other through their own models.
+  llm.coplayer = (u) => (u.startsWith("YOU ARE: Harriet Vance") && u.includes("NEWEST LINE: #") && u.includes("Text Tomas") ? { action: "text", to: "Tomas Leclerc", text: "Meet me at the pier at nine." } : baseCp(u));
+  const { t, api, clock } = await isolated({ llm, extraCharacters: [COPLAYER2], cfg: { casualAiChain: 3 } });
+  const phonesBefore = api.posts.filter((p) => Object.values(t.casual.phones).includes(p.window) && p.kind === "ic").length;
+  await alicePosts(t, api, "Harriet, please. Text Tomas."); await settle(t);
+  assert.deepEqual(logLines(t, api).map((p) => [p.content, p.character_id]), [["→ Tomas Leclerc: Meet me at the pier at nine.", "c-harriet"]], "in the log, as Harriet");
+  await settle(t);
+  const cpPhone = llm.calls.filter((c) => c.purpose === "coplayer_phone");
+  assert.equal(cpPhone.length, 1, "Tomas reads it"); assert.match(cpPhone[0].system, /You play Tomas Leclerc/);
+  clock.t += 6 * MIN; await t.deliverDue(); await settle(t);
+  assert.equal(logLines(t, api).at(-1).character_id, "c-tomas"); assert.match(logLines(t, api).at(-1).content, /^→ Harriet Vance: \[mock Tomas Leclerc\] On my way\./);
+  clock.t += 6 * MIN; await t.deliverDue(); await settle(t);
+  clock.t += 6 * MIN; await t.deliverDue(); await settle(t);
+  assert.equal(logLines(t, api).length, 3, "three texts, then the exchange rests (casual.ai_chain 3)");
+  clock.t += 60 * MIN; await t.deliverDue(); await settle(t);
+  assert.equal(logLines(t, api).length, 3);
+  assert.equal(api.posts.filter((p) => Object.values(t.casual.phones).includes(p.window) && p.kind === "ic").length, phonesBefore, "no player's phone saw any of it");
+  assert.deepEqual(t.store.phoneOf("c-tomas").map((r) => r.from), ["c-harriet", "c-tomas", "c-harriet"], "both remember the thread");
+  // An NPC answers a co-player through the GM, in the log.
+  const base = llm.director.bind(llm);
+  llm.director = (u) => (/^MODE: phone — Harriet Vance texted Mr\. Grimsby/m.test(u) ? { actions: [{ type: "text", from: "Mr. Grimsby", to: "Harriet Vance", text: "The key is not mine to give.", delay_minutes: 0 }], coplayers_may_act: false } : base(u));
+  llm.coplayer = (u) => (u.startsWith("YOU ARE: Harriet Vance") && u.includes("Ask Grimsby") ? { action: "text", to: "Mr. Grimsby", text: "Where is the key?" } : baseCp(u));
+  await alicePosts(t, api, "Harriet? Ask Grimsby by text."); await settle(t); await settle(t);
+  assert.ok(logLines(t, api).some((p) => p.content === "→ Mr. Grimsby: Where is the key?" && p.character_id === "c-harriet"));
+  assert.ok(logLines(t, api).some((p) => p.content === "→ Harriet Vance: The key is not mine to give." && p.character_id === "c-butler"), "Grimsby's answer, through the GM");
+  const phoneTurn = directorCalls(llm).find((u) => /^MODE: phone — Harriet Vance texted Mr\. Grimsby/m.test(u));
+  assert.match(phoneTurn, /## Chat in "Phone log \(Keeper only\)"[\s\S]*Where is the key\?/, "the Keeper reads the log when answering");
+  await alicePosts(t, api, "Anything new?"); await settle(t);
+  assert.match(directorCalls(llm).find((u) => u.includes("NEWEST LINE: Alice Hale: Anything new?")), /## Recent lines in "Phone log \(Keeper only\)"[\s\S]*The key is not mine to give\./, "and in every other turn");
+  // Nobody at the table: a text still arrives, but no one answers it.
+  const answers = llm.calls.filter((c) => c.purpose === "coplayer_phone").length;
+  t.aiText("c-butler", "c-tomas", "Stay away from the pier.");
+  clock.t += 3 * 3600000; await t.deliverDue(); await settle(t);
+  assert.ok(logLines(t, api).some((p) => p.content === "→ Tomas Leclerc: Stay away from the pier."));
+  assert.equal(llm.calls.filter((c) => c.purpose === "coplayer_phone").length, answers, "everyone is away: no answer");
+  assert.equal(await t.tick(), null, "the log never gets a turn");
+});
+
+test("the planner window: every player sits in it; wishes and corrections reach the planner, the Keeper and (corrections only) the co-players", async () => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  const w = api.createdWindows.find((x) => x.id === t.planner.window);
+  assert.equal(w.name, "To the story planner"); assert.deepEqual(w.members.map((m) => m.user_id), ["u-bot", "u-alice"]);
+  assert.ok(api.posts.some((p) => p.window === w.id && p.kind === "ooc" && p.content.startsWith("🧭 This window is for the story planner")));
+  const turns = t.turns;
+  const say = (content) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w.id, author_id: "u-alice", author_name: "alice", author_role: "player", character_id: "c-alice", content }) });
+  say("Harriet would never leave a friend behind.");
+  say("I'd love a slow-burn rivalry with the harbour master.");
+  await settle(t);
+  assert.equal(t.turns, turns, "no turn is played there"); assert.equal(t.planner.session, null, "and it is no play");
+  await t.memoryIdle();
+  assert.equal(plannerCalls(llm).length, 0, "no run of its own: the planner keeps its routine");
+  assert.equal(t.planner.inbox.length, 2, "the lines wait for the next run");
+  await planned(t, api);   // the planner's usual first plan comes after ten lines of play
+  assert.equal(t.planner.arc.trigger, "first");
+  const draft = plannerCalls(llm)[0];
+  assert.match(draft.system, /The players can write to you/);
+  assert.match(draft.messages[0].content, /## The players' words to you[^\n]*\n- alice: Harriet would never leave a friend behind\.\n- alice: I'd love a slow-burn rivalry/);
+  assert.deepEqual(t.planner.table.map((n) => [n.id, n.kind, n.about]), [["N1", "correction", ["Harriet Vance"]], ["N2", "wish", []]]);
+  assert.equal(t.planner.inbox.length, 0, "read");
+  const reply = api.posts.filter((p) => p.window === w.id && p.kind === "ooc").at(-1);
+  assert.equal(reply.content, "🧭 [mock reply] Noted 2 line(s): the story will follow.");
+  await alicePosts(t, api, "Harriet, the clock?"); await settle(t);
+  const gm = directorCalls(llm).at(-2);
+  assert.match(gm, /## The players' wishes and corrections[\s\S]*Corrections:[^\n]*\n- N1: \[mock note\] Harriet would never leave a friend behind\. \(about Harriet Vance\)[\s\S]*Wishes:[^\n]*\n- N2: \[mock note\] I'd love a slow-burn rivalry/);
+  const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
+  assert.match(cp, /TABLE CORRECTIONS[^\n]*\n- \[mock note\] Harriet would never leave a friend behind\./);
+  assert.ok(!cp.includes("slow-burn rivalry"), "a wish is the planner's to weave in, never a co-player's to play to");
+  // The next words refine the notes; the standing ones are shown to the planner by id.
+  say("Actually, no rivalry after all.");
+  await t.command({ cmd: "plan", action: "now" }); await settle(t);
+  assert.match(plannerCalls(llm).at(-3).messages[0].content, /## Standing table notes[^\n]*\n- N1 \[correction\][\s\S]*- N2 \[wish\]/);
+});
+
+test("a new player is seated in the planner window, gets a phone in casual mode, and the Keeper brings their character in", async () => {
+  const { t, api, llm } = await isolated({ cfg: pcfg() });
+  await t.ensureTableWindows();
+  assert.ok(t.planner.window && t.casual.log, "planner window and phone log");
+  const before = Object.keys(t.casual.phones).length;
+  api.channelUsers.push("u-cara");
+  api.characters_.push({ id: "c-cara", name: "Cara Lind", kind: "pc", user_id: "u-cara", player_name: "cara", role_card: { basic: { sex: "female" } } });
+  api.windows_[0].members.push({ user_id: "u-cara", character_id: "c-cara", character_name: "Cara Lind" });
+  t.onEvent({ stream: "chat", type: "window.changed", channel_id: "ch", window: { id: "w-main" } });
+  await settle(t); await t.ensureTableWindows(); await settle(t);
+  assert.ok(api.addedMembers.some((m) => m.window === t.planner.window && m.user_id === "u-cara"), "seated in the planner window");
+  assert.equal(Object.keys(t.casual.phones).length, before + 1); assert.ok(t.casual.phones["c-cara"], "her phone");
+  assert.equal(api.createdWindows.find((w) => w.id === t.casual.phones["c-cara"]).name, "Phone: Cara Lind");
+  const welcome = directorCalls(llm).find((u) => u.includes("a new player just joined the table with Cara Lind"));
+  assert.ok(welcome, "the Keeper brings her in"); assert.match(welcome, /Bring this character into the story here, naturally/);
+  assert.ok(t.timelines.main().members.includes("c-cara"));
+  await t.refresh(); await settle(t);
+  assert.equal(directorCalls(llm).filter((u) => u.includes("a new player just joined the table")).length, 1, "welcomed once");
 });

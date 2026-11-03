@@ -41,7 +41,8 @@ test('Personal profile: all server languages, atomic rename, persistent avatar a
   await request(a.token,'POST',`/api/servers/${server.id}/members`,{user_id:b.user.id});
   const image = await fetch(base+avatarPath,{headers:{Authorization:`Bearer ${b.token}`}});
   assert.equal(image.status,200); assert.equal(image.headers.get('content-type'),'image/png');
-  assert.equal(image.headers.get('x-content-type-options'),'nosniff'); assert.match(image.headers.get('cache-control'),/no-store/);
+  assert.equal(image.headers.get('x-content-type-options'),'nosniff'); assert.equal(image.headers.get('cache-control'),'private, no-cache'); assert.match(image.headers.get('etag'),/^".+"$/);
+  assert.equal((await fetch(base+avatarPath,{headers:{Authorization:`Bearer ${b.token}`,'If-None-Match':image.headers.get('etag')}})).status,304, 'a bare avatar URL revalidates');
   assert.equal(Buffer.from(await image.arrayBuffer()).toString('base64'),png.split(',')[1]);
   await request(null,'POST','/api/auth/login',{username:me.username,password:'password'},401);
   const login = await request(null,'POST','/api/auth/login',{username:renamed,password:'password'});

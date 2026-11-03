@@ -15,7 +15,7 @@
 namespace acerciae {
 
 static const std::string MSG_SELECT =
-    "SELECT m.*, c.name AS character_name, CASE WHEN m.kind='ooc' THEN NULL ELSE c.avatar_asset_id END AS character_avatar_asset_id, CASE WHEN m.kind='ooc' THEN NULL ELSE ca.version END AS character_avatar_version, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_version ELSE 0 END AS author_avatar_version FROM messages m "
+    "SELECT m.*, c.name AS character_name, CASE WHEN m.kind='ooc' THEN NULL ELSE c.avatar_asset_id END AS character_avatar_asset_id, CASE WHEN m.kind='ooc' THEN NULL ELSE ca.version END AS character_avatar_version, CASE WHEN m.kind='ooc' THEN NULL ELSE ca.content_hash END AS character_avatar_hash, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_version ELSE 0 END AS author_avatar_version, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_hash END AS author_avatar_hash FROM messages m "
     "LEFT JOIN characters c ON c.id=m.character_id LEFT JOIN media_assets ca ON ca.id=c.avatar_asset_id LEFT JOIN users u ON u.id=m.author_id ";
 
 // ---- servers ---------------------------------------------------------------------------------
@@ -383,7 +383,7 @@ Json::Value ChatService::spectate(const Principal& p, const std::string& channel
 }
 Json::Value ChatService::spectatorMessage(Json::Value m) {
     // Character art lives in the channel's media library, which spectators cannot open.
-    m["character_avatar_asset_id"] = Json::Value(); m["character_avatar_version"] = Json::Value();
+    m["character_avatar_asset_id"] = Json::Value(); m["character_avatar_version"] = Json::Value(); m["character_avatar_hash"] = Json::Value();
     m.removeMember("whisper_to");
     return m;
 }
@@ -391,7 +391,7 @@ Json::Value ChatService::spectatorMessage(Json::Value m) {
 // ---- characters ------------------------------------------------------------------------------
 Json::Value ChatService::listCharacters(const ChannelAccess& a) {
     // Players see all PC names (table knowledge) but GM-only NPC sheets stay hidden.
-    std::string sql = "SELECT c.*, u.display_name AS player_name FROM characters c LEFT JOIN users u ON u.id=c.user_id WHERE c.channel_id=$1";
+    std::string sql = "SELECT c.*, u.display_name AS player_name, av.version AS avatar_asset_version, av.content_hash AS avatar_asset_hash FROM characters c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN media_assets av ON av.id=c.avatar_asset_id WHERE c.channel_id=$1";
     if (!a.isGm) sql += " AND c.kind='pc'";
     sql += " ORDER BY c.kind, c.created_at";
     return db_.queryJson(sql, {a.channelId});

@@ -64,7 +64,7 @@ export const api = {
   login: (username: string, password: string) => post<{ token: string; user: T.User }>('/api/auth/login', { username, password }),
   logout: () => post('/api/auth/logout'),
   me: () => get<T.User>('/api/auth/me'),
-  atmosphere: (ch: string) => get<{ enabled: boolean; id?: string; mock?: boolean; assets?: Record<string,string> }>(`/api/channels/${ch}/atmosphere`),
+  atmosphere: (ch: string) => get<{ enabled: boolean; id?: string; mock?: boolean; assets?: Record<string,string>; hashes?: Record<string,string> }>(`/api/channels/${ch}/atmosphere`),
   atmosphereHistory: (ch: string) => get<{ id: string; scene_label: string; reason: string; created_at: string; prompts: Record<string,string>; variants: { variant: string; status: string; error?: string }[] }[]>(`/api/channels/${ch}/atmosphere/history`),
   atmosphereImage: (ch: string, id: string) => `${apiBase()}/api/channels/${ch}/atmosphere/assets/${id}?token=${encodeURIComponent(fileToken())}`,
   updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
@@ -223,6 +223,7 @@ export const api = {
   retryVnBackgrounds: (ch: string, id: string, scene_key?: string, allow_cloud?: boolean) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}/backgrounds/retry`, { scene_key, allow_cloud }),
   vnImageStatus: (ch: string) => get<{ enabled: boolean; mock: boolean }>(`/api/channels/${ch}/studio/images/status`),
   cancelVnScript: (ch: string, id: string) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}/cancel`, {}),
+  answerVnScript: (ch: string, id: string, body: { part_index: number; answers?: Record<string, string>; skip?: boolean }) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}/answers`, body),
   createPresentation: (ch: string, snapshotId: string, body: { title?: string; settings?: Record<string, unknown>; style_profile_id?: string }) => post<T.Presentation>(`/api/channels/${ch}/studio/snapshots/${snapshotId}/presentations`, body),
   presentation: (ch: string, id: string) => get<T.Presentation>(`/api/channels/${ch}/studio/presentations/${id}`),
   // Dubbing cast: character id (or 'narrator') → voice profile id ('' clears).

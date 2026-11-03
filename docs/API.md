@@ -31,13 +31,20 @@ User objects now include `ui_language`, `avatar_data` (empty once the avatar is 
 | POST | `/auth/login` | `{username, password}` → `{token, user}`; a suspended account answers `403 account_suspended` with the reason in the message |
 | POST | `/auth/logout` | ends the session and closes its WebSockets |
 | POST | `/auth/file-token` | `{token, expires_at}` for `?token=` on file URLs and the WebSocket |
-| GET | `/auth/me` | includes `is_admin` (a platform administrator, see [ADMIN.md](ADMIN.md)) |
+| GET | `/auth/me` | includes `is_admin` (a platform administrator, see [ADMIN.md](ADMIN.md)) and `avatar_hash` (SHA-256 of the avatar bytes, null without one; see [ASSETS.md](ASSETS.md), "On the device") |
 
 ## Platform administration
 
 Administrators of the deployment (`PLATFORM_ADMINS`, or granted `is_admin`) inspect accounts, servers, storage,
 database and AI use and suspend servers or accounts under `/api/admin/*`; others answer `403 admin_required`. Routes,
 fields and the effects of a suspension are in [ADMIN.md](ADMIN.md).
+
+Pictures carry their **content hash** wherever they are referenced: `content_hash` on media rows, `hash` on the character
+space's avatar, portrait and poses, `avatar_asset_hash` (with `avatar_asset_version`) on `/channels/{id}/characters`,
+`character_avatar_hash` and `author_avatar_hash` on messages, `background_asset_hash` on visual-novel scenes and
+`asset_hash` on their placements, `hashes {variant: hash}` on `/channels/{id}/atmosphere`. Null until an object stored
+before hashes existed has been served once. Versioned media, versioned avatars, atmosphere images and voice clips are
+delivered with `Cache-Control: private, max-age=31536000, immutable`.
 
 ## Servers
 | GET/POST | `/servers` | list mine `[{id, name, owner_id, created_at, my_role, suspended, suspended_reason}]` (a server the platform administrators suspended stays listed, marked, with the reason; everything inside it answers `403 server_suspended`) / create `{name}` |
@@ -279,8 +286,9 @@ Presentations can be authored by hand or built by a visual-novel script job (bel
 | GET/POST | `/presentations/{p}/progress` | Per-user reading position. |
 | GET | `/vn-scripts/status` | `{mock, model, cloud_allowed, images, max_lines, note}`. |
 | GET · POST | `/vn-scripts` | Any member. GET lists the caller's jobs (all jobs for the Keeper). POST `{scope?: gm_full\|pl_public\|character, scope_character_id?, title?, template?, instructions?, allow_cloud?, generate_art?}` freezes the campaign log in that scope (players: `pl_public` or their own character) and queues a script job; `{snapshot_id}` plans an existing snapshot instead. `{continue_presentation_id}` (its author or the Keeper) continues that visual novel: the log is frozen again in its scope and only the lines after its last one are planned and appended to it (400 when there are none, 409 while another continuation runs; see [Continuing a visual novel](VISUAL_NOVEL.md#continuing-a-visual-novel-as-the-story-goes-on)). `allow_cloud:true` and the campaign cloud policy are required unless the LLM is in mock mode. Template values are validated (400 on bad values). |
-| GET | `/vn-scripts/{j}` | The job's author or the Keeper. Job with `status`, `progress {chunks_total, chunks_done, lines}`, validated `script` ([VN_SCRIPT_SCHEMA.json](VN_SCRIPT_SCHEMA.json)) including `generation {backgrounds[], portraits[]}` (queued image jobs) and the draft `presentation_id`. Progress also arrives as `studio.vnscript.progress` WebSocket events. |
-| POST | `/vn-scripts/{j}/cancel` | The job's author or the Keeper; pending or running jobs. |
+| GET | `/vn-scripts/{j}` | The job's author or the Keeper. Job with `status` (`pending`, `running`, `waiting` while the script editor's questions are open, `completed`, `failed`, `cancelled`), `progress {chunks_total, chunks_done, lines, questions_open}`, `questions [{part_index, first_line, last_line, items [{id, question, refs, options}], answered, answers}]`, validated `script` ([VN_SCRIPT_SCHEMA.json](VN_SCRIPT_SCHEMA.json)) including `generation {backgrounds[], portraits[]}` (queued image jobs) and the draft `presentation_id`. Progress also arrives as `studio.vnscript.progress` WebSocket events. |
+| POST | `/vn-scripts/{j}/cancel` | The job's author or the Keeper; pending, running or waiting jobs. |
+| POST | `/vn-scripts/{j}/answers` | The job's author or the Keeper; a `waiting` job. `{part_index, answers: {"q1": "…"}}` answers that part's questions (at least one, each up to 2000 characters; the rest are the editor's own call), `{part_index, skip: true}` keeps the editor's draft for it. 404 for a part that asked nothing, 400 once it is answered. The job runs again (status `pending`) once every open part is answered, redoing only those parts (see [Questions from the editor](VISUAL_NOVEL.md#questions-from-the-editor)). Returns the job. |
 | POST | `/vn-scripts/{j}/backgrounds/retry` | Draft author or Keeper. `{scene_key?, allow_cloud?}` resumes a single missing background, or all missing backgrounds when omitted. Keeps completed images and active jobs; failed/cancelled jobs reset their attempts. Original cloud consent is reused, while current campaign policy is rechecked. GET job details includes `background_jobs: [{scene_id,scene_key,job_id,status,error}]`, including `missing` for images never queued or not attached. |
 | POST | `/presentations/{p}/cast` | Author or Keeper. `{cast: {narrator: voiceId, <character_id>: voiceId}}` sets the voice of narration/dice/system/scene lines and of each character's dialogue and actions; stored as `settings.cast`. Unknown voices are 400. |
 | GET | `/presentations/{p}/bundle.zip` | Anyone who can read the presentation. ZIP with `index.html` (offline player), `script.json`, `assets/*` and `audio/*`, built during the request (kept for API and mobile clients; the web app uses the background bundle below). |
@@ -292,6 +300,14 @@ Presentations can be authored by hand or built by a visual-novel script job (bel
 | PUT | `/styles/{id}` | GM edits/version bump. |
 | GET | `/character-visuals` | NPC profiles are GM-only. |
 | PUT | `/character-visuals/{character}` | Owner/GM maintains identity and reference/default assets. |
+
+**Client caching of binaries.** Every binary route (`/media/{id}`, `/users/{id}/avatar`, `/atmosphere/assets/{id}`, `/studio/tts/audio/{id}`) sends an `ETag` (the stored object, which is never rewritten) and answers `If-None-Match` with `304`. A response a client may keep for good is marked `Cache-Control: private, max-age=31536000, immutable`:
+- a media asset requested with `?v=N`, when a player could see it (not GM-only, approved, not an NPC's);
+- a user avatar with `?v=`;
+- an atmosphere backdrop;
+- a TTS clip fetched by a player.
+
+Everything else revalidates (`private, no-cache`, such as a media asset without `?v=`) or is only briefly cacheable: GM-private material and the Keeper's TTS clips get `private, max-age=…` without `immutable`. The web, desktop and mobile clients keep on disk only `immutable` responses, keyed without the file token, separately per account, and delete them on sign-out, so GM-private material is never written to a device.
 
 Media routes are under `/api/channels/{channel_id}/media`, not `/studio/media`. `GET /media` lists metadata; `POST /media/upload` accepts multipart `file` and metadata. `GET /media/{id}/meta`, `PUT /media/{id}`, `DELETE /media/{id}` manage metadata; `POST /media/{id}/versions` uploads a replacement. `GET /media/{id}?v=N` returns bytes after authorization. Browser media URLs may carry `?token=...`; native clients should use `Authorization: Bearer ...` headers. Never copy authenticated media URLs into public pages; use publication file endpoints.
 

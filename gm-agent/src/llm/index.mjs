@@ -38,9 +38,10 @@ export function extractJson(text) {
 }
 
 // Asks for a JSON object; one repair round when the reply does not parse or fails validation. `user` is a string or a
-// list of parts (parts.mjs); the repair round appends to it, so the original prompt stays a cached prefix.
-export async function completeJson(llm, { system, user, purpose }, validate = (x) => x) {
-  const messages = [{ role: "user", content: user }];
+// list of parts (parts.mjs), or `messages` a prepared conversation (the story planner's draft → critique → revise);
+// the repair round appends to it, so the original prompt stays a cached prefix.
+export async function completeJson(llm, { system, user, messages: given, purpose }, validate = (x) => x) {
+  const messages = given ? given.map((m) => ({ ...m })) : [{ role: "user", content: user }];
   let reply = await llm.complete({ system, messages, purpose });
   try {
     return validate(extractJson(reply));

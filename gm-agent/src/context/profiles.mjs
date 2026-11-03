@@ -1,8 +1,9 @@
 import { isPlayerCharacter } from "../roles/roster.mjs";
+import { distinctiveTraits } from "./traits.mjs";
 // The investigators' basic details and backgrounds, as written on their role cards (and the character's bio). The GM
 // and the real NPCs read every investigator's profile; a co-player reads its companions' profiles, the way a human
-// player can open any player character's page. Real NPCs are never investigators, and characteristics and skills are
-// not part of a profile.
+// player can open any player character's page. Real NPCs are never investigators. Numbers (characteristics, skills)
+// are not part of a profile; only the most distinctive characteristics are, in words (traits.mjs).
 
 const BASIC = ["player", "occupation", "age", "sex", "residence", "birthplace"];
 const BACKGROUND = ["personal_description", "ideology", "significant_people", "meaningful_locations", "treasured_possessions", "traits", "injuries", "phobias", "arcane", "encounters"];
@@ -10,7 +11,7 @@ const FIELD_MAX = 400;
 const PROFILE_MAX = 2000;
 
 const clip = (s, n) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
-const label = (k) => k.replace(/_/g, " ");
+const label = (k) => (k === "sex" ? "gender" : k.replace(/_/g, " "));
 
 // The profile lines under a character's name: empty fields are left out, so a blank card gives no lines.
 export function investigatorProfile(character) {
@@ -18,6 +19,8 @@ export function investigatorProfile(character) {
   const lines = [];
   const basic = BASIC.map((k) => [k, clip(card.basic?.[k], FIELD_MAX)]).filter(([, v]) => v);
   if (basic.length) lines.push(basic.map(([k, v]) => `${label(k)}: ${v}`).join("; "));
+  const notable = distinctiveTraits(card);
+  if (notable.length) lines.push(`notable: ${notable.join("; ")}`);
   const bio = clip(character?.bio, FIELD_MAX);
   if (bio) lines.push(`bio: ${bio}`);
   for (const k of BACKGROUND) { const v = clip(card.background?.[k], FIELD_MAX); if (v) lines.push(`${label(k)}: ${v}`); }
