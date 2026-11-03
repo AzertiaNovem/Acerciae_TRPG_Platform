@@ -17,6 +17,7 @@
 		1AB79194F4720D82CF94D9FD /* UpdatesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */; };
 		1D156065915D5B9D4759BC08 /* LiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD20B35E61DBF04AC07F32E /* LiveViews.swift */; };
 		1D96DC29E28D76A3033CCD22 /* studio-engine.js in Resources */ = {isa = PBXBuildFile; fileRef = 1FF26B618A85649C651924AD /* studio-engine.js */; };
+		31AA9064DB7B29093288F591 /* StudioAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FF682618943384A97AC82E /* StudioAI.swift */; };
 		3248749550F27B3739B79E21 /* LocalStudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51DE2865F708274CC962A255 /* LocalStudio.swift */; };
 		338ABC7F7F5110D46FF98A88 /* PointBuyEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D13375635157268425659E /* PointBuyEditor.swift */; };
 		3AA96D4256D0F43585F1CED5 /* AtmosphereViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */; };
@@ -77,6 +78,7 @@
 		A2D13375635157268425659E /* PointBuyEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointBuyEditor.swift; sourceTree = "<group>"; };
 		A30897111065BED1758906FD /* mobile-localizations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "mobile-localizations.json"; sourceTree = "<group>"; };
 		B6939EEBC9E27B78760CC323 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		C0FF682618943384A97AC82E /* StudioAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioAI.swift; sourceTree = "<group>"; };
 		C9FC950E84B9437A84109729 /* CreationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreationViews.swift; sourceTree = "<group>"; };
 		CD29F793ED520DE30805D951 /* AcerciaeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcerciaeApp.swift; sourceTree = "<group>"; };
 		D598991A3669777F06153ECC /* AcerciaeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AcerciaeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -185,6 +187,7 @@
 				4F0BB20E2F39962964229196 /* ServerBrowser.swift */,
 				4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */,
 				DFC6444ED5044B03D351E38E /* SessionStore.swift */,
+				C0FF682618943384A97AC82E /* StudioAI.swift */,
 				2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */,
 				43F160A0F7343F07B57F6F6F /* VoiceSettings.swift */,
 				998A889DBAFA58F06F0D5ECD /* WorldRecord.swift */,
@@ -323,6 +326,7 @@
 				8B7524D9FCF680961BA0ACFA /* ServerBrowser.swift in Sources */,
 				06B8381C81C89F1E6B918017 /* ServerUpdates.swift in Sources */,
 				18330CF4F1B9AEBE2473D895 /* SessionStore.swift in Sources */,
+				31AA9064DB7B29093288F591 /* StudioAI.swift in Sources */,
 				1AB79194F4720D82CF94D9FD /* UpdatesViews.swift in Sources */,
 				50E17E7EEDF599CE1465535D /* VoiceSettings.swift in Sources */,
 				9BDF72B8AC40D45BE1DE1BC3 /* WorldRecord.swift in Sources */,

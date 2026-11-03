@@ -89,6 +89,8 @@ internal class LocalStudioStore(private val root: File) {
 private class StudioEngine(context:Context) {
     private val web=WebView(context)
     private val ready=CompletableDeferred<Unit>()
+    private var failure:Throwable?=null
+    private var destroyed=false
     private val pending=mutableMapOf<String,CompletableDeferred<String>>()
     private val main=Handler(Looper.getMainLooper())
     init {
@@ -97,20 +99,21 @@ private class StudioEngine(context:Context) {
             @JavascriptInterface fun complete(id:String,value:String) { main.post { pending.remove(id)?.complete(value) } }
         },"StudioNative")
         web.webViewClient=object:WebViewClient() {
+            override fun onRenderProcessGone(view:WebView,detail:android.webkit.RenderProcessGoneDetail):Boolean { val error=IllegalStateException("AI runtime stopped; resume the saved task");failure=error;ready.completeExceptionally(error);pending.values.forEach {it.completeExceptionally(error)};pending.clear();web.destroy();destroyed=true;return true }
             override fun onPageFinished(view:WebView,url:String) { ready.complete(Unit) }
             override fun onReceivedError(view:WebView,request:WebResourceRequest,error:WebResourceError) { ready.completeExceptionally(IllegalStateException(error.description.toString())) }
         }
         web.loadUrl("file:///android_asset/studio-engine.html")
     }
     suspend fun call(input:JsonObject): JsonObject = withTimeout(60_000) {
-        ready.await(); val id=UUID.randomUUID().toString(); val result=CompletableDeferred<String>(); pending[id]=result
+        failure?.let {throw it};ready.await(); val id=UUID.randomUUID().toString(); val result=CompletableDeferred<String>(); pending[id]=result
         try {
             web.evaluateJavascript("MobileStudio.run(${JsonPrimitive(input.toString())}).then(function(value){StudioNative.complete('$id',value)})",null)
             val envelope=Json.parseToJsonElement(result.await()).jsonObject
             check(envelope.flag("ok")) { envelope.text("error") }; envelope.obj("value")
         } finally { pending.remove(id) }
     }
-    fun close() { web.removeJavascriptInterface("StudioNative"); web.destroy(); pending.values.forEach { it.cancel() }; pending.clear() }
+    fun close() { if(!destroyed) {web.removeJavascriptInterface("StudioNative"); web.destroy();destroyed=true}; pending.values.forEach { it.cancel() }; pending.clear() }
 }
 // The only JS bridge lives in this packaged, network-disabled engine; document viewers have no bridge.
 
@@ -122,8 +125,46 @@ class LocalStudioViewModel(application:Application): AndroidViewModel(applicatio
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null)
     var document by mutableStateOf<StudioDocument?>(null)
+    var aiRunning by mutableStateOf(false); private set
+    var aiProgress by mutableStateOf(""); private set
+    private var aiTask:Job?=null
+    val aiSecrets=StudioAISecrets(application)
+    fun startAI(mode:String) {
+        if(busy) return
+        busy=true;aiRunning=true
+        aiTask=viewModelScope.launch {
+            var id=""
+            try {
+                flush();val parts=project!!.obj("vn_draft").rows("pending");val offline=mode=="resume" && parts.isNotEmpty() && parts.all {it.flag("skip")}
+                val config=if(offline) StudioAIConfig(model="offline") else aiSecrets.read();if(!offline) config.url()
+                engine.close();engine=StudioEngine(getApplication())
+                var state=engine.call(buildJsonObject {put("action","aiStart");put("mode",mode);put("project",project!!);put("config",config.publicValue());put("language",MobileLocale.language);put("instructions",project!!.text("mobile_ai_instructions"))})
+                id=state.text("id")
+                while(true) {
+                    ensureActive()
+                    if(state.text("state")=="done") {project=state.obj("project");store.save(project!!);projects=store.list();break}
+                    project=JsonObject(project!!+mapOf("mobile_ai_job" to state.obj("checkpoint")));store.save(project!!)
+                    aiProgress="${state.number("done")} / ${state.number("total") }"
+                    if(state.text("state")=="failed") kotlin.error(state.text("error"))
+                    state=if(state["request"] is JsonObject) {
+                        val response=StudioAITransport().send(state.obj("request").obj("body"),config)
+                        engine.call(buildJsonObject {put("action","aiAnswer");put("id",id);put("response",response)})
+                    } else {delay(50);engine.call(buildJsonObject {put("action","aiPoll");put("id",id)})}
+                }
+            } catch(e:Exception) {if(e !is CancellationException) error=tr(e.message?:"Invalid AI response")}
+            finally {if(id.isNotEmpty()) withContext(NonCancellable) {runCatching {engine.call(buildJsonObject {put("action","aiCancel");put("id",id)})}};busy=false;aiRunning=false;aiProgress="";aiTask=null}
+        }
+    }
+    fun pauseAI() {aiTask?.cancel()}
+    fun discardAI(key:String) {project=JsonObject(project!!.filterKeys {it!=key});saveNow()}
+    fun answerAI(index:Int,question:String?,value:String="",skip:Boolean?=null) {
+        val draft=project!!.obj("vn_draft");val rows=draft.rows("pending").toMutableList();if(index !in rows.indices) return;val row=rows[index].toMutableMap()
+        if(question!=null) row["answers"]=JsonObject(rows[index].obj("answers")+mapOf(question to JsonPrimitive(value.take(2000))))
+        if(skip!=null) row["skip"]=JsonPrimitive(skip)
+        rows[index]=JsonObject(row);update("vn_draft",JsonObject(draft+mapOf("pending" to JsonArray(rows))))
+    }
     private val store=LocalStudioStore(File(application.filesDir,"OpenLogStudio/projects"))
-    private val engine=StudioEngine(application)
+    private var engine=StudioEngine(application)
     private var saveJob:Job?=null
     init { viewModelScope.launch { runCatching { store.list() }.onSuccess { projects=it }.onFailure { error=it.message } } }
     override fun onCleared() { engine.close(); super.onCleared() }
@@ -184,7 +225,7 @@ class LocalStudioViewModel(application:Application): AndroidViewModel(applicatio
 @Composable fun LocalStudioScreen(close:()->Unit, model:LocalStudioViewModel=viewModel()) {
     val context=LocalContext.current
     val lifecycle=LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) { val observer=LifecycleEventObserver { _,event -> if(event==Lifecycle.Event.ON_STOP) model.saveNow() }; lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer); model.saveNow() } }
+    DisposableEffect(lifecycle) { val observer=LifecycleEventObserver { _,event -> if(event==Lifecycle.Event.ON_STOP) { model.pauseAI(); model.saveNow() } }; lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer); model.saveNow() } }
     var deleting by remember { mutableStateOf<JsonObject?>(null) }
     var imageIndex by remember { mutableStateOf<Int?>(null) }; var imageSlot by remember { mutableStateOf("portrait") }
     var ooc by remember { mutableStateOf(false) }; var secret by remember { mutableStateOf(false) }
@@ -224,6 +265,7 @@ class LocalStudioViewModel(application:Application): AndroidViewModel(applicatio
                             }
                         }
                     }
+                    item { StudioAIEditor(model) }
                     item { Text(tr("Export"),style=MaterialTheme.typography.titleLarge) }
                     item { Row { Checkbox(ooc,{ooc=it}); Text(tr("Include OOC")) }; Row { Checkbox(secret,{secret=it}); Text(tr("Include secret messages")) } }
                     listOf("html" to "Preview log","pdf" to "PDF","vn" to "Play visual novel","archive" to "Export project backup","native" to "Export native JSON","text" to "Plain text").forEach { (action,label) -> item { OutlinedButton(onClick={model.export(action,ooc,secret)},enabled=!model.busy,modifier=Modifier.fillMaxWidth()) { Text(tr(label)) } } }
@@ -232,7 +274,7 @@ class LocalStudioViewModel(application:Application): AndroidViewModel(applicatio
                 }
                 item { Spacer(Modifier.height(24.dp)) }
             }
-            if(model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(model.busy) Column { LinearProgressIndicator(Modifier.fillMaxWidth()); if(model.aiRunning) Surface { Row { Text(model.aiProgress); TextButton(onClick=model::pauseAI) { Text(tr("Pause")) } } } }
         }
     }
     deleting?.let { item -> AlertDialog(onDismissRequest={deleting=null},title={Text(tr("Delete local project?"))},text={Text(item.text("title"))},confirmButton={TextButton(onClick={model.delete(item.id);deleting=null}) { Text(tr("Delete")) }},dismissButton={TextButton(onClick={deleting=null}) { Text(tr("取消")) }}) }
