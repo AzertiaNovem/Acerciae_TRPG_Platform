@@ -11,8 +11,9 @@ import { readStorage, writeStorage } from './storage';
 // cache). Keys are scoped to the signed-in account and server, so entries never cross accounts.
 //
 // What is kept. Only responses the server marks `immutable`: a named version of something a player may see. A stored
-// object never changes and GM-private material is never marked, so it is never written here. Assets in the public
-// bucket (a redirect) are left to the browser, which already keeps them for good.
+// object never changes and GM-private material is never marked, so it is never written here. Media in the public
+// bucket comes through a redirect; the bucket's objects are immutable and its CORS policy allows the app's origin, so
+// they are kept here too (a bucket that refuses the origin just leaves the picture to the browser, as before).
 //
 // How long. Each time an entry is shown its lifespan starts over: it is dropped only when it has not been shown for
 // ASSET_CACHE_MAX_AGE_MS, or when the cache passes ASSET_CACHE_MAX_BYTES (least recently used first). Without
@@ -159,8 +160,9 @@ export function cachedSrc(url: string | null | undefined, hash?: string | null):
       const now = Date.now();
       const kept = await read(key, now);
       if (kept) return remember(key, kept);
-      // A redirect goes to the public bucket: the browser keeps that object itself.
-      const res = await fetch(url, { redirect: 'manual', credentials: 'omit' });
+      // A redirect goes to the public bucket, which serves the object with CORS; whatever cannot be read here (a
+      // bucket without CORS, an error) is left to the browser, which loads the URL as before.
+      const res = await fetch(url, { redirect: 'follow', credentials: 'omit' });
       if (res.type === 'opaqueredirect' || !res.ok) return url;
       const blob = await res.blob();
       // Not marked for keeping (the current version of something, GM-private material): these bytes serve this one

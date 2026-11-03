@@ -19,7 +19,7 @@ public:
     Json::Value remove(const ChannelAccess& a, const std::string& assetId);
     // What a client may keep: the stored object (one per version, never rewritten), whether the request named a
     // version, and whether a player could see the asset (only then may a client keep it on disk).
-    struct MediaMeta { std::string objectKey; bool pinned = false; bool playerVisible = false; std::string contentHash; int version = 0; };
+    struct MediaMeta { std::string objectKey; bool pinned = false; bool playerVisible = false; /* may be kept for good by a player's client: channel-scoped, approved, not an NPC's */ std::string contentHash; int version = 0; };
     // Returns bytes + mime for streaming; enforces channel membership and GM-only visibility. version 0 = current.
     // With `redirectUrl`, a version stored in the public bucket is not read: its URL is returned there instead.
     bool fetch(const ChannelAccess& a, const std::string& assetId, int version, std::string& bytes, std::string& mime, std::string& fileName, std::string* redirectUrl = nullptr, MediaMeta* meta = nullptr);
