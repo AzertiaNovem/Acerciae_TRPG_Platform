@@ -167,7 +167,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
 
       {step === 'script' && (
         <div>
-          <div className="tiny muted">{tr('The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on, which portrait each speaker shows, and the story's wording. It leaves out chatter, bot messages and placeholders, never adds lines, and asks you when a line is unclear; the log keeps every original.')}</div>
+          <div className="tiny muted">{tr('The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on, which portrait each speaker shows, and the wording of the story. It leaves out chatter, bot messages and placeholders, never adds lines, and asks you when a line is unclear; the log keeps every original.')}</div>
           <div className="vn-tpl-fields tiny">
             <label>{tr('Lines to read')}<select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
               {isGm && <option value="gm_full">{tr('Everything, including private windows (GM only result)')}</option>}

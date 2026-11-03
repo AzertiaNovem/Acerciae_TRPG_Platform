@@ -19547,7 +19547,7 @@
     "Descartar o rascunho",
     "Scarta la bozza"
   ],
-  "The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on, which portrait each speaker shows, and the story's wording. It leaves out chatter, bot messages and placeholders, never adds lines, and asks you when a line is unclear; the log keeps every original.": [
+  "The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on, which portrait each speaker shows, and the wording of the story. It leaves out chatter, bot messages and placeholders, never adds lines, and asks you when a line is unclear; the log keeps every original.": [
     "AI 会逐块阅读战役记录（一小时没有新台词即为一块的结束）并撰写脚本：每句台词使用哪张背景、每位发言者显示哪张立绘，以及故事的措辞。它会略去闲聊、骰娘消息和占位内容，绝不新增台词，遇到不明确的台词会向你提问；记录本身保留全部原文。",
     "AI 會逐塊閱讀戰役記錄（一小時沒有新台詞即為一塊的結束）並撰寫腳本：每句台詞使用哪張背景、每位發言者顯示哪張立繪，以及故事的措辭。它會略去閒聊、骰娘訊息和佔位內容，絕不新增台詞，遇到不明確的台詞會向你提問；記錄本身保留全部原文。",
     "AI はキャンペーンログをブロックごとに読み（台詞のない時間が1時間続くとブロックが終わります）、脚本を書きます。各台詞の背景、各話者の立ち絵、そして物語の言い回しです。雑談やボットのメッセージ、仮置きの文は省き、台詞を追加することはなく、不明な台詞があればあなたに質問します。ログには原文がすべて残ります。",
