@@ -26,6 +26,7 @@ android {
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     buildFeatures { compose = true; buildConfig = true }
     sourceSets["main"].assets.srcDir("../../contracts/fixtures")
+    sourceSets["main"].assets.srcDir("../../contracts/openstudio")
     sourceSets["test"].resources.srcDir("../../contracts/fixtures")
 }
 

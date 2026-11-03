@@ -17,6 +17,10 @@ targets:
     platform: iOS
     sources:
       - App
+      - path: ../contracts/openstudio/studio-engine.js
+        buildPhase: resources
+      - path: ../contracts/openstudio/studio-engine.html
+        buildPhase: resources
       - path: ../contracts/fixtures/demo-campaign.json
         buildPhase: resources
     dependencies:
@@ -29,6 +33,8 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Acerciae
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
       configs:

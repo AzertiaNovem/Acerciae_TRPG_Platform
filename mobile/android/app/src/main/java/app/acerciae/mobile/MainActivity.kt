@@ -59,9 +59,11 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun AcerciaeApp(model: AppViewModel = viewModel()) {
+    var studioOpen by rememberSaveable { mutableStateOf(false) }
+    if(studioOpen) { LocalStudioScreen({studioOpen=false}); return }
     val state by model.state.collectAsStateWithLifecycle()
     if (!state.online) {
-        AuthenticationPage(state, model)
+        AuthenticationPage(state, model) { studioOpen=true }
         state.notice?.let { message -> AlertDialog(onDismissRequest = { model.notice(null) }, title = { Text(tr("提示")) }, text = { Text(message) }, confirmButton = { TextButton(onClick = { model.notice(null) }) { Text(tr("知道了")) } }) }
         return
     }
@@ -91,7 +93,7 @@ class MainActivity : ComponentActivity() {
     val drawerWidth = minOf(maxWidth * 0.64f, 320.dp)
     ModalNavigationDrawer(drawerState = drawer, drawerContent = {
         ModalDrawerSheet(Modifier.width(drawerWidth), drawerContainerColor = Panel) {
-            SidebarPanel(state, model, page, select = { page = it; scope.launch { drawer.close() } },
+            SidebarPanel(state, model, page, select = { if(it==6) studioOpen=true else page = it; scope.launch { drawer.close() } },
                 showDetail = { detail = it; scope.launch { drawer.close() } },
                 close = { scope.launch { drawer.close() } })
         }
@@ -225,6 +227,7 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
         SidebarRow(tr("故事回放"), page == 1) { select(1) }
+        SidebarRow(tr("Open Log Studio"), false) { select(6) }
         SidebarRow(tr("设置"), page == 2) { select(2) }
         Text(if (state.online) "${state.user?.displayName} · ${if (state.gm) "GM" else tr("Player")}" else "本地演示 · 内容不上传", Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -395,7 +398,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     }
 }
 
-@Composable private fun AuthenticationPage(state: AppState, model: AppViewModel) {
+@Composable private fun AuthenticationPage(state: AppState, model: AppViewModel, openStudio: () -> Unit) {
     var registering by rememberSaveable { mutableStateOf(false) }
     var username by rememberSaveable { mutableStateOf("") }
     var displayName by rememberSaveable { mutableStateOf("") }
@@ -418,6 +421,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         }
         item { Button(onClick = { model.login(cleanUsername, password, registering, displayName.trim()); password = ""; confirmation = "" }, enabled = valid && !state.busy, modifier = Modifier.fillMaxWidth()) { Text(if (state.busy) tr("请稍候…") else if (registering) tr("注册并登录") else tr("登录")) } }
         item { TextButton(onClick = { registering = !registering; password = ""; confirmation = ""; model.notice(null) }, enabled = !state.busy) { Text(if (registering) tr("已有账号？返回登录") else tr("还没有账号？注册")) } }
+        item { TextButton(onClick = openStudio) { Text(tr("Open Log Studio (offline, no account) →")) } }
         item { Text(tr("登录状态安全保存在此设备，退出登录后清除。"), style = MaterialTheme.typography.bodySmall) }
     }
 }

@@ -38,7 +38,7 @@ class AssetDiskCache(private val dir: File, private val capBytes: Long = 512L * 
             dir.mkdirs()
             val tmp = File(dir, "${name(key)}.tmp")
             tmp.writeBytes(bytes)
-            if (!tmp.renameTo(file(key))) tmp.delete()
+            if (!tmp.renameTo(file(key))) tmp.delete() else file(key).setLastModified(clock())
             trim()
         }
     }

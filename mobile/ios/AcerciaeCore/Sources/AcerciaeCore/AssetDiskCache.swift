@@ -69,6 +69,7 @@ public final class AssetDiskCache: @unchecked Sendable {
             #else
             try data.write(to: file(key), options: .atomic)
             #endif
+            try? files.setAttributes([.modificationDate: now()], ofItemAtPath: file(key).path)
             memory.setObject(data as NSData, forKey: name, cost: data.count)
             trim()
         } catch { /* a full disk just means no caching */ }

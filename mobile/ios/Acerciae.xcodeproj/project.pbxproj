@@ -11,10 +11,13 @@
 		068B2EE3DEB3523C793397A4 /* CreationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9FC950E84B9437A84109729 /* CreationViews.swift */; };
 		06B8381C81C89F1E6B918017 /* ServerUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */; };
 		096F37C2B601DE8AE96EE64A /* ModuleImports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9023445777ECE23D1A4B9E14 /* ModuleImports.swift */; };
+		144149A34280ED5C6AF2FB69 /* LocalStudioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 930308DD1399DD9173BAFC3E /* LocalStudioTests.swift */; };
 		167429C6B0221FBBE5E2EA06 /* AcerciaeCore in Frameworks */ = {isa = PBXBuildFile; productRef = CB999693C894963A109E438A /* AcerciaeCore */; };
 		18330CF4F1B9AEBE2473D895 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC6444ED5044B03D351E38E /* SessionStore.swift */; };
 		1AB79194F4720D82CF94D9FD /* UpdatesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */; };
 		1D156065915D5B9D4759BC08 /* LiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD20B35E61DBF04AC07F32E /* LiveViews.swift */; };
+		1D96DC29E28D76A3033CCD22 /* studio-engine.js in Resources */ = {isa = PBXBuildFile; fileRef = 1FF26B618A85649C651924AD /* studio-engine.js */; };
+		3248749550F27B3739B79E21 /* LocalStudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51DE2865F708274CC962A255 /* LocalStudio.swift */; };
 		338ABC7F7F5110D46FF98A88 /* PointBuyEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D13375635157268425659E /* PointBuyEditor.swift */; };
 		3AA96D4256D0F43585F1CED5 /* AtmosphereViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */; };
 		4439570B3956321A6C1F0AF7 /* MobileLocale.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4076670B772E960683FE289B /* MobileLocale.swift */; };
@@ -26,6 +29,7 @@
 		6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD29F793ED520DE30805D951 /* AcerciaeApp.swift */; };
 		89A82BD3E8B2D3715FAC2169 /* DndCardEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 004C7128C9479F2D44AE27BA /* DndCardEditor.swift */; };
 		8B7524D9FCF680961BA0ACFA /* ServerBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F0BB20E2F39962964229196 /* ServerBrowser.swift */; };
+		93E932F8E62402968A6D6150 /* studio-engine.html in Resources */ = {isa = PBXBuildFile; fileRef = 820C87D77D00B6445640DC94 /* studio-engine.html */; };
 		9ABB1DEA4DEF1AC135D97D88 /* AcerciaeCore in Frameworks */ = {isa = PBXBuildFile; productRef = F149A2BB922FD63D7056AB49 /* AcerciaeCore */; };
 		9BDF72B8AC40D45BE1DE1BC3 /* WorldRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 998A889DBAFA58F06F0D5ECD /* WorldRecord.swift */; };
 		AC85A09514A76069E5F687D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FAC5919B71481D5AC4123308 /* Assets.xcassets */; };
@@ -49,6 +53,7 @@
 /* Begin PBXFileReference section */
 		004C7128C9479F2D44AE27BA /* DndCardEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DndCardEditor.swift; sourceTree = "<group>"; };
 		0FD20B35E61DBF04AC07F32E /* LiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViews.swift; sourceTree = "<group>"; };
+		1FF26B618A85649C651924AD /* studio-engine.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "studio-engine.js"; sourceTree = "<group>"; };
 		2650AB76D975CF85CD9D00FD /* UpdatesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesViews.swift; sourceTree = "<group>"; };
 		26DDBFB968D5E77BDFF18A05 /* Acerciae.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Acerciae.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtmosphereViews.swift; sourceTree = "<group>"; };
@@ -57,10 +62,13 @@
 		4D25D89753F5D03D37FF88D2 /* ServerUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerUpdates.swift; sourceTree = "<group>"; };
 		4EC3EB74214B37676E372B35 /* HintOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HintOverlay.swift; sourceTree = "<group>"; };
 		4F0BB20E2F39962964229196 /* ServerBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBrowser.swift; sourceTree = "<group>"; };
+		51DE2865F708274CC962A255 /* LocalStudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStudio.swift; sourceTree = "<group>"; };
 		6621C651660C09CA8DFA0B54 /* RefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshTests.swift; sourceTree = "<group>"; };
 		80A7C19F14D51A4A7371E0FA /* ChatActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatActivity.swift; sourceTree = "<group>"; };
+		820C87D77D00B6445640DC94 /* studio-engine.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "studio-engine.html"; sourceTree = "<group>"; };
 		88F5C70043EB6160B449B58C /* demo-campaign.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "demo-campaign.json"; sourceTree = "<group>"; };
 		9023445777ECE23D1A4B9E14 /* ModuleImports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleImports.swift; sourceTree = "<group>"; };
+		930308DD1399DD9173BAFC3E /* LocalStudioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStudioTests.swift; sourceTree = "<group>"; };
 		937C789F80818A0E847E9E61 /* ArtworkImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkImages.swift; sourceTree = "<group>"; };
 		953B6532E71274B94654EDD3 /* DiceResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceResultView.swift; sourceTree = "<group>"; };
 		9928E8F2845509585EE45903 /* NovelTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NovelTools.swift; sourceTree = "<group>"; };
@@ -109,6 +117,7 @@
 		0D96F62D861F20002D0FB2B9 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				930308DD1399DD9173BAFC3E /* LocalStudioTests.swift */,
 				6621C651660C09CA8DFA0B54 /* RefreshTests.swift */,
 			);
 			path = Tests;
@@ -119,10 +128,21 @@
 			children = (
 				7E0D7065CB891C728E853320 /* App */,
 				483D75676101B19A3DE6A203 /* fixtures */,
+				364696AE30CD21467505B591 /* openstudio */,
 				885B06140E340649B9778362 /* Packages */,
 				0D96F62D861F20002D0FB2B9 /* Tests */,
 				060A8A4C3F36C4BA24A1C21E /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		364696AE30CD21467505B591 /* openstudio */ = {
+			isa = PBXGroup;
+			children = (
+				820C87D77D00B6445640DC94 /* studio-engine.html */,
+				1FF26B618A85649C651924AD /* studio-engine.js */,
+			);
+			name = openstudio;
+			path = ../contracts/openstudio;
 			sourceTree = "<group>";
 		};
 		3B541BCB000426A75CF9C96C /* Localization */ = {
@@ -156,6 +176,7 @@
 				004C7128C9479F2D44AE27BA /* DndCardEditor.swift */,
 				4EC3EB74214B37676E372B35 /* HintOverlay.swift */,
 				0FD20B35E61DBF04AC07F32E /* LiveViews.swift */,
+				51DE2865F708274CC962A255 /* LocalStudio.swift */,
 				4076670B772E960683FE289B /* MobileLocale.swift */,
 				9023445777ECE23D1A4B9E14 /* ModuleImports.swift */,
 				9928E8F2845509585EE45903 /* NovelTools.swift */,
@@ -271,6 +292,8 @@
 				AC85A09514A76069E5F687D5 /* Assets.xcassets in Resources */,
 				593759825ED2354F226F6207 /* demo-campaign.json in Resources */,
 				FE1C46FC2DEEDA1630E21A46 /* mobile-localizations.json in Resources */,
+				93E932F8E62402968A6D6150 /* studio-engine.html in Resources */,
+				1D96DC29E28D76A3033CCD22 /* studio-engine.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -291,6 +314,7 @@
 				89A82BD3E8B2D3715FAC2169 /* DndCardEditor.swift in Sources */,
 				039D1340A645D161408B8F91 /* HintOverlay.swift in Sources */,
 				1D156065915D5B9D4759BC08 /* LiveViews.swift in Sources */,
+				3248749550F27B3739B79E21 /* LocalStudio.swift in Sources */,
 				4439570B3956321A6C1F0AF7 /* MobileLocale.swift in Sources */,
 				096F37C2B601DE8AE96EE64A /* ModuleImports.swift in Sources */,
 				45A0D8229C29617F16BA5508 /* NovelTools.swift in Sources */,
@@ -309,6 +333,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				144149A34280ED5C6AF2FB69 /* LocalStudioTests.swift in Sources */,
 				6B564872DEEDBA5520BE3F68 /* RefreshTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -350,7 +375,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Debug-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Acerciae;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -495,7 +522,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Release-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Acerciae;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

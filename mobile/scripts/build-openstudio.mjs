@@ -1,0 +1,11 @@
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import fs from 'node:fs';
+const root = fileURLToPath(new URL('../..', import.meta.url));
+const require = createRequire(path.join(root, 'frontend/package.json'));
+const { build } = require('esbuild');
+const out = path.join(root, 'mobile/contracts/openstudio');
+fs.mkdirSync(out, { recursive:true });
+await build({ entryPoints:[path.join(root,'mobile/openstudio/engine.ts')], bundle:true, format:'iife', target:['safari17','chrome100'], minify:true, outfile:path.join(out,'studio-engine.js'), legalComments:'none' });
+fs.writeFileSync(path.join(out,'studio-engine.html'), '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\' file:"><script src="studio-engine.js"></script>');
