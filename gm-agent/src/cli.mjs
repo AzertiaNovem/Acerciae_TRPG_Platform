@@ -20,7 +20,9 @@ import { generateCoplayer, saveCharacter } from "./roles/cardgen.mjs";
 import { completeExistingCharacter } from "./roles/complete.mjs";
 import { SECRETS_MAX, WORLD_MAX, readSetting } from "./improv.mjs";
 import { channelListAdvice, chooseChannel, keptChannels, noChannelAdvice } from "./channels.mjs";
-import { Store, billableTokens } from "./store.mjs";
+import { metered } from "./llm/parts.mjs";
+import { usageSink, usageOptions, usageReport, printUsageReport, printUsageSummary } from "./usage.mjs";
+import { Store, storePath, billableTokens } from "./store.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
@@ -83,57 +85,60 @@ function seatWindows(cfg, windows) {
 async function setup(cfg) {
   const api = await signIn(cfg);
   const { channel, created, invite } = await resolveChannel(api, cfg, { create: true });
-  const llm = withProgress(createLlm(cfg.llm), log);
-  const settings = await api.serverSettings(channel.server_id);
-  const language = languageName(cfg.language || settings?.language || "en");
-  // Point buy is the channel's own option (its GM's); servers before that had a server feature.
-  const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
-  const rules = await api.coc7Rules();
-  const windows = await api.windows(channel.id);
-  const seats = seatWindows(cfg, windows);
-  const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
-  delete state.version;
-  // Co-players are GM-cast PCs (owned by this account): any the Keeper already made are adopted, and only the
-  // missing ones are generated.
-  const me = api.user ?? (await api.me());
-  const known = new Set((state.coplayers ?? []).map((c) => c.characterId));
-  const roster = new Roster(state).reconcile(await api.characters(channel.id), seats, { castBy: me.id });
-  // Improvisation mode: the world setting the co-players are written into (and, later, the table plays in).
-  const improv = improvChange(cfg, state.improv);
-  const world = ((improv?.on ?? state.improv?.on) && (improv?.world ?? state.improv?.world)) || "";
-  for (const c of roster.coplayers) if (!known.has(c.characterId)) log(`using ${c.name}, a PC this account already owns, as a co-player`);
-  // While `run` keeps the channel it is the only writer; it picks new co-players up by their owner.
-  const running = Boolean(lockHolder(cfg.stateDir, channel.id));
-  if (improv && running) appendInbox(cfg.stateDir, channel.id, { cmd: "world", ...improv });
-  else if (improv) state.improv = { ...(state.improv ?? {}), ...improv };
-  if (cfg.casual !== undefined) {
-    if (running) appendInbox(cfg.stateDir, channel.id, { cmd: "casual", on: cfg.casual });
-    else state.casual = { ...(state.casual ?? {}), on: cfg.casual };
-    log(`casual mode ${cfg.casual ? "on: each player character gets a phone when run starts" : "off"}${cfg.casual && channel.knowledge_mode !== "isolated" ? ` — but this channel's knowledge mode is ${channel.knowledge_mode}: phones need an isolated channel with one player per group` : ""}`);
-  }
-  if (improv) log(`improvisation mode ${improv.on ? `on (world ${String(improv.world ?? state.improv?.world ?? "").length} characters)` : "off"}${running ? "; handed to the running table" : "; the world setting is posted in the Main Chat when run starts"}`);
+  const store = Store.open(cfg.stateDir, channel.id);
+  try {
+    const llm = metered(withProgress(createLlm(cfg.llm), log), { sink: usageSink(store, log), channelId: channel.id, log });
+    const settings = await api.serverSettings(channel.server_id);
+    const language = languageName(cfg.language || settings?.language || "en");
+    // Point buy is the channel's own option (its GM's); servers before that had a server feature.
+    const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
+    const rules = await api.coc7Rules();
+    const windows = await api.windows(channel.id);
+    const seats = seatWindows(cfg, windows);
+    const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
+    delete state.version;
+    // Co-players are GM-cast PCs (owned by this account): any the Keeper already made are adopted, and only the
+    // missing ones are generated.
+    const me = api.user ?? (await api.me());
+    const known = new Set((state.coplayers ?? []).map((c) => c.characterId));
+    const roster = new Roster(state).reconcile(await api.characters(channel.id), seats, { castBy: me.id });
+    // Improvisation mode: the world setting the co-players are written into (and, later, the table plays in).
+    const improv = improvChange(cfg, state.improv);
+    const world = ((improv?.on ?? state.improv?.on) && (improv?.world ?? state.improv?.world)) || "";
+    for (const c of roster.coplayers) if (!known.has(c.characterId)) log(`using ${c.name}, a PC this account already owns, as a co-player`);
+    // While `run` keeps the channel it is the only writer; it picks new co-players up by their owner.
+    const running = Boolean(lockHolder(cfg.stateDir, channel.id));
+    if (improv && running) appendInbox(cfg.stateDir, channel.id, { cmd: "world", ...improv });
+    else if (improv) state.improv = { ...(state.improv ?? {}), ...improv };
+    if (cfg.casual !== undefined) {
+      if (running) appendInbox(cfg.stateDir, channel.id, { cmd: "casual", on: cfg.casual });
+      else state.casual = { ...(state.casual ?? {}), on: cfg.casual };
+      log(`casual mode ${cfg.casual ? "on: each player character gets a phone when run starts" : "off"}${cfg.casual && channel.knowledge_mode !== "isolated" ? ` — but this channel's knowledge mode is ${channel.knowledge_mode}: phones need an isolated channel with one player per group` : ""}`);
+    }
+    if (improv) log(`improvisation mode ${improv.on ? `on (world ${String(improv.world ?? state.improv?.world ?? "").length} characters)` : "off"}${running ? "; handed to the running table" : "; the world setting is posted in the Main Chat when run starts"}`);
 
-  for (const existing of roster.coplayers) {
-    await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, log });
-  }
+    for (const existing of roster.coplayers) {
+      await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, log });
+    }
 
-  const missing = cfg.coplayers - roster.coplayers.length;
-  if (missing < 0) log(`the channel already has ${roster.coplayers.length} co-players (asked for ${cfg.coplayers}); keeping them`);
-  for (let i = 0; i < missing; i++) {
-    log(`preparing co-player ${roster.coplayers.length + 1}/${cfg.coplayers} with ${cfg.llm.provider} / ${cfg.llm.model || "mock"}`);
-    const characters = await api.characters(channel.id);
-    const takenNames = characters.map((c) => c.name);
-    const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-    const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers, world };
-    const generated = await generateCoplayer(llm, args);
-    const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, llm, language, pointsMode });
-    roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
+    const missing = cfg.coplayers - roster.coplayers.length;
+    if (missing < 0) log(`the channel already has ${roster.coplayers.length} co-players (asked for ${cfg.coplayers}); keeping them`);
+    for (let i = 0; i < missing; i++) {
+      log(`preparing co-player ${roster.coplayers.length + 1}/${cfg.coplayers} with ${cfg.llm.provider} / ${cfg.llm.model || "mock"}`);
+      const characters = await api.characters(channel.id);
+      const takenNames = characters.map((c) => c.name);
+      const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
+      const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers, world };
+      const generated = await generateCoplayer(llm, args);
+      const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, llm, language, pointsMode });
+      roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
+      if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
+      log(`co-player ${roster.coplayers.length}/${cfg.coplayers}: ${saved.name} (${saved.card.basic.occupation || "investigator"})`);
+    }
     if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
-    log(`co-player ${roster.coplayers.length}/${cfg.coplayers}: ${saved.name} (${saved.card.basic.occupation || "investigator"})`);
-  }
-  if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
-  const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
-  console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  LLM: ${cfg.llm.provider}${cfg.llm.model ? ` ${cfg.llm.model}` : ""}${cfg.llm.provider === "mock" ? " (placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
+    const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
+    console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  LLM: ${cfg.llm.provider}${cfg.llm.model ? ` ${cfg.llm.model}` : ""}${cfg.llm.provider === "mock" ? " (placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
+  } finally { store.close(); }
 }
 
 // The table for a channel: roster, timelines, guard and scenario from the state file. `write` saves changes back
@@ -293,6 +298,8 @@ async function status(cfg) {
   const usage = (since) => { const u = table.store.usageSince(since); return `${u.calls} calls, ${billableTokens(u)} billable-equivalent tokens (input ${u.input}, of which ${u.input ? Math.round((u.cacheRead / u.input) * 100) : 0}% read from cache; cache writes ${u.cacheWrite}; output ${u.output})`; };
   console.log(`model usage today: ${usage(day.getTime())}`);
   console.log(`model usage, last 7 days: ${usage(Date.now() - 7 * 86400000)}${cfg.dailyTokenBudget ? `; daily budget for autonomous turns: ${cfg.dailyTokenBudget}` : ""}`);
+  console.log("model usage today by type / phase / model:");
+  printUsageSummary(table.store.usageByPurpose(day.getTime()));
   const chapters = table.store.db.prepare("SELECT scope LIKE 'coplayer:%' AS cp, count(*) AS n FROM chapters GROUP BY 1").all();
   console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} Keeper chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
   const ca = table.casual;
@@ -365,9 +372,23 @@ function casual(cfg, args) {
   return manual(cfg, { cmd: "casual", on }, `casual mode ${on ? "on" : "off"}`);
 }
 
-const commands = { setup, run, status, split, rejoin, advance, world, casual, plan, date, bond };
+// Local-only accounting: works while run is active and without contacting the platform or model.
+async function usage(cfg, args) {
+  if (!cfg.channelId) throw new Error("usage needs CHANNEL_ID (or --channel)");
+  const options = usageOptions(args);
+  const file = storePath(cfg.stateDir, cfg.channelId);
+  if (!fs.existsSync(file)) throw new Error("no local token records for this channel yet; run setup or start the agent first");
+  const store = new Store(file);
+  try {
+    const report = usageReport(store, options);
+    if (args.json === true || args.json === "true") console.log(JSON.stringify(report, null, 2));
+    else printUsageReport(report);
+  } finally { store.close(); }
+}
+
+const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond };
 if (!commands[command]) {
-  console.error(`usage: acerciae-gm <setup|run|status|split|rejoin|advance|world|casual|plan|date|bond> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+  console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
   process.exit(2);
 }
 commands[command](cfg, args).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });

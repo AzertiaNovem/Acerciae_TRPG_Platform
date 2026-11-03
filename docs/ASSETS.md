@@ -75,7 +75,10 @@ its file token, so a renewed token never reloads anything either. Keys are scope
 **What is kept.** Only responses the server marks `immutable`: a named version (`?v=`) of something a player may see, an
 atmosphere image, a player's voice clip. The current version of an asset and GM-private material (GM-only assets,
 NPC art, the Keeper's voice clips) are never marked and never written to disk; they revalidate by ETag (304) instead.
-Media that redirects to the public bucket is left to the browser, which keeps it for a year.
+Media that redirects to the public bucket is followed there and kept too: the bucket's objects are immutable, and its
+CORS policy must allow the web app's origin (set on the R2 bucket or its custom domain in the Cloudflare dashboard);
+without that the browser still shows the picture through the URL itself, only nothing is kept. Every API response carries
+`Vary: Origin`, so a browser never reuses the answer to an `<img>` load (no CORS header) for a `fetch()` from the app.
 
 **How long.** Each time an entry is shown its lifespan starts over: it lives until it has not been shown for 30 days
 (`ASSET_CACHE_MAX_AGE_MS`) or the cache passes 768 MB (`ASSET_CACHE_MAX_BYTES`, least recently used first); files over

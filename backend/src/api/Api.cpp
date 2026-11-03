@@ -711,8 +711,9 @@ void registerRoutes() {
     app().registerPreRoutingAdvice([allowedOrigin](const HttpRequestPtr& req, AdviceCallback&& acb, AdviceChainCallback&& ccb) {
         if (req->method() == Options) {
             auto r = HttpResponse::newHttpResponse();
+            r->addHeader("Vary", "Origin");
             if (auto o = allowedOrigin(req); !o.empty()) {
-                r->addHeader("Access-Control-Allow-Origin", o); r->addHeader("Vary", "Origin");
+                r->addHeader("Access-Control-Allow-Origin", o);
                 r->addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
                 r->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
                 r->addHeader("Access-Control-Max-Age", "600");
@@ -722,7 +723,11 @@ void registerRoutes() {
         ccb();
     });
     app().registerPostHandlingAdvice([allowedOrigin](const HttpRequestPtr& req, const HttpResponsePtr& resp) {
-        if (auto o = allowedOrigin(req); !o.empty()) { resp->addHeader("Access-Control-Allow-Origin", o); resp->addHeader("Vary", "Origin"); }
+        // Every response varies by Origin, whether or not this one carries the CORS header: a browser otherwise reuses
+        // the cached answer to an <img> load (no Origin, no header) for a fetch() from the web app and fails its CORS
+        // check, which bites on the 302 to the public bucket.
+        resp->addHeader("Vary", "Origin");
+        if (auto o = allowedOrigin(req); !o.empty()) resp->addHeader("Access-Control-Allow-Origin", o);
         resp->addHeader("X-Content-Type-Options", "nosniff");
     });
 }

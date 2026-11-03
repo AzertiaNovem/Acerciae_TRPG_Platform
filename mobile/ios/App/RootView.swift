@@ -168,7 +168,7 @@ private struct SidebarView: View {
                             ForEach(model.characters) { item in
                                 Button { model.result = nil; selectedCharacter = item } label: {
                                     HStack(spacing: 10) {
-                                        AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["updated_at"].text, hash: item["avatar_asset_hash"].text)
+                                        AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["avatar_asset_version"].int, hash: item["avatar_asset_hash"].text)
                                         Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
                                     }.padding(.vertical, 6)
                                 }.buttonStyle(.plain)
@@ -359,10 +359,8 @@ private struct MessageBubble: View {
     }
     private var avatar: some View {
         let character = ooc ? nil : model.characters.first(where: { $0.id == message.characterId })
-        let asset = ooc ? "" : character.map { $0["avatar_asset_id"].text } ?? message.characterAvatarAssetId ?? ""
-        let revision = ooc ? "" : (character?["updated_at"].text ?? "") + ":" + String(message.characterAvatarVersion ?? 0)
-        let hash = ooc ? "" : (character?["avatar_asset_hash"].string).flatMap { $0.isEmpty ? nil : $0 } ?? message.characterAvatarHash ?? ""
-        return AvatarView(model: model, name: name, assetId: asset, version: revision, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0, hash: hash, ownerHash: message.authorAvatarHash ?? "")
+        let picture = ooc ? nil : CharacterArtwork.avatar(character: character, message: message)
+        return AvatarView(model: model, name: name, assetId: picture?.id ?? "", version: picture?.version ?? 0, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0, hash: picture?.hash ?? "", ownerHash: message.authorAvatarHash ?? "")
     }
 }
 

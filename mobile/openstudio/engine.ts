@@ -6,6 +6,8 @@ import { composeScript } from '../../frontend/src/openstudio/vn/compose';
 import { standaloneData, standaloneHtml } from '../../frontend/src/openstudio/vn/bundle';
 import type { Project } from '../../frontend/src/openstudio/types';
 
+import { aiAction } from './ai';
+
 const emptyBackground = { title: '', era: '', setting: '', summary: '' };
 const localPath = (s: string) => /^assets\/[a-zA-Z0-9-]+\.(png|jpg|jpeg|webp)$/.test(s);
 function check(p: Project) {
@@ -26,6 +28,7 @@ function secure(html: string) {
   return html.replace(/<head>/i, `<head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; font-src data:">`);
 }
 export async function run(input: any): Promise<any> {
+  if (String(input.action).startsWith("ai")) return aiAction(input);
   const assets = assetMap(input.assets);
   if (input.action === 'import') {
     const files = (input.files ?? []).map((f: any) => {
@@ -62,16 +65,19 @@ export async function run(input: any): Promise<any> {
   if (input.action === 'pdf') return { html:secure(printHtml(project, normalizePdfConfig({ ...project.pdf, include_ooc:options.includeOoc }), options)) };
   if (input.action === 'vn') {
     const copy = visible;
-    const script = await composeScript(copy, { llm:null, language:options.lang });
+    if (project.vn?.script.provider === 'llm' && !options.includeSecret && project.events.some(e => e.type === 'secret' || e.role === 'hidden')) throw Error('AI scripts may include private context. Review the script and enable Include secret messages before sharing it.');
+    const script = project.vn ? structuredClone(project.vn.script) : await composeScript(copy, { llm:null, language:options.lang });
+    const visibleSeq = new Set(copy.events.map(e => e.seq));
+    for (const scene of script.scenes) scene.lines = scene.lines.filter(line => visibleSeq.has(line.seq));
     // The offline planner normally hides chatter; an explicit export choice keeps OOC lines.
-    if (options.includeOoc) {
+    if (options.includeOoc && !project.vn) {
       const events = new Map(copy.events.map(e => [e.seq,e]));
       for (const scene of script.scenes) for (const line of scene.lines) {
         if (events.get(line.seq)?.type === 'ooc' && line.exclusion_reason === 'out-of-character chatter') { line.hidden = false; delete line.exclusion_reason; }
       }
     }
     const background = assets[(project as any).mobile_background] ?? null;
-    for (const scene of script.scenes) scene.background = background;
+    for (const scene of script.scenes) scene.background = assets[scene.background ?? ""] ?? background;
     for (const c of copy.characters) {
       c.avatar = assets[c.avatar ?? ''] ?? null; c.portrait = assets[c.portrait ?? ''] ?? null;
       c.poses = Object.fromEntries(Object.entries(c.poses).flatMap(([k,v]) => assets[v] ? [[k,assets[v]]] : []));

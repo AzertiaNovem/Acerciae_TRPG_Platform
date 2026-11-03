@@ -13,6 +13,7 @@
 //
 // With TIMELINE_AUTO (the default) the director reports where investigators are (`whereabouts`, see whereabouts.mjs)
 // and the table splits and reunites them; without it the older split/rejoin actions are used.
+import { NPC_CONTINUITY_RULES } from "./context/npcContinuity.mjs";
 import { completeJson } from "./llm/index.mjs";
 import { validateWhereabouts } from "./whereabouts.mjs";
 
@@ -55,6 +56,8 @@ export function directorSystem(language, { auto = true, improv = false, casual =
 How to keep the table:
 ${COMMON_RULES}
 ${AWAY_RULE}
+${NPC_CONTINUITY_RULES}
+- Use npc for an existing named NPC; only new_npc creates a character. Check the cast before choosing new_npc.
 ${WORLD_RULE}
 ${calendar ? `${TIME_RULE(planner)}
 ` : ""}${PEOPLE_RULE}
@@ -140,5 +143,5 @@ export async function directTurn(llm, { language, context, newest, mode = "human
   ].filter(Boolean).join("\n");
   const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
   const on = Boolean(planner?.on);
-  return completeJson(llm, { system: directorSystem(language, { auto, improv, casual, planner: on, calendar }), user, purpose: "director" }, (x) => validateDirector(x, { auto, improv, casual, planner: on, calendar }));
+  return completeJson(llm, { system: directorSystem(language, { auto, improv, casual, planner: on, calendar }), user, purpose: "director", phase: mode }, (x) => validateDirector(x, { auto, improv, casual, planner: on, calendar }));
 }

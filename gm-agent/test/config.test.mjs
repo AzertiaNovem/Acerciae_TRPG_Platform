@@ -75,3 +75,11 @@ test("the file is found by flag, variable or beside the working directory, and r
   fs.writeFileSync(path.join(dir, "bad.yml"), "- a\n- b\n");
   assert.throws(() => loadConfigFile(path.join(dir, "bad.yml")), /YAML mapping/);
 });
+
+test("recall budget defaults, YAML, flag, disabling and ceiling", () => {
+  assert.equal(buildConfig({}, {}).recallTokens, 1200);
+  assert.equal(buildConfig({}, {}, file({ context: { recall_tokens: 600 } })).recallTokens, 600);
+  assert.equal(buildConfig({ "context-recall-tokens": "0" }, {}, file({ context: { recall_tokens: 600 } })).recallTokens, 0);
+  assert.equal(buildConfig({ "context-recall-tokens": "99999" }, {}).recallTokens, 4000);
+  assert.deepEqual(buildConfig({}, {}, file({ context: { recall_tokens: 600 } })).warnings, []);
+});

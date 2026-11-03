@@ -179,6 +179,23 @@ test("the Keeper voices and creates real NPCs, never co-players; rolls for its o
   assert.equal(llm.calls.filter((c) => c.purpose === "coplayer_turn").length, 0, "co-players wait when the Keeper says so");
 });
 
+test("NPC speech never creates an unknown character, and new_npc reuses an existing identity", async () => {
+  const llm = new MockLlm();
+  llm.director = () => ({ actions: [
+    { type: "npc", name: "Invented Messenger", text: "A needless new contact." },
+    { type: "new_npc", name: "Mr. Grimsby", brief: "do not replace his identity", text: "I remember your promise." },
+    { type: "new_npc", name: "Mrs. Pell", brief: "a necessary new landlady", text: "Your room is ready." },
+  ], coplayers_may_act: false });
+  const { t, api } = await table({ llm });
+  await playerSays(t, api, "I return to speak with Grimsby.");
+  assert.deepEqual(api.created.map((c) => c.name), ["Mrs. Pell"]);
+  assert.equal(llm.calls.filter((c) => c.purpose === "npc_card").length, 1);
+  assert.equal(api.posts[0].character_id, "c-butler");
+  assert.equal(api.posts[0].content, "I remember your promise.");
+  assert.ok(!api.posts.some((p) => p.content.includes("needless new contact")));
+  assert.equal(t.roster.npcs.filter((c) => c.characterId === "c-butler").length, 1);
+});
+
 test("a turn posts at most MAX_ACTIONS_PER_TURN lines", async () => {
   const llm = new MockLlm();
   llm.director = () => ({ actions: Array.from({ length: 10 }, (_, i) => ({ type: "narrate", text: `line ${i}` })), coplayers_may_act: true });
@@ -784,7 +801,8 @@ test("history: a long window is copied once into the store, paging back past the
 });
 
 test("long context: old lines become a Keeper chapter, the newest stay word for word, and the GM keeps reading both", async () => {
-  const { t, api, llm } = await table({ cfg: { gmContextTokens: 4000 } });
+  // Isolate compaction here; the recall test below explicitly verifies selected old evidence can return.
+  const { t, api, llm } = await table({ cfg: { gmContextTokens: 4000, recallTokens: 0 } });
   many(api, 300);
   await alicePosts(t, api, "Where were we?");
   await settle(t); await t.memoryIdle();
@@ -1126,6 +1144,9 @@ test("the first story plan: drafted, critiqued and revised in one cached convers
   assert.equal(arc.beat.title, "[mock beat] The present trouble"); assert.equal(arc.threads[0].id, "P1");
   const calls = plannerCalls(llm);
   assert.deepEqual(calls.map(stepOf), ["draft", "critique", "revise"], "three steps, in order");
+  const recorded = t.store.usageCalls({ purpose: "planner" }).reverse();
+  assert.deepEqual(recorded.map((r) => r.phase), ["draft", "critique", "revise"]);
+  assert.ok(recorded.every((r) => r.output > 0 && r.usageKnown && r.estimated));
   assert.ok(calls[1].messages[0].content === calls[0].messages[0].content && calls[1].messages[1].role === "assistant", "the critique continues the draft's conversation");
   assert.ok(calls[0].parts[0][0].cache && calls[0].parts[0][0].text.includes("## Campaign") && calls[0].parts[0][0].text.includes("## Previous story plan"), "the context is one cached part");
   assert.ok(calls[2].parts.flat().filter((p) => p.cache).length <= 3, "at most three cache marks");
@@ -1537,4 +1558,50 @@ test("a new player is seated in the planner window, gets a phone in casual mode,
   assert.ok(t.timelines.main().members.includes("c-cara"));
   await t.refresh(); await settle(t);
   assert.equal(directorCalls(llm).filter((u) => u.includes("a new player just joined the table")).length, 1, "welcomed once");
+});
+
+test("recall recovers compacted evidence with source labels; co-players never search Keeper/private records", async () => {
+  const { t, api, llm } = await table();
+  const put = (content, over = {}) => {
+    const m = api.add({ chat_window_id: "w-main", author_role: "gm", kind: "narration", content, ...over });
+    t.history.add(m); return m;
+  };
+  put("The amber lantern was left in the attic. PUBLIC-DETAIL");
+  put("The amber lantern powers a ritual. HIDDEN-DETAIL", { visibility: "gm_only" });
+  put("The amber lantern belongs to your family. PRIVATE-DETAIL", { visibility: "whisper", whisper_to: ["c-alice"] });
+  const old = put("The amber lantern is seen elsewhere. ELSEWHERE-DETAIL", { chat_window_id: "w-priv" });
+  t.store.addChapter({ scope: "gm", windowId: "w-main", fromSeq: 1, toSeq: old.seq, text: "Earlier investigation." });
+  t.store.addChapter({ scope: "gm", windowId: "w-priv", fromSeq: 1, toSeq: old.seq, text: "Earlier side scene." });
+  const cp = t.roster.coplayers[0];
+  t.store.addChapter({ scope: `coplayer:${cp.characterId}`, fromSeq: 1, toSeq: old.seq, text: "We investigated." });
+  put("Where did we leave the amber lantern?", { author_role: "player", character_id: "c-alice" });
+  const before = llm.calls.length;
+  const ctx = await t.buildGm("w-main");
+  assert.equal(llm.calls.length, before, "searching history/documents does not call the model");
+  assert.match(ctx.parts.at(-1).text, /Relevant earlier records/);
+  assert.match(ctx.parts.at(-1).text, /PUBLIC-DETAIL/);
+  assert.match(ctx.parts.at(-1).text, /Keeper only.*HIDDEN-DETAIL/);
+  assert.match(ctx.parts.at(-1).text, /Window: Alice alone.*ELSEWHERE-DETAIL/);
+  await t.coplayerAct("w-main", cp, true);
+  const prompt = llm.calls.findLast((c) => c.purpose === "coplayer_turn").messages[0].content;
+  assert.match(prompt, /RELEVANT EARLIER LINES YOU WITNESSED/);
+  assert.match(prompt, /PUBLIC-DETAIL/);
+  for (const forbidden of ["HIDDEN-DETAIL", "PRIVATE-DETAIL", "ELSEWHERE-DETAIL", ...SECRETS]) assert.ok(!prompt.includes(forbidden), forbidden);
+  assert.equal(llm.calls.length, before + 1, "only the co-player's normal response call was added");
+});
+
+test("GM prompt cache preserves completed history blocks when a new chunk arrives", async () => {
+  const { t, api } = await table();
+  while (api.lines.filter((m) => m.chat_window_id === "w-main").length < 50) {
+    const m = api.add({ chat_window_id: "w-main", author_role: "player", content: "We continue our investigation." }); t.history.add(m);
+  }
+  const first = await t.buildGm("w-main");
+  for (let i = 0; i < 50; i++) {
+    const m = api.add({ chat_window_id: "w-main", author_role: "player", content: "We read another page." }); t.history.add(m);
+  }
+  const second = await t.buildGm("w-main");
+  assert.equal(first.parts[0].text, second.parts[0].text);
+  assert.equal(first.parts[1].text, second.parts[1].text, "first 50-line provider block remains identical");
+  assert.equal(second.parts.filter((p) => p.cache).length, 3);
+  assert.equal(second.parts.at(-2).cacheTtl, "5m");
 });

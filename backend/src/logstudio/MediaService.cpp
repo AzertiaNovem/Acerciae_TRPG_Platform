@@ -213,8 +213,12 @@ bool MediaService::resolve(const ChannelAccess& a, const std::string& id, int ve
 bool MediaService::fetchRow(const ChannelAccess& a, const std::string& id, int version, std::string& mime, std::string& fileName, MediaMeta& meta) {
     auto cur = db_.queryOne("SELECT m.*, c.kind AS character_kind FROM media_assets m LEFT JOIN characters c ON c.id=m.character_id WHERE m.id=$1 AND m.channel_id=$2", {id, a.channelId});
     if (cur.isNull()) return false;
-    bool playerVisible = cur["visibility_scope"].asString() != "gm" && cur["approval_status"] == "approved" && json::str(cur, "character_kind", "pc") != "npc";
-    if (!a.isGm && !playerVisible) return false;
+    // Players get every approved channel-scoped asset, an NPC's art included (its notes stay with the Keeper, see
+    // get()). What a player's client may keep for good is narrower: an NPC's art is the Keeper's, shown or withdrawn
+    // as the story goes, so it is never marked immutable.
+    const bool visible = cur["visibility_scope"].asString() != "gm" && cur["approval_status"] == "approved";
+    if (!a.isGm && !visible) return false;
+    const bool playerVisible = visible && json::str(cur, "character_kind", "pc") != "npc";
     std::string key = cur["object_key"].asString(); mime = cur["mime"].asString();
     std::string hash = json::str(cur, "content_hash"); int servedVersion = cur["version"].asInt();
     if (version > 0 && version != cur["version"].asInt()) { auto v = db_.queryOne("SELECT object_key, mime, content_hash FROM asset_versions WHERE asset_id=$1 AND version=$2", {id, (int64_t)version}); if (v.isNull()) return false; key = v["object_key"].asString(); mime = v["mime"].asString(); hash = json::str(v, "content_hash"); servedVersion = version; }

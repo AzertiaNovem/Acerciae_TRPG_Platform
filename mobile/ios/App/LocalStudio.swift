@@ -38,8 +38,11 @@ import AcerciaeCore
     @Published var busy = false
     @Published var error: String?
     @Published var document: StudioDocument?
+    @Published var aiRunning = false
+    @Published var aiProgress = ""
+    var aiTask: Task<Void,Never>?
     let store = LocalStudioStore(root:FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("OpenLogStudio/projects"))
-    let engine = LocalStudioEngine()
+    var engine = LocalStudioEngine()
     private var pending: Task<Void,Never>?
     func perform(_ action: () async throws -> Void) async {
         guard !busy else { return }; busy = true; defer { busy = false }
@@ -135,9 +138,9 @@ struct LocalStudioView: View {
                 ToolbarItem(placement:.topBarLeading) { if model.project != .null { Button(tr("Projects")) { Task { await model.flush(); model.project = .null; await model.reload() } }.disabled(model.busy) } }
                 ToolbarItem(placement:.confirmationAction) { Button(tr("完成")) { Task { await model.flush(); dismiss() } }.disabled(model.busy) }
             }
-            .overlay { if model.busy { ProgressView().padding(20).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12)) } }
+            .overlay { if model.busy { VStack { ProgressView(); if model.aiRunning { Text(model.aiProgress); Button(tr("Pause")) { model.pauseAI() } } }.padding(20).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12)) } }
             .task { await model.reload() }
-            .onChange(of:phase) { _, value in if value != .active { Task { await model.flush() } } }
+            .onChange(of:phase) { _, value in if value == .background { model.pauseAI(); Task { await model.flush() } } }
             .fileImporter(isPresented:$importing,allowedContentTypes:[.json,.plainText,.data],allowsMultipleSelection:true) { result in
                 switch result { case .success(let urls): Task { await model.importFiles(urls,append:false) }; case .failure(let error): model.error = tr(error.localizedDescription) }
             }
@@ -185,6 +188,7 @@ private struct LocalStudioEditor: View {
                     }
                 }
             }
+            StudioAIEditor(model:model)
             Section(tr("Export")) {
                 Toggle(tr("Include OOC"),isOn:$ooc)
                 Toggle(tr("Include secret messages"),isOn:$secret)

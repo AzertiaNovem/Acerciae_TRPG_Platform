@@ -75,7 +75,7 @@ const SETTINGS = [
   ["casual-ai-texts-per-hour", null, "modes.casual_ai_texts_per_hour"], ["casual-ai-chain", null, "modes.casual_ai_chain"],
   ["final-review", null, "planner.final_review"], ["final-review-min-lines", null, "planner.final_review_min_lines"], ["final-review-max-days", null, "planner.final_review_max_days"],
   ["debounce-ms", null, "pacing.debounce_ms"], ["post-delay-ms", null, "pacing.post_delay_ms"], ["max-actions", null, "pacing.max_actions_per_turn"],
-  ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
+  ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
   ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-side-interval-ms", null, "autonomy.side_interval_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
   ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"], ["away-side-interval-ms", null, "autonomy.away_side_interval_ms"],
   ["timeline-auto", null, "timelines.auto"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
@@ -191,6 +191,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     contextLines: Math.max(10, Math.min(200, int(pick("context-lines", 100), 100))),
     gmContextTokens: Math.max(8000, int(pick("gm-context-tokens", 60000), 60000)),
     coplayerContextTokens: Math.max(4000, int(pick("coplayer-context-tokens", 24000), 24000)),
+    recallTokens: Math.max(0, Math.min(4000, int(pick("context-recall-tokens", 1200), 1200))),
     historyBackfillLines: Math.max(0, int(pick("history-backfill-lines", 1000), 1000)),
     // Billable-equivalent tokens a day (cache reads count a tenth); spent, the table stops its own autonomous turns.
     dailyTokenBudget: Math.max(0, int(pick("llm-daily-token-budget", 0), 0)),

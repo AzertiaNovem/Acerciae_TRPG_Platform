@@ -10,7 +10,7 @@ struct AvatarView: View {
     @ObservedObject var model: AppModel
     let name: String
     var assetId = ""
-    var version = ""
+    var version = 0
     var ownerId = ""
     var ownerVersion = 0
     var size: CGFloat = 32
@@ -19,7 +19,7 @@ struct AvatarView: View {
     @State private var image: UIImage?
     private var ownData: String { ownerId == model.session?.user.id ? model.session?.user.avatarData ?? "" : "" }
     private var ownerContentHash: String { ownerId == model.session?.user.id ? (model.session?.user.avatarHash ?? "") : ownerHash }
-    private var key: String { (model.session?.user.id ?? "") + model.scopeKey + assetId + version + hash + ownerId + String(ownerVersion) + ownerContentHash + String(model.session?.user.avatarVersion ?? 0) + String(describing: model.session?.user.hasAvatar) }
+    private var key: String { (model.session?.user.id ?? "") + model.scopeKey + assetId + String(version) + hash + ownerId + String(ownerVersion) + ownerContentHash + String(model.session?.user.avatarVersion ?? 0) + String(describing: model.session?.user.hasAvatar) }
     var body: some View {
         ZStack {
             Circle().fill(Color(red: 0.28, green: 0.32, blue: 0.29))
@@ -32,7 +32,7 @@ struct AvatarView: View {
             let requestKey = key
             var bytes: Data?
             if !assetId.isEmpty {
-                bytes = try? await model.bytes(["channels", model.channelId, "media", assetId], query: Int(version).map { $0 > 0 ? ["v": String($0)] : [:] } ?? [:], hash: hash.isEmpty ? nil : hash)
+                bytes = try? await model.bytes(["channels", model.channelId, "media", assetId], query: version > 0 ? ["v": String(version)] : [:], hash: hash.isEmpty ? nil : hash)
             } else if ownData.hasPrefix("data:image/"), let comma = ownData.firstIndex(of: ",") {
                 bytes = Data(base64Encoded: String(ownData[ownData.index(after: comma)...]))
             } else if !ownerId.isEmpty && (ownerId == model.session?.user.id ? (model.session?.user.hasAvatar ?? (ownerVersion > 0)) : ownerVersion > 0) {

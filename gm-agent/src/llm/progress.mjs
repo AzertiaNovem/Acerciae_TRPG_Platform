@@ -1,6 +1,6 @@
 // Show activity without printing prompts, generated text, or credentials.
 export function withProgress(llm, log) {
-  return {
+  return Object.assign(Object.create(llm), {
     async complete(request) {
       const label = request.purpose || "completion";
       const start = Date.now();
@@ -15,5 +15,5 @@ export function withProgress(llm, log) {
         clearInterval(timer);
       }
     },
-  };
+  });
 }

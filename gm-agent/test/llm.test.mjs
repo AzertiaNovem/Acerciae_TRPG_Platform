@@ -178,3 +178,44 @@ test("OpenAI-compatible: parts are sent as one text, usage with cached tokens is
     assert.deepEqual(usage, [{ model: "gpt-x", input: 500, cacheRead: 400, cacheWrite: 0, output: 9 }]);
   } finally { s.close(); }
 });
+
+test("Claude: volatile context uses 5m after the stable 1h prefix, including later repair messages", async () => {
+  const s = await stub({ id: "m", type: "message", role: "assistant", model: "x", stop_reason: "end_turn", content: [{ type: "text", text: "{}" }], usage: {} });
+  try {
+    const llm = createLlm({ provider: "anthropic", apiKey: "k", apiBase: s.base, fallbacks: false, timeoutMs: 5000, cacheTtl: "1h" });
+    await llm.complete({ system: "rules", messages: [
+      { role: "user", content: [{ text: "stable world", cache: true }, { text: "changing platform notes", cache: true, cacheTtl: "5m" }, { text: "this turn" }] },
+      { role: "assistant", content: "draft" },
+      { role: "user", content: [{ text: "critique", cache: true }] },
+    ] });
+    const b = s.seen[0].body;
+    assert.deepEqual(b.system[0].cache_control, { type: "ephemeral", ttl: "1h" });
+    assert.deepEqual(b.messages[0].content[0].cache_control, { type: "ephemeral", ttl: "1h" });
+    assert.deepEqual(b.messages[0].content[1].cache_control, { type: "ephemeral" });
+    assert.deepEqual(b.messages[2].content[0].cache_control, { type: "ephemeral" });
+    assert.equal(b.messages[0].content[2].cache_control, undefined);
+    assert.ok(!JSON.stringify(b).includes("shortCache"));
+  } finally { s.close(); }
+});
+
+test("OpenAI records tokens from a truncated response before reporting the failure", async (t) => {
+  const llm = streamingLlm(t, sse({ type: "response.incomplete", response: responseObject("{}", {
+    model: "served-model", status: "incomplete", incomplete_details: { reason: "max_output_tokens" },
+    usage: { input_tokens: 500, input_tokens_details: { cached_tokens: 400 }, output_tokens: 80 },
+  }) }));
+  const usage = [];
+  await assert.rejects(llm.complete({ ...request, onUsage: (u) => usage.push(u) }), /truncated/);
+  assert.deepEqual(usage, [{ model: "served-model", input: 500, cacheRead: 400, cacheWrite: 0, output: 80 }]);
+});
+
+test("OpenAI JSON refusal with usage is counted; missing usage isn't reported as zero", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ status: "completed", usage: { input_tokens: 25, output_tokens: 7 }, output: [{ type: "message", content: [{ type: "refusal" }] }] }));
+  const llm = createLlm({ provider: "openai_compatible", apiBase: "https://fixture.invalid/v1", model: "test", stream: false });
+  const usage = [];
+  await assert.rejects(llm.complete({ ...request, onUsage: (u) => usage.push(u) }), /declined/);
+  assert.equal(usage[0].output, 7);
+  t.mock.restoreAll();
+  t.mock.method(globalThis, "fetch", async () => Response.json(responseObject("{}", { usage: undefined })));
+  await llm.complete({ ...request, onUsage: (u) => usage.push(u) });
+  assert.equal(usage.length, 1);
+});

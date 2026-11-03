@@ -60,7 +60,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var polling = false
     private var catalogUpdated = 0L
     var foreground = false
-        set(value) { field=value; if(!value) { metadataJob?.cancel(); metadataJob=null; metadataGeneration++; metadataUpdated=0L } }
+        set(value) { field=value; if(!value) { stopArtworkPrefetch(); metadataJob?.cancel(); metadataJob=null; metadataGeneration++; metadataUpdated=0L } }
     var chatVisible = false
     private val readSeq = mutableMapOf<String,Long>()
     private val preferences = application.getSharedPreferences("chat-activity",0)
@@ -178,6 +178,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!))
     }
     fun logout() {
+        stopArtworkPrefetch(reset = true)
         val oldApi = api; val oldToken = session?.token
         epoch++; api = null; session = null; drafts.clear(); catalogUpdated = 0L
         update { AppState(connection = "已退出登录") }
@@ -187,6 +188,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun rememberDraft() { if (state.value.windowId.isNotEmpty()) drafts[state.value.windowId] = state.value.draft }
     private fun clearChannel() {
+        stopArtworkPrefetch(reset = true)
         metadataJob?.cancel(); metadataJob=null; metadataGeneration++
         metadataUpdated=0L; failedPolls=0; nextPoll=0L; readSeq.clear(); speech.stop(); update { copy(chatNotices=emptyList(),initiative=emptyObject,speechMode = "ooc", references = emptyList(), jumpMessageId = null, channelId = "", windowId = "", characterId = "", channel = emptyObject, campaign = null, windows = emptyList(), characters = emptyList(), scenes = emptyList(), reminders = emptyList(), draft = "", diceHint = "", result = null, hasOlder = false) } }
     suspend fun selectServer(id: String) {
@@ -278,9 +280,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }) }.getOrNull() ?: return
         update { copy(campaign = campaign, hasOlder = campaign.messages.size == 50) }
     }
-    private fun purgeCachedAccess() { clearAvatarImages(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
+    private fun purgeCachedAccess() { stopArtworkPrefetch(reset = true); clearAvatarImages(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
     private fun permissionsDiffer(old: JsonObject, oldWindows: List<JsonObject>, fresh: JsonObject, freshWindows: List<JsonObject>) =
         listOf("player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode").any { old[it] != fresh[it] } || oldWindows.any { win -> freshWindows.find { it.id == win.id }?.get("members") != win["members"] }
+    private var artworkPrefetcher = CharacterArtworkPrefetcher()
+    private var artworkJob: Job? = null
+    private var artworkGeneration = 0L
+    private fun stopArtworkPrefetch(reset: Boolean = false) {
+        artworkJob?.cancel(); artworkJob = null; artworkGeneration++
+        if (reset) artworkPrefetcher = CharacterArtworkPrefetcher()
+    }
+    private fun scheduleArtworkPrefetch() {
+        val s = state.value
+        val client = api ?: return
+        val token = session?.token ?: return
+        if (!foreground || artworkJob != null || s.channelId.isEmpty() || s.characters.isEmpty()) return
+        val worker = artworkPrefetcher
+        val generation = ++artworkGeneration
+        artworkJob = viewModelScope.launch {
+            try { worker.warm(s.channelId, s.characters, client, token) }
+            finally { if (generation == artworkGeneration) artworkJob = null }
+        }
+    }
     private var metadataJob: Job? = null
     private var metadataGeneration = 0L
     private var metadataUpdated = 0L
@@ -335,6 +356,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val d=docs.await(); val h=hints.await(); val r=reminders.await(); val st=settings.await(); val c=chars.await(); val sc=scenes.await()
                     if(stamp==epoch && current.scopeKey==state.value.scopeKey) {
                         update { copy(campaign=campaign?.copy(documents=d,highlights=h),reminders=r,serverSettings=st,characters=c,scenes=sc) }
+                        scheduleArtworkPrefetch()
                         if(state.value.characterId.isEmpty() && state.value.speechMode=="ic") state.value.playable.firstOrNull()?.let { chooseRole(it.id) }
                     }
                 }
