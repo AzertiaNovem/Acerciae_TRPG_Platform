@@ -5,6 +5,7 @@
 #include "../core/Log.h"
 #include "../core/Text.h"
 #include "../llm/LlmGateway.h"
+#include "../llm/Replay.h"
 #include "../ws/Notifier.h"
 #include "LogStudioService.h"
 #include "CreativeService.h"
@@ -437,6 +438,16 @@ Json::Value VnScriptService::fromFlat(const ScriptInputs &in, const std::vector<
       }
       plan["scenes"][sceneIndex[key]]["lines"].append(line);
     }
+    // What the editor left out on purpose, with its reason (a line the script placed stays placed).
+    for (const auto &x : flat["exclude"]) {
+      if (!x.isObject()) continue;
+      auto idx = lineRef(x["ref"], n);
+      if (!idx || placed[*idx]) continue;
+      placed[*idx] = true;
+      auto reason = clip(json::str(x, "reason"), 160);
+      Json::Value e; e["ref"] = "L" + std::to_string(*idx + 1); e["reason"] = reason.empty() ? "left out by the script editor" : reason;
+      plan["excluded"].append(e);
+    }
   }
   // Chatter the answer left out is hidden with a reason; story lines it skipped stay visible in place.
   for (size_t i = 0; i < n; ++i) {
@@ -624,6 +635,39 @@ Json::Value VnScriptService::normalize(const ScriptInputs &in, const std::vector
 }
 
 // ---- continuation ---------------------------------------------------------------------------------
+// How the script editor treats the log: boldly, as a story, leaving out what is not the play, and asking rather than
+// guessing when a decision belongs to the table. Shared, word for word, with Open Log Studio's composer.
+const std::string &VnScriptService::editingRules() {
+  static const std::string rules =
+      "Editing: edit boldly. The script is the story of the session, not a transcript. Rewrite the Keeper's narration "
+      "and action lines as fluent prose, and smooth in-character dialogue into literary dialogue (fix typos, grammar, "
+      "chat shorthand and broken sentences, keeping each character's voice); keep every fact, name, number and "
+      "decision; never invent events. Never reword dice lines.\n"
+      "Leave out, listing each line under \"exclude\" with a short reason: out-of-character chatter whether or not it is "
+      "labelled OOC (scheduling, rules talk, jokes about the game, reactions to dice, \"brb\"); messages posted by a bot's "
+      "program (log start or end banners, help and command instructions, bot status, echoed commands) except dice "
+      "results, which stay; messages that are plainly not part of the play (placeholders such as \"MISSPELL\" or "
+      "\"ignore that\", resends and corrections of a line, accidental pastes, withdrawn messages); scene markers that "
+      "only repeat the previous one. Every other line is placed.\n"
+      "Questions: when a decision belongs to the players or the Keeper (whether a line is in character, whether two "
+      "names are one person, whether a message was meant, how to read an ambiguous line), do not guess: put it under "
+      "\"questions\" as {\"id\":\"q1\",\"question\":\"...\",\"refs\":[\"L12\"],\"options\":[\"...\"]} in the log's own "
+      "language, at most five, and still return your best script for the part. The answers come back to you and you "
+      "redo the part with them.";
+  return rules;
+}
+// The user's answers, appended when a part is resumed.
+std::string VnScriptService::answersPrompt(const Json::Value &questions, const Json::Value &answers) {
+  std::string out = "# Answers to your questions about this part\n";
+  for (const auto &q : questions) {
+    auto id = json::str(q, "id");
+    auto a = answers.isObject() && answers[id].isString() ? clip(answers[id].asString(), 2000) : std::string();
+    out += "- " + id + " (" + quoted(clip(json::str(q, "question"), 300)) + "): " + (a.empty() ? "(no answer; decide yourself)" : a) + "\n";
+  }
+  out += "Redo this part with these answers: return the complete JSON for this part again (every entry, exclusion and "
+         "art request), not only the changes. Ask again only if an answer raises a new question.";
+  return out;
+}
 const std::string &VnScriptService::continuationRules() {
   static const std::string rules =
       "\n\nContinuation: this visual novel already exists, and the transcript is the play that came after its last "
@@ -855,11 +899,13 @@ ScriptInputs VnScriptService::inputs(const ChannelAccess &a, const std::string &
 // ---- model planner --------------------------------------------------------------------------------
 Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptInputs &in, const Json::Value &job) {
   auto id = job["id"].asString();
-  const bool resume = json::toBool(job["params"], "retry_failed_chunks", llm_.retryFailedVnChunks());
-  if (!resume) db_.exec("DELETE FROM vn_script_chunks WHERE job_id=$1", {id});
+  // Completed parts of an earlier attempt are reused when asked for; a job resumed with the user's answers always
+  // reuses them (answering a question must not cost the whole script again).
+  const bool resume = json::toBool(job["params"], "resuming") || json::toBool(job["params"], "retry_failed_chunks", llm_.retryFailedVnChunks());
+  if (!resume) db_.exec("DELETE FROM vn_script_chunks WHERE job_id=$1 AND answers IS NULL", {id});
   std::map<int, Json::Value> saved;
-  if (resume) for (const auto &part : db_.queryJson("SELECT part_index, request_hash, response FROM vn_script_chunks WHERE job_id=$1 ORDER BY part_index", {id}))
-    saved[part["part_index"].asInt()] = part;
+  for (const auto &part : db_.queryJson("SELECT part_index, request_hash, response, questions, answers, exchange, rounds FROM vn_script_chunks WHERE job_id=$1 ORDER BY part_index", {id}))
+    if (resume || part["answers"].isObject()) saved[part["part_index"].asInt()] = part;
   bool reusablePrefix = resume;
   // One call per time block; a long block is cut into consecutive parts that continue each other.
   std::vector<std::pair<size_t, size_t>> parts;
@@ -888,12 +934,12 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
       "answers briefly (\"Is the door locked?\" / \"Yes.\"), give the first line's ref, list the other lines' refs "
       "under \"fold\", set \"kind\" to \"narration\" and write the result as one narration (\"The door is locked.\"). "
       "Fold only consecutive lines of the same chat window. Exact wording need not be kept, but keep every fact, "
-      "name, number and decision; never invent events and never add what the lines do not say. Leave characters' "
-      "in-character dialogue as spoken (fix obvious typos only) and never reword dice lines.\n"
+      "name, number and decision; never invent events and never add what the lines do not say. Characters' "
+      "in-character dialogue is smoothed as the editing rules below say; never reword dice lines.\n"
       "For every story line output one script entry in reading order with the background it plays on and, when a "
       "character speaks or acts, the speaker ref (C1...) and the portrait subtitle to show (IDLE, SAY, FIGHT, ...). "
-      "Leave out only Name(OOC) chatter and system noise. Keep each chat window's thread continuous; windows "
-      "that run in parallel use different backgrounds.\n"
+      "Keep each chat window's thread continuous; windows that run in parallel use different backgrounds.\n" +
+      editingRules() + "\n"
       "Backgrounds: reuse an existing or already listed background by its exact name when it fits. Otherwise invent a "
       "short name and list it under generate_backgrounds with an image prompt that states the era, the place, the time "
       "of day and the weather the lines imply, with no people in it.\n"
@@ -902,9 +948,12 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
       "listed under generate_portraits with a prompt built from the character's appearance prompt, the era and the "
       "moment (pose, expression), as a full-body standee on a transparent background.\n"
       "Return JSON: {\"generate_backgrounds\":[{\"name\",\"prompt\"}],\"generate_portraits\":[{\"char\":\"C1\",\"subtitle\",\"prompt\"}],"
-      "\"script\":[{\"ref\":\"L1\",\"speaker?\":\"C1\",\"background\":\"name\",\"portrait?\":\"SAY\",\"text?\":\"rewritten wording\",\"fold?\":[\"L2\",\"L3\"],\"kind?\":\"narration\"}]}";
+      "\"script\":[{\"ref\":\"L1\",\"speaker?\":\"C1\",\"background\":\"name\",\"portrait?\":\"SAY\",\"text?\":\"rewritten wording\",\"fold?\":[\"L2\",\"L3\"],\"kind?\":\"narration\"}],"
+      "\"exclude\":[{\"ref\":\"L5\",\"reason\":\"bot help text\"}],\"questions\":[{\"id\":\"q1\",\"question\":\"...\",\"refs\":[\"L12\"],\"options\":[\"...\"]}]}";
   if (!in.story.isNull()) system += continuationRules();
   std::vector<Json::Value> flats;
+  std::vector<std::string> notes;
+  int waiting = 0;
   Json::Value known = in.knownBackgrounds;   // a continuation starts with the scenes still waiting for a picture
   Json::Value identity;
   identity["model"] = llm_.status(a.channelId);
@@ -937,35 +986,133 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
     identity["shared"] = shared;
     identity["user"] = user;
     auto hash = crypto::sha256Hex(json::dump(identity));
+    req.keepReasoning = true;   // a part may be resumed with the user's answers: keep the turn replayable
     const auto cached = saved.find((int)pi);
+    const Json::Value *row = cached == saved.end() ? nullptr : &cached->second;
+    const bool rowMatches = row && (*row)["request_hash"] == hash;
+    const std::string label = "Part " + std::to_string(pi + 1) + "/" + std::to_string(parts.size());
     Json::Value answer;
-    if (reusablePrefix && cached != saved.end() && cached->second["request_hash"] == hash && cached->second["response"]["script"].isArray()) {
-      answer = cached->second["response"];
+    bool asks = false;                 // this part waits for answers after this pass
+    bool resumed = false;              // this part was taken up again with the user's answers
+    Json::Value questionsOut, exchangeOut;
+    int rounds = row ? (*row)["rounds"].asInt() : 0;
+    auto call = [&](const LlmRequest &r) {
+      db_.exec("UPDATE vn_script_jobs SET progress=$2::jsonb, updated_at=now() WHERE id=$1 AND status='running'", {id, json::dump(prog)});
+      auto out = llm_.runStructured(r);
+      if (!out.ok) throw ApiError(502, "llm_error", label + ": " + out.error);
+      return out;
+    };
+    auto questionsOf = [&](const Json::Value &ans) {
+      Json::Value q(Json::arrayValue);
+      for (const auto &x : ans["questions"]) {
+        if (!x.isObject() || q.size() >= 5) continue;
+        auto text = clip(json::str(x, "question"), 600);
+        if (text.empty()) continue;
+        Json::Value y; y["id"] = clip(json::str(x, "id", "q" + std::to_string(q.size() + 1)), 24); y["question"] = text;
+        y["refs"] = Json::Value(Json::arrayValue); for (const auto &r : x["refs"]) if (r.isString() && y["refs"].size() < 8) y["refs"].append(clip(r.asString(), 12));
+        y["options"] = Json::Value(Json::arrayValue); for (const auto &o : x["options"]) if (o.isString() && y["options"].size() < 6) y["options"].append(clip(o.asString(), 200));
+        q.append(y);
+      }
+      return q;
+    };
+    auto pause = [&](const Json::Value &draft, const Json::Value &q, const LlmGateway::Outcome &out) {
+      asks = true; answer = draft;
+      questionsOut = Json::Value(Json::objectValue); questionsOut["items"] = q; questionsOut["first_line"] = (int)parts[pi].first + 1; questionsOut["last_line"] = (int)parts[pi].second;
+      exchangeOut = Json::Value(Json::objectValue); exchangeOut["provider"] = out.provider; exchangeOut["model"] = out.model; exchangeOut["content"] = out.rawContent; exchangeOut["provider_content"] = out.providerContent;
+    };
+    if (row && (*row)["answers"].isObject()) {
+      // The user answered (or skipped) this part's questions: the model takes the part up again with them. The
+      // answers hold even when the endpoint changed meanwhile (the lines are the same): the replay then adapts.
+      if (!rowMatches) reusablePrefix = false;
+      const auto &answers = (*row)["answers"];
+      const auto &q = (*row)["questions"]["items"];
+      if (json::toBool(answers, "skip") || !q.isArray() || q.empty()) {
+        answer = (*row)["response"]["script"].isArray() && !(*row)["response"]["script"].empty() ? (*row)["response"] : mockFlat(in, parts[pi].first, parts[pi].second);
+        resumed = true;
+        notes.push_back(label + " (L" + std::to_string(parts[pi].first + 1) + "–L" + std::to_string(parts[pi].second) + "): its questions were skipped; the draft was used.");
+      } else {
+        // The model's own turn is replayed as the provider returned it; sealed reasoning only when it is still
+        // valid for this endpoint (Replay.h). A provider that rejects the replay gets the answers without it.
+        LlmRequest again = req;
+        LlmMessage asst; asst.role = "assistant"; asst.content = json::str((*row)["exchange"], "content");
+        asst.providerContent = llm::replayableAssistant((*row)["exchange"], llm_.status(a.channelId)["provider"].asString(), llm_.modelName(a.channelId));
+        LlmMessage follow; follow.role = "user"; follow.content = answersPrompt(q, answers);
+        LlmGateway::Outcome out;
+        bool replayed = !asst.content.empty();
+        if (replayed) {
+          again.messages.push_back(asst); again.messages.push_back(follow);
+          db_.exec("UPDATE vn_script_jobs SET progress=$2::jsonb, updated_at=now() WHERE id=$1 AND status='running'", {id, json::dump(prog)});
+          out = llm_.runStructured(again);
+          if (!out.ok && out.providerStatus == 400 && llm::carriesReasoning(asst.providerContent)) {
+            ALOG_WARN << "vn script: the provider rejected the replayed turn of " << label << "; resuming without it";
+            replayed = false;
+          } else if (!out.ok) throw ApiError(502, "llm_error", label + ": " + out.error);
+        }
+        if (!replayed) {
+          again = req;
+          again.messages.back().content = user + "\n" + follow.content;
+          out = call(again);
+        }
+        answer = out.data;
+        resumed = true;
+        auto more = questionsOf(answer);
+        if (!more.empty() && rounds < 2) pause(answer, more, out);
+        else if (!more.empty()) notes.push_back(label + ": the editor asked again after the answers; its draft was used.");
+      }
+      answer.removeMember("questions");
+    } else if (reusablePrefix && rowMatches && (*row)["questions"].isNull() && (*row)["response"]["script"].isArray()) {
+      answer = (*row)["response"];
       prog["chunks_reused"] = prog["chunks_reused"].asInt() + 1;
+    } else if (reusablePrefix && rowMatches && (*row)["questions"].isObject()) {
+      // Still waiting for the user's answers: nothing to do for this part now.
+      asks = true; questionsOut = (*row)["questions"]; exchangeOut = (*row)["exchange"]; answer = (*row)["response"]; rounds = std::max(0, rounds - 1);
     } else {
       // Once inputs diverge, later chunks also depend on newly generated backgrounds.
       if (reusablePrefix) db_.exec("DELETE FROM vn_script_chunks WHERE job_id=$1 AND part_index >= $2", {id, (int64_t)pi});
       reusablePrefix = false;
-      db_.exec("UPDATE vn_script_jobs SET progress=$2::jsonb, updated_at=now() WHERE id=$1 AND status='running'", {id, json::dump(prog)});
-      auto out = llm_.runStructured(req);
-      if (!out.ok) throw ApiError(502, "llm_error", "Part " + std::to_string(pi + 1) + "/" + std::to_string(parts.size()) + ": " + out.error);
+      auto out = call(req);
       answer = out.data;
+      auto q = questionsOf(answer);
+      if (!q.empty()) pause(answer, q, out);
+      answer.removeMember("questions");
     }
-    flats.push_back(answer);
-    for (const auto &b : answer["generate_backgrounds"]) {
-      bool dup = false; for (const auto &k : known) dup = dup || text::lower(json::str(k, "name")) == text::lower(json::str(b, "name"));
-      if (!dup && known.size() < 40 && !json::str(b, "name").empty()) { Json::Value k; k["name"] = clip(json::str(b, "name"), 80); k["prompt"] = clip(json::str(b, "prompt"), 400); known.append(k); }
+    if (asks) ++waiting;
+    else {
+      flats.push_back(answer);
+      // The later parts were planned while this part waited, without its backgrounds: a resumed part leaves the
+      // list as they saw it, so answering a question never costs the other parts again (fromFlat merges names).
+      if (!resumed) for (const auto &b : answer["generate_backgrounds"]) {
+        bool dup = false; for (const auto &k : known) dup = dup || text::lower(json::str(k, "name")) == text::lower(json::str(b, "name"));
+        if (!dup && known.size() < 40 && !json::str(b, "name").empty()) { Json::Value k; k["name"] = clip(json::str(b, "name"), 80); k["prompt"] = clip(json::str(b, "prompt"), 400); known.append(k); }
+      }
     }
-    prog["chunks_done"] = (int)pi + 1;
+    prog["chunks_done"] = (int)pi + 1 - waiting;
+    prog["questions_open"] = waiting;
     db_.tx([&](pqxx::work &w) {
       auto current = Db::queryOne(w, "SELECT status FROM vn_script_jobs WHERE id=$1 FOR UPDATE", {id});
       if (current.isNull() || current["status"] != "running") throw ApiError(409, "cancelled", "job cancelled");
-      Db::exec(w, "INSERT INTO vn_script_chunks(job_id,part_index,request_hash,response) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(job_id,part_index) DO UPDATE SET request_hash=EXCLUDED.request_hash,response=EXCLUDED.response", {id, (int64_t)pi, hash, json::dump(answer)});
+      if (asks)
+        Db::exec(w, "INSERT INTO vn_script_chunks(job_id,part_index,request_hash,response,questions,exchange,rounds) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7) "
+                    "ON CONFLICT(job_id,part_index) DO UPDATE SET request_hash=EXCLUDED.request_hash,response=EXCLUDED.response,questions=EXCLUDED.questions,exchange=EXCLUDED.exchange,answers=NULL,rounds=EXCLUDED.rounds",
+                 {id, (int64_t)pi, hash, json::dump(answer), json::dump(questionsOut), json::dump(exchangeOut), (int64_t)(rounds + 1)});
+      else
+        Db::exec(w, "INSERT INTO vn_script_chunks(job_id,part_index,request_hash,response,rounds) VALUES($1,$2,$3,$4::jsonb,$5) "
+                    "ON CONFLICT(job_id,part_index) DO UPDATE SET request_hash=EXCLUDED.request_hash,response=EXCLUDED.response,questions=NULL,answers=NULL,exchange=NULL,rounds=EXCLUDED.rounds",
+                 {id, (int64_t)pi, hash, json::dump(answer), (int64_t)rounds});
       Db::exec(w, "UPDATE vn_script_jobs SET progress=$2::jsonb, updated_at=now() WHERE id=$1", {id, json::dump(prog)});
     });
     progress(a.channelId, id, prog, "running");
   }
-  return normalize(in, {fromFlat(in, flats)}, llm_.mode(a.channelId));
+  if (waiting) {
+    // The editor asked about some parts: the job waits for the user's answers (answer()), then runs again.
+    auto p = db_.queryOne("UPDATE vn_script_jobs SET status='waiting', updated_at=now() WHERE id=$1 AND status='running' RETURNING progress", {id});
+    if (p.isNull()) throw ApiError(409, "cancelled", "job cancelled");
+    progress(a.channelId, id, p["progress"], "waiting");
+    return Json::Value();
+  }
+  auto script = normalize(in, {fromFlat(in, flats)}, llm_.mode(a.channelId));
+  for (const auto &n : notes) script["notes"].append(n);
+  return script;
 }
 
 // ---- art requests ---------------------------------------------------------------------------------
@@ -1032,6 +1179,13 @@ Json::Value VnScriptService::get(const ChannelAccess &a, const std::string &id) 
   auto own = ownerClause(a, p);
   auto j = db_.queryOne("SELECT j.* FROM vn_script_jobs j WHERE j.id=$1 AND j.channel_id=$2" + own, p);
   if (j.isNull()) throw notFound("script job not found");
+  // The parts whose editor asked something: their questions, and whether the user answered yet.
+  j["questions"] = Json::Value(Json::arrayValue);
+  for (const auto &c : db_.queryJson("SELECT part_index, questions, answers FROM vn_script_chunks WHERE job_id=$1 AND questions IS NOT NULL ORDER BY part_index", {id})) {
+    Json::Value q; q["part_index"] = c["part_index"]; q["first_line"] = c["questions"]["first_line"]; q["last_line"] = c["questions"]["last_line"];
+    q["items"] = c["questions"]["items"]; q["answered"] = c["answers"].isObject(); q["answers"] = c["answers"].isObject() ? c["answers"] : Json::Value(Json::objectValue);
+    j["questions"].append(q);
+  }
   j["background_jobs"] = Json::Value(Json::arrayValue);
   if (j["presentation_id"].isString()) {
     j["background_jobs"] = db_.queryJson(
@@ -1058,7 +1212,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
     auto old = db_.queryOne("SELECT project_id, scope, scope_character_id FROM log_snapshots WHERE id=$1", {continued["snapshot_id"].asString()});
     auto projectId = logs_.campaignProjectId(a.channelId);
     if (old.isNull() || old["project_id"].asString() != projectId) throw badRequest("only a visual novel made from the campaign log can be continued");
-    if (!db_.queryOne("SELECT id FROM vn_script_jobs WHERE channel_id=$1 AND params->>'continues_presentation_id'=$2 AND status IN ('pending','running')", {a.channelId, cont}).isNull())
+    if (!db_.queryOne("SELECT id FROM vn_script_jobs WHERE channel_id=$1 AND params->>'continues_presentation_id'=$2 AND status IN ('pending','running','waiting')", {a.channelId, cont}).isNull())
       throw conflict("this visual novel is already being continued");
     logs_.syncCampaign(a.channelId, projectId);
     Json::Value sb;
@@ -1112,7 +1266,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
 Json::Value VnScriptService::cancel(const ChannelAccess &a, const std::string &id) {
   DbParams p{id, a.channelId};
   auto own = ownerClause(a, p);
-  auto r = db_.queryOne("UPDATE vn_script_jobs j SET status='cancelled', updated_at=now() WHERE j.id=$1 AND j.channel_id=$2 AND j.status IN ('pending','running')" + own + " RETURNING id, status", p);
+  auto r = db_.queryOne("UPDATE vn_script_jobs j SET status='cancelled', updated_at=now() WHERE j.id=$1 AND j.channel_id=$2 AND j.status IN ('pending','running','waiting')" + own + " RETURNING id, status", p);
   if (r.isNull()) throw badRequest("job is not running");
   return r;
 }
@@ -1130,6 +1284,38 @@ Json::Value VnScriptService::retry(const ChannelAccess &a, const std::string &id
   logs_.audit(a, "vnscript.retry", result);
   cv_.notify_all();
   return result;
+}
+
+// The user's answers to a part's questions ({part_index, answers:{q1:"..."}} or {part_index, skip:true}). When every
+// waiting part has its answers the job is queued again: completed parts are reused, the answered ones resumed.
+Json::Value VnScriptService::answer(const ChannelAccess &a, const std::string &id, const Json::Value &body) {
+  auto job = get(a, id);
+  if (job["status"] != "waiting") throw badRequest("this script job is not waiting for answers");
+  if (!body.isObject() || !body["part_index"].isIntegral()) throw badRequest("part_index is required");
+  const int part = body["part_index"].asInt();
+  auto row = db_.queryOne("SELECT questions, answers FROM vn_script_chunks WHERE job_id=$1 AND part_index=$2", {id, (int64_t)part});
+  if (row.isNull() || !row["questions"].isObject()) throw notFound("this part asked no question");
+  if (row["answers"].isObject()) throw badRequest("this part's questions are already answered");
+  Json::Value answers(Json::objectValue);
+  if (json::toBool(body, "skip")) answers["skip"] = true;
+  else {
+    if (!body["answers"].isObject()) throw badRequest("answers must be an object of question id to answer, or skip must be true");
+    int given = 0;
+    for (const auto &q : row["questions"]["items"]) {
+      auto qid = json::str(q, "id");
+      if (body["answers"][qid].isString() && !text::trim(body["answers"][qid].asString()).empty()) { answers[qid] = clip(text::trim(body["answers"][qid].asString()), 2000); ++given; }
+    }
+    if (!given) throw badRequest("answer at least one question, or skip the part");
+  }
+  db_.exec("UPDATE vn_script_chunks SET answers=$3::jsonb WHERE job_id=$1 AND part_index=$2", {id, (int64_t)part, json::dump(answers)});
+  auto open = db_.queryOne("SELECT count(*) AS n FROM vn_script_chunks WHERE job_id=$1 AND questions IS NOT NULL AND answers IS NULL", {id})["n"].asInt64();
+  if (open == 0) {
+    db_.exec("UPDATE vn_script_jobs SET status='pending', attempts=0, error=NULL, params=params || '{\"resuming\":true}'::jsonb, updated_at=now() WHERE id=$1 AND status='waiting'", {id});
+    cv_.notify_all();
+  }
+  Json::Value audit; audit["job_id"] = id; audit["part_index"] = part; audit["skip"] = json::toBool(body, "skip");
+  logs_.audit(a, "vnscript.answer", audit);
+  return get(a, id);
 }
 
 // Resume only missing backgrounds in this draft. The script and successful images stay intact.
@@ -1216,6 +1402,7 @@ void VnScriptService::run(const Json::Value &j) {
     } else {
       requireCloudPermission(db_, channel);
       script = planWithModel(a, in, j);
+      if (script.isNull()) return;   // waiting for the user's answers
     }
     script["snapshot_id"] = j["snapshot_id"];
     script["snapshot_scope"] = snap["scope"];

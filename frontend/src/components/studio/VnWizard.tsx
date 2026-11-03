@@ -5,7 +5,7 @@ import BundleDownload from './BundleDownload';
 import { contextSocket } from '../../api/ws';
 import { useNav } from '../../store/nav';
 import { useUi } from '../../store/ui';
-import type { Presentation, TtsJob, VnScriptJob, VoiceProfile } from '../../types';
+import type { Presentation, TtsJob, VnScriptJob, VnScriptQuestions, VoiceProfile } from '../../types';
 import VNPlayer from './vn/VNPlayer';
 import { VN_BASE_INFO, VN_BASES, type VnBase } from './vn/templates';
 import { CachedImg } from '../CachedImg';
@@ -50,6 +50,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   const [tts, setTts] = useState<TtsJob | null>(null);
   // Continuing a finished visual novel as the story goes on: the presentation whose ending the next job picks up.
   const [continueFor, setContinueFor] = useState<string | null>(null);
+  const [waitingJobs, setWaitingJobs] = useState<Record<string, VnScriptJob>>({});   // the questions of jobs waiting for answers
   const [index, setIndex] = useState(0);
 
   const loadJobs = () => { if (channelId) api.vnScripts(channelId).then(setJobs).catch(() => undefined); };
@@ -70,6 +71,19 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   }, [channelId, jobId, step]);
   // Polling covers reconnects while the script or the art is still on its way.
   const running = jobs.some((j) => j.status === 'pending' || j.status === 'running');
+  // A job that waits for answers carries its questions in its own record, not in the list.
+  useEffect(() => {
+    if (!channelId) return;
+    const waiting = jobs.filter((j) => j.status === 'waiting');
+    setWaitingJobs((w) => Object.fromEntries(Object.entries(w).filter(([id]) => waiting.some((j) => j.id === id))));
+    for (const j of waiting) if (!waitingJobs[j.id] || waitingJobs[j.id].updated_at !== j.updated_at) api.vnScript(channelId, j.id).then((d) => setWaitingJobs((w) => ({ ...w, [j.id]: d }))).catch(() => undefined);
+  }, [channelId, jobs.map((j) => j.id + j.status + j.updated_at).join()]);
+  const answerQuestions = async (j: VnScriptJob, part: VnScriptQuestions, answers: Record<string, string>, skip: boolean) => {
+    setBusy(true);
+    try { await api.answerVnScript(channelId!, j.id, skip ? { part_index: part.part_index, skip: true } : { part_index: part.part_index, answers }); await loadJobs(); if (jobId === j.id) loadJob(j.id).catch(() => undefined); }
+    catch (e: any) { toast(e.message, 'error'); }
+    finally { setBusy(false); }
+  };
   const artPending = !!pres && ((pres.scenes ?? []).some((s) => !s.background_asset_id) || (pres.events ?? []).some((e) => (e.character_asset_ids ?? []).some((p) => !p.asset_id)));
   useEffect(() => { if (!running && !(step === 'art' && artPending)) return; const t = setInterval(() => { loadJobs(); if (jobId) loadJob(jobId).catch(() => undefined); }, 2500); return () => clearInterval(t); }, [running, step, artPending, jobId]);
   useEffect(() => { if (step !== 'cast' || !channelId) return; Promise.all([api.voices(channelId), api.ttsAvailableVoices(channelId)]).then(([v, a]) => { setVoices(v); setPresets(a); }).catch(() => undefined); }, [step, channelId]);
@@ -104,7 +118,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   };
   // A presentation is continued from its newest finished job; older jobs of it, and those with a job still running, are not.
   const continuable = (j: VnScriptJob) => j.status === 'completed' && !!j.presentation_id
-    && !jobs.some((o) => o.id !== j.id && (o.presentation_id === j.presentation_id || o.continues_presentation_id === j.presentation_id) && (o.created_at > j.created_at || o.status === 'pending' || o.status === 'running'));
+    && !jobs.some((o) => o.id !== j.id && (o.presentation_id === j.presentation_id || o.continues_presentation_id === j.presentation_id) && (o.created_at > j.created_at || o.status === 'pending' || o.status === 'running' || o.status === 'waiting'));
   const retryBackgrounds = async (sceneKey?: string) => {
     if (!channelId || !jobId) return;
     setBusy(true);
@@ -153,7 +167,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
 
       {step === 'script' && (
         <div>
-          <div className="tiny muted">{tr('The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on and which portrait each speaker shows. It never rewrites or adds lines.')}</div>
+          <div className="tiny muted">{tr('The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on, which portrait each speaker shows, and the wording of the story. It leaves out chatter, bot messages and placeholders, never adds lines, and asks you when a line is unclear; the log keeps every original.')}</div>
           <div className="vn-tpl-fields tiny">
             <label>{tr('Lines to read')}<select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
               {isGm && <option value="gm_full">{tr('Everything, including private windows (GM only result)')}</option>}
@@ -175,9 +189,12 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
               {jobs.map((j) => (
                 <tr key={j.id} className={j.id === jobId ? 'selected' : ''}>
                   <td>
-                    <b>{j.title}</b> <span className={`pill ${j.status === 'failed' ? 'danger' : j.status === 'completed' ? 'ok' : ''}`}>{tr(j.status)}</span>{j.continues_presentation_id && <span className="pill">{tr('continuation')}</span>}
-                    <div className="tiny muted">{j.snapshot_scope}{j.stats ? ` · ${tr('{n} scenes', { n: j.stats.scenes })} · ${tr('{n} lines shown', { n: j.stats.shown })}` : ''}{j.status === 'running' && j.progress?.chunks_total ? ` · ${tr('part {a} of {b}', { a: j.progress.chunks_done ?? 0, b: j.progress.chunks_total })}` : ''}</div>
+                    <b>{j.title}</b> <span className={`pill ${j.status === 'failed' ? 'danger' : j.status === 'completed' ? 'ok' : j.status === 'waiting' ? 'gm' : ''}`}>{j.status === 'waiting' ? tr('waiting for your answers') : tr(j.status)}</span>{j.continues_presentation_id && <span className="pill">{tr('continuation')}</span>}
+                    <div className="tiny muted">{j.snapshot_scope}{j.stats ? ` · ${tr('{n} scenes', { n: j.stats.scenes })} · ${tr('{n} lines shown', { n: j.stats.shown })}` : ''}{j.status === 'running' && j.progress?.chunks_total ? ` · ${tr('part {a} of {b}', { a: j.progress.chunks_done ?? 0, b: j.progress.chunks_total })}` : ''}{j.status === 'waiting' && j.progress?.questions_open ? ` · ${tr('{n} parts wait for your answers', { n: j.progress.questions_open })}` : ''}</div>
                     {j.error && <div className="tiny" style={{ color: 'var(--danger)' }}>{j.error}</div>}
+                    {j.status === 'waiting' && (waitingJobs[j.id]?.questions ?? []).filter((q) => !q.answered).map((q) => (
+                      <VnQuestionBox key={q.part_index} part={q} busy={busy} onAnswer={(answers, skip) => answerQuestions(j, q, answers, skip)} />
+                    ))}
                     {continueFor === j.presentation_id && continuable(j) && (
                       <div className="vn-continue">
                         <div className="tiny muted">{tr('The lines posted since this visual novel ends are written as new scenes after it, in the same point of view. The AI is told where the story stopped and reuses its backgrounds and portraits; it asks only for the places and poses that are new. The direction above applies.')}</div>
@@ -198,7 +215,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
                       catch (e: any) { toast(e.message, 'error'); }
                       finally { setBusy(false); }
                     }}>{tr('Retry script')}</button>}
-                    {(j.status === 'pending' || j.status === 'running') && <button className="small ghost" onClick={async () => { await api.cancelVnScript(channelId!, j.id).catch(() => undefined); loadJobs(); }}>{tr('cancel')}</button>}
+                    {(j.status === 'pending' || j.status === 'running' || j.status === 'waiting') && <button className="small ghost" onClick={async () => { await api.cancelVnScript(channelId!, j.id).catch(() => undefined); loadJobs(); }}>{tr('cancel')}</button>}
                   </td>
                 </tr>
               ))}
@@ -278,6 +295,29 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
           <div className="tiny muted" style={{ marginTop: 4 }}>{tr('The zip holds index.html with every image and voice line; open it in any browser, no server needed.')}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// The script editor asked about a part of the log instead of guessing: the questions are shown with the lines they
+// are about; the answers (or a skip, which keeps the editor's draft) let the job go on with that part.
+export function VnQuestionBox({ part, busy, onAnswer }: { part: Pick<VnScriptQuestions, 'first_line' | 'last_line' | 'items'>; busy: boolean; onAnswer: (answers: Record<string, string>, skip: boolean) => void }) {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const given = Object.values(answers).some((a) => a.trim());
+  return (
+    <div className="vn-questions" data-testid="vn-questions">
+      <div className="tiny muted">{tr('The script editor asks about lines {a}–{b}. The other parts go on meanwhile; your answers finish this one. Skipping keeps its draft.', { a: part.first_line, b: part.last_line })}</div>
+      {part.items.map((q) => (
+        <div key={q.id} className="vn-question">
+          <div><b>{q.question}</b>{q.refs.length > 0 && <span className="tiny muted"> · {q.refs.join(', ')}</span>}</div>
+          {q.options.length > 0 && <div className="row" style={{ gap: 4, flexWrap: 'wrap', marginTop: 4 }}>{q.options.map((o) => <button key={o} type="button" className={`small ${answers[q.id] === o ? 'primary' : 'ghost'}`} onClick={() => setAnswers((a) => ({ ...a, [q.id]: o }))}>{o}</button>)}</div>}
+          <input value={answers[q.id] ?? ''} maxLength={2000} placeholder={tr('Your answer (optional)')} onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))} style={{ display: 'block', width: '100%', marginTop: 4 }} />
+        </div>
+      ))}
+      <div className="row" style={{ gap: 6, marginTop: 6 }}>
+        <button className="primary small" disabled={busy || !given} onClick={() => onAnswer(answers, false)}>{tr('Answer and continue')}</button>
+        <button className="ghost small" disabled={busy} onClick={() => onAnswer({}, true)}>{tr('Skip (use the draft)')}</button>
+      </div>
     </div>
   );
 }

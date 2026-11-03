@@ -2,7 +2,7 @@
 // The model reads the log as a time-block transcript and answers with backgrounds and portraits to generate plus a
 // flat script that references existing lines; normalize() turns that into the stored script. Without a model, a
 // rule-based planner answers in the same shape. Nothing here does I/O: the model is an injected LlmCall.
-import type { LlmCall, Project, VnAssetNeed, VnLine, VnScene, VnScript, VnStage } from '../types';
+import type { LlmAnswer, LlmCall, LlmTurn, Project, VnAssetNeed, VnDraft, VnLine, VnPendingPart, VnQuestion, VnScene, VnScript, VnStage } from '../types';
 import { buildInputs, type BackgroundAsset, type PlanLine, type ScriptInputs } from './inputs';
 import { arr, clip, icontains, isObject, lineRef, lower, oneOf, replaceQuotes, slugKey, str, trim, utf8Length, utf8Prefix } from './text';
 
@@ -152,6 +152,24 @@ export function transcript(inp: ScriptInputs, begin: number, end: number, knownB
 }
 
 // ---- the prompts ----------------------------------------------------------------------------------
+// The server's VnScriptService::editingRules(), word for word: bold editing, what to leave out (with a reason), and
+// questions for the user instead of guesses.
+export const EDITING_RULES =
+  'Editing: edit boldly. The script is the story of the session, not a transcript. Rewrite the Keeper\'s narration ' +
+  'and action lines as fluent prose, and smooth in-character dialogue into literary dialogue (fix typos, grammar, ' +
+  'chat shorthand and broken sentences, keeping each character\'s voice); keep every fact, name, number and ' +
+  'decision; never invent events. Never reword dice lines.\n' +
+  'Leave out, listing each line under "exclude" with a short reason: out-of-character chatter whether or not it is ' +
+  'labelled OOC (scheduling, rules talk, jokes about the game, reactions to dice, "brb"); messages posted by a bot\'s ' +
+  'program (log start or end banners, help and command instructions, bot status, echoed commands) except dice ' +
+  'results, which stay; messages that are plainly not part of the play (placeholders such as "MISSPELL" or ' +
+  '"ignore that", resends and corrections of a line, accidental pastes, withdrawn messages); scene markers that ' +
+  'only repeat the previous one. Every other line is placed.\n' +
+  'Questions: when a decision belongs to the players or the Keeper (whether a line is in character, whether two ' +
+  'names are one person, whether a message was meant, how to read an ambiguous line), do not guess: put it under ' +
+  '"questions" as {"id":"q1","question":"...","refs":["L12"],"options":["..."]} in the log\'s own ' +
+  'language, at most five, and still return your best script for the part. The answers come back to you and you ' +
+  'redo the part with them.';
 export const SYSTEM_PROMPT =
   'You are the script editor turning a tabletop RPG chat log into a visual-novel script.\n' +
   'The transcript lists the assets, then one time block of play grouped by chat window. Each line is ' +
@@ -166,12 +184,12 @@ export const SYSTEM_PROMPT =
   'answers briefly ("Is the door locked?" / "Yes."), give the first line\'s ref, list the other lines\' refs ' +
   'under "fold", set "kind" to "narration" and write the result as one narration ("The door is locked."). ' +
   'Fold only consecutive lines of the same chat window. Exact wording need not be kept, but keep every fact, ' +
-  'name, number and decision; never invent events and never add what the lines do not say. Leave characters\' ' +
-  'in-character dialogue as spoken (fix obvious typos only) and never reword dice lines.\n' +
+  'name, number and decision; never invent events and never add what the lines do not say. Characters\' ' +
+  'in-character dialogue is smoothed as the editing rules below say; never reword dice lines.\n' +
   'For every story line output one script entry in reading order with the background it plays on and, when a ' +
   'character speaks or acts, the speaker ref (C1...) and the portrait subtitle to show (IDLE, SAY, FIGHT, ...). ' +
-  'Leave out only Name(OOC) chatter and system noise. Keep each chat window\'s thread continuous; windows ' +
-  'that run in parallel use different backgrounds.\n' +
+  'Keep each chat window\'s thread continuous; windows that run in parallel use different backgrounds.\n' +
+  EDITING_RULES + '\n' +
   'Backgrounds: reuse an existing or already listed background by its exact name when it fits. Otherwise invent a ' +
   'short name and list it under generate_backgrounds with an image prompt that states the era, the place, the time ' +
   'of day and the weather the lines imply, with no people in it.\n' +
@@ -180,7 +198,8 @@ export const SYSTEM_PROMPT =
   'listed under generate_portraits with a prompt built from the character\'s appearance prompt, the era and the ' +
   'moment (pose, expression), as a full-body standee on a transparent background.\n' +
   'Return JSON: {"generate_backgrounds":[{"name","prompt"}],"generate_portraits":[{"char":"C1","subtitle","prompt"}],' +
-  '"script":[{"ref":"L1","speaker?":"C1","background":"name","portrait?":"SAY","text?":"rewritten wording","fold?":["L2","L3"],"kind?":"narration"}]}';
+  '"script":[{"ref":"L1","speaker?":"C1","background":"name","portrait?":"SAY","text?":"rewritten wording","fold?":["L2","L3"],"kind?":"narration"}],' +
+  '"exclude":[{"ref":"L5","reason":"bot help text"}],"questions":[{"id":"q1","question":"...","refs":["L12"],"options":["..."]}]}';
 
 const LANGUAGE_NAMES: Record<string, string> = {
   zh: 'Simplified Chinese', 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', ja: 'Japanese', ko: 'Korean',
@@ -199,6 +218,31 @@ export function systemPrompt(language: string, continuation = false): string {
     '. Keep JSON keys, enum values, status values and ids exactly as specified.';
 }
 /** The user message of one part. */
+/** The user's answers, appended when a part is resumed (VnScriptService::answersPrompt). */
+export function answersPrompt(questions: VnQuestion[], answers: Record<string, string> | null | undefined): string {
+  let out = '# Answers to your questions about this part\n';
+  for (const q of questions) {
+    const a = answers && typeof answers[q.id] === 'string' ? clip(answers[q.id], 2000) : '';
+    out += `- ${q.id} (${quoted(clip(q.question, 300))}): ${a || '(no answer; decide yourself)'}\n`;
+  }
+  return out + 'Redo this part with these answers: return the complete JSON for this part again (every entry, exclusion and ' +
+    'art request), not only the changes. Ask again only if an answer raises a new question.';
+}
+/** The questions of a part's answer: at most five, bounded, in the server's shape. */
+export function questionsOf(answer: unknown): VnQuestion[] {
+  const out: VnQuestion[] = [];
+  for (const x of arr(answer, 'questions')) {
+    if (!isObject(x) || out.length >= 5) continue;
+    const question = clip(str(x, 'question'), 600);
+    if (!question) continue;
+    out.push({
+      id: clip(str(x, 'id') || `q${out.length + 1}`, 24), question,
+      refs: arr(x, 'refs').filter((r): r is string => typeof r === 'string').slice(0, 8).map((r) => clip(r, 12)),
+      options: arr(x, 'options').filter((o): o is string => typeof o === 'string').slice(0, 6).map((o) => clip(o, 200)),
+    });
+  }
+  return out;
+}
 export function userPrompt(inp: ScriptInputs, part: [number, number], index: number, total: number, instructions: string, known: KnownBackground[], story?: StoryContext): string {
   let user = `Part ${index + 1} of ${total}\n`;
   const direction = clip(instructions, 1000);
@@ -508,6 +552,15 @@ export function fromFlat(inp: ScriptInputs, flats: unknown[]): Json {
       }
       plan.scenes[sceneIndex.get(key)!].lines.push(line);
     }
+    // What the editor left out on purpose, with its reason (a line the script placed stays placed).
+    for (const x of arr(flat, 'exclude')) {
+      if (!isObject(x)) continue;
+      const idx = lineRef(x.ref, n);
+      if (idx === null || placed[idx]) continue;
+      placed[idx] = true;
+      const reason = clip(str(x, 'reason'), 160);
+      plan.excluded.push({ ref: `L${idx + 1}`, reason: reason || 'left out by the script editor' });
+    }
   }
   // Chatter the answer left out is hidden with a reason; story lines it skipped stay visible in place.
   for (let i = 0; i < n; i++) {
@@ -764,7 +817,8 @@ function abortError(signal: AbortSignal): Error {
 
 /** Turns the project's log into a visual-novel script, with the model when one is given, else by rules. */
 export async function composeScript(project: Project, opts: ComposeOptions): Promise<VnScript> {
-  return compose(project, opts, [], undefined);
+  const r = await composeDraft(project, opts);
+  return 'script' in r ? r.script : finishDraft(buildInputs(project, opts.backgrounds ?? []), skipPending(r.draft));
 }
 
 /**
@@ -781,9 +835,22 @@ export async function continueScript(project: Project, opts: ComposeOptions): Pr
 
 /**
  * The script of the lines after the visual novel's end, not yet appended: a task appends it (appendScript) to the
- * script as it is when the writing is done, so art painted meanwhile is kept.
+ * script as it is when the writing is done, so art painted meanwhile is kept. A draft whose parts ask questions is
+ * finished with their drafts here; continueDraft() hands the questions to the user instead.
  */
 export async function composeContinuation(project: Project, opts: ComposeOptions): Promise<{ added: VnScript; note: string; lines: number }> {
+  const r = await continueDraft(project, opts);
+  if ('script' in r) return { added: r.script, note: r.note, lines: r.lines };
+  const c = continuationContext(project, opts);
+  return { added: finishDraft(buildInputs(c.tail, c.backgrounds), skipPending(r.draft)), note: c.note, lines: c.events.length };
+}
+
+// ---- drafts: parts that ask the user something -------------------------------------------------------
+// The composer's result: the script, or a draft whose pending parts wait for the user's answers (resumeDraft()).
+export type DraftResult = { script: VnScript } | { draft: VnDraft };
+interface Continuation { tail: Project; backgrounds: BackgroundAsset[]; known: KnownBackground[]; story: StoryContext; events: Project['events']; from: number; note: string }
+
+function continuationContext(project: Project, opts: ComposeOptions): Continuation {
   const vn = project.vn;
   if (!vn) throw new Error('there is no visual novel to continue');
   const from = lastScriptedSeq(vn.script);
@@ -796,13 +863,103 @@ export async function composeContinuation(project: Project, opts: ComposeOptions
     if (s.background) { if (!backgrounds.some((b) => b.path === s.background || lower(b.name) === lower(s.title))) backgrounds.push({ name: s.title, path: s.background }); }
     else if (!known.some((k) => lower(k.name) === lower(s.title)) && known.length < 40) known.push({ name: clip(s.title, 80), prompt: clip(s.background_brief, 400) });
   }
-  const tail = { ...project, events };
-  const added = await compose(tail, { ...opts, backgrounds }, known, storyContext(project, vn.script));
   const note = `Continued after line #${from}: ${events.length} new lines from #${events[0].seq}.`;
-  return { added, note, lines: events.length };
+  return { tail: { ...project, events }, backgrounds, known, story: storyContext(project, vn.script), events, from, note };
 }
 
-async function compose(project: Project, opts: ComposeOptions, seedKnown: KnownBackground[], story: StoryContext | undefined): Promise<VnScript> {
+/** Composes the whole log; parts whose editor asks something come back as a draft for the user to answer. */
+export async function composeDraft(project: Project, opts: ComposeOptions): Promise<DraftResult> {
+  return draftParts(project, opts, [], undefined, 'compose', 0);
+}
+/** Continues the novel (see composeContinuation); the result is the script of the new lines only, or a draft. */
+export async function continueDraft(project: Project, opts: ComposeOptions): Promise<DraftResult & { note: string; lines: number }> {
+  const c = continuationContext(project, opts);
+  const r = await draftParts(c.tail, { ...opts, backgrounds: c.backgrounds }, c.known, c.story, 'continue', c.from);
+  return { ...r, note: c.note, lines: c.events.length };
+}
+
+/**
+ * Takes the pending parts of a draft up again with the user's answers (or their drafts when skipped). The model's
+ * own turn is replayed as the provider returned it (vn/replay.ts decides what of its reasoning can be), then the
+ * answers; a part may ask once more. The finished parts are kept as they are, so answering never costs them again.
+ */
+export async function resumeDraft(project: Project, opts: ComposeOptions, draft: VnDraft): Promise<DraftResult & { note: string; lines: number }> {
+  const cont = draft.mode === 'continue' ? continuationContext(project, opts) : null;
+  const target = cont ? cont.tail : project;
+  if ((project.events ?? []).length !== draft.events || (cont && cont.from !== draft.from_seq)) throw new Error('the log changed since the script was started: compose it again');
+  const inp = buildInputs(target, cont ? cont.backgrounds : opts.backgrounds ?? []);
+  const signal = opts.signal;
+  const next: VnDraft = { ...draft, flats: [...draft.flats], notes: [...draft.notes], pending: [] };
+  const system = systemPrompt(draft.language ?? '', !!cont);
+  const total = draft.parts.length;
+  const open = draft.pending.filter((p) => !p.skip && !p.answers);
+  if (open.length) throw new Error('some questions are still unanswered');
+  opts.onProgress?.(0, draft.pending.length);
+  for (let i = 0; i < draft.pending.length; i++) {
+    const pend = draft.pending[i];
+    const part = draft.parts[pend.index];
+    const label = `Part ${pend.index + 1}/${total} (L${part[0] + 1}–L${part[1]})`;
+    if (signal?.aborted) throw abortError(signal);
+    if (pend.skip || !opts.llm) {
+      next.flats[pend.index] = isObject(pend.draft) && Array.isArray(pend.draft.script) && pend.draft.script.length ? pend.draft : mockFlat(inp, part[0], part[1]);
+      next.notes.push(`${label}: its questions were skipped; the draft was used.`);
+    } else {
+      // With the model's turn at hand the answers follow it in the same conversation; without one (a plain-text
+      // provider) they are appended to the part's prompt instead.
+      const follow = answersPrompt(pend.questions, pend.answers);
+      const got = await opts.llm(pend.turn
+        ? { system, user: pend.user, json: true, max_tokens: VN_MAX_TOKENS, signal, replay: { turn: pend.turn, followUp: follow } }
+        : { system, user: `${pend.user}\n${follow}`, json: true, max_tokens: VN_MAX_TOKENS, signal });
+      if (signal?.aborted) throw abortError(signal);
+      const { text, turn } = answerOf(got);
+      const read = readAnswer(inp, part, text);
+      if (!read.ok) {
+        next.flats[pend.index] = isObject(pend.draft) && Array.isArray(pend.draft.script) && pend.draft.script.length ? pend.draft : mockFlat(inp, part[0], part[1]);
+        next.notes.push(`${label}: ${read.error}; its earlier draft was used.`);
+      } else {
+        const more = questionsOf(read.flat);
+        delete read.flat.questions;
+        if (more.length && pend.rounds < 2) next.pending.push({ ...pend, questions: more, rounds: pend.rounds + 1, draft: read.flat, turn, answers: null, skip: false });
+        else {
+          if (more.length) next.notes.push(`${label}: the editor asked again after the answers; its draft was used.`);
+          next.flats[pend.index] = read.flat;
+        }
+      }
+    }
+    opts.onProgress?.(i + 1, draft.pending.length);
+  }
+  const note = cont?.note ?? '';
+  const lines = cont?.events.length ?? 0;
+  if (next.pending.length) return { draft: next, note, lines };
+  return { script: finishDraft(inp, next), note, lines };
+}
+
+/** A draft whose pending parts are all taken as they are (the editor's best answers). */
+export function skipPending(draft: VnDraft): VnDraft {
+  return { ...draft, pending: draft.pending.map((p) => ({ ...p, skip: true })) };
+}
+/** The script of a draft with no open part: pending parts count as skipped. */
+export function finishDraft(inp: ScriptInputs, draft: VnDraft): VnScript {
+  const flats = [...draft.flats];
+  const notes = [...draft.notes];
+  for (const p of draft.pending) {
+    if (flats[p.index]) continue;
+    const part = draft.parts[p.index];
+    flats[p.index] = isObject(p.draft) && Array.isArray(p.draft.script) && p.draft.script.length ? p.draft : mockFlat(inp, part[0], part[1]);
+    notes.push(`Part ${p.index + 1}/${draft.parts.length} (L${part[0] + 1}–L${part[1]}): its questions were skipped; the draft was used.`);
+  }
+  const script = normalize(inp, [fromFlat(inp, flats.filter((f) => f != null))], 'llm');
+  script.notes.push(...notes);
+  return script;
+}
+/** The model's answer as text plus, when the provider gave it, the turn to replay later. */
+function answerOf(got: string | LlmAnswer): { text: string; turn: LlmTurn | null } {
+  if (typeof got === 'string') return { text: got, turn: null };
+  if (!got || typeof got !== 'object') return { text: '', turn: null };
+  return { text: typeof got.text === 'string' ? got.text : '', turn: got.turn ?? null };
+}
+
+async function draftParts(project: Project, opts: ComposeOptions, seedKnown: KnownBackground[], story: StoryContext | undefined, mode: VnDraft['mode'], fromSeq: number): Promise<DraftResult> {
   const inp = buildInputs(project, opts.backgrounds ?? []);
   const signal = opts.signal;
   if (signal?.aborted) throw abortError(signal);
@@ -811,7 +968,7 @@ async function compose(project: Project, opts: ComposeOptions, seedKnown: KnownB
     const flats: Json[] = [];
     blks.forEach(([b, e], i) => { flats.push(mockFlat(inp, b, e)); opts.onProgress?.(i + 1, blks.length); });
     if (!blks.length) opts.onProgress?.(0, 0);
-    return normalize(inp, [fromFlat(inp, flats)], 'mock');
+    return { script: normalize(inp, [fromFlat(inp, flats)], 'mock') };
   }
   const llm = opts.llm;
   const ps = parts(inp.events);
@@ -819,14 +976,16 @@ async function compose(project: Project, opts: ComposeOptions, seedKnown: KnownB
   const flats: Json[] = [];
   const known: KnownBackground[] = [...seedKnown];
   const notes: string[] = [];
+  const pending: VnPendingPart[] = [];
   opts.onProgress?.(0, ps.length);
   for (let pi = 0; pi < ps.length; pi++) {
     if (signal?.aborted) throw abortError(signal);
     // Only the first part follows the old ending; later parts follow the part before them.
     const user = userPrompt(inp, ps[pi], pi, ps.length, opts.instructions ?? '', known, pi === 0 ? story : undefined);
-    const raw = await llm({ system, user, json: true, max_tokens: VN_MAX_TOKENS, signal });
+    const got = await llm({ system, user, json: true, max_tokens: VN_MAX_TOKENS, signal });
     if (signal?.aborted) throw abortError(signal);
-    const read = readAnswer(inp, ps[pi], raw);
+    const { text, turn } = answerOf(got);
+    const read = readAnswer(inp, ps[pi], text);
     let answer: Json;
     if (read.ok) answer = read.flat;
     else {
@@ -834,15 +993,24 @@ async function compose(project: Project, opts: ComposeOptions, seedKnown: KnownB
       answer = mockFlat(inp, ps[pi][0], ps[pi][1]);
       notes.push(`Part ${pi + 1}/${ps.length} (L${ps[pi][0] + 1}–L${ps[pi][1]}): ${read.error}; these lines were planned by rules instead.`);
     }
-    flats.push(answer);
-    for (const b of arr(answer, 'generate_backgrounds')) {
-      const name = str(b, 'name');
-      if (!name || known.length >= 40 || known.some((k) => lower(k.name) === lower(name))) continue;
-      known.push({ name: clip(name, 80), prompt: clip(str(b, 'prompt'), 400) });
+    const questions = read.ok ? questionsOf(answer) : [];
+    delete answer.questions;
+    if (questions.length) {
+      // The editor asks the user about this part: the later parts go on without its backgrounds (they are planned
+      // as they stand now, and resuming the part never costs them again; fromFlat merges background names).
+      pending.push({ index: pi, first_line: ps[pi][0] + 1, last_line: ps[pi][1], user, questions, rounds: 1, draft: answer, turn, answers: null, skip: false });
+      flats.push(null);
+    } else {
+      flats.push(answer);
+      for (const b of arr(answer, 'generate_backgrounds')) {
+        const name = str(b, 'name');
+        if (!name || known.length >= 40 || known.some((k) => lower(k.name) === lower(name))) continue;
+        known.push({ name: clip(name, 80), prompt: clip(str(b, 'prompt'), 400) });
+      }
     }
     opts.onProgress?.(pi + 1, ps.length);
   }
-  const script = normalize(inp, [fromFlat(inp, flats)], 'llm');
-  script.notes.push(...notes);
-  return script;
+  const draft: VnDraft = { mode, language: opts.language ?? '', instructions: opts.instructions ?? '', events: (project.events ?? []).length, from_seq: fromSeq, parts: ps, flats, notes, pending, created_at: new Date().toISOString() };
+  if (pending.length) return { draft };
+  return { script: finishDraft(inp, draft) };
 }

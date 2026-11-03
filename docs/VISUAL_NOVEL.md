@@ -5,18 +5,36 @@ A visual novel in Log Studio is a presentation over one frozen snapshot. Two fea
 - **Look templates** decide how the player draws every line.
 - **Script jobs** have the LLM read the campaign log in the requester's scope and organise it into scenes, backgrounds and portraits. The job then builds a draft presentation in a chosen template, asks the image AI for missing art, and the author casts voices and downloads a standalone zip.
 
-Neither feature changes canonical text. A script references log events by id. The script composer may give a line its
-own wording for the visual novel, stored on the presentation (`script_text`) while the log keeps the original:
+Neither feature changes canonical text. A script references log events by id. The script editor (the model) is told to
+edit boldly: the script is the story of the session, not a transcript. It may give a line its own wording for the
+visual novel, stored on the presentation (`script_text`) while the log keeps the original:
 
-- the Keeper's narration and action lines are rewritten as fluent, grammatical prose in the log's language;
+- the Keeper's narration and action lines are rewritten as fluent prose in the log's language;
+- in-character dialogue is smoothed into literary dialogue (typos, grammar, chat shorthand and broken sentences are
+  fixed, each character's voice is kept);
 - short question-and-answer exchanges ("Is the door locked?" / "Yes.") fold into one narration line ("The door is
   locked."); the folded lines stay in the presentation, hidden with the reason `folded into narration (L<n>)`;
-- in-character dialogue keeps its words apart from obvious typos, and dice lines are never reworded.
+- dice lines are never reworded.
 
-Exact wording is not kept, but facts, names, numbers and decisions are. Only consecutive lines of one chat window with
-the same readers can fold together, so a reworded line never carries text its viewer could not read. The editor shows
-the wording with the log's original beside it ("Use the log's wording" restores it), and the player's raw log view
-always shows the canonical text.
+Exact wording is not kept, but facts, names, numbers and decisions are, and the editor never invents events. Only
+consecutive lines of one chat window with the same readers can fold together, so a reworded line never carries text its
+viewer could not read. The editor shows the wording with the log's original beside it ("Use the log's wording" restores
+it), and the player's raw log view always shows the canonical text.
+
+The editor also leaves lines out, each listed under `exclude` with a short reason (the line stays in the presentation,
+hidden with that reason, never deleted):
+
+- out-of-character chatter, whether or not the log labels it OOC (scheduling, rules talk, jokes about the game,
+  reactions to dice, "brb");
+- messages posted by a bot's program (log start or end banners, help and command instructions, bot status, echoed
+  commands), except dice results, which stay. Local logs from dice bots carry these on every session;
+- messages that are plainly not part of the play: placeholders such as "MISSPELL" or "ignore that" left behind by an
+  edit, resends and corrections of a line, accidental pastes, withdrawn messages;
+- scene markers that only repeat the previous one.
+
+Every other line is placed. When a decision belongs to the players or the Keeper (whether a line is in character,
+whether two names are one person, whether a message was meant, how to read an ambiguous line), the editor does not
+guess: it asks, see [Questions from the editor](#questions-from-the-editor).
 
 ![The four look templates](screenshots/vn-templates.png)
 
@@ -99,6 +117,42 @@ The job lists `continues_presentation_id`, and its `script` holds the new lines 
 
 The desktop Open Log Studio does the same with a supplement log (see [desktop/README.md](../desktop/README.md)).
 
+### Questions from the editor
+
+A part's answer may carry up to five `questions` (`{id, question, refs, options}`, in the log's own language) next to
+its best script for the part. The job then does not stop: the other parts are written as usual, and when the loop ends
+with questions open the job's status becomes `waiting`. `GET …/vn-scripts/{j}` lists them under `questions`
+(`[{part_index, first_line, last_line, items, answered, answers}]`) and the Studio shows a question box under the job:
+each question with the lines it is about, its suggested options as buttons, a free-text answer, **Answer and continue**
+and **Skip (use the draft)**. The author or the Keeper answers through `POST …/vn-scripts/{j}/answers` with
+`{part_index, answers: {q1: "…"}}` or `{part_index, skip: true}`; questions left unanswered are the editor's own call
+("no answer; decide yourself"). Parts can be answered in any order; the job runs again once every open part has an
+answer, and only those parts are redone: the finished parts are reused from their checkpoints (a resumed part does not
+change the prompts of the parts after it), so answering never costs the rest of the script again. A skipped part keeps
+the editor's draft, with a note in the script. A resumed part may ask once more; after two rounds its draft is used.
+Cancelling a waiting job works as for a running one; a changed model or endpoint keeps the answers (the lines are the
+same) and replays the turn as plain text.
+
+Resuming a part continues the model's own conversation: the part's prompt, the model's earlier answer as its assistant
+turn, then the answers as a new user turn (`# Answers to your questions about this part …`, asking for the complete
+JSON again). The model's turn is stored as the provider returned it (`vn_script_chunks.exchange`), because providers
+verify the hidden reasoning they return:
+
+- **Anthropic.** `thinking` blocks are replayed only unmodified, with their `signature`, and only to the model that
+  signed them; `redacted_thinking` blocks need their `data`. Anything else of the reasoning is dropped; the text block
+  always goes back.
+- **OpenAI Responses.** Requests are sent with `store: false`, so the reasoning of a turn is only replayable in its
+  sealed form: VN requests to OpenAI's own API ask for `include: ["reasoning.encrypted_content"]`, and a `reasoning`
+  item is replayed only with that content and to the same model, next to the `message` item. Other compatible gateways
+  are not sent the field and get the text only.
+- A provider that still rejects the replayed turn (HTTP 400) gets the answers appended to the part's prompt instead,
+  with no assistant turn.
+
+The same rules live in `backend/src/llm/Replay.cpp` for the server and `frontend/src/openstudio/vn/replay.ts` for the
+desktop Open Log Studio, whose composer keeps the waiting parts in the project (`vn_draft`, with the model's turn) until
+they are answered in the Visual novel panel; its chat-completions adapter replays text only (a gateway's
+`reasoning_content` must never be sent back), its Anthropic adapter the signed blocks.
+
 ### The transcript the model reads
 
 The log is cut into **time blocks**: a block ends when no chat window carried a line for an hour. One model call reads one
@@ -158,8 +212,12 @@ The system prompt forbids writing, rewriting, translating, shortening or merging
 - **Scenes.** A new scene opens whenever the background changes; its title is the background name. Parallel chat windows
   therefore read as separate scenes when the model gives them different backgrounds.
 - **Lines.** Only refs that exist are placed, each once. An answer that copied a line's text instead of its ref is matched
-  back to that line. Out-of-character and system lines the model leaves out are hidden with a reason, never deleted.
-  Story lines it skips stay visible next to their neighbours.
+  back to that line. Lines listed under `exclude` are hidden with the given reason (a placed line stays placed; a
+  missing reason reads `left out by the script editor`); out-of-character and system lines the model simply leaves out
+  are hidden with a reason too, never deleted. Story lines it skips without a reason stay visible next to their
+  neighbours.
+- **Questions.** `questions` are read (at most five, bounded) and make the part wait for the user, see above; they are
+  never part of the script.
 - **Portraits.** A speaker is staged with the subtitle given (at most two on stage). For a character in uploaded mode a
   subtitle not in their list falls back to their default art. Portrait requests for uploaded-mode characters are dropped.
 - **Art requests.** New backgrounds and generated-mode portraits become image jobs (`asset_needs`, at most 24 per script).

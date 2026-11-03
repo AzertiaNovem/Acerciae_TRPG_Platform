@@ -4,7 +4,8 @@ import { useUi } from '../../store/ui';
 import type { Project } from '../types';
 import { bundleFiles, bundleFolderName, characterNames, lastScriptedSeq, standaloneData, toPresentation, unscriptedCount } from '../vn';
 import { openNeeds } from '../actions';
-import { conflictFor, startCompose, startContinue, startPaint, startVoice, useTasks } from '../tasks';
+import { answerDraft, conflictFor, discardDraft, startCompose, startContinue, startPaint, startVoice, useTasks } from '../tasks';
+import { VnQuestionBox } from '../../components/studio/VnWizard';
 import { conflictText, TaskRow } from './TaskTray';
 import { loadAiSettings, TTS_VOICES } from '../providers/settings';
 import { assetAbsolutePath, exportToFolder, readAsset } from '../storage';
@@ -40,11 +41,15 @@ export default function VnPanel({ p, update }: { p: Project; update: (fn: (d: Pr
   const voiceBlocked = conflictFor(p.id, 'voice', `voice:${p.id}`);
   const start = (fn: () => void) => { try { fn(); } catch (e: any) { toast(conflictText(e?.message), 'error'); } };
   const options = { useModel, language, instructions };
-  const compose = () => start(() => startCompose(p.id, options));
+  const compose = () => start(() => { discardDraft(p.id); startCompose(p.id, options); });
+  // The script editor asked about some parts: the draft waits in the project until every part is answered or skipped.
+  const draft = p.vn_draft;
+  const open = draft?.pending.filter((x) => !x.skip && !x.answers) ?? [];
+  const answer = (index: number, answers: Record<string, string>, skip: boolean) => start(() => { answerDraft(p.id, index, answers, skip); });
   // The lines after the visual novel's last one (a supplement log): composed on their own and appended, reusing
   // the novel's backgrounds and poses; the voice lines already made are kept.
   const fresh = vn ? unscriptedCount(p) : 0;
-  const carryOn = () => start(() => startContinue(p.id, options));
+  const carryOn = () => start(() => { discardDraft(p.id); startContinue(p.id, options); });
   const paint = () => start(() => startPaint(p.id));
   const voice = () => start(() => startVoice(p.id));
 
@@ -109,6 +114,16 @@ export default function VnPanel({ p, update }: { p: Project; update: (fn: (d: Pr
           {scriptBlocked === 'script-in-use' && <span className="tiny muted">{conflictText(scriptBlocked)}</span>}
         </div>
         {scriptRows.map((t) => <TaskRow key={t.id} task={t} />)}
+        {draft && !scriptBlocked && (
+          <div className="col" style={{ gap: 6 }} data-testid="vn-draft">
+            <div className="row tiny" style={{ gap: 8 }}>
+              <span>{open.length ? tr('{n} parts wait for your answers', { n: open.length }) : tr('waiting for your answers')}</span>
+              <span className="grow" />
+              <button className="ghost small" onClick={() => { if (confirm(tr('Drop this draft? The questions are forgotten and the current script stays.'))) discardDraft(p.id); }}>{tr('Drop the draft')}</button>
+            </div>
+            {open.map((x) => <VnQuestionBox key={`${x.index}:${x.rounds}`} part={{ first_line: x.first_line, last_line: x.last_line, items: x.questions }} busy={false} onAnswer={(a, skip) => answer(x.index, a, skip)} />)}
+          </div>
+        )}
         {vn?.script.notes.length ? <div className="tiny muted">{vn.script.notes.join(' · ')}</div> : null}
       </div>
       {vn && (
