@@ -223,6 +223,7 @@ export const api = {
   retryVnBackgrounds: (ch: string, id: string, scene_key?: string, allow_cloud?: boolean) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}/backgrounds/retry`, { scene_key, allow_cloud }),
   vnImageStatus: (ch: string) => get<{ enabled: boolean; mock: boolean }>(`/api/channels/${ch}/studio/images/status`),
   cancelVnScript: (ch: string, id: string) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}/cancel`, {}),
+  answerVnScript: (ch: string, id: string, body: { part_index: number; answers?: Record<string, string>; skip?: boolean }) => post<T.VnScriptJob>(`/api/channels/${ch}/studio/vn-scripts/${id}/answers`, body),
   createPresentation: (ch: string, snapshotId: string, body: { title?: string; settings?: Record<string, unknown>; style_profile_id?: string }) => post<T.Presentation>(`/api/channels/${ch}/studio/snapshots/${snapshotId}/presentations`, body),
   presentation: (ch: string, id: string) => get<T.Presentation>(`/api/channels/${ch}/studio/presentations/${id}`),
   // Dubbing cast: character id (or 'narrator') → voice profile id ('' clears).

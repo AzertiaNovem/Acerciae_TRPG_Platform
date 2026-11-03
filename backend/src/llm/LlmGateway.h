@@ -24,6 +24,8 @@ public:
         int llmCalls = 0;
         int toolCalls = 0;
         std::string rawContent;
+        Json::Value providerContent;   // the final assistant turn as the provider returned it (replayable, see Replay.h)
+        std::string provider, model;   // the endpoint that produced it
     };
 
     explicit LlmGateway(const Config& cfg);

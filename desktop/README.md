@@ -53,7 +53,13 @@ nothing goes through the Acerciae server.
   - A PDF: the print-ready book opens in its own window with the system print dialog. On Linux the paper size is the
     one chosen in the dialog's Page Setup.
   - A visual novel:
-    - The script is composed by rules (free, offline) or by your language model.
+    - The script is composed by rules (free, offline) or by your language model. The model edits boldly (fluent
+      narration, smoothed dialogue, the log keeps every original), leaves out chatter, bot banners and help text,
+      placeholders left by edits and the like, each with a reason, and never rewords dice lines. When a line is
+      unclear (is it in character? are two names one person?) it asks instead of guessing: the questions wait in the
+      Visual novel panel while the other parts are written, and your answers finish that part in the model's own
+      conversation (its reasoning is replayed only where the provider can verify it; see
+      [docs/VISUAL_NOVEL.md](../docs/VISUAL_NOVEL.md#questions-from-the-editor)). Skipping keeps the model's draft.
     - Your image service can paint the backgrounds and poses it asks for, and your speech service voices the lines.
     - It plays in the app, with the same look templates as the server.
     - It saves as a player folder or as a lossless MKV / compatible MP4 video.

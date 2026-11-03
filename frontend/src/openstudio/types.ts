@@ -77,6 +77,7 @@ export interface Project {
   characters: CharacterSheet[];
   issues: ImportIssue[];
   vn?: StudioVn;                  // the visual novel made from this project, when there is one
+  vn_draft?: VnDraft;             // a script being written whose editor asked the user something (see vn/compose.ts)
   pdf?: Record<string, unknown>;  // the print settings last used (a partial PdfConfig)
 }
 
@@ -98,5 +99,43 @@ export interface VnScene { key: string; title: string; summary: string; backgrou
 export interface VnAssetNeed { kind: 'background' | 'standee'; brief: string; scene_key?: string; character?: string; subtitle?: string; name?: string }
 export interface VnScript { scenes: VnScene[]; asset_needs: VnAssetNeed[]; notes: string[]; provider: string; stats: { scenes: number; shown: number; hidden: number } }
 
-// An LLM call, injected so the composer runs without knowing the provider (and in tests with a fixture).
-export type LlmCall = (req: { system: string; user: string; json: boolean; max_tokens?: number; signal?: AbortSignal }) => Promise<string>;
+// A script part whose editor asked the players or the Keeper something: the question box the user answers.
+export interface VnQuestion { id: string; question: string; refs: string[]; options: string[] }
+export interface VnPendingPart {
+  index: number;                  // the part in VnDraft.parts
+  first_line: number; last_line: number;   // 1-based line numbers of the part (L<n> in the questions' refs)
+  user: string;                   // the part's prompt as it was sent, so the resumed conversation is the same one
+  questions: VnQuestion[];
+  rounds: number;                 // how often this part asked (a part asks twice at most)
+  draft: unknown;                 // the editor's best answer for the part meanwhile (the flat script)
+  turn: LlmTurn | null;           // the model's turn to replay when the part is resumed (null: plain text only)
+  answers: Record<string, string> | null;   // the user's answers once given
+  skip: boolean;                  // the user chose to keep the draft instead
+}
+// A script being written: finished parts and the parts waiting for answers. Resuming it (vn/compose.ts resumeDraft)
+// redoes only the pending parts; the others are kept as they are.
+export interface VnDraft {
+  mode: 'compose' | 'continue';
+  language: string;
+  instructions: string;
+  events: number;                 // how many lines the project had: a changed log invalidates the draft
+  from_seq: number;               // continue: the last line of the novel the draft continues
+  parts: [number, number][];
+  flats: unknown[];               // one per part; null while the part is pending
+  notes: string[];
+  pending: VnPendingPart[];
+  created_at: string;
+}
+
+// An LLM call, injected so the composer runs without knowing the provider (and in tests with a fixture). A call may
+// replay the model's own earlier turn followed by the user's answers (`replay`), and may return the turn as the
+// provider gave it so it can be replayed later; a plain string answer is accepted too.
+export interface LlmTurn {
+  provider: string;               // 'anthropic' | 'openai' | …: the turn is replayable only through the same provider
+  model: string;
+  text: string;                   // the turn's text (the JSON answer)
+  blocks: unknown[];              // the turn as returned: Anthropic content blocks (thinking blocks with their signature), or nothing
+}
+export interface LlmRequest { system: string; user: string; json: boolean; max_tokens?: number; signal?: AbortSignal; replay?: { turn: LlmTurn; followUp: string } }
+export interface LlmAnswer { text: string; turn?: LlmTurn }
+export type LlmCall = (req: LlmRequest) => Promise<string | LlmAnswer>;

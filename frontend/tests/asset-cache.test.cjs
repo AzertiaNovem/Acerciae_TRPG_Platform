@@ -34,7 +34,7 @@ function load(file, globals) {
   return module.exports;
 }
 const response = (body, headers = {}, init = {}) => ({ type: init.type ?? 'basic', ok: init.ok ?? true, headers: new Headers(headers), blob: async () => new Blob([body]) });
-const tick = () => new Promise((r) => setTimeout(r, 10));
+const tick = () => new Promise((r) => setTimeout(r, 50));   // generous: the whole suite runs in parallel
 test.beforeEach(() => stored.clear());
 const DAY = 24 * 60 * 60 * 1000;
 const H = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';

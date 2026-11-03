@@ -146,7 +146,7 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
             }
             continue;
         }
-        out.rawContent = resp.content;
+        out.rawContent = resp.content; out.providerContent = resp.providerContent; out.provider = resolved.provider; out.model = client.modelName();
         if (req.responseSchema.isNull()) { out.ok = true; out.data = resp.content; return out; }
         try {
             auto data = extractJson(resp.content);

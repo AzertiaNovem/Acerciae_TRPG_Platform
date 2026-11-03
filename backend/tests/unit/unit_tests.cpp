@@ -13,6 +13,7 @@
 #include "llm/OpenAiCompatClient.h"
 #include "llm/StreamResponse.h"
 #include "llm/HttpTransport.h"
+#include "llm/Replay.h"
 #include "knowledge/KnowledgeService.h"
 #include "documents/DocumentService.h"
 #include "logstudio/LogAdapters.h"
@@ -765,6 +766,71 @@ int main() {
         CHECK(VnScriptService::partPrompt(in, {2, 3}, 1, 2, in.knownBackgrounds).find("# Story so far") == std::string::npos);
         // The whole transcript is still the assets followed by the block.
         CHECK(VnScriptService::transcript(in, 0, 2, known) == VnScriptService::assetsSection(in, known) + VnScriptService::blockSection(in, 0, 2));
+    });
+    test("visual-novel editing: lines the editor leaves out are hidden with their reason; the rules ask for exclusions and questions", [] {
+        using logstudio::VnScriptService; using logstudio::LogEvent;
+        logstudio::ScriptInputs in;
+        auto ev = [](std::string id, std::string type, std::string who, std::string name, std::string text) {
+            LogEvent e; e.eventId = id; e.chatWindowId = "wA"; e.sceneKey = "s1"; e.sceneTitle = "Harbour"; e.eventType = type; e.speakerCharacterId = who; e.speakerDisplayName = name; e.speakerRole = who.empty() ? "gm" : "pc"; e.content = text; e.occurredAtUnix = 1700000000; return e; };
+        // A bot banner, a dice result, a placeholder a player left behind and in-character lines without an OOC label.
+        in.events = {ev("e1","narration","","Keeper","Log start: session 3"), ev("e2","dialogue","c1","Ada","I open the door"), ev("e3","dialogue","c1","Ada","MISSPELL"),
+                     ev("e4","dice","c1","Ada","1d100=37 success"), ev("e5","dialogue","c1","Ada","so are we playing thursday?"), ev("e6","narration","","Keeper","The door creaks open.")};
+        in.windowNames = {{"wA","Main"}};
+        in.cast = json::parse(R"([{"ref":"C1","character_id":"c1","name":"Ada","kind":"pc","default_asset_id":null,"asset_mode":"generated","subtitles":["IDLE"],"appearance_prompt":""}])");
+        in.assets = Json::Value(Json::arrayValue);
+        auto flat = json::parse(R"({"generate_backgrounds":[{"name":"Harbour","prompt":"p"}],
+                                   "script":[{"ref":"L2","speaker":"C1","background":"Harbour","text":"I open the door."},{"ref":"L4","speaker":"C1","background":"Harbour"},{"ref":"L6","background":"Harbour"}],
+                                   "exclude":[{"ref":"L1","reason":"bot log banner"},{"ref":"L3","reason":"placeholder left by an edit"},{"ref":"L5","reason":"scheduling talk"},{"ref":"L2","reason":"placed lines stay placed"},{"ref":"L99"},{"ref":"L6"}]})");
+        auto plan = VnScriptService::fromFlat(in, {flat});
+        CHECK(plan["excluded"].size() == 3);
+        CHECK(plan["excluded"][0]["ref"] == "L1"); CHECK(plan["excluded"][0]["reason"] == "bot log banner");
+        CHECK(plan["excluded"][1]["ref"] == "L3"); CHECK(plan["excluded"][2]["ref"] == "L5"); CHECK(plan["excluded"][2]["reason"] == "scheduling talk");
+        auto script = VnScriptService::normalize(in, {plan}, "llm");
+        CHECK(script["scenes"].size() == 1); CHECK(script["scenes"][0]["lines"].size() == 6);
+        CHECK(script["scenes"][0]["lines"][0]["hidden"].asBool()); CHECK(script["scenes"][0]["lines"][0]["exclusion_reason"] == "bot log banner");
+        CHECK(script["scenes"][0]["lines"][2]["hidden"].asBool()); CHECK(script["scenes"][0]["lines"][4]["hidden"].asBool());
+        CHECK(!script["scenes"][0]["lines"][3]["hidden"].asBool());   // the dice result stays
+        CHECK(!script["scenes"][0]["lines"][1]["hidden"].asBool()); CHECK(!script["scenes"][0]["lines"][5]["hidden"].asBool());
+        CHECK(script["stats"]["hidden"] == 3); CHECK(script["stats"]["shown"] == 3);
+        // An exclusion without a reason still carries one.
+        auto bare = VnScriptService::fromFlat(in, {json::parse(R"({"script":[{"ref":"L2","background":"Harbour"}],"exclude":[{"ref":"L1"}]})")});
+        CHECK(bare["excluded"][0]["reason"] == "left out by the script editor");
+        // The rules the model gets: bold editing, the three kinds of lines to leave out, questions instead of guesses.
+        const auto& rules = VnScriptService::editingRules();
+        CHECK(rules.find("edit boldly") != std::string::npos); CHECK(rules.find("whether or not it is labelled OOC") != std::string::npos);
+        CHECK(rules.find("posted by a bot's program") != std::string::npos); CHECK(rules.find("except dice results, which stay") != std::string::npos);
+        CHECK(rules.find("\"MISSPELL\"") != std::string::npos); CHECK(rules.find("do not guess") != std::string::npos); CHECK(rules.find("at most five") != std::string::npos);
+        // The answers go back as a list the model can match to its questions; unanswered ones are its own call.
+        auto qs = json::parse(R"([{"id":"q1","question":"Is \"Tom\" the same person as \"Old Tom\"?","refs":["L4"]},{"id":"q2","question":"Was L5 in character?","refs":["L5"]}])");
+        auto ans = json::parse(R"({"q1":"Yes, one person."})");
+        auto p = VnScriptService::answersPrompt(qs, ans);
+        CHECK(p.rfind("# Answers to your questions about this part\n- q1 (\"Is 'Tom' the same person as 'Old Tom'?\"): Yes, one person.\n- q2 (\"Was L5 in character?\"): (no answer; decide yourself)\n", 0) == 0);
+        CHECK(p.find("return the complete JSON for this part again") != std::string::npos);
+    });
+    test("llm replay: a model's turn is replayed with its sealed reasoning only when the provider can verify it", [] {
+        // Anthropic: text and signed thinking of the same model; unsigned or foreign thinking is dropped, the text stays.
+        auto ex = json::parse(R"({"provider":"anthropic","model":"claude-x","content":"{\"script\":[]}","provider_content":[
+            {"type":"thinking","thinking":"Let me read the log.","signature":"sig-1"},{"type":"thinking","thinking":"unsigned"},{"type":"redacted_thinking","data":"blob"},
+            {"type":"tool_use","id":"t1","name":"x","input":{}},{"type":"text","text":"{\"script\":[]}"}]})");
+        auto r = llm::replayableAssistant(ex, "anthropic", "claude-x");
+        CHECK(r.isArray()); CHECK(r.size() == 3);
+        CHECK(r[0]["type"] == "thinking"); CHECK(r[0]["signature"] == "sig-1"); CHECK(r[0]["thinking"] == "Let me read the log.");
+        CHECK(r[1]["type"] == "redacted_thinking"); CHECK(r[2]["type"] == "text"); CHECK(llm::carriesReasoning(r));
+        auto other = llm::replayableAssistant(ex, "anthropic", "claude-y");   // another model cannot verify the signature
+        CHECK(other.size() == 1); CHECK(other[0]["type"] == "text"); CHECK(!llm::carriesReasoning(other));
+        CHECK(llm::replayableAssistant(ex, "openai_compatible", "claude-x").isNull());   // another provider: plain text only
+        CHECK(llm::replayableAssistant(Json::Value(), "anthropic", "claude-x").isNull());
+        CHECK(llm::replayableAssistant(json::parse(R"({"provider":"anthropic","model":"claude-x","provider_content":[{"type":"thinking","thinking":"x","signature":"s"}]})"), "anthropic", "claude-x").isNull());   // reasoning alone is no turn
+        // OpenAI Responses: the message item and a reasoning item with its encrypted content; a reasoning item without it is dropped.
+        auto oa = json::parse(R"({"provider":"openai_compatible","model":"gpt-x","content":"{}","provider_content":[
+            {"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"thinking"}],"encrypted_content":"enc"},{"type":"reasoning","id":"rs_2","summary":[]},
+            {"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"{}","annotations":[]},{"type":"refusal","refusal":"no"}]}]})");
+        auto o = llm::replayableAssistant(oa, "openai_compatible", "gpt-x");
+        CHECK(o.size() == 2); CHECK(o[0]["type"] == "reasoning"); CHECK(o[0]["encrypted_content"] == "enc"); CHECK(o[0]["id"] == "rs_1"); CHECK(o[0]["summary"].size() == 1);
+        CHECK(o[1]["type"] == "message"); CHECK(o[1]["id"] == "msg_1"); CHECK(o[1]["content"].size() == 1); CHECK(o[1]["content"][0]["text"] == "{}"); CHECK(!o[1].isMember("status"));
+        auto o2 = llm::replayableAssistant(oa, "openai_compatible", "gpt-y");
+        CHECK(o2.size() == 1); CHECK(o2[0]["type"] == "message"); CHECK(!llm::carriesReasoning(o2));
+        CHECK(llm::replayableAssistant(oa, "mock", "gpt-x").isNull());
     });
     test("visual-novel wording: narration is reworded, short questions and answers fold into narration, the log stays", [] {
         using logstudio::VnScriptService; using logstudio::LogEvent;

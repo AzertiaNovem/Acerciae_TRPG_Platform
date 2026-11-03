@@ -434,3 +434,121 @@ test('appendScript: a later scene named like an old pictured one takes its pictu
   assert.deepEqual(out.stats, { scenes: 4, shown: 3, hidden: 1 });
   assert.deepEqual(out.notes, ['note']);
 });
+
+// ---- editing, exclusions and questions (mirrors the server's editing and replay tests) --------------------
+test('the prompt carries the editing rules; exclusions are hidden with their reason, dice results stay', () => {
+  assert.ok(vn.SYSTEM_PROMPT.includes(vn.EDITING_RULES));
+  assert.ok(!vn.SYSTEM_PROMPT.includes('Leave out only Name(OOC)'));
+  for (const s of ['edit boldly', 'whether or not it is labelled OOC', "posted by a bot's program", 'except dice results, which stay', '"MISSPELL"', 'do not guess', 'at most five', '"exclude":[{"ref":"L5"', '"questions":[{"id":"q1"']) assert.ok(vn.SYSTEM_PROMPT.includes(s), s);
+  const B = (type, key, name, role, text) => ev(0, { win: 'Main', scene: 'Harbour', type, key, name, role, text, time: T });
+  const p = project([
+    B('narration', '', 'Keeper', 'gm', 'Log start: session 3'), B('dialogue', 'ada', 'Ada', 'pc', 'I open the door'), B('dialogue', 'ada', 'Ada', 'pc', 'MISSPELL'),
+    B('dice_roll', 'ada', 'Ada', 'pc', '1d100=37 success'), B('dialogue', 'ada', 'Ada', 'pc', 'so are we playing thursday?'), B('narration', '', 'Keeper', 'gm', 'The door creaks open.'),
+  ], [sheet('Ada')]);
+  const inp = vn.buildInputs(p, []);
+  const flat = {
+    generate_backgrounds: [{ name: 'Harbour', prompt: 'p' }],
+    script: [{ ref: 'L2', speaker: 'C1', background: 'Harbour', text: 'I open the door.' }, { ref: 'L4', speaker: 'C1', background: 'Harbour' }, { ref: 'L6', background: 'Harbour' }],
+    exclude: [{ ref: 'L1', reason: 'bot log banner' }, { ref: 'L3', reason: 'placeholder left by an edit' }, { ref: 'L5', reason: 'scheduling talk' }, { ref: 'L2', reason: 'placed lines stay placed' }, { ref: 'L99' }, { ref: 'L6' }],
+  };
+  const plan = vn.fromFlat(inp, [flat]);
+  assert.deepEqual(plan.excluded, [{ ref: 'L1', reason: 'bot log banner' }, { ref: 'L3', reason: 'placeholder left by an edit' }, { ref: 'L5', reason: 'scheduling talk' }]);
+  const script = vn.normalize(inp, [plan], 'llm');
+  const all = allLines(script);
+  assert.equal(all.length, 6);
+  assert.deepEqual(all.filter((l) => l.hidden).map((l) => [l.seq, l.exclusion_reason]), [[1, 'bot log banner'], [3, 'placeholder left by an edit'], [5, 'scheduling talk']]);
+  assert.equal(all.find((l) => l.seq === 4).hidden, false);   // the dice result stays
+  assert.deepEqual(script.stats, { scenes: 1, shown: 3, hidden: 3 });
+  assert.equal(vn.fromFlat(inp, [{ script: [{ ref: 'L2', background: 'Harbour' }], exclude: [{ ref: 'L1' }] }]).excluded[0].reason, 'left out by the script editor');
+  // The answers prompt lists the answers against the questions; unanswered ones are the editor's call.
+  const qs = [{ id: 'q1', question: 'Is "Tom" the same person as "Old Tom"?', refs: ['L4'], options: [] }, { id: 'q2', question: 'Was L5 in character?', refs: ['L5'], options: [] }];
+  const a = vn.answersPrompt(qs, { q1: 'Yes, one person.' });
+  assert.ok(a.startsWith("# Answers to your questions about this part\n- q1 (\"Is 'Tom' the same person as 'Old Tom'?\"): Yes, one person.\n- q2 (\"Was L5 in character?\"): (no answer; decide yourself)\n"));
+  assert.ok(a.includes('return the complete JSON for this part again'));
+  assert.deepEqual(vn.questionsOf({ questions: [{ id: 'q1', question: 'A?', refs: ['L1'], options: ['yes', 'no'] }, { question: '' }, 'junk', { question: 'B?' }] }), [{ id: 'q1', question: 'A?', refs: ['L1'], options: ['yes', 'no'] }, { id: 'q2', question: 'B?', refs: [], options: [] }]);
+  assert.equal(vn.questionsOf({ questions: Array.from({ length: 9 }, (_, i) => ({ id: `q${i}`, question: `Q${i}` })) }).length, 5);
+});
+
+test('composeDraft pauses on questions; resumeDraft replays the turn with the answers, skips keep the draft, a part asks twice at most', async () => {
+  const events = [];
+  for (let i = 0; i < 130; i++) events.push(ev(0, { win: 'Main', scene: 'Road', type: i % 2 ? 'dialogue' : 'narration', key: i % 2 ? 'ada' : 'kp', name: i % 2 ? 'Ada' : 'Keeper', role: i % 2 ? 'pc' : 'gm', text: `line ${i + 1}`, time: T + i }));
+  const p = project(events, [sheet('Ada', { portrait: 'assets/ada.png' })]);
+  const calls = [];
+  const turnOf = (text, n) => ({ provider: 'anthropic', model: 'm1', text, blocks: [{ type: 'thinking', thinking: `t${n}`, signature: `sig${n}` }, { type: 'text', text }] });
+  let askAgain = false;
+  const llm = async (req) => {
+    calls.push(req);
+    const [, part] = /^Part (\d+) of (\d+)/.exec(req.user);
+    const refs = [...req.user.matchAll(/\[L(\d+)\]/g)].map((m) => `L${m[1]}`);
+    const answer = { generate_backgrounds: [{ name: part === '1' ? 'Old Road' : 'Inn', prompt: 'x' }], script: refs.slice(1).map((ref) => ({ ref, background: part === '1' ? 'Old Road' : 'Inn' })), exclude: [{ ref: refs[0], reason: req.replay ? 'bot banner (confirmed)' : 'bot banner' }] };
+    if (part === '1' && (!req.replay || askAgain)) answer.questions = [{ id: 'q1', question: `Is ${refs[0]} a bot banner?`, refs: [refs[0]], options: ['yes', 'no'] }];
+    const text = JSON.stringify(answer);
+    return { text, turn: turnOf(text, calls.length) };
+  };
+  const progress = [];
+  const r = await vn.composeDraft(p, { llm, language: 'en', onProgress: (d, t) => progress.push([d, t]) });
+  assert.ok('draft' in r);
+  const { draft } = r;
+  assert.equal(calls.length, 2); assert.deepEqual(progress, [[0, 2], [1, 2], [2, 2]]);
+  assert.deepEqual(draft.parts, [[0, 120], [120, 130]]); assert.equal(draft.flats[0], null); assert.ok(draft.flats[1]);
+  assert.equal(draft.events, 130); assert.equal(draft.mode, 'compose');
+  assert.equal(draft.pending.length, 1);
+  const pend = draft.pending[0];
+  assert.equal(pend.index, 0); assert.equal(pend.first_line, 1); assert.equal(pend.last_line, 120); assert.equal(pend.rounds, 1);
+  assert.deepEqual(pend.questions, [{ id: 'q1', question: 'Is L1 a bot banner?', refs: ['L1'], options: ['yes', 'no'] }]);
+  assert.equal(pend.turn.blocks[0].signature, 'sig1'); assert.equal(pend.user, calls[0].user); assert.ok(!('questions' in pend.draft));
+  assert.ok(!calls[1].user.includes('Old Road'), 'the second part was planned without the pending part\'s backgrounds');
+  // Unanswered: resuming is refused; a changed log invalidates the draft.
+  await assert.rejects(vn.resumeDraft(p, { llm, language: 'en' }, draft), /unanswered/);
+  const answered = { ...draft, pending: [{ ...pend, answers: { q1: 'yes' } }] };
+  await assert.rejects(vn.resumeDraft({ ...p, events: p.events.slice(0, 129) }, { llm, language: 'en' }, answered), /the log changed/);
+  // Answered: only part 1 runs again, with its own turn replayed and the answers after it.
+  calls.length = 0;
+  const done = await vn.resumeDraft(p, { llm, language: 'en' }, answered);
+  assert.ok('script' in done);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].user, pend.user);
+  assert.deepEqual(calls[0].replay.turn, pend.turn);
+  assert.ok(calls[0].replay.followUp.startsWith('# Answers to your questions about this part\n- q1 ("Is L1 a bot banner?"): yes\n'));
+  const all = allLines(done.script);
+  assert.equal(all.length, 130);
+  assert.deepEqual(all.filter((l) => l.hidden).map((l) => [l.seq, l.exclusion_reason]), [[1, 'bot banner (confirmed)'], [121, 'bot banner']]);
+  assert.deepEqual(done.script.notes, []);
+  assert.deepEqual(done.script.scenes.map((s) => s.title), ['Old Road', 'Inn']);
+  // Skipped: no call, the draft is used and the script says so.
+  calls.length = 0;
+  const skipped = await vn.resumeDraft(p, { llm, language: 'en' }, { ...draft, pending: [{ ...pend, skip: true }] });
+  assert.equal(calls.length, 0); assert.ok('script' in skipped);
+  assert.deepEqual(allLines(skipped.script).filter((l) => l.hidden).map((l) => l.seq), [1, 121]);
+  assert.deepEqual(skipped.script.notes, ['Part 1/2 (L1–L120): its questions were skipped; the draft was used.']);
+  // Asking again after the answers pauses once more; the third time the draft is used.
+  askAgain = true; calls.length = 0;
+  const again = await vn.resumeDraft(p, { llm, language: 'en' }, answered);
+  assert.ok('draft' in again); assert.equal(again.draft.pending[0].rounds, 2); assert.equal(again.draft.pending[0].answers, null); assert.ok(again.draft.pending[0].turn.text.includes('bot banner (confirmed)'), 'the new turn is kept for the next round');
+  const third = await vn.resumeDraft(p, { llm, language: 'en' }, { ...again.draft, pending: [{ ...again.draft.pending[0], answers: { q1: 'no' } }] });
+  assert.ok('script' in third);
+  assert.ok(third.script.notes[0].includes('asked again after the answers'));
+  // A plain-text model (no turn to replay) gets the answers appended to the part's prompt.
+  const plain = async (req) => { calls.push(req); return JSON.stringify({ script: [...req.user.matchAll(/\[L(\d+)\]/g)].map((m) => ({ ref: `L${m[1]}`, background: 'Road' })) }); };
+  calls.length = 0;
+  const flat = await vn.resumeDraft(p, { llm: plain, language: 'en' }, { ...answered, pending: [{ ...answered.pending[0], turn: null }] });
+  assert.ok('script' in flat); assert.equal(calls[0].replay, undefined); assert.ok(calls[0].user.startsWith(pend.user + '\n# Answers to your questions'));
+  // composeScript itself never waits: the drafts of asking parts are used.
+  const whole = await vn.composeScript(p, { llm, language: 'en' });
+  assert.equal(allLines(whole).length, 130); assert.ok(whole.notes[0].includes('skipped; the draft was used'));
+});
+
+test('replayableBlocks sends thinking back only unmodified, signed and to the same model; text always', () => {
+  const turn = { provider: 'anthropic', model: 'claude-x', text: '{}', blocks: [
+    { type: 'thinking', thinking: 'Let me read the log.', signature: 'sig-1' }, { type: 'thinking', thinking: 'unsigned' }, { type: 'redacted_thinking', data: 'blob' },
+    { type: 'tool_use', id: 't1', name: 'x', input: {} }, { type: 'text', text: '{}' }] };
+  const same = vn.replayableBlocks(turn, 'anthropic', 'claude-x');
+  assert.deepEqual(same.map((b) => b.type), ['thinking', 'redacted_thinking', 'text']); assert.equal(same[0].signature, 'sig-1'); assert.ok(vn.carriesReasoning(same));
+  const other = vn.replayableBlocks(turn, 'anthropic', 'claude-y');
+  assert.deepEqual(other.map((b) => b.type), ['text']); assert.ok(!vn.carriesReasoning(other));
+  assert.equal(vn.replayableBlocks(turn, 'openai', 'claude-x'), null);
+  assert.equal(vn.replayableBlocks({ ...turn, provider: 'openai' }, 'openai', 'claude-x'), null);
+  assert.equal(vn.replayableBlocks({ ...turn, blocks: [{ type: 'thinking', thinking: 'x', signature: 's' }] }, 'anthropic', 'claude-x'), null);   // reasoning alone is no turn
+  assert.equal(vn.replayableBlocks(null, 'anthropic', 'claude-x'), null);
+  assert.ok(!vn.carriesReasoning(null));
+});
