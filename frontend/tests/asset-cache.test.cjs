@@ -81,7 +81,7 @@ test('only immutable responses are kept; a kept picture is served from the store
   c.setAssetScope('http://api.test|u1');
   const a = 'http://api.test/api/channels/c/media/m1?token=T1&v=2';
   assert.match(await c.cachedSrc(a, H), /^blob:/);
-  assert.equal(seen[0].init.redirect, 'manual');
+  assert.equal(seen[0].init.redirect, 'follow'); assert.equal(seen[0].init.credentials, 'omit');
   await tick();
   const rows = [...idb.stores.get('assets').values()];
   assert.equal(rows.length, 1, 'kept on disk'); assert.ok(rows[0].key.endsWith(`sha:${H}`)); assert.ok(rows[0].lastUsed > 0); assert.equal(rows[0].bytes, 6);
@@ -110,12 +110,19 @@ test('only immutable responses are kept; a kept picture is served from the store
   assert.equal(c4.peekSrc(secret), undefined, 'but not remembered');
   await tick();
   assert.equal([...idb.stores.get('assets').keys()].filter((k) => k.includes('secret')).length, 0);
-  // A redirect to the public bucket is left to the browser; data URIs pass through; Clear empties the store.
-  reply = () => response('', {}, { type: 'opaqueredirect', ok: false });
+  // An object the public bucket serves (public, immutable) is kept like any other; a bucket that refuses the app's
+  // origin (the fetch fails) or an opaque redirect leaves the picture to the browser; data URIs pass through; Clear
+  // empties the store.
+  reply = () => response('BUCKET', { 'Cache-Control': 'public, max-age=31536000, immutable' }, { type: 'cors' });
   const pub = 'http://api.test/api/channels/c/media/art?v=1&token=T';
+  assert.match(await c4.cachedSrc(pub, 'a'.repeat(64)), /^blob:/); await tick();
+  assert.equal([...idb.stores.get('assets').keys()].filter((k) => k.endsWith('sha:' + 'a'.repeat(64))).length, 1, 'the bucket\'s object is kept by its hash');
+  reply = () => { throw new TypeError('CORS'); };
+  assert.equal(await c4.cachedSrc('http://api.test/api/channels/c/media/art2?v=1&token=T'), 'http://api.test/api/channels/c/media/art2?v=1&token=T');
+  reply = () => response('', {}, { type: 'opaqueredirect', ok: false });
   assert.equal(await c4.cachedSrc(pub), pub);
   assert.equal(await c4.cachedSrc('data:image/png;base64,AA'), 'data:image/png;base64,AA');
-  assert.deepEqual(await c4.cacheStats(), { entries: 1, bytes: 6 });
+  assert.deepEqual(await c4.cacheStats(), { entries: 2, bytes: 12 });
   await c4.clearAssetCache();
   assert.equal(idb.stores.get('assets').size, 0);
 });
