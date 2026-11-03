@@ -130,10 +130,39 @@ cache reuse is primarily between successive calls for the same role, not automat
 hits and prices depend on the provider/model and gateway; the local `status` totals are a token-weighted budget
 heuristic, not a currency invoice. Compare its cache-read share before increasing the main context budgets.
 
-**Usage.** Every call's input, cache reads and writes, and output tokens are recorded. `status` shows today's and the
-week's totals and the share of input read from cache. `context.daily_token_budget` caps billable-equivalent tokens a day
-(cache reads count a tenth); once it is spent, the table stops starting turns of its own, and answers to players still
-run.
+**Usage.** Every completed or failed client model call appends a row to the channel's local SQLite file
+(`STATE_DIR/<channel-id>.db`), including `setup` character generation/completion, point buying, GM/NPC turns,
+co-player turns/phones, memory summaries, and planning. Each row includes its timestamp, call/request IDs, type,
+phase, attempt, provider/model, duration, status, input/output tokens, and cache reads/writes. Terminal logs print
+these counters as calls finish. Token records contain no prompts, replies, credentials or provider error bodies.
+
+Planner draft, critique and revision (including final session reviews) are separate phases; GM turn modes are also
+separate. JSON repair gets its own row/attempt with the original request ID. A refusal or truncated response still
+counts any usage the provider returned. Missing/incomplete usage is marked unknown, never claimed to cost zero;
+mock token counts are labelled estimates. SDK-internal transport retries are not separate client calls, and their
+usage cannot be reconstructed when the provider doesn't return it. A completed call means a model response arrived,
+not that subsequent JSON validation or platform posting succeeded. Cache reads/writes are subsets of input: total
+is input + output, not input + cache + output. These counters are not a currency invoice.
+
+From the `gm-agent` directory:
+
+```sh
+npm run usage                         # last 7 days: summary and latest 50 calls
+npm run usage -- --purpose planner     # filter one call type, split by phase/model
+npm run usage -- --days all --limit 100
+npm run usage -- --days all --before-id 123 --limit 100  # older details
+npm run usage -- --days all --json > usage.json
+```
+
+`usage` reads local records without logging in or calling a model; select the channel with the usual config or
+`--channel`. `--days` is a rolling time range; `all` includes every saved row. The summary covers the selected range
+and type; `--limit`/`--before-id` page only the details. JSON includes `nextBeforeId` for continuing an export.
+`status` also shows today's classification, plus today/week totals and cache-read share. Existing databases upgrade
+in place and retain earlier counters; historical records cannot acquire missing phase, duration or failure metadata.
+
+`context.daily_token_budget` caps billable-equivalent tokens a day (cache reads count a tenth); once it is spent,
+the table stops starting autonomous turns, while answers to players still run. Unknown provider usage cannot be
+included in that heuristic budget.
 
 **The living world.** The platform keeps the world record itself: its observer tracks what is true about each person,
 place, group and item now (active, missing, dead, destroyed; a short state; where it is), with a history of changes.

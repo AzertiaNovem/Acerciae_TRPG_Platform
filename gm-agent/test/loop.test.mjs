@@ -1127,6 +1127,9 @@ test("the first story plan: drafted, critiqued and revised in one cached convers
   assert.equal(arc.beat.title, "[mock beat] The present trouble"); assert.equal(arc.threads[0].id, "P1");
   const calls = plannerCalls(llm);
   assert.deepEqual(calls.map(stepOf), ["draft", "critique", "revise"], "three steps, in order");
+  const recorded = t.store.usageCalls({ purpose: "planner" }).reverse();
+  assert.deepEqual(recorded.map((r) => r.phase), ["draft", "critique", "revise"]);
+  assert.ok(recorded.every((r) => r.output > 0 && r.usageKnown && r.estimated));
   assert.ok(calls[1].messages[0].content === calls[0].messages[0].content && calls[1].messages[1].role === "assistant", "the critique continues the draft's conversation");
   assert.ok(calls[0].parts[0][0].cache && calls[0].parts[0][0].text.includes("## Campaign") && calls[0].parts[0][0].text.includes("## Previous story plan"), "the context is one cached part");
   assert.ok(calls[2].parts.flat().filter((p) => p.cache).length <= 3, "at most three cache marks");

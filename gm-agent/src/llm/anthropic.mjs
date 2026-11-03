@@ -51,7 +51,7 @@ export class AnthropicLlm {
     const u = response.usage ?? {};
     const cacheRead = u.cache_read_input_tokens ?? 0, cacheWrite = u.cache_creation_input_tokens ?? 0;
     // input_tokens is only the uncached remainder: the whole prompt is the three together.
-    onUsage?.({ model: response.model ?? this.model, input: (u.input_tokens ?? 0) + cacheRead + cacheWrite, cacheRead, cacheWrite, output: u.output_tokens ?? 0 });
+    if (response.usage) onUsage?.({ model: response.model ?? this.model, input: Number.isSafeInteger(u.input_tokens) ? u.input_tokens + cacheRead + cacheWrite : null, cacheRead, cacheWrite, output: u.output_tokens ?? null });
     if (response.stop_reason === "refusal") throw new Error(`the model declined (${response.stop_details?.category ?? "refusal"})`);
     return response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   }

@@ -4,6 +4,7 @@ import { AnthropicLlm } from "./anthropic.mjs";
 import { OpenAiCompatLlm } from "./openai.mjs";
 import { MockLlm } from "./mock.mjs";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { textOf } from "./parts.mjs";
 
 export function createLlm(cfg) {
@@ -14,18 +15,19 @@ export function createLlm(cfg) {
     case "mock": llm = new MockLlm(); break;
     default: throw new Error(`unknown LLM_PROVIDER "${cfg.provider}" (anthropic, openai_compatible or mock)`);
   }
+  llm.provider = cfg.provider;
   return cfg.trace ? traced(llm, cfg.trace) : llm;
 }
 
 // LLM_TRACE=<file>: append every request and reply as one JSON line, to audit what each role was shown.
 function traced(llm, file) {
-  return {
+  return Object.assign(Object.create(llm), {
     async complete(req) {
       const reply = await llm.complete(req);
       fs.appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), purpose: req.purpose, system: req.system, messages: req.messages.map((m) => ({ role: m.role, content: textOf(m.content) })), reply })}\n`);
       return reply;
     },
-  };
+  });
 }
 
 // Pulls the first JSON object out of a model reply (tolerating code fences or a sentence around it).
@@ -40,15 +42,16 @@ export function extractJson(text) {
 // Asks for a JSON object; one repair round when the reply does not parse or fails validation. `user` is a string or a
 // list of parts (parts.mjs), or `messages` a prepared conversation (the story planner's draft → critique → revise);
 // the repair round appends to it, so the original prompt stays a cached prefix.
-export async function completeJson(llm, { system, user, messages: given, purpose }, validate = (x) => x) {
+export async function completeJson(llm, { system, user, messages: given, purpose, phase = "" }, validate = (x) => x) {
   const messages = given ? given.map((m) => ({ ...m })) : [{ role: "user", content: user }];
-  let reply = await llm.complete({ system, messages, purpose });
+  const requestId = crypto.randomUUID();
+  let reply = await llm.complete({ system, messages, purpose, phase, requestId, attempt: 1 });
   try {
     return validate(extractJson(reply));
   } catch (e) {
     messages.push({ role: "assistant", content: reply });
     messages.push({ role: "user", content: `That reply could not be used (${e.message}). Answer again with only the JSON object described above.` });
-    reply = await llm.complete({ system, messages, purpose });
+    reply = await llm.complete({ system, messages, purpose, phase, requestId, attempt: 2 });
     return validate(extractJson(reply));
   }
 }

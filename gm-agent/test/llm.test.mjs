@@ -197,3 +197,25 @@ test("Claude: volatile context uses 5m after the stable 1h prefix, including lat
     assert.ok(!JSON.stringify(b).includes("shortCache"));
   } finally { s.close(); }
 });
+
+test("OpenAI records tokens from a truncated response before reporting the failure", async (t) => {
+  const llm = streamingLlm(t, sse({ type: "response.incomplete", response: responseObject("{}", {
+    model: "served-model", status: "incomplete", incomplete_details: { reason: "max_output_tokens" },
+    usage: { input_tokens: 500, input_tokens_details: { cached_tokens: 400 }, output_tokens: 80 },
+  }) }));
+  const usage = [];
+  await assert.rejects(llm.complete({ ...request, onUsage: (u) => usage.push(u) }), /truncated/);
+  assert.deepEqual(usage, [{ model: "served-model", input: 500, cacheRead: 400, cacheWrite: 0, output: 80 }]);
+});
+
+test("OpenAI JSON refusal with usage is counted; missing usage isn't reported as zero", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ status: "completed", usage: { input_tokens: 25, output_tokens: 7 }, output: [{ type: "message", content: [{ type: "refusal" }] }] }));
+  const llm = createLlm({ provider: "openai_compatible", apiBase: "https://fixture.invalid/v1", model: "test", stream: false });
+  const usage = [];
+  await assert.rejects(llm.complete({ ...request, onUsage: (u) => usage.push(u) }), /declined/);
+  assert.equal(usage[0].output, 7);
+  t.mock.restoreAll();
+  t.mock.method(globalThis, "fetch", async () => Response.json(responseObject("{}", { usage: undefined })));
+  await llm.complete({ ...request, onUsage: (u) => usage.push(u) });
+  assert.equal(usage.length, 1);
+});

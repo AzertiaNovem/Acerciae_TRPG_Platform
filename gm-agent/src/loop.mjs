@@ -21,6 +21,7 @@ import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
 import { Store, billableTokens } from "./store.mjs";
 import { History, Memory, estimateTokens, CHUNK_LINES } from "./memory.mjs";
 import { metered } from "./llm/parts.mjs";
+import { usageSink } from "./usage.mjs";
 import { recall } from "./context/recall.mjs";
 import { investigatorsFor } from "./context/profiles.mjs";
 import { directTurn } from "./director.mjs";
@@ -69,7 +70,7 @@ export class Table {
     // The client's own store (store.mjs): the chat's local copy, compacted chapters, token usage. In memory when none
     // is given (tests, read-only commands).
     this.store = store ?? new Store();
-    this.llm = metered(llm, { sink: (u) => this.store.recordUsage({ ...u, at: this.now() }), channelId });
+    this.llm = metered(llm, { sink: usageSink(this.store, log), channelId, now, log, provider: cfg.llm?.provider, model: cfg.llm?.model });
     this.cfg = cfg;
     this.channelId = channelId;
     this.roster = roster;
@@ -83,7 +84,7 @@ export class Table {
     this.calendar = calendarState(calendar); // the story's date (calendar.mjs)
     this.bonds = bondsState(bonds);       // relationships between characters (bonds.mjs)
     // The planner's own model, metered into the same usage so the daily budget counts it; the GM's when none is given.
-    this.plannerLlm = plannerLlm ? metered(plannerLlm, { sink: (u) => this.store.recordUsage({ ...u, at: this.now() }), channelId }) : this.llm;
+    this.plannerLlm = plannerLlm ? metered(plannerLlm, { sink: usageSink(this.store, log), channelId, now, log, provider: cfg.planner?.provider, model: cfg.planner?.model }) : this.llm;
     this.journal = journal;              // an applyPlan in progress, for roll-forward after a crash
     this.owedArrivals = [...owedArrivals];
     this.deferArrivals = deferArrivals;

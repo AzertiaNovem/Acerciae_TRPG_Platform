@@ -15,7 +15,7 @@ export class MockLlm {
     this.calls.push({ purpose, system, messages: messages.map((m) => ({ role: m.role, content: textOf(m.content) })), parts: messages.map((m) => partsOf(m.content).map((p) => ({ text: p.text, cache: Boolean(p.cache) }))) });
     const user = messages.filter((m) => m.role === "user").map((m) => textOf(m.content)).join("\n");
     const chars = system.length + user.length;
-    onUsage?.({ model: "mock", input: Math.ceil(chars / 3.5), cacheRead: 0, cacheWrite: 0, output: 50 });
+    onUsage?.({ model: "mock", estimated: true, input: Math.ceil(chars / 3.5), cacheRead: 0, cacheWrite: 0, output: 50 });
     switch (purpose) {
       case "coplayer_card": return JSON.stringify(this.card(user, "coplayer"));
       case "npc_card": return JSON.stringify(this.card(user, "npc"));

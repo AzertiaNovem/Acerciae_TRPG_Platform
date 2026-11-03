@@ -19,11 +19,11 @@ export class OpenAiCompatLlm {
 
   async complete({ system, messages, cacheKey, onUsage }) {
     try {
-      const { text, usage } = await this.request(system, messages, cacheKey);
-      if (usage) {
-        const cacheRead = usage.input_tokens_details?.cached_tokens ?? 0;
-        onUsage?.({ model: this.model, input: usage.input_tokens ?? 0, cacheRead, cacheWrite: 0, output: usage.output_tokens ?? 0 });
-      }
+      const { text } = await this.request(system, messages, cacheKey, (response) => {
+        const usage = response?.usage;
+        if (usage) onUsage?.({ model: response.model ?? this.model, input: usage.input_tokens ?? null,
+          cacheRead: usage.input_tokens_details?.cached_tokens ?? 0, cacheWrite: 0, output: usage.output_tokens ?? null });
+      });
       return text;
     } catch (e) {
       if (e.name === "TimeoutError") throw new Error(`LLM request exceeded the client timeout (${this.timeoutMs / 1000}s). Check the provider or LLM_TIMEOUT_MS.`, { cause: e });
@@ -31,7 +31,7 @@ export class OpenAiCompatLlm {
     }
   }
 
-  async request(system, messages, cacheKey) {
+  async request(system, messages, cacheKey, onResponse = () => {}) {
     const res = await fetch(`${this.base}/responses`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}) },
@@ -56,14 +56,16 @@ export class OpenAiCompatLlm {
       error.status = res.status;
       throw error;
     }
-    if (res.headers.get("content-type")?.includes("text/event-stream")) return readStream(res.body);
+    if (res.headers.get("content-type")?.includes("text/event-stream")) return readStream(res.body, onResponse);
     // Some compatible gateways ignore stream=true and still return the whole response as JSON.
-    return checkedText(await res.json());
+    return checkedText(await res.json(), "", onResponse);
   }
 }
 
 // The reply text and token usage of a finished response object; truncation, refusals and failures are errors.
-function checkedText(response, streamedText = "") {
+function checkedText(response, streamedText = "", onResponse = () => {}) {
+  // A truncated/refused response still consumed tokens: report usage before checking its text.
+  onResponse(response);
   if (response?.error) throw new Error(`LLM: ${response.error.message ?? response.error}`);
   if (response?.status === "failed") throw new Error("LLM: the provider reported a failed response.");
   if (response?.status === "incomplete") {
@@ -86,7 +88,7 @@ function checkedText(response, streamedText = "") {
 
 // Decode the Responses SSE stream across arbitrary network chunks, including split UTF-8 characters. Only a terminal
 // event (response.completed / .incomplete / .failed) ends it: a dropped connection is never accepted as a reply.
-async function readStream(body) {
+async function readStream(body, onResponse) {
   if (!body) throw new Error("LLM returned an empty stream");
   const decoder = new TextDecoder();
   let buffer = "", text = "";
@@ -102,7 +104,7 @@ async function readStream(body) {
       const event = JSON.parse(data);
       if (event.type === "error") throw new Error(`LLM stream: ${event.message ?? event.error?.message ?? "provider error"}`);
       if (event.type === "response.output_text.delta" && typeof event.delta === "string") text += event.delta;
-      if (event.type === "response.completed" || event.type === "response.incomplete" || event.type === "response.failed") return checkedText(event.response, text);
+      if (event.type === "response.completed" || event.type === "response.incomplete" || event.type === "response.failed") return checkedText(event.response, text, onResponse);
     }
   }
   throw new Error("LLM stream ended before completion; retry the request.");

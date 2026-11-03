@@ -140,5 +140,5 @@ export async function directTurn(llm, { language, context, newest, mode = "human
   ].filter(Boolean).join("\n");
   const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
   const on = Boolean(planner?.on);
-  return completeJson(llm, { system: directorSystem(language, { auto, improv, casual, planner: on, calendar }), user, purpose: "director" }, (x) => validateDirector(x, { auto, improv, casual, planner: on, calendar }));
+  return completeJson(llm, { system: directorSystem(language, { auto, improv, casual, planner: on, calendar }), user, purpose: "director", phase: mode }, (x) => validateDirector(x, { auto, improv, casual, planner: on, calendar }));
 }
