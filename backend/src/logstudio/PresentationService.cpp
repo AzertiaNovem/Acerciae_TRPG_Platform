@@ -152,7 +152,7 @@ static const std::string PE_COLS = "pe.id, pe.scene_id, pe.position, pe.canonica
 
 Json::Value PresentationService::get(const ChannelAccess& a, const std::string& id) {
     auto p = presentationRow(a, id);
-    p["scenes"] = db_.queryJson("SELECT s.*, b.version AS background_current_version FROM presentation_scenes s LEFT JOIN media_assets b ON b.id=s.background_asset_id WHERE s.presentation_id=$1 ORDER BY s.position", {id});
+    p["scenes"] = db_.queryJson("SELECT s.*, b.version AS background_current_version, (SELECT av.content_hash FROM asset_versions av WHERE av.asset_id=s.background_asset_id AND av.version=s.background_asset_version) AS background_asset_hash FROM presentation_scenes s LEFT JOIN media_assets b ON b.id=s.background_asset_id WHERE s.presentation_id=$1 ORDER BY s.position", {id});
     auto rows = db_.queryJson("SELECT " + PE_COLS + " FROM presentation_events pe LEFT JOIN log_events le ON le.id=pe.canonical_event_id LEFT JOIN tts_audio_assets ta ON ta.id=pe.audio_asset_id LEFT JOIN characters c ON c.id=pe.speaker_character_id WHERE pe.presentation_id=$1 ORDER BY pe.position", {id});
     std::map<std::string,LogEvent> frozen; for(const auto& e:studio_.snapshotEvents(a,p["snapshot_id"].asString())) frozen[e.eventId]=e;
     Json::Value visible(Json::arrayValue);
@@ -366,7 +366,7 @@ std::map<std::string, std::map<std::string, Json::Value>> PresentationService::c
     std::map<std::string, std::map<std::string, Json::Value>> out;
     // Every usable character image of the channel, newest first.
     std::map<std::string, Json::Value> usable; std::vector<std::string> newest;
-    for (auto& r : db_.queryJson("SELECT id, version, asset_type, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type IN ('standee','portrait') AND NOT (source_reference ? 'superseded_by') ORDER BY updated_at DESC, created_at DESC", {channelId})) {
+    for (auto& r : db_.queryJson("SELECT id, version, content_hash, asset_type, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type IN ('standee','portrait') AND NOT (source_reference ? 'superseded_by') ORDER BY updated_at DESC, created_at DESC", {channelId})) {
         if (!gmOnly && r["visibility_scope"].asString() == "gm") continue;
         auto id = r["id"].asString(); newest.push_back(id); usable[id] = r;
     }
@@ -396,14 +396,14 @@ void PresentationService::resolveStage(Json::Value& events, const std::map<std::
     for (auto& e : events) {
         if (!e["character_asset_ids"].isArray()) continue;
         for (auto& pl : e["character_asset_ids"]) {
-            pl["asset_id"] = Json::Value(); pl["asset_version"] = Json::Value();
+            pl["asset_id"] = Json::Value(); pl["asset_version"] = Json::Value(); pl["asset_hash"] = Json::Value();
             auto c = images.find(json::str(pl, "character_id"));
             if (c == images.end()) continue;
             auto key = text::lower(text::trim(json::str(pl, "expression")));
             auto img = c->second.find(key == "default" ? "" : key);
             if (img == c->second.end()) img = c->second.find("");
             if (img == c->second.end()) continue;
-            pl["asset_id"] = img->second["id"]; pl["asset_version"] = img->second["version"];
+            pl["asset_id"] = img->second["id"]; pl["asset_version"] = img->second["version"]; pl["asset_hash"] = img->second["content_hash"];
         }
     }
 }

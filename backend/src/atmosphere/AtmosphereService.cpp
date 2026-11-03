@@ -256,11 +256,12 @@ Json::Value AtmosphereService::current(const ChannelAccess &a) {
     return out;
   out["id"] = set["id"];
   for (const auto &v :
-       db_.queryJson("SELECT v.variant,j.result_asset_id,j.provider FROM "
+       db_.queryJson("SELECT v.variant,j.result_asset_id,j.provider,m.content_hash FROM "
                      "channel_atmosphere_variants v JOIN asset_generation_jobs "
-                     "j ON j.id=v.job_id WHERE v.atmosphere_id=$1",
+                     "j ON j.id=v.job_id LEFT JOIN media_assets m ON m.id=j.result_asset_id WHERE v.atmosphere_id=$1",
                      {set["id"].asString()})) {
     out["assets"][v["variant"].asString()] = v["result_asset_id"];
+    if (v["content_hash"].isString()) out["hashes"][v["variant"].asString()] = v["content_hash"];
     if (v["provider"] == "mock")
       out["mock"] = true;
   }

@@ -7,6 +7,7 @@
 #include "logstudio/PublicationService.h"
 #include "characters/CharacterSpaceService.h"
 #include "logstudio/MediaService.h"
+#include "core/Crypto.h"
 #include "app/Services.h"
 #include "atmosphere/AtmosphereService.h"
 #include "logstudio/ImageProvider.h"
@@ -910,6 +911,18 @@ int main() {
         auto other = S.media->upload(p3, "say4.png", png, "image/png", lib); S.characterSpace->adoptLibraryUpload(p3, other);
         CHECK(poseId() == pose3["id"].asString()); CHECK(!gone(other["id"].asString()));
         lib["expression"] = "angry"; auto angry = S.media->upload(p3, "angry.png", png, "image/png", lib)["id"].asString();
+        // Content hashes: written with the object, named in every listing, and recovered on the first read of an
+        // object stored before they existed.
+        {
+            auto pngHash = crypto::sha256Hex(png);
+            CHECK(S.media->get(p3, angry)["content_hash"].asString() == pngHash);
+            CHECK(S.db->queryOne("SELECT content_hash FROM asset_versions WHERE asset_id=$1 AND version=1", {angry})["content_hash"].asString() == pngHash);
+            S.db->exec("UPDATE media_assets SET content_hash=NULL WHERE id=$1", {angry}); S.db->exec("UPDATE asset_versions SET content_hash=NULL WHERE asset_id=$1", {angry});
+            CHECK(S.media->get(p3, angry)["content_hash"].isNull());
+            std::string bytes, mime, name; CHECK(S.media->fetch(p3, angry, 0, bytes, mime, name)); CHECK(bytes == png);
+            CHECK(S.media->get(p3, angry)["content_hash"].asString() == pngHash);
+            CHECK(S.db->queryOne("SELECT content_hash FROM asset_versions WHERE asset_id=$1 AND version=1", {angry})["content_hash"].asString() == pngHash);
+        }
         cur = S.presentations->currentStandees(channelId, true);
         CHECK(cur[c1]["say"]["id"].asString() == pose3["id"].asString()); CHECK(cur[c1]["angry"]["id"].asString() == angry);
         auto ev = S.presentations->get(gm, pid)["events"][0]["id"].asString();

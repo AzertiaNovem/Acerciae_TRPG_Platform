@@ -146,10 +146,10 @@ struct CharacterSpace: View {
             Section(tr("外观")) {
                 Text("\(space["era"].text) · \(space["narrative_time"].text)").font(.caption)
                 ForEach(["avatar", "portrait"], id: \.self) { slot in
-                    if !space[slot]["id"].text.isEmpty { AuthenticatedArtwork(model: model, assetId: space[slot]["id"].text, version: space[slot]["version"].int).frame(height: slot == "avatar" ? 80 : 220) }
+                    if !space[slot]["id"].text.isEmpty { AuthenticatedArtwork(model: model, assetId: space[slot]["id"].text, version: space[slot]["version"].int, hash: space[slot]["hash"].text).frame(height: slot == "avatar" ? 80 : 220) }
                 }
                 ForEach(Array(space["subtitles"].array.enumerated()), id: \.offset) { _, asset in
-                    Text(asset["subtitle"].text); AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int).frame(height: 180)
+                    Text(asset["subtitle"].text); AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int, hash: asset["hash"].text).frame(height: 180)
                 }
                 if editable {
                     Picker(tr("素材来源"), selection: $mode) { Text(tr("上传素材")).tag("uploaded"); Text(tr("生成素材")).tag("generated") }
@@ -190,7 +190,19 @@ struct CharacterSpace: View {
         }.confirmationDialog(tr("Discard draft and reload character card?"), isPresented: $reloadCard) { Button(tr("Reload card"), role: .destructive) { Task { await model.run { apply(try await model.get(base + ["space"])) } } } }
         .navigationTitle(tr("角色空间"))
             .toolbar { ToolbarItem(placement: .confirmationAction) { if space["character"]["editable"].bool { Button(tr("保存")) { Task { await saveCard() } }.disabled(!editable || !pointsValid || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } } }
-            .task { do { apply(try await model.get(base + ["space"])) } catch { model.handle(error) }; if pointsOn || dnd { await loadRules() } }
+             .task {
+                if let kept: JSONValue = await model.cached(base + ["space"]) { apply(kept) }
+                let initialCard = card, initialName = name, initialBio = bio, initialStyle = speakingStyle, initialPrompt = prompt, initialMode = mode
+                do {
+                    let fresh = try await model.get(base + ["space"])
+                    if card == initialCard && name == initialName && bio == initialBio && speakingStyle == initialStyle && prompt == initialPrompt && mode == initialMode { apply(fresh) }
+                    else { space = fresh } // Retain the draft and its baseline for conflict detection on save.
+                } catch {
+                    if let e = error as? ClientError, [401,403,404].contains(e.httpStatus ?? 0) { space = .null }
+                    model.handle(error)
+                }
+                if pointsOn || dnd { await loadRules() }
+            }
     }
     private func saveCard() async {
         await model.run {
@@ -201,6 +213,7 @@ struct CharacterSpace: View {
         }
     }
     private func loadRules() async {
+        if let kept: JSONValue = await model.cached([dnd ? "dnd" : "coc7", "rules"]) { pointRules = kept }
         do { pointRules = try await model.get([dnd ? "dnd" : "coc7", "rules"]); rulesError = "" }
         catch { rulesError = tr("职业规则暂不可用，请重试；草稿保留") }
     }
@@ -267,7 +280,7 @@ struct DubbingView: View {
             }
             if job != .null { Section(tr("配音任务")) { Text(job["status"].text); Text(job["error"].text) } }
         }.navigationTitle(tr("配音选角"))
-            .task { await model.run {
+            .task { await model.load {
                 presentation = try await model.get(base + ["presentations", presentationId]); cast = presentation["settings"]["cast"].object
                 speechProvider = try await model.get(base + ["tts", "status"])["provider"].text; voices = try await model.typed(base + ["voices"]); presets = try await model.typed(base + ["tts", "available-voices"]); cast = cast.filter { entry in entry.value.text.isEmpty || voices.contains { $0.id == entry.value.text && $0["provider"].text == speechProvider && ($0["character_id"].text.isEmpty || $0["character_id"].text == entry.key) } }; estimate = .null
             } }

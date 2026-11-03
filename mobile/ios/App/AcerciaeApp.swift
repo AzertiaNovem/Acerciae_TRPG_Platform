@@ -47,11 +47,12 @@ import AcerciaeCore
     private var client: BackendClient?
     private var epoch = UUID()
     private var drafts: [String: String] = [:]
-    private var refreshing = false
+    private var refreshing: Set<UUID> = []
     private var catalogUpdated = Date.distantPast
     private var polling = false
     var online: Bool { session != nil }
-    var scopeKey: String { channelId + channel["my_role"].text + channel["player_group_id"].text + String(channel["player_group_version"].int) + channel["my_character_ids"].pretty }
+    @Published private var cacheRevision = 0
+    var scopeKey: String { String(cacheRevision) + channelId + channel["my_role"].text + channel["player_group_id"].text + String(channel["player_group_version"].int) + channel["my_character_ids"].pretty }
     var studioAccess: String { AccessRules.studio(channel, serverSettings) }
     var studioAvailable: Bool { studioAccess == "open" }
     var serverRole: String { servers.first { $0.id == serverId }?["my_role"].text ?? "" }
@@ -66,15 +67,17 @@ import AcerciaeCore
         do {
             if let saved = try SessionStore.read() {
                 guard ServiceConfiguration.acceptsSavedEndpoint(saved.endpoint) else { try SessionStore.clear(); return }
-                client = try makeClient().withAssets(assets(for: saved.session.user)); session = saved.session; campaign = nil
+                client = try makeClient().withAssets(assets(for: saved.session.user), reads: reads(for: saved.session.user)); session = saved.session; campaign = nil
                 if let code = saved.session.user.uiLanguage { MobileLocale.shared.set(code) }
                 connection = "正在恢复登录…"
             }
         } catch { notice = tr("无法读取已保存的登录，请重新登录") }
     }
     // Downloaded media, one directory per account and server (AcerciaeCore/AssetDiskCache.swift); deleted on sign-out.
-    private var assetRoot: URL { FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("assets", isDirectory: true) }
-    private func assets(for user: User) -> AssetDiskCache { AssetDiskCache(directory: assetRoot.appendingPathComponent(AssetDiskCache.hex("\(endpoint)|\(user.id)"), isDirectory: true)) }
+    private var localRoot: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Offline", isDirectory: true) }
+    private var assetRoot: URL { localRoot.appendingPathComponent("assets", isDirectory: true) }
+    private func reads(for user: User) -> AssetDiskCache { AssetDiskCache(directory: localRoot.appendingPathComponent("pages").appendingPathComponent(AssetDiskCache.hex("\(endpoint)|\(user.id)")), capBytes: 64 * 1024 * 1024) }
+    private func assets(for user: User) -> AssetDiskCache { AssetDiskCache(directory: assetRoot.appendingPathComponent(AssetDiskCache.hex("\(endpoint)|\(user.id)"), isDirectory: true), legacyDirectory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("assets").appendingPathComponent(AssetDiskCache.hex("\(endpoint)|\(user.id)"))) }
     func makeClient() throws -> BackendClient {
         #if DEBUG
         let local = true
@@ -91,17 +94,16 @@ import AcerciaeCore
             let auth: Session
             if registering { auth = try await api.register(username: username, password: password, displayName: displayName) }
             else { auth = try await api.login(username: username, password: password) }
-            epoch = UUID(); client = api.withAssets(assets(for: auth.user)); session = auth; draft = ""; drafts = [:]
+            epoch = UUID(); client = api.withAssets(assets(for: auth.user), reads: reads(for: auth.user)); session = auth; draft = ""; drafts = [:]
             if let code = auth.user.uiLanguage { MobileLocale.shared.set(code) }
             do { try SessionStore.save(SavedLogin(endpoint: endpoint, session: auth)) }
             catch { notice = tr("登录成功，但设备未能安全保存登录状态") }
             catalogUpdated = .distantPast
             campaign = nil; clearChannel(); servers = []; channels = []
-            let stamp = epoch
-            let fetched: [Resource] = try await api.request(["servers"], token: auth.token)
-            guard stamp == epoch else { return }; servers = fetched
-            if let first = servers.first { try await selectServer(first.id) }
-            connection = "Connected · refreshing automatically"
+            busy = false
+            await restoreCachedCatalog()
+            navigate { try await self.refreshCatalog(); try await self.refresh(metadata: false) }
+
         } catch ClientError.http(409) { notice = tr("用户名已被使用，请换一个用户名") }
         catch ClientError.http(401) { notice = tr("用户名或密码不正确") }
         catch { handle(error) }
@@ -133,7 +135,7 @@ import AcerciaeCore
         do { try SessionStore.clear() } catch { notice = tr("设备未能清除登录记录，请保持联网完成退出") }
         catalogUpdated = .distantPast
         epoch = UUID(); session = nil; client = nil; servers = []; channels = []; serverId = ""; serverSettings = .null
-        try? FileManager.default.removeItem(at: assetRoot)   // no media of this account stays
+        api?.assets?.invalidate(); api?.reads?.invalidate(); navigationTask?.cancel(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects()
         clearChannel(); drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
     }
@@ -148,27 +150,107 @@ import AcerciaeCore
         if !windowId.isEmpty { drafts[windowId] = draft }
         epoch = UUID(); let stamp = epoch
         serverId = id; clearChannel(); channels = []; serverSettings = .null; draft = ""
+        await restoreCachedServer(id, stamp: stamp)
+        try Task.checkCancellation(); guard epoch == stamp else { return }
         let rows: [Resource] = try await typed(["servers", id, "channels"])
         guard epoch == stamp else { return }
         channels = rows
-        if let first = rows.first { try await selectChannel(first.id) }
+        if let first = rows.first(where: { $0.id == channelId }) ?? rows.first { try await selectChannel(first.id) }
         else { serverSettings = try await get(["servers",id,"settings"]) }
     }
     func selectChannel(_ id: String) async throws {
         if !windowId.isEmpty { drafts[windowId] = draft }
         epoch = UUID(); let stamp = epoch
         clearChannel(); channelId = id; draft = ""
+        await restoreCachedChannel(id, stamp: stamp)
+        try Task.checkCancellation(); guard epoch == stamp else { return }
         let info = try await get(["channels", id])
         let wins: [Resource] = try await typed(["channels", id, "windows"])
         guard epoch == stamp else { return }
+        if channel != .null && permissionsDiffer(channel, windows, info, wins) { purgeCachedAccess(); campaign = nil; characters = []; scenes = []; reminders = [] }
         channel = info; windows = wins
         characterId = playable.first?.id ?? ""; role = playable.first?.name ?? (gm ? tr("旁白") : tr("场外"))
-        if let first = wins.first { try await selectWindow(first.id) }
+        if let first = wins.first(where: { $0.id == windowId }) ?? wins.first { try await selectWindow(first.id) }
     }
     func selectWindow(_ id: String) async throws {
         if !windowId.isEmpty { drafts[windowId] = draft }
         epoch = UUID(); references = []; jumpMessageId = nil; speechMode = gm ? "narration" : "ic"; windowId = id; draft = drafts[id] ?? ""; campaign = nil; diceHint = ""; result = nil
+        let stamp = epoch
+        await restoreCachedWindow(id, stamp: stamp)
+        try Task.checkCancellation(); guard stamp == epoch else { return }
+        await rememberSelection()
         try await refresh(merge: false,metadata:false)
+    }
+    private var navigationTask: Task<Void, Never>?
+    func navigate(_ work: @escaping @MainActor () async throws -> Void) {
+        navigationTask?.cancel()
+        navigationTask = Task { do { try await work() } catch { if !Task.isCancelled { handle(error, silent: true) } } }
+    }
+    func load(_ work: () async throws -> Void) async {
+        do { try await work() } catch { if !Task.isCancelled { handle(error) } }
+    }
+    func cached<T: Decodable>(_ path: [String], query: [String: String] = [:]) async -> T? {
+        guard let client, let token = session?.token else { return nil }
+        let value: T? = await client.cached(path, query: query)
+        guard session?.token == token, !Task.isCancelled else { return nil }
+        return value
+    }
+    private func rememberSelection() async {
+        guard let store = client?.reads, let data = try? JSONEncoder().encode(["server":serverId,"channel":channelId,"window":windowId]) else { return }
+        await store.write("selection", data, generation: store.generation, ticket: store.reserve("selection"))
+    }
+    private func restoreCachedCatalog() async {
+        guard serverId.isEmpty else { return }
+        let stamp = epoch
+        let rows: [Resource] = await cached(["servers"]) ?? []
+        let data = await client?.reads?.read("selection")
+        let selection = data.flatMap { try? JSONDecoder().decode([String:String].self, from: $0) } ?? [:]
+        guard stamp == epoch, !Task.isCancelled else { return }
+        servers = rows
+        guard let server = rows.first(where: { $0.id == selection["server"] }) ?? rows.first else { return }
+        serverId = server.id
+        await restoreCachedServer(server.id, stamp: stamp, preferredChannel: selection["channel"], preferredWindow: selection["window"])
+    }
+    private func restoreCachedServer(_ id: String, stamp: UUID, preferredChannel: String? = nil, preferredWindow: String? = nil) async {
+        async let rows: [Resource]? = cached(["servers",id,"channels"])
+        async let settings: JSONValue? = cached(["servers",id,"settings"])
+        let (items, config) = await (rows, settings)
+        guard stamp == epoch, !Task.isCancelled else { return }
+        channels = items ?? []; serverSettings = config ?? .null
+        if let first = channels.first(where: { $0.id == preferredChannel }) ?? channels.first {
+            channelId = first.id
+            await restoreCachedChannel(first.id, stamp: stamp, preferredWindow: preferredWindow)
+        }
+    }
+    private func restoreCachedChannel(_ id: String, stamp: UUID, preferredWindow: String? = nil) async {
+        async let info: JSONValue? = cached(["channels",id])
+        async let wins: [Resource]? = cached(["channels",id,"windows"])
+        async let chars: [Resource]? = cached(["channels",id,"characters"])
+        async let stages: [Resource]? = cached(["channels",id,"scenes"])
+        async let hints: [Resource]? = cached(["channels",id,"reminders"])
+        let values = await (info,wins,chars,stages,hints)
+        guard stamp == epoch, !Task.isCancelled, let info = values.0 else { return }
+        channel = info; windows = values.1 ?? []; characters = values.2 ?? []; scenes = values.3 ?? []; reminders = values.4 ?? []
+        characterId = playable.first?.id ?? ""; role = playable.first?.name ?? (gm ? tr("旁白") : tr("场外"))
+        if let win = windows.first(where: { $0.id == preferredWindow }) ?? windows.first {
+            windowId = win.id; draft = drafts[win.id] ?? ""; speechMode = gm ? "narration" : "ic"
+            await restoreCachedWindow(win.id, stamp: stamp)
+        }
+    }
+    private func restoreCachedWindow(_ id: String, stamp: UUID) async {
+        let c = channelId
+        async let messages: JSONValue? = cached(["channels",c,"windows",id,"messages"], query:["limit":"50"])
+        async let docs: JSONValue? = cached(["channels",c,"documents"])
+        async let hints: JSONValue? = cached(["channels",c,"highlights"])
+        let values = await (messages,docs,hints)
+        guard stamp == epoch, !Task.isCancelled, let messages = values.0 else { return }
+        let payload: JSONValue = .object(["title":.string(channel["name"].text),"scene":.string(windows.first { $0.id == id }?["scene_title"].text ?? ""),"messages":messages,"documents":gm ? values.1 ?? .array([]) : .array([]),"highlights":gm ? values.2 ?? .array([]) : .array([]),"replay":.array([])])
+        if let data = try? JSONEncoder().encode(payload), let view = try? DemoCampaign.decode(data) { campaign = view; hasOlder = view.messages.count == 50 }
+    }
+    private func purgeCachedAccess() { cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects() }
+    private func permissionsDiffer(_ old: JSONValue, _ oldWindows: [Resource], _ fresh: JSONValue, _ freshWindows: [Resource]) -> Bool {
+        ["player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode"].contains { old[$0] != fresh[$0] }
+        || oldWindows.contains { win in freshWindows.first { $0.id == win.id }?["members"] != win["members"] }
     }
     func typed<T: Decodable>(_ path: [String], query: [String: String] = [:]) async throws -> T {
         guard let client, let session else { throw ClientError.http(401) }
@@ -178,9 +260,9 @@ import AcerciaeCore
         guard let client, let session else { throw ClientError.http(401) }
         return try await client.resource(path, token: session.token, body: body, method: method, query: query)
     }
-    func bytes(_ path: [String], query: [String: String] = [:]) async throws -> Data {
+    func bytes(_ path: [String], query: [String: String] = [:], hash: String? = nil) async throws -> Data {
         guard let client, let session else { throw ClientError.http(401) }
-        return try await client.bytes(path, token: session.token, query: query)
+        return try await client.bytes(path, token: session.token, query: query, hash: hash)
     }
     func uploadArtwork(_ data: Data, character: String, slot: String, subtitle: String) async throws -> JSONValue {
         guard let client, let session else { throw ClientError.http(401) }
@@ -206,9 +288,9 @@ import AcerciaeCore
         }
     }
     func refresh(merge: Bool = true, metadata: Bool = true) async throws {
-        guard online, !windowId.isEmpty, !refreshing else { return }
-        refreshing = true; defer { refreshing = false }
-        let stamp = epoch; let c = channelId; let w = windowId; let server = serverId
+        guard online, !windowId.isEmpty, !refreshing.contains(epoch) else { return }
+        let stamp = epoch; refreshing.insert(stamp); defer { refreshing.remove(stamp) }
+         let c = channelId; let w = windowId; let server = serverId
         async let infoRequest = get(["channels",c])
         async let windowsRequest: [Resource] = typed(["channels",c,"windows"])
         let (info,wins) = try await (infoRequest,windowsRequest)
@@ -216,6 +298,7 @@ import AcerciaeCore
         let isGM = info["my_role"].text == "gm"
         let permissionsChanged = channel["player_group_id"] != info["player_group_id"] || channel["player_group_version"] != info["player_group_version"] || channel["my_role"] != info["my_role"] || channel["my_character_ids"] != info["my_character_ids"] || channel["knowledge_mode"] != info["knowledge_mode"] || windows.first { $0.id == w }?["members"] != wins.first { $0.id == w }?["members"]
         if permissionsChanged {
+            purgeCachedAccess()
             metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID()
             chatNotices = []; readSeq = [:]; speech.stopSpeaking(at:.immediate); result = nil; diceHint = ""; references = []; jumpMessageId = nil
             campaign = nil; characters = []; scenes = []; reminders = []
@@ -276,6 +359,7 @@ import AcerciaeCore
         }
         servers = fetched
         if !fetched.contains(where: { $0.id == serverId }) {
+            if !serverId.isEmpty { purgeCachedAccess() }
             epoch = UUID(); serverId = ""; channels = []; serverSettings = .null; clearChannel()
             if let first = fetched.first { try await selectServer(first.id) }
         } else {
@@ -284,6 +368,7 @@ import AcerciaeCore
             guard stamp == epoch else { return }
             channels = rows; serverSettings = settings
             if !rows.contains(where: { $0.id == channelId }) {
+                if !channelId.isEmpty { purgeCachedAccess() }
                 epoch = UUID(); clearChannel()
                 if let first = rows.first { try await selectChannel(first.id) }
             } else if windowId.isEmpty { try await selectChannel(channelId) }
@@ -325,6 +410,7 @@ import AcerciaeCore
     func poll(forceCatalog: Bool = false) async {
         guard online, !busy, !polling, forceCatalog || Date() >= nextPoll else { return }
         polling = true; defer { polling = false }
+        await restoreCachedCatalog()
         let token = session?.token
         let previousScope = scopeKey; let previous = windows; let previousMessages = campaign?.messages; let stamp = epoch
         do {
@@ -384,7 +470,7 @@ import AcerciaeCore
             guard stamp == self.epoch else { return }
             if self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
             self.diceHint = ""; self.references = []
-            try await self.refresh()
+            self.refreshSoon()
         }
     }
     func assistance(_ type: String) async {
@@ -415,6 +501,10 @@ import AcerciaeCore
         do { let value = try await get(["channels", channelId, "dice", "preview"], body: .object(body)); if epoch == stamp && draft == text { diceHint = value["hint"].text } }
         catch { if epoch == stamp { diceHint = tr("命令预览不可用；发送时由服务器校验") } }
     }
+    func refreshSoon() {
+        let stamp = epoch
+        Task { guard stamp == epoch else { return }; do { try await refresh(metadata: false) } catch { if stamp == epoch { handle(error, silent: true) } } }
+    }
     func run(_ work: () async throws -> Void) async {
         guard !busy else { return }; busy = true
         defer { busy = false }
@@ -423,7 +513,7 @@ import AcerciaeCore
     func handle(_ error: Error, silent: Bool = false) {
         if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
         if case ClientError.http(401) = error { logout(); notice = tr("登录已过期，请重新登录"); return }
-        if silent, let e = error as? ClientError, [403, 404].contains(e.httpStatus ?? 0) { epoch = UUID(); clearChannel(); catalogUpdated = .distantPast }
+        if silent, let e = error as? ClientError, [403, 404].contains(e.httpStatus ?? 0) { purgeCachedAccess(); epoch = UUID(); clearChannel(); catalogUpdated = .distantPast }
         if case ClientError.gateway(let status) = error { connection = tr("服务入口暂时不可用，请稍后重试") + " (HTTP \(status))" }
         else { connection = tr(ConnectionPolicy.message(error)) }
         if !silent { notice = connection }

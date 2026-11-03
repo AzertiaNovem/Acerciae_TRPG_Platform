@@ -5,11 +5,12 @@ import { connectSockets, closeSockets } from '../api/ws';
 import { bumpEpoch } from './session';
 import { useLocale } from '../i18n';
 import { resetUserStores } from './reset';
-import { clearAssetCache, setAssetScope } from '../lib/assetCache';
+import { scheduleSweep, setAssetScope } from '../lib/assetCache';
 import { apiBase } from '../lib/platform';
 
-// The local asset cache belongs to one account on one server.
-const scopeAssets = (u: User) => setAssetScope(`${apiBase()}|${u.id}`);
+// The local asset cache belongs to one account on one server; it stays across sign-out and is emptied when another
+// account signs in on this browser (setAssetScope). Expired entries are swept once per session.
+const scopeAssets = (u: User) => { setAssetScope(`${apiBase()}|${u.id}`); scheduleSweep(); };
 
 interface AuthState {
   user: User | null; loading: boolean; error: string | null;
@@ -42,6 +43,6 @@ export const useAuth = create<AuthState>((set) => ({
     // Invalidate in-flight requests first, then drop every per-user store before the token goes away.
     bumpEpoch();
     try { await api.logout(); } catch { /* ignore */ }
-    setToken(null); closeSockets(); resetUserStores(); void clearAssetCache(); set({ user: null });
+    setToken(null); closeSockets(); resetUserStores(); set({ user: null });
   },
 }));

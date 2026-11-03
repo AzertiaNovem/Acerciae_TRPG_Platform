@@ -31,13 +31,20 @@ User objects now include `ui_language`, `avatar_data` (empty once the avatar is 
 | POST | `/auth/login` | `{username, password}` → `{token, user}`; a suspended account answers `403 account_suspended` with the reason in the message |
 | POST | `/auth/logout` | ends the session and closes its WebSockets |
 | POST | `/auth/file-token` | `{token, expires_at}` for `?token=` on file URLs and the WebSocket |
-| GET | `/auth/me` | includes `is_admin` (a platform administrator, see [ADMIN.md](ADMIN.md)) |
+| GET | `/auth/me` | includes `is_admin` (a platform administrator, see [ADMIN.md](ADMIN.md)) and `avatar_hash` (SHA-256 of the avatar bytes, null without one; see [ASSETS.md](ASSETS.md), "On the device") |
 
 ## Platform administration
 
 Administrators of the deployment (`PLATFORM_ADMINS`, or granted `is_admin`) inspect accounts, servers, storage,
 database and AI use and suspend servers or accounts under `/api/admin/*`; others answer `403 admin_required`. Routes,
 fields and the effects of a suspension are in [ADMIN.md](ADMIN.md).
+
+Pictures carry their **content hash** wherever they are referenced: `content_hash` on media rows, `hash` on the character
+space's avatar, portrait and poses, `avatar_asset_hash` (with `avatar_asset_version`) on `/channels/{id}/characters`,
+`character_avatar_hash` and `author_avatar_hash` on messages, `background_asset_hash` on visual-novel scenes and
+`asset_hash` on their placements, `hashes {variant: hash}` on `/channels/{id}/atmosphere`. Null until an object stored
+before hashes existed has been served once. Versioned media, versioned avatars, atmosphere images and voice clips are
+delivered with `Cache-Control: private, max-age=31536000, immutable`.
 
 ## Servers
 | GET/POST | `/servers` | list mine `[{id, name, owner_id, created_at, my_role, suspended, suspended_reason}]` (a server the platform administrators suspended stays listed, marked, with the reason; everything inside it answers `403 server_suspended`) / create `{name}` |

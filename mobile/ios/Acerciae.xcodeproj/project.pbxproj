@@ -21,6 +21,7 @@
 		45A0D8229C29617F16BA5508 /* NovelTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9928E8F2845509585EE45903 /* NovelTools.swift */; };
 		50E17E7EEDF599CE1465535D /* VoiceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F160A0F7343F07B57F6F6F /* VoiceSettings.swift */; };
 		593759825ED2354F226F6207 /* demo-campaign.json in Resources */ = {isa = PBXBuildFile; fileRef = 88F5C70043EB6160B449B58C /* demo-campaign.json */; };
+		5B40BC3FB925837EBD9AD7AB /* ArtworkImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 937C789F80818A0E847E9E61 /* ArtworkImages.swift */; };
 		6B564872DEEDBA5520BE3F68 /* RefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6621C651660C09CA8DFA0B54 /* RefreshTests.swift */; };
 		6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD29F793ED520DE30805D951 /* AcerciaeApp.swift */; };
 		89A82BD3E8B2D3715FAC2169 /* DndCardEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 004C7128C9479F2D44AE27BA /* DndCardEditor.swift */; };
@@ -60,6 +61,7 @@
 		80A7C19F14D51A4A7371E0FA /* ChatActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatActivity.swift; sourceTree = "<group>"; };
 		88F5C70043EB6160B449B58C /* demo-campaign.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "demo-campaign.json"; sourceTree = "<group>"; };
 		9023445777ECE23D1A4B9E14 /* ModuleImports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleImports.swift; sourceTree = "<group>"; };
+		937C789F80818A0E847E9E61 /* ArtworkImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkImages.swift; sourceTree = "<group>"; };
 		953B6532E71274B94654EDD3 /* DiceResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceResultView.swift; sourceTree = "<group>"; };
 		9928E8F2845509585EE45903 /* NovelTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NovelTools.swift; sourceTree = "<group>"; };
 		998A889DBAFA58F06F0D5ECD /* WorldRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorldRecord.swift; sourceTree = "<group>"; };
@@ -144,6 +146,7 @@
 			isa = PBXGroup;
 			children = (
 				CD29F793ED520DE30805D951 /* AcerciaeApp.swift */,
+				937C789F80818A0E847E9E61 /* ArtworkImages.swift */,
 				FAC5919B71481D5AC4123308 /* Assets.xcassets */,
 				26F6A0D0B0E746A79046DF8F /* AtmosphereViews.swift */,
 				F4DAED716228D5F0F309AFF5 /* AvatarView.swift */,
@@ -279,6 +282,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6BB130BBE7B174B5AADBEAEE /* AcerciaeApp.swift in Sources */,
+				5B40BC3FB925837EBD9AD7AB /* ArtworkImages.swift in Sources */,
 				3AA96D4256D0F43585F1CED5 /* AtmosphereViews.swift in Sources */,
 				B4B48AA53FC159C465B20EA8 /* AvatarView.swift in Sources */,
 				D451C6D4B0699D181EAB16E7 /* ChatActivity.swift in Sources */,

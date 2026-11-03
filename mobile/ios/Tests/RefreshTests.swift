@@ -4,9 +4,9 @@ import AcerciaeCore
 
 @MainActor final class RefreshTests: XCTestCase {
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T { try APIJSON.decoder().decode(type,from:Data(json.utf8)) }
-    private func model() throws -> AppModel {
+    private func model(cache: URL? = nil) throws -> AppModel {
         let config=URLSessionConfiguration.ephemeral; config.protocolClasses=[RefreshProtocol.self]
-        let client=BackendClient(address:try BackendAddress("https://refresh.test"),session:URLSession(configuration:config))
+        let client=BackendClient(address:try BackendAddress("https://refresh.test"),session:URLSession(configuration:config),reads:AssetDiskCache(directory:cache ?? FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         let session=try decode(Session.self,#"{"token":"test-only","user":{"id":"user","username":"test","display_name":"Test"}}"#)
         let model=AppModel(client:client,session:session)
         model.channelId="channel"; model.windowId="window"; model.serverId="server"
@@ -15,6 +15,45 @@ import AcerciaeCore
         model.campaign=try decode(DemoCampaign.self,#"{"title":"Old","scene":"Old","messages":[],"documents":[{"id":"doc","title":"Cached","doc_type":"scene","version":1}],"highlights":[],"replay":[]}"#)
         RefreshProtocol.reset()
         return model
+    }
+    func testRelaunchRestoresSavedSelectionAndMessagesBeforeNetworkCompletes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = try model(cache: directory)
+        RefreshProtocol.set("servers",status:200,body:#"[{"id":"server","name":"Server"}]"#)
+        RefreshProtocol.set("channels",status:200,body:#"[{"id":"channel","name":"Chat"}]"#)
+        let _: [Resource] = try await first.typed(["servers"])
+        try await first.selectServer("server")
+        first.foreground = false
+        let restarted = try model(cache: directory)
+        restarted.serverId = ""; restarted.channelId = ""; restarted.windowId = ""; restarted.channel = .null; restarted.windows = []; restarted.campaign = nil
+        RefreshProtocol.delay = 0.6
+        let work = Task { await restarted.poll(forceCatalog: true) }
+        let deadline = Date().addingTimeInterval(0.4)
+        while restarted.campaign == nil && Date() < deadline { try await Task.sleep(for:.milliseconds(5)) }
+        XCTAssertEqual(restarted.serverId,"server"); XCTAssertEqual(restarted.channelId,"channel"); XCTAssertEqual(restarted.windowId,"window")
+        XCTAssertEqual(restarted.campaign?.messages.first?.content,"Fresh message"); XCTAssertFalse(restarted.busy)
+        work.cancel(); await work.value
+        restarted.foreground = false
+    }
+    func testCachedChannelAppearsWhileGetIsSlowAndDraftRemainsEditable() async throws {
+        let model = try model()
+        try await model.selectChannel("channel")
+        model.foreground = false
+        model.campaign = nil
+        RefreshProtocol.delay = 0.4
+        RefreshProtocol.set("messages", status:200, body:#"[{"id":"message","content":"Updated after cache","kind":"ooc","seq":1,"author_name":"Test"}]"#)
+        model.navigate { try await model.selectChannel("channel") }
+        let deadline = Date().addingTimeInterval(0.3)
+        while model.campaign == nil && Date() < deadline { try await Task.sleep(for:.milliseconds(5)) }
+        XCTAssertEqual(model.campaign?.messages.first?.content,"Fresh message")
+        XCTAssertFalse(model.busy)
+        model.draft = "Draft typed during slow GET"
+        let updated = Date().addingTimeInterval(3)
+        while model.campaign?.messages.first?.content != "Updated after cache" && Date() < updated { try await Task.sleep(for:.milliseconds(10)) }
+        XCTAssertEqual(model.campaign?.messages.first?.content,"Updated after cache")
+        XCTAssertEqual(model.draft,"Draft typed during slow GET")
+        model.foreground = false
     }
     func testOpeningChannelDoesNotWaitForAuxiliaryFailures() async throws {
         let model=try model(); model.foreground=true
@@ -65,7 +104,8 @@ private final class RefreshProtocol: URLProtocol, @unchecked Sendable {
     static let windows=#"[{"id":"window","name":"Main","kind":"main","members":[]}]"#
     private static let lock=NSLock()
     private static var responses:[String:(Int,String)]=[:]
-    static func reset() { lock.lock(); defer { lock.unlock() }; responses=[:] }
+    static var delay: Double = 0
+    static func reset() { lock.lock(); defer { lock.unlock() }; responses=[:]; delay=0 }
     static func set(_ key:String,status:Int,body:String) { lock.lock(); defer { lock.unlock() }; responses[key]=(status,body) }
     override class func canInit(with request:URLRequest)->Bool { request.url?.host=="refresh.test" }
     override class func canonicalRequest(for request:URLRequest)->URLRequest { request }
@@ -81,8 +121,11 @@ private final class RefreshProtocol: URLProtocol, @unchecked Sendable {
         default: fallback="[]"
         }
         let (status,body)=override ?? (200,fallback)
+        let delay = Self.delay
+        DispatchQueue.global().asyncAfter(deadline:.now() + delay) { [self] in
         client?.urlProtocol(self,didReceive:HTTPURLResponse(url:request.url!,statusCode:status,httpVersion:nil,headerFields:["Content-Type":"application/json"])!,cacheStoragePolicy:.notAllowed)
         client?.urlProtocol(self,didLoad:Data(body.utf8)); client?.urlProtocolDidFinishLoading(self)
+        }
     }
     override func stopLoading() {}
 }

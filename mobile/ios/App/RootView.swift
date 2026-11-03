@@ -144,7 +144,7 @@ private struct SidebarView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         Menu(model.serverName) {
-                            ForEach(model.servers) { server in Button(server.name) { Task { await model.run { try await model.selectServer(server.id) } } } }
+                            ForEach(model.servers) { server in Button(server.name) { model.navigate { try await model.selectServer(server.id) } } }
                         }.font(.headline)
                         row(tr("Servers"), icon: "globe") { browsingServers = true }
                         if model.serverSettings["is_maintainer"].bool { row(tr("服务器选项"), icon: "server.rack") { select("server") } }
@@ -154,19 +154,19 @@ private struct SidebarView: View {
                             Button { creatingChannel = true } label: { Image(systemName: "plus") }.accessibilityLabel(tr("添加频道")).disabled(model.serverId.isEmpty || !model.canCreateChannel)
                         }
                         ForEach(model.channels) { item in
-                            row(item.name, icon: "number", selected: model.channelId == item.id) { Task { await model.run { try await model.selectChannel(item.id) } } }
+                            row(item.name, icon: "number", selected: model.channelId == item.id) { model.navigate { try await model.selectChannel(item.id) } }
                         }
                         if model.gm { row(tr("频道选项"), icon: "slider.horizontal.3") { select("channel") } }
                         Text(tr("聊天窗口")).font(.caption).foregroundStyle(.secondary)
                         ForEach(model.windows) { item in
-                            row(item.name + (item["unread"].int > 0 ? " · " + (item["unread"].int > 99 ? "99+" : String(item["unread"].int)) : ""), icon: "bubble.left", selected: model.windowId == item.id) { Task { await model.run { try await model.selectWindow(item.id); select("chat") } } }
+                            row(item.name + (item["unread"].int > 0 ? " · " + (item["unread"].int > 99 ? "99+" : String(item["unread"].int)) : ""), icon: "bubble.left", selected: model.windowId == item.id) { select("chat"); model.navigate { try await model.selectWindow(item.id) } }
                         }
                         DisclosureGroup(tr("角色"), isExpanded: $charactersExpanded) {
                             if !model.channelId.isEmpty { row(tr("添加角色"), icon: "person.badge.plus") { creatingCharacter = true } }
                             ForEach(model.characters) { item in
                                 Button { model.result = nil; selectedCharacter = item } label: {
                                     HStack(spacing: 10) {
-                                        AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["updated_at"].text)
+                                        AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["updated_at"].text, hash: item["avatar_asset_hash"].text)
                                         Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
                                     }.padding(.vertical, 6)
                                 }.buttonStyle(.plain)
@@ -358,7 +358,8 @@ private struct MessageBubble: View {
         let character = ooc ? nil : model.characters.first(where: { $0.id == message.characterId })
         let asset = ooc ? "" : character.map { $0["avatar_asset_id"].text } ?? message.characterAvatarAssetId ?? ""
         let revision = ooc ? "" : (character?["updated_at"].text ?? "") + ":" + String(message.characterAvatarVersion ?? 0)
-        return AvatarView(model: model, name: name, assetId: asset, version: revision, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0)
+        let hash = ooc ? "" : (character?["avatar_asset_hash"].string).flatMap { $0.isEmpty ? nil : $0 } ?? message.characterAvatarHash ?? ""
+        return AvatarView(model: model, name: name, assetId: asset, version: revision, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0, hash: hash, ownerHash: message.authorAvatarHash ?? "")
     }
 }
 
@@ -452,7 +453,7 @@ private struct SettingsView: View {
         Form {
             Section(tr("账号")) {
                 if let user = model.session?.user {
-                    HStack(spacing: 12) { AvatarView(model: model, name: user.displayName, ownerId: user.id, ownerVersion: user.avatarVersion ?? 0, size: 48); Text(user.displayName) }
+                    HStack(spacing: 12) { AvatarView(model: model, name: user.displayName, ownerId: user.id, ownerVersion: user.avatarVersion ?? 0, size: 48, ownerHash: user.avatarHash ?? ""); Text(user.displayName) }
                     Text(user.username).foregroundStyle(.secondary)
                 }
                 Button(tr("退出登录"), role: .destructive) { model.logout() }.disabled(model.busy)

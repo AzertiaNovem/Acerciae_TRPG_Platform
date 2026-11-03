@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { cacheStats, clearAssetCache, formatCacheSize } from '../lib/assetCache';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 import { useNotifications } from '../store/notifications';
@@ -30,6 +31,9 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const notifyOn = useNotifications((s) => s.enabled);
   const setNotify = useNotifications((s) => s.setEnabled);
   const [avatar, setAvatarState] = useState(api.ownAvatarUrl(user));
+  const [cache, setCache] = useState<{ entries: number; bytes: number } | null>(null);
+  useEffect(() => { cacheStats().then(setCache).catch(() => undefined); }, []);
+  const clearCache = async () => { await clearAssetCache(); setCache({ entries: 0, bytes: 0 }); };
   // avatar_data is sent only when the picture changed: a data URI replaces it, '' removes it.
   const [avatarChanged, setAvatarChanged] = useState(false);
   const setAvatar = (v: string) => { setAvatarState(v); setAvatarChanged(true); };
@@ -86,6 +90,8 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
           <p className="tiny muted">{t('Requires the server atmosphere feature. Follows your device’s light/dark theme and screen orientation; displayed translucently.')}</p>
           <label className="row"><input type="checkbox" checked={notifyOn} onChange={e => setNotify(e.target.checked)} />{t('Show message notifications')}</label>
           <p className="tiny muted">{t('A banner in the top-right corner when someone posts in another window you joined in the channel you are viewing. Applies on this device at once.')}{isDesktop ? ' ' + t('In the background, the desktop app shows a system notification instead.') : ''}</p>
+          <div className="row"><span className="small grow">{t('Media kept on this device: {n} files, {size}', { n: cache?.entries ?? 0, size: formatCacheSize(cache?.bytes ?? 0) })}</span><button type="button" className="ghost small" disabled={!cache?.entries} onClick={clearCache}>{t('Clear')}</button></div>
+          <p className="tiny muted">{t('Portraits, backgrounds, avatars and voice clips stay on this device for 30 days after they were last shown, so they open without downloading again. Clearing only frees space.')}</p>
         </fieldset>
         {error && <div role="alert" className="profile-error">{error}</div>}
         <div className="row"><button className="primary" disabled={busy || reading || !name.trim()}>{t(busy ? 'Saving…' : 'Save')}</button><button type="button" className="ghost" disabled={busy} onClick={close}>{t('Cancel')}</button></div>
