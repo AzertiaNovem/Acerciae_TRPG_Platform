@@ -178,3 +178,22 @@ test("OpenAI-compatible: parts are sent as one text, usage with cached tokens is
     assert.deepEqual(usage, [{ model: "gpt-x", input: 500, cacheRead: 400, cacheWrite: 0, output: 9 }]);
   } finally { s.close(); }
 });
+
+test("Claude: volatile context uses 5m after the stable 1h prefix, including later repair messages", async () => {
+  const s = await stub({ id: "m", type: "message", role: "assistant", model: "x", stop_reason: "end_turn", content: [{ type: "text", text: "{}" }], usage: {} });
+  try {
+    const llm = createLlm({ provider: "anthropic", apiKey: "k", apiBase: s.base, fallbacks: false, timeoutMs: 5000, cacheTtl: "1h" });
+    await llm.complete({ system: "rules", messages: [
+      { role: "user", content: [{ text: "stable world", cache: true }, { text: "changing platform notes", cache: true, cacheTtl: "5m" }, { text: "this turn" }] },
+      { role: "assistant", content: "draft" },
+      { role: "user", content: [{ text: "critique", cache: true }] },
+    ] });
+    const b = s.seen[0].body;
+    assert.deepEqual(b.system[0].cache_control, { type: "ephemeral", ttl: "1h" });
+    assert.deepEqual(b.messages[0].content[0].cache_control, { type: "ephemeral", ttl: "1h" });
+    assert.deepEqual(b.messages[0].content[1].cache_control, { type: "ephemeral" });
+    assert.deepEqual(b.messages[2].content[0].cache_control, { type: "ephemeral" });
+    assert.equal(b.messages[0].content[2].cache_control, undefined);
+    assert.ok(!JSON.stringify(b).includes("shortCache"));
+  } finally { s.close(); }
+});

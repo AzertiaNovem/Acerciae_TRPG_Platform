@@ -784,7 +784,8 @@ test("history: a long window is copied once into the store, paging back past the
 });
 
 test("long context: old lines become a Keeper chapter, the newest stay word for word, and the GM keeps reading both", async () => {
-  const { t, api, llm } = await table({ cfg: { gmContextTokens: 4000 } });
+  // Isolate compaction here; the recall test below explicitly verifies selected old evidence can return.
+  const { t, api, llm } = await table({ cfg: { gmContextTokens: 4000, recallTokens: 0 } });
   many(api, 300);
   await alicePosts(t, api, "Where were we?");
   await settle(t); await t.memoryIdle();
@@ -1537,4 +1538,50 @@ test("a new player is seated in the planner window, gets a phone in casual mode,
   assert.ok(t.timelines.main().members.includes("c-cara"));
   await t.refresh(); await settle(t);
   assert.equal(directorCalls(llm).filter((u) => u.includes("a new player just joined the table")).length, 1, "welcomed once");
+});
+
+test("recall recovers compacted evidence with source labels; co-players never search Keeper/private records", async () => {
+  const { t, api, llm } = await table();
+  const put = (content, over = {}) => {
+    const m = api.add({ chat_window_id: "w-main", author_role: "gm", kind: "narration", content, ...over });
+    t.history.add(m); return m;
+  };
+  put("The amber lantern was left in the attic. PUBLIC-DETAIL");
+  put("The amber lantern powers a ritual. HIDDEN-DETAIL", { visibility: "gm_only" });
+  put("The amber lantern belongs to your family. PRIVATE-DETAIL", { visibility: "whisper", whisper_to: ["c-alice"] });
+  const old = put("The amber lantern is seen elsewhere. ELSEWHERE-DETAIL", { chat_window_id: "w-priv" });
+  t.store.addChapter({ scope: "gm", windowId: "w-main", fromSeq: 1, toSeq: old.seq, text: "Earlier investigation." });
+  t.store.addChapter({ scope: "gm", windowId: "w-priv", fromSeq: 1, toSeq: old.seq, text: "Earlier side scene." });
+  const cp = t.roster.coplayers[0];
+  t.store.addChapter({ scope: `coplayer:${cp.characterId}`, fromSeq: 1, toSeq: old.seq, text: "We investigated." });
+  put("Where did we leave the amber lantern?", { author_role: "player", character_id: "c-alice" });
+  const before = llm.calls.length;
+  const ctx = await t.buildGm("w-main");
+  assert.equal(llm.calls.length, before, "searching history/documents does not call the model");
+  assert.match(ctx.parts.at(-1).text, /Relevant earlier records/);
+  assert.match(ctx.parts.at(-1).text, /PUBLIC-DETAIL/);
+  assert.match(ctx.parts.at(-1).text, /Keeper only.*HIDDEN-DETAIL/);
+  assert.match(ctx.parts.at(-1).text, /Window: Alice alone.*ELSEWHERE-DETAIL/);
+  await t.coplayerAct("w-main", cp, true);
+  const prompt = llm.calls.findLast((c) => c.purpose === "coplayer_turn").messages[0].content;
+  assert.match(prompt, /RELEVANT EARLIER LINES YOU WITNESSED/);
+  assert.match(prompt, /PUBLIC-DETAIL/);
+  for (const forbidden of ["HIDDEN-DETAIL", "PRIVATE-DETAIL", "ELSEWHERE-DETAIL", ...SECRETS]) assert.ok(!prompt.includes(forbidden), forbidden);
+  assert.equal(llm.calls.length, before + 1, "only the co-player's normal response call was added");
+});
+
+test("GM prompt cache preserves completed history blocks when a new chunk arrives", async () => {
+  const { t, api } = await table();
+  while (api.lines.filter((m) => m.chat_window_id === "w-main").length < 50) {
+    const m = api.add({ chat_window_id: "w-main", author_role: "player", content: "We continue our investigation." }); t.history.add(m);
+  }
+  const first = await t.buildGm("w-main");
+  for (let i = 0; i < 50; i++) {
+    const m = api.add({ chat_window_id: "w-main", author_role: "player", content: "We read another page." }); t.history.add(m);
+  }
+  const second = await t.buildGm("w-main");
+  assert.equal(first.parts[0].text, second.parts[0].text);
+  assert.equal(first.parts[1].text, second.parts[1].text, "first 50-line provider block remains identical");
+  assert.equal(second.parts.filter((p) => p.cache).length, 3);
+  assert.equal(second.parts.at(-2).cacheTtl, "5m");
 });

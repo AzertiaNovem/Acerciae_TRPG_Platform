@@ -7,6 +7,8 @@ import { impression } from "./traits.mjs";
 import { isPlayerCharacter } from "../roles/roster.mjs";
 import { improvSections } from "../improv.mjs";
 import { CHUNK_LINES, estimateTokens } from "../memory.mjs";
+import { historyParts } from "../llm/parts.mjs";
+import { recall, clipTokens } from "./recall.mjs";
 
 const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const json = (v, n) => clip(JSON.stringify(v ?? null), n);
@@ -14,19 +16,22 @@ export const duration = (ms) => (ms >= 86400000 ? `${Math.round(ms / 86400000)} 
 
 export class GmContext {
   // `history` and `memory` (memory.mjs) hold the chat and its compacted chapters; `budget` is GM_CONTEXT_TOKENS.
-  constructor(api, channelId, { history, memory, budget = 60000, log = () => {} } = {}) {
+  constructor(api, channelId, { history, memory, budget = 60000, recallTokens = 1200, log = () => {} } = {}) {
     this.api = api;
     this.channelId = channelId;
     this.history = history;
     this.memory = memory;
     this.budget = budget;
+    this.recallBudget = Math.min(recallTokens, Math.floor(budget * 0.05));
+    this.docRevision = 0;
     this.log = log;
-    this.docCache = new Map();   // document id → {version, text}
+    this.docCache = new Map();   // document id → {version, full}; retain omitted entries for local recall
     this.liveTips = [];          // tips pushed on /ws/context since the last turn
   }
 
   // A push on the context socket: refresh what changed, keep the newest tips for the next turn.
   onContextEvent(ev) {
+    if (ev.type === "document.updated" || ev.type === "knowledge.reset") this.docRevision++;
     if (ev.type === "document.updated") this.docCache.delete(ev.document_id);
     if (ev.type === "knowledge.reset") this.docCache.clear();
     if (ev.type === "reminder.created" && ev.reminder) this.liveTips.push(`reminder: ${ev.reminder.title} — ${ev.reminder.why ?? ""}`);
@@ -41,19 +46,27 @@ export class GmContext {
 
   // The Keeper documents, each within its share of the budget. The API lists entries oldest first; when a document is
   // too long the newest entries are kept (a long campaign's latest developments matter most).
-  async documents() {
-    const list = (await this.safe("documents", () => this.api.documents(this.channelId))) ?? [];
+  async documents(candidates = []) {
+    const list = await this.safe("documents", () => this.api.documents(this.channelId));
+    if (!list) return [];
+    const active = new Set(list.filter((d) => d.entry_count).map((d) => d.id));
+    for (const id of this.docCache.keys()) if (!active.has(id)) this.docCache.delete(id);
     const share = Math.max(800, Math.round(this.budget * 0.05));
     const out = [];
-    for (const d of list) {
+    for (const d of [...list].sort((a, b) => String(a.id).localeCompare(String(b.id)))) {
       if (!d.entry_count) continue;
       let cached = this.docCache.get(d.id);
       if (!cached || cached.version !== d.version) {
+        const revision = this.docRevision;
         const full = await this.safe(`document ${d.doc_type}`, () => this.api.document(this.channelId, d.id));
-        cached = { version: d.version, text: newestFirst(full, d.preview, share) };
-        this.docCache.set(d.id, cached);
+        cached = { version: d.version, full };
+        // A failed fetch must not pin a preview as the full document until the next version.
+        if (full && revision === this.docRevision) this.docCache.set(d.id, cached);
       }
-      out.push(`### ${d.title || d.doc_type} (v${d.version})\n${cached.text}`);
+      const omitted = [];
+      const text = newestFirst(cached.full, d.preview, share, omitted);
+      out.push(`### ${d.title || d.doc_type} (v${d.version})\n${text}`);
+      candidates.push(...omitted.map((e) => ({ match: e, text: `[Keeper document: ${d.title || d.doc_type}, v${d.version}] ${e}` })));
     }
     return out;
   }
@@ -72,6 +85,7 @@ export class GmContext {
   // bonds.mjs sections, and `table` the players' wishes and corrections (wishes.mjs), also for part C.
   async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "" }) {
     const ch = this.channelId;
+    const candidates = [];
     const module = !improv?.on;
     await this.history.sync(windowId);
     const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs, world] = await Promise.all([
@@ -83,7 +97,7 @@ export class GmContext {
       this.safe("highlights", () => this.api.highlights(ch)),
       module ? this.safe("module hints", () => this.api.moduleHints(ch)) : null,
       this.safe("proposals", () => this.api.proposals(ch)),
-      this.documents(),
+      this.documents(candidates),
       this.safe("world", () => this.api.world(ch)),
     ]);
     const charName = new Map(characters.map((c) => [c.id, c.name]));
@@ -131,7 +145,7 @@ export class GmContext {
     let frozen = raw.slice(0, Math.floor(raw.length / CHUNK_LINES) * CHUNK_LINES);
     const tail = raw.slice(frozen.length);
     // Over budget (compaction has not caught up yet): the oldest lines wait for their chapter.
-    while (frozen.length && estimateTokens([...frozen, ...tail].map(render).join("\n")) > this.budget) frozen = frozen.slice(CHUNK_LINES);
+    while (frozen.length && estimateTokens([...frozen, ...tail].map(render).join("\n")) > this.budget - this.recallBudget) frozen = frozen.slice(CHUNK_LINES);
     const win = windows.find((w) => w.id === windowId);
 
     // ---- C: changes every few turns
@@ -182,17 +196,25 @@ export class GmContext {
     d.push(`## Chat windows\n${windows.map((w) => `- ${w.name} (${w.kind})${w.id === windowId ? " ← this turn" : ""}: ${describe(w)}`).join("\n")}`);
     // Windows whose scene is over are left out, except the last few merged threads: the Keeper needs what just
     // happened there when the party reunites (their chapters stay in A in any case).
+    const included = new Set([...frozen, ...tail].map((m) => m.seq));
     const recentMerged = new Set((timelines?.list ?? []).filter((t) => t.status !== "active" && t.windowId).slice(-3).map((t) => t.windowId));
     for (const w of windows.filter((x) => x.id !== windowId && (!timelines?.retired(x.id) || recentMerged.has(x.id)))) {
       const lines = this.memory.gmRaw(w.id, linesOf(w.id)).slice(-8);
+      for (const m of lines) included.add(m.seq);
       if (lines.length) d.push(`## Recent lines in "${w.name}"\n${lines.map(render).join("\n")}`);
     }
     d.push(`## Chat in "${win?.name ?? "this window"}" (newest last${frozen.length ? "; earlier lines above" : ""})\n${tail.map(render).join("\n") || (frozen.length ? "(see above)" : "(no lines yet)")}`);
 
+    // Recover specific facts omitted by compaction/document budgets, without asking another model to search.
+    for (const w of windows) for (const m of linesOf(w.id)) {
+      if (!included.has(m.seq)) candidates.push({ match: m.content, text: `[Window: ${w.name}] ${render(m)}`, source: `[Window: ${w.name}] ${render({ ...m, content: "", dice: null })} ` });
+    }
+    const recalled = recall(raw.slice(-6).map((m) => m.content).join("\n"), candidates, this.recallBudget);
+    if (recalled) d.unshift(recalled);
     const parts = [
       { text: `${a.join("\n\n")}\n\n`, cache: true },
-      ...(frozen.length ? [{ text: `## Chat in "${win?.name ?? "this window"}", earlier lines since its last chapter\n${frozen.map(render).join("\n")}\n\n`, cache: true }] : []),
-      ...(c.length ? [{ text: `${c.join("\n\n")}\n\n`, cache: true }] : []),
+      ...historyParts(frozen, render, `## Chat in "${win?.name ?? "this window"}", earlier lines since its last chapter`, CHUNK_LINES),
+      ...(c.length ? [{ text: `${c.join("\n\n")}\n\n`, cache: true, cacheTtl: "5m" }] : []),
       { text: d.join("\n\n") },
     ];
     const here = [...frozen, ...tail];
@@ -219,27 +241,34 @@ function worldRecordSection(world, budget) {
 }
 
 // A document's entries within `budget` tokens, newest kept, in their own order, with a note of how many were left out.
-function newestFirst(full, preview, budget) {
-  const entries = (full?.entries ?? []).filter((e) => !e.removed);
+function newestFirst(full, preview, budget, omitted = []) {
+  let entries = (full?.entries ?? []).filter((e) => !e.removed);
   if (!entries.length) {
     const md = String(full?.markdown ?? preview ?? "");
-    return estimateTokens(md) <= budget ? md : `…\n${md.slice(-Math.round(budget * 3.5))}`;
+    if (estimateTokens(md) <= budget) return md;
+    // Older platform versions expose markdown only. Keep a bounded recent tail and make earlier pieces searchable.
+    const chars = Array.from(md);
+    entries = [];
+    for (let i = 0; i < chars.length; i += 600) entries.push({ content_md: chars.slice(i, i + 600).join(""), created_version: i });
   }
   const order = entries.map((e, i) => ({ e, i, v: Number(e.updated_version ?? e.created_version ?? 0) }));
-  const keep = new Set();
-  let used = 0;
+  const keep = new Map();
+  let remaining = Math.max(0, budget - 40); // section labels and the omitted-entry note count too
   for (const x of [...order].sort((p, q) => q.v - p.v || q.i - p.i)) {
-    const t = estimateTokens(x.e.content_md ?? x.e.summary ?? "");
-    if (used + t > budget && keep.size) break;
-    keep.add(x.i); used += t;
+    const value = String(x.e.content_md ?? x.e.summary ?? "").replace(/\s+/g, " ").trim();
+    const line = `${x.e.section ? `[${x.e.section}] ` : ""}${value}`;
+    const cost = estimateTokens(line) + 2;
+    if (cost <= remaining) { keep.set(x.i, line); remaining -= cost; }
+    else {
+      if (!keep.size) { keep.set(x.i, clipTokens(line, remaining)); omitted.push(value); }
+      break;
+    }
   }
-  let section = null;
   const lines = [];
   for (const x of order) {
-    if (!keep.has(x.i)) continue;
-    if (x.e.section && x.e.section !== section) { section = x.e.section; lines.push(`#### ${section}`); }
-    lines.push(`- ${String(x.e.content_md ?? x.e.summary ?? "").replace(/\s+/g, " ").trim()}`);
+    if (!keep.has(x.i)) { omitted.push(String(x.e.content_md ?? x.e.summary ?? "")); continue; }
+    lines.push(`- ${keep.get(x.i)}`);
   }
   const dropped = entries.length - keep.size;
-  return `${lines.join("\n")}${dropped ? `\n(${dropped} older entries not shown)` : ""}`;
+  return clipTokens(`${lines.join("\n")}${dropped ? `\n(${dropped} older entries not shown)` : ""}`, budget);
 }

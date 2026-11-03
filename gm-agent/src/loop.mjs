@@ -21,6 +21,7 @@ import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
 import { Store, billableTokens } from "./store.mjs";
 import { History, Memory, estimateTokens, CHUNK_LINES } from "./memory.mjs";
 import { metered } from "./llm/parts.mjs";
+import { recall } from "./context/recall.mjs";
 import { investigatorsFor } from "./context/profiles.mjs";
 import { directTurn } from "./director.mjs";
 import { coplayerSelf, coplayerTurn } from "./coplayer.mjs";
@@ -91,7 +92,7 @@ export class Table {
     this.sleep = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.history = new History({ api, store: this.store, channelId, pageSize: cfg.contextLines, backfill: cfg.historyBackfillLines ?? 1000, log });
     this.memory = new Memory({ store: this.store, llm: this.llm, gmBudget: cfg.gmContextTokens ?? 60000, coplayerBudget: cfg.coplayerContextTokens ?? 24000, log });
-    this.gm = new GmContext(api, channelId, { history: this.history, memory: this.memory, budget: cfg.gmContextTokens ?? 60000, log });
+    this.gm = new GmContext(api, channelId, { history: this.history, memory: this.memory, budget: cfg.gmContextTokens ?? 60000, recallTokens: cfg.recallTokens ?? 1200, log });
     this.botMessageIds = new Set();
     this.timers = new Map();
     this.queue = Promise.resolve();
@@ -1479,8 +1480,13 @@ export class Table {
     for (const w of new Set(coplayer.seats.map((s) => s.windowId))) messages.push(...this.history.lines(w));
     const witnessed = coplayerLog(coplayer, messages.filter((m) => !hidden.has(m.id)), Infinity).filter((m) => !(m.character_id && this.isPc(m.character_id) && this.timelines.timelineAt(m.character_id, m.seq).id !== this.timelines.timelineAt(me, m.seq).id));
     // Since its last memory chapter, within its budget (compaction catches up beside the turn).
+    const recallBudget = Math.min(this.cfg.recallTokens ?? 1200, Math.floor(this.memory.coplayerBudget * 0.05));
     let log = this.memory.coplayerRaw(coplayer, witnessed);
-    while (log.length > CHUNK_LINES && estimateTokens(log.map((m) => renderLine(m)).join("\n")) > this.memory.coplayerBudget) log = log.slice(CHUNK_LINES);
+    while (log.length > CHUNK_LINES && estimateTokens(log.map((m) => renderLine(m)).join("\n")) > this.memory.coplayerBudget - recallBudget) log = log.slice(CHUNK_LINES);
+    const included = new Set(log.map((m) => m.seq));
+    const recalled = recall(witnessed.slice(-6).map((m) => m.content).join("\n"),
+      witnessed.filter((m) => !included.has(m.seq)).map((m) => ({ match: m.content, text: renderLine(m), source: renderLine({ ...m, content: "", dice: null }) + " " })),
+      recallBudget, { heading: "RELEVANT EARLIER LINES YOU WITNESSED" });
     const memories = this.memory.coplayerChapters(coplayer).map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`);
     const t = this.timelines.of(me);
     const timeline = t ? { name: t.name, narrativeTime: t.narrativeTime, location: t.location } : null;
@@ -1489,7 +1495,7 @@ export class Table {
       const companions = investigatorsFor(this.characters, this.roster, { except: me });
       const phone = this.casualOn() ? renderThread(this.store.phoneOf(me, 12), (id) => this.nameOf(id)) : "";
       const known = this.knownTo(me, witnessed);
-      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "", improv: this.improv.on, casual: this.casualOn(), phone, impulse: renderImpulse(this.impulseFor(me)),
+      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "", improv: this.improv.on, casual: this.casualOn(), phone, impulse: renderImpulse(this.impulseFor(me)),
         corrections: renderCorrectionsFor(this.planner.table, coplayer.name),
         ...(this.calendarOn() ? { today: describeCalendar(this.calendar, { time: t?.narrativeTime || this.calendar.time }), routine: describeRoutine(this.calendar), timePassed: this.timePassedFor(me, witnessed) } : {}), met: this.metBy(known.met), bonds: renderBondsFor(this.bonds, me, known.all, (id) => this.nameOf(id)) });
     } catch (e) { this.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }

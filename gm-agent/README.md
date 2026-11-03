@@ -90,23 +90,45 @@ lines.
   written in the first person, only from the lines it witnessed. They never include Keeper notes, others' whispers or
   another timeline's lines, and no one else reads them.
 - **Keeper documents** keep their newest entries when they are too long; a note says how many older ones were left
-  out.
+  out. Their full versions stay in the local document cache, so older entries can still be found without fetching
+  the document again. A version change or platform update invalidates the cache; failed fetches are retried.
+
+**Relevant earlier evidence.** Before a turn, the client searches locally for Chinese/English terms from the recent
+conversation in older chat lines and omitted Keeper document entries. It adds a few source-labelled excerpts after
+the cached context. This can recover names, clues and promises lost from a summary, without an extra model or
+embedding call. Earlier excerpts are explicitly historical; current state and recent corrections take precedence.
+Co-players search only the lines they witnessed, after the existing window, timeline and whisper filters. They
+never search Keeper documents or another character's private history.
+
+`context.recall_tokens` defaults to 1,200 approximate tokens per turn, additionally capped at 5% of that role's
+context budget (maximum setting 4,000; `0` disables it). That allowance is reserved from the raw-history limit.
+Only matching excerpts are sent; no extra tokens are used for an empty search. The recall section itself obeys this
+ceiling, including its labels. It does not increase the configured context or output limits. This is lexical recall,
+not semantic search: it can miss paraphrases and can only use history already synced into the local store.
 
 Compaction runs beside the turns, so a turn never waits for it.
 
 **Prompt caching.** Every prompt is laid out stable-first, and providers cache the prefix:
 1. The fixed rules.
 2. Parts that change rarely: campaign, world setting, cast, scenarios, chapters.
-3. This window's older lines, in frozen chunks of 50.
+3. This window's older lines, in separate frozen blocks of 50. Appending a block leaves earlier blocks byte-identical.
 4. Parts that change every few turns: hidden truths, timelines, Keeper board and documents.
-5. This turn's details: the scenario's event count, reminders, tips, the newest lines, the instruction. These come last
+5. This turn's details: relevant earlier excerpts, the scenario's event count, reminders, tips, the newest lines, the instruction. These come last
    and are never cached.
 
 Providers:
-- **Anthropic** gets cache markers with a one-hour lifetime by default (`llm.cache_ttl: 1h|5m|off`).
+- **Anthropic** gets cache markers with a one-hour lifetime by default (`llm.cache_ttl: 1h|5m|off`). The GM's more
+  frequently changing platform/context block uses five minutes; later markers also stay at five minutes, as required
+  for mixed TTLs. `5m` shortens all blocks; `off` disables all explicit markers. The four-marker limit is preserved.
+  See [Anthropic's prompt caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+  for block-boundary lookback, mixed TTLs and write pricing.
 - **OpenAI's own API** gets a `prompt_cache_key` per purpose. Other compatible gateways rely on the stable order alone.
 
-One player line costs several calls (the GM, each co-player, a follow-up), and they share most of their prompt.
+A co-player's changing HP, sanity and inventory come after its cached identity, memories and history. They remain
+visible every turn without invalidating that prefix. The GM, co-players and planner have different system prompts:
+cache reuse is primarily between successive calls for the same role, not automatically across those roles. Actual
+hits and prices depend on the provider/model and gateway; the local `status` totals are a token-weighted budget
+heuristic, not a currency invoice. Compare its cache-read share before increasing the main context budgets.
 
 **Usage.** Every call's input, cache reads and writes, and output tokens are recorded. `status` shows today's and the
 week's totals and the share of input read from cache. `context.daily_token_budget` caps billable-equivalent tokens a day
@@ -598,6 +620,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `pacing.debounce_ms`, `pacing.post_delay_ms` | `--debounce-ms`, `--post-delay-ms` | `4000`, `1200` | quiet time before a turn; pause between posted lines |
 | `pacing.max_actions_per_turn` | `--max-actions` | `6` | lines per turn |
 | `context.gm_tokens`, `context.coplayer_tokens` | | `60000`, `24000` | context budget for the GM and for each co-player; older history is compacted into chapters |
+| `context.recall_tokens` | `--context-recall-tokens` | `1200` | local relevant excerpts per turn, also capped at 5% of the role budget; 0 disables, max 4000 |
 | `context.page_lines`, `context.backfill_lines` | | `100`, `1000` | lines fetched per page when syncing the local copy of the chat; how far back the first sync goes |
 | `context.daily_token_budget` | | `0` (off) | billable-equivalent tokens a day; once spent, no autonomous turns or plans until tomorrow |
 | `autonomy.enabled` | `--autonomy` | `true` | side timelines and quiet windows move on the table's own clock |

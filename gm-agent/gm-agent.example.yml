@@ -61,6 +61,7 @@ pacing:
 context:
   gm_tokens: 60000            # the GM's context budget; older history is compacted into chapters
   coplayer_tokens: 24000      # each co-player's
+  recall_tokens: 1200         # local relevant excerpts per turn; capped at 5% of the role budget, 0 disables
   page_lines: 100             # lines fetched per page when syncing the local copy of the chat
   backfill_lines: 1000        # how far back the first sync goes
   daily_token_budget: 0       # billable-equivalent tokens a day for autonomous turns and plans (0: no limit)

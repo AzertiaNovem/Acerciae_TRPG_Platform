@@ -5,6 +5,7 @@
 import { completeJson } from "./llm/index.mjs";
 import { renderLine } from "./context/coplayerContext.mjs";
 import { renderProfile } from "./context/profiles.mjs";
+import { historyParts } from "./llm/parts.mjs";
 import { CHUNK_LINES } from "./memory.mjs";
 
 // Co-players may roll checks and sanity against their own sheet; they never edit sheets (.st / .en) or roll hidden.
@@ -31,12 +32,12 @@ Reply with only one JSON object: {"action": "speak", "kind": "ic" | "ooc", "text
 }
 
 // Who the co-player is: the stable head of every prompt it gets.
-export function coplayerSelf({ coplayer, card, world = "" }) {
+export function coplayerSelf({ coplayer, card, world = "", stable = false }) {
   return [
     `YOU ARE: ${coplayer.name}`,
     `PERSONA: ${coplayer.persona || "(none)"}`,
     `SPEAKING STYLE: ${coplayer.speakingStyle || "(natural)"}`,
-    `YOUR ROLE CARD:\n${cardSummary(card)}`,
+    `YOUR ROLE CARD:\n${cardSummary(card, { stable })}`,
     world ? `THE WORLD (the setting everyone at the table shares; your persona and background are your own story in it):\n${world}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -61,19 +62,23 @@ export function validateCoplayer(x, { casual = false } = {}) {
   throw new Error(`unknown action "${x.action}"`);
 }
 
-function cardSummary(card) {
+function cardState(card) {
+  if (!card) return "(not available)";
+  const d = card.derived ?? {};
+  return `HP ${d.hp ?? "?"}/${d.hp_max ?? "?"}, SAN ${d.san ?? "?"}, MP ${d.mp ?? "?"}, MOV ${d.mov ?? "?"}, damage bonus ${d.db ?? "0"}\ncarrying: ${(card.items ?? []).map((i) => i.name).join(", ")}`;
+}
+
+function cardSummary(card, { stable = false } = {}) {
   if (!card) return "(not available)";
   const ch = Object.entries(card.characteristics ?? {}).map(([k, v]) => `${k} ${v}`).join(", ");
   const sk = Object.entries(card.skills ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => `${k} ${v}`).join(", ");
-  const d = card.derived ?? {};
   const b = card.basic ?? {};
   return [
     `occupation: ${b.occupation ?? ""}, age ${b.age ?? ""}, ${b.sex ?? ""}, from ${b.birthplace ?? ""}, lives in ${b.residence ?? ""}`,
     `characteristics: ${ch}`,
-    `HP ${d.hp ?? "?"}/${d.hp_max ?? "?"}, SAN ${d.san ?? "?"}, MP ${d.mp ?? "?"}, MOV ${d.mov ?? "?"}, damage bonus ${d.db ?? "0"}`,
+    ...(!stable ? [cardState(card)] : []),
     `skills: ${sk}`,
     `background: ${Object.entries(card.background ?? {}).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join("; ")}`,
-    `carrying: ${(card.items ?? []).map((i) => i.name).join(", ")}`,
   ].join("\n");
 }
 
@@ -87,18 +92,19 @@ function cardSummary(card) {
 // `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
 // `today` is the story's date as this co-player lives it (calendar.mjs), `timePassed` a line when the calendar moved
 // on since it last acted; `met` the NPCs it has met (rendered), `bonds` the relationships it knows (bonds.mjs).
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "" }) {
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "" }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
   const frozen = log.slice(0, Math.floor(log.length / CHUNK_LINES) * CHUNK_LINES);
   const recent = log.slice(frozen.length);
-  const self = coplayerSelf({ coplayer, card, world });
+  const self = coplayerSelf({ coplayer, card, world, stable: true });
   const past = [
     memories.length ? `WHAT YOU REMEMBER (your own memories of earlier play, oldest first):\n${memories.join("\n\n")}` : "",
-    frozen.length ? `CHAT LOG YOUR CHARACTER WITNESSED, earlier part (oldest first):\n${frozen.map((m) => renderLine(m)).join("\n")}` : "",
   ].filter(Boolean).join("\n\n");
   const now = [
+    `YOUR CURRENT CONDITION AND INVENTORY:\n${cardState(card)}`,
+    recalled,
     phone ? `YOUR PHONE (recent text messages, oldest first):\n${phone}` : "",
     today ? `TODAY IN THE STORY: ${today}` : "",
     routine ? `${routine} (common knowledge: everyone in the story knows it)` : "",
@@ -117,6 +123,6 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     spotlight ? "The Keeper turned to you: it is a good moment to act." : "",
     "Your move?",
   ].filter(Boolean).join("\n");
-  const user = [{ text: `${self}\n\n`, cache: true }, ...(past ? [{ text: `${past}\n\n`, cache: true }] : []), { text: now }];
+  const user = [{ text: `${self}\n\n`, cache: true }, ...(past ? [{ text: `${past}\n\n`, cache: true }] : []), ...historyParts(frozen, (m) => renderLine(m), "CHAT LOG YOUR CHARACTER WITNESSED, earlier part (oldest first):", CHUNK_LINES), { text: now }];
   return completeJson(llm, { system: coplayerSystem(language, { improv, casual }), user, purpose: "coplayer_turn" }, (x) => validateCoplayer(x, { casual }));
 }
