@@ -202,7 +202,7 @@ class MainActivity : ComponentActivity() {
                 items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { select(0); model.navigate { model.selectWindow(window.id) } } }
                 item { TextButton(onClick = { charactersExpanded = !charactersExpanded }) { Text(tr("Characters") + if (charactersExpanded) " −" else " +") } }
                 if (charactersExpanded && state.channelId.isNotEmpty()) item { TextButton(onClick = { showDetail("create-character") }, enabled = !state.busy) { Text(tr("添加角色")) } }
-                if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.text("updated_at"), hash = item.text("avatar_asset_hash")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }
+                if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.number("avatar_asset_version"), hash = item.text("avatar_asset_hash")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }
                 item { TextButton(onClick = { stagesExpanded = !stagesExpanded }) { Text(tr("Scenarios") + if (stagesExpanded) " −" else " +") } }
                 if (stagesExpanded) items(state.scenes, key = { "scene:" + it.id }) { item -> SidebarRow(item.name) { showDetail("scene:" + item.id) } }
                 if (state.windows.isEmpty()) item { Text(tr("Pick a server and channel, or create one from the left.")) }
@@ -287,9 +287,10 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     val character = state.characters.find { it.id == message.characterId }
     // Out of character the player speaks: their own avatar and name.
     val ooc = message.kind == "ooc"
-    val asset = if (ooc) "" else character?.text("avatar_asset_id") ?: message.characterAvatarAssetId.orEmpty()
-    val revision = if (ooc) "" else character?.text("updated_at").orEmpty() + ":" + (message.characterAvatarVersion ?: 0)
-    val hash = if (ooc) "" else character?.text("avatar_asset_hash")?.ifEmpty { null } ?: message.characterAvatarHash.orEmpty()
+    val picture = if (ooc) null else CharacterArtwork.avatar(character, message)
+    val asset = picture?.id.orEmpty()
+    val revision = picture?.version ?: 0
+    val hash = picture?.hash.orEmpty()
     val name = (if (ooc) null else message.characterName) ?: message.authorName
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {

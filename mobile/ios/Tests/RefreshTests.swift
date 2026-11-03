@@ -4,9 +4,9 @@ import AcerciaeCore
 
 @MainActor final class RefreshTests: XCTestCase {
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T { try APIJSON.decoder().decode(type,from:Data(json.utf8)) }
-    private func model(cache: URL? = nil) throws -> AppModel {
+    private func model(cache: URL? = nil, assets: URL? = nil) throws -> AppModel {
         let config=URLSessionConfiguration.ephemeral; config.protocolClasses=[RefreshProtocol.self]
-        let client=BackendClient(address:try BackendAddress("https://refresh.test"),session:URLSession(configuration:config),reads:AssetDiskCache(directory:cache ?? FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        let client=BackendClient(address:try BackendAddress("https://refresh.test"),session:URLSession(configuration:config),assets:assets.map { AssetDiskCache(directory:$0) },reads:AssetDiskCache(directory:cache ?? FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         let session=try decode(Session.self,#"{"token":"test-only","user":{"id":"user","username":"test","display_name":"Test"}}"#)
         let model=AppModel(client:client,session:session)
         model.channelId="channel"; model.windowId="window"; model.serverId="server"
@@ -15,6 +15,36 @@ import AcerciaeCore
         model.campaign=try decode(DemoCampaign.self,#"{"title":"Old","scene":"Old","messages":[],"documents":[{"id":"doc","title":"Cached","doc_type":"scene","version":1}],"highlights":[],"replay":[]}"#)
         RefreshProtocol.reset()
         return model
+    }
+    func testArtworkPrefetchDoesNotBlockChatAndStopsWhenBackgrounded() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = try model(assets: directory)
+        RefreshProtocol.set("characters", status:200, body:#"[{"id":"hero","avatar_asset_id":"avatar","avatar_asset_version":7,"avatar_asset_hash":"avatar-hash"}]"#)
+        RefreshProtocol.set("space", status:200, body:#"{"portrait":{"id":"portrait","version":3,"hash":"portrait-hash"}}"#)
+        RefreshProtocol.mediaDelay = 1.0
+        model.foreground = true
+        try await model.refresh()
+        XCTAssertNil(AssetDiskCache(directory: directory).get("sha:avatar-hash"), "Chat refresh returns while the slow artwork request is still pending")
+        XCTAssertEqual(model.campaign?.messages.first?.content, "Fresh message")
+        XCTAssertFalse(model.busy)
+        model.draft = "Still typing while images download"
+        let deadline = Date().addingTimeInterval(2)
+        while !RefreshProtocol.paths.contains(where: { $0.contains("/media/") }) && Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(RefreshProtocol.paths.contains("/api/channels/channel/media/avatar?v=7"))
+        model.foreground = false
+        try await Task.sleep(for: .milliseconds(1100))
+        XCTAssertFalse(RefreshProtocol.paths.contains(where: { $0.hasSuffix("/space") }))
+        XCTAssertEqual(model.draft, "Still typing while images download")
+        RefreshProtocol.mediaDelay = 0
+        model.foreground = true
+        try await model.refresh()
+        let resumed = Date().addingTimeInterval(2)
+        let cache = AssetDiskCache(directory: directory)
+        while cache.get("sha:portrait-hash") == nil && Date() < resumed { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotNil(cache.get("sha:portrait-hash"))
+        XCTAssertEqual(RefreshProtocol.paths.filter { $0.contains("/media/avatar") }.count, 1)
+        model.foreground = false
     }
     func testRelaunchRestoresSavedSelectionAndMessagesBeforeNetworkCompletes() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -104,14 +134,17 @@ private final class RefreshProtocol: URLProtocol, @unchecked Sendable {
     static let windows=#"[{"id":"window","name":"Main","kind":"main","members":[]}]"#
     private static let lock=NSLock()
     private static var responses:[String:(Int,String)]=[:]
+    private static var requests: [String] = []
+    static var paths: [String] { lock.lock(); defer { lock.unlock() }; return requests }
+    static var mediaDelay: Double = 0
     static var delay: Double = 0
-    static func reset() { lock.lock(); defer { lock.unlock() }; responses=[:]; delay=0 }
+    static func reset() { lock.lock(); defer { lock.unlock() }; responses=[:]; delay=0; mediaDelay=0; requests=[] }
     static func set(_ key:String,status:Int,body:String) { lock.lock(); defer { lock.unlock() }; responses[key]=(status,body) }
     override class func canInit(with request:URLRequest)->Bool { request.url?.host=="refresh.test" }
     override class func canonicalRequest(for request:URLRequest)->URLRequest { request }
     override func startLoading() {
         let key=request.url!.lastPathComponent
-        Self.lock.lock(); let override=Self.responses[key]; Self.lock.unlock()
+        Self.lock.lock(); let override=Self.responses[key]; Self.requests.append(request.url!.path + (request.url!.query.map { "?" + $0 } ?? "")); Self.lock.unlock()
         let fallback:String
         switch key {
         case "channel": fallback=Self.gm
@@ -121,9 +154,10 @@ private final class RefreshProtocol: URLProtocol, @unchecked Sendable {
         default: fallback="[]"
         }
         let (status,body)=override ?? (200,fallback)
-        let delay = Self.delay
+        let media = request.url!.path.contains("/media/")
+        let delay = media ? Self.mediaDelay : Self.delay
         DispatchQueue.global().asyncAfter(deadline:.now() + delay) { [self] in
-        client?.urlProtocol(self,didReceive:HTTPURLResponse(url:request.url!,statusCode:status,httpVersion:nil,headerFields:["Content-Type":"application/json"])!,cacheStoragePolicy:.notAllowed)
+        client?.urlProtocol(self,didReceive:HTTPURLResponse(url:request.url!,statusCode:status,httpVersion:nil,headerFields:["Content-Type":"application/json", "Cache-Control":media ? "private, immutable" : "no-cache"])!,cacheStoragePolicy:.notAllowed)
         client?.urlProtocol(self,didLoad:Data(body.utf8)); client?.urlProtocolDidFinishLoading(self)
         }
     }

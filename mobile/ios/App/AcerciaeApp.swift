@@ -11,7 +11,7 @@ import AcerciaeCore
     @Published var initiative: JSONValue = .null
     @Published var bannersEnabled = UserDefaults.standard.object(forKey: "chatBanners") as? Bool ?? true
     @Published var readAloud = UserDefaults.standard.bool(forKey: "readAloud")
-    var foreground = false { didSet { if !foreground { metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID(); metadataUpdated = .distantPast } } }
+    var foreground = false { didSet { if !foreground { stopArtworkPrefetch(); metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID(); metadataUpdated = .distantPast } } }
     var chatVisible = false
     let speech = AVSpeechSynthesizer()
     private var readSeq: [String: Int64] = [:]
@@ -140,6 +140,7 @@ import AcerciaeCore
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
     }
     private func clearChannel() {
+        stopArtworkPrefetch(reset: true)
         metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID()
         metadataUpdated = .distantPast; failedPolls = 0; nextPoll = .distantPast
         chatNotices = []; initiative = .null; readSeq = [:]; speech.stopSpeaking(at:.immediate)
@@ -247,7 +248,7 @@ import AcerciaeCore
         let payload: JSONValue = .object(["title":.string(channel["name"].text),"scene":.string(windows.first { $0.id == id }?["scene_title"].text ?? ""),"messages":messages,"documents":gm ? values.1 ?? .array([]) : .array([]),"highlights":gm ? values.2 ?? .array([]) : .array([]),"replay":.array([])])
         if let data = try? JSONEncoder().encode(payload), let view = try? DemoCampaign.decode(data) { campaign = view; hasOlder = view.messages.count == 50 }
     }
-    private func purgeCachedAccess() { cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects() }
+    private func purgeCachedAccess() { stopArtworkPrefetch(reset: true); cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects() }
     private func permissionsDiffer(_ old: JSONValue, _ oldWindows: [Resource], _ fresh: JSONValue, _ freshWindows: [Resource]) -> Bool {
         ["player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode"].contains { old[$0] != fresh[$0] }
         || oldWindows.contains { win in freshWindows.first { $0.id == win.id }?["members"] != win["members"] }
@@ -271,6 +272,23 @@ import AcerciaeCore
     func uploadModule(_ data: Data, title: String) async throws -> JSONValue {
         guard let client, let session else { throw ClientError.http(401) }
         return try await client.uploadModule(channel: channelId, title: title, data: data, token: session.token)
+    }
+    private var artworkPrefetcher = CharacterArtworkPrefetcher()
+    private var artworkTask: Task<Void, Never>?
+    private var artworkGeneration = UUID()
+    private func stopArtworkPrefetch(reset: Bool = false) {
+        artworkTask?.cancel(); artworkTask = nil; artworkGeneration = UUID()
+        if reset { artworkPrefetcher = CharacterArtworkPrefetcher() }
+    }
+    private func scheduleArtworkPrefetch() {
+        guard foreground, artworkTask == nil, !channelId.isEmpty, !characters.isEmpty,
+              let client, let token = session?.token else { return }
+        let worker = artworkPrefetcher, channel = channelId, rows = characters
+        let generation = UUID(); artworkGeneration = generation
+        artworkTask = Task(priority: .utility) { [weak self] in
+            await worker.warm(channel: channel, characters: rows, client: client, token: token)
+            if self?.artworkGeneration == generation { self?.artworkTask = nil }
+        }
     }
     private var metadataTask: Task<Void,Never>?
     private var metadataGeneration = UUID()
@@ -333,6 +351,7 @@ import AcerciaeCore
             guard stamp == epoch && scope == scopeKey else { return }
             campaign?.documents = values.0; campaign?.highlights = values.1; self.reminders = values.2
             serverSettings = values.3; characters = values.4; scenes = values.5
+            scheduleArtworkPrefetch()
             if characterId.isEmpty && speechMode == "ic", let first = playable.first { characterId = first.id; role = first.name }
             }
             if metadata { try await updateMetadata() }
