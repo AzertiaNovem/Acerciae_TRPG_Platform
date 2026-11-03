@@ -130,8 +130,8 @@ export class GmContext {
       ...(pcs.length ? pcs.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`)) : ["- (none yet)"]),
       "Co-players (AI investigators that play alongside the players; they act on their own turn, so never speak or decide for them either), with their basic details and background:",
       ...(coplayers.length ? coplayers.map((c) => renderProfile(c)) : ["- (none)"]),
-      "Real NPCs (you voice them), with gender, age and what is most striking about them:",
-      ...(roster.npcs.length ? roster.npcs.map((c) => { const look = impression(characters.find((x) => x.id === c.characterId)?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}`; }) : ["- (none yet; introduce them with new_npc)"]),
+      "Real NPCs (you voice them; known cast, not everyone currently active), with gender, age and what is most striking about them:",
+      ...(roster.npcs.length ? roster.npcs.map((c) => { const look = impression(characters.find((x) => x.id === c.characterId)?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}`; }) : ["- (none yet; use new_npc only when a distinct recurring character is needed)"]),
     ].join("\n"));
     // Every window's chapters (the story so far, compacted), windows in a fixed order.
     const chaptered = windows.map((w) => ({ w, chapters: this.memory.gmChapters(w.id) })).filter((x) => x.chapters.length);

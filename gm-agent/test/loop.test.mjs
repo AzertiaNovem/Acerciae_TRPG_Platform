@@ -179,6 +179,23 @@ test("the Keeper voices and creates real NPCs, never co-players; rolls for its o
   assert.equal(llm.calls.filter((c) => c.purpose === "coplayer_turn").length, 0, "co-players wait when the Keeper says so");
 });
 
+test("NPC speech never creates an unknown character, and new_npc reuses an existing identity", async () => {
+  const llm = new MockLlm();
+  llm.director = () => ({ actions: [
+    { type: "npc", name: "Invented Messenger", text: "A needless new contact." },
+    { type: "new_npc", name: "Mr. Grimsby", brief: "do not replace his identity", text: "I remember your promise." },
+    { type: "new_npc", name: "Mrs. Pell", brief: "a necessary new landlady", text: "Your room is ready." },
+  ], coplayers_may_act: false });
+  const { t, api } = await table({ llm });
+  await playerSays(t, api, "I return to speak with Grimsby.");
+  assert.deepEqual(api.created.map((c) => c.name), ["Mrs. Pell"]);
+  assert.equal(llm.calls.filter((c) => c.purpose === "npc_card").length, 1);
+  assert.equal(api.posts[0].character_id, "c-butler");
+  assert.equal(api.posts[0].content, "I remember your promise.");
+  assert.ok(!api.posts.some((p) => p.content.includes("needless new contact")));
+  assert.equal(t.roster.npcs.filter((c) => c.characterId === "c-butler").length, 1);
+});
+
 test("a turn posts at most MAX_ACTIONS_PER_TURN lines", async () => {
   const llm = new MockLlm();
   llm.director = () => ({ actions: Array.from({ length: 10 }, (_, i) => ({ type: "narrate", text: `line ${i}` })), coplayers_may_act: true });

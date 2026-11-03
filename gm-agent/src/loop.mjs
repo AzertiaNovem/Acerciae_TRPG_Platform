@@ -685,7 +685,9 @@ export class Table {
       case "new_npc": {
         const who = this.characterByName(a.name);
         if (this.roster.coplayerByName(a.name) || who?.kind === "pc") { this.log(`the Keeper tried to voice ${a.name}, a ${this.roster.isCoplayer(who?.id) || !who ? "co-player" : "player character"}; skipped`); return 0; }
-        const npc = this.roster.npcByName(a.name) ?? (await this.createNpc(a.name, a.brief, ctx.text));
+        let npc = this.roster.npcByName(a.name);
+        if (!npc && a.type === "npc") { this.log(`the Keeper named an unknown NPC (${a.name}); skipped instead of creating a character`); return 0; }
+        if (!npc) npc = await this.createNpc(a.name, a.brief, ctx.text);
         if (!npc || !a.text) return 0;
         return this.post(windowId, { content: a.text, kind: "ic", character_id: npc.characterId });
       }

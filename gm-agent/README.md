@@ -178,6 +178,15 @@ The client works with it in three ways:
 Co-players never read the record. They know only what their characters witnessed and the public world setting. A
 platform without the record (404) is noted once, and the table carries on with its own notes.
 
+The Keeper and planner favour a small recurring NPC cast and relationships that develop over multiple scenes and
+sessions. They consult existing people and bonds before introducing someone new, follow through on promises and
+shared experiences, and let peripheral NPCs stay off-screen. The planner's critique/revision explicitly checks for
+unnecessary newcomers and neglected relationships. This is guidance, not a hard NPC quota: new people remain
+possible when the story or players need a distinct role, and reuse must respect whereabouts, identities and the
+module. Neither role decides player/co-player feelings or treats proposed relationships as already established.
+`npc` only voices an existing cast member; an unknown name is logged and skipped. `new_npc` explicitly creates a
+new character, or reuses the existing character when that name is already in the cast.
+
 ## How a turn runs
 
 1. A real person posts a line in a window. After `pacing.debounce_ms` of quiet, one turn starts.
