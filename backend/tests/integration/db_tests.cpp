@@ -1160,6 +1160,50 @@ int main() {
         CHECK(dump.find("Mora") == std::string::npos); CHECK(dump.find("Saint Mary") == std::string::npos); CHECK(dump.find("harbour") == std::string::npos);
         CHECK(pw["recent_changes"].size() == 1);
     });
+    test("world history: window access resets linked entities without a cascade ordering error", [&] {
+        Json::Value body; body["name"] = "World cascade"; body["knowledge_mode"] = "isolated";
+        auto ch = S.chat->createChannel(gmP, server["id"].asString(), body)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, ch);
+        S.chat->addChannelMember(keeper, p1User, "player");
+        S.chat->addChannelMember(keeper, p2User, "player");
+        auto group = [&](const std::string& user) { return S.db->queryOne("SELECT group_id FROM player_group_members WHERE channel_id=$1 AND user_id=$2", {ch, user})["group_id"].asString(); };
+        const auto g1 = group(p1User), g2 = group(p2User);
+        auto entity = [&](const std::string& name, const std::string& gid) {
+            return S.db->queryOne("INSERT INTO entities(channel_id,player_group_id,kind,name) VALUES($1,NULLIF($2,'')::uuid,'location',$3) RETURNING id", {ch,gid,name})["id"].asString();
+        };
+        auto history = [&](const std::string& owner, const std::string& location, const std::string& gid, int version=1) {
+            S.db->exec("INSERT INTO entity_state_history(channel_id,player_group_id,entity_id,location_entity_id,version,status,actor) VALUES($1,NULLIF($2,'')::uuid,$3,$4,$5,'active','ai')", {ch,gid,owner,location,(int64_t)version});
+        };
+        auto mustFail = [&](const std::function<void()>& fn) { bool failed=false; try { fn(); } catch(const std::exception&) { failed=true; } CHECK(failed); };
+        // Location is inserted first: the failing FK action can run before the owner's history is cascaded away.
+        auto location=entity("Dock",g1), owner=entity("Witness",g1), other=entity("Other group",g2), secret=entity("Keeper","");
+        S.db->exec("UPDATE entities SET location_entity_id=$2 WHERE id=$1", {owner,location});
+        history(owner,location,g1);
+        mustFail([&] { history(owner,other,g1,2); });
+        mustFail([&] { history(owner,location,g2,2); });
+        mustFail([&] { history(owner,secret,g1,2); });
+        mustFail([&] { history("00000000-0000-0000-0000-000000000000",location,g1,2); });
+        mustFail([&] { S.db->exec("UPDATE entity_state_history SET location_entity_id=$2 WHERE entity_id=$1", {owner,other}); });
+        auto version = S.db->queryOne("SELECT version FROM player_groups WHERE id=$1", {g1})["version"].asInt();
+        Json::Value win; win["name"]="Phone fixture"; win["kind"]="private";
+        Json::Value member; member["user_id"]=p1User; win["members"].append(member);
+        CHECK(!S.chat->createWindow(keeper,win)["id"].asString().empty());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM entities WHERE player_group_id=$1",{g1})["n"].asInt()==0);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM entity_state_history WHERE player_group_id=$1",{g1})["n"].asInt()==0);
+        CHECK(S.db->queryOne("SELECT version FROM player_groups WHERE id=$1",{g1})["version"].asInt()>version);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM documents WHERE player_group_id=$1",{g1})["n"].asInt()==5);
+        CHECK(!S.db->queryOne("SELECT id FROM entities WHERE id=$1",{other}).isNull());
+        CHECK(!S.db->queryOne("SELECT id FROM entities WHERE id=$1",{secret}).isNull());
+        // A location-only deletion must keep its surviving owner's history, clearing just the location reference.
+        auto place=entity("Room",g2), survivor=entity("Survivor",g2); history(survivor,place,g2);
+        S.db->exec("DELETE FROM entities WHERE id=$1",{place});
+        CHECK(S.db->queryOne("SELECT location_entity_id FROM entity_state_history WHERE entity_id=$1",{survivor})["location_entity_id"].isNull());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM entity_state_history WHERE entity_id=$1",{survivor})["n"].asInt()==1);
+        // The same ordering is possible during channel deletion, including the Keeper partition.
+        auto privatePlace=entity("Secret room",""), privateOwner=entity("Secret witness",""); history(privateOwner,privatePlace,"");
+        S.db->exec("DELETE FROM channels WHERE id=$1",{ch});
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM entity_state_history WHERE channel_id=$1",{ch})["n"].asInt()==0);
+    });
     test("storage cleanup deletes replaced character images, unpinned old versions and unreferenced objects, and keeps the rest", [&] {
         const std::string png = drogon::utils::base64Decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
         auto p2 = S.auth->channelAccess(p2User, channelId);
