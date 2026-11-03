@@ -71,6 +71,8 @@ const SETTINGS = [
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
   ["planner-interval-minutes", null, "planner.interval_minutes"], ["planner-min-lines", null, "planner.min_lines"], ["planner-cooldown-minutes", null, "planner.cooldown_minutes"], ["planner-stall-turns", null, "planner.stall_turns"],
   ["planner-max-runs-per-hour", null, "planner.max_runs_per_hour"], ["planner-impulse-lines", null, "planner.impulse_lines"], ["planner-plan-tokens", null, "planner.plan_tokens"],
+  ["planner-window", null, "planner.wish_window"],
+  ["casual-ai-texts-per-hour", null, "modes.casual_ai_texts_per_hour"], ["casual-ai-chain", null, "modes.casual_ai_chain"],
   ["final-review", null, "planner.final_review"], ["final-review-min-lines", null, "planner.final_review_min_lines"], ["final-review-max-days", null, "planner.final_review_max_days"],
   ["debounce-ms", null, "pacing.debounce_ms"], ["post-delay-ms", null, "pacing.post_delay_ms"], ["max-actions", null, "pacing.max_actions_per_turn"],
   ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
@@ -155,6 +157,8 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     impulseLines: Math.max(1, int(pick("planner-impulse-lines", 60), 60)),
     planTokens: Math.max(300, int(pick("planner-plan-tokens", 1500), 1500)),
     // The final review after a session of human play (planner.mjs): on unless turned off, from this many player lines.
+    // The planner window, where the players write wishes and corrections for the planner's next run (wishes.mjs).
+    wishWindow: bool(pick("planner-window"), true),
     finalReview: bool(pick("final-review"), true),
     finalReviewMinLines: Math.max(1, int(pick("final-review-min-lines", 10), 10)),
     finalReviewMaxDays: Math.max(0, int(pick("final-review-max-days", 30), 30)),
@@ -218,6 +222,10 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     improv: tri(pick("improv")),
     casual: tri(pick("casual")),
     casualMaxDelayMinutes: Math.max(0, int(pick("casual-max-delay-minutes", 240), 240)),
+    // Texts between AI characters (co-players and NPCs): answered at most this many an hour, and an exchange between
+    // two of them stops after this many messages until a person writes again.
+    casualAiTextsPerHour: Math.max(0, int(pick("casual-ai-texts-per-hour", 12), 12)),
+    casualAiChain: Math.max(1, int(pick("casual-ai-chain", 4), 4)),
     worldFile: where("world", pick("world", "")),
     secretsFile: where("secrets", pick("secrets", "")),
     stateDir: path.resolve(args["state-dir"] !== undefined || env.STATE_DIR ? process.cwd() : dir, str(pick("state-dir", path.join(process.cwd(), ".state")))),

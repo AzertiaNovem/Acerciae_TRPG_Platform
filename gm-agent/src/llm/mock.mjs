@@ -22,7 +22,7 @@ export class MockLlm {
       case "coplayer_repair": return JSON.stringify(this.card(user, "coplayer"));
       case "coplayer_points": return JSON.stringify(this.points(user));
       case "director": return JSON.stringify(this.director(user));
-      case "coplayer_turn": return JSON.stringify(this.coplayer(user));
+      case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
       case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
       case "planner": return JSON.stringify(this.planner(user));
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
@@ -116,8 +116,12 @@ export class MockLlm {
     const routine = { routine: "[mock routine] The herring season: the boats go out before dawn and the fish market is loud every morning.", upcoming: [{ when: "next Saturday", what: "[mock] the Harbour Fair on the quay" }] };
     const calendar = { ...(/Today in the story: no date set yet/.test(user) ? { start: "1923-10-02", time: "early morning" } : {}), advice: "[mock] let a night pass after the docks", ...routine };
     const final = /This is the FINAL REVIEW/.test(user);
+    // The players' words in the planner window: "never", "not" or "no" make a correction, anything else a wish.
+    const wordsAt = user.indexOf("## The players' words to you");
+    const words = (wordsAt < 0 ? "" : user.slice(user.indexOf("\n", wordsAt) + 1).split("\n\n")[0]).split("\n").map((l) => l.replace(/^- [^:]+: /, "").trim()).filter(Boolean);
+    const table = /"table_notes"/.test(user) ? { table_notes: words.map((w) => ({ id: "new", kind: /\b(never|not|no)\b/i.test(w) ? "correction" : "wish", text: `[mock note] ${w}`, about: (w.match(/\b(Harriet Vance|Harriet|Alice Hale|Alice)\b/) ?? []).slice(0, 1).map((n) => (n.startsWith("Harriet") ? "Harriet Vance" : "Alice Hale")) })), reply: words.length ? `[mock reply] Noted ${words.length} line(s): the story will follow.` : "" } : {};
     const between = final ? { advance_days: 2, time: "morning", why: "[mock] the town sleeps on it", ...(pace ? {} : { offscreen: [{ text: "[mock offscreen] The Guild doubled the night watch at the docks.", secret: true }] }), opening: "[mock opening] A knock at the door at dawn.", recap: "[mock recap] They asked around the harbour." } : undefined;
-    if (pace) return { beat, verdict: { move_on: false, why: "the scene is still fresh" }, played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...(between ? { between } : {}) };
+    if (pace) return { beat, verdict: { move_on: false, why: "the scene is still fresh" }, played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...table, ...(between ? { between } : {}) };
     const who = (user.match(/^## Co-players you may give an impulse\n([\s\S]*?)(?:\n\n|$)/m)?.[1] ?? "").split("\n").map((l) => l.replace(/^- /, "").trim()).filter(Boolean);
     return {
       throughline: "[mock] a town that hides what the sea brings in",
@@ -125,14 +129,17 @@ export class MockLlm {
       beat, next: [{ what: "[mock] a stranger offers a boat ride", when: "after the docks" }],
       verdict: { move_on: false, why: "the scene is still fresh" },
       impulses: who.slice(0, 1).map((w) => ({ who: w, text: `[mock impulse] You keep thinking about the docks at night; you want to see them for yourself.` })),
-      played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...(between ? { between } : {}),
+      played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...table, ...(between ? { between } : {}),
     };
   }
 
-  coplayer(user) {
+  coplayer(user, system = "") {
     const me = field(user, "YOU ARE");
     const last = field(user, "NEWEST LINE");
     if (!last) return { action: "pass" };
+    // "Harriet, text Tomas Leclerc: …" makes Harriet text (casual mode).
+    const text = [...user.matchAll(/^#\d+ [^:"]+: (\S+), text ([^:]+): (.+)$/gm)].at(-1);
+    if (text && me.startsWith(text[1]) && /"action": "text"/.test(system)) return { action: "text", to: text[2].trim(), text: text[3].trim() };
     return { action: "speak", kind: "ic", text: `[mock ${me}] I stay close and keep my eyes open.` };
   }
 }

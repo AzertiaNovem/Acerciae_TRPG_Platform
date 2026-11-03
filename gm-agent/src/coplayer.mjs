@@ -25,9 +25,9 @@ How to play:
 - If the Keeper asked you to roll, or an uncertain action needs a check, reply with a roll using a Sealdice command such as ".ra Spot Hidden" (the platform rolls it against your sheet).
 - Pass when you have nothing useful to add, or when the last lines were addressed to someone else.
 - Write all text in ${language}.${casual ? `
-- This is a casual game: everyone has a phone, even if the setting has none. Now and then, when it fits, you may text a player character instead of speaking in the scene (a plan, a joke, something you noticed), never to flood them.` : ""}
+- This is a casual game: everyone has a phone, even if the setting has none. Now and then, when it fits, you may text someone you know instead of speaking in the scene (a plan, a joke, something you noticed): a player character, a companion, or someone you have met. Never flood anyone.` : ""}
 
-Reply with only one JSON object: {"action": "speak", "kind": "ic" | "ooc", "text": "..."} or {"action": "roll", "command": ".ra <skill>", "text": "<optional short line>"}${casual ? ` or {"action": "text", "to": "<a player character>", "text": "<the text message>"}` : ""} or {"action": "pass"}`;
+Reply with only one JSON object: {"action": "speak", "kind": "ic" | "ooc", "text": "..."} or {"action": "roll", "command": ".ra <skill>", "text": "<optional short line>"}${casual ? ` or {"action": "text", "to": "<someone you know>", "text": "<the text message>"}` : ""} or {"action": "pass"}`;
 }
 
 // Who the co-player is: the stable head of every prompt it gets.
@@ -87,7 +87,7 @@ function cardSummary(card) {
 // `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
 // `today` is the story's date as this co-player lives it (calendar.mjs), `timePassed` a line when the calendar moved
 // on since it last acted; `met` the NPCs it has met (rendered), `bonds` the relationships it knows (bonds.mjs).
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", met = "", bonds = "" }) {
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "" }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -109,6 +109,7 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map((c) => renderProfile(c)).join("\n")}` : "",
     met,
     bonds,
+    corrections,
     impulse,
     "",
     `CHAT LOG YOUR CHARACTER WITNESSED${frozen.length ? ", latest part" : ""} (newest last):\n${recent.map((m) => renderLine(m)).join("\n") || (frozen.length ? "(see above)" : "(nothing yet)")}`,

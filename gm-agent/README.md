@@ -58,7 +58,9 @@ Besides the log, its prompt holds:
 - in a casual game, the story's date, the everyday routine, and how much time passed since it last spoke;
 - the real NPCs it has seen speak in its own scenes, with what anyone would notice about them (gender, age,
   distinctive traits);
-- the relationships it is part of, and the public ones between people it knows.
+- the relationships it is part of, and the public ones between people it knows;
+- the players' corrections about it or about no one in particular, from the planner window (never their wishes);
+- in casual mode, the texts it sent or received, including those in the phone log.
 
 It never gets a real NPC's brief, an NPC it has not met, a secret relationship it is not part of, or anyone's
 characteristic and skill numbers.
@@ -457,15 +459,46 @@ node src/cli.mjs casual off
   - A co-player answers in character the same way, at most `modes.casual_max_delay_minutes` later.
   - Pending replies are kept in the state file, so they survive a restart and still arrive while everyone is away.
 - **Other players.** A text to another player appears in their phone at once, posted as the sender's character.
-- **First contact.** The GM may have an NPC text a player (a hook, news, an invitation), and a co-player may text a
-  player instead of speaking in the scene.
+- **First contact.** The GM may have an NPC text a player or a co-player (a hook, news, an invitation). A co-player
+  may text anyone it knows instead of speaking in the scene: a player, a companion, or an NPC it has met.
+- **The phone log.** Texts with no player character in them go to `Phone log (Keeper only)`, a window with only the
+  Keeper's account in it. That covers co-player to co-player, co-player to NPC, and NPC to co-player. Each line is one
+  text, posted as the sender: "→ Tomas Leclerc: Meet me at the pier at nine." The recipient answers there in its own
+  time: a co-player through its own model, an NPC through the GM. The GM reads the log like any other window.
+- **AI texting has limits.** Two AI characters stop after `modes.casual_ai_chain` texts in a row until a person writes
+  again. At most `modes.casual_ai_texts_per_hour` such texts are answered an hour, and none while everyone is away
+  (they still arrive).
 - **Who knows what.** A text never starts a scene turn and never moves anyone between scenes. The GM reads every
   phone; a co-player knows only the messages it sent or received.
 - **Privacy.** Phones are private only on an **isolated** channel with one player per group, so casual mode stays off
   anywhere else. Create the channel with knowledge mode *isolated* in the web app (with `setup --create --casual`, a
   new channel is made isolated).
 
-`status` shows the phones and the texts still on their way.
+`status` shows the phones, the phone log and the texts still on their way.
+
+## The planner window and new players
+
+**The planner window.** When the story planner is on, `run` opens `To the story planner`, a window with every player
+of the channel in it (`planner.wish_window`). It is out of character and no scene is played there. Players write two
+kinds of things:
+- **A wish:** where they would like the story to go ("a slow-burn rivalry with the harbour master").
+- **A correction:** what the story got wrong against their setting, stated or implicit ("Harriet would never leave a
+  friend behind", "there is no magic in this world", a tone they do not want).
+
+The lines start no run of their own: the planner keeps to its usual routine. Its next run, whatever triggers it, is
+given the new lines, keeps the standing wishes and corrections as numbered table notes (N1, N2…), refines or drops
+them as the players write more, and answers in the window along the way. Its answer never quotes a twist
+or a hidden truth. Who reads the notes:
+- the GM reads them all in its context: corrections to keep to strictly, wishes to steer toward;
+- a co-player reads only the corrections about it or about no one in particular, as out-of-character table rules;
+- a wish is the planner's to weave in, so co-players never see one.
+
+`status` lists the notes. Every player in the channel can read what the others write there.
+
+**New players.** When someone joins the channel, the platform seats them in the Main Chat. The client then seats them
+in the planner window and, in casual mode, opens their phone. When their player character appears, the GM gets an
+arrival turn in the Main Chat to bring that character into the story. The platform sends no event when a character is
+created, so the client looks again every minute.
 
 ## Setup
 
@@ -560,6 +593,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `planner.cooldown_minutes`, `planner.max_runs_per_hour` | | `10`, `4` | least gap between runs; hourly cap |
 | `planner.stall_turns` | | `6` | turns in the same place with no world change, truth, move or scenario change before the planner is asked |
 | `planner.impulse_lines`, `planner.plan_tokens` | | `60`, `1500` | how long a co-player's impulse lives; budget of the GM's "Story plan" section |
+| `planner.wish_window` | `--planner-window` | `true` | the planner window for the players' wishes and corrections, read at the planner's next run |
 | `planner.final_review`, `planner.final_review_min_lines`, `planner.final_review_max_days` | `--final-review`, `--final-review-min-lines`, `--final-review-max-days` | `true`, `10`, `30` | the review when a session of human play ends: on or off, how many player lines a session needs, how many story days it may move the calendar |
 | `pacing.debounce_ms`, `pacing.post_delay_ms` | `--debounce-ms`, `--post-delay-ms` | `4000`, `1200` | quiet time before a turn; pause between posted lines |
 | `pacing.max_actions_per_turn` | `--max-actions` | `6` | lines per turn |
@@ -583,6 +617,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` (relative to the file) |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
 | `modes.casual_max_delay_minutes` | | `240` | longest delay before an NPC's or co-player's reply to a text |
+| `modes.casual_ai_texts_per_hour`, `modes.casual_ai_chain` | | `12`, `4` | texts between AI characters answered at most an hour; how many in a row before an exchange rests until a person writes |
 | env `ACERCIAE_API_BASE` | `--api` | `http://localhost:8080` | backend address |
 | env `CHANNEL_ID` | `--channel` | – | the channel to keep; without it `setup` lists the channels the account keeps and asks |
 | env `STATE_DIR` | `--state-dir` | `./.state` | the state file, the SQLite store, the lock and the command inbox |
@@ -618,7 +653,8 @@ The tests need no backend and no model. They cover:
 - the story planner: triggers, the three-step review, the plan's place in the GM's context, impulses and their
   privacy, pace-only in module play, the lifted pace guard, no run while nobody is at the table, and the final review
   after a session;
-- the calendar, the distinctive traits and the relationships, and which role reads which of them.
+- the calendar, the distinctive traits and the relationships, and which role reads which of them;
+- the phone log and its limits, the planner window (wishes, corrections, who reads them), and new players.
 
 ## Known limitations
 
