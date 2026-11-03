@@ -41,6 +41,11 @@ export function plannerState(s) {
     session: x.session && typeof x.session === "object" && Number.isFinite(x.session.lastAt) ? x.session : null,
     between: x.between && typeof x.between === "object" ? x.between : null,
     lastFinalAt: Number(x.lastFinalAt) || 0,
+    // The planner window (wishes.mjs): its id, the players' lines not read yet, the standing wishes and corrections.
+    window: typeof x.window === "string" ? x.window : null,
+    inbox: Array.isArray(x.inbox) ? x.inbox.filter((l) => l && l.text).slice(-30) : [],
+    table: Array.isArray(x.table) ? x.table.filter((n) => n && /^N\d+$/.test(n.id) && n.text && ["wish", "correction"].includes(n.kind)).map((n) => ({ ...n, about: Array.isArray(n.about) ? n.about.map(String) : [] })).slice(-20) : [],
+    nextNoteId: Number.isInteger(x.nextNoteId) && x.nextNoteId > 0 ? x.nextNoteId : 1,
   };
 }
 
@@ -251,7 +256,8 @@ export function renderPlanNote(arc, impulses = []) {
 export const renderImpulse = (impulse) => (impulse ? `SOMETHING ON YOUR MIND (your own thought, no one else's; pursue it when it fits, in your own way, without announcing it): "${impulse.text}"` : "");
 
 // `calendar`: a casual game, whose story keeps a date (calendar.mjs); a solemn game has none.
-export function plannerSystem(language, { mode = "full", final = false, calendar = false } = {}) {
+// `table`: the planner window is open, so the reply carries table notes and an answer to the players (wishes.mjs).
+export function plannerSystem(language, { mode = "full", final = false, calendar = false, table = false } = {}) {
   const common = `You are the story planner of a long tabletop roleplaying campaign played in chat. You are not the Keeper (GM) and you never speak in the chat: the Keeper reads your plan and decides; you advise. You read the whole campaign slowly, while the Keeper plays step by step. Your job is the global view: where the story is going, what should happen next, and above all when the current event has run its course, so that nobody stretches a trivial scene over many turns. Prefer closing events over stretching them. Write in ${language}.`;
   const full = `
 The campaign is improvised: there is no module. Be bold. Invent original plots, weave several into one situation, raise the stakes, pay off what was planted. Every invention must fit the World setting and every Hidden truth and The world now; record each as a secret twist the Keeper reveals through play, never a fact stated to the players. Keep thread ids across versions; resolve or drop what has gone stale rather than letting it linger.
@@ -260,17 +266,21 @@ Keep the Relationships current in "bonds": every relationship the profiles or th
 const CALENDAR_RULE = `
 Time (a casual game: the story keeps a calendar): the Calendar section is the story's date, always YYYY-MM-DD. If no date is set yet, choosing the first one is your job: put it in calendar.start (YYYY-MM-DD, a year within the campaign's era) and its time of day in calendar.time, fitting the era, the World setting (when its calendar says the story usually opens) and the plots you plan. Let events breathe: say in calendar.advice when the calendar should move on next and how far (a night's sleep, a week of research, a journey).
 Routine: everyday life follows a calendar too (a school year, a working week, a fishing or harvest season, holidays, festivals); the World setting may describe it. In calendar.routine say what everyday life is busy with on the current date (the date you set in calendar.start, or the one a final review moves to), and in calendar.upcoming the routine events of the next weeks. Take them from the world's calendar and the era, and invent fitting ones where it says nothing. The routine is common knowledge that everyone in the story shares: never a secret, a twist or a plan. Use it: tie plots to it, and let the investigators' days fill with it between events.`;
+const TABLE_RULE = `
+The players can write to you in a window of their own (The players' words to you), out of character. A wish is where they would like the story to go: weave it into the plan, unless it would break the World setting, a Hidden truth or another player's fun; then say so kindly in reply. A correction is something the story got wrong against their setting, stated or implicit: a character acting against their nature, a fact of the world contradicted, a tone they do not want. Record it as a standing correction for the Keeper and the co-players, fix the plan to match it, and never repeat the mistake. Keep "table_notes" current: one note per standing wish or correction, in your own clear words, with the characters it is about; keep ids, change a note when the players refine it, drop it when it is fulfilled or withdrawn. When the players wrote to you, answer them in "reply": what you will steer toward and what you corrected, in a sentence or two; never a twist, a secret, a hidden truth or what will happen.`;
 const FINAL_RULE = (mode, calendar) => `
 FINAL REVIEW: the players have just left the table; this session is over. Review the whole session and prepare the next one. Be more proactive than in a plan made during play: nobody is waiting, and the world moves on between sessions.${calendar ? " Decide how much time passes before the next session in between.advance_days (usually one day or more; longer when the story has a natural pause; 0 only when the next session must pick up the very same moment, such as mid-fight or mid-conversation) and the time of day it resumes." : ""}${mode === "pace" ? ` The module has the plots: record no off-screen developments${calendar ? ", only what time passes" : ""}.` : " Record what the world did meanwhile in between.offscreen: people acting on their own plans, consequences of what the investigators did, threads ripening; each one a fact about the world now, secret when the investigators would not know it yet."} Say how the next session should open (between.opening) and sum up this session for the Keeper (between.recap).`;
   const pace = `
 The campaign follows a module: the module has the plots. Do not invent plots, people or twists. Judge pace only: name the current event and its exit (what must happen for it to be done, from the script knowledge and the Keeper board), say whether the Keeper should let it go, and what the next beat is according to the module.`;
-  return common + (mode === "pace" ? pace : full) + (calendar ? CALENDAR_RULE : "") + (final ? FINAL_RULE(mode, calendar) : "");
+  return common + (mode === "pace" ? pace : full) + (calendar ? CALENDAR_RULE : "") + (table ? TABLE_RULE : "") + (final ? FINAL_RULE(mode, calendar) : "");
 }
 
 const CALENDAR_SCHEMA = `"calendar": {"start": "YYYY-MM-DD: the story's first date, only if none is set yet", "time": "the time of day it opens, with start", "advice": "when the calendar should move on next, and how far", "routine": "what everyday life is busy with on the current date (common knowledge)", "upcoming": [{"when": "...", "what": "a routine event of the next weeks"}]}`;
 const BETWEEN_SCHEMA = (mode, calendar) => `"between": {${calendar ? `"advance_days": 1, "date": "YYYY-MM-DD: the new date, if you would rather name it", "time": "the time of day the next session resumes", "why": "...", ` : ""}${mode === "pace" ? "" : `"offscreen": [{"text": "what is now true in the world", "secret": true}], `}"opening": "how the next session should open", "recap": "this session in a few sentences"}`;
-const DRAFT_SCHEMA = (mode, final = false, calendar = false) => {
-  const extra = `${calendar ? `,\n ${CALENDAR_SCHEMA}` : ""}${final ? `,\n ${BETWEEN_SCHEMA(mode, calendar)}` : ""}`;
+const TABLE_SCHEMA = `"table_notes": [{"id": "N1 (keep ids) | new", "kind": "wish | correction", "text": "the standing wish or correction, in your words", "about": ["<character names>"], "drop": false}],
+ "reply": "your answer to the players' words, or empty when they wrote nothing new"`;
+const DRAFT_SCHEMA = (mode, final = false, calendar = false, table = false) => {
+  const extra = `${calendar ? `,\n ${CALENDAR_SCHEMA}` : ""}${table ? `,\n ${TABLE_SCHEMA}` : ""}${final ? `,\n ${BETWEEN_SCHEMA(mode, calendar)}` : ""}`;
   const base = mode === "pace"
   ? `{"beat": {"title": "...", "purpose": "...", "exit": "what must happen for this event to be done"}, "verdict": {"move_on": false, "why": "..."}, "played": "how the previous plan played out", "changed": "what you changed and why"}`
   : `{"throughline": "what the story is really about and where it heads (≤300 chars)",
@@ -293,14 +303,16 @@ You are now a second Keeper, a harsh script editor who did not write the draft a
 // twice). `contextText` is the Keeper's context plus planner-only blocks; `prev` the previous compact plan.
 // `final` ({maxDays}) makes it the final review of a session: the reply also carries `between`.
 // `calendar`: the story keeps a date (casual games only).
-export async function planStory(llm, { language, mode, contextText, prev, since, coplayers, secrets, nextId, lastSeq, trigger, now, impulseLines, final = null, calendar = false, log = () => {} }) {
-  const system = plannerSystem(language, { mode, final: Boolean(final), calendar });
+// `table`: the planner window is open; `wishes` the players' new words and the standing notes (wishes.mjs renderInbox).
+export async function planStory(llm, { language, mode, contextText, prev, since, coplayers, secrets, nextId, lastSeq, trigger, now, impulseLines, final = null, calendar = false, table = false, wishes = "", log = () => {} }) {
+  const system = plannerSystem(language, { mode, final: Boolean(final), calendar, table });
   const briefing = [
     `## Previous story plan${prev ? ` (v${prev.version}, ${prev.trigger})` : ""}\n${prev ? renderStoryPlan(prev, 4000).split("\n").slice(1).join("\n") : "(none yet: this is the first plan)"}`,
     `## Since the last plan\n${since || "(nothing recorded)"}`,
+    wishes,
     mode === "full" ? `## Co-players you may give an impulse\n${coplayers.map((c) => `- ${c.name}`).join("\n") || "(none)"}` : "",
   ].filter(Boolean).join("\n\n");
-  const draftAsk = `STEP: draft\n${final ? "This is the FINAL REVIEW of the session that just ended. Write the story plan for the next session" : `Write the story plan now${trigger ? ` (why you were asked: ${trigger})` : ""}`}. Reply with only this JSON:\n${DRAFT_SCHEMA(mode, Boolean(final), calendar)}`;
+  const draftAsk = `STEP: draft\n${final ? "This is the FINAL REVIEW of the session that just ended. Write the story plan for the next session" : `Write the story plan now${trigger ? ` (why you were asked: ${trigger})` : ""}`}. Reply with only this JSON:\n${DRAFT_SCHEMA(mode, Boolean(final), calendar, table)}`;
   const critiqueAsk = final ? CRITIQUE.replace("Reply with only this JSON:", `${FINAL_CRITIQUE.trim()} Reply with only this JSON:`) : CRITIQUE;
   const context = [{ text: `${contextText}\n\n${briefing}\n\n`, cache: true }];
   const draftJson = await completeJson(llm, { system, user: [...context, { text: draftAsk }], purpose: "planner" }, (x) => { if (!x || typeof x !== "object") throw new Error("expected an object"); return x; });
@@ -315,5 +327,7 @@ export async function planStory(llm, { language, mode, contextText, prev, since,
   const impulses = mode === "full" ? validateImpulses(rawImpulses, { coplayers, secrets, version: arc.version, lastSeq, lifetime: impulseLines }) : [];
   const between = final ? validateBetween(finalJson.between ?? draftJson.between, { mode, maxDays: final.maxDays }) : null;
   log(`planner: v${arc.version} (${trigger}) — beat "${arc.beat.title}", ${arc.verdict.moveOn ? "move on" : "continue"}, ${arc.threads.length} thread(s), ${impulses.length} impulse(s)${between ? `, ${between.advanceDays} day(s) pass` : ""}`);
-  return { arc, impulses, bonds: rawBonds, between, nextId: next, record: { draft: draftJson, critique, final: finalJson } };
+  const tableNotes = table && Array.isArray(finalJson.table_notes) ? finalJson.table_notes.slice(0, 20) : [];
+  const reply = table ? String(finalJson.reply ?? "").trim() : "";
+  return { arc, impulses, bonds: rawBonds, between, tableNotes, reply, nextId: next, record: { draft: draftJson, critique, final: finalJson } };
 }

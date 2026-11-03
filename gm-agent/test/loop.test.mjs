@@ -41,8 +41,14 @@ class FakeApi {
   }
   async me() { return this.user; }
   async channel() { return { id: "ch", server_id: "s", name: "Hale house", my_role: "gm", era: "1920s", current_scene_id: this.currentScene, knowledge_mode: this.knowledgeMode }; }
-  async channelMembers() { return this.channelUsers.map((id) => ({ id })); }
-  async addWindowMember() { this.membershipWrites++; return []; }
+  async channelMembers() { return this.channelUsers.map((id) => ({ id, role: id === "u-bot" ? "gm" : "player", display_name: id.slice(2) })); }
+  async addWindowMember(_ch, w, body) {
+    this.membershipWrites++;
+    (this.addedMembers ??= []).push({ window: w, ...body });
+    const win = this.windows_.find((x) => x.id === w);
+    if (win && body?.user_id && !win.members.some((m) => m.user_id === body.user_id)) win.members.push({ user_id: body.user_id, character_id: this.characters_.find((c) => c.user_id === body.user_id && c.kind === "pc")?.id ?? null });
+    return [];
+  }
   async serverSettings() { return { language: "en", features: {} }; }
   async coc7Rules() { return { skills: [{ name: "Spot Hidden", base: 25, names: {} }], families: [] }; }
   async characters() { return structuredClone(this.characters_); }
@@ -997,8 +1003,10 @@ test("casual: each player character gets a private phone; a phone line never sta
   const alicePhone = api.createdWindows.find((w) => w.id === phoneOf(t, "c-alice"));
   assert.equal(alicePhone.name, "Phone: Alice Hale"); assert.equal(alicePhone.kind, "private");
   assert.deepEqual(alicePhone.members.map((m) => m.user_id), ["u-bot", "u-alice"], "only her player");
+  const log = api.createdWindows.find((w) => w.id === t.casual.log);
+  assert.equal(log.name, "Phone log (Keeper only)"); assert.deepEqual(log.members.map((m) => m.user_id), ["u-bot"], "the Keeper alone");
   await t.setCasual(true);
-  assert.equal(api.createdWindows.length, 2, "phones are opened once");
+  assert.equal(api.createdWindows.length, 3, "two phones and the log, opened once");
   const before = directorCalls(llm).length;
   await textFrom(t, api, "c-alice", "@Bob Price meet me at the pier");
   await settle(t);
@@ -1429,4 +1437,104 @@ test("turning casual mode on mid-campaign asks the planner for the story's first
   await alicePosts(t, api, "Let's take it easy for a while."); await settle(t); await t.memoryIdle(); await settle(t);
   assert.equal(t.planner.arc.trigger, "asked");
   assert.deepEqual([t.calendar.date, t.calendar.time], ["1923-10-02", "early morning"]);
+});
+
+// ---- the table's own windows: the phone log, the planner window, new players
+const COPLAYER2 = { id: "c-tomas", name: "Tomas Leclerc", kind: "pc", user_id: "u-bot", player_name: "AI Keeper", bio: "A journalist.", role_card: {} };
+const logLines = (t, api) => api.posts.filter((p) => p.window === t.casual.log && p.kind === "ic");
+
+test("casual: texts between co-players and NPCs go to the Keeper's phone log, answered in their own time, and stop before they run away", async () => {
+  const llm = new MockLlm();
+  const baseCp = llm.coplayer.bind(llm);
+  // Harriet texts Tomas when Alice asks her to; Tomas and Harriet then answer each other through their own models.
+  llm.coplayer = (u) => (u.startsWith("YOU ARE: Harriet Vance") && u.includes("NEWEST LINE: #") && u.includes("Text Tomas") ? { action: "text", to: "Tomas Leclerc", text: "Meet me at the pier at nine." } : baseCp(u));
+  const { t, api, clock } = await isolated({ llm, extraCharacters: [COPLAYER2], cfg: { casualAiChain: 3 } });
+  const phonesBefore = api.posts.filter((p) => Object.values(t.casual.phones).includes(p.window) && p.kind === "ic").length;
+  await alicePosts(t, api, "Harriet, please. Text Tomas."); await settle(t);
+  assert.deepEqual(logLines(t, api).map((p) => [p.content, p.character_id]), [["→ Tomas Leclerc: Meet me at the pier at nine.", "c-harriet"]], "in the log, as Harriet");
+  await settle(t);
+  const cpPhone = llm.calls.filter((c) => c.purpose === "coplayer_phone");
+  assert.equal(cpPhone.length, 1, "Tomas reads it"); assert.match(cpPhone[0].system, /You play Tomas Leclerc/);
+  clock.t += 6 * MIN; await t.deliverDue(); await settle(t);
+  assert.equal(logLines(t, api).at(-1).character_id, "c-tomas"); assert.match(logLines(t, api).at(-1).content, /^→ Harriet Vance: \[mock Tomas Leclerc\] On my way\./);
+  clock.t += 6 * MIN; await t.deliverDue(); await settle(t);
+  clock.t += 6 * MIN; await t.deliverDue(); await settle(t);
+  assert.equal(logLines(t, api).length, 3, "three texts, then the exchange rests (casual.ai_chain 3)");
+  clock.t += 60 * MIN; await t.deliverDue(); await settle(t);
+  assert.equal(logLines(t, api).length, 3);
+  assert.equal(api.posts.filter((p) => Object.values(t.casual.phones).includes(p.window) && p.kind === "ic").length, phonesBefore, "no player's phone saw any of it");
+  assert.deepEqual(t.store.phoneOf("c-tomas").map((r) => r.from), ["c-harriet", "c-tomas", "c-harriet"], "both remember the thread");
+  // An NPC answers a co-player through the GM, in the log.
+  const base = llm.director.bind(llm);
+  llm.director = (u) => (/^MODE: phone — Harriet Vance texted Mr\. Grimsby/m.test(u) ? { actions: [{ type: "text", from: "Mr. Grimsby", to: "Harriet Vance", text: "The key is not mine to give.", delay_minutes: 0 }], coplayers_may_act: false } : base(u));
+  llm.coplayer = (u) => (u.startsWith("YOU ARE: Harriet Vance") && u.includes("Ask Grimsby") ? { action: "text", to: "Mr. Grimsby", text: "Where is the key?" } : baseCp(u));
+  await alicePosts(t, api, "Harriet? Ask Grimsby by text."); await settle(t); await settle(t);
+  assert.ok(logLines(t, api).some((p) => p.content === "→ Mr. Grimsby: Where is the key?" && p.character_id === "c-harriet"));
+  assert.ok(logLines(t, api).some((p) => p.content === "→ Harriet Vance: The key is not mine to give." && p.character_id === "c-butler"), "Grimsby's answer, through the GM");
+  const phoneTurn = directorCalls(llm).find((u) => /^MODE: phone — Harriet Vance texted Mr\. Grimsby/m.test(u));
+  assert.match(phoneTurn, /## Chat in "Phone log \(Keeper only\)"[\s\S]*Where is the key\?/, "the Keeper reads the log when answering");
+  await alicePosts(t, api, "Anything new?"); await settle(t);
+  assert.match(directorCalls(llm).find((u) => u.includes("NEWEST LINE: Alice Hale: Anything new?")), /## Recent lines in "Phone log \(Keeper only\)"[\s\S]*The key is not mine to give\./, "and in every other turn");
+  // Nobody at the table: a text still arrives, but no one answers it.
+  const answers = llm.calls.filter((c) => c.purpose === "coplayer_phone").length;
+  t.aiText("c-butler", "c-tomas", "Stay away from the pier.");
+  clock.t += 3 * 3600000; await t.deliverDue(); await settle(t);
+  assert.ok(logLines(t, api).some((p) => p.content === "→ Tomas Leclerc: Stay away from the pier."));
+  assert.equal(llm.calls.filter((c) => c.purpose === "coplayer_phone").length, answers, "everyone is away: no answer");
+  assert.equal(await t.tick(), null, "the log never gets a turn");
+});
+
+test("the planner window: every player sits in it; wishes and corrections reach the planner, the Keeper and (corrections only) the co-players", async () => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, cfg: pcfg() });
+  const w = api.createdWindows.find((x) => x.id === t.planner.window);
+  assert.equal(w.name, "To the story planner"); assert.deepEqual(w.members.map((m) => m.user_id), ["u-bot", "u-alice"]);
+  assert.ok(api.posts.some((p) => p.window === w.id && p.kind === "ooc" && p.content.startsWith("🧭 This window is for the story planner")));
+  const turns = t.turns;
+  const say = (content) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w.id, author_id: "u-alice", author_name: "alice", author_role: "player", character_id: "c-alice", content }) });
+  say("Harriet would never leave a friend behind.");
+  say("I'd love a slow-burn rivalry with the harbour master.");
+  await settle(t);
+  assert.equal(t.turns, turns, "no turn is played there"); assert.equal(t.planner.session, null, "and it is no play");
+  await t.memoryIdle();
+  assert.equal(plannerCalls(llm).length, 0, "no run of its own: the planner keeps its routine");
+  assert.equal(t.planner.inbox.length, 2, "the lines wait for the next run");
+  await planned(t, api);   // the planner's usual first plan comes after ten lines of play
+  assert.equal(t.planner.arc.trigger, "first");
+  const draft = plannerCalls(llm)[0];
+  assert.match(draft.system, /The players can write to you/);
+  assert.match(draft.messages[0].content, /## The players' words to you[^\n]*\n- alice: Harriet would never leave a friend behind\.\n- alice: I'd love a slow-burn rivalry/);
+  assert.deepEqual(t.planner.table.map((n) => [n.id, n.kind, n.about]), [["N1", "correction", ["Harriet Vance"]], ["N2", "wish", []]]);
+  assert.equal(t.planner.inbox.length, 0, "read");
+  const reply = api.posts.filter((p) => p.window === w.id && p.kind === "ooc").at(-1);
+  assert.equal(reply.content, "🧭 [mock reply] Noted 2 line(s): the story will follow.");
+  await alicePosts(t, api, "Harriet, the clock?"); await settle(t);
+  const gm = directorCalls(llm).at(-2);
+  assert.match(gm, /## The players' wishes and corrections[\s\S]*Corrections:[^\n]*\n- N1: \[mock note\] Harriet would never leave a friend behind\. \(about Harriet Vance\)[\s\S]*Wishes:[^\n]*\n- N2: \[mock note\] I'd love a slow-burn rivalry/);
+  const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
+  assert.match(cp, /TABLE CORRECTIONS[^\n]*\n- \[mock note\] Harriet would never leave a friend behind\./);
+  assert.ok(!cp.includes("slow-burn rivalry"), "a wish is the planner's to weave in, never a co-player's to play to");
+  // The next words refine the notes; the standing ones are shown to the planner by id.
+  say("Actually, no rivalry after all.");
+  await t.command({ cmd: "plan", action: "now" }); await settle(t);
+  assert.match(plannerCalls(llm).at(-3).messages[0].content, /## Standing table notes[^\n]*\n- N1 \[correction\][\s\S]*- N2 \[wish\]/);
+});
+
+test("a new player is seated in the planner window, gets a phone in casual mode, and the Keeper brings their character in", async () => {
+  const { t, api, llm } = await isolated({ cfg: pcfg() });
+  await t.ensureTableWindows();
+  assert.ok(t.planner.window && t.casual.log, "planner window and phone log");
+  const before = Object.keys(t.casual.phones).length;
+  api.channelUsers.push("u-cara");
+  api.characters_.push({ id: "c-cara", name: "Cara Lind", kind: "pc", user_id: "u-cara", player_name: "cara", role_card: { basic: { sex: "female" } } });
+  api.windows_[0].members.push({ user_id: "u-cara", character_id: "c-cara", character_name: "Cara Lind" });
+  t.onEvent({ stream: "chat", type: "window.changed", channel_id: "ch", window: { id: "w-main" } });
+  await settle(t); await t.ensureTableWindows(); await settle(t);
+  assert.ok(api.addedMembers.some((m) => m.window === t.planner.window && m.user_id === "u-cara"), "seated in the planner window");
+  assert.equal(Object.keys(t.casual.phones).length, before + 1); assert.ok(t.casual.phones["c-cara"], "her phone");
+  assert.equal(api.createdWindows.find((w) => w.id === t.casual.phones["c-cara"]).name, "Phone: Cara Lind");
+  const welcome = directorCalls(llm).find((u) => u.includes("a new player just joined the table with Cara Lind"));
+  assert.ok(welcome, "the Keeper brings her in"); assert.match(welcome, /Bring this character into the story here, naturally/);
+  assert.ok(t.timelines.main().members.includes("c-cara"));
+  await t.refresh(); await settle(t);
+  assert.equal(directorCalls(llm).filter((u) => u.includes("a new player just joined the table")).length, 1, "welcomed once");
 });

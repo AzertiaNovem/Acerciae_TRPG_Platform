@@ -69,8 +69,8 @@ export class GmContext {
   // `awayOf(characterId)` is how long a player character's player has been away (ms), or null when they are around.
   // `storyPlan` is the planner's rendered section (planner.mjs) for part C; `peek` leaves the live tips for the GM (the
   // planner reads the context too, in the background). `calendar` and `bonds` are the rendered calendar.mjs and
-  // bonds.mjs sections, also for part C.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, storyPlan = "", peek = false, calendar = "", bonds = "" }) {
+  // bonds.mjs sections, and `table` the players' wishes and corrections (wishes.mjs), also for part C.
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "" }) {
     const ch = this.channelId;
     const module = !improv?.on;
     await this.history.sync(windowId);
@@ -137,6 +137,7 @@ export class GmContext {
     // ---- C: changes every few turns
     const c = [];
     if (hiddenSection) c.push(hiddenSection);
+    if (table) c.push(table);
     if (storyPlan) c.push(storyPlan);
     if (calendar) c.push(calendar);
     if (bonds) c.push(bonds);

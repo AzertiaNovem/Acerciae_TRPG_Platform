@@ -46,6 +46,7 @@ planner:                      # the story planner: a slower model above the GM t
   max_runs_per_hour: 4
   impulse_lines: 60           # how many lines a co-player's impulse lives
   plan_tokens: 1500           # budget of the GM's "Story plan" section
+  wish_window: true           # a window "To the story planner" with every player in it: wishes and corrections, out of character
   final_review: true          # one review when a session of human play ends (no player line for autonomy.idle_minutes,
                               # or `run` is stopped): moves the calendar on, records off-screen developments, prepares
                               # the next session's opening. The planner never runs on its own otherwise while nobody is there.
@@ -93,3 +94,5 @@ modes:                        # set with `setup`, `world`, `casual`; then kept i
   secrets_file: ""            # the Keeper's hidden layer
   casual:                     # true: casual mode (a phone per player character; needs an isolated channel)
   casual_max_delay_minutes: 240
+  casual_ai_texts_per_hour: 12   # texts between co-players and NPCs answered at most this many an hour
+  casual_ai_chain: 4              # an exchange between two AI characters rests after this many texts until a person writes
