@@ -4,6 +4,7 @@ import { Table } from "../src/loop.mjs";
 import { Roster, markStyle } from "../src/roles/roster.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 import { buildConfig } from "../src/config.mjs";
+import { DND_RULES } from "./fixtures/dndRules.mjs";
 
 // An in-memory stand-in for the platform, as the Keeper account sees it (every line, every AI tip).
 class FakeApi {
@@ -13,6 +14,9 @@ class FakeApi {
     this.membershipWrites = 0;
     this.createdWindows = [];
     this.knowledgeMode = "public";
+    this.ruleSystem = "coc7e";       // "dnd2024": the channel plays D&D
+    this.initiative_ = null;         // the Main Chat's Initiative order, when set
+    this.initiativeReads = 0;
     this.currentScene = "sc1";
     this.scenes_ = [{ id: "sc1", title: "The study", status: "active", event_count: 5, created_at: "2023-11-14T21:00:00Z" }];
     this.advanced = [];
@@ -40,7 +44,10 @@ class FakeApi {
     return msg;
   }
   async me() { return this.user; }
-  async channel() { return { id: "ch", server_id: "s", name: "Hale house", my_role: "gm", era: "1920s", current_scene_id: this.currentScene, knowledge_mode: this.knowledgeMode }; }
+  async channel() { return { id: "ch", server_id: "s", name: "Hale house", my_role: "gm", era: "1920s", current_scene_id: this.currentScene, knowledge_mode: this.knowledgeMode, rule_system: this.ruleSystem, point_buy: this.pointBuy ?? false }; }
+  async dndRules() { return DND_RULES; }
+  async initiative(_ch, w) { this.initiativeReads++; return w === "w-main" && this.initiative_ ? structuredClone(this.initiative_) : { round: 0, turn: 0, entries: [] }; }
+  async initiativeAction(_ch, w, body) { (this.initiativeActions ??= []).push({ window: w, ...body }); return this.initiative(_ch, w); }
   async channelMembers() { return this.channelUsers.map((id) => ({ id, role: id === "u-bot" ? "gm" : "player", display_name: id.slice(2) })); }
   async addWindowMember(_ch, w, body) {
     this.membershipWrites++;
@@ -56,9 +63,13 @@ class FakeApi {
   async messages(_ch, w, limit, beforeSeq = 0) { return this.lines.filter((m) => m.chat_window_id === w && (!beforeSeq || m.seq < beforeSeq)).slice(-limit); }
   async postMessage(_ch, w, body) {
     this.posts.push({ window: w, ...body });
-    return this.add({ chat_window_id: w, author_id: "u-bot", author_role: "gm", ...body, kind: body.content.startsWith(".") ? "roll" : body.kind });
+    const roll = body.content.startsWith(".");
+    return this.add({ chat_window_id: w, author_id: "u-bot", author_role: "gm", ...body, kind: roll ? "roll" : body.kind, ...(roll ? { dice: { text: `[fake dice] ${body.content}` } } : {}) });
   }
-  async characterSpace(_ch, cid) { return { character: { id: cid, role_card: { characteristics: { INT: 70 }, skills: { "Spot Hidden": 60 } } } }; }
+  async characterSpace(_ch, cid) {
+    if (this.ruleSystem === "dnd2024") return { character: { id: cid, role_card: { basic: { age: "24", sex: "female" }, dnd: { ...new MockLlm().dndBuild(), level: 3, saves: ["DEX", "INT"], ac: 14, hp_max: 24, speed: 30, hit_dice: "3d8", slots: {} } } }, attrs: { HP: 20 }, rule_system: "dnd2024" };
+    return { character: { id: cid, role_card: { characteristics: { INT: 70 }, skills: { "Spot Hidden": 60 } } } };
+  }
   async playerGroups() { return this.groups ?? []; }
   async world() { if (this.noWorld) throw Object.assign(new Error("not found"), { status: 404 }); return this.world_ ?? { version: 0, entities: [], recent_changes: [] }; }
   async declareWorld(_ch, body) { if (this.noWorld) throw Object.assign(new Error("not found"), { status: 404 }); (this.declared ??= []).push(body); return { event_id: `ev${this.declared.length}`, seq: 0 }; }
@@ -89,8 +100,9 @@ class FakeApi {
 
 const SECRETS = ["SECRET-ONE", "SECRET-TWO", "SECRET-THREE", "SECRET-BOARD", "SECRET-REMINDER", "SECRET-SCRIPT", "SECRET-DOC"];
 
-async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [], clock = { t: 1_700_000_000_000 }, bob = false, improv = null, casual = null, heal = false } = {}) {
+async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [], clock = { t: 1_700_000_000_000 }, bob = false, improv = null, casual = null, heal = false, rules = "coc7e" } = {}) {
   const api = new FakeApi();
+  api.ruleSystem = rules;
   api.characters_.push(...extraCharacters);
   if (bob) {
     // A second player who stays in the Main Chat.
@@ -1537,4 +1549,66 @@ test("a new player is seated in the planner window, gets a phone in casual mode,
   assert.ok(t.timelines.main().members.includes("c-cara"));
   await t.refresh(); await settle(t);
   assert.equal(directorCalls(llm).filter((u) => u.includes("a new player just joined the table")).length, 1, "welcomed once");
+});
+
+// ---- D&D 2024 tables
+const DND_CARD = { basic: { occupation: "Rogue", age: "24", sex: "female" }, dnd: { ...new MockLlm().dndBuild(), level: 3 } };
+
+test("a D&D table: the DM's and the co-players' prompts follow the profile; the cast shows builds and D&D traits; CoC prompts are the snapshot's", async () => {
+  const { t, api, llm } = await table({ rules: "dnd2024" });
+  api.characters_[1].role_card = DND_CARD;
+  api.characters_[0].role_card = { basic: { occupation: "Fighter" }, dnd: { class: "Fighter", level: 2, species: "Goliath", background: "Soldier", base: { STR: 15, DEX: 10, CON: 14, INT: 8, WIS: 12, CHA: 8 }, increases: { STR: 2, CON: 1 }, improvements: { STR: 3 }, skills: { Athletics: 1 } } };
+  assert.equal(t.profile.id, "dnd2024"); assert.equal(t.rules.point_buy.budget, 27, "the D&D rules were fetched");
+  await alicePosts(t, api, "I check the door for traps."); await settle(t);
+  const director = llm.calls.find((c) => c.purpose === "director");
+  assert.match(director.system, /^You are the Dungeon Master/); assert.doesNotMatch(director.system, /Keeper|\.sc /); assert.match(director.system, /"type": "dice"/);
+  const gm = director.messages[0].content;
+  assert.match(gm, /Co-players \(AI adventurers/); assert.match(gm, /- Harriet Vance\n    build: level 3 Elf Rogue \(Criminal\)\n/); assert.match(gm, /- Alice Hale \(played by alice\)\n    build: level 2 Goliath Fighter \(Soldier\)\n[^\n]*\n    notable: extremely strong/);
+  assert.doesNotMatch(gm, /## Keeper|\[Keeper only\]|Investigators may be living/); assert.match(gm, /## Dungeon Master board/); assert.match(gm, /\[Dungeon Master only\]/); assert.match(gm, /Adventurers may be living different threads/);
+  assert.match(gm, /Decide the Dungeon Master's actions for this turn\.$/);
+  const cp = llm.calls.find((c) => c.purpose === "coplayer_turn");
+  assert.match(cp.system, /^You play one adventurer in a fifth-edition fantasy game/); assert.doesNotMatch(cp.system, /Keeper/);
+  const self = cp.messages[0].content;
+  assert.match(self, /YOUR ROLE CARD:\nlevel 3 Elf Rogue, Criminal background/); assert.match(self, /HP 20\/24, AC 14/, "live HP from the sheet"); assert.match(self, /Stealth \+7 \(expertise\)/);
+  assert.match(self, /THE OTHER ADVENTURERS/); assert.match(self, /Dungeon Master \(narration\)/); assert.doesNotMatch(self.replace(/\[mock Keeper\]/g, ""), /Keeper/, "only the mock's own narration text says Keeper");
+  assert.ok(!self.includes("STR 20") && !self.includes("base"), "a companion's numbers stay private");
+  assert.match(self, /- Alice Hale\n    build: level 2 Goliath Fighter \(Soldier\)/);
+});
+
+test("D&D dice: co-players roll .rc/.ri/.ds/.ss and the result comes back; the DM's dice action runs .ri and .init, never .rc", async () => {
+  const llm = new MockLlm();
+  const baseCp = llm.coplayer.bind(llm);
+  llm.coplayer = (u, s) => (u.includes("NEWEST LINE: #") && u.includes("Roll, Harriet") ? { action: "roll", command: ".rc Stealth dc 15", text: "I slip into the shadows." } : baseCp(u, s));
+  const baseD = llm.director.bind(llm);
+  llm.director = (u) => (u.includes("NEWEST LINE: Alice Hale: A goblin jumps out!") && !/^MODE: /m.test(u) ? { actions: [{ type: "dice", command: ".ri +2 Goblin", text: "Roll for initiative!" }, { type: "dice", command: ".rc Stealth" }, { type: "request_roll", who: "Alice Hale", command: ".ri" }, { type: "request_roll", who: "Harriet Vance", command: ".ri" }], coplayers_may_act: false } : baseD(u));
+  const { t, api } = await table({ llm, rules: "dnd2024" });
+  await alicePosts(t, api, "Roll, Harriet."); await settle(t);
+  const roll = api.posts.find((p) => p.content === ".rc Stealth dc 15");
+  assert.ok(roll && roll.character_id === "c-harriet", "posted as her line");
+  assert.match(directorCalls(llm).at(-1), /\.rc Stealth dc 15 → \[fake dice\] \.rc Stealth dc 15/, "the DM reads the result in the follow-up");
+  await alicePosts(t, api, "A goblin jumps out!"); await settle(t);
+  const after = api.posts.slice(api.posts.findIndex((p) => p.content === "Roll for initiative!"));
+  assert.deepEqual(after.map((p) => [p.content, p.character_id ?? null]), [["Roll for initiative!", null], [".ri +2 Goblin", null], ["→ Alice Hale: .ri", null], [".ri", "c-harriet"]], "the goblin's roll as the DM account, no .rc; players asked, the co-player rolled");
+  const { validateCoplayer } = await import("../src/coplayer.mjs");
+  const dnd = t.profile;
+  for (const c of [".ri", ".ds", ".ss 1", ".rc attack +5 ac 14", ".ra WIS save adv dc 13", ".r 1d8+3"]) assert.equal(validateCoplayer({ action: "roll", command: c }, { roll: dnd.roll }).command, c);
+  for (const c of [".init next", ".st hp-3", ".rch Stealth", ".sc 1/1d6", ".en Stealth"]) assert.throws(() => validateCoplayer({ action: "roll", command: c }, { roll: dnd.roll }), /unsupported roll command/, c);
+  assert.throws(() => validateCoplayer({ action: "roll", command: ".ri" }), /unsupported/, "not in CoC");
+  const { validateDirector } = await import("../src/director.mjs");
+  assert.deepEqual(validateDirector({ actions: [{ type: "dice", command: ".init next" }] }).actions, [], "no dice action on a CoC table");
+});
+
+test("D&D initiative: the order is shown in the DM's context while a fight is on, and refreshed on initiative.changed", async () => {
+  const { t, api, llm } = await table({ rules: "dnd2024" });
+  await alicePosts(t, api, "Hello?"); await settle(t);
+  assert.doesNotMatch(directorCalls(llm).at(-1), /## Initiative/);
+  api.initiative_ = { round: 2, turn: 1, entries: [{ id: "e1", name: "Goblin", total: 18, character_id: null, created_by: "u-bot" }, { id: "e2", name: "Alice Hale", total: 15, character_id: "c-alice", created_by: "u-alice" }] };
+  await alicePosts(t, api, "Still here."); await settle(t);
+  assert.doesNotMatch(directorCalls(llm).at(-1), /## Initiative/, "cached: nothing said the order changed");
+  t.onEvent({ stream: "chat", type: "initiative.changed", channel_id: "ch", chat_window_id: "w-main" });
+  await alicePosts(t, api, "I attack."); await settle(t);
+  assert.match(directorCalls(llm).at(-1), /## Initiative in "Main Chat" \(round 2; use dice "\.init next" after each turn\)\n- Goblin 18 \(yours\)\n- Alice Hale 15 ← now/);
+  const coc = await table();
+  await alicePosts(coc.t, coc.api, "Hello?"); await settle(coc.t);
+  assert.equal(coc.api.initiativeReads, 0, "a CoC table never asks for initiative");
 });

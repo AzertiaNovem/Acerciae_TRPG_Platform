@@ -12,10 +12,12 @@ channel:                      # only used by `setup --create`; otherwise the cli
   server_id: ""
   server_name: AI Keeper's table
   channel_name: A campaign with an AI Keeper
-  era: ""                     # e.g. 1920s
+  era: ""
+  rule_system: coc7e          # coc7e (Call of Cthulhu 7e) | dnd2024 (D&D 2024); only for `setup --create`, otherwise the channel's                     # e.g. 1920s
 
 table:
-  coplayers: 2                # AI investigators playing alongside the players (0–8)
+  coplayers: 2
+  level: 1                    # D&D channels: the level new co-players are built at (existing characters keep theirs)                # AI investigators playing alongside the players (0–8)
   coplayer_windows: []        # window names or ids the co-players start in (default: the Main Chat)
   language: ""                # GM language; empty follows the server's
   kickoff: false              # open the session without waiting for a player

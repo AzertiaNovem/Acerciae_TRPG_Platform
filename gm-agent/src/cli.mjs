@@ -24,6 +24,7 @@ import { Store, billableTokens } from "./store.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
+import { RULE_SYSTEMS, rulesProfile, ruleSystemOf } from "./rules/index.mjs";
 import { describeCalendar, renderCalendar } from "./calendar.mjs";
 import { Guard } from "./whereabouts.mjs";
 
@@ -50,7 +51,7 @@ async function resolveChannel(api, cfg, { create }) {
   if (cfg.channelId) {
     const ch = await api.channel(cfg.channelId);
     if (ch.my_role !== "gm") throw new Error(`${cfg.username} is not the GM of channel ${cfg.channelId}; add it as GM first`);
-    if (ch.rule_system && ch.rule_system !== "coc7e") throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent builds Call of Cthulhu 7e investigators only`);
+    if (ch.rule_system && !RULE_SYSTEMS.includes(ch.rule_system)) throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent supports ${RULE_SYSTEMS.join(" and ")}`);
     return { channel: ch, created: false };
   }
   if (!create) throw new Error("set CHANNEL_ID (or --channel); `setup` lists the channels this account keeps");
@@ -65,7 +66,7 @@ async function resolveChannel(api, cfg, { create }) {
   let serverId = cfg.serverId;
   if (!serverId) { serverId = (await api.createServer(cfg.serverName)).id; log(`created server "${cfg.serverName}"`); }
   // Casual mode's phones are private only when each player is in a group of their own.
-  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: cfg.casual ? "isolated" : "public", rule_system: "coc7e" });
+  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: cfg.casual ? "isolated" : "public", rule_system: cfg.ruleSystem });
   if (cfg.era) await api.updateChannel(ch.id, { era: cfg.era });
   log(`created channel "${cfg.channelName}"`);
   // A channel this client made has no players yet: an invite code gets them onto the server.
@@ -88,7 +89,10 @@ async function setup(cfg) {
   const language = languageName(cfg.language || settings?.language || "en");
   // Point buy is the channel's own option (its GM's); servers before that had a server feature.
   const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
-  const rules = await api.coc7Rules();
+  // The channel's rule system decides the cards, the dice and the words (rules/*.mjs).
+  const profile = rulesProfile(ruleSystemOf(channel));
+  const rules = await profile.fetchRules(api);
+  log(`rules: ${profile.id === "dnd2024" ? "D&D 2024 (SRD 5.2)" : "Call of Cthulhu 7e"}${pointsMode ? ", point buy on" : ""}${profile.id === "dnd2024" ? `; new co-players at level ${cfg.level}` : ""}`);
   const windows = await api.windows(channel.id);
   const seats = seatWindows(cfg, windows);
   const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
@@ -114,7 +118,7 @@ async function setup(cfg) {
   if (improv) log(`improvisation mode ${improv.on ? `on (world ${String(improv.world ?? state.improv?.world ?? "").length} characters)` : "off"}${running ? "; handed to the running table" : "; the world setting is posted in the Main Chat when run starts"}`);
 
   for (const existing of roster.coplayers) {
-    await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, log });
+    await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, profile, level: cfg.level, log });
   }
 
   const missing = cfg.coplayers - roster.coplayers.length;
@@ -124,12 +128,12 @@ async function setup(cfg) {
     const characters = await api.characters(channel.id);
     const takenNames = characters.map((c) => c.name);
     const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-    const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers, world };
+    const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers, world, profile, level: cfg.level, log };
     const generated = await generateCoplayer(llm, args);
-    const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, llm, language, pointsMode });
+    const saved = await saveCharacter(api, channel.id, generated, { kind: "coplayer", rules, llm, language, pointsMode, profile, level: cfg.level });
     roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
     if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
-    log(`co-player ${roster.coplayers.length}/${cfg.coplayers}: ${saved.name} (${saved.card.basic.occupation || "investigator"})`);
+    log(`co-player ${roster.coplayers.length}/${cfg.coplayers}: ${saved.name} (${profile.castNote(saved.card) || saved.card.basic?.occupation || profile.vocab.pc})`);
   }
   if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
   const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
@@ -280,7 +284,7 @@ async function status(cfg) {
   const wname = (id) => windows.find((w) => w.id === id)?.name ?? id;
   const cname = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   const holder = lockHolder(cfg.stateDir, channel.id);
-  console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
+  console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; rules: ${table.profile.id === "dnd2024" ? "D&D 2024 (SRD 5.2): Dungeon Master, D20 Tests, initiative" : "Call of Cthulhu 7e"}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
   if (table.splitWarning) console.log(`warning: ${table.splitWarning}`);
   console.log("GM and real NPCs share the Keeper's context: all chat, the Keeper board, reminders, script knowledge, documents, highlights.");
   console.log(`real NPCs: ${roster.npcs.map((n) => n.name).join(", ") || "(none)"}`);

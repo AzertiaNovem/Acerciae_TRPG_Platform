@@ -7,6 +7,7 @@
 //     witnessed (its seats, its timeline) and nothing else, with the same thresholds on COPLAYER_CONTEXT_TOKENS.
 // Compacting half at a time keeps the models' cached prefix stable between compactions (see context layout in
 // gmContext.mjs and coplayer.mjs). Compaction runs beside the turns, one job per scope at a time.
+import { COC_VOCAB } from "./rules/vocab.mjs";
 import { completeJson } from "./llm/index.mjs";
 
 const CJK = /[⺀-鿿가-힯豈-﫿＀-￯]/g;
@@ -57,6 +58,7 @@ const words = (tokens) => Math.max(120, Math.min(1500, Math.round(tokens * 0.6))
 export class Memory {
   constructor({ store, llm, language = "English", gmBudget = 60000, coplayerBudget = 24000, log = () => {} }) {
     Object.assign(this, { store, llm, language, gmBudget, coplayerBudget, log });
+    this.vocab = COC_VOCAB;   // the rule system's words for the prompts (rules/vocab.mjs); the table sets it
     this.jobs = new Map();   // scope → running compaction
   }
 
@@ -88,7 +90,7 @@ export class Memory {
       if (raw.length && (whole || rawTokens > this.gmBudget * 0.6)) {
         const take = whole ? raw : oldestHalf(raw, render);
         const prev = this.gmChapters(windowId).at(-1);
-        const summary = await this.summarise("compact", gmSystem(this.language, words(estimateTokens(take.map(render).join("\n")) * 0.25), windowName), [
+        const summary = await this.summarise("compact", gmSystem(this.language, words(estimateTokens(take.map(render).join("\n")) * 0.25), windowName, false, this.vocab), [
           prev ? `PREVIOUS CHAPTER (for continuity; do not repeat it):\n${prev.text}` : "",
           `LINES:\n${take.map(render).join("\n")}`,
         ]);
@@ -115,7 +117,7 @@ export class Memory {
       if (raw.length && estimateTokens(raw.map(render).join("\n")) > this.coplayerBudget * 0.6) {
         const take = oldestHalf(raw, render);
         const prev = this.coplayerChapters(coplayer).at(-1);
-        const summary = await this.summarise("coplayer_memory", coplayerSystem(this.language, coplayer.name, words(estimateTokens(take.map(render).join("\n")) * 0.25)), [
+        const summary = await this.summarise("coplayer_memory", coplayerSystem(this.language, coplayer.name, words(estimateTokens(take.map(render).join("\n")) * 0.25), false, this.vocab), [
           prev ? `WHAT YOU ALREADY REMEMBER (for continuity; do not repeat it):\n${prev.text}` : "",
           `LINES:\n${take.map(render).join("\n")}`,
         ]);
@@ -131,7 +133,7 @@ export class Memory {
     const chapters = this.store.chapters(scope, windowId);
     if (chapters.length < 2 || estimateTokens(chapters.map(chapterText).join("\n")) <= budget * 0.25) return;
     const take = chapters.slice(0, Math.max(2, Math.floor(chapters.length / 2)));
-    const system = firstPerson ? coplayerSystem(this.language, firstPerson, words(budget * 0.08), true) : gmSystem(this.language, words(budget * 0.08), label, true);
+    const system = firstPerson ? coplayerSystem(this.language, firstPerson, words(budget * 0.08), true, this.vocab) : gmSystem(this.language, words(budget * 0.08), label, true, this.vocab);
     const summary = await this.summarise(firstPerson ? "coplayer_memory" : "compact", system, [`CHAPTERS:\n${take.map((c) => `[#${c.fromSeq}–#${c.toSeq}]\n${c.text}`).join("\n\n")}`]);
     this.store.mergeChapters(take.map((c) => c.id), { scope, windowId, fromSeq: take[0].fromSeq, toSeq: take.at(-1).toSeq, level: Math.max(...take.map((c) => c.level)) + 1, text: summary });
     this.log(`memory: ${label}: ${take.length} chapters merged`);
@@ -155,10 +157,10 @@ function oldestHalf(lines, render) {
   return lines.slice(0, Math.max(1, n));
 }
 
-const gmSystem = (language, maxWords, where, merge = false) => `You keep the Keeper's memory of a long tabletop roleplaying campaign. ${merge ? "Merge the chapters below into one chapter, oldest first" : `Summarise the chat lines below from ${where} into a chapter of the story so far`}, in ${language}.
-Keep what later play depends on: who did what, people and places by name, clues found, promises, debts and threats, decisions, open questions, injuries, sanity and items gained or lost, and where each investigator ended up. Keep the line numbers (#seq) of key moments. Keep anything marked [Keeper only] or whispered marked the same way: it stays in the Keeper's memory and must not read as public. Leave out table chatter, and dice mechanics except their outcomes.
+const gmSystem = (language, maxWords, where, merge = false, v = COC_VOCAB) => `You keep the ${v.gm}'s memory of a long tabletop roleplaying campaign. ${merge ? "Merge the chapters below into one chapter, oldest first" : `Summarise the chat lines below from ${where} into a chapter of the story so far`}, in ${language}.
+Keep what later play depends on: who did what, people and places by name, clues found, promises, debts and threats, decisions, open questions, ${v.losses}, and where each ${v.pc} ended up. Keep the line numbers (#seq) of key moments. Keep anything marked [${v.gm} only] or whispered marked the same way: it stays in the ${v.gm}'s memory and must not read as public. Leave out table chatter, and dice mechanics except their outcomes.
 Write compact prose or short bullet points, at most ${maxWords} words. Reply with only {"summary": "..."}.`;
 
-const coplayerSystem = (language, name, maxWords, merge = false) => `You are ${name}, an investigator in a long tabletop roleplaying campaign. ${merge ? "Merge these memories of yours into one, oldest first" : "Write what you remember of the moments below"}, in the first person, in ${language}.
+const coplayerSystem = (language, name, maxWords, merge = false, v = COC_VOCAB) => `You are ${name}, an ${v.pc} in a long tabletop roleplaying campaign. ${merge ? "Merge these memories of yours into one, oldest first" : "Write what you remember of the moments below"}, in the first person, in ${language}.
 Only what you saw, heard, said and did: the lines are exactly what you witnessed. Keep people and places by name, what you learned, promises you made or were made, who you trust or fear, your injuries and fears, and where you ended up. Keep the line numbers (#seq) of key moments. Leave out table chatter and dice mechanics except their outcomes.
 At most ${maxWords} words. Reply with only {"summary": "..."}.`;

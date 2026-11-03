@@ -64,8 +64,8 @@ const get = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o =
 const SETTINGS = [
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
   ["register", null, "account.register"], ["create", null, "channel.create"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
-  ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"],
-  ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
+  ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"], ["rules", null, "channel.rule_system"],
+  ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["level", null, "table.level"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
   ["llm-provider", null, "llm.provider"], ["llm-api-base", null, "llm.api_base"], ["llm-api-key", "LLM_API_KEY", null], ["llm-model", null, "llm.model"], ["llm-effort", null, "llm.effort"],
   ["llm-max-tokens", null, "llm.max_tokens"], ["llm-fallbacks", null, "llm.fallbacks"], ["llm-timeout-ms", null, "llm.timeout_ms"], ["llm-stream", null, "llm.stream"], ["llm-trace", null, "llm.trace"], ["llm-cache-ttl", null, "llm.cache_ttl"],
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
@@ -178,7 +178,10 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     serverName: str(pick("server-name", "AI Keeper's table")),
     channelName: str(pick("channel-name", "A campaign with an AI Keeper")),
     era: str(pick("era", "")),
+    // The rule system a channel made by `setup --create` plays by; an existing channel's is read from the platform.
+    ruleSystem: (() => { const v = str(pick("rules", "coc7e")) || "coc7e"; if (!["coc7e", "dnd2024"].includes(v)) throw new Error(`--rules (channel.rule_system) must be coc7e or dnd2024, not "${v}"`); return v; })(),
     coplayers: Math.max(0, Math.min(8, int(pick("coplayers", 2), 2))),
+    level: Math.max(1, Math.min(20, int(pick("level", 1), 1))),   // D&D: the level of new co-players
     coplayerWindows: list(pick("coplayer-windows", "")),
     language: str(pick("language", "")),
     llm,

@@ -71,6 +71,7 @@ export class Api {
   putCard(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/card`, body); }
   putAppearance(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/appearance`, body); }
   coc7Rules() { return this.get("/api/coc7/rules"); }
+  dndRules() { return this.get("/api/dnd/rules"); }
 
   // ---- chat
   windows(ch) { return this.get(`/api/channels/${ch}/windows`); }
@@ -79,6 +80,9 @@ export class Api {
   addWindowMember(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/members`, body); }
   messages(ch, w, limit = 60, beforeSeq = 0) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}${beforeSeq > 0 ? `&before_seq=${beforeSeq}` : ""}`); }
   postMessage(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/messages`, body); }
+  // A window's Initiative order (D&D channels): {round, turn, entries[{id, name, total, character_id, created_by}]}.
+  initiative(ch, w) { return this.get(`/api/channels/${ch}/windows/${w}/initiative`); }
+  initiativeAction(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/initiative`, body); }
 
   // ---- the Keeper's context and the platform's AI tips (GM only)
   scenes(ch) { return this.get(`/api/channels/${ch}/scenes`); }

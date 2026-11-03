@@ -75,3 +75,10 @@ test("the file is found by flag, variable or beside the working directory, and r
   fs.writeFileSync(path.join(dir, "bad.yml"), "- a\n- b\n");
   assert.throws(() => loadConfigFile(path.join(dir, "bad.yml")), /YAML mapping/);
 });
+
+test("the rule system of a new channel and the level of new D&D co-players", () => {
+  assert.equal(buildConfig({}, {}, file({})).ruleSystem, "coc7e"); assert.equal(buildConfig({}, {}, file({})).level, 1);
+  assert.equal(buildConfig({}, {}, file({ channel: { rule_system: "dnd2024" }, table: { level: 5 } })).ruleSystem, "dnd2024");
+  assert.equal(buildConfig({ rules: "dnd2024", level: "30" }, {}, file({})).level, 20, "clamped to 1–20");
+  assert.throws(() => buildConfig({ rules: "dnd5e" }, {}, file({})), /must be coc7e or dnd2024/);
+});
