@@ -8,12 +8,20 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <unordered_map>
 
 namespace acerciae::llm {
+struct FailFastPass::Refused {
+    std::mutex mu;
+    std::set<std::string> origins;
+    bool has(const std::string& origin) { std::lock_guard lock(mu); return origins.count(origin) > 0; }
+    void add(const std::string& origin) { std::lock_guard lock(mu); origins.insert(origin); }
+};
 namespace {
 using Clock = std::chrono::steady_clock;
+thread_local std::shared_ptr<FailFastPass::Refused> currentPass;   // the pass open on this thread, if any
 bool retryable(long status) { return status == 429 || status == 502 || status == 503 || status == 504 || status == 529; }
 struct Transfer {
     std::unique_ptr<net::PinnedRequest> pinned;
@@ -23,6 +31,7 @@ struct Transfer {
     std::promise<HttpResult> result;
     Clock::time_point deadline, readyAt = Clock::now();
     int attempt = 0, retryAfter = -1;
+    std::shared_ptr<FailFastPass::Refused> pass;   // submitted inside a FailFastPass
     ~Transfer() { curl_slist_free_all(headers); }
 };
 std::size_t headerCb(char* buffer, std::size_t size, std::size_t nitems, void* userdata) {
@@ -108,7 +117,9 @@ private:
         if (rc == CURLE_WRITE_ERROR || rc == CURLE_FILESIZE_EXCEEDED) out.error = "the AI provider response exceeded the size limit";
         else if (rc != CURLE_OK) {
             out.error = std::string("could not reach the AI provider: ") + curl_easy_strerror(rc);
-            retry = rc == CURLE_COULDNT_CONNECT || rc == CURLE_GOT_NOTHING || rc == CURLE_RECV_ERROR;
+            // Inside a pass a refused connection fails now, and the pass skips that endpoint from here on.
+            if (rc == CURLE_COULDNT_CONNECT && t->pass) t->pass->add(t->pinned->origin());
+            retry = (rc == CURLE_COULDNT_CONNECT && !t->pass) || rc == CURLE_GOT_NOTHING || rc == CURLE_RECV_ERROR;
         } else retry = retryable(out.status);
         if (retry && t->attempt < 3 && Clock::now() < t->deadline) {
             int seconds = rc != CURLE_OK ? t->attempt : t->retryAfter >= 0 ? t->retryAfter : 1 << t->attempt;
@@ -184,9 +195,16 @@ std::future<HttpResult> postJsonAsync(const std::string& url, const std::vector<
     // DNS validation/pinning stays on the submitting AI worker, outside both network loops.
     try { t->pinned = std::make_unique<net::PinnedRequest>(url); }
     catch (const std::exception& e) { auto f = t->result.get_future(); t->result.set_value({0, {}, e.what()}); return f; }
+    if ((t->pass = currentPass) && t->pass->has(t->pinned->origin())) {
+        auto f = t->result.get_future();
+        t->result.set_value({0, {}, std::string("could not reach the AI provider: ") + curl_easy_strerror(CURLE_COULDNT_CONNECT)});
+        return f;
+    }
     for (const auto& line : headers) t->headers = curl_slist_append(t->headers, line.c_str());
     return getTransport()->submit(std::move(t));
 }
+FailFastPass::FailFastPass() : refused_(std::make_shared<Refused>()), previous_(std::move(currentPass)) { currentPass = refused_; }
+FailFastPass::~FailFastPass() { currentPass = std::move(previous_); }
 HttpResult postJson(const std::string& url, const std::vector<std::string>& headers, const std::string& body, long timeoutMs, std::size_t maxResponseBytes) {
     return postJsonAsync(url, headers, body, timeoutMs, maxResponseBytes).get();
 }
