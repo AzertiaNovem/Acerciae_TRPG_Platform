@@ -1,4 +1,5 @@
-#include "../rules/Pbta.h"
+#include "../knowledge/Visibility.h"
+#include "../rules/PbtaRuling.h"
 #include <atomic>
 #include "../atmosphere/AtmosphereService.h"
 #include "Api.h"
@@ -401,11 +402,34 @@ void registerRoutes() {
     route3("/api/channels/{1}/windows/{2}/members/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeWindowMember(access(p, a[0]), a[1], a[2]); });
     route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint(req, "before_seq", 0)); });
     route1("/api/channels/{1}/pbta", {Get}, [&](auto&, auto& p, auto& a) { return pbta::read(*S.db, access(p,a[0])); });
+    route1("/api/channels/{1}/pbta/draft", {Get}, [&](auto&, auto& p, auto& a) { return pbta::review(*S.db,access(p,a[0])); });
+    route1("/api/channels/{1}/pbta/draft", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::changeReview(*S.db,access(p,a[0]),body(req)); });
     route1("/api/channels/{1}/pbta/preview", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::preview(access(p,a[0]),body(req)); });
     route1("/api/channels/{1}/pbta", {Put}, [&](auto& req, auto& p, auto& a) { return pbta::replace(*S.db, access(p,a[0]), body(req)); });
     route2("/api/channels/{1}/windows/{2}/initiative", {Get}, [&](auto&, auto& p, auto& a) { return S.dice->initiative(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/windows/{2}/initiative", {Post}, [&](auto& req, auto& p, auto& a) { return S.dice->initiativeAction(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/windows/{2}/read", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->markRead(access(p, a[0]), a[1], b["seq"].isNumeric() ? b["seq"].asInt64() : 0); });
+    route2("/api/channels/{1}/windows/{2}/pbta-rulings", {Get}, [&](auto& req, auto& p, auto& args) {
+        auto a = access(p, args[0]);
+        S.auth->requireGm(a);
+        S.auth->requireWindowMember(a, args[1]);
+        return pbta::rulingHistory(*S.db, a, args[1], qint(req, "before_seq", 0));
+    });
+    route2("/api/channels/{1}/windows/{2}/pbta-rulings", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto b=body(req); auto op=json::str(b,"op");
+        if(op!="declare" && op!="move" && op!="ask" && op!="mark") throw badRequest("Invalid ruling action");
+        auto actor=json::requireStr(b,"character_id");
+        if(!Visibility::isUuid(actor)) throw badRequest("Invalid character ID");
+        Json::Value line; line["character_id"]=actor;
+        if(op=="move") {
+            auto move=json::requireStr(b,"move_id");
+            if(move.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_-")!=std::string::npos || move.size()>40) throw badRequest("Invalid move ID");
+            if(b.isMember("modifier") && (!b["modifier"].isInt() || b["modifier"].asInt() < -99 || b["modifier"].asInt() > 99))
+                throw badRequest("Invalid move modifier");
+            line["content"]=".move "+move+(b.get("modifier",0).asInt()!=0?" "+json::str(b,"modifier"):"");
+        } else line["content"]=op;
+        return S.chat->postMessage(access(p,a[0]),a[1],line,b);
+    });
     route2("/api/channels/{1}/windows/{2}/messages", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->postMessage(access(p, a[0]), a[1], body(req)); });
     // Deprecated alias of /scenarios/enter: scenarios are campaign-wide, the window is ignored.
     route2("/api/channels/{1}/windows/{2}/scene", {Post}, [&](auto& req, auto& p, auto& a) { return S.scenarios->enter(access(p, a[0]), json::requireStr(body(req), "scene_id")); });

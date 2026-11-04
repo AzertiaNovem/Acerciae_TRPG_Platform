@@ -68,6 +68,12 @@ export class Api {
   characters(ch) { return this.get(`/api/channels/${ch}/characters`); }
   createCharacter(ch, body) { return this.post(`/api/channels/${ch}/characters`, body); }
   characterSpace(ch, cid) { return this.get(`/api/channels/${ch}/characters/${cid}/space`); }
+  pbtaRules(ch) { return this.get(`/api/channels/${ch}/pbta`); }
+  pbtaDraft(ch) { return this.get(`/api/channels/${ch}/pbta/draft`); }
+  reviewPbta(ch, body) { return this.post(`/api/channels/${ch}/pbta/draft`, body); }
+  previewPbta(ch, pack) { return this.post(`/api/channels/${ch}/pbta/preview`, pack); }
+  pbtaRulings(ch, w, before = 0) { return this.get(`/api/channels/${ch}/windows/${w}/pbta-rulings?before_seq=${before}`); }
+  pbtaRuling(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/pbta-rulings`, body); }
   putCard(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/card`, body); }
   putAppearance(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/appearance`, body); }
   coc7Rules() { return this.get("/api/coc7/rules"); }

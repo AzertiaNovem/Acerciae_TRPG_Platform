@@ -73,7 +73,7 @@ public:
     Json::Value markRead(const ChannelAccess& a, const std::string& windowId, int64_t seq);
     // messages
     Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq);
-    Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body);
+    Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling = {});
     Json::Value getMessage(const ChannelAccess& a, const std::string& messageId);
     Json::Value searchMessages(const ChannelAccess& a, const std::string& query, int limit);
     struct Policy { std::string join = "invite", channelCreation = "members"; bool guestInvites = false, spectators = false; };

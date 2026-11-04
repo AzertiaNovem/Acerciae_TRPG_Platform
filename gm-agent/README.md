@@ -8,7 +8,7 @@ HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile app
 | **GM (Keeper)** | the client's account, channel role `gm` | – | everything the Keeper may read (below) |
 | **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the Keeper by hand) | **the same context as the GM** |
 | **Story planner** | nothing on the platform | – | the Keeper's whole context plus the previous plan, in the background, with its own model |
-| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its COC7 role card** at setup (or the Keeper made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
+| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its CoC or PbtA role card** at setup (or the Keeper made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
 Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
 platform they are PCs cast by the GM: player characters owned by the client's own (Keeper) account, so players see them
@@ -20,6 +20,21 @@ different context, and the GM model is never allowed to speak for them.
 The platform's own AI never speaks in chat. It writes tips for the Keeper: the pinned board, reminder bubbles, script
 knowledge, documents, highlights and module hints. This client reads those tips for the GM and the real NPCs. Co-players
 never get them.
+
+## Hosting a PbtA table
+
+With the Keeper account and LLM configured, run these commands from `gm-agent`:
+
+```sh
+node src/cli.mjs setup --create --rules pbta --world world.md --coplayers 2
+# Review the draft in GM workspace → Settings → Rule pack, then repeat the same setup.
+node src/cli.mjs setup --create --rules pbta --world world.md --coplayers 2
+node src/cli.mjs run --channel <CHANNEL_ID>
+```
+
+The first setup prints the channel ID and exits before creating the cast. Edit the proposed moves, save a draft to return later, then choose **Activate draft** or **Keep current rules**. Retry design in the workspace and rerun setup if the local agent was interrupted. Use the same state directory when repeating `--create`. With the channel ID you can always resume using `setup --channel <CHANNEL_ID>`. An attached PbtA table with play history or a custom pack uses its existing rules. Without a public world, a new PbtA table starts with the platform starter. Only the public world file is sent to the rules designer.
+
+The MC can invoke a triggered move for the speaking player, with a reference to their declaration. The platform rolls or returns the diceless instructions. For a player choice the MC asks in the same window and waits for their answer. Required choices may be marked for each outcome in the rule editor. When the cost is known the MC records the old and new resource or condition values on the card and cites the ruling in chat. Conflicting edits require manual reconciliation. Keep private sessions in their own window. Co-players see their own playbook and witnessed chat. GM reference moves stay in the MC context.
 
 ## What each role sees
 

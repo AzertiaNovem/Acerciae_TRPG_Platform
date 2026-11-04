@@ -1,4 +1,4 @@
-import type { Pack as PbtaPack, Rules as PbtaRules } from '../components/pbta/types';
+import type { Pack as PbtaPack, Rules as PbtaRules, DraftReview } from '../components/pbta/types';
 import type * as T from '../types';
 import { apiBase, isDesktop } from '../lib/platform';
 import { createTokenStore, tauriKeychain } from '../lib/tokenStore';
@@ -61,6 +61,8 @@ const q = (o: Record<string, string | number | undefined>) => { const s = Object
 
 export const api = {
   pbtaRules: (ch:string)=>get<PbtaRules>(`/api/channels/${ch}/pbta`),
+  pbtaDraft: (ch:string)=>get<DraftReview>(`/api/channels/${ch}/pbta/draft`),
+  reviewPbta: (ch:string,body:unknown)=>post<DraftReview>(`/api/channels/${ch}/pbta/draft`,body),
   previewPbta: (ch:string,pack:unknown)=>post<PbtaPack>(`/api/channels/${ch}/pbta/preview`, pack),
   savePbta: (ch:string,body:PbtaRules)=>put<PbtaRules>(`/api/channels/${ch}/pbta`,body),
   health: () => get<{ status: string }>('/api/health'),

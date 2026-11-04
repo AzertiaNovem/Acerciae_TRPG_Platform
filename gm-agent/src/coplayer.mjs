@@ -13,8 +13,8 @@ const ROLL = /^\.(ra|rc|r|sc)(\s|$)/i;
 
 // `improv`: a Basic Roleplaying game on the CoC presets, its tone the world's. `casual`: the co-player may also text a
 // player character on their phone (casual.mjs).
-export function coplayerSystem(language, { improv = false, casual = false } = {}) {
-  return `You play one investigator in ${improv ? "a Basic Roleplaying (BRP) game using the Call of Cthulhu 7th edition presets, whose genre and tone follow its world setting," : "a Call of Cthulhu 7th edition game"} on an online table, alongside human players. The Keeper (GM) runs the world. You are a fellow player, not the Keeper and not the protagonist.
+export function coplayerSystem(language, { improv = false, casual = false, pbta = null } = {}) {
+  return `You play one investigator in ${pbta ? "a Powered by the Apocalypse game" : improv ? "a Basic Roleplaying (BRP) game using the Call of Cthulhu 7th edition presets, whose genre and tone follow its world setting," : "a Call of Cthulhu 7th edition game"} on an online table, alongside human players. The Keeper (GM) runs the world. You are a fellow player, not the Keeper and not the protagonist.
 
 How to play:
 - Stay in character, true to your persona and role card. Know only what your character saw or heard in the chat log below.
@@ -23,12 +23,12 @@ How to play:
 - Companions may have lived through scenes you were not part of. When one tells you about something, it happened where and when they were, not here and now; you know only what they tell you.
 - Be a good tablemate: support the human players, follow up on their ideas, do not take over the scene or solve the mystery alone. Short lines (1-3 sentences).
 - Never narrate outcomes, the world or other characters' actions; that is the Keeper's job.
-- If the Keeper asked you to roll, or an uncertain action needs a check, reply with a roll using a Sealdice command such as ".ra Spot Hidden" (the platform rolls it against your sheet).
+- ${pbta ? "Describe your own action in text. Trigger an available move only when its trigger fits. For a roll action supply the .move ID and the fictional declaration in text. Wait for the actual result. Answer choices only for yourself." : 'If the Keeper asked you to roll, or an uncertain action needs a check, reply with a roll using a Sealdice command such as ".ra Spot Hidden" (the platform rolls it against your sheet).'}
 - Pass when you have nothing useful to add, or when the last lines were addressed to someone else.
 - Write all text in ${language}.${casual ? `
 - This is a casual game: everyone has a phone, even if the setting has none. Now and then, when it fits, you may text someone you know instead of speaking in the scene (a plan, a joke, something you noticed): a player character, a companion, or someone you have met. Never flood anyone.` : ""}
 
-Reply with only one JSON object: {"action": "speak", "kind": "ic" | "ooc", "text": "..."} or {"action": "roll", "command": ".ra <skill>", "text": "<optional short line>"}${casual ? ` or {"action": "text", "to": "<someone you know>", "text": "<the text message>"}` : ""} or {"action": "pass"}`;
+Reply with only one JSON object: {"action": "speak", "kind": "ic" | "ooc", "text": "..."} or {"action": "roll", "command": "${pbta ? ".move <move-id>" : ".ra <skill>"}", "text": "<optional short line>"}${casual ? ` or {"action": "text", "to": "<someone you know>", "text": "<the text message>"}` : ""} or {"action": "pass"}`;
 }
 
 // Who the co-player is: the stable head of every prompt it gets.
@@ -42,7 +42,7 @@ export function coplayerSelf({ coplayer, card, world = "", stable = false }) {
   ].filter(Boolean).join("\n");
 }
 
-export function validateCoplayer(x, { casual = false } = {}) {
+export function validateCoplayer(x, { casual = false, pbta = null } = {}) {
   if (!x || typeof x !== "object") throw new Error("expected an object");
   if (x.action === "pass") return { action: "pass" };
   if (x.action === "text" && casual) {
@@ -56,7 +56,7 @@ export function validateCoplayer(x, { casual = false } = {}) {
   }
   if (x.action === "roll") {
     const command = String(x.command ?? "").trim();
-    if (!ROLL.test(command)) throw new Error(`unsupported roll command "${command}"`);
+    if (pbta ? (!/^\.move [a-z][a-z0-9_-]*(?: [+-]?\d{1,2})?$/.test(command) || !String(x.text ?? "").trim() || !pbta.moves.some(m=>m.id===command.split(" ")[1])) : !ROLL.test(command)) throw new Error(`unsupported roll command "${command}"`);
     return { action: "roll", command, text: String(x.text ?? "").trim() };
   }
   throw new Error(`unknown action "${x.action}"`);
@@ -64,12 +64,14 @@ export function validateCoplayer(x, { casual = false } = {}) {
 
 function cardState(card) {
   if (!card) return "(not available)";
+  if (card.pbta) return JSON.stringify(card.pbta);
   const d = card.derived ?? {};
   return `HP ${d.hp ?? "?"}/${d.hp_max ?? "?"}, SAN ${d.san ?? "?"}, MP ${d.mp ?? "?"}, MOV ${d.mov ?? "?"}, damage bonus ${d.db ?? "0"}\ncarrying: ${(card.items ?? []).map((i) => i.name).join(", ")}`;
 }
 
 function cardSummary(card, { stable = false } = {}) {
   if (!card) return "(not available)";
+  if (card.pbta) return JSON.stringify({ basic:card.basic, background:card.background, sheet:card.pbta });
   const ch = Object.entries(card.characteristics ?? {}).map(([k, v]) => `${k} ${v}`).join(", ");
   const sk = Object.entries(card.skills ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => `${k} ${v}`).join(", ");
   const b = card.basic ?? {};
@@ -92,7 +94,7 @@ function cardSummary(card, { stable = false } = {}) {
 // `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
 // `today` is the story's date as this co-player lives it (calendar.mjs), `timePassed` a line when the calendar moved
 // on since it last acted; `met` the NPCs it has met (rendered), `bonds` the relationships it knows (bonds.mjs).
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "" }) {
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -106,17 +108,19 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     `YOUR CURRENT CONDITION AND INVENTORY:\n${cardState(card)}`,
     recalled,
     phone ? `YOUR PHONE (recent text messages, oldest first):\n${phone}` : "",
-    today ? `TODAY IN THE STORY: ${today}` : "",
-    routine ? `${routine} (common knowledge: everyone in the story knows it)` : "",
-    timePassed,
-    timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
-    side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
-    `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
-    away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map((c) => renderProfile(c)).join("\n")}` : "",
-    met,
-    bonds,
-    corrections,
-    impulse,
+    ...(pbta ? ["Your available moves and playbook: " + JSON.stringify(pbta)] : [
+      today ? `TODAY IN THE STORY: ${today}` : "",
+      routine ? `${routine} (common knowledge: everyone in the story knows it)` : "",
+      timePassed,
+      timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
+      side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
+      `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
+      away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map((c) => renderProfile(c)).join("\n")}` : "",
+      met,
+      bonds,
+      corrections,
+      impulse,
+    ]),
     "",
     `CHAT LOG YOUR CHARACTER WITNESSED${frozen.length ? ", latest part" : ""} (newest last):\n${recent.map((m) => renderLine(m)).join("\n") || (frozen.length ? "(see above)" : "(nothing yet)")}`,
     newest ? `NEWEST LINE: ${renderLine(newest)}` : "",
@@ -124,5 +128,5 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     "Your move?",
   ].filter(Boolean).join("\n");
   const user = [{ text: `${self}\n\n`, cache: true }, ...(past ? [{ text: `${past}\n\n`, cache: true }] : []), ...historyParts(frozen, (m) => renderLine(m), "CHAT LOG YOUR CHARACTER WITNESSED, earlier part (oldest first):", CHUNK_LINES), { text: now }];
-  return completeJson(llm, { system: coplayerSystem(language, { improv, casual }), user, purpose: "coplayer_turn" }, (x) => validateCoplayer(x, { casual }));
+  return completeJson(llm, { system: coplayerSystem(language, { improv, casual, pbta }), user, purpose: "coplayer_turn" }, (x) => validateCoplayer(x, { casual, pbta }));
 }

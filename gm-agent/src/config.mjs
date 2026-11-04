@@ -63,7 +63,7 @@ const get = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o =
 // names map to file keys for the warning.
 const SETTINGS = [
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
-  ["register", null, "account.register"], ["create", null, "channel.create"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
+  ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rules"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
   ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"],
   ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
   ["llm-provider", null, "llm.provider"], ["llm-api-base", null, "llm.api_base"], ["llm-api-key", "LLM_API_KEY", null], ["llm-model", null, "llm.model"], ["llm-effort", null, "llm.effort"],
@@ -173,6 +173,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     register: bool(pick("register"), false),
     // The client never creates a server or channel unless asked (`setup --create`): it keeps one the account is GM of.
     create: bool(pick("create"), false),
+    ruleSystem: str(pick("rules", "coc7e")),
     serverId: str(pick("server", "")),
     channelId: str(pick("channel", "")),
     serverName: str(pick("server-name", "AI Keeper's table")),

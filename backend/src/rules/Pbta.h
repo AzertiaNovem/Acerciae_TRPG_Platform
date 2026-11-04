@@ -4,6 +4,9 @@
 
 namespace acerciae::pbta {
 Json::Value read(Db &db, const ChannelAccess &a);
+Json::Value review(Db &db, const ChannelAccess &a);
+Json::Value changeReview(Db &db, const ChannelAccess &a,
+                         const Json::Value &body);
 Json::Value preview(const ChannelAccess &a, const Json::Value &pack);
 Json::Value replace(Db &db, const ChannelAccess &a, const Json::Value &body);
 Json::Value lockedPack(pqxx::work &w, const std::string &channel);

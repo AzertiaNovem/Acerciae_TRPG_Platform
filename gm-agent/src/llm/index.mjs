@@ -47,11 +47,11 @@ export async function completeJson(llm, { system, user, messages: given, purpose
   const requestId = crypto.randomUUID();
   let reply = await llm.complete({ system, messages, purpose, phase, requestId, attempt: 1 });
   try {
-    return validate(extractJson(reply));
+    return await validate(extractJson(reply));
   } catch (e) {
     messages.push({ role: "assistant", content: reply });
     messages.push({ role: "user", content: `That reply could not be used (${e.message}). Answer again with only the JSON object described above.` });
     reply = await llm.complete({ system, messages, purpose, phase, requestId, attempt: 2 });
-    return validate(extractJson(reply));
+    return await validate(extractJson(reply));
   }
 }

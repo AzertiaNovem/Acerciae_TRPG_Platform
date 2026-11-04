@@ -9,6 +9,7 @@ account:
 
 channel:                      # only used by `setup --create`; otherwise the client keeps a channel the account is GM of
   create: false
+  rules: coc7e                # new channels: coc7e or pbta; attached channels keep their own rules
   server_id: ""
   server_name: AI Keeper's table
   channel_name: A campaign with an AI Keeper
