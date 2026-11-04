@@ -368,6 +368,8 @@ void registerRoutes() {
     });
     route2("/api/channels/{1}/characters/{2}/assets/generate", {Post}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->generate(access(p, a[0]), a[1], body(req)); });
     route3("/api/channels/{1}/characters/{2}/assets/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.characterSpace->removeAsset(access(p, a[0]), a[1], a[2]); });
+    // Numbers of an earlier rule system, archived when the GM switched the rules, back on the card (same system only).
+    route3("/api/channels/{1}/characters/{2}/card-archives/{3}/restore", {Post}, [&](auto&, auto& p, auto& a) { return S.characterSpace->restoreArchive(access(p, a[0]), a[1], a[2]); });
     route2("/api/channels/{1}/characters/{2}/attributes", {Get}, [&](auto&, auto& p, auto& a) { return S.dice->getAttributes(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/characters/{2}/attributes", {Put}, [&](auto& req, auto& p, auto& a) { return S.dice->updateAttributes(access(p, a[0]), a[1], body(req)); });
     route1("/api/channels/{1}/dice/preview", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.dice->preview(access(p, a[0]), json::str(b, "chat_window_id"), json::str(b, "character_id"), json::str(b, "content")); });

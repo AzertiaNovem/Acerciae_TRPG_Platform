@@ -103,7 +103,18 @@ function ChannelSettings() {
     if (channelId) api.channelMembers(channelId).then(setMembers).catch(() => undefined);
   }, [serverId, channelId]);
   if (!channelId || !channel) return null;
-  const save = async () => { try { await api.updateChannel(channelId, form as any); setDirty(false); await refreshChannel(); toast('Channel settings saved'); } catch (e: any) { toast(e.message, 'error'); } };
+  const systemName = (rs: string) => (rs === 'dnd2024' ? tr('D&D 2024') : tr('Call of Cthulhu 7e'));
+  const save = async () => {
+    // A new rule system is a transition: the story of every character stays, the old numbers are archived read-only on
+    // each card and the players are asked to rebuild theirs.
+    const from = channel.rule_system === 'dnd2024' ? 'dnd2024' : 'coc7e';
+    if (form.rule_system !== from && !confirm(tr("Switch the rules from {from} to {to}? Every character keeps its story: name, basic information, background, items and look. The {from} numbers are kept read-only on each card, and the players are asked to rebuild their characters' numbers for {to}.", { from: systemName(from), to: systemName(form.rule_system) }))) return;
+    try {
+      const out = await api.updateChannel(channelId, form as any); setDirty(false); await refreshChannel();
+      const t = out.rule_transition;
+      toast(t ? tr('Rules switched to {to}: {n} cards to rebuild', { to: systemName(t.to), n: t.pending }) : tr('Channel settings saved'));
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
   const ended = channel.story_status === 'ended';
   const endStory = async () => {
     if (!confirm(tr('End the story? Every member of this channel will be able to read the whole story in the Log Studio.'))) return;
@@ -133,7 +144,7 @@ function ChannelSettings() {
             <option value="dnd2024">{tr("D&D 2024 (SRD 5.2)")}</option>
           </select>
         </label>
-        <div className="tiny muted">{tr("Decides the dice commands, the character sheet and how the AI names the game and the GM. Character sheets keep their values when you switch.")}</div>
+        <div className="tiny muted">{tr("Decides the dice commands, the character sheet and how the AI names the game and the GM. When you switch, every character keeps its story; the numbers of the old rules are kept read-only on the card and the players are asked to rebuild them.")}</div>
         <label className="row small"><input type="checkbox" checked={form.point_buy} onChange={(e) => setForm({ ...form, point_buy: e.target.checked })} />{tr("Point buy for role cards")}</label>
         <div className="tiny muted">{form.rule_system === 'dnd2024' ? tr("Ability scores by point buy (27 points) or the standard array, background increases, and skills from the class, background and species.") : tr("Role cards spend occupation points (from a career in the built-in list) and personal interest points (INT×2).")}</div>
         <div className="section-label">{tr("AI in this channel")}</div>

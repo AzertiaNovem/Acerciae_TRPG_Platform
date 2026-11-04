@@ -27,6 +27,9 @@ int num(const Json::Value& v, int lo, int hi) { if (!v.isNumeric() || v.isBool()
 const char* kCharacteristics[] = {"STR","CON","SIZ","DEX","APP","INT","POW","EDU","LUK"};
 const char* kBackground[] = {"personal_description","ideology","significant_people","meaningful_locations","treasured_possessions","traits","injuries","phobias","arcane","encounters"};
 const char* kBasic[] = {"player","occupation","age","sex","residence","birthplace"};
+// The Call of Cthulhu number part of a card; everything else but `dnd` is the story part.
+const char* kCocNumbers[] = {"characteristics","derived","skills","career","skill_points","wealth"};
+const char* kCocMain[] = {"STR","CON","SIZ","DEX","APP","INT","POW","EDU"};
 } // namespace
 
 Json::Value CharacterSpaceService::normalizeRoleCard(const Json::Value& in) {
@@ -87,6 +90,100 @@ Json::Value CharacterSpaceService::mirrorAttrs(const Json::Value& attrsIn, const
     for (auto& [canon, kv] : best) put(kv.first, kv.second);
     return attrs;
 }
+Json::Value CharacterSpaceService::numbers(const Json::Value& cardIn, const std::string& ruleSystem) {
+    const auto card = normalizeRoleCard(cardIn);
+    Json::Value n(Json::objectValue);
+    if (ruleSystem == "dnd2024") n["dnd"] = dnd2024::normalize(card["dnd"]);
+    else for (auto k : kCocNumbers) if (card.isMember(k)) n[k] = card[k];
+    return n;
+}
+bool CharacterSpaceService::hasNumbers(const Json::Value& card, const std::string& ruleSystem) {
+    return numbers(card, ruleSystem) != numbers(Json::Value(Json::objectValue), ruleSystem);
+}
+bool CharacterSpaceService::built(const Json::Value& cardIn, const std::string& ruleSystem) {
+    const auto card = normalizeRoleCard(cardIn);
+    if (ruleSystem == "dnd2024") return !dnd2024::normalize(card["dnd"])["class"].asString().empty();
+    for (auto k : kCocMain) if (!card["characteristics"].isMember(k)) return false;
+    return true;
+}
+Json::Value CharacterSpaceService::withNumbers(const Json::Value& card, const Json::Value& nums, const std::string& ruleSystem) {
+    Json::Value out = normalizeRoleCard(card);
+    for (auto k : kCocNumbers) out.removeMember(k);
+    out.removeMember("dnd");
+    if (ruleSystem == "dnd2024") out["dnd"] = nums["dnd"];
+    else for (auto k : kCocNumbers) if (nums.isMember(k)) out[k] = nums[k];
+    out = normalizeRoleCard(out);   // a D&D card still carries the blank Call of Cthulhu fields the client expects
+    if (ruleSystem == "dnd2024" && !out["dnd"].isObject()) out["dnd"] = dnd2024::normalize(Json::Value());
+    return out;
+}
+
+namespace {
+// Dice values beyond what a blank card of the system mirrors (a blank D&D build still mirrors AC 10, Speed 30, …).
+bool hasValues(const Json::Value& attrs, const std::string& ruleSystem) {
+    static const Json::Value blankDnd = dnd2024::mirrorAttrs(Json::Value(Json::objectValue), dnd2024::normalize(Json::Value()));
+    const Json::Value empty(Json::objectValue);
+    const Json::Value& blank = ruleSystem == "dnd2024" ? blankDnd : empty;
+    if (!attrs.isObject()) return false;
+    for (const auto& k : attrs.getMemberNames()) if (!blank.isMember(k) || blank[k] != attrs[k]) return true;
+    return false;
+}
+} // namespace
+
+Json::Value CharacterSpaceService::transitionCards(pqxx::work& w, const std::string& channelId, const std::string& from, const std::string& to, const std::string& actorId) {
+    Json::Value out; out["from"] = from; out["to"] = to; out["archived"] = 0; out["pending"] = 0;
+    out["rebuild"] = Json::Value(Json::arrayValue); out["rows"] = Json::Value(Json::arrayValue);
+    if (from == to) return out;
+    for (const auto& c : Db::queryJson(w, "SELECT id, kind, card_pending, role_card, sheet FROM characters WHERE channel_id=$1 ORDER BY created_at, id FOR UPDATE", {channelId})) {
+        const auto id = c["id"].asString();
+        Json::Value sheet = c["sheet"].isObject() ? c["sheet"] : Json::Value(Json::objectValue);
+        const Json::Value attrs = sheet["attrs"].isObject() ? sheet["attrs"] : Json::Value(Json::objectValue);
+        const bool kept = hasNumbers(c["role_card"], from) || hasValues(attrs, from);
+        if (kept) {
+            Db::exec(w, "INSERT INTO character_card_archives(character_id, channel_id, rule_system, numbers, attrs, reason, archived_by) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,'rule_change',$6)",
+                     {id, channelId, from, json::dump(numbers(c["role_card"], from)), json::dump(attrs), actorId.empty() ? dbNull() : DbParam(actorId)});
+            out["archived"] = out["archived"].asInt() + 1;
+        }
+        // The story stays; the numbers start blank for the new system. A character still waiting for a rebuild keeps
+        // waiting (its numbers of the earlier system are in the archive, ready to be brought back if the GM returns).
+        const bool pending = kept || c["card_pending"].asBool();
+        sheet["attrs"] = Json::Value(Json::objectValue);
+        auto row = Db::queryOne(w, "UPDATE characters SET role_card=$2::jsonb, sheet=$3::jsonb, card_pending=$4, updated_at=now() WHERE id=$1 RETURNING *",
+                                {id, json::dump(withNumbers(c["role_card"], Json::Value(Json::objectValue), to)), json::dump(sheet), pending});
+        if (pending) {
+            out["pending"] = out["pending"].asInt() + 1;
+            if (row["kind"].asString() != "npc") { Json::Value r; r["id"] = id; r["name"] = row["name"]; out["rebuild"].append(r); }
+        }
+        out["rows"].append(row);
+    }
+    return out;
+}
+
+Json::Value CharacterSpaceService::restoreArchive(const ChannelAccess& a, const std::string& characterId, const std::string& archiveId) {
+    characterFor(a, characterId, true);
+    if (!Visibility::isUuid(archiveId)) throw badRequest("invalid archive id");
+    auto row = db_.tx([&](pqxx::work& w) {
+        // Read under a share lock: a switch of the rules (which locks the channel row) waits for this, or this for it.
+        const auto rs = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId})["rule_system"].asString();
+        auto arch = Db::queryOne(w, "SELECT * FROM character_card_archives WHERE id=$1 AND character_id=$2 FOR UPDATE", {archiveId, characterId});
+        if (arch.isNull()) throw notFound("archived card not found");
+        if (arch["rule_system"].asString() != rs) throw conflict("this card was made for another rule system; only a card of the channel's current system can come back");
+        auto cur = Db::queryOne(w, "SELECT role_card, sheet FROM characters WHERE id=$1 FOR UPDATE", {characterId});
+        Json::Value sheet = cur["sheet"].isObject() ? cur["sheet"] : Json::Value(Json::objectValue);
+        const Json::Value attrs = sheet["attrs"].isObject() ? sheet["attrs"] : Json::Value(Json::objectValue);
+        // Whatever was built meanwhile is set aside, not lost.
+        if (hasNumbers(cur["role_card"], rs) || hasValues(attrs, rs))
+            Db::exec(w, "INSERT INTO character_card_archives(character_id, channel_id, rule_system, numbers, attrs, reason, archived_by) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,'restore',$6)",
+                     {characterId, a.channelId, rs, json::dump(numbers(cur["role_card"], rs)), json::dump(attrs), a.userId});
+        auto card = withNumbers(cur["role_card"], arch["numbers"], rs);
+        const Json::Value old = arch["attrs"].isObject() ? arch["attrs"] : Json::Value(Json::objectValue);
+        sheet["attrs"] = rs == "dnd2024" ? dnd2024::mirrorAttrs(old, card["dnd"]) : mirrorAttrs(old, card);
+        Db::exec(w, "DELETE FROM character_card_archives WHERE id=$1", {archiveId});
+        return Db::queryOne(w, "UPDATE characters SET role_card=$2::jsonb, sheet=$3::jsonb, card_pending=false, updated_at=now() WHERE id=$1 RETURNING *", {characterId, json::dump(card), json::dump(sheet)});
+    });
+    notifier_.characterUpdated(a.channelId, row);
+    return space(a, characterId);
+}
+
 std::string CharacterSpaceService::normalizeSubtitle(const std::string& s) {
     auto t = text::upper(text::trim(s)); std::string out;
     for (unsigned char c : t) { if (isalnum(c) || c == '_' || c == '-' || c >= 0x80) out += (char)c; else if (c == ' ') out += '_'; }
@@ -151,15 +248,21 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
     out["rule_system"] = ruleSystem(a);
     out["generation_available"] = creative_.available(a.channelId);
     out["points"] = pointsReport(a, out["character"]["role_card"]);
+    // Numbers of earlier rule systems, read-only: what the character was before the GM switched the rules.
+    out["card_archives"] = db_.queryJson("SELECT ar.id, ar.rule_system, ar.numbers, ar.attrs, ar.reason, ar.archived_at, u.display_name AS archived_by_name "
+        "FROM character_card_archives ar LEFT JOIN users u ON u.id=ar.archived_by WHERE ar.character_id=$1 ORDER BY ar.archived_at DESC, ar.id LIMIT 20", {characterId});
     return out;
 }
 
 Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
     auto c = characterFor(a, characterId, true);
-    auto card = body.isMember("role_card") ? normalizeRoleCard(body["role_card"]) : normalizeRoleCard(c["role_card"]);
-    const bool dnd = ruleSystem(a) == "dnd2024";
+    const auto rs = ruleSystem(a);
+    const bool dnd = rs == "dnd2024";
+    if (body.isMember("card_rebuilt") && !body["card_rebuilt"].isBool()) throw badRequest("card_rebuilt must be a boolean");
+    // Only the channel's own system's numbers are kept: a client still holding the numbers of the system the channel
+    // left (an open editor, an older app) cannot write them back next to the new ones. Those live in the archive.
+    auto card = forSystem(body.isMember("role_card") ? body["role_card"] : c["role_card"], rs);
     if (dnd) {
-        if (!card["dnd"].isObject()) card["dnd"] = dnd2024::normalize(Json::Value());
         // Ability improvements after level 1 (feats, Ability Score Improvements) are the GM's to grant under point buy.
         if (pointsMode(a) && !a.isGm) {
             auto before = normalizeRoleCard(c["role_card"]);
@@ -191,8 +294,15 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
     Json::Value sheet = c["sheet"].isObject() ? c["sheet"] : Json::Value(Json::objectValue);
     sheet["attrs"] = dnd ? dnd2024::mirrorAttrs(sheet["attrs"], card["dnd"]) : mirrorAttrs(sheet["attrs"], card);
     auto name = clip(text::trim(json::str(body, "name", c["name"].asString())), 80); if (name.empty()) throw badRequest("name required");
-    auto row = db_.queryOne("UPDATE characters SET name=$2, speaking_style=$3, bio=$4, role_card=$5::jsonb, sheet=$6::jsonb, updated_at=now() WHERE id=$1 RETURNING *",
-        {characterId, name, clip(json::str(body, "speaking_style", c["speaking_style"].asString()), 400), clip(json::str(body, "bio", c["bio"].asString()), 6000), json::dump(card), json::dump(sheet)});
+    // The rebuild flag goes once the numbers are rebuilt (D&D: a class; Call of Cthulhu: the eight characteristics), or
+    // when the GM waives it (an NPC that will never roll, a card kept outside the platform).
+    const bool pending = c["card_pending"].asBool() && !built(card, rs) && !(a.isGm && json::toBool(body, "card_rebuilt"));
+    // Written only while the channel still plays the system this card was checked against: a save that lands after the
+    // GM switched the rules would otherwise put the old system's numbers back.
+    auto row = db_.queryOne("UPDATE characters SET name=$2, speaking_style=$3, bio=$4, role_card=$5::jsonb, sheet=$6::jsonb, card_pending=$7, updated_at=now() "
+                            "WHERE id=$1 AND EXISTS (SELECT 1 FROM channels WHERE id=$8 AND rule_system=$9) RETURNING *",
+        {characterId, name, clip(json::str(body, "speaking_style", c["speaking_style"].asString()), 400), clip(json::str(body, "bio", c["bio"].asString()), 6000), json::dump(card), json::dump(sheet), pending, a.channelId, rs});
+    if (row.isNull()) throw conflict("the channel's rule system changed while you were editing; reload the card");
     db_.exec("UPDATE entities SET name=$2 WHERE character_id=$1 AND player_group_id IS NULL AND name<>$2", {characterId, name});
     notifier_.characterUpdated(a.channelId, row);
     return space(a, characterId);

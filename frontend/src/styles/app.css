@@ -343,6 +343,11 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .wizard-steps li.done button {opacity:.75}
 .wizard-art {display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-top:8px}
 .wizard-tile img,.wizard-tile .placeholder {width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--panel-2,rgba(127,127,127,.12));display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)}
+.rule-rebuild {margin-bottom:10px;padding:8px 10px;border-radius:8px;border:1px solid var(--warn,#c90);background:var(--panel-2,rgba(127,127,127,.08));display:flex;flex-direction:column;gap:4px}
+.former-cards {margin-top:14px;border-top:1px solid var(--bg-4);padding-top:6px}
+.former-card {margin-top:6px;padding:6px 8px;border-radius:8px;border:1px solid var(--bg-4);background:var(--bg-2)}
+.former-card > summary {cursor:pointer}
+.pill.rebuild {color:var(--warn);border-color:color-mix(in srgb, var(--warn) 50%, var(--bg-4));margin:0 4px;font-size:10px}
 .vn-questions {margin-top:6px;padding:8px 10px;border-radius:8px;border:1px solid var(--warn,#c90);background:var(--panel-2,rgba(127,127,127,.08))}
 .vn-question {margin-top:6px}
 .vn-continue {margin-top:6px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2,rgba(127,127,127,.08))}

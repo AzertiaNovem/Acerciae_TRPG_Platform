@@ -136,7 +136,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             {characters.map((c) => (
               <div key={c.id} className={`item ${nav.characterSpaceId === c.id ? 'active' : ''}`} {...activate(() => { nav.openCharacter(c.id); onClose(); })} title={tr("Open character space")}>
                 {c.avatar_asset_id && nav.channelId ? <CachedImg className="mini-avatar" src={api.mediaUrl(nav.channelId, c.avatar_asset_id, c.avatar_asset_version)} hash={c.avatar_asset_hash} alt="" fallback={<span className="mini-avatar text">{c.name.slice(0, 1)}</span>} /> : <span className="mini-avatar text">{c.name.slice(0, 1)}</span>}
-                <span className="name small">{c.name}</span><span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span>
+                <span className="name small">{c.name}</span>{c.card_pending && <span className="pill rebuild" title={tr("The rules changed: this character's numbers need rebuilding")}>{tr("rebuild")}</span>}<span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span>
               </div>
             ))}
             {studioOpen && (
