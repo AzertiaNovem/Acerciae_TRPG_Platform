@@ -513,7 +513,7 @@ std::optional<Command> parseCommand(const std::string& content) {
     if (s.size() < 2 || s[0] != '.') return std::nullopt;
     auto rest = s.substr(1);
     static const std::vector<std::pair<const char*, const char*>> cmds = {
-        {"init", "init"}, {"rah", "ra"}, {"rch", "ra"}, {"ra", "ra"}, {"rc", "ra"}, {"rih", "ri"}, {"ri", "ri"}, {"rh", "r"}, {"r", "r"},
+        {"move","move"}, {"init", "init"}, {"rah", "ra"}, {"rch", "ra"}, {"ra", "ra"}, {"rc", "ra"}, {"rih", "ri"}, {"ri", "ri"}, {"rh", "r"}, {"r", "r"},
         {"sc", "sc"}, {"st", "st"}, {"en", "en"}, {"ds", "ds"}, {"ss", "ss"}};
     for (auto& [lit, name] : cmds) {
         auto n = std::strlen(lit);
@@ -904,6 +904,8 @@ Outcome runSt(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng
 Outcome execute(const Command& cmd, const Context& ctx, const TextSet& texts, Rng& rng) {
     const bool D = ctx.ruleSystem == "dnd2024";
     if (cmd.name == "r") return runRoll(cmd, ctx, texts, rng);
+    if (ctx.ruleSystem == "pbta") throw DiceError("Use .move <id> [+/-modifier] in a PbtA channel");
+    if (cmd.name == "move") throw DiceError(".move requires a PbtA channel");
     if (cmd.name == "st") return runSt(cmd, ctx, texts, rng);
     // Each rule system answers only its own commands.
     static const std::set<std::string> dndOnly = {"ri", "init", "ds", "ss"}, cocOnly = {"sc", "en"};
@@ -918,6 +920,7 @@ Outcome execute(const Command& cmd, const Context& ctx, const TextSet& texts, Rn
 }
 
 std::string preview(const Command& cmd, const Context& ctx, const TextSet& t) {
+    if (ctx.ruleSystem == "pbta") return cmd.name == "move" ? ".move <id> [+/-modifier]" : "";
     if (ctx.ruleSystem == "dnd2024" && cmd.name != "r" && cmd.name != "st") return dnd::preview(cmd, ctx, t);
     try {
         const auto& L = ctx.language;

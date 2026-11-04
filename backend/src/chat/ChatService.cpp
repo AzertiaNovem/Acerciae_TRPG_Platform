@@ -229,7 +229,7 @@ Json::Value ChatService::createChannel(const Principal& p, const std::string& se
     auto mode = json::str(body, "knowledge_mode", "isolated");
     if (mode != "public" && mode != "isolated") throw badRequest("knowledge_mode must be public or isolated");
     auto ruleSystem = rules::canonical(json::str(body, "rule_system", "coc7e"));
-    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e or dnd2024");
+    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e, dnd2024 or pbta");
     auto ch = db_.tx([&](pqxx::work& w) {
         auto c = Db::queryOne(w, "INSERT INTO channels(server_id, name, description, rule_system, knowledge_mode, point_buy) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
             {serverId, name, json::str(body, "description"), ruleSystem, mode, json::toBool(body, "point_buy")});
@@ -271,9 +271,19 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
     auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
     // The rule system decides the dice commands, the character sheet and how the AI names the game and the GM; point
     // buy makes role cards follow the system's character-creation budget. Both are the GM's to change at any time.
-    auto ruleSystem = rules::canonical(json::str(body, "rule_system", cur["rule_system"].asString()));
-    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e or dnd2024");
-    db_.exec("UPDATE channels SET rule_system=$2, point_buy=$3 WHERE id=$1", {a.channelId, ruleSystem, flag("point_buy")});
+    db_.tx([&](pqxx::work& w) {
+        const auto previous = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR UPDATE", {a.channelId})["rule_system"].asString();
+        const auto ruleSystem = rules::canonical(json::str(body, "rule_system", previous));
+        if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e, dnd2024 or pbta");
+        if (previous != ruleSystem) {
+            // Switch the live dice attributes atomically with their rules. PbtA reads its own role card.
+            Db::exec(w, "UPDATE characters SET sheet = sheet || jsonb_build_object("
+                        "'rule_attrs', coalesce(sheet->'rule_attrs','{}'::jsonb) || jsonb_build_object($2::text,coalesce(sheet->'attrs','{}'::jsonb)),"
+                        "'attrs',coalesce(sheet->'rule_attrs'->($3::text),'{}'::jsonb)) WHERE channel_id=$1",
+                     {a.channelId,previous,ruleSystem});
+        }
+        Db::exec(w,"UPDATE channels SET rule_system=$2, point_buy=$3 WHERE id=$1",{a.channelId,ruleSystem,flag("point_buy")});
+    });
     db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
              "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
         {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
@@ -404,7 +414,10 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     if (kind == "npc") { auth_.requireGm(a); ownerId.clear(); }
     else if (a.isGm && !json::str(body, "user_id").empty()) ownerId = json::str(body, "user_id");
     auto sheet = dice::normalizeSheet(body.isMember("sheet") && body["sheet"].isObject() ? body["sheet"] : Json::Value(Json::objectValue));
+    sheet.removeMember("rule_attrs");
     return db_.tx([&](pqxx::work& w) {
+        if (!sheet["attrs"].empty() && Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId})["rule_system"] == "pbta")
+            throw badRequest("Create the character and select a PbtA playbook");
         auto c = Db::queryOne(w, "INSERT INTO characters(channel_id, user_id, name, kind, speaking_style, sheet) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *",
             {a.channelId, ownerId.empty() ? dbNull() : DbParam(ownerId), name, kind, json::str(body, "speaking_style"), json::dump(sheet)});
         // A PC owned by a GM account (a "GM-cast" PC, such as an AI co-player) is voiced by the Keeper like an NPC: the
@@ -422,12 +435,24 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     });
 }
 Json::Value ChatService::updateCharacter(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
-    auto cur = db_.queryOne("SELECT * FROM characters WHERE id=$1 AND channel_id=$2", {characterId, a.channelId});
-    if (cur.isNull()) throw notFound("character not found");
-    if (!a.isGm && (cur["user_id"].isNull() || cur["user_id"].asString() != a.userId)) throw forbidden("not your character");
-    auto sheet = body.isMember("sheet") && body["sheet"].isObject() ? dice::normalizeSheet(body["sheet"]) : cur["sheet"];
-    return db_.queryOne("UPDATE characters SET name=$3, speaking_style=$4, sheet=$5::jsonb WHERE id=$1 AND channel_id=$2 RETURNING *",
-        {characterId, a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "speaking_style", cur["speaking_style"].asString()), json::dump(sheet)});
+    return db_.tx([&](pqxx::work& w) {
+        const bool writeSheet = body["sheet"].isObject();
+        if (writeSheet) {
+            auto channel = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId});
+            if (channel["rule_system"] == "pbta") throw badRequest("Use the PbtA character card");
+        }
+        auto cur = Db::queryOne(w, "SELECT * FROM characters WHERE id=$1 AND channel_id=$2 FOR UPDATE", {characterId, a.channelId});
+        if (cur.isNull()) throw notFound("character not found");
+        if (!a.isGm && cur["user_id"] != a.userId) throw forbidden("not your character");
+        auto sheet = cur["sheet"];
+        if (writeSheet) {
+            sheet = dice::normalizeSheet(body["sheet"]);
+            sheet.removeMember("rule_attrs");
+            if (cur["sheet"].isMember("rule_attrs")) sheet["rule_attrs"] = cur["sheet"]["rule_attrs"];
+        }
+        return Db::queryOne(w, "UPDATE characters SET name=$3, speaking_style=$4, sheet=$5::jsonb WHERE id=$1 AND channel_id=$2 RETURNING *",
+            {characterId, a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "speaking_style", cur["speaking_style"].asString()), json::dump(sheet)});
+    });
 }
 
 // ---- windows ---------------------------------------------------------------------------------

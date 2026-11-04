@@ -1,0 +1,7 @@
+{
+  "name": "acerciae-browser-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {"test:pbta": "node pbta.mjs chromium && node pbta.mjs webkit"},
+  "devDependencies": {"playwright": "1.64.1"}
+}

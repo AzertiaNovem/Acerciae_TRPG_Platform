@@ -1,3 +1,4 @@
+import PbtaPackEditor from './pbta/PackEditor';
 import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
@@ -130,12 +131,15 @@ function ChannelSettings() {
         <label className="field"><span>{tr("Rule system")}</span>
           <select value={form.rule_system} onChange={(e) => setForm({ ...form, rule_system: e.target.value })}>
             <option value="coc7e">{tr("Call of Cthulhu 7th edition (BRP)")}</option>
+            <option value="pbta">Powered by the Apocalypse (PbtA)</option>
             <option value="dnd2024">{tr("D&D 2024 (SRD 5.2)")}</option>
           </select>
         </label>
         <div className="tiny muted">{tr("Decides the dice commands, the character sheet and how the AI names the game and the GM. Character sheets keep their values when you switch.")}</div>
-        <label className="row small"><input type="checkbox" checked={form.point_buy} onChange={(e) => setForm({ ...form, point_buy: e.target.checked })} />{tr("Point buy for role cards")}</label>
+        {channel?.rule_system==='pbta' && channelId && <PbtaPackEditor key={channelId} channel={channelId}/>}
+        {form.rule_system!=='pbta' && <><label className="row small"><input type="checkbox" checked={form.point_buy} onChange={(e) => setForm({ ...form, point_buy: e.target.checked })} />{tr("Point buy for role cards")}</label>
         <div className="tiny muted">{form.rule_system === 'dnd2024' ? tr("Ability scores by point buy (27 points) or the standard array, background increases, and skills from the class, background and species.") : tr("Role cards spend occupation points (from a career in the built-in list) and personal interest points (INT×2).")}</div>
+        </>}
         <div className="section-label">{tr("AI in this channel")}</div>
         <label className="row small"><input type="checkbox" checked={form.ai_enabled} onChange={(e) => setForm({ ...form, ai_enabled: e.target.checked })} />{tr("Background chronicler (the observer behind the reminder and document bubbles)")}</label>
         <label className="row small"><input type="checkbox" checked={form.consistency_enabled} disabled={serverSettings?.features?.consistency === false} onChange={(e) => setForm({ ...form, consistency_enabled: e.target.checked })} />{tr("Consistency check")}</label>

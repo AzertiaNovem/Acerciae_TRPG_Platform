@@ -1,3 +1,4 @@
+import PbtaSheet from './pbta/Sheet';
 import { t as tr } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
@@ -101,7 +102,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
       if (valid()) { if (isCardSave) setSaveError(e.message); toast(e.message, 'error'); }
     } finally { busyRef.current = false; if (mounted.current) { setBusy(false); setSaving(false); } }
   };
-  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, role_card: card }), tr('Character saved'), true);
+  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, role_card: card }), tr('Character saved'), true);
   // D&D: the build is part of the card; live values (Hit Points, slots left, death saves) are written straight away.
   const setDnd = (fn: (d: DndCard) => void) => setCardField((x) => { x.dnd = x.dnd ?? JSON.parse(JSON.stringify(EMPTY_DND)); fn(x.dnd!); });
   const setLive = (set: Record<string, number>) => mutate(async () => { await api.updateAttributes(channelId, characterId, { set }); return api.characterSpace(channelId, characterId); });
@@ -150,7 +151,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
 
         {tab === 'card' && (
           <div className="card role-card">
-            {dnd ? (dndRules ? <DndSheet card={card.dnd ?? EMPTY_DND} rules={dndRules} editable={!!editable} isGm={channel?.my_role === 'gm'} pointsOn={pointsOn} report={space.points} attrs={space.attrs} setCard={setDnd} setLive={setLive} /> : <div className="tiny muted">{tr('Loading…')}</div>) : <>
+            {space.rule_system==='pbta' && space.pbta_rules ? <PbtaSheet pack={space.pbta_rules.pack} sheet={card.pbta} editable={!!editable} dirty={dirty} characterId={characterId} change={v=>setCardField(x=>{x.pbta=v})}/> : dnd ? (dndRules ? <DndSheet card={card.dnd ?? EMPTY_DND} rules={dndRules} editable={!!editable} isGm={channel?.my_role === 'gm'} pointsOn={pointsOn} report={space.points} attrs={space.attrs} setCard={setDnd} setLive={setLive} /> : <div className="tiny muted">{tr('Loading…')}</div>) : <>
             <div className="row"><h4 style={{ margin: '10px 0 6px' }}>{tr('Characteristics')}</h4><span className="grow" />{pointsOn && <span className="pill" title={tr('STR+CON+SIZ+DEX+APP+INT+POW+EDU; Luck apart')}>{tr('Total')} {CHARS.filter((k) => k !== 'LUK').reduce((a, k) => a + (card.characteristics[k] ?? 0), 0)} · LUK {card.characteristics.LUK ?? 0}</span>}</div>
             <div className="char-grid">
               {CHARS.map((k) => <div key={k} className="cell"><b>{k}</b>{editable ? <input inputMode="numeric" value={card.characteristics[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete x.characteristics[k]; else if (Number.isFinite(v)) x.characteristics[k] = Math.round(v); })} /> : <span className="v">{card.characteristics[k] ?? '—'}</span>}<span className="halves">{half(card.characteristics[k])}</span></div>)}

@@ -263,6 +263,8 @@ Disadvantage (`.rc stealth dc 15`, `.rc attack +5 ac 13`), Initiative (`.ri`, `.
 the chat window, Death Saving Throws (`.ds`) and spell slots (`.ss`), AI prompts that name the game and the Dungeon
 Master, and creature stat blocks in module import. See [D&D 2024](docs/DND_2024.md).
 
+[PbtA channels](docs/PBTA.md) support human-led games with editable playbooks, shared and playbook moves, custom outcome bands, and private GM reference moves. The included Frontier Investigation pack can be played directly or adapted in the GM workspace.
+
 Platform administrators (`PLATFORM_ADMINS`) get a 🛡 panel over the whole deployment: accounts, servers, stored media by
 kind, the database and its largest tables, AI use, and storage per server and per user, with **suspend** / **reinstate**
 for servers and accounts when content or image storage breaks the deployment's policies. Suspension is reversible and

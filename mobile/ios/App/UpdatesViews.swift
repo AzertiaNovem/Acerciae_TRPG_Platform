@@ -109,7 +109,8 @@ struct CharacterSpace: View {
     @State private var subtitle = "IDLE"
     @State private var cloud = false
     private var base: [String] { ["channels", model.channelId, "characters", character.id] }
-    private var editable: Bool { space["character"]["editable"].bool && !model.busy }
+    private var pbta: Bool { space["rule_system"].text == "pbta" || model.channel["rule_system"].text == "pbta" }
+    private var editable: Bool { !pbta && space["character"]["editable"].bool && !model.busy }
     private var pointsOn: Bool { space["points"]["enabled"].bool }
     private var dnd: Bool { space["rule_system"].text == "dnd2024" || model.channel["rule_system"].text == "dnd2024" }
     private var pointsValid: Bool { dnd || !pointsOn || (pointRules != .null && PointBuy(card: .object(card), rules: pointRules).issues.isEmpty) }
@@ -122,7 +123,7 @@ struct CharacterSpace: View {
     var body: some View {
         Form {
             Section(tr("角色资料")) { TextField(tr("姓名"), text: $name); TextField(tr("简介"), text: $bio, axis: .vertical); TextField(tr("说话风格"), text: $speakingStyle, axis: .vertical) }.disabled(!editable)
-            if dnd {
+            if pbta { Text(tr("PbtA · Edit the playbook in the web or desktop app.")) } else if dnd {
                 if pointRules != .null { DndCardEditor(card: $card, rules: pointRules, editable: editable, gm: model.gm, points: pointsOn, language: model.serverSettings["language"].text) } else { Button(tr("Reload rules")) { Task { await loadRules() } }; Text(rulesError) }
             } else {
             ForEach(groups, id: \.0) { group in
@@ -189,7 +190,7 @@ struct CharacterSpace: View {
             } }
         }.confirmationDialog(tr("Discard draft and reload character card?"), isPresented: $reloadCard) { Button(tr("Reload card"), role: .destructive) { Task { await model.run { apply(try await model.get(base + ["space"])) } } } }
         .navigationTitle(tr("角色空间"))
-            .toolbar { ToolbarItem(placement: .confirmationAction) { if space["character"]["editable"].bool { Button(tr("保存")) { Task { await saveCard() } }.disabled(!editable || !pointsValid || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { if !pbta && space["character"]["editable"].bool { Button(tr("保存")) { Task { await saveCard() } }.disabled(!editable || !pointsValid || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } } }
              .task {
                 if let kept: JSONValue = await model.cached(base + ["space"]) { apply(kept) }
                 let initialCard = card, initialName = name, initialBio = bio, initialStyle = speakingStyle, initialPrompt = prompt, initialMode = mode

@@ -1,3 +1,4 @@
+#include "../rules/Pbta.h"
 #include "CharacterSpaceService.h"
 #include <map>
 #include "Coc7Rules.h"
@@ -68,6 +69,7 @@ Json::Value CharacterSpaceService::normalizeRoleCard(const Json::Value& in) {
     card["items"] = items;
     Json::Value w(Json::objectValue); for (auto k : {"cash","assets","spending_level"}) w[k] = str(src["wealth"], k, 120); card["wealth"] = w;
     // D&D channels: the character's build (class, species, background, scores, proficiencies …), see Dnd2024Rules.
+    if (src["pbta"].isObject()) card["pbta"]=src["pbta"];
     if (src["dnd"].isObject()) card["dnd"] = dnd2024::normalize(src["dnd"]);
     return card;
 }
@@ -123,6 +125,7 @@ std::string CharacterSpaceService::ruleSystem(const ChannelAccess& a) {
 }
 Json::Value CharacterSpaceService::pointsReport(const ChannelAccess& a, const Json::Value& card) {
     Json::Value rep; rep["enabled"] = pointsMode(a); rep["rule_system"] = ruleSystem(a);
+    if (rep["rule_system"]=="pbta") rep["enabled"]=false;
     if (!rep["enabled"].asBool()) return rep;
     if (rep["rule_system"] == "dnd2024") {
         auto r = dnd2024::check(card["dnd"].isObject() ? card["dnd"] : dnd2024::normalize(Json::Value()));
@@ -149,6 +152,7 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
     out["era"] = ch["era"]; out["narrative_time"] = ch["narrative_time"];
     out["attrs"] = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
     out["rule_system"] = ruleSystem(a);
+    if (out["rule_system"]=="pbta") { out["pbta_rules"]=pbta::read(db_,a); out["attrs"]=Json::Value(Json::objectValue); }
     out["generation_available"] = creative_.available(a.channelId);
     out["points"] = pointsReport(a, out["character"]["role_card"]);
     return out;
@@ -157,8 +161,32 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
 Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
     auto c = characterFor(a, characterId, true);
     auto card = body.isMember("role_card") ? normalizeRoleCard(body["role_card"]) : normalizeRoleCard(c["role_card"]);
-    const bool dnd = ruleSystem(a) == "dnd2024";
+    const auto system = ruleSystem(a);
+    if (body.isMember("rule_system") && body["rule_system"]!=system) throw conflict("Channel rules changed. Reopen the character.");
+    if (system=="pbta") {
+        auto row=db_.tx([&](pqxx::work& w) {
+            const auto pack=pbta::lockedPack(w,a.channelId);
+            if (body["pack_revision"]!=pack["revision"]) throw conflict("Open the current PbtA sheet before saving");
+            auto current=Db::queryOne(w,"SELECT role_card FROM characters WHERE id=$1 FOR UPDATE",{characterId});
+            auto merged=current["role_card"];
+            merged["pbta"]=pbta::normalizeCard(body["role_card"]["pbta"],pack["pack"]);
+            for (auto key:{"basic","background","items"}) if (body["role_card"].isMember(key)) merged[key]=card[key];
+            auto name=str(body,"name",80); if (!body.isMember("name")) name=c["name"].asString();
+            if (name.empty()) throw badRequest("name required");
+            auto result=Db::queryOne(w,"UPDATE characters SET name=$2,speaking_style=$3,bio=$4,role_card=$5::jsonb,updated_at=now() WHERE id=$1 RETURNING *",
+                {characterId,name,clip(json::str(body,"speaking_style",c["speaking_style"].asString()),400),clip(json::str(body,"bio",c["bio"].asString()),6000),json::dump(merged)});
+            Db::exec(w,"UPDATE entities SET name=$2 WHERE character_id=$1 AND player_group_id IS NULL AND name<>$2",{characterId,name});
+            return result;
+        });
+        notifier_.characterUpdated(a.channelId,row);
+        return space(a,characterId);
+    }
+    card.removeMember("pbta"); // Inactive data is retained from the database, never from the client.
+    const bool dnd = system == "dnd2024";
     if (dnd) {
+        auto previous=normalizeRoleCard(c["role_card"]);
+        for (const auto& key:previous.getMemberNames())
+            if (key!="basic" && key!="background" && key!="items" && key!="dnd" && key!="pbta") card[key]=previous[key];
         if (!card["dnd"].isObject()) card["dnd"] = dnd2024::normalize(Json::Value());
         // Ability improvements after level 1 (feats, Ability Score Improvements) are the GM's to grant under point buy.
         if (pointsMode(a) && !a.isGm) {
@@ -172,6 +200,10 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
                 throw ApiError(400, "points_rule", msg);
             }
         }
+    }
+    if (!dnd) {
+        if (c["role_card"]["dnd"].isObject()) card["dnd"]=c["role_card"]["dnd"];
+        else card.removeMember("dnd");
     }
     if (!dnd && pointsMode(a) && !a.isGm) {
         // Growth points record improvement the Keeper granted (or .en rolled): a player cannot set them.
@@ -191,8 +223,9 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
     Json::Value sheet = c["sheet"].isObject() ? c["sheet"] : Json::Value(Json::objectValue);
     sheet["attrs"] = dnd ? dnd2024::mirrorAttrs(sheet["attrs"], card["dnd"]) : mirrorAttrs(sheet["attrs"], card);
     auto name = clip(text::trim(json::str(body, "name", c["name"].asString())), 80); if (name.empty()) throw badRequest("name required");
-    auto row = db_.queryOne("UPDATE characters SET name=$2, speaking_style=$3, bio=$4, role_card=$5::jsonb, sheet=$6::jsonb, updated_at=now() WHERE id=$1 RETURNING *",
-        {characterId, name, clip(json::str(body, "speaking_style", c["speaking_style"].asString()), 400), clip(json::str(body, "bio", c["bio"].asString()), 6000), json::dump(card), json::dump(sheet)});
+    auto row = db_.queryOne("UPDATE characters SET name=$2, speaking_style=$3, bio=$4, role_card=$5::jsonb || CASE WHEN role_card ? 'pbta' THEN jsonb_build_object('pbta',role_card->'pbta') ELSE '{}'::jsonb END, sheet=$6::jsonb, updated_at=now() WHERE id=$1 AND EXISTS (SELECT 1 FROM channels WHERE id=characters.channel_id AND rule_system=$7 FOR SHARE) RETURNING *",
+        {characterId, name, clip(json::str(body, "speaking_style", c["speaking_style"].asString()), 400), clip(json::str(body, "bio", c["bio"].asString()), 6000), json::dump(card), json::dump(sheet),system});
+    if (row.isNull()) throw conflict("Channel rules changed. Reopen the character.");
     db_.exec("UPDATE entities SET name=$2 WHERE character_id=$1 AND player_group_id IS NULL AND name<>$2", {characterId, name});
     notifier_.characterUpdated(a.channelId, row);
     return space(a, characterId);

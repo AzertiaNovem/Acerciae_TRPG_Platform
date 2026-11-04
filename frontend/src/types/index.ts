@@ -54,6 +54,7 @@ export interface ChatWindow {
 export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; avatar_asset_version?: number | null; avatar_asset_hash?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean }
 // The COC7-styled role card. Numbers are mirrored into sheet.attrs for the dice.
 export interface RoleCard {
+  pbta?: import('../components/pbta/types').Sheet;
   basic: { player: string; occupation: string; age: string; sex: string; residence: string; birthplace: string };
   characteristics: Partial<Record<'STR' | 'CON' | 'SIZ' | 'DEX' | 'APP' | 'INT' | 'POW' | 'EDU' | 'LUK', number>>;
   derived: { hp?: number; hp_max?: number; mp?: number; mp_max?: number; san?: number; san_max?: number; mov?: number; build?: number; db: string };
@@ -94,7 +95,7 @@ export interface Coc7Option { skill: string; label: string; any?: boolean; spec?
 export interface Coc7Career { id: number; name: string; credit: [number, number] | null; points: { attrs: string[]; mult: number }[]; formula: string; fixed: Coc7Option[]; choices: { pick: number; from: Coc7Option[] }[]; free: number; description: string; names?: Record<string, string>; descriptions?: Record<string, string> }
 export interface Coc7Rules { skills: { name: string; base: number | 'DEX/2' | 'EDU'; names?: Record<string, string> }[]; families: { name: string; base: number; names?: Record<string, string> }[]; careers: Coc7Career[]; characteristics?: { name: string; names?: Record<string, string> }[]; hobby_formula: string }
 export interface CharacterAssetRef { id: string; version: number; hash?: string | null; mime: string; width: number | null; height: number | null; source_type: string; approval_status: string; subtitle?: string }
-export interface CharacterSpace { character: Character & { role_card: RoleCard; editable: boolean }; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[]; jobs: { id: string; kind: string; status: string; error: string | null; attach: { slot: string; subtitle: string } | null; created_at: string; finished_at: string | null }[]; era: string; narrative_time: string | null; attrs: Record<string, number>; generation_available: boolean; points: PointsReport; rule_system?: 'coc7e' | 'dnd2024' | string }
+export interface CharacterSpace { pbta_rules?: import('../components/pbta/types').Rules; character: Character & { role_card: RoleCard; editable: boolean }; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[]; jobs: { id: string; kind: string; status: string; error: string | null; attach: { slot: string; subtitle: string } | null; created_at: string; finished_at: string | null }[]; era: string; narrative_time: string | null; attrs: Record<string, number>; generation_available: boolean; points: PointsReport; rule_system?: 'coc7e' | 'dnd2024' | string }
 export interface PlayerGroup { id: string; channel_id: string; name: string; version: number; members: {user_id: string; display_name: string}[] }
 export interface Message {
   reference_ids?: string[];

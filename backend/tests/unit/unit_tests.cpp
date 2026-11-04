@@ -21,6 +21,7 @@
 #include "dice/Dnd.h"
 #include "characters/Dnd2024Rules.h"
 #include "rules/RuleSystem.h"
+#include "rules/Pbta.h"
 #include "logstudio/TtsProvider.h"
 #include "logstudio/TtsService.h"
 #include "logstudio/PublicationService.h"
@@ -47,6 +48,17 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("PbtA moves use inclusive bands, a signed modifier and the stored move text", [] {
+        auto pack=json::parse(R"({"revision":4,"pack":{"stats":[{"id":"sense","name":"Sense"}],"books":[{"id":"scout"}],"moves":[{"id":"search","book":"","stat":"sense","outcomes":{"low":"danger","mixed":"choose","high":"safe"}}],"bands":[{"id":"low","max":6},{"id":"mixed","min":7,"max":9},{"id":"high","min":10}]}})");
+        auto card=json::parse(R"({"book":"scout","stats":{"sense":1}})");
+        for (int total : {6,7,9,10}) {
+            dice::SeqRng rng({3,3});
+            auto result=pbta::resolve(pack,card,"search "+std::to_string(total-7),rng);
+            CHECK(result["total"]==total);
+            CHECK(result["outcome"]==(total<=6?"danger":total<10?"choose":"safe"));
+            CHECK(result["revision"]==4);
+        }
+    });
     test("PLATFORM_ADMINS names the deployment's administrators: comma-separated usernames, spaces ignored, empty by default", [] {
         unsetenv("PLATFORM_ADMINS");
         CHECK(Config::fromEnv().platformAdmins.empty());
