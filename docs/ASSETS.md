@@ -75,10 +75,18 @@ its file token, so a renewed token never reloads anything either. Keys are scope
 **What is kept.** Only responses the server marks `immutable`: a named version (`?v=`) of something a player may see, an
 atmosphere image, a player's voice clip. The current version of an asset and GM-private material (GM-only assets,
 NPC art, the Keeper's voice clips) are never marked and never written to disk; they revalidate by ETag (304) instead.
-Media that redirects to the public bucket is followed there and kept too: the bucket's objects are immutable, and its
-CORS policy must allow the web app's origin (set on the R2 bucket or its custom domain in the Cloudflare dashboard);
-without that the browser still shows the picture through the URL itself, only nothing is kept. Every API response carries
-`Vary: Origin`, so a browser never reuses the answer to an `<img>` load (no CORS header) for a `fetch()` from the app.
+Media in the public bucket is kept too, fetched straight from the bucket. The cache asks the API with `?direct=1`
+(avatars, media assets, voice clips): instead of the redirect, the API answers `{url, keep}` as
+`application/vnd.acerciae.direct+json`, and the client fetches `url` itself. Following the redirect would not work: a
+request already cross-origin (app → API) that is redirected to a third origin (the bucket) is sent with `Origin: null`,
+by the Fetch standard, in every browser, and no CORS policy naming the site matches that. Fetched from the page, the
+request carries the page's own origin, so the bucket's CORS policy must allow the web app's origin (and the desktop
+app's, `tauri://localhost` and `https://tauri.localhost`), set on the R2 bucket or its custom domain in the Cloudflare
+dashboard. The fetch skips the browser's HTTP cache (`cache: 'no-store'`): an `<img>` load may have left a copy there
+without CORS headers. `keep` is the API's own decision (a named version of something a player may see), because the
+bucket marks every object immutable, GM-private ones included. When the bucket refuses the origin, the picture is still
+shown through the API URL, only not kept. Every API response carries `Vary: Origin`, so a browser never reuses the
+answer to an `<img>` load (no CORS header) for a `fetch()` from the app.
 
 **How long.** Each time an entry is shown its lifespan starts over: it lives until it has not been shown for 30 days
 (`ASSET_CACHE_MAX_AGE_MS`) or the cache passes 768 MB (`ASSET_CACHE_MAX_BYTES`, least recently used first); files over

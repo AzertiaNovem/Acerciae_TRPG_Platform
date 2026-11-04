@@ -106,6 +106,24 @@ HttpResponsePtr redirectTo(const std::string& url, const char* cacheControl) {
 // that keep assets on disk (web, desktop and mobile caches keep only immutable responses) never store GM-private
 // material. Every binary carries an ETag, so the rest revalidate with a 304 instead of downloading again.
 const char* kKeep = "private, max-age=31536000, immutable";
+// The web client's asset cache asks for the public bucket's URL instead of a redirect to it (`?direct=1`), then fetches
+// the object itself in one hop from the page. Following a redirect from the API's origin to the bucket's would make the
+// browser send `Origin: null` (a tainted cross-origin redirect), which no CORS policy naming the site matches. `keep` is
+// this route's own decision on keeping the object (the same as the immutable mark the bytes would have carried here):
+// the bucket marks every object immutable, GM-private material included, so the client keeps only what `keep` allows.
+bool wantsDirect(const HttpRequestPtr& req) { return req->getParameter("direct") == "1"; }
+const char* kDirectType = "application/vnd.acerciae.direct+json";
+HttpResponsePtr directTo(const std::string& url, bool keep, const char* cacheControl) {
+    Json::Value j; j["url"] = url; j["keep"] = keep;
+    auto r = HttpResponse::newHttpResponse();
+    r->setBody(json::dump(j)); r->setContentTypeString(kDirectType);
+    r->addHeader("Cache-Control", cacheControl);
+    r->addHeader("Referrer-Policy", "no-referrer");
+    return r;
+}
+HttpResponsePtr toBucket(const HttpRequestPtr& req, const std::string& url, bool keep, const char* cacheControl) {
+    return wantsDirect(req) ? directTo(url, keep, cacheControl) : redirectTo(url, cacheControl);
+}
 std::string etagOf(const std::string& key) { return "\"" + key + "\""; }
 bool notModified(const HttpRequestPtr& req, const std::string& etag) {
     auto h = req->getHeader("If-None-Match");
@@ -286,7 +304,7 @@ void registerRoutes() {
             auto principal = fileAuth(req);
             if (!principal) throw unauthorized("missing or invalid token");
             auto av = services().auth->avatar(*principal, userId, mayRedirect(req));
-            if (!av.url.empty()) { cb(redirectTo(av.url, "private, max-age=600")); return; }
+            if (!av.url.empty()) { cb(toBucket(req, av.url, !req->getParameter("v").empty(), "private, max-age=600")); return; }
             // ?v= names the avatar version the client saw: that URL may be kept; a bare URL revalidates.
             std::string cc = req->getParameter("v").empty() ? "private, no-cache" : kKeep;
             if (notModified(req, av.etag)) { cb(notModifiedResponse(av.etag, cc)); return; }
@@ -613,7 +631,7 @@ void registerRoutes() {
             if (notModified(req, etag)) { cb(notModifiedResponse(etag, cc)); return; }
             std::string direct;
             if (!S.media->fetch(ac, id, v, bytes, mime, name, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "asset not found")); return; }
-            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=3600")); return; }
+            if (!direct.empty()) { cb(toBucket(req, direct, cc == kKeep, "private, max-age=3600")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("ETag", etag); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
             if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
             cb(r);
@@ -696,7 +714,7 @@ void registerRoutes() {
             // the Keeper hears every line, GM-only ones too, so the Keeper's copy is never marked for keeping.
             std::string cc = ac.isGm ? "private, max-age=86400" : kKeep, etag = etagOf(id);
             std::string bytes, mime, direct; if (!S.tts->fetchAudio(ac, id, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "audio not found")); return; }
-            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=86400")); return; }
+            if (!direct.empty()) { cb(toBucket(req, direct, !ac.isGm, "private, max-age=86400")); return; }
             if (notModified(req, etag)) { cb(notModifiedResponse(etag, cc)); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("ETag", etag); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }

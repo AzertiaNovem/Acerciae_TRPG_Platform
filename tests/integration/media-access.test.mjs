@@ -39,6 +39,10 @@ test('media bytes: players get NPC art (never marked for keeping), GM-only asset
   // The Keeper gets everything, their own material without the keep mark.
   for (const id of [pcArt.id, npcArt.id, secret.id]) { r = await get(id, gmToken); assert.equal(r.status, 200); }
   assert.doesNotMatch((await get(secret.id, gmToken)).headers.get('cache-control'), /immutable/);
+  // `direct=1` asks for the public bucket's URL instead of a redirect (the web cache then fetches it from the page's own
+  // origin); an object that is not in the public bucket, as everything is here, still comes as bytes.
+  r = await fetch(base + `/api/channels/${ch}/media/${pcArt.id}?v=1&token=${plToken}&direct=1`, { redirect: 'manual' });
+  assert.equal(r.status, 200); assert.equal(r.headers.get('content-type'), 'image/png'); assert.match(r.headers.get('cache-control'), /immutable/);
   // Without a version the current picture revalidates; with a wrong one there is nothing to serve.
   r = await get(pcArt.id, plToken, 0); assert.equal(r.status, 200); assert.match(r.headers.get('cache-control'), /no-cache/);
   assert.equal((await get(pcArt.id, plToken, 7)).status, 404);
