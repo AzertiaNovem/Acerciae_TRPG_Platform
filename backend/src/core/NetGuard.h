@@ -31,8 +31,10 @@ public:
     // Sets URL, pinned resolution, protocols, no redirects and the response size cap on a curl handle.
     void apply(CURL* c, std::size_t maxResponseBytes) const;
     const std::string& url() const { return url_; }
+    // scheme://host:port (the default port written out): the endpoint a connection goes to.
+    const std::string& origin() const { return origin_; }
 private:
-    std::string url_;
+    std::string url_, origin_;
     curl_slist* resolve_ = nullptr;
 };
 

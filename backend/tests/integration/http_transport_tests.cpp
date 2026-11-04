@@ -65,6 +65,16 @@ private:
     std::thread thread_;
     std::vector<std::thread> clients_;
 };
+// A loopback URL whose port nobody listens on: connections to it are refused, like a provider that is down.
+std::string refusingUrl() {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in address{}; address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof address)) throw std::runtime_error("bind failed");
+    socklen_t len = sizeof address; getsockname(fd, reinterpret_cast<sockaddr*>(&address), &len);
+    close(fd);
+    return "http://127.0.0.1:" + std::to_string(ntohs(address.sin_port));
+}
+using Clock = std::chrono::steady_clock;
 }
 int main() {
     curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -90,6 +100,23 @@ int main() {
         check(retry.get().status == 200 && fixture.retries == 2, "timer retries transient failure");
         check(post("/large", 1000, 32).get().error.find("size limit") != std::string::npos, "response cap enforced");
         check(!post("/hang", 80).get().error.empty(), "silent upstream times out");
+        // A provider that is down, called from a background pass and from elsewhere at the same time.
+        const auto refusing = refusingUrl();
+        auto down = [&](const char* path) { return llm::postJsonAsync(refusing + path, {"Content-Type: application/json"}, "{}", 10000); };
+        auto timed = [&](const char* path) { auto start = Clock::now(); auto r = down(path).get(); return std::pair{r, Clock::now() - start}; };
+        auto elsewhere = std::async(std::launch::async, [&] { return timed("/elsewhere"); });
+        {
+            llm::FailFastPass pass;
+            auto [first, took] = timed("/v1/responses");
+            check(first.error.find("Couldn't connect") != std::string::npos && took < 900ms, "inside a pass a refused connection fails without retries");
+            auto again = down("/v1/messages");
+            check(again.wait_for(0ms) == std::future_status::ready && again.get().error == first.error, "inside a pass an endpoint that refused is not called again");
+            check(post("/fast").get().status == 200, "inside a pass other endpoints are still called");
+        }
+        auto [after, afterTook] = timed("/v1/responses");
+        check(!after.error.empty() && afterTook >= 2500ms, "after the pass a refused connection is retried again");
+        auto [other, otherTook] = elsewhere.get();
+        check(!other.error.empty() && otherTook >= 2500ms, "a pass on one thread leaves other threads' retries alone");
         auto active = post("/hang");
         for (int n = 0; n < 100 && fixture.hangs < 2; ++n) std::this_thread::sleep_for(5ms);
         auto pending = post("/fast");

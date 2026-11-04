@@ -89,6 +89,7 @@ void checkEndpointSyntax(const std::string& url) {
 PinnedRequest::PinnedRequest(const std::string& url) : url_(url) {
     Parts p;
     try { p = parse(url); } catch (const std::invalid_argument& e) { throw std::runtime_error(e.what()); }
+    origin_ = p.scheme + "://" + (p.host.find(':') != std::string::npos ? "[" + p.host + "]" : p.host) + ":" + p.port;
     if (g_allowPrivate) return;
     addrinfo hints{}; hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM;
     addrinfo* res = nullptr;

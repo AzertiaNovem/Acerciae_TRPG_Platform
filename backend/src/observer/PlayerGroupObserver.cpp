@@ -104,6 +104,7 @@ WORLD STATE: also keep what this group knows to be true NOW about entities. When
         });
         result["status"]="succeeded"; groupsProcessed_++;
     } catch(const std::exception& e) {
+        ALOG_WARN << "player group observer job failed: " << e.what();
         try {
             db_.exec("UPDATE ai_jobs SET status='failed',error=$2,finished_at=now() WHERE id=$1",{jobId,std::string(e.what())});
             if(committed) db_.exec("INSERT INTO ai_processing_cursors(channel_id,kind,group_key,last_seq) VALUES($1,'observe',$2,$3) ON CONFLICT(channel_id,kind,group_key) DO UPDATE SET last_seq=GREATEST(ai_processing_cursors.last_seq,EXCLUDED.last_seq),failures=0,retry_after=NULL,updated_at=now()",{channelId,key,to});
