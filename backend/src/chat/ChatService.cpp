@@ -1,4 +1,5 @@
 #include "ChatService.h"
+#include "../characters/CharacterSpaceService.h"
 #include "../events/EventStore.h"
 #include "../scenes/SceneManager.h"
 #include "../ws/Notifier.h"
@@ -271,25 +272,39 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
     auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
     // The rule system decides the dice commands, the character sheet and how the AI names the game and the GM; point
     // buy makes role cards follow the system's character-creation budget. Both are the GM's to change at any time.
+    // A change of rule system is a transition, in one transaction with it: every character keeps its story, the numbers
+    // and dice values of the old system go to a read-only archive on its card, and the players are asked (in the main
+    // window, and on the cards) to rebuild their characters' numbers for the new system.
+    Json::Value transition, message;
     db_.tx([&](pqxx::work& w) {
-        const auto previous = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR UPDATE", {a.channelId})["rule_system"].asString();
-        const auto ruleSystem = rules::canonical(json::str(body, "rule_system", previous));
+        const auto from = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR UPDATE", {a.channelId})["rule_system"].asString();
+        const auto ruleSystem = rules::canonical(json::str(body, "rule_system", from));
         if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e, dnd2024 or pbta");
-        if (previous != ruleSystem) {
-            // Switch the live dice attributes atomically with their rules. PbtA reads its own role card.
-            Db::exec(w, "UPDATE characters SET sheet = sheet || jsonb_build_object("
-                        "'rule_attrs', coalesce(sheet->'rule_attrs','{}'::jsonb) || jsonb_build_object($2::text,coalesce(sheet->'attrs','{}'::jsonb)),"
-                        "'attrs',coalesce(sheet->'rule_attrs'->($3::text),'{}'::jsonb)) WHERE channel_id=$1",
-                     {a.channelId,previous,ruleSystem});
-        }
-        Db::exec(w,"UPDATE channels SET rule_system=$2, point_buy=$3 WHERE id=$1",{a.channelId,ruleSystem,flag("point_buy")});
+        Db::exec(w, "UPDATE channels SET rule_system=$2, point_buy=$3 WHERE id=$1", {a.channelId, ruleSystem, flag("point_buy")});
+        if (from == ruleSystem) return;
+        transition = CharacterSpaceService::transitionCards(w, a.channelId, from, ruleSystem, a.userId);
+        auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {a.channelId});
+        if (main.isNull()) return;
+        auto texts = dice_.textsForChannel(w, a.channelId);
+        const auto name = [&](const std::string& rs) { return texts.render("rules.name." + rs, {}); };
+        std::string content = texts.render("rules.changed", {{"from", name(from)}, {"to", name(ruleSystem)}});
+        std::vector<std::string> names; for (const auto& r : transition["rebuild"]) names.push_back(r["name"].asString());
+        if (!names.empty()) content += "\n" + texts.render("rules.rebuild", {{"to", name(ruleSystem)}, {"list", text::join(names, ", ")}});
+        message = postSystemMessage(w, a.channelId, main["id"].asString(), a.userId, content);
     });
     db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
              "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
         {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
          flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled")});
     notifier_.channelUpdated(a.channelId);
-    return getChannel(a);
+    if (!message.isNull()) notifier_.messagePosted(message);
+    auto out = getChannel(a);
+    if (!transition.isNull()) {
+        for (const auto& row : transition["rows"]) notifier_.characterUpdated(a.channelId, row);
+        transition.removeMember("rows");
+        out["rule_transition"] = transition;
+    }
+    return out;
 }
 Json::Value ChatService::endStory(const ChannelAccess& a, const Json::Value& body) {
     auth_.requireGm(a);

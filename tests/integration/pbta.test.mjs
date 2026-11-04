@@ -198,12 +198,25 @@ test('PbtA playbooks, private GM moves, auditable outcomes and portable packs', 
       role_card: system === 'dnd2024' ? { dnd: { level: 2 } } : { characteristics: { STR: 55 } },
     });
   }
+  // Back to PbtA: the card is new for PbtA (the story stays); the playbook and the D&D build wait read-only among the
+  // former cards, and the playbook comes back when the player chooses it (see rule-transition.test.mjs).
   await call(gm, 'PUT', a, { rule_system: 'pbta' });
-  const restored = await call(pl, 'GET', pc + '/space');
+  const fresh = await call(pl, 'GET', pc + '/space');
+  assert.equal(fresh.character.role_card.pbta, undefined); assert.equal(fresh.character.role_card.dnd, undefined);
+  assert.equal(fresh.character.card_pending, true);
+  const formerBook = fresh.card_archives.find((x) => x.rule_system === 'pbta');
+  assert.deepEqual(formerBook.numbers.pbta, saved.character.role_card.pbta);
+  assert.equal(fresh.card_archives.find((x) => x.rule_system === 'dnd2024').numbers.dnd.level, 2);
+  const restored = await call(pl, 'POST', pc + `/card-archives/${formerBook.id}/restore`, {});
   assert.deepEqual(restored.character.role_card.pbta, saved.character.role_card.pbta);
-  assert.equal(restored.character.role_card.dnd.level, 2);
+  assert.equal(restored.character.card_pending, false);
+  // Call of Cthulhu again: the dice values are not back by themselves, only with the former card.
   await call(gm, 'PUT', a, { rule_system: 'coc7e' });
-  assert.equal((await call(pl, 'GET', pc + '/space')).attrs.STR, 55);
+  const coc = await call(pl, 'GET', pc + '/space');
+  assert.deepEqual(coc.attrs, {});
+  const formerCoc = coc.card_archives.find((x) => x.rule_system === 'coc7e');
+  assert.equal(formerCoc.attrs.STR, 55);
+  assert.equal((await call(pl, 'POST', pc + `/card-archives/${formerCoc.id}/restore`, {})).attrs.STR, 55);
   await call(gm, 'PUT', a, { rule_system: 'dnd2024' });
   assert.notEqual((await call(pl, 'GET', pc + '/space')).attrs.STR, 55);
 });
