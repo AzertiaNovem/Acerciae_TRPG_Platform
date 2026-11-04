@@ -33,7 +33,7 @@ function load(file, globals) {
   new Function('require', 'module', 'exports', ...Object.keys(globals), js)(require, module, module.exports, ...Object.values(globals));
   return module.exports;
 }
-const response = (body, headers = {}, init = {}) => ({ type: init.type ?? 'basic', ok: init.ok ?? true, headers: new Headers(headers), blob: async () => new Blob([body]) });
+const response = (body, headers = {}, init = {}) => ({ type: init.type ?? 'basic', ok: init.ok ?? true, headers: new Headers(headers), blob: async () => new Blob([body]), json: async () => JSON.parse(body) });
 const tick = () => new Promise((r) => setTimeout(r, 50));   // generous: the whole suite runs in parallel
 test.beforeEach(() => stored.clear());
 const DAY = 24 * 60 * 60 * 1000;
@@ -81,7 +81,8 @@ test('only immutable responses are kept; a kept picture is served from the store
   c.setAssetScope('http://api.test|u1');
   const a = 'http://api.test/api/channels/c/media/m1?token=T1&v=2';
   assert.match(await c.cachedSrc(a, H), /^blob:/);
-  assert.equal(seen[0].init.redirect, 'follow'); assert.equal(seen[0].init.credentials, 'omit');
+  assert.equal(seen[0].init.redirect, 'manual'); assert.equal(seen[0].init.credentials, 'omit');
+  assert.equal(new URL(seen[0].url).searchParams.get('direct'), '1', 'the API is asked for the bucket URL, not a redirect');
   await tick();
   const rows = [...idb.stores.get('assets').values()];
   assert.equal(rows.length, 1, 'kept on disk'); assert.ok(rows[0].key.endsWith(`sha:${H}`)); assert.ok(rows[0].lastUsed > 0); assert.equal(rows[0].bytes, 6);
@@ -110,17 +111,37 @@ test('only immutable responses are kept; a kept picture is served from the store
   assert.equal(c4.peekSrc(secret), undefined, 'but not remembered');
   await tick();
   assert.equal([...idb.stores.get('assets').keys()].filter((k) => k.includes('secret')).length, 0);
-  // An object the public bucket serves (public, immutable) is kept like any other; a bucket that refuses the app's
-  // origin (the fetch fails) or an opaque redirect leaves the picture to the browser; data URIs pass through; Clear
-  // empties the store.
-  reply = () => response('BUCKET', { 'Cache-Control': 'public, max-age=31536000, immutable' }, { type: 'cors' });
+  // An object in the public bucket: the API names its URL and whether it may be kept; it is fetched from the bucket in
+  // one hop (the page's own origin), past the browser's HTTP cache, and kept by its hash when the API allows.
+  const bucket = (keep) => (url) => url.startsWith('https://static.test/')
+    ? response('BUCKET', { 'Cache-Control': 'public, max-age=31536000, immutable' }, { type: 'cors' })
+    : response(JSON.stringify({ url: 'https://static.test/pub/art.png', keep }), { 'Content-Type': 'application/vnd.acerciae.direct+json' });
+  reply = bucket(true); seen.length = 0;
   const pub = 'http://api.test/api/channels/c/media/art?v=1&token=T';
   assert.match(await c4.cachedSrc(pub, 'a'.repeat(64)), /^blob:/); await tick();
+  assert.equal(seen.length, 2); assert.equal(seen[1].url, 'https://static.test/pub/art.png');
+  assert.equal(seen[1].init.cache, 'no-store'); assert.equal(seen[1].init.credentials, 'omit');
   assert.equal([...idb.stores.get('assets').keys()].filter((k) => k.endsWith('sha:' + 'a'.repeat(64))).length, 1, 'the bucket\'s object is kept by its hash');
-  reply = () => { throw new TypeError('CORS'); };
-  assert.equal(await c4.cachedSrc('http://api.test/api/channels/c/media/art2?v=1&token=T'), 'http://api.test/api/channels/c/media/art2?v=1&token=T');
+  // The bucket marks everything immutable, but GM-private material (keep: false) is shown, never kept.
+  reply = bucket(false);
+  const npc = 'http://api.test/api/channels/c/media/npc?v=1&token=T';
+  assert.match(await c4.cachedSrc(npc, 'b'.repeat(64)), /^blob:/); await tick();
+  assert.equal(c4.peekSrc(npc, 'b'.repeat(64)), undefined);
+  assert.equal([...idb.stores.get('assets').keys()].filter((k) => k.endsWith('sha:' + 'b'.repeat(64))).length, 0);
+  // A bucket whose CORS policy refuses the page, a URL that is not http(s), or an older server's redirect: the
+  // browser loads the URL itself, as before.
+  const art2 = 'http://api.test/api/channels/c/media/art2?v=1&token=T';
+  reply = (url) => { if (url.startsWith('https://static.test/')) throw new TypeError('CORS'); return bucket(true)(url); };
+  assert.equal(await c4.cachedSrc(art2), art2);
+  reply = () => response(JSON.stringify({ url: 'javascript:alert(1)', keep: true }), { 'Content-Type': 'application/vnd.acerciae.direct+json' });
+  assert.equal(await c4.cachedSrc(art2), art2);
   reply = () => response('', {}, { type: 'opaqueredirect', ok: false });
   assert.equal(await c4.cachedSrc(pub), pub);
+  // Only the routes that can hand over to the bucket are asked for a direct URL.
+  assert.match(c4.directUrl('http://api.test/api/users/u1/avatar?v=3&token=T'), /direct=1/);
+  assert.match(c4.directUrl('http://api.test/api/channels/c/studio/tts/audio/a1?token=T'), /direct=1/);
+  assert.equal(c4.directUrl('http://api.test/api/channels/c/atmosphere/assets/x?token=T'), 'http://api.test/api/channels/c/atmosphere/assets/x?token=T');
+  assert.equal(c4.directUrl('https://elsewhere.test/signed.png?sig=abc'), 'https://elsewhere.test/signed.png?sig=abc');
   assert.equal(await c4.cachedSrc('data:image/png;base64,AA'), 'data:image/png;base64,AA');
   assert.deepEqual(await c4.cacheStats(), { entries: 2, bytes: 12 });
   await c4.clearAssetCache();
