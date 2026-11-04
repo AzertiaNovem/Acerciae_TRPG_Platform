@@ -7,6 +7,7 @@
 #include "../knowledge/KnowledgeService.h"
 #include "../knowledge/Visibility.h"
 #include "../llm/LlmGateway.h"
+#include "../llm/HttpTransport.h"
 #include "../ws/Notifier.h"
 #include "../scenes/ScenarioService.h"
 #include "../script/ScriptKnowledgeService.h"
@@ -48,6 +49,7 @@ void ObserverScheduler::observeLoop() { loopEvery(running_, cvMu_, cv_, cfg_.obs
 void ObserverScheduler::consolidateLoop() {
     loopEvery(running_, cvMu_, cv_, cfg_.consolidatorIntervalMs, [this] {
         if (!cfg_.observerEnabled) return;
+        llm::FailFastPass pass;   // like the observer's scan: a provider that is down must not hold up the other channels
         for (auto& ch : db_.queryJson("SELECT id FROM channels WHERE ai_enabled")) consolidateChannel(ch["id"].asString());
     });
 }
@@ -77,6 +79,10 @@ ChannelAccess ObserverScheduler::systemAccess(const std::string& channelId) {
 
 void ObserverScheduler::observeTick() {
     ticks_++;
+    // A scan visits every channel in turn. A provider that refuses the connection fails at once instead of being
+    // retried, and is not called again in this scan, so it cannot hold up the channels after it; its groups come back
+    // after the usual backoff (recordFailure).
+    llm::FailFastPass pass;
     // A job row left 'running' (a crash, a lost connection) would block its group's lock forever.
     db_.exec("UPDATE ai_jobs SET status='failed', error='stale: no progress for 15 minutes', finished_at=now() WHERE status='running' AND started_at < now() - interval '15 minutes'");
     for (auto& ch : db_.queryJson("SELECT id FROM channels WHERE ai_enabled")) {

@@ -2,6 +2,7 @@
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
+#include <algorithm>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -76,6 +77,16 @@ void validate(const J &p) {
     require(m["stat"].isString() &&
                 (m["stat"] == "" || findId(p["stats"], m["stat"])),
             "Unknown move stat");
+    if (m.isMember("playerChoiceBands")) {
+      require(m["playerChoiceBands"].isArray(),
+              "Expected a list of player-choice bands");
+      std::set<std::string> seen;
+      for (const auto &band : m["playerChoiceBands"])
+        require(band.isString() && seen.insert(band.asString()).second &&
+                    (m["stat"] == "" ? band == "no_roll"
+                                     : findId(p["bands"], band) != nullptr),
+                "Invalid player-choice band");
+    }
     const auto &outcomes = m["outcomes"];
     require(outcomes.isObject() &&
                 outcomes.size() == (m["stat"] == "" ? 0u : p["bands"].size()),
@@ -103,11 +114,15 @@ bool usesRemoved(const J &c, const J &before, const J &after) {
   return false;
 }
 } // namespace
+static void lockChannel(pqxx::work &w, const std::string &channel) {
+  if (Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE",
+                   {channel})["rule_system"] != "pbta")
+    throw conflict("Select PbtA in the channel rules first");
+}
 Json::Value lockedPack(pqxx::work &w, const std::string &channel) {
+  lockChannel(w, channel);
   auto r = Db::queryOne(
-      w,
-      "SELECT revision,pack FROM pbta_packs JOIN channels ON id=channel_id "
-      "WHERE channel_id=$1 AND rule_system='pbta' FOR SHARE",
+      w, "SELECT revision,pack FROM pbta_packs WHERE channel_id=$1 FOR SHARE",
       {channel});
   if (r.isNull())
     throw conflict("Select PbtA in the channel rules first");
@@ -125,6 +140,33 @@ Json::Value preview(const ChannelAccess &a, const J &pack) {
   validate(pack);
   return pack;
 }
+static J savePack(pqxx::work &w, const ChannelAccess &a, const J &revision,
+                  const J &pack) {
+  lockChannel(w, a.channelId);
+  auto old =
+      Db::queryOne(w,
+                   "SELECT revision,pack FROM pbta_packs JOIN channels ON "
+                   "id=channel_id WHERE channel_id=$1 AND rule_system='pbta' "
+                   "FOR UPDATE OF pbta_packs FOR SHARE OF channels",
+                   {a.channelId});
+  if (old.isNull() || old["revision"] != revision)
+    throw conflict("Rules changed. Reload before saving.");
+  std::vector<std::string> affected;
+  for (const auto &c :
+       Db::queryJson(w,
+                     "SELECT name,role_card->'pbta' AS card FROM characters "
+                     "WHERE channel_id=$1 AND role_card ? 'pbta'",
+                     {a.channelId}))
+    if (usesRemoved(c["card"], old["pack"], pack))
+      affected.push_back(c["name"].asString());
+  if (!affected.empty())
+    throw conflict("Definitions in use by: " + text::join(affected, ", "));
+  return Db::queryOne(
+      w,
+      "UPDATE pbta_packs SET pack=$2::jsonb,revision=revision+1 WHERE "
+      "channel_id=$1 RETURNING revision,pack",
+      {a.channelId, json::dump(pack)});
+}
 Json::Value replace(Db &db, const ChannelAccess &a, const J &body) {
   if (!a.isGm)
     throw forbidden("Only the GM can edit the rules");
@@ -132,30 +174,95 @@ Json::Value replace(Db &db, const ChannelAccess &a, const J &body) {
           "Expected a pack revision");
   const auto &pack = body["pack"];
   validate(pack);
+  return db.tx(
+      [&](pqxx::work &w) { return savePack(w, a, body["revision"], pack); });
+}
+
+// The server decides whether an agent may offer a first design, including when
+// local agent state is lost.
+static J reviewState(pqxx::work &w, const ChannelAccess &a, bool lock) {
+  if (!a.isGm)
+    throw forbidden("Only the GM can review rule drafts");
+  if (lock)
+    lockChannel(w, a.channelId);
+  auto row = Db::queryOne(
+      w,
+      std::string("SELECT review, revision, revision=1 AND NOT EXISTS (SELECT "
+                  "1 FROM messages WHERE channel_id=$1 "
+                  "AND kind IN ('ic','roll','narration')) AND NOT EXISTS "
+                  "(SELECT 1 FROM characters WHERE channel_id=$1 AND "
+                  "(role_card->'pbta'->>'book' IS NOT NULL OR NOT card_pending "
+                  "AND role_card <> '{}'::jsonb)) "
+                  "AND NOT EXISTS (SELECT 1 FROM character_card_archives WHERE "
+                  "channel_id=$1) AS eligible "
+                  "FROM pbta_packs JOIN channels ON id=channel_id WHERE "
+                  "channel_id=$1 AND rule_system='pbta'") +
+          (lock ? " FOR SHARE OF channels FOR UPDATE OF pbta_packs" : ""),
+      {a.channelId});
+  if (row.isNull())
+    throw conflict("Channel does not use PbtA");
+  auto out = row["review"];
+  out["eligible"] = row["eligible"];
+  out["revision"] = row["revision"];
+  return out;
+}
+J review(Db &db, const ChannelAccess &a) {
+  return db.tx([&](pqxx::work &w) { return reviewState(w, a, false); });
+}
+J changeReview(Db &db, const ChannelAccess &a, const J &body) {
   return db.tx([&](pqxx::work &w) {
-    auto old =
-        Db::queryOne(w,
-                     "SELECT revision,pack FROM pbta_packs JOIN channels ON "
-                     "id=channel_id WHERE channel_id=$1 AND rule_system='pbta' "
-                     "FOR UPDATE OF pbta_packs FOR SHARE OF channels",
-                     {a.channelId});
-    if (old.isNull() || old["revision"] != body["revision"])
-      throw conflict("Rules changed. Reload before saving.");
-    std::vector<std::string> affected;
-    for (const auto &c :
-         Db::queryJson(w,
-                       "SELECT name,role_card->'pbta' AS card FROM characters "
-                       "WHERE channel_id=$1 AND role_card ? 'pbta'",
-                       {a.channelId}))
-      if (usesRemoved(c["card"], old["pack"], pack))
-        affected.push_back(c["name"].asString());
-    if (!affected.empty())
-      throw conflict("Definitions in use by: " + text::join(affected, ", "));
-    return Db::queryOne(
-        w,
-        "UPDATE pbta_packs SET pack=$2::jsonb,revision=revision+1 WHERE "
-        "channel_id=$1 RETURNING revision,pack",
-        {a.channelId, json::dump(pack)});
+    auto draft = reviewState(w, a, true);
+    if (draft["version"] != body["version"])
+      throw conflict("Draft changed. Reload before continuing.");
+    const auto op = json::str(body, "op"), state = json::str(draft, "status");
+    if (op == "start" && (state == "none" || state == "retry")) {
+      if (!draft["eligible"].asBool())
+        throw conflict("This table already has rules, cards or play.");
+      const auto hash = json::str(body, "world_hash");
+      require(std::regex_match(hash, std::regex("[0-9a-f]{64}")),
+              "Invalid world fingerprint");
+      draft["world_hash"] = hash;
+      draft["base_revision"] = draft["revision"];
+      draft["status"] = "designing";
+      draft.removeMember("error");
+    } else if (op == "submit" && state == "designing") {
+      validate(body["pack"]);
+      const auto &notes = body["reasons"];
+      require(notes.isArray() && notes.size() >= 2 && notes.size() <= 3,
+              "Give two or three design reasons");
+      for (const auto &v : notes)
+        label(v, 2400, "design reason");
+      draft["pack"] = body["pack"];
+      draft["reasons"] = notes;
+      draft["status"] = "pending";
+    } else if (op == "fail" && state == "designing") {
+      label(body["error"], 2000, "design error");
+      draft["error"] = body["error"];
+      draft["status"] = "failed";
+    } else if (op == "retry" && (state == "designing" || state == "failed")) {
+      draft["status"] = "retry";
+    } else if (op == "keep" && state != "active" && state != "kept" &&
+               state != "none") {
+      draft["status"] = "kept";
+    } else if ((op == "edit" || op == "activate") && state == "pending") {
+      validate(body["pack"]);
+      draft["pack"] = body["pack"];
+      if (op == "activate") {
+        if (body["revision"] != draft["revision"] ||
+            (body["revision"] != draft["base_revision"] &&
+             !json::toBool(body, "reviewed_changes")))
+          throw conflict("Compare the new official version before activating.");
+        savePack(w, a, body["revision"], body["pack"]);
+        draft["status"] = "active";
+      }
+    } else
+      throw conflict("This draft action is no longer available.");
+    draft.removeMember("eligible");
+    draft.removeMember("revision");
+    draft["version"] = draft["version"].asInt() + 1;
+    Db::exec(w, "UPDATE pbta_packs SET review=$2::jsonb WHERE channel_id=$1",
+             {a.channelId, json::dump(draft)});
+    return reviewState(w, a, false);
   });
 }
 Json::Value normalizeCard(const J &c, const J &p) {
@@ -228,6 +335,13 @@ Json::Value resolve(const J &row, const J &card, const std::string &args,
       }
   } else
     require(mod.empty(), "A diceless move takes no modifier");
+  if (m->isMember("playerChoiceBands")) {
+    const auto band =
+        d.isMember("band") ? d["band"]["id"].asString() : "no_roll";
+    d["player_choice"] = std::any_of((*m)["playerChoiceBands"].begin(),
+                                     (*m)["playerChoiceBands"].end(),
+                                     [&](const J &x) { return x == band; });
+  }
   d["text"] = line;
   return d;
 }

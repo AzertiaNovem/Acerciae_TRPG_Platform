@@ -80,10 +80,11 @@ test('Scenario 2: lines waiting for the observer are analysed as ONE batch, bubb
   const before = await api('GET', `/api/channels/${ids.channel}/ai/jobs`, undefined, U.gm);
   // Each scan takes whatever is waiting, so a scan landing inside the burst would split it in two. Pause this
   // channel's observer for the burst, then wait for a scan to start: scans run one after another, so no scan that
-  // still saw the channel enabled is running once a new one has begun.
+  // still saw the channel enabled is running once a new one has begun. The scan running now visits every channel with
+  // work waiting (earlier suites leave plenty), so the bound covers a whole scan, not just the interval between scans.
   await observer(false); paused = true;
   const pausedAt = await ticks();
-  await waitFor(async () => (await ticks()) > pausedAt, { timeout: observerInterval * 3 + 5000, label: 'a scan after the pause' });
+  await waitFor(async () => (await ticks()) > pausedAt, { timeout: Math.max(60000, observerInterval * 3 + 5000), label: 'a scan after the pause' });
   // Session 1 in the main window — a burst of messages.
   await say(U.gm, ids.main, 'The investigators arrive at the Sheriff\'s Office on a grey Monday morning. Sheriff Dunmore rises with a careful smile.', 'narration');
   await say(U.pl1, ids.main, '"Sheriff, we would like to see the lighthouse. We understand it has been locked."');
@@ -137,6 +138,7 @@ test('Scenario 3: return of historical foreshadowing — mention of the badge hi
   ids.sceneReunion = (await api('POST', `/api/channels/${ids.channel}/scenes`, { title: 'Session 3 — Boarding House', location: 'Boarding House', narrative_time: 'Wednesday morning' }, U.gm)).id;
   await api('POST', `/api/channels/${ids.channel}/windows/${ids.main}/scene`, { scene_id: ids.sceneReunion }, U.gm);
   const { ws, received } = await openWs('context', U.pl3, ids.channel);
+  try {   // an open socket would keep the file running until the test timeout if an assertion fails
   await say(U.gm, ids.main, 'Wednesday morning at the Boarding House. The three of you are together again.', 'narration');
   await say(U.pl3, ids.main, 'I put the tarnished badge on the table between us. "A man named Jonah Pike dropped this at the harbour last night."');
   await api('POST', `/api/channels/${ids.channel}/ai/observe-now`, undefined, U.gm);
@@ -159,7 +161,7 @@ test('Scenario 3: return of historical foreshadowing — mention of the badge hi
   assert.ok(rel.some((e) => /badge/i.test(e.summary) && /Cora/i.test(e.summary)), 'relationship journal links the character to the recurring item');
   // Dismiss works and is scoped.
   await api('POST', `/api/channels/${ids.channel}/highlights/${badgeHl[0].id}/dismiss`, undefined, U.pl3);
-  ws.close();
+  } finally { ws.close(); }
 });
 
 test('Scenario 4: consistency conflict — claiming an item that was only promised', async () => {

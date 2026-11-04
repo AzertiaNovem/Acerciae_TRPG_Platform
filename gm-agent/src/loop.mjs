@@ -26,6 +26,7 @@ import { recall } from "./context/recall.mjs";
 import { investigatorsFor } from "./context/profiles.mjs";
 import { directTurn } from "./director.mjs";
 import { coplayerSelf, coplayerTurn } from "./coplayer.mjs";
+import { prepareActor, playerRules, awaitingReview } from "./pbta.mjs";
 import { generateNpc, saveCharacter } from "./roles/cardgen.mjs";
 import { isPlayerCharacter, openWindows } from "./roles/roster.mjs";
 import { Timelines, MAIN, placeKey } from "./timelines.mjs";
@@ -131,7 +132,7 @@ export class Table {
     const settings = await this.api.serverSettings(this.channel.server_id).catch(() => null);
     this.language = languageName(this.cfg.language || settings?.language || "en");
     this.memory.language = this.language;
-    this.rules = await this.api.coc7Rules().catch(() => null);
+    this.rules = this.channel.rule_system === "pbta" ? null : await this.api.coc7Rules().catch(() => null);
     await this.refresh();
     for (const w of this.windows) if (Number.isFinite(Number(w.last_seq))) this.noteSeq(w.id, Number(w.last_seq));
     await this.observeHistory();
@@ -141,6 +142,7 @@ export class Table {
       const cur = scenes.find((s) => s.id === this.channel.current_scene_id);
       this.scenario = { id: this.channel.current_scene_id, since: Date.parse(cur?.created_at) || this.now() };
     }
+    if (heal && this.pbta && awaitingReview((await this.api.pbtaDraft(this.channelId)).status)) throw Error("Rule draft awaits GM review");
     if (heal) await this.heal();
     if (heal) await this.publishWorld();
     this.ready = true;
@@ -173,9 +175,12 @@ export class Table {
   // Single-flight, generation-checked: a stale list never overwrites a newer one.
   async refresh() {
     const gen = ++this.refreshGen;
-    const [characters, windows] = await Promise.all([this.api.characters(this.channelId), this.api.windows(this.channelId)]);
+    const [characters, windows, channel] = await Promise.all([this.api.characters(this.channelId), this.api.windows(this.channelId), this.api.channel(this.channelId)]);
+    if ((channel.rule_system ?? "coc7e") !== (this.channel.rule_system ?? "coc7e")) throw Error("Rule system changed. Restart setup and run.");
+    const pbta = channel.rule_system === "pbta" ? await this.api.pbtaRules(this.channelId) : null;
     if (gen < this.appliedGen) return;
     this.appliedGen = gen;
+    this.pbta = pbta;
     // A player character first seen after start-up: a new player at the table (see welcomeNewcomers).
     const fresh = this.ready && this.characters ? characters.filter((c) => !this.characters.some((x) => x.id === c.id)) : [];
     this.characters = characters;
@@ -416,12 +421,32 @@ export class Table {
         : "";
       const verdict = await this.scenarioVerdict(windowId, roundMode, mode);
       const scenario = this.cfg.scenarioAuto ? `Scenario change: ${verdict.ok ? (verdict.planner ? "possible this turn (the story planner judges the current event has run its course)." : "possible this turn, if the story as a whole has moved on.") : `not this turn (${verdict.reason}).`}` : "";
-      const plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra });
+      const local = this.pbta ? ctx.lines(windowId).slice(-32) : [];
+      const intents = local.filter(line => {
+        if (roundExtra.rulingReady || line.kind !== "ic") return false;
+        if (this.isPc(line.character_id)) return roundMode === "human" && batch.some(l => l.seq === line.seq);
+        return roundMode === "followup";
+      });
+      const pbta = this.pbta && {
+        ...this.pbta,
+        characters: this.characters.map(c => ({ id: c.id, name: c.name, sheet: c.role_card?.pbta })),
+        lines: local.map(m => ({ id: m.id, character_id: m.character_id, kind: m.kind, text: m.dice?.text ?? m.content })),
+        eligible_declarations: intents.map(m => m.id),
+        rulings: await this.api.pbtaRulings(this.channelId, windowId),
+      };
+      const plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, pbta, newest: ctx.newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra });
       if (between) { between = null; this.planner.between = null; this.save(); }
       this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} Keeper action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
       for (const action of plan.actions) {
         if (budget <= 0) break;
+        if (this.pbta && action.type === "move" && !intents.some(m => m.id === action.source_id && m.character_id === action.character_id)) continue;
         budget -= await this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope });
+        if (this.pbta && (action.type === "move" || (["npc", "new_npc"].includes(action.type) && action.move_id))) {
+          // Discard any consequences the model guessed before it saw the server's dice.
+          if (!roundExtra.rulingReady && budget > 0) return round("followup", { rulingReady: true });
+          break;
+        }
+        if (this.pbta && action.type === "ask") break;
       }
       // Whereabouts apply in rounds that may move someone; never inside an arrival or a kickoff (no cascades).
       const moves = MOVE_MODES.has(roundMode) && !(roundMode === "followup" && (mode === "arrival" || mode === "kickoff"));
@@ -689,6 +714,25 @@ export class Table {
         if (!npc && a.type === "npc") { this.log(`the Keeper named an unknown NPC (${a.name}); skipped instead of creating a character`); return 0; }
         if (!npc) npc = await this.createNpc(a.name, a.brief, ctx.text);
         if (!npc || !a.text) return 0;
+        if (this.pbta && a.move_id) {
+          const sheet = this.characters.find(c => c.id === npc.characterId);
+          const move = this.pbta.pack.moves.find(m => m.id === a.move_id);
+          if (!sheet || !move || /^[.。]/.test(a.text.trim())) return 0;
+          await prepareActor(this.api, this.llm, this.channelId, {
+            rules: this.pbta, language: this.language, world: this.improv.world, existing: sheet,
+            npc: true, requiredBook: move.book,
+          });
+          const line = await this.api.postMessage(this.channelId, windowId, {
+            content: a.text, kind: "ic", character_id: npc.characterId,
+          });
+          this.noteLine(line);
+          const result = await this.api.pbtaRuling(this.channelId, windowId, {
+            op: "move", source_id: line.id, character_id: npc.characterId, move_id: move.id,
+            modifier: a.modifier ?? 0, revision: this.pbta.revision,
+          });
+          this.noteLine(result);
+          return 2;
+        }
         return this.post(windowId, { content: a.text, kind: "ic", character_id: npc.characterId });
       }
       case "whisper": {
@@ -696,7 +740,26 @@ export class Table {
         if (!target) return this.post(windowId, { content: `(whisper for ${a.to}) ${a.text}`, kind: "narration", visibility: "gm_only" });
         return this.post(windowId, { content: a.text, kind: "narration", visibility: "whisper", whisper_to: [target.id] });
       }
-      case "request_roll": return this.requestRoll(windowId, a, scope);
+      case "ask":
+      case "mark":
+      case "move": {
+        if (!this.pbta) return 0;
+        const target = this.characters.find(c => c.id === a.character_id);
+        if (!target || (scope && target.kind === "pc" && !scope.has(target.id))) return 0;
+        if (a.type === "move" && target.kind === "npc" && !target.role_card?.pbta?.book) {
+          const move = this.pbta.pack.moves.find(m => m.id === a.move_id);
+          if (!move) return 0;
+          await prepareActor(this.api, this.llm, this.channelId, {
+            rules: this.pbta, language: this.language, world: this.improv.world, existing: target,
+            npc: true, requiredBook: move.book,
+          });
+        }
+        const result = await this.api.pbtaRuling(this.channelId, windowId, { ...a, op: a.type, revision: this.pbta.revision });
+        this.noteLine(result);
+        this.cards.delete(target.id);
+        return 1;
+      }
+      case "request_roll": return this.pbta ? 0 : this.requestRoll(windowId, a, scope);
       case "split": return this.cfg.timelineAuto ? 0 : this.legacySplit(windowId, a);
       case "rejoin": return this.cfg.timelineAuto ? 0 : this.legacyRejoin(a);
       case "timeline": return this.updateTimeline(a);
@@ -1180,7 +1243,11 @@ export class Table {
       const memories = this.memory.coplayerChapters(cp).map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`);
       const today = this.calendarOn() ? describeCalendar(this.calendar, { time: this.timelines.of(toId)?.narrativeTime || this.calendar.time }) : "";
       const known = new Set([...investigatorsFor(this.characters, this.roster).map((c) => c.id), fromId]);
-      const self = [coplayerSelf({ coplayer: cp, card: await this.card(toId), world: this.improv.on ? this.improv.world : "" }), memories.length ? `WHAT YOU REMEMBER:\n${memories.join("\n\n")}` : "", today ? `TODAY IN THE STORY: ${today}` : "", today && describeRoutine(this.calendar) ? `${describeRoutine(this.calendar)} (common knowledge)` : "", renderBondsFor(this.bonds, toId, known, (id) => this.nameOf(id)), renderCorrectionsFor(this.planner.table, cp.name)].filter(Boolean).join("\n\n");
+      const card = await this.card(toId);
+      const tableInfo = this.pbta
+        ? [JSON.stringify(playerRules(this.pbta.pack, card?.pbta?.book))]
+        : [today ? `TODAY IN THE STORY: ${today}` : "", today && describeRoutine(this.calendar) ? `${describeRoutine(this.calendar)} (common knowledge)` : "", renderBondsFor(this.bonds, toId, known, (id) => this.nameOf(id)), renderCorrectionsFor(this.planner.table, cp.name)];
+      const self = [coplayerSelf({ coplayer: cp, card, world: this.improv.on ? this.improv.world : "" }), memories.length ? `WHAT YOU REMEMBER:\n${memories.join("\n\n")}` : "", ...tableInfo].filter(Boolean).join("\n\n");
       let r;
       try { r = await coplayerPhoneReply(this.llm, { language: this.language, self: [self, renderImpulse(this.impulseFor(toId))].filter(Boolean).join("\n\n"), name: cp.name, from: this.nameOf(fromId), thread, maxDelay: max }); }
       catch (e) { this.log(`co-player ${cp.name} (phone): ${e.message}`); return; }
@@ -1190,7 +1257,7 @@ export class Table {
       const ctx = await this.buildGm(windowId);
       const last = this.store.thread(fromId, toId, 1).at(-1);
       let plan;
-      try { plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, newest: null, mode: "phone", auto: this.cfg.timelineAuto, improv: this.improv.on, casual: true, phone: { from: this.nameOf(fromId), to: this.nameOf(toId), thread, text: last?.text ?? "" } }); }
+      try { plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, pbta:this.pbta, newest: null, mode: "phone", auto: this.cfg.timelineAuto, improv: this.improv.on, casual: true, phone: { from: this.nameOf(fromId), to: this.nameOf(toId), thread, text: last?.text ?? "" } }); }
       catch (e) { this.log(`phone turn: ${e.message}`); return; }
       // Only messages and the Keeper's own notes: nothing happens in a scene because of a text.
       for (const a of plan.actions.filter((x) => ["text", "note", "truth", "world_change"].includes(x.type))) {
@@ -1438,10 +1505,15 @@ export class Table {
 
   async createNpc(name, brief, gmContext) {
     if (!String(name ?? "").trim()) return null;
-    const generated = await generateNpc(this.llm, { language: this.language, era: this.channel.era, rules: this.rules, name, brief, gmContext: gmContext.slice(-6000) });
-    generated.name = name;
-    generated.brief = brief || generated.persona;
-    const saved = await saveCharacter(this.api, this.channelId, generated, { kind: "npc", rules: this.rules });
+    let saved;
+    if (this.pbta) {
+      saved = await this.api.createCharacter(this.channelId, { kind: "npc", name, description: brief || name });
+    } else {
+      const generated = await generateNpc(this.llm, { language: this.language, era: this.channel.era, rules: this.rules, name, brief, gmContext: gmContext.slice(-6000) });
+      generated.name = name;
+      generated.brief = brief || generated.persona;
+      saved = await saveCharacter(this.api, this.channelId, generated, { kind: "npc", rules: this.rules });
+    }
     const entry = { characterId: saved.id, name: saved.name, brief: brief || saved.persona };
     this.roster.npcs.push(entry);
     this.save();
@@ -1493,12 +1565,14 @@ export class Table {
     const memories = this.memory.coplayerChapters(coplayer).map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`);
     const t = this.timelines.of(me);
     const timeline = t ? { name: t.name, narrativeTime: t.narrativeTime, location: t.location } : null;
+    const card = await this.card(me);
+    const pbta = this.pbta && playerRules(this.pbta.pack, card?.pbta?.book);
     let move;
     try {
       const companions = investigatorsFor(this.characters, this.roster, { except: me });
       const phone = this.casualOn() ? renderThread(this.store.phoneOf(me, 12), (id) => this.nameOf(id)) : "";
       const known = this.knownTo(me, witnessed);
-      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card: await this.card(me), companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "", improv: this.improv.on, casual: this.casualOn(), phone, impulse: renderImpulse(this.impulseFor(me)),
+      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card, pbta, companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "", improv: this.improv.on, casual: this.casualOn(), phone, impulse: renderImpulse(this.impulseFor(me)),
         corrections: renderCorrectionsFor(this.planner.table, coplayer.name),
         ...(this.calendarOn() ? { today: describeCalendar(this.calendar, { time: t?.narrativeTime || this.calendar.time }), routine: describeRoutine(this.calendar), timePassed: this.timePassedFor(me, witnessed) } : {}), met: this.metBy(known.met), bonds: renderBondsFor(this.bonds, me, known.all, (id) => this.nameOf(id)) });
     } catch (e) { this.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
@@ -1515,6 +1589,23 @@ export class Table {
       return this.post(this.casual.phones[to.id], { content: move.text, kind: "ic", character_id: me }, { count: false });
     }
     if (move.action === "speak") return this.post(windowId, { content: move.text, kind: move.kind, character_id: me });
+    if (move.action === "roll" && this.pbta) {
+      const [, moveId, modifier] = move.command.split(" ");
+      if (/^[.。]/.test(move.text.trim())) return 0;
+      const cue = witnessed.findLast(m => m.chat_window_id === windowId && m.visibility === "window" && m.character_id !== me);
+      if (!cue) return this.post(windowId, { content: move.text, kind: "ic", character_id: me });
+      const intent = await this.api.pbtaRuling(this.channelId, windowId, {
+        op: "declare", source_id: cue.id, text: move.text, character_id: me,
+        move_id: moveId, modifier: Number(modifier ?? 0), revision: this.pbta.revision,
+      });
+      this.noteLine(intent);
+      // A retry must finish the originally declared move, even if the model now suggests another.
+      const result = await this.api.pbtaRuling(this.channelId, windowId, {
+        op: "move", character_id: me, source_id: intent.id, ...intent.declared_move,
+      });
+      this.noteLine(result);
+      return 2;
+    }
     if (move.action === "roll") {
       let n = 0;
       if (move.text) n += await this.post(windowId, { content: move.text, kind: "ic", character_id: me });
@@ -1546,6 +1637,7 @@ export class Table {
 
   // `count: false` marks bookkeeping lines (pointers, notes) that do not use up the turn's action budget.
   async post(windowId, body, { count = true } = {}) {
+    if (this.pbta && /^[.。][a-z]/i.test(String(body.content).trim())) return 0;
     try {
       const m = await this.api.postMessage(this.channelId, windowId, { visibility: "window", ...body });
       this.botMessageIds.add(m.id);

@@ -17,6 +17,18 @@ export class MockLlm {
     const chars = system.length + user.length;
     onUsage?.({ model: "mock", estimated: true, input: Math.ceil(chars / 3.5), cacheRead: 0, cacheWrite: 0, output: 50 });
     switch (purpose) {
+      case "pbta_design": {
+        const {template:pack,public_world:world}=JSON.parse(messages[0].content);
+        for (const move of pack.moves) move.playerChoiceBands=[];
+        pack.name="[mock] "+world.slice(0,24);
+        return JSON.stringify({pack,reasons:["[mock] Preview the world's title before setup.","[mock] The starter moves exercise both rolled and diceless play."]});
+      }
+      case "pbta_card": {
+        const {books,stats,existing,partySize}=JSON.parse(messages[0].content);
+        const index = partySize + (messages.length > 1 ? 1 : 0);
+        return JSON.stringify({name:existing?.name || NAMES[index] || "Mock player "+index,
+          persona:"[mock] A member of the crew.",speaking_style:"[mock] Direct",role_card:{pbta:{book:books[0].id,stats:{[stats[0].id]:1},resources:{},conditions:{}}}});
+      }
       case "coplayer_card": return JSON.stringify(this.card(user, "coplayer"));
       case "npc_card": return JSON.stringify(this.card(user, "npc"));
       case "coplayer_repair": return JSON.stringify(this.card(user, "coplayer"));

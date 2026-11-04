@@ -11,9 +11,10 @@ import { readStorage, writeStorage } from './storage';
 // cache). Keys are scoped to the signed-in account and server, so entries never cross accounts.
 //
 // What is kept. Only responses the server marks `immutable`: a named version of something a player may see. A stored
-// object never changes and GM-private material is never marked, so it is never written here. Media in the public
-// bucket comes through a redirect; the bucket's objects are immutable and its CORS policy allows the app's origin, so
-// they are kept here too (a bucket that refuses the origin just leaves the picture to the browser, as before).
+// object never changes and GM-private material is never marked, so it is never written here. For media in the public
+// bucket the API answers with the object's URL and its own keep decision (`?direct=1`, see directUrl); the object is
+// then fetched straight from the bucket, whose CORS policy must allow the app's origin (a bucket that refuses it just
+// leaves the picture to the browser, as before).
 //
 // How long. Each time an entry is shown its lifespan starts over: it is dropped only when it has not been shown for
 // ASSET_CACHE_MAX_AGE_MS, or when the cache passes ASSET_CACHE_MAX_BYTES (least recently used first). Without
@@ -57,6 +58,22 @@ export function assetKey(url: string | null | undefined, hash?: string | null): 
     u.searchParams.sort();
     return `${scope}|${u.origin}${u.pathname}?${u.searchParams.toString()}`;
   } catch { return ''; }
+}
+
+// ---- the public bucket ------------------------------------------------------------------------------------------------
+// The routes that may hand an object over to the public bucket (an avatar, a media asset, a voice clip) answer
+// `?direct=1` with {url, keep} instead of a redirect. Fetching that URL from the page is one cross-origin hop, so the
+// browser sends the page's own origin; following the API's redirect would be a second hop from another origin, sent
+// as `Origin: null`, which no CORS policy naming the site accepts.
+export const DIRECT_TYPE = 'application/vnd.acerciae.direct+json';
+const DIRECT_PATH = /\/api\/(users\/[^/]+\/avatar|channels\/[^/]+\/(media\/[^/]+|studio\/tts\/audio\/[^/]+))$/;
+export function directUrl(url: string): string {
+  try {
+    const u = new URL(url, typeof location === 'undefined' ? 'http://localhost/' : location.href);
+    if (!DIRECT_PATH.test(u.pathname)) return url;
+    u.searchParams.set('direct', '1');
+    return u.toString();
+  } catch { return url; }
 }
 
 // ---- eviction: expired entries, then the least recently used until the rest fits the budget -------------------------
@@ -160,10 +177,23 @@ export function cachedSrc(url: string | null | undefined, hash?: string | null):
       const now = Date.now();
       const kept = await read(key, now);
       if (kept) return remember(key, kept);
-      // A redirect goes to the public bucket, which serves the object with CORS; whatever cannot be read here (a
-      // bucket without CORS, an error) is left to the browser, which loads the URL as before.
-      const res = await fetch(url, { redirect: 'follow', credentials: 'omit' });
+      // Whatever cannot be read here (a bucket whose CORS policy refuses the page, an older server's redirect, an
+      // error) is left to the browser, which loads the URL as before.
+      const res = await fetch(directUrl(url), { redirect: 'manual', credentials: 'omit' });
       if (res.type === 'opaqueredirect' || !res.ok) return url;
+      if ((res.headers.get('Content-Type') ?? '').startsWith(DIRECT_TYPE)) {
+        // In the public bucket: fetched from there directly. `no-store` skips any copy an <img> left in the browser's
+        // HTTP cache without CORS headers (the bucket only adds them to requests that carry an Origin).
+        const d = (await res.json()) as { url?: unknown; keep?: unknown };
+        if (typeof d.url !== 'string' || !/^https?:\/\//i.test(d.url)) return url;
+        const obj = await fetch(d.url, { credentials: 'omit', cache: 'no-store' });
+        if (!obj.ok) return url;
+        const bytes = await obj.blob();
+        // The bucket marks every object immutable; whether this one may be kept is the API's call.
+        if (d.keep !== true) return URL.createObjectURL(bytes);
+        void write(key, bytes, now);
+        return remember(key, bytes);
+      }
       const blob = await res.blob();
       // Not marked for keeping (the current version of something, GM-private material): these bytes serve this one
       // view and are neither stored nor remembered, so the next view asks again (and the browser revalidates by ETag).

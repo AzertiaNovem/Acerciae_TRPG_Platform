@@ -49,11 +49,12 @@ static void test(const char* name, std::function<void()> fn) { std::cout << "- "
 
 int main() {
     test("PbtA moves use inclusive bands, a signed modifier and the stored move text", [] {
-        auto pack=json::parse(R"({"revision":4,"pack":{"stats":[{"id":"sense","name":"Sense"}],"books":[{"id":"scout"}],"moves":[{"id":"search","book":"","stat":"sense","outcomes":{"low":"danger","mixed":"choose","high":"safe"}}],"bands":[{"id":"low","max":6},{"id":"mixed","min":7,"max":9},{"id":"high","min":10}]}})");
+        auto pack=json::parse(R"({"revision":4,"pack":{"stats":[{"id":"sense","name":"Sense"}],"books":[{"id":"scout"}],"moves":[{"id":"search","book":"","stat":"sense","playerChoiceBands":["mixed"],"outcomes":{"low":"danger","mixed":"choose","high":"safe"}}],"bands":[{"id":"low","max":6},{"id":"mixed","min":7,"max":9},{"id":"high","min":10}]}})");
         auto card=json::parse(R"({"book":"scout","stats":{"sense":1}})");
         for (int total : {6,7,9,10}) {
             dice::SeqRng rng({3,3});
             auto result=pbta::resolve(pack,card,"search "+std::to_string(total-7),rng);
+            CHECK(result["player_choice"].asBool() == (total>=7 && total<=9));
             CHECK(result["total"]==total);
             CHECK(result["outcome"]==(total<=6?"danger":total<10?"choose":"safe"));
             CHECK(result["revision"]==4);

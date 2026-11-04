@@ -1,4 +1,5 @@
-#include "../rules/Pbta.h"
+#include "../knowledge/Visibility.h"
+#include "../rules/PbtaRuling.h"
 #include <atomic>
 #include "../atmosphere/AtmosphereService.h"
 #include "Api.h"
@@ -106,6 +107,24 @@ HttpResponsePtr redirectTo(const std::string& url, const char* cacheControl) {
 // that keep assets on disk (web, desktop and mobile caches keep only immutable responses) never store GM-private
 // material. Every binary carries an ETag, so the rest revalidate with a 304 instead of downloading again.
 const char* kKeep = "private, max-age=31536000, immutable";
+// The web client's asset cache asks for the public bucket's URL instead of a redirect to it (`?direct=1`), then fetches
+// the object itself in one hop from the page. Following a redirect from the API's origin to the bucket's would make the
+// browser send `Origin: null` (a tainted cross-origin redirect), which no CORS policy naming the site matches. `keep` is
+// this route's own decision on keeping the object (the same as the immutable mark the bytes would have carried here):
+// the bucket marks every object immutable, GM-private material included, so the client keeps only what `keep` allows.
+bool wantsDirect(const HttpRequestPtr& req) { return req->getParameter("direct") == "1"; }
+const char* kDirectType = "application/vnd.acerciae.direct+json";
+HttpResponsePtr directTo(const std::string& url, bool keep, const char* cacheControl) {
+    Json::Value j; j["url"] = url; j["keep"] = keep;
+    auto r = HttpResponse::newHttpResponse();
+    r->setBody(json::dump(j)); r->setContentTypeString(kDirectType);
+    r->addHeader("Cache-Control", cacheControl);
+    r->addHeader("Referrer-Policy", "no-referrer");
+    return r;
+}
+HttpResponsePtr toBucket(const HttpRequestPtr& req, const std::string& url, bool keep, const char* cacheControl) {
+    return wantsDirect(req) ? directTo(url, keep, cacheControl) : redirectTo(url, cacheControl);
+}
 std::string etagOf(const std::string& key) { return "\"" + key + "\""; }
 bool notModified(const HttpRequestPtr& req, const std::string& etag) {
     auto h = req->getHeader("If-None-Match");
@@ -286,7 +305,7 @@ void registerRoutes() {
             auto principal = fileAuth(req);
             if (!principal) throw unauthorized("missing or invalid token");
             auto av = services().auth->avatar(*principal, userId, mayRedirect(req));
-            if (!av.url.empty()) { cb(redirectTo(av.url, "private, max-age=600")); return; }
+            if (!av.url.empty()) { cb(toBucket(req, av.url, !req->getParameter("v").empty(), "private, max-age=600")); return; }
             // ?v= names the avatar version the client saw: that URL may be kept; a bare URL revalidates.
             std::string cc = req->getParameter("v").empty() ? "private, no-cache" : kKeep;
             if (notModified(req, av.etag)) { cb(notModifiedResponse(av.etag, cc)); return; }
@@ -383,11 +402,34 @@ void registerRoutes() {
     route3("/api/channels/{1}/windows/{2}/members/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeWindowMember(access(p, a[0]), a[1], a[2]); });
     route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint(req, "before_seq", 0)); });
     route1("/api/channels/{1}/pbta", {Get}, [&](auto&, auto& p, auto& a) { return pbta::read(*S.db, access(p,a[0])); });
+    route1("/api/channels/{1}/pbta/draft", {Get}, [&](auto&, auto& p, auto& a) { return pbta::review(*S.db,access(p,a[0])); });
+    route1("/api/channels/{1}/pbta/draft", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::changeReview(*S.db,access(p,a[0]),body(req)); });
     route1("/api/channels/{1}/pbta/preview", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::preview(access(p,a[0]),body(req)); });
     route1("/api/channels/{1}/pbta", {Put}, [&](auto& req, auto& p, auto& a) { return pbta::replace(*S.db, access(p,a[0]), body(req)); });
     route2("/api/channels/{1}/windows/{2}/initiative", {Get}, [&](auto&, auto& p, auto& a) { return S.dice->initiative(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/windows/{2}/initiative", {Post}, [&](auto& req, auto& p, auto& a) { return S.dice->initiativeAction(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/windows/{2}/read", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->markRead(access(p, a[0]), a[1], b["seq"].isNumeric() ? b["seq"].asInt64() : 0); });
+    route2("/api/channels/{1}/windows/{2}/pbta-rulings", {Get}, [&](auto& req, auto& p, auto& args) {
+        auto a = access(p, args[0]);
+        S.auth->requireGm(a);
+        S.auth->requireWindowMember(a, args[1]);
+        return pbta::rulingHistory(*S.db, a, args[1], qint(req, "before_seq", 0));
+    });
+    route2("/api/channels/{1}/windows/{2}/pbta-rulings", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto b=body(req); auto op=json::str(b,"op");
+        if(op!="declare" && op!="move" && op!="ask" && op!="mark") throw badRequest("Invalid ruling action");
+        auto actor=json::requireStr(b,"character_id");
+        if(!Visibility::isUuid(actor)) throw badRequest("Invalid character ID");
+        Json::Value line; line["character_id"]=actor;
+        if(op=="move") {
+            auto move=json::requireStr(b,"move_id");
+            if(move.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_-")!=std::string::npos || move.size()>40) throw badRequest("Invalid move ID");
+            if(b.isMember("modifier") && (!b["modifier"].isInt() || b["modifier"].asInt() < -99 || b["modifier"].asInt() > 99))
+                throw badRequest("Invalid move modifier");
+            line["content"]=".move "+move+(b.get("modifier",0).asInt()!=0?" "+json::str(b,"modifier"):"");
+        } else line["content"]=op;
+        return S.chat->postMessage(access(p,a[0]),a[1],line,b);
+    });
     route2("/api/channels/{1}/windows/{2}/messages", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->postMessage(access(p, a[0]), a[1], body(req)); });
     // Deprecated alias of /scenarios/enter: scenarios are campaign-wide, the window is ignored.
     route2("/api/channels/{1}/windows/{2}/scene", {Post}, [&](auto& req, auto& p, auto& a) { return S.scenarios->enter(access(p, a[0]), json::requireStr(body(req), "scene_id")); });
@@ -613,7 +655,7 @@ void registerRoutes() {
             if (notModified(req, etag)) { cb(notModifiedResponse(etag, cc)); return; }
             std::string direct;
             if (!S.media->fetch(ac, id, v, bytes, mime, name, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "asset not found")); return; }
-            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=3600")); return; }
+            if (!direct.empty()) { cb(toBucket(req, direct, cc == kKeep, "private, max-age=3600")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("ETag", etag); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
             if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
             cb(r);
@@ -696,7 +738,7 @@ void registerRoutes() {
             // the Keeper hears every line, GM-only ones too, so the Keeper's copy is never marked for keeping.
             std::string cc = ac.isGm ? "private, max-age=86400" : kKeep, etag = etagOf(id);
             std::string bytes, mime, direct; if (!S.tts->fetchAudio(ac, id, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "audio not found")); return; }
-            if (!direct.empty()) { cb(redirectTo(direct, "private, max-age=86400")); return; }
+            if (!direct.empty()) { cb(toBucket(req, direct, !ac.isGm, "private, max-age=86400")); return; }
             if (notModified(req, etag)) { cb(notModifiedResponse(etag, cc)); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("ETag", etag); cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }

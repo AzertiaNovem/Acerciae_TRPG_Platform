@@ -41,6 +41,8 @@ else
   SUITES=$(echo "$SUITES" | grep -v '^logstudio.test.mjs$')
 fi
 (cd "$ROOT/tests/integration" && [ -d node_modules ] || npm --prefix "$ROOT/tests/integration" ci --silent)
+# HTTP tests drive the GM agent against this backend as well.
+(cd "$ROOT/gm-agent" && { [ -d node_modules ] || npm ci --silent; })
 # shellcheck disable=SC2086
 (cd "$ROOT/tests/integration" && API_BASE="http://localhost:$PORT" E2E_UPLOAD_DIR="${TMPDIR:-/tmp}/acerciae-e2e-uploads" node --test --test-concurrency=1 --test-timeout=300000 $SUITES)
 # Every server the suites built (chat, dice, Log Studio, speech, PDFs, …) must be deletable: deletion relies on the
@@ -48,7 +50,7 @@ fi
 echo "== every server deletes cleanly"
 psql "$PGBASE/acerciae_e2e" -q -v ON_ERROR_STOP=1 -c "BEGIN" -c "DELETE FROM servers" -c "SELECT 'left: ' || ((SELECT count(*) FROM channels) + (SELECT count(*) FROM messages) + (SELECT count(*) FROM media_assets))" -c "ROLLBACK"
 
-echo "== gm-agent tests"; (cd "$ROOT/gm-agent" && [ -d node_modules ] || npm ci --silent) && (cd "$ROOT/gm-agent" && npm test --silent)
+echo "== gm-agent tests"; (cd "$ROOT/gm-agent" && npm test --silent)
 echo "== pdf worker tests"; (cd "$ROOT/pdf-worker" && [ -d node_modules ] || npm ci --silent) && (cd "$ROOT/pdf-worker" && npm test --silent)
 echo "== frontend typecheck, tests and build"
 (cd "$ROOT/frontend" && [ -d node_modules ] || npm ci --silent)

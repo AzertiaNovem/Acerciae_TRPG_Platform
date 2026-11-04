@@ -12,6 +12,7 @@
 #include "../core/Text.h"
 #include "../core/Crypto.h"
 #include "../rules/RuleSystem.h"
+#include "../rules/PbtaRuling.h"
 
 namespace acerciae {
 
@@ -590,8 +591,9 @@ Json::Value ChatService::postSystemMessage(pqxx::work& w, const std::string& cha
     events_.append(w, e);
     return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {id});
 }
-Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body) {
+Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling) {
     auth_.requireWindowMember(a, windowId);
+    if (!ruling.isNull()) auth_.requireGm(a);
     auto content = json::str(body, "content");
     if (content.empty()) throw badRequest("content required");
     if (content.size() > 20000) throw badRequest("message too long");
@@ -620,13 +622,31 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     }
     // Sealdice-style commands (.r .ra .sc .st .en ...) are evaluated by the dice service and stored as roll messages.
     auto diceCmd = dice_.recognise(a, content);
+    if (!ruling.isNull() && ruling["op"]=="move" && (!diceCmd || diceCmd->name!="move")) throw badRequest("PbtA dice are disabled");
     if (diceCmd) kind = "roll";
     else if (kind == "roll") throw badRequest("roll messages come from dice commands: start the message with a dot command such as .ra or .r");
 
     DiceService::Result diceResult;
     Json::Value notice;
+    pbta::Ruling audit;
     auto msg = db_.tx([&](pqxx::work& w) {
         auto sceneId = scenes_.resolveSceneForWindow(w, a.channelId, windowId);
+        if (!ruling.isNull() || (diceCmd && diceCmd->name=="move" && Db::queryOne(w,"SELECT rule_system FROM channels WHERE id=$1 FOR SHARE",{a.channelId})["rule_system"]=="pbta")) {
+            if (characterId.empty()) throw badRequest("Choose a character for this move");
+            auto args=diceCmd ? text::trim(diceCmd->args) : "";
+            audit=pbta::prepareRuling(w,a,windowId,characterId,ruling,args.substr(0,args.find_first_of(" \t")),visibility,whisperTo);
+            if (!audit.repeated.empty())
+                return Db::queryOne(w,MSG_SELECT+"WHERE m.id=$1 AND "+Visibility::messageFilter(a),{audit.repeated});
+            if (!audit.source.isNull()) {
+                visibility=audit.source["visibility"].asString();
+                whisperTo=json::strArray(audit.source["whisper_to"]);
+                references=audit.refs;
+            }
+            if(!audit.text.empty()) {
+                content=audit.text;
+                if(audit.op!="declare") { kind="narration"; characterId.clear(); }
+            }
+        }
         std::string eventText = content;
         Json::Value diceJson;
         if (diceCmd) {
@@ -647,6 +667,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
                  pgArrayLiteral(to), dice.isNull() ? dbNull() : DbParam(json::dump(dice))})["id"].asString();
         };
         auto messageId = insert(visibility, whisperTo, content, diceJson);
+        audit.finish(w,messageId,characterId);
         for(const auto& id : references) if(Db::queryOne(w,MSG_SELECT+"WHERE m.id=$1 AND m.channel_id=$2 AND "+Visibility::messageFilter(a),{id,a.channelId}).isNull()) throw forbidden("Referenced chat is no longer accessible");
         Db::exec(w,"UPDATE messages SET reference_ids=$2::uuid[] WHERE id=$1",{messageId,pgArrayLiteral(references)});
         if (diceCmd && diceResult.hidden) {
@@ -672,9 +693,13 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         }
         return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {messageId});
     });
-    notifier_.messagePosted(msg);
-    if (!notice.isNull()) notifier_.messagePosted(notice);
-    if (diceCmd) dice_.afterCommit(a, characterId, diceResult);
+    if (audit.repeated.empty()) {
+        if (!audit.updated.isNull()) notifier_.characterUpdated(a.channelId, audit.updated);
+        notifier_.messagePosted(msg);
+        if (!notice.isNull()) notifier_.messagePosted(notice);
+        if (diceCmd) dice_.afterCommit(a, characterId, diceResult);
+    }
+    if (!audit.command.isNull()) msg["declared_move"] = audit.command;
     return msg;
 }
 

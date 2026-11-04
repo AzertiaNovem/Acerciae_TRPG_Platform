@@ -11,6 +11,7 @@ export interface Move extends Definition {
   book: string;
   stat: string;
   outcomes: Record<string, string>;
+  playerChoiceBands?: string[];
 }
 export interface Pack {
   schemaVersion: 1;
@@ -32,4 +33,13 @@ export interface Sheet {
   stats: Record<string, number>;
   resources: Record<string, number>;
   conditions: Record<string, boolean>;
+}
+export interface DraftReview {
+  status: 'none' | 'designing' | 'retry' | 'failed' | 'pending' | 'kept' | 'active';
+  version: number;
+  base_revision?: number;
+  revision: number;
+  pack?: Pack;
+  reasons?: string[];
+  error?: string;
 }

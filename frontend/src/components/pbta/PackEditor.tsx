@@ -2,7 +2,7 @@ import { t as tr } from '../../i18n';
 import { useEffect, useState } from 'react';
 import { isDesktop } from '../../lib/platform';
 import { api } from '../../api/client';
-import type { Pack, Definition, Rules } from './types';
+import type { Pack, Definition, Rules, DraftReview } from './types';
 
 type Group = 'stats' | 'books' | 'resources' | 'conditions' | 'bands' | 'moves' | 'gmMoves';
 const groups = (): [Group, string][] => [
@@ -19,12 +19,27 @@ export default function PackEditor({ channel }: { channel: string }) {
   const [dirty, setDirty] = useState(false),
     [busy, setBusy] = useState(false),
     [message, notice] = useState('');
+  const [official, setOfficial] = useState<Rules | null>(null);
+  const [draft, setDraft] = useState<DraftReview | null>(null);
+  const [compared, setCompared] = useState(false);
+  function show(saved: Rules, review: DraftReview) {
+    setOfficial(saved);
+    setDraft(review);
+    setRules(
+      review.status === 'pending' && review.pack ? { pack: review.pack, revision: saved.revision } : saved,
+    );
+    setDirty(false);
+    setCompared(false);
+  }
+  async function reload() {
+    const [saved, review] = await Promise.all([api.pbtaRules(channel), api.pbtaDraft(channel)]);
+    show(saved, review);
+  }
   useEffect(() => {
     let alive = true;
-    api
-      .pbtaRules(channel)
-      .then((r) => {
-        if (alive) setRules(r);
+    Promise.all([api.pbtaRules(channel), api.pbtaDraft(channel)])
+      .then(([saved, review]) => {
+        if (alive) show(saved, review);
       })
       .catch((e) => {
         if (alive) notice(e.message);
@@ -33,6 +48,40 @@ export default function PackEditor({ channel }: { channel: string }) {
       alive = false;
     };
   }, [channel]);
+  useEffect(() => {
+    if (!draft || draft.status === 'active' || draft.status === 'kept' || busy) return;
+    let alive = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const latest = await api.pbtaDraft(channel);
+        if (!alive || (latest.version === draft.version && latest.revision === official?.revision)) return;
+        if (dirty) {
+          notice(tr('Reload saved version'));
+          return;
+        }
+        const saved = await api.pbtaRules(channel);
+        if (alive) show(saved, latest);
+      } catch {
+        /* The manual reload button reports connection errors. */
+      }
+    }, 8000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [channel, draft, official?.revision, busy, dirty]);
+  const reviewing = draft?.status === 'pending';
+  async function decision(op: string) {
+    const review = await api.reviewPbta(channel, {
+      op,
+      version: draft?.version,
+      revision: official?.revision,
+      reviewed_changes: compared,
+      pack: rules?.pack,
+    });
+    show(await api.pbtaRules(channel), review);
+    notice(tr(op === 'retry' ? 'Run setup again for this channel.' : 'Saved'));
+  }
   function change(fn: (p: Pack) => void) {
     if (!rules) return;
     const p = structuredClone(rules.pack);
@@ -90,6 +139,56 @@ export default function PackEditor({ channel }: { channel: string }) {
         {tr('Rule pack')} · {pack.name} · v{revision}
       </summary>
       <fieldset className="col" disabled={busy}>
+        {draft && ['designing', 'failed', 'retry', 'pending'].includes(draft.status) && (
+          <section className="card col">
+            <h4>{tr('World rule draft')}</h4>
+            {draft.status === 'designing' && <p>{tr('Design in progress')}</p>}
+            {draft.status === 'failed' && <p role="alert">{draft.error}</p>}
+            {draft.status === 'retry' && <p>{tr('Run setup again for this channel.')}</p>}
+            {draft.reasons?.map((reason, i) => (
+              <p key={i}>{reason}</p>
+            ))}
+            {reviewing && official && (
+              <details>
+                <summary>
+                  {tr('Compare current rules')} · {official.pack.name} · v{official.revision}
+                </summary>
+                {groups().map(([k, title]) => (
+                  <div key={k}>
+                    <h4>{title}</h4>
+                    {official.pack[k].map((row) => (
+                      <details key={row.id}>
+                        <summary>{row.name}</summary>
+                        <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(row, null, 2)}</pre>
+                      </details>
+                    ))}
+                  </div>
+                ))}
+              </details>
+            )}
+            {reviewing && draft.base_revision !== official?.revision && (
+              <label>
+                <input type="checkbox" checked={compared} onChange={(e) => setCompared(e.target.checked)} />
+                {tr('I compared the newer official rules')}
+              </label>
+            )}
+            <div className="row">
+              {reviewing && (
+                <button
+                  className="primary"
+                  disabled={draft.base_revision !== official?.revision && !compared}
+                  onClick={() => run(() => decision('activate'))}
+                >
+                  {tr('Activate draft')}
+                </button>
+              )}
+              {['designing', 'failed'].includes(draft.status) && (
+                <button onClick={() => run(() => decision('retry'))}>{tr('Retry design')}</button>
+              )}
+              <button onClick={() => run(() => decision('keep'))}>{tr('Keep current rules')}</button>
+            </div>
+          </section>
+        )}
         <label className="field">
           {tr('Rule pack')}
           <input
@@ -187,7 +286,9 @@ export default function PackEditor({ channel }: { channel: string }) {
                         value={pack.moves[i].stat}
                         onChange={(e) =>
                           change((p) => {
+                            const mWasRolled = !!p.moves[i].stat;
                             p.moves[i].stat = e.target.value;
+                            if (Boolean(e.target.value) !== mWasRolled) p.moves[i].playerChoiceBands = [];
                             if (!e.target.value) p.moves[i].outcomes = {};
                           })
                         }
@@ -200,6 +301,24 @@ export default function PackEditor({ channel }: { channel: string }) {
                         ))}
                       </select>
                     </label>
+                    {(pack.moves[i].stat ? pack.bands : [{ id: 'no_roll', name: tr('No roll') }]).map((b) => (
+                      <label key={b.id} className="row small">
+                        <input
+                          type="checkbox"
+                          checked={pack.moves[i].playerChoiceBands?.includes(b.id) ?? false}
+                          onChange={(e) =>
+                            change((p) => {
+                              const move = p.moves[i];
+                              move.playerChoiceBands = (move.playerChoiceBands ?? []).filter(
+                                (id) => id !== b.id,
+                              );
+                              if (e.target.checked) move.playerChoiceBands.push(b.id);
+                            })
+                          }
+                        />
+                        {b.name} · {tr('Requires a player choice')}
+                      </label>
+                    ))}
                     {pack.moves[i].stat &&
                       pack.bands.map((b) => (
                         <label key={b.id}>
@@ -220,7 +339,12 @@ export default function PackEditor({ channel }: { channel: string }) {
                   onClick={() =>
                     change((p) => {
                       p[k].splice(i, 1);
-                      if (k === 'bands') for (const m of p.moves) delete m.outcomes[row.id];
+                      if (k === 'bands')
+                        for (const m of p.moves) {
+                          delete m.outcomes[row.id];
+                          if (m.stat && m.playerChoiceBands)
+                            m.playerChoiceBands = m.playerChoiceBands.filter((b) => b !== row.id);
+                        }
                     })
                   }
                 >
@@ -258,8 +382,7 @@ export default function PackEditor({ channel }: { channel: string }) {
           <button
             onClick={() =>
               run(async () => {
-                setRules(await api.pbtaRules(channel));
-                setDirty(false);
+                await reload();
               })
             }
           >
@@ -270,13 +393,16 @@ export default function PackEditor({ channel }: { channel: string }) {
             disabled={!dirty}
             onClick={() =>
               run(async () => {
-                setRules(await api.savePbta(channel, { revision, pack }));
+                if (reviewing) return decision('edit');
+                const saved = await api.savePbta(channel, { revision, pack });
+                setOfficial(saved);
+                setRules(saved);
                 setDirty(false);
                 notice(tr('Rule pack saved'));
               })
             }
           >
-            {tr('Save rule pack')}
+            {reviewing ? tr('Save draft') : tr('Save rule pack')}
           </button>
         </div>
       </fieldset>
