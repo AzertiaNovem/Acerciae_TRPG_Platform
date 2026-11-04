@@ -339,6 +339,7 @@ const Json::Value& builtinTexts(const std::string& lang) {
         "growth.header": "Investigator development — “{scene}” has ended. Every skill used successfully in it is checked:",
         "rules.name.coc7e": "Call of Cthulhu 7e",
         "rules.name.dnd2024": "D&D 2024",
+        "rules.name.pbta": "PbtA",
         "rules.changed": "The rules changed from {from} to {to}. Every character keeps its story: name, basic information, background, items and look. The {from} numbers stay on each card, read-only.",
         "rules.rebuild": "Please rebuild these characters' numbers for {to} on their cards: {list}",
         "hint.roll": "{name} rolls {expr}",
@@ -429,6 +430,7 @@ const Json::Value& builtinTexts(const std::string& lang) {
         "growth.header": "调查员成长——“{scene}”已结束，对本阶段成功使用过的技能进行成长检定：",
         "rules.name.coc7e": "克苏鲁的呼唤第七版",
         "rules.name.dnd2024": "D&D 2024",
+        "rules.name.pbta": "PbtA",
         "rules.changed": "规则已从{from}切换为{to}。每个角色的故事部分都会保留：姓名、基本信息、背景、物品和外貌；{from}的数值以只读方式保留在角色卡上。",
         "rules.rebuild": "请在角色卡上按{to}重建以下角色的数值：{list}",
         "hint.roll": "{name}掷骰 {expr}",
@@ -521,7 +523,7 @@ std::optional<Command> parseCommand(const std::string& content) {
     if (s.size() < 2 || s[0] != '.') return std::nullopt;
     auto rest = s.substr(1);
     static const std::vector<std::pair<const char*, const char*>> cmds = {
-        {"init", "init"}, {"rah", "ra"}, {"rch", "ra"}, {"ra", "ra"}, {"rc", "ra"}, {"rih", "ri"}, {"ri", "ri"}, {"rh", "r"}, {"r", "r"},
+        {"move","move"}, {"init", "init"}, {"rah", "ra"}, {"rch", "ra"}, {"ra", "ra"}, {"rc", "ra"}, {"rih", "ri"}, {"ri", "ri"}, {"rh", "r"}, {"r", "r"},
         {"sc", "sc"}, {"st", "st"}, {"en", "en"}, {"ds", "ds"}, {"ss", "ss"}};
     for (auto& [lit, name] : cmds) {
         auto n = std::strlen(lit);
@@ -912,6 +914,8 @@ Outcome runSt(const Command& cmd, const Context& ctx, const TextSet& t, Rng& rng
 Outcome execute(const Command& cmd, const Context& ctx, const TextSet& texts, Rng& rng) {
     const bool D = ctx.ruleSystem == "dnd2024";
     if (cmd.name == "r") return runRoll(cmd, ctx, texts, rng);
+    if (ctx.ruleSystem == "pbta") throw DiceError("Use .move <id> [+/-modifier] in a PbtA channel");
+    if (cmd.name == "move") throw DiceError(".move requires a PbtA channel");
     if (cmd.name == "st") return runSt(cmd, ctx, texts, rng);
     // Each rule system answers only its own commands.
     static const std::set<std::string> dndOnly = {"ri", "init", "ds", "ss"}, cocOnly = {"sc", "en"};
@@ -926,6 +930,7 @@ Outcome execute(const Command& cmd, const Context& ctx, const TextSet& texts, Rn
 }
 
 std::string preview(const Command& cmd, const Context& ctx, const TextSet& t) {
+    if (ctx.ruleSystem == "pbta") return cmd.name == "move" ? ".move <id> [+/-modifier]" : "";
     if (ctx.ruleSystem == "dnd2024" && cmd.name != "r" && cmd.name != "st") return dnd::preview(cmd, ctx, t);
     try {
         const auto& L = ctx.language;

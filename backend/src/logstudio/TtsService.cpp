@@ -354,7 +354,11 @@ void TtsService::runJob(const std::string& jobId) {
         for (auto& f : inflight) f.get();
         auto st = db_.queryOne("SELECT status FROM tts_jobs WHERE id=$1", {jobId})["status"].asString();
         Json::Value result = job["result"]; result["errors"] = errors;
-        db_.exec("UPDATE tts_jobs SET status=$2, result=$3::jsonb, finished_at=now(), updated_at=now() WHERE id=$1", {jobId, st == "cancelled" ? "cancelled" : (failed > 0 ? "failed" : "completed"), json::dump(result)});
+        // Concurrent progress updates can arrive out of order. Persist the joined counts with the final status.
+        db_.exec("UPDATE tts_jobs SET status=$2, result=$3::jsonb, done=$4, failed=$5, cached=$6, "
+                 "finished_at=now(), updated_at=now() WHERE id=$1",
+                 {jobId, st == "cancelled" ? "cancelled" : (failed > 0 ? "failed" : "completed"),
+                  json::dump(result), (int64_t)done.load(), (int64_t)failed.load(), (int64_t)cached.load()});
         db_.exec("UPDATE log_presentations SET version=version+1, updated_at=now() WHERE id=$1", {presId});
         Json::Value p; p["job_id"] = jobId; p["presentation_id"] = presId; p["status"] = st == "cancelled" ? "cancelled" : failed > 0 ? "failed" : "completed"; p["done"] = done.load(); p["failed"] = failed.load(); p["cached"] = cached.load(); notifier_.studioEvent(channelId, "tts.finished", p, true);
     } catch (const std::exception& e) {

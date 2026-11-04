@@ -1,3 +1,4 @@
+import PbtaSheet from './pbta/Sheet';
 import { t as tr } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
@@ -23,7 +24,20 @@ const DEFAULT_SUBTITLES = ['IDLE', 'SAY', 'HAPPY', 'SAD', 'ANGRY', 'SCARED', 'FI
 
 type Tab = 'card' | 'look' | 'background' | 'items';
 const half = (v?: number) => (v === undefined ? '' : `${Math.floor(v / 2)} / ${Math.floor(v / 5)}`);
-const systemName = (rs?: string) => (rs === 'dnd2024' ? tr('D&D 2024') : tr('Call of Cthulhu 7e'));
+const systemName = (rs?: string) => (rs === 'dnd2024' ? tr('D&D 2024') : rs === 'pbta' ? 'PbtA' : tr('Call of Cthulhu 7e'));
+
+// A former PbtA card in words: the playbook and its numbers, named by the channel's pack when it still has them.
+function pbtaSummary(card: { book?: string; stats?: Record<string, number>; resources?: Record<string, number>; conditions?: Record<string, boolean> } | undefined, pack?: { books?: { id: string; name: string }[]; stats?: { id: string; name: string }[]; resources?: { id: string; name: string }[]; conditions?: { id: string; name: string }[] }) {
+  if (!card) return '—';
+  const name = (list: { id: string; name: string }[] | undefined, id: string) => list?.find((x) => x.id === id)?.name ?? id;
+  const parts = [`${tr('Playbook')}: ${card.book ? name(pack?.books, card.book) : '—'}`];
+  for (const [k, list] of [['stats', pack?.stats], ['resources', pack?.resources]] as const) {
+    const v = card[k]; if (v && Object.keys(v).length) parts.push(Object.entries(v).map(([id, n]) => `${name(list, id)} ${n}`).join(' · '));
+  }
+  const on = Object.entries(card.conditions ?? {}).filter(([, v]) => v).map(([id]) => name(pack?.conditions, id));
+  if (on.length) parts.push(on.join(' · '));
+  return parts.join(' — ');
+}
 
 // The Call of Cthulhu number part of a card: characteristics, derived values, skills (or point buy) and wealth. Also
 // draws a former card's numbers, read-only. A render helper (no state of its own): the skill being added lives in the
@@ -139,7 +153,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
       if (valid()) { if (isCardSave) setSaveError(e.message); toast(e.message, 'error'); }
     } finally { busyRef.current = false; if (mounted.current) { setBusy(false); setSaving(false); } }
   };
-  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, role_card: card }), tr('Character saved'), true);
+  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, role_card: card }), tr('Character saved'), true);
   // D&D: the build is part of the card; live values (Hit Points, slots left, death saves) are written straight away.
   const setDnd = (fn: (d: DndCard) => void) => setCardField((x) => { x.dnd = x.dnd ?? JSON.parse(JSON.stringify(EMPTY_DND)); fn(x.dnd!); });
   const setLive = (set: Record<string, number>) => mutate(async () => { await api.updateAttributes(channelId, characterId, { set }); return api.characterSpace(channelId, characterId); });
@@ -152,7 +166,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   // Rule transitions: numbers of earlier rules, read-only, and the rebuild the channel's switch asked for.
   const archives = space.card_archives ?? [];
   const restorable = archives.some((x) => x.rule_system === space.rule_system);
-  const waive = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, role_card: card, card_rebuilt: true }), tr('Marked as rebuilt'), true);
+  const waive = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, role_card: card, card_rebuilt: true }), tr('Marked as rebuilt'), true);
   const restore = async (x: CardArchive) => {
     if (!confirm(tr('Use this {system} card again? The numbers on the card now are set aside under Former cards.', { system: systemName(x.rule_system) }))) return;
     await mutate(() => api.restoreCardArchive(channelId, characterId, x.id), tr('Former card restored'));
@@ -200,11 +214,12 @@ export default function CharacterSpace({ characterId }: { characterId: string })
               <div className="rule-rebuild" role="status" data-testid="rule-rebuild">
                 <b>{editable ? tr("Rebuild this character's numbers for {system}", { system: systemName(space.rule_system) }) : tr("This character's numbers are being rebuilt for {system}", { system: systemName(space.rule_system) })}</b>
                 <div className="tiny">{tr('The rules of this channel changed. The story part of the card (name, basic information, background, items and look) is kept; the numbers of the earlier rules are kept read-only under Former cards.')}</div>
-                {editable && <div className="tiny">{dnd ? tr('Choose a class and save to finish the rebuild.') : tr('Fill in the eight characteristics and save to finish the rebuild.')}{restorable ? ' ' + tr('A former card of these rules is below: you can use it again instead.') : ''}</div>}
+                {editable && <div className="tiny">{space.rule_system === 'pbta' ? tr('Choose a playbook and save to finish the rebuild.') : dnd ? tr('Choose a class and save to finish the rebuild.') : tr('Fill in the eight characteristics and save to finish the rebuild.')}{restorable ? ' ' + tr('A former card of these rules is below: you can use it again instead.') : ''}</div>}
                 {channel?.my_role === 'gm' && <div className="row" style={{ marginTop: 6 }}><button className="small" disabled={busy} onClick={waive} title={tr('For a character that will not roll under these rules, or whose card is kept elsewhere')}>{tr('Mark as rebuilt')}</button></div>}
               </div>
             )}
-            {dnd ? (dndRules ? <DndSheet card={card.dnd ?? EMPTY_DND} rules={dndRules} editable={!!editable} isGm={channel?.my_role === 'gm'} pointsOn={pointsOn} report={space.points} attrs={space.attrs} setCard={setDnd} setLive={setLive} /> : <div className="tiny muted">{tr('Loading…')}</div>)
+            {space.rule_system === 'pbta' && space.pbta_rules ? <PbtaSheet pack={space.pbta_rules.pack} sheet={card.pbta} editable={!!editable} dirty={dirty} characterId={characterId} change={(v) => setCardField((x) => { x.pbta = v; })} />
+              : dnd ? (dndRules ? <DndSheet card={card.dnd ?? EMPTY_DND} rules={dndRules} editable={!!editable} isGm={channel?.my_role === 'gm'} pointsOn={pointsOn} report={space.points} attrs={space.attrs} setCard={setDnd} setLive={setLive} /> : <div className="tiny muted">{tr('Loading…')}</div>)
               : cocNumbers({ card, editable: !!editable, pointsOn, rules, report: space.points, isKeeper: channel?.my_role === 'gm', setCardField, newSkill, setNewSkill })}
             {archives.length > 0 && (
               <div className="former-cards" data-testid="former-cards">
@@ -213,7 +228,9 @@ export default function CharacterSpace({ characterId }: { characterId: string })
                 {archives.map((x, n) => (
                   <details key={x.id} className="former-card" open={n === 0 && !!c.card_pending}>
                     <summary><b>{systemName(x.rule_system)}</b> <span className="tiny muted">{new Date(x.archived_at).toLocaleDateString()}{x.archived_by_name ? ` · ${x.archived_by_name}` : ''} · {x.reason === 'restore' ? tr('set aside when a former card came back') : tr('set aside when the rules changed')}</span></summary>
-                    {x.rule_system === 'dnd2024'
+                    {x.rule_system === 'pbta'
+                      ? <div className="small">{pbtaSummary(x.numbers.pbta, space.pbta_rules?.pack)}</div>
+                      : x.rule_system === 'dnd2024'
                       ? (dndRules ? <DndSheet card={{ ...EMPTY_DND, ...(x.numbers.dnd ?? {}) }} rules={dndRules} editable={false} isGm={false} pointsOn={false} report={{ enabled: false }} attrs={x.attrs} setCard={() => undefined} setLive={() => undefined} /> : <div className="tiny muted">{tr('Loading…')}</div>)
                       : cocNumbers({ card: { ...card, ...x.numbers } as RoleCard, editable: false, pointsOn: false, rules: null, report: { enabled: false }, isKeeper: false, setCardField: () => undefined })}
                     {Object.keys(x.attrs ?? {}).length > 0 && <details className="tiny muted" style={{ marginTop: 6 }}><summary>{tr('Dice values')}</summary>{Object.entries(x.attrs).map(([k, v]) => `${k} ${v}`).join(' · ')}</details>}

@@ -197,7 +197,7 @@ struct LiveChannelView: View {
                         ForEach(diceGroups) { group in Text(group.name).tag(group.id) }
                         if !diceGroup.isEmpty && !diceGroup.hasPrefix("builtin:") && !diceGroups.contains(where: { $0.id == diceGroup }) { Text(tr("当前自定义回复")).tag(diceGroup) }
                     }
-                    Picker(tr("Rule system"), selection: $ruleSystem) { Text("Call of Cthulhu 7e").tag("coc7e"); Text("D&D 2024 · SRD 5.2").tag("dnd2024") }
+                    Picker(tr("Rule system"), selection: $ruleSystem) { Text("Call of Cthulhu 7e").tag("coc7e"); Text("D&D 2024 · SRD 5.2").tag("dnd2024"); Text("PbtA").tag("pbta") }
                     Toggle(tr("Point buy for role cards"), isOn: $pointBuy)
                     Toggle(tr("AI 观察与整理"), isOn: $ai)
                     Toggle(tr("Consistency check"), isOn: $consistency).disabled(!model.serverSettings["features"]["consistency"].bool)

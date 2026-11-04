@@ -1,3 +1,4 @@
+#include "../rules/Pbta.h"
 #include "InspirationService.h"
 #include "../retrieval/ContextRetrievalService.h"
 #include "../llm/LlmGateway.h"
@@ -37,8 +38,10 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     }
     ctx["hint"] = hint; ctx["variant"] = variant;
 
+    pbta::addContext(db_,a,characterId,ctx);
     LlmRequest req; req.channelId = a.channelId; req.task = "inspiration"; req.responseSchema = schema(); req.temperature = 0.8;
     req.system = R"(You draft ONE possible in-character response for a player who is unsure what to say next in a Call of Cthulhu / BRP game. Use only the information in known_facts, recent_messages and scene — the character's actual knowledge. Hard rules: do not invent world facts or NPC answers; do not decide whether actions succeed; do not fabricate character backstory; never use module secrets; you may propose an action, a question or a line of dialogue in the character's speaking_style. 2-4 sentences, first person, editable. Output JSON {"draft":"...","used_fact_ids":["..."],"notes":"..."})";
+    if (ctx.isMember("pbta_rules")) req.system += " Use pbta_rules as game reference only. Distinguish a fictional intent, a move trigger, and its outcome. Only humans initiate a move or decide its consequences.";
     req.tools = ContextRetrievalService::toolSpecs(false);
     req.cache = LlmCache::conversation;   // tool rounds re-read the same context
     for (auto& k : retrieval_.knowledgeMessages(view, a.isGm ? "KEEPER KNOWLEDGE INDEX (script knowledge first, then the Keeper's records; a shortcut for searching):" : "KNOWLEDGE INDEX (what this character's group already knows; a shortcut for searching):")) req.messages.push_back(k);

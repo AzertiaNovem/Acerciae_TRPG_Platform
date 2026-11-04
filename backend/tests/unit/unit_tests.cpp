@@ -21,6 +21,7 @@
 #include "dice/Dnd.h"
 #include "characters/Dnd2024Rules.h"
 #include "rules/RuleSystem.h"
+#include "rules/Pbta.h"
 #include "logstudio/TtsProvider.h"
 #include "logstudio/TtsService.h"
 #include "logstudio/PublicationService.h"
@@ -47,6 +48,17 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("PbtA moves use inclusive bands, a signed modifier and the stored move text", [] {
+        auto pack=json::parse(R"({"revision":4,"pack":{"stats":[{"id":"sense","name":"Sense"}],"books":[{"id":"scout"}],"moves":[{"id":"search","book":"","stat":"sense","outcomes":{"low":"danger","mixed":"choose","high":"safe"}}],"bands":[{"id":"low","max":6},{"id":"mixed","min":7,"max":9},{"id":"high","min":10}]}})");
+        auto card=json::parse(R"({"book":"scout","stats":{"sense":1}})");
+        for (int total : {6,7,9,10}) {
+            dice::SeqRng rng({3,3});
+            auto result=pbta::resolve(pack,card,"search "+std::to_string(total-7),rng);
+            CHECK(result["total"]==total);
+            CHECK(result["outcome"]==(total<=6?"danger":total<10?"choose":"safe"));
+            CHECK(result["revision"]==4);
+        }
+    });
     test("PLATFORM_ADMINS names the deployment's administrators: comma-separated usernames, spaces ignored, empty by default", [] {
         unsetenv("PLATFORM_ADMINS");
         CHECK(Config::fromEnv().platformAdmins.empty());
@@ -1123,6 +1135,16 @@ int main() {
         CHECK(!CharacterSpaceService::built(dndCard, "dnd2024")); CHECK(!CharacterSpaceService::built(dndCard, "coc7e"));
         auto partial = json::parse(R"({"characteristics":{"STR":50,"CON":50,"SIZ":50,"DEX":50,"APP":50,"INT":50,"POW":50}})");
         CHECK(!CharacterSpaceService::built(partial, "coc7e")); partial["characteristics"]["EDU"] = 60; CHECK(CharacterSpaceService::built(partial, "coc7e"));
+        // PbtA: the playbook is the number part; a card for PbtA has nothing of the other systems, and is rebuilt with a playbook.
+        auto withBook = coc; withBook["pbta"] = json::parse(R"({"book":"scout","stats":{"sense":2},"resources":{},"conditions":{}})");
+        auto p = CharacterSpaceService::numbers(withBook, "pbta");
+        CHECK(p.size() == 1); CHECK(p["pbta"]["book"] == "scout"); CHECK(CharacterSpaceService::hasNumbers(withBook, "pbta"));
+        CHECK(!CharacterSpaceService::hasNumbers(coc, "pbta")); CHECK(!CharacterSpaceService::built(coc, "pbta")); CHECK(CharacterSpaceService::built(withBook, "pbta"));
+        CHECK(!CharacterSpaceService::numbers(withBook, "coc7e").isMember("pbta"));
+        auto pbtaCard = CharacterSpaceService::forSystem(withBook, "pbta");
+        CHECK(pbtaCard["pbta"]["stats"]["sense"] == 2); CHECK(pbtaCard["characteristics"].empty()); CHECK(!pbtaCard.isMember("dnd")); CHECK(pbtaCard["background"]["traits"] == "Stubborn");
+        CHECK(!CharacterSpaceService::forSystem(withBook, "coc7e").isMember("pbta")); CHECK(!CharacterSpaceService::forSystem(withBook, "dnd2024").isMember("pbta"));
+        CHECK(!CharacterSpaceService::withNumbers(withBook, Json::Value(Json::objectValue), "pbta").isMember("pbta"));
     });
     test("character space: the COC7 role card is bounded, mirrored into dice attributes, and image prompts carry era, moment and framing", [] {
         auto card = CharacterSpaceService::normalizeRoleCard(json::parse(R"({"basic":{"occupation":"Journalist","age":"34","junk":1},"characteristics":{"STR":55,"DEX":70,"POW":"x","LUK":1200},"derived":{"hp":11,"san":60,"db":"0"},"skills":{"Spot Hidden":65,"Library Use":70,"":9},"background":{"ideology":"Truth above all","unknown":"dropped"},"items":[{"name":"Notebook","note":"dog-eared","qty":1},"Revolver",{"name":""}],"wealth":{"cash":"$40"}})"));

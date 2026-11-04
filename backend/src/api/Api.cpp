@@ -1,3 +1,4 @@
+#include "../rules/Pbta.h"
 #include <atomic>
 #include "../atmosphere/AtmosphereService.h"
 #include "Api.h"
@@ -381,6 +382,9 @@ void registerRoutes() {
     route2("/api/channels/{1}/windows/{2}/members", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->addWindowMember(access(p, a[0]), a[1], json::requireStr(b, "user_id"), json::str(b, "character_id")); });
     route3("/api/channels/{1}/windows/{2}/members/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeWindowMember(access(p, a[0]), a[1], a[2]); });
     route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint(req, "before_seq", 0)); });
+    route1("/api/channels/{1}/pbta", {Get}, [&](auto&, auto& p, auto& a) { return pbta::read(*S.db, access(p,a[0])); });
+    route1("/api/channels/{1}/pbta/preview", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::preview(access(p,a[0]),body(req)); });
+    route1("/api/channels/{1}/pbta", {Put}, [&](auto& req, auto& p, auto& a) { return pbta::replace(*S.db, access(p,a[0]), body(req)); });
     route2("/api/channels/{1}/windows/{2}/initiative", {Get}, [&](auto&, auto& p, auto& a) { return S.dice->initiative(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/windows/{2}/initiative", {Post}, [&](auto& req, auto& p, auto& a) { return S.dice->initiativeAction(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/windows/{2}/read", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->markRead(access(p, a[0]), a[1], b["seq"].isNumeric() ? b["seq"].asInt64() : 0); });

@@ -6,10 +6,10 @@
 namespace acerciae::rules {
 
 struct Profile {
-    std::string id;         // coc7e | dnd2024
+    std::string id;         // coc7e | dnd2024 | pbta
     std::string game;       // how prompts name the game
-    std::string gm;         // the game master's title: Keeper | Dungeon Master
-    std::string gmShort;    // KP | DM (transcript labels)
+    std::string gm;         // the game master's title: Keeper | Dungeon Master | Master of Ceremonies
+    std::string gmShort;    // KP | DM | MC (transcript labels)
     std::string hints;      // conventions the consistency check applies
     bool dnd = false;
 };

@@ -168,7 +168,7 @@ import java.io.File
             item { Choice(tr("角色知识"), knowledgeMode, listOf("isolated" to tr("隔离：各自掌握线索"), "public" to tr("公开：共享知识")), !state.busy) { knowledgeMode = it }
                 Text(tr("公开模式会让角色共享频道知识；隔离模式按角色可见范围提供线索。")) }
             item { Choice(tr("骰子回复"), diceGroup, listOf("" to tr("跟随服务器"), "builtin:zh" to "中文", "builtin:en" to "English") + diceGroups.map { it.id to it.name }, !state.busy) { diceGroup = it } }
-            item { ChoiceMenu(tr("Rule system"), ruleSystem, listOf("coc7e" to "Call of Cthulhu 7e", "dnd2024" to "D&D 2024 · SRD 5.2")) { ruleSystem = it }; SettingToggle(tr("Point buy for role cards"), pointBuy, !state.busy) { pointBuy = it } }
+            item { ChoiceMenu(tr("Rule system"), ruleSystem, listOf("coc7e" to "Call of Cthulhu 7e", "dnd2024" to "D&D 2024 · SRD 5.2", "pbta" to "PbtA")) { ruleSystem = it }; SettingToggle(tr("Point buy for role cards"), pointBuy, !state.busy) { pointBuy = it } }
         item { SettingToggle(tr("AI 观察与整理"), ai, !state.busy) { ai = it } }
         item { SettingToggle(tr("Consistency check"), consistency, !state.busy && state.serverSettings.obj("features").flag("consistency")) { consistency = it } }
         item { SettingToggle(tr("Inspiration"), inspiration, !state.busy && state.serverSettings.obj("features").flag("inspiration")) { inspiration = it } }
