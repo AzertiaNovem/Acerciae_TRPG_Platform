@@ -274,7 +274,12 @@ The rules that keep this safe:
 
 - **Only a player moves their character.** A player character moves only when its own player said so, in this turn's
   lines in that window (not an old line, not an out-of-character one, not another player's or a co-player's
-  suggestion). Co-players move only after their own lines. The Keeper decides for no one.
+  suggestion). Before applying a proposed split, the agent independently reads each character's own decisions
+  in that scene. A later change of mind takes precedence. A companion can follow a player on the strength of
+  an earlier commitment even if someone else spoke last.
+- A player can correct a misplaced companion in the scene chat or the planner window. Once the correction
+  identifies the character and thread, the agent updates the actual seat before answering and bypasses the
+  ordinary move cooldown. Players can also correct their own character.
 - **No flip-flopping.** A co-player's move that would undo a recent change needs two agreeing turns after it
   (`timelines.guard_turns`, `timelines.guard_ms`). Players' own moves are never deferred.
 - **No history leaks.** Nobody is ever added to an existing window (its whole past would open to them). A player
@@ -438,7 +443,9 @@ with its weekday: "1923-10-02 (Tuesday), morning". A solemn game has no date fro
   on a scenario change. The planner says in its plan when it should move next. The final review after each session
   moves it on between sessions, and the operator can use the `date` command.
 
-Calendar features beyond the date and the routine are not part of this stage.
+When play skips ahead, the GM posts the new time in the affected window. The handoff distinguishes completed
+events from outstanding plans and links to the public lines supporting them. This applies to same-day cuts and
+session resumptions as well as date changes. Private planning notes and parallel scenes do not supply those quotes.
 
 ```bash
 node src/cli.mjs date --days 2 --time morning
@@ -578,6 +585,11 @@ or a hidden truth. Who reads the notes:
 
 `status` lists the notes. Every player in the channel can read what the others write there.
 
+Send `/pause` on its own in this window to pause the channel. It cancels current and queued GM, co-player
+and planner generation. Phone messages whose text and delivery time are already saved still arrive. Their delivery
+does not trigger another reply while paused. The next message from any human player in the channel resumes hosting,
+including a message in the planner window or on their character’s phone. A pause survives restarting the agent.
+
 **New players.** When someone joins the channel, the platform seats them in the Main Chat. The client then seats them
 in the planner window and, in casual mode, opens their phone. When their player character appears, the GM gets an
 arrival turn in the Main Chat to bring that character into the story. The platform sends no event when a character is
@@ -666,8 +678,8 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `llm.effort` | `--llm-effort` | `medium` | Claude effort (`low` … `max`) |
 | `llm.fallbacks` | `--llm-fallbacks` | `true` | Claude: re-run a declined request on Anthropic's recommended fallback model |
 | `llm.trace` | `--llm-trace` | – | append every model request and reply to this JSONL file, to audit what each role was shown |
-| `llm.stream` | `--llm-stream` | `true` | OpenAI Responses: streaming replies; `false` only if the endpoint does not support it |
-| `llm.timeout_ms` | `--llm-timeout-ms` | `600000` | client request deadline; this does not extend a gateway's own timeout |
+| `llm.stream` | `--llm-stream` | `true` | stream Anthropic and OpenAI-compatible replies, including a separately configured planner |
+| `llm.timeout_ms` | `--llm-timeout-ms` | `600000` | maximum wait for data when streaming, or the total deadline with streaming disabled |
 | `llm.cache_ttl` | `--llm-cache-ttl` | `1h` | Anthropic prompt-cache lifetime: `1h`, `5m` or `off` |
 | `planner.enabled` | `--planner` | `true` | the story planner (see "The story planner") |
 | `planner.provider`, `planner.api_base`, `planner.model` | `--planner-provider`, `--planner-api-base`, `--planner-model` | the GM's | the planner's own model and endpoint (its key: `PLANNER_API_KEY`, else the provider's key) |

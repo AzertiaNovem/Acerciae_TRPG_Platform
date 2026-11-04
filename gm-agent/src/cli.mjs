@@ -285,7 +285,12 @@ async function run(cfg) {
   const roster = table.roster;
   const rt = new Realtime({ apiBase: cfg.apiBase, token: api.token, channelId: channel.id, log });
   rt.on("event", (ev) => { try { table.onEvent(ev)?.catch?.((e) => log(`event ${ev.type}: ${e.message}`)); } catch (e) { log(`event ${ev.type}: ${e.message}`); } });
-  rt.on("reconnected", () => table.refresh().catch(() => {}));
+  rt.on("subscribed", async (stream, reconnected) => {
+    try {
+      if (reconnected) await table.refresh();
+      if (stream === "chat") await table.observeHistory({ controlsOnly: true });
+    } catch (e) { log(`reconnecting ${stream}: ${e.message}`); }
+  });
   rt.start();
   table.startTicker();
   // CLI commands (split, rejoin, advance) arrive in the inbox; this process is the only one that writes the state.

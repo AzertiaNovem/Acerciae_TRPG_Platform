@@ -1,5 +1,5 @@
 // The two WebSocket streams (/ws/chat and /ws/context): subscribe to one channel, keep the connection alive and
-// reconnect with backoff. Emits "event" ({stream, ...payload}) and "reconnected" (refetch what may have been missed).
+// reconnect with backoff. Emits "event" ({stream, ...payload}) and "subscribed" (refetch what may have been missed).
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 
@@ -39,6 +39,7 @@ export class Realtime extends EventEmitter {
       if (m.type === "hello") { ws.send(JSON.stringify({ type: "subscribe", channel_id: this.channelId })); return; }
       if (m.type === "subscribed") {
         this.log(`subscribed to ${stream}`);
+        this.emit("subscribed", stream, attempt > 0);
         if (attempt > 0) this.emit("reconnected", stream);
         attempt = 0;
         return;

@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createLlm } from "../src/llm/index.mjs";
+import { buildConfig } from "../src/config.mjs";
+import { planStory } from "../src/planner.mjs";
 
 // A local stand-in for the provider endpoint that records the request. `reply` is a body, or a function of the
 // request body returning {status, body}.
@@ -13,7 +15,8 @@ async function stub(reply) {
     req.on("end", () => {
       const parsed = JSON.parse(body);
       seen.push({ url: req.url, headers: req.headers, body: parsed });
-      const out = typeof reply === "function" ? reply(parsed) : { status: 200, body: reply };
+      const out = typeof reply === "function" ? reply(parsed, res) : { status: 200, body: reply };
+      if (!out) return; // The fixture is writing a live SSE response itself.
       res.writeHead(out.status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(out.body));
     });
@@ -137,6 +140,8 @@ test("OpenAI stream: provider errors and refusals inside a 200 response are surf
   t.mock.restoreAll();
   await assert.rejects(streamingLlm(t, sse({ type: "response.failed", response: { status: "failed", error: { message: "model overloaded" } } })).complete(request), /model overloaded/);
   t.mock.restoreAll();
+  await assert.rejects(streamingLlm(t, delta("{}") + sse({ type: "response.incomplete", response: {} })).complete(request), /incomplete/);
+  t.mock.restoreAll();
   const refusal = { type: "response.completed", response: { status: "completed", output: [{ type: "message", content: [{ type: "refusal", refusal: "no" }] }] } };
   await assert.rejects(streamingLlm(t, sse(refusal)).complete(request), /declined/);
 });
@@ -218,4 +223,101 @@ test("OpenAI JSON refusal with usage is counted; missing usage isn't reported as
   t.mock.method(globalThis, "fetch", async () => Response.json(responseObject("{}", { usage: undefined })));
   await llm.complete({ ...request, onUsage: (u) => usage.push(u) });
   assert.equal(usage.length, 1);
+});
+
+const anthropicStart = sse({ type: "message_start", message: { model: "served-model", content: [], usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 0 } } });
+const anthropicText = text => sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })
+  + sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })
+  + sse({ type: "content_block_stop", index: 0 });
+const anthropicEnd = (reason = "end_turn") => sse({ type: "message_delta", delta: { stop_reason: reason }, usage: { output_tokens: 7 } })
+  + sse({ type: "message_stop" });
+
+for (const provider of ["anthropic", "openai_compatible"]) {
+  test(`${provider}: planner streams can outlast the client timeout while the gateway sends keepalives`, async () => {
+    const isClaude = provider === "anthropic";
+    const s = await stub((_body, res) => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(isClaude ? anthropicStart : delta('{"ok":'));
+      let ticks = 0;
+      const timer = setInterval(() => {
+        if (++ticks < 9) res.write(": heartbeat\n\n");
+        else res.end(isClaude ? anthropicText('{"ok":"青岚"}') + anthropicEnd() : finished('{"ok":"青岚"}'));
+      }, 45);
+      res.on("close", () => clearInterval(timer));
+    });
+    try {
+      const llm = createLlm({ provider, apiKey: "k", apiBase: s.base, model: "test", fallbacks: true, timeoutMs: 220 });
+      const usage = [];
+      assert.equal(await llm.complete({ ...request, purpose: "planner", onUsage: u => usage.push(u) }), '{"ok":"青岚"}');
+      assert.equal(s.seen.length, 1);
+      assert.equal(s.seen[0].body.stream, true);
+      if (isClaude) assert.deepEqual(usage, [{ model: "served-model", input: 100, output: 7, cacheRead: 90, cacheWrite: 0 }]);
+    } finally { s.close(); }
+  });
+
+  test(`${provider}: a silent stream times out, and /pause interrupts an active connection`, { timeout: 5000 }, async () => {
+    let started;
+    const s = await stub((_body, res) => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(provider === "anthropic" ? anthropicStart : delta("partial"));
+      started?.();
+    });
+    try {
+      const model = timeoutMs => createLlm({ provider, apiKey: "k", apiBase: s.base, model: "test", timeoutMs });
+      await assert.rejects(model(200).complete(request), /sent no data/);
+      const controller = new AbortController();
+      const receiving = new Promise(resolve => { started = resolve; });
+      const call = model(30000).complete({ ...request, signal: controller.signal });
+      await receiving;
+      controller.abort(new DOMException("player paused", "AbortError"));
+      await assert.rejects(call, /player paused/);
+      assert.equal(s.seen.length, 2);
+    } finally { s.close(); }
+  });
+}
+
+test("Anthropic streams reject partial replies, refusals, errors and truncated JSON", async () => {
+  const wires = [
+    [anthropicStart + anthropicText("{}"), /ended before completion/],
+    [anthropicStart + anthropicEnd("refusal"), /declined/],
+    [anthropicStart + anthropicText("{}") + anthropicEnd("max_tokens"), /truncated/],
+    [sse({ type: "error", error: { message: "busy" } }), /busy/],
+  ];
+  for (const [wire, failure] of wires) {
+    const s = await stub((_body, res) => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.end(wire);
+    });
+    try {
+      const llm = createLlm({ provider: "anthropic", apiKey: "k", apiBase: s.base, timeoutMs: 1000 });
+      await assert.rejects(llm.complete(request), failure);
+    } finally { s.close(); }
+  }
+});
+
+test("an Anthropic gateway can explicitly use non-streaming JSON", async () => {
+  const s = await stub({ model: "test", content: [{ type: "text", text: "{}" }], stop_reason: "end_turn" });
+  try {
+    const llm = createLlm({ provider: "anthropic", apiKey: "k", apiBase: s.base, stream: false });
+    assert.equal(await llm.complete(request), "{}");
+    assert.equal(s.seen[0].body.stream, false);
+  } finally { s.close(); }
+});
+
+test("a separately configured planner streams its draft, critique and revision via Messages", async () => {
+  const replies = [{ beat: { title: "青岚车站" } }, { must_fix: ["Use the new location"] }, { beat: { title: "青岚码头" } }];
+  const s = await stub((_body, res) => {
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(anthropicStart + anthropicText(JSON.stringify(replies.shift())) + anthropicEnd());
+  });
+  try {
+    const cfg = buildConfig({}, { PLANNER_API_KEY: "k" }, { llm: { provider: "mock" }, planner: { provider: "anthropic", api_base: s.base } });
+    const result = await planStory(createLlm(cfg.planner), {
+      contextText: "The boat has arrived.", since: "", mode: "full", language: "Chinese", prev: null,
+      coplayers: [], secrets: [], nextId: 1, lastSeq: 11, trigger: "manual", now: Date.now(),
+    });
+    assert.equal(result.arc.beat.title, "青岚码头");
+    assert.deepEqual(s.seen.map(r => [r.body.stream, r.body.messages.length]), [[true, 1], [true, 3], [true, 5]]);
+    assert.deepEqual(JSON.parse(s.seen[2].body.messages[3].content).must_fix, ["Use the new location"]);
+  } finally { s.close(); }
 });

@@ -2,6 +2,7 @@
 // Nothing is stored on the provider (store: false): each request carries its whole conversation. Caching is by prefix,
 // automatic: the parts (parts.mjs) keep their stable-first order, and OpenAI's own API also gets a prompt_cache_key per
 // purpose (other gateways may reject unknown fields, so they do not).
+import { readJson, streamEvents, withResponseTimeout } from "./stream.mjs";
 import { textOf } from "./parts.mjs";
 
 const officialOpenAi = (base) => /^https:\/\/api\.openai\.com(:443)?(\/.*)?$/.test(base);
@@ -17,21 +18,17 @@ export class OpenAiCompatLlm {
     this.stream = stream;
   }
 
-  async complete({ system, messages, cacheKey, onUsage }) {
-    try {
-      const { text } = await this.request(system, messages, cacheKey, (response) => {
+  async complete({ system, messages, cacheKey, onUsage, signal }) {
+    const { text } = await withResponseTimeout(this.timeoutMs, signal, this.stream, (requestSignal, activity) =>
+      this.request(system, messages, cacheKey, (response) => {
         const usage = response?.usage;
         if (usage) onUsage?.({ model: response.model ?? this.model, input: usage.input_tokens ?? null,
           cacheRead: usage.input_tokens_details?.cached_tokens ?? 0, cacheWrite: 0, output: usage.output_tokens ?? null });
-      });
-      return text;
-    } catch (e) {
-      if (e.name === "TimeoutError") throw new Error(`LLM request exceeded the client timeout (${this.timeoutMs / 1000}s). Check the provider or LLM_TIMEOUT_MS.`, { cause: e });
-      throw e;
-    }
+      }, requestSignal, activity));
+    return text;
   }
 
-  async request(system, messages, cacheKey, onResponse = () => {}) {
+  async request(system, messages, cacheKey, onResponse, signal, activity) {
     const res = await fetch(`${this.base}/responses`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}) },
@@ -44,8 +41,9 @@ export class OpenAiCompatLlm {
         store: false,
         ...(cacheKey && officialOpenAi(this.base) ? { prompt_cache_key: cacheKey } : {}),
       }),
-      signal: AbortSignal.timeout(this.timeoutMs),
+      signal,
     });
+    activity();
     if (!res.ok) {
       const data = await res.json().catch(() => null);
       const detail = data?.error?.message ?? (typeof data?.error === "string" ? data.error : null);
@@ -56,9 +54,9 @@ export class OpenAiCompatLlm {
       error.status = res.status;
       throw error;
     }
-    if (res.headers.get("content-type")?.includes("text/event-stream")) return readStream(res.body, onResponse);
+    if (res.headers.get("content-type")?.includes("text/event-stream")) return readStream(res.body, onResponse, activity);
     // Some compatible gateways ignore stream=true and still return the whole response as JSON.
-    return checkedText(await res.json(), "", onResponse);
+    return checkedText(await readJson(res.body, activity), "", onResponse);
   }
 }
 
@@ -88,24 +86,13 @@ function checkedText(response, streamedText = "", onResponse = () => {}) {
 
 // Decode the Responses SSE stream across arbitrary network chunks, including split UTF-8 characters. Only a terminal
 // event (response.completed / .incomplete / .failed) ends it: a dropped connection is never accepted as a reply.
-async function readStream(body, onResponse) {
-  if (!body) throw new Error("LLM returned an empty stream");
-  const decoder = new TextDecoder();
-  let buffer = "", text = "";
-  for await (const bytes of body) {
-    buffer += decoder.decode(bytes, { stream: true });
-    let boundary;
-    while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
-      const block = buffer.slice(0, boundary.index);
-      buffer = buffer.slice(boundary.index + boundary[0].length);
-      const data = block.split(/\r?\n/).filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trimStart()).join("\n");
-      if (!data) continue; // Includes gateway keepalive comments and bare `event:` lines.
-      const event = JSON.parse(data);
-      if (event.type === "error") throw new Error(`LLM stream: ${event.message ?? event.error?.message ?? "provider error"}`);
-      if (event.type === "response.output_text.delta" && typeof event.delta === "string") text += event.delta;
-      if (event.type === "response.completed" || event.type === "response.incomplete" || event.type === "response.failed") return checkedText(event.response, text, onResponse);
+async function readStream(body, onResponse, activity) {
+  let text = "";
+  for await (const event of streamEvents(body, activity)) {
+    if (event.type === "response.output_text.delta" && typeof event.delta === "string") text += event.delta;
+    if (event.type === "response.completed") return checkedText(event.response, text, onResponse);
+    if (event.type === "response.incomplete" || event.type === "response.failed") {
+      return checkedText({ ...event.response, status: event.type.slice("response.".length) }, text, onResponse);
     }
   }
-  throw new Error("LLM stream ended before completion; retry the request.");
 }
