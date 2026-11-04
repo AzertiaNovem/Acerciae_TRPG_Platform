@@ -23,7 +23,15 @@ never get them.
 
 ## Hosting a PbtA table
 
-With the Keeper account and LLM configured, run these commands from `gm-agent`:
+For a channel already created in the web or desktop app, select PbtA in GM workspace → Settings and give the agent account the GM role. With the account and LLM configured, start the host from `gm-agent`:
+
+```sh
+node src/cli.mjs run --channel <CHANNEL_ID> --world world.md --coplayers 2
+```
+
+The host waits for you in GM workspace → Settings → Rule pack before creating characters or posting the opening. Activate the draft or keep the current rules to continue in the same process. If you stop it during review, restart with the channel ID and the same state directory. The public world, requested number of co-players and draft are recovered. Omitting the world on a fresh channel uses its current pack directly. The agent reads the channel’s selected system. To change systems, use the workspace.
+
+To have the CLI create the channel instead:
 
 ```sh
 node src/cli.mjs setup --create --rules pbta --world world.md --coplayers 2

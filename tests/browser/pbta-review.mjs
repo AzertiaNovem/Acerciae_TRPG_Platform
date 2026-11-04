@@ -64,7 +64,6 @@ try {
   assert.equal((await api.characters(id)).length, 0);
   await setup();
   assert.equal((await api.pbtaDraft(id)).version, draft.version);
-  await assert.rejects(run('run', '--channel', id), /Review the rule draft/);
   const page = await browser.newPage();
   await page.addInitScript((token) => localStorage.setItem('acerciae.token', token), api.token);
   await page.goto(site);

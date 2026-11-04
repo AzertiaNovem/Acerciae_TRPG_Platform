@@ -9,6 +9,7 @@
 //   date    casual games: move the story's calendar on (or to a later date); bond records or ends a relationship
 import { awaitingReview, fingerprint, preparePack, prepareActor } from "./pbta.mjs";
 import fs from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Api } from "./api.mjs";
@@ -53,6 +54,8 @@ async function resolveChannel(api, cfg, { create }) {
   if (cfg.channelId) {
     const ch = await api.channel(cfg.channelId);
     if (ch.my_role !== "gm") throw new Error(`${cfg.username} is not the GM of channel ${cfg.channelId}; add it as GM first`);
+    if (cfg.requestedPbta && ch.rule_system !== "pbta")
+      throw Error("Select PbtA under GM workspace → Settings before starting PbtA in this channel.");
     if (ch.rule_system && !["coc7e","pbta"].includes(ch.rule_system)) throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent supports CoC 7e and PbtA`);
     return { channel: ch, created: false };
   }
@@ -101,7 +104,51 @@ async function setup(cfg) {
   } finally { release(); }
 }
 
-async function setupChannel(cfg, api, { channel, created, invite }) {
+async function setupChannel(cfg, api, target, automatic = false) {
+  if (target.channel.rule_system !== "pbta") return prepareChannel(cfg, api, target);
+  const release = acquireLock(cfg.stateDir, "pbta-init-" + target.channel.id);
+  if (!release) throw Error("This channel is already being prepared by another agent process.");
+  try { return await prepareChannel(cfg, api, target, automatic); }
+  finally { release(); }
+}
+
+// A one-shot setup returns a pending draft. A running host keeps the channel lock and waits here,
+// before any cards, world publication, WebSocket or turn timers are started.
+async function reviewBeforePlay(api, llm, channel, rules, world, language, review, automatic) {
+  async function design(current) {
+    try { return await preparePack(api, llm, channel, rules, world, language, current); }
+    catch (error) {
+      if (error.status !== 409) throw error;
+      // A GM can keep the pack or request a retry even while the model is still answering.
+      const latest = await api.pbtaDraft(channel);
+      if (latest.version === current.version && latest.eligible === current.eligible) throw error;
+      return latest;
+    }
+  }
+  let draft = await design(review);
+  while (awaitingReview(draft.status)) {
+    console.log(`CHANNEL_ID=${channel} · ${draft.status}
+Review the rule draft in GM workspace → Settings → Rule pack. ${automatic ? "Waiting for your decision." : "Review there, then repeat setup."}${draft.error ? "\n" + draft.error : ""}`);
+    if (!automatic) return draft;
+    if (draft.status === "retry" && world && draft.eligible) {
+      draft = await design(draft);
+      continue;
+    }
+    if (draft.status === "retry")
+      log("Design needs an eligible channel and a public world. Keep the current rules here, or restart with --world.");
+    const version = draft.version;
+    do {
+      await delay(2000);
+      draft = await api.pbtaDraft(channel);
+    } while (draft.version === version);
+  }
+  return draft;
+}
+
+async function prepareChannel(cfg, api, { channel, created, invite }, automatic = false) {
+  const pbta = channel.rule_system === "pbta";
+  const review = pbta && await api.pbtaDraft(channel.id);
+  const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
   const store = Store.open(cfg.stateDir, channel.id);
   try {
     const llm = metered(withProgress(createLlm(cfg.llm), log), { sink: usageSink(store, log), channelId: channel.id, log });
@@ -109,19 +156,25 @@ async function setupChannel(cfg, api, { channel, created, invite }) {
     const language = languageName(cfg.language || settings?.language || "en");
     // Point buy is the channel's own option (its GM's); servers before that had a server feature.
     const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
-    const pbta = channel.rule_system === "pbta";
-    const rules = pbta ? await api.pbtaRules(channel.id) : await api.coc7Rules();
+    let rules = pbta ? await api.pbtaRules(channel.id) : await api.coc7Rules();
     const windows = await api.windows(channel.id);
     const seats = seatWindows(cfg, windows);
-    const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
     delete state.version;
     // Co-players are GM-cast PCs (owned by this account): any the Keeper already made are adopted, and only the
     // missing ones are generated.
     const me = api.user ?? (await api.me());
     const known = new Set((state.coplayers ?? []).map((c) => c.characterId));
-    const roster = new Roster(state).reconcile(await api.characters(channel.id), seats, { castBy: me.id });
+    const characters = await api.characters(channel.id);
+    const roster = new Roster(state).reconcile(characters, seats, { castBy: me.id });
+    if (automatic && state.pbtaSetup?.ready && !awaitingReview(review.status)) {
+      const wantsDesign = review.eligible && review.status === "none" && cfg.worldFile;
+      const savedCards = new Set(characters.filter(c => c.role_card?.pbta?.book).map(c => c.id));
+      if (!wantsDesign && (!cfg.coplayersSpecified || roster.coplayers.length >= cfg.coplayers) &&
+          roster.coplayers.every(c => savedCards.has(c.characterId))) return true;
+    }
     // Improvisation mode: the world setting the co-players are written into (and, later, the table plays in).
     const improv = improvChange(cfg, state.improv);
+    let coplayers = cfg.coplayers;
     const world = ((improv?.on ?? state.improv?.on) && (improv?.world ?? state.improv?.world)) || "";
     for (const c of roster.coplayers) if (!known.has(c.characterId)) log(`using ${c.name}, a PC this account already owns, as a co-player`);
     // While `run` keeps the channel it is the only writer; it picks new co-players up by their owner.
@@ -136,13 +189,19 @@ async function setupChannel(cfg, api, { channel, created, invite }) {
     if (improv) log(`improvisation mode ${improv.on ? `on (world ${String(improv.world ?? state.improv?.world ?? "").length} characters)` : "off"}${running ? "; handed to the running table" : "; the world setting is posted in the Main Chat when run starts"}`);
 
     if (pbta) {
-      if(!running) saveState(cfg.stateDir,{...state,...roster.toJSON()});
-      const draft=await preparePack(api,llm,channel.id,rules,improv?.world ?? state.improv?.world ?? "",language);
-      if(awaitingReview(draft.status)) {
-        console.log(`CHANNEL_ID=${channel.id} · ${draft.status}
-GM workspace → Settings → Rule pack. Review there, then repeat setup.${draft.error ? "\n"+draft.error : ""}`);
-        return;
+      if (automatic && !cfg.coplayersSpecified) {
+        // A resumed preparation keeps the original seat count. On an established table adopt its actual cast.
+        coplayers = review.eligible && !state.coplayers ? cfg.coplayers : roster.coplayers.length;
+        if (state.pbtaSetup?.ready === false) coplayers = state.pbtaSetup.coplayers;
       }
+      state.pbtaSetup = { coplayers, ready: false };
+      if (!running) saveState(cfg.stateDir, { ...state, ...roster.toJSON() });
+      const draft = await reviewBeforePlay(api, llm, channel.id, rules,
+        improv?.world ?? state.improv?.world ?? "", language, review, automatic);
+      if (awaitingReview(draft.status)) return false;
+      // The GM may have edited the official rules and the cast while the host was waiting.
+      if (draft.revision !== rules.revision) rules = await api.pbtaRules(channel.id);
+      if (automatic) roster.reconcile(await api.characters(channel.id), seats, { castBy: me.id });
     }
     for (const existing of roster.coplayers) {
       if(pbta) {
@@ -153,14 +212,14 @@ GM workspace → Settings → Rule pack. Review there, then repeat setup.${draft
       await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, log });
     }
 
-    const missing = cfg.coplayers - roster.coplayers.length;
-    if (missing < 0) log(`the channel already has ${roster.coplayers.length} co-players (asked for ${cfg.coplayers}); keeping them`);
+    const missing = coplayers - roster.coplayers.length;
+    if (missing < 0) log(`the channel already has ${roster.coplayers.length} co-players (asked for ${coplayers}); keeping them`);
     for (let i = 0; i < missing; i++) {
-      log(`preparing co-player ${roster.coplayers.length + 1}/${cfg.coplayers} with ${cfg.llm.provider} / ${cfg.llm.model || "mock"}`);
+      log(`preparing co-player ${roster.coplayers.length + 1}/${coplayers} with ${cfg.llm.provider} / ${cfg.llm.model || "mock"}`);
       const characters = await api.characters(channel.id);
       const takenNames = characters.map((c) => c.name);
       const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-      const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: cfg.coplayers, world };
+      const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: coplayers, world };
       let saved;
       if(pbta) {
         const actor=await prepareActor(api,llm,channel.id,args);
@@ -168,9 +227,11 @@ GM workspace → Settings → Rule pack. Review there, then repeat setup.${draft
       } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"coplayer",rules,llm,language,pointsMode});
       roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
       if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
-      log(`co-player ${roster.coplayers.length}/${cfg.coplayers}: ${saved.name} (${saved.card?.basic?.occupation || (pbta?"PbtA":"investigator")})`);
+      log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${saved.card?.basic?.occupation || (pbta?"PbtA":"investigator")})`);
     }
+    if (pbta) state.pbtaSetup.ready = true;
     if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
+    if (automatic) return true;
     const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
     console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  LLM: ${cfg.llm.provider}${cfg.llm.model ? ` ${cfg.llm.model}` : ""}${cfg.llm.provider === "mock" ? " (placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
     return true;
@@ -207,8 +268,6 @@ async function run(cfg) {
   // The lock comes first: healing an interrupted split and every save need to be this process's alone.
   const signedIn = await signIn(cfg);
   const { channel: ch } = await resolveChannel(signedIn, cfg, { create: false });
-  if (ch.rule_system==="pbta" && awaitingReview((await signedIn.pbtaDraft(ch.id)).status))
-    throw Error("Review the rule draft in GM workspace → Settings → Rule pack, then repeat setup.");
   const release = acquireLock(cfg.stateDir, ch.id);
   if (!release) throw new Error(`another process (pid ${lockHolder(cfg.stateDir, ch.id) ?? "?"}) already keeps this channel`);
   // Another writer changed the state file under us: continuing would act on a stale table, so stop loudly.
@@ -217,7 +276,10 @@ async function run(cfg) {
   // The story planner's own model, when it differs from the GM's (otherwise the table reuses the GM's instance).
   const sameModel = ["provider", "apiBase", "model", "effort", "apiKey"].every((k) => cfg.planner[k] === cfg.llm[k]);
   const plannerLlm = sameModel ? null : withProgress(createLlm(cfg.planner), log);
-  try { opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), plannerLlm, heal: true, channel: { api: signedIn, channel: ch }, onConflict }); }
+  try {
+    if (ch.rule_system === "pbta") await setupChannel(cfg, signedIn, { channel: ch }, true);
+    opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), plannerLlm, heal: true, channel: { api: signedIn, channel: ch }, onConflict });
+  }
   catch (e) { release(); throw e; }
   const { api, channel, table } = opened;
   const roster = table.roster;

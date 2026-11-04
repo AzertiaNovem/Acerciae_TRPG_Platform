@@ -17,8 +17,8 @@ export function playerRules(pack, book) {
   };
 }
 
-export async function preparePack(api, llm, channel, rules, world, language) {
-  const review = await api.pbtaDraft(channel);
+export async function preparePack(api, llm, channel, rules, world, language, currentReview) {
+  const review = currentReview ?? await api.pbtaDraft(channel);
   if (!['none', 'retry'].includes(review.status) || !world || !review.eligible) return review;
   const claim = await api.reviewPbta(channel, {
     op: 'start',

@@ -174,11 +174,13 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     // The client never creates a server or channel unless asked (`setup --create`): it keeps one the account is GM of.
     create: bool(pick("create"), false),
     ruleSystem: str(pick("rules", "coc7e")),
+    requestedPbta: args.rules === "pbta",
     serverId: str(pick("server", "")),
     channelId: str(pick("channel", "")),
     serverName: str(pick("server-name", "AI Keeper's table")),
     channelName: str(pick("channel-name", "A campaign with an AI Keeper")),
     era: str(pick("era", "")),
+    coplayersSpecified: pick("coplayers") != null,
     coplayers: Math.max(0, Math.min(8, int(pick("coplayers", 2), 2))),
     coplayerWindows: list(pick("coplayer-windows", "")),
     language: str(pick("language", "")),
