@@ -21,6 +21,7 @@
 #include "dice/Dnd.h"
 #include "characters/Dnd2024Rules.h"
 #include "rules/RuleSystem.h"
+#include "rules/Pbta.h"
 #include "logstudio/TtsProvider.h"
 #include "logstudio/TtsService.h"
 #include "logstudio/PublicationService.h"
@@ -47,6 +48,17 @@ static int failures = 0, passed = 0;
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
 
 int main() {
+    test("PbtA moves use inclusive bands, a signed modifier and the stored move text", [] {
+        auto pack=json::parse(R"({"revision":4,"pack":{"stats":[{"id":"sense","name":"Sense"}],"books":[{"id":"scout"}],"moves":[{"id":"search","book":"","stat":"sense","outcomes":{"low":"danger","mixed":"choose","high":"safe"}}],"bands":[{"id":"low","max":6},{"id":"mixed","min":7,"max":9},{"id":"high","min":10}]}})");
+        auto card=json::parse(R"({"book":"scout","stats":{"sense":1}})");
+        for (int total : {6,7,9,10}) {
+            dice::SeqRng rng({3,3});
+            auto result=pbta::resolve(pack,card,"search "+std::to_string(total-7),rng);
+            CHECK(result["total"]==total);
+            CHECK(result["outcome"]==(total<=6?"danger":total<10?"choose":"safe"));
+            CHECK(result["revision"]==4);
+        }
+    });
     test("PLATFORM_ADMINS names the deployment's administrators: comma-separated usernames, spaces ignored, empty by default", [] {
         unsetenv("PLATFORM_ADMINS");
         CHECK(Config::fromEnv().platformAdmins.empty());
@@ -1086,6 +1098,53 @@ int main() {
         auto hr = apply(h); CHECK(hr["violations"].empty()); CHECK(h["skills"]["Survival (Sea)"] == 30); CHECK(h["skills"]["Firearms (Rifle/Shotgun)"] == 55);
         h["career"]["choices"][0].append("Language (Other)"); CHECK((codes(apply(h)) == std::vector<std::string>{"invalid_choice"}));
         h["career"]["choices"][0].resize(1); h["career"]["choices"][1][0] = "Swim"; { auto c = codes(apply(h)); CHECK(c.size() == 2 && c[0] == "invalid_choice" && c[1] == "career_points_not_allowed"); }
+    });
+    test("rule transition: the story part stays, the numbers belong to one system, a card is rebuilt once it has them", [] {
+        auto coc = json::parse(R"({"basic":{"player":"Sam","occupation":"Journalist","age":"34"},"characteristics":{"STR":55,"CON":60,"SIZ":65,"DEX":70,"APP":50,"INT":75,"POW":60,"EDU":80,"LUK":45},
+            "derived":{"hp":12,"san":60,"db":"0"},"skills":{"Spot Hidden":65},"career":{"name":"Journalist","choices":[],"specialties":[]},"skill_points":{"Spot Hidden":{"career":40,"hobby":0,"growth":0}},
+            "background":{"ideology":"Truth above all","traits":"Stubborn"},"items":[{"name":"Notebook","note":"dog-eared","qty":1}],"wealth":{"cash":"$40","assets":"","spending_level":"$10"},
+            "dnd":{"class":"Wizard","level":3}})");
+        // The number part of each system; the story part is in neither.
+        auto n = CharacterSpaceService::numbers(coc, "coc7e");
+        CHECK(n["characteristics"]["STR"] == 55); CHECK(n["skills"]["Spot Hidden"] == 65); CHECK(n["career"]["name"] == "Journalist"); CHECK(n["wealth"]["cash"] == "$40");
+        CHECK(!n.isMember("basic")); CHECK(!n.isMember("background")); CHECK(!n.isMember("items")); CHECK(!n.isMember("dnd"));
+        auto d = CharacterSpaceService::numbers(coc, "dnd2024");
+        CHECK(d.size() == 1); CHECK(d["dnd"]["class"] == "Wizard"); CHECK(d["dnd"]["level"] == 3);
+        CHECK(CharacterSpaceService::hasNumbers(coc, "coc7e")); CHECK(CharacterSpaceService::hasNumbers(coc, "dnd2024"));
+        CHECK(!CharacterSpaceService::hasNumbers(Json::Value(), "coc7e")); CHECK(!CharacterSpaceService::hasNumbers(Json::Value(), "dnd2024"));
+        CHECK(!CharacterSpaceService::hasNumbers(json::parse(R"({"basic":{"occupation":"Sailor"},"background":{"traits":"Loud"},"items":["Rope"]})"), "coc7e"));
+        CHECK(CharacterSpaceService::hasNumbers(json::parse(R"({"wealth":{"cash":"$5"}})"), "coc7e"));
+        // A card for D&D: the story as it was, D&D's numbers only (the Call of Cthulhu fields blank, as the client expects).
+        auto dndCard = CharacterSpaceService::withNumbers(coc, Json::Value(Json::objectValue), "dnd2024");
+        CHECK(dndCard["basic"]["occupation"] == "Journalist"); CHECK(dndCard["basic"]["player"] == "Sam");
+        CHECK(dndCard["background"]["ideology"] == "Truth above all"); CHECK(dndCard["items"].size() == 1); CHECK(dndCard["items"][0]["name"] == "Notebook");
+        CHECK(dndCard["characteristics"].empty()); CHECK(dndCard["skills"].empty()); CHECK(!dndCard.isMember("career")); CHECK(!dndCard.isMember("skill_points"));
+        CHECK(dndCard["wealth"]["cash"] == ""); CHECK(dndCard["dnd"]["class"] == ""); CHECK(dndCard["dnd"]["level"] == 1);
+        CHECK(!CharacterSpaceService::hasNumbers(dndCard, "coc7e")); CHECK(!CharacterSpaceService::hasNumbers(dndCard, "dnd2024"));
+        // A card for Call of Cthulhu has no D&D build; forSystem keeps the system's own numbers and drops the other's.
+        auto cocCard = CharacterSpaceService::forSystem(coc, "coc7e");
+        CHECK(!cocCard.isMember("dnd")); CHECK(cocCard["characteristics"]["EDU"] == 80); CHECK(cocCard["background"]["traits"] == "Stubborn");
+        auto kept = CharacterSpaceService::forSystem(coc, "dnd2024");
+        CHECK(kept["dnd"]["class"] == "Wizard"); CHECK(kept["characteristics"].empty());
+        // Bringing archived numbers back onto a card keeps the card's current story.
+        auto edited = dndCard; edited["background"]["traits"] = "Older, wiser";
+        auto back = CharacterSpaceService::withNumbers(edited, n, "coc7e");
+        CHECK(back["characteristics"]["STR"] == 55); CHECK(back["skill_points"]["Spot Hidden"]["career"] == 40); CHECK(back["background"]["traits"] == "Older, wiser"); CHECK(!back.isMember("dnd"));
+        // Rebuilt: a D&D class; for Call of Cthulhu the eight characteristics (Luck aside).
+        CHECK(CharacterSpaceService::built(coc, "coc7e")); CHECK(CharacterSpaceService::built(coc, "dnd2024"));
+        CHECK(!CharacterSpaceService::built(dndCard, "dnd2024")); CHECK(!CharacterSpaceService::built(dndCard, "coc7e"));
+        auto partial = json::parse(R"({"characteristics":{"STR":50,"CON":50,"SIZ":50,"DEX":50,"APP":50,"INT":50,"POW":50}})");
+        CHECK(!CharacterSpaceService::built(partial, "coc7e")); partial["characteristics"]["EDU"] = 60; CHECK(CharacterSpaceService::built(partial, "coc7e"));
+        // PbtA: the playbook is the number part; a card for PbtA has nothing of the other systems, and is rebuilt with a playbook.
+        auto withBook = coc; withBook["pbta"] = json::parse(R"({"book":"scout","stats":{"sense":2},"resources":{},"conditions":{}})");
+        auto p = CharacterSpaceService::numbers(withBook, "pbta");
+        CHECK(p.size() == 1); CHECK(p["pbta"]["book"] == "scout"); CHECK(CharacterSpaceService::hasNumbers(withBook, "pbta"));
+        CHECK(!CharacterSpaceService::hasNumbers(coc, "pbta")); CHECK(!CharacterSpaceService::built(coc, "pbta")); CHECK(CharacterSpaceService::built(withBook, "pbta"));
+        CHECK(!CharacterSpaceService::numbers(withBook, "coc7e").isMember("pbta"));
+        auto pbtaCard = CharacterSpaceService::forSystem(withBook, "pbta");
+        CHECK(pbtaCard["pbta"]["stats"]["sense"] == 2); CHECK(pbtaCard["characteristics"].empty()); CHECK(!pbtaCard.isMember("dnd")); CHECK(pbtaCard["background"]["traits"] == "Stubborn");
+        CHECK(!CharacterSpaceService::forSystem(withBook, "coc7e").isMember("pbta")); CHECK(!CharacterSpaceService::forSystem(withBook, "dnd2024").isMember("pbta"));
+        CHECK(!CharacterSpaceService::withNumbers(withBook, Json::Value(Json::objectValue), "pbta").isMember("pbta"));
     });
     test("character space: the COC7 role card is bounded, mirrored into dice attributes, and image prompts carry era, moment and framing", [] {
         auto card = CharacterSpaceService::normalizeRoleCard(json::parse(R"({"basic":{"occupation":"Journalist","age":"34","junk":1},"characteristics":{"STR":55,"DEX":70,"POW":"x","LUK":1200},"derived":{"hp":11,"san":60,"db":"0"},"skills":{"Spot Hidden":65,"Library Use":70,"":9},"background":{"ideology":"Truth above all","unknown":"dropped"},"items":[{"name":"Notebook","note":"dog-eared","qty":1},"Revolver",{"name":""}],"wealth":{"cash":"$40"}})"));

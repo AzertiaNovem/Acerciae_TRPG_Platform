@@ -16,6 +16,11 @@ class WindowActivityTest {
         assertFalse(WindowActivity.shouldNotify(old,j("""{"id":"w","kind":"main","last_seq":10,"unread":0}"""),"me","other"))
         assertTrue(WindowActivity.shouldNotify(old,j("""{"id":"w","kind":"main","last_seq":10,"unread":1}"""),"me","other"))
     }
+    @Test fun pbtaMoveShowsItsFrozenOutcome() {
+        val m=Json { ignoreUnknownKeys=true }.decodeFromString<Message>("""{"id":"m","content":".move search","author_name":"Scout","kind":"roll","seq":1,"dice":{"type":"pbta_move","rolls":[3,4],"text":"有所取舍 · 选择一项代价"}}""")
+        assertEquals("有所取舍 · 选择一项代价",m.displayText)
+        assertEquals(DiceTone.NEUTRAL,m.diceTone)
+    }
     @Test fun dndIntegerRollsCriticalAndOocSpeaker() {
         val m=Json { ignoreUnknownKeys=true }.decodeFromString<Message>("""{"id":"m","content":".rc attack","kind":"ooc","seq":2,"author_name":"Player","character_name":"Character","dice":{"type":"d20","rolls":[3,20],"critical":true,"success":true,"text":"Attack 20: critical"}}""")
         assertEquals(DiceTone.CRITICAL,m.diceTone); assertEquals("Attack 20: critical",m.displayText); assertEquals("Player",WindowActivity.speaker(m))

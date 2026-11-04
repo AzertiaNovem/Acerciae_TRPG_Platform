@@ -54,7 +54,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   useEscape(dialog ? close : null);
   const submit = async () => {
     try {
-      if (dialog === 'channel' && nav.serverId) { const c = await api.createChannel(nav.serverId, { name: f('name'), description: f('description'), knowledge_mode: f('mode') || 'isolated' }); await nav.selectServer(nav.serverId); await nav.selectChannel(c.id); }
+      if (dialog === 'channel' && nav.serverId) { const c = await api.createChannel(nav.serverId, { name: f('name'), description: f('description'), knowledge_mode: f('mode') || 'isolated', rule_system: f('rules') || 'coc7e' }); await nav.selectServer(nav.serverId); await nav.selectChannel(c.id); }
       if (dialog === 'window' && nav.channelId) {
         if (!f('name').trim()) { toast('Give the window a name', 'error'); return; }
         await api.createWindow(nav.channelId, { name: f('name'), kind: (f('kind') as any) || 'group', members: picked.map((user_id) => ({ user_id })) });
@@ -136,7 +136,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             {characters.map((c) => (
               <div key={c.id} className={`item ${nav.characterSpaceId === c.id ? 'active' : ''}`} {...activate(() => { nav.openCharacter(c.id); onClose(); })} title={tr("Open character space")}>
                 {c.avatar_asset_id && nav.channelId ? <CachedImg className="mini-avatar" src={api.mediaUrl(nav.channelId, c.avatar_asset_id, c.avatar_asset_version)} hash={c.avatar_asset_hash} alt="" fallback={<span className="mini-avatar text">{c.name.slice(0, 1)}</span>} /> : <span className="mini-avatar text">{c.name.slice(0, 1)}</span>}
-                <span className="name small">{c.name}</span><span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span>
+                <span className="name small">{c.name}</span>{c.card_pending && <span className="pill rebuild" title={tr("The rules changed: this character's numbers need rebuilding")}>{tr("rebuild")}</span>}<span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span>
               </div>
             ))}
             {studioOpen && (
@@ -165,6 +165,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
         <div className="modal-backdrop" onClick={close}>
           <div className="modal col" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             {dialog === 'channel' && (<><h3>{tr("New campaign channel")}</h3><input placeholder={tr("Name")} value={f('name')} onChange={(e) => set('name', e.target.value)} autoFocus /><input placeholder={tr("Description")} value={f('description')} onChange={(e) => set('description', e.target.value)} />
+              <label>{tr('Rule system')}<select value={f('rules') || 'coc7e'} onChange={e=>set('rules',e.target.value)}><option value="coc7e">Call of Cthulhu 7e</option><option value="dnd2024">D&amp;D 2024</option><option value="pbta">Powered by the Apocalypse (PbtA)</option></select></label>
               <select value={f('mode') || 'isolated'} onChange={(e) => set('mode', e.target.value)}><option value="isolated">{tr("New players: separate groups")}</option><option value="public">{tr("New players: shared group")}</option></select></>)}
             {dialog === 'window' && (<><h3>{tr("New chat window")}</h3><input placeholder={tr("Name (e.g. Solo investigation)")} value={f('name')} onChange={(e) => set('name', e.target.value)} autoFocus />
               <select value={f('kind') || 'group'} onChange={(e) => set('kind', e.target.value)}><option value="group">{tr("Group")}</option><option value="private">{tr("Private")}</option></select>

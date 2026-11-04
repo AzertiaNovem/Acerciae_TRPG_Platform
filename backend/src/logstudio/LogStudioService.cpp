@@ -257,8 +257,23 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
         if (mk == "ooc") e.eventType = "ooc"; else if (mk == "roll") { e.eventType = "dice_roll"; if (r["payload"]["dice"].isObject()) {
             const auto& actual = r["payload"]["dice"]; e.metadata["dice_result"] = actual;
             DiceInfo d; d.raw = json::str(actual,"text"); d.expression = json::str(actual,"expr"); d.checkName = json::str(actual,"attr");
-            for (const auto& roll : actual["rolls"]) { if (roll["roll"].isInt()) d.rolls.push_back(roll["roll"].asInt()); }
-            if (actual["rolls"].size() == 1) { auto one=actual["rolls"][0]; if (one["total"].isInt()) d.total=one["total"].asInt(); else if (one["roll"].isInt()) d.total=one["roll"].asInt(); d.outcome=json::str(one,"level"); }
+            if (actual["type"] == "pbta_move") {
+                d.checkName = json::str(actual,"name");
+                if (actual["total"].isInt()) {
+                    d.expression = "2d6 + "+json::str(actual,"stat_name")+" + ("+json::str(actual,"modifier")+")";
+                    d.total = actual["total"].asInt();
+                    for (const auto& die : actual["rolls"]) d.rolls.push_back(die.asInt());
+                    d.outcome = json::str(actual,"outcome");
+                }
+                e.rawText = e.content;
+                e.content = d.raw;
+            } else {
+                for (const auto& roll : actual["rolls"]) {
+                    if (roll.isInt()) d.rolls.push_back(roll.asInt());
+                    else if (roll.isObject() && roll["roll"].isInt()) d.rolls.push_back(roll["roll"].asInt());
+                }
+                if (actual["rolls"].size() == 1 && actual["rolls"][0].isObject()) { auto one=actual["rolls"][0]; if (one["total"].isInt()) d.total=one["total"].asInt(); else if (one["roll"].isInt()) d.total=one["roll"].asInt(); d.outcome=json::str(one,"level"); }
+            }
             e.dice=d;
         } else e.dice = parseDice(e.content); } else if (mk == "narration") e.eventType = "narration";
         // The Keeper without a character narrates; the Keeper speaking as an NPC talks like anyone else.

@@ -1,4 +1,5 @@
 #include "ChatService.h"
+#include "../characters/CharacterSpaceService.h"
 #include "../events/EventStore.h"
 #include "../scenes/SceneManager.h"
 #include "../ws/Notifier.h"
@@ -229,7 +230,7 @@ Json::Value ChatService::createChannel(const Principal& p, const std::string& se
     auto mode = json::str(body, "knowledge_mode", "isolated");
     if (mode != "public" && mode != "isolated") throw badRequest("knowledge_mode must be public or isolated");
     auto ruleSystem = rules::canonical(json::str(body, "rule_system", "coc7e"));
-    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e or dnd2024");
+    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e, dnd2024 or pbta");
     auto ch = db_.tx([&](pqxx::work& w) {
         auto c = Db::queryOne(w, "INSERT INTO channels(server_id, name, description, rule_system, knowledge_mode, point_buy) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
             {serverId, name, json::str(body, "description"), ruleSystem, mode, json::toBool(body, "point_buy")});
@@ -271,15 +272,39 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
     auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
     // The rule system decides the dice commands, the character sheet and how the AI names the game and the GM; point
     // buy makes role cards follow the system's character-creation budget. Both are the GM's to change at any time.
-    auto ruleSystem = rules::canonical(json::str(body, "rule_system", cur["rule_system"].asString()));
-    if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e or dnd2024");
-    db_.exec("UPDATE channels SET rule_system=$2, point_buy=$3 WHERE id=$1", {a.channelId, ruleSystem, flag("point_buy")});
+    // A change of rule system is a transition, in one transaction with it: every character keeps its story, the numbers
+    // and dice values of the old system go to a read-only archive on its card, and the players are asked (in the main
+    // window, and on the cards) to rebuild their characters' numbers for the new system.
+    Json::Value transition, message;
+    db_.tx([&](pqxx::work& w) {
+        const auto from = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR UPDATE", {a.channelId})["rule_system"].asString();
+        const auto ruleSystem = rules::canonical(json::str(body, "rule_system", from));
+        if (ruleSystem.empty()) throw badRequest("rule_system must be coc7e, dnd2024 or pbta");
+        Db::exec(w, "UPDATE channels SET rule_system=$2, point_buy=$3 WHERE id=$1", {a.channelId, ruleSystem, flag("point_buy")});
+        if (from == ruleSystem) return;
+        transition = CharacterSpaceService::transitionCards(w, a.channelId, from, ruleSystem, a.userId);
+        auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {a.channelId});
+        if (main.isNull()) return;
+        auto texts = dice_.textsForChannel(w, a.channelId);
+        const auto name = [&](const std::string& rs) { return texts.render("rules.name." + rs, {}); };
+        std::string content = texts.render("rules.changed", {{"from", name(from)}, {"to", name(ruleSystem)}});
+        std::vector<std::string> names; for (const auto& r : transition["rebuild"]) names.push_back(r["name"].asString());
+        if (!names.empty()) content += "\n" + texts.render("rules.rebuild", {{"to", name(ruleSystem)}, {"list", text::join(names, ", ")}});
+        message = postSystemMessage(w, a.channelId, main["id"].asString(), a.userId, content);
+    });
     db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
              "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
         {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
          flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled")});
     notifier_.channelUpdated(a.channelId);
-    return getChannel(a);
+    if (!message.isNull()) notifier_.messagePosted(message);
+    auto out = getChannel(a);
+    if (!transition.isNull()) {
+        for (const auto& row : transition["rows"]) notifier_.characterUpdated(a.channelId, row);
+        transition.removeMember("rows");
+        out["rule_transition"] = transition;
+    }
+    return out;
 }
 Json::Value ChatService::endStory(const ChannelAccess& a, const Json::Value& body) {
     auth_.requireGm(a);
@@ -404,7 +429,10 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     if (kind == "npc") { auth_.requireGm(a); ownerId.clear(); }
     else if (a.isGm && !json::str(body, "user_id").empty()) ownerId = json::str(body, "user_id");
     auto sheet = dice::normalizeSheet(body.isMember("sheet") && body["sheet"].isObject() ? body["sheet"] : Json::Value(Json::objectValue));
+    sheet.removeMember("rule_attrs");
     return db_.tx([&](pqxx::work& w) {
+        if (!sheet["attrs"].empty() && Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId})["rule_system"] == "pbta")
+            throw badRequest("Create the character and select a PbtA playbook");
         auto c = Db::queryOne(w, "INSERT INTO characters(channel_id, user_id, name, kind, speaking_style, sheet) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *",
             {a.channelId, ownerId.empty() ? dbNull() : DbParam(ownerId), name, kind, json::str(body, "speaking_style"), json::dump(sheet)});
         // A PC owned by a GM account (a "GM-cast" PC, such as an AI co-player) is voiced by the Keeper like an NPC: the
@@ -422,12 +450,24 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     });
 }
 Json::Value ChatService::updateCharacter(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
-    auto cur = db_.queryOne("SELECT * FROM characters WHERE id=$1 AND channel_id=$2", {characterId, a.channelId});
-    if (cur.isNull()) throw notFound("character not found");
-    if (!a.isGm && (cur["user_id"].isNull() || cur["user_id"].asString() != a.userId)) throw forbidden("not your character");
-    auto sheet = body.isMember("sheet") && body["sheet"].isObject() ? dice::normalizeSheet(body["sheet"]) : cur["sheet"];
-    return db_.queryOne("UPDATE characters SET name=$3, speaking_style=$4, sheet=$5::jsonb WHERE id=$1 AND channel_id=$2 RETURNING *",
-        {characterId, a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "speaking_style", cur["speaking_style"].asString()), json::dump(sheet)});
+    return db_.tx([&](pqxx::work& w) {
+        const bool writeSheet = body["sheet"].isObject();
+        if (writeSheet) {
+            auto channel = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId});
+            if (channel["rule_system"] == "pbta") throw badRequest("Use the PbtA character card");
+        }
+        auto cur = Db::queryOne(w, "SELECT * FROM characters WHERE id=$1 AND channel_id=$2 FOR UPDATE", {characterId, a.channelId});
+        if (cur.isNull()) throw notFound("character not found");
+        if (!a.isGm && cur["user_id"] != a.userId) throw forbidden("not your character");
+        auto sheet = cur["sheet"];
+        if (writeSheet) {
+            sheet = dice::normalizeSheet(body["sheet"]);
+            sheet.removeMember("rule_attrs");
+            if (cur["sheet"].isMember("rule_attrs")) sheet["rule_attrs"] = cur["sheet"]["rule_attrs"];
+        }
+        return Db::queryOne(w, "UPDATE characters SET name=$3, speaking_style=$4, sheet=$5::jsonb WHERE id=$1 AND channel_id=$2 RETURNING *",
+            {characterId, a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "speaking_style", cur["speaking_style"].asString()), json::dump(sheet)});
+    });
 }
 
 // ---- windows ---------------------------------------------------------------------------------

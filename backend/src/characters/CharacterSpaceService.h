@@ -29,6 +29,9 @@ public:
     // Queues image jobs for the requested slots and subtitles (generated mode only).
     Json::Value generate(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);
     Json::Value removeAsset(const ChannelAccess& a, const std::string& characterId, const std::string& assetId);
+    // Brings an archived card of the channel's current rule system back as the active numbers (the numbers it replaces,
+    // if any, are archived in turn); the archive entry is used up.
+    Json::Value restoreArchive(const ChannelAccess& a, const std::string& characterId, const std::string& archiveId);
     // A library upload of a character's standee or portrait with a subtitle, by the Keeper or the character's actor,
     // becomes that character's image for the subtitle (the older one is deleted). Anyone else's stays a library image.
     void adoptLibraryUpload(const ChannelAccess& a, const Json::Value& asset);
@@ -38,6 +41,21 @@ public:
     // sheet.attrs after mirroring the card's characteristics, derived values and skills into it (dice read these).
     static Json::Value mirrorAttrs(const Json::Value& attrs, const Json::Value& card);
     static std::string normalizeSubtitle(const std::string& s);
+
+    // Rule transitions. A card has a story part every rule system shares (basic information, background, items) and a
+    // number part of one system: Call of Cthulhu's characteristics, derived values, skills, career, skill points and
+    // wealth, or D&D's build (`dnd`). Switching the channel's system keeps the story and rebuilds the numbers.
+    static Json::Value numbers(const Json::Value& card, const std::string& ruleSystem);     // the number part for a system
+    static bool hasNumbers(const Json::Value& card, const std::string& ruleSystem);         // anything beyond a blank card
+    static bool built(const Json::Value& card, const std::string& ruleSystem);              // rebuilt: the flag can go
+    // The card's story with the given numbers (or, with forSystem, its own numbers of that system) and nothing of
+    // another system's.
+    static Json::Value withNumbers(const Json::Value& card, const Json::Value& numbers, const std::string& ruleSystem);
+    static Json::Value forSystem(const Json::Value& card, const std::string& ruleSystem) { return withNumbers(card, numbers(card, ruleSystem), ruleSystem); }
+    // Runs inside the transaction that changes channels.rule_system: every character keeps its story; its numbers and
+    // dice values of `from` are archived read-only, it gets `to`'s blank numbers, and it is flagged for a rebuild when
+    // there was anything to rebuild. Returns {from, to, archived, pending, rebuild[{id, name}] (PCs only), rows[]}.
+    static Json::Value transitionCards(pqxx::work& w, const std::string& channelId, const std::string& from, const std::string& to, const std::string& actorId);
     // The prompt an image model receives for one slot: appearance + era + time of the story + the slot's framing.
     static std::string buildPrompt(const std::string& appearance, const std::string& era, const std::string& narrativeTime, const std::string& slot, const std::string& subtitle);
 private:

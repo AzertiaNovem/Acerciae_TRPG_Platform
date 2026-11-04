@@ -1,3 +1,4 @@
+import type { Pack as PbtaPack, Rules as PbtaRules } from '../components/pbta/types';
 import type * as T from '../types';
 import { apiBase, isDesktop } from '../lib/platform';
 import { createTokenStore, tauriKeychain } from '../lib/tokenStore';
@@ -59,6 +60,9 @@ const del = <R,>(p: string) => request<R>('DELETE', p);
 const q = (o: Record<string, string | number | undefined>) => { const s = Object.entries(o).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&'); return s ? `?${s}` : ''; };
 
 export const api = {
+  pbtaRules: (ch:string)=>get<PbtaRules>(`/api/channels/${ch}/pbta`),
+  previewPbta: (ch:string,pack:unknown)=>post<PbtaPack>(`/api/channels/${ch}/pbta/preview`, pack),
+  savePbta: (ch:string,body:PbtaRules)=>put<PbtaRules>(`/api/channels/${ch}/pbta`,body),
   health: () => get<{ status: string }>('/api/health'),
   register: (username: string, password: string, display_name: string) => post<{ token: string; user: T.User }>('/api/auth/register', { username, password, display_name }),
   login: (username: string, password: string) => post<{ token: string; user: T.User }>('/api/auth/login', { username, password }),
@@ -111,7 +115,7 @@ export const api = {
   deleteChannel: (ch: string, confirm: string) => request<{ ok: boolean; files: number }>('DELETE', `/api/channels/${ch}`, { confirm }),
   createChannel: (serverId: string, body: { name: string; description?: string; knowledge_mode?: string; rule_system?: string }) => post<T.Channel>(`/api/servers/${serverId}/channels`, body),
   channel: (id: string) => get<T.Channel>(`/api/channels/${id}`),
-  updateChannel: (id: string, body: Partial<T.Channel>) => put<T.Channel>(`/api/channels/${id}`, body),
+  updateChannel: (id: string, body: Partial<T.Channel>) => put<T.Channel & { rule_transition?: T.RuleTransition }>(`/api/channels/${id}`, body),
   endStory: (id: string, reveal_keeper_lines: boolean) => post<T.Channel>(`/api/channels/${id}/story/end`, { reveal_keeper_lines }),
   reopenStory: (id: string) => post<T.Channel>(`/api/channels/${id}/story/reopen`),
   channelMembers: (id: string) => get<T.ChannelMember[]>(`/api/channels/${id}/members`),
@@ -124,7 +128,8 @@ export const api = {
   initiative: (ch: string, w: string) => get<T.InitiativeOrder>(`/api/channels/${ch}/windows/${w}/initiative`),
   initiativeAction: (ch: string, w: string, body: { action: 'next' | 'clear' | 'remove'; entry_id?: string }) => post<T.InitiativeOrder>(`/api/channels/${ch}/windows/${w}/initiative`, body),
   characterSpace: (ch: string, id: string) => get<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/space`),
-  updateCharacterCard: (ch: string, id: string, body: { name?: string; speaking_style?: string; bio?: string; role_card?: T.RoleCard }) => put<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/card`, body),
+  updateCharacterCard: (ch: string, id: string, body: { name?: string; speaking_style?: string; bio?: string; rule_system?: string; pack_revision?: number; role_card?: T.RoleCard; card_rebuilt?: boolean }) => put<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/card`, body),
+  restoreCardArchive: (ch: string, id: string, archiveId: string) => post<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/card-archives/${archiveId}/restore`, {}),
   updateCharacterAppearance: (ch: string, id: string, body: { asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string }) => put<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/appearance`, body),
   uploadCharacterAsset: (ch: string, id: string, slot: 'avatar' | 'portrait' | 'subtitle', file: File, subtitle = '') => { const fd = new FormData(); fd.append('slot', slot); fd.append('subtitle', subtitle); fd.append('file', file); return request<T.CharacterSpace>('POST', `/api/channels/${ch}/characters/${id}/assets`, undefined, fd); },
   generateCharacterAssets: (ch: string, id: string, body: { slots?: string[]; subtitles?: string[]; allow_cloud?: boolean }) => post<{ jobs: unknown[]; space: T.CharacterSpace }>(`/api/channels/${ch}/characters/${id}/assets/generate`, body),

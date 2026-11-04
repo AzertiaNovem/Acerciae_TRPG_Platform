@@ -1,3 +1,4 @@
+import PbtaPackEditor from './pbta/PackEditor';
 import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
@@ -80,6 +81,8 @@ function Overview() {
   );
 }
 
+// The channel's rule system as the form knows it (a PbtA channel must not read as Call of Cthulhu: saving would switch it).
+const systemOf = (rs?: string) => (rs === 'dnd2024' || rs === 'pbta' ? rs : 'coc7e');
 function ChannelSettings() {
   const { channelId, channel, serverId, serverSettings, refreshChannel, refreshWindows } = useNav();
   const me = useAuth((s) => s.user);
@@ -96,14 +99,25 @@ function ChannelSettings() {
   useEffect(() => {
     if (!channel || (dirty && loadedFor.current === channel.id)) return;
     loadedFor.current = channel.id; setDirty(false);
-    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, consistency_enabled: channel.consistency_enabled !== false, inspiration_enabled: channel.inspiration_enabled !== false, atmosphere_enabled: channel.atmosphere_enabled !== false, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false, rule_system: channel.rule_system === 'dnd2024' ? 'dnd2024' : 'coc7e', point_buy: !!channel.point_buy });
+    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, consistency_enabled: channel.consistency_enabled !== false, inspiration_enabled: channel.inspiration_enabled !== false, atmosphere_enabled: channel.atmosphere_enabled !== false, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false, rule_system: systemOf(channel.rule_system), point_buy: !!channel.point_buy });
   }, [channel, dirty]);
   useEffect(() => {
     if (serverId) api.diceTextGroups(serverId).then(setGroups).catch(() => undefined);
     if (channelId) api.channelMembers(channelId).then(setMembers).catch(() => undefined);
   }, [serverId, channelId]);
   if (!channelId || !channel) return null;
-  const save = async () => { try { await api.updateChannel(channelId, form as any); setDirty(false); await refreshChannel(); toast('Channel settings saved'); } catch (e: any) { toast(e.message, 'error'); } };
+  const systemName = (rs: string) => (rs === 'dnd2024' ? tr('D&D 2024') : rs === 'pbta' ? 'PbtA' : tr('Call of Cthulhu 7e'));
+  const save = async () => {
+    // A new rule system is a transition: the story of every character stays, the old numbers are archived read-only on
+    // each card and the players are asked to rebuild theirs.
+    const from = systemOf(channel.rule_system);
+    if (form.rule_system !== from && !confirm(tr("Switch the rules from {from} to {to}? Every character keeps its story: name, basic information, background, items and look. The {from} numbers are kept read-only on each card, and the players are asked to rebuild their characters' numbers for {to}.", { from: systemName(from), to: systemName(form.rule_system) }))) return;
+    try {
+      const out = await api.updateChannel(channelId, form as any); setDirty(false); await refreshChannel();
+      const t = out.rule_transition;
+      toast(t ? tr('Rules switched to {to}: {n} cards to rebuild', { to: systemName(t.to), n: t.pending }) : tr('Channel settings saved'));
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
   const ended = channel.story_status === 'ended';
   const endStory = async () => {
     if (!confirm(tr('End the story? Every member of this channel will be able to read the whole story in the Log Studio.'))) return;
@@ -130,12 +144,15 @@ function ChannelSettings() {
         <label className="field"><span>{tr("Rule system")}</span>
           <select value={form.rule_system} onChange={(e) => setForm({ ...form, rule_system: e.target.value })}>
             <option value="coc7e">{tr("Call of Cthulhu 7th edition (BRP)")}</option>
+            <option value="pbta">Powered by the Apocalypse (PbtA)</option>
             <option value="dnd2024">{tr("D&D 2024 (SRD 5.2)")}</option>
           </select>
         </label>
-        <div className="tiny muted">{tr("Decides the dice commands, the character sheet and how the AI names the game and the GM. Character sheets keep their values when you switch.")}</div>
-        <label className="row small"><input type="checkbox" checked={form.point_buy} onChange={(e) => setForm({ ...form, point_buy: e.target.checked })} />{tr("Point buy for role cards")}</label>
+        <div className="tiny muted">{tr("Decides the dice commands, the character sheet and how the AI names the game and the GM. When you switch, every character keeps its story; the numbers of the old rules are kept read-only on the card and the players are asked to rebuild them.")}</div>
+        {channel?.rule_system==='pbta' && channelId && <PbtaPackEditor key={channelId} channel={channelId}/>}
+        {form.rule_system!=='pbta' && <><label className="row small"><input type="checkbox" checked={form.point_buy} onChange={(e) => setForm({ ...form, point_buy: e.target.checked })} />{tr("Point buy for role cards")}</label>
         <div className="tiny muted">{form.rule_system === 'dnd2024' ? tr("Ability scores by point buy (27 points) or the standard array, background increases, and skills from the class, background and species.") : tr("Role cards spend occupation points (from a career in the built-in list) and personal interest points (INT×2).")}</div>
+        </>}
         <div className="section-label">{tr("AI in this channel")}</div>
         <label className="row small"><input type="checkbox" checked={form.ai_enabled} onChange={(e) => setForm({ ...form, ai_enabled: e.target.checked })} />{tr("Background chronicler (the observer behind the reminder and document bubbles)")}</label>
         <label className="row small"><input type="checkbox" checked={form.consistency_enabled} disabled={serverSettings?.features?.consistency === false} onChange={(e) => setForm({ ...form, consistency_enabled: e.target.checked })} />{tr("Consistency check")}</label>

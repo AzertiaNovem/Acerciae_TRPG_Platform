@@ -1,3 +1,4 @@
+#include "../rules/Pbta.h"
 #include "DiceService.h"
 #include "../servers/ServerSettingsService.h"
 #include "../ws/Notifier.h"
@@ -93,8 +94,18 @@ Json::Value advance(pqxx::work& w, const std::string& windowId) {
 DiceService::Result DiceService::execute(pqxx::work& w, const ChannelAccess& a, const std::string& windowId, const std::string& characterId, const dice::Command& cmd) {
     dice::Context ctx;
     auto texts = textsForChannel(w, a.channelId, &ctx.language);   // inside the caller's transaction: no second connection
-    auto ch = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1", {a.channelId});
+    auto ch = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId});
     ctx.ruleSystem = ch.isNull() ? "coc7e" : ch["rule_system"].asString();
+    if (cmd.name == "move" && ctx.ruleSystem == "pbta") {
+        if (characterId.empty()) throw badRequest("Choose a character for this move");
+        auto pack = pbta::lockedPack(w,a.channelId);
+        auto c = Db::queryOne(w,"SELECT user_id,role_card->'pbta' AS card FROM characters WHERE channel_id=$1 AND id=$2 FOR SHARE",{a.channelId,characterId});
+        if (c.isNull() || (!a.isGm && c["user_id"] != a.userId)) throw forbidden("Not your character");
+        Result r;
+        r.dice = pbta::resolve(pack,c["card"],cmd.args,*rng_);
+        r.text = r.dice["text"].asString(); r.dice["command"]=cmd.raw; r.dice["hidden"]=false;
+        return r;
+    }
     // .init reads and edits the window's order (D&D); it rolls nothing.
     if (cmd.name == "init") {
         if (ctx.ruleSystem != "dnd2024") throw diceError(texts.render("error.rules_dnd", {{"command", cmd.raw}}));
@@ -192,6 +203,11 @@ Json::Value DiceService::preview(const ChannelAccess& a, const std::string& wind
 Json::Value DiceService::getAttributes(const ChannelAccess& a, const std::string& characterId) {
     auto c = characterFor(a, characterId, false);
     Json::Value v; v["character_id"] = c["id"]; v["name"] = c["name"]; v["kind"] = c["kind"];
+    if (ruleSystem(a.channelId) == "pbta") {
+        v["attrs"] = Json::Value(Json::objectValue);
+        v["editable"] = false;
+        return v;
+    }
     v["attrs"] = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
     v["editable"] = a.isGm || (c["user_id"].isString() && c["user_id"].asString() == a.userId);
     return v;
@@ -202,10 +218,13 @@ Json::Value DiceService::updateAttributes(const ChannelAccess& a, const std::str
     if (!body["set"].isNull() && !body["set"].isObject()) throw badRequest("set must be an object of name -> number");
     if (!body["remove"].isNull() && !body["remove"].isArray()) throw badRequest("remove must be an array of names");
     db_.tx([&](pqxx::work& w) {
+        // Match the channel-then-character lock order used when switching rule systems.
+        auto system = Db::queryOne(w,"SELECT rule_system FROM channels WHERE id=$1 FOR SHARE",{a.channelId})["rule_system"];
+        if (system=="pbta") throw badRequest("Use the PbtA character card");
         auto c = Db::queryOne(w, "SELECT sheet FROM characters WHERE id=$1 FOR UPDATE", {characterId});
         Json::Value attrs = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
         std::string lang; textsForChannel(w, a.channelId, &lang);
-        const bool dnd = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1", {a.channelId})["rule_system"].asString() == "dnd2024";
+        const bool dnd = system=="dnd2024";
         auto stored = [&](const std::string& n) { return dnd ? dice::dnd::storedKey(attrs, n) : dice::storedKey(attrs, n, lang); };
         auto canon = [&](const std::string& n) { if (!dnd) return dice::canonicalName(n, lang); auto c = dice::dnd::canonical(n); return c.empty() ? text::trim(n) : c; };
         for (auto& n : json::strArray(body["remove"])) { auto k = stored(n); if (!k.empty()) attrs.removeMember(k); }

@@ -1,9 +1,10 @@
+import PbtaSheet from './pbta/Sheet';
 import { t as tr } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
 import { useUi } from '../store/ui';
-import type { CharacterSpace as Space, Coc7Rules, DndCard, DndRules, RoleCard } from '../types';
+import type { CardArchive, CharacterSpace as Space, Coc7Rules, DndCard, DndRules, PointsReport, RoleCard } from '../types';
 import DndSheet, { EMPTY_DND } from './DndSheet';
 import PointBuy from './PointBuy';
 import { sessionEpoch } from '../store/session';
@@ -22,6 +23,57 @@ const COC_SKILLS = ['Accounting', 'Anthropology', 'Appraise', 'Archaeology', 'Ar
 const DEFAULT_SUBTITLES = ['IDLE', 'SAY', 'HAPPY', 'SAD', 'ANGRY', 'SCARED', 'FIGHT'];
 
 type Tab = 'card' | 'look' | 'background' | 'items';
+const half = (v?: number) => (v === undefined ? '' : `${Math.floor(v / 2)} / ${Math.floor(v / 5)}`);
+const systemName = (rs?: string) => (rs === 'dnd2024' ? tr('D&D 2024') : rs === 'pbta' ? 'PbtA' : tr('Call of Cthulhu 7e'));
+
+// A former PbtA card in words: the playbook and its numbers, named by the channel's pack when it still has them.
+function pbtaSummary(card: { book?: string; stats?: Record<string, number>; resources?: Record<string, number>; conditions?: Record<string, boolean> } | undefined, pack?: { books?: { id: string; name: string }[]; stats?: { id: string; name: string }[]; resources?: { id: string; name: string }[]; conditions?: { id: string; name: string }[] }) {
+  if (!card) return '—';
+  const name = (list: { id: string; name: string }[] | undefined, id: string) => list?.find((x) => x.id === id)?.name ?? id;
+  const parts = [`${tr('Playbook')}: ${card.book ? name(pack?.books, card.book) : '—'}`];
+  for (const [k, list] of [['stats', pack?.stats], ['resources', pack?.resources]] as const) {
+    const v = card[k]; if (v && Object.keys(v).length) parts.push(Object.entries(v).map(([id, n]) => `${name(list, id)} ${n}`).join(' · '));
+  }
+  const on = Object.entries(card.conditions ?? {}).filter(([, v]) => v).map(([id]) => name(pack?.conditions, id));
+  if (on.length) parts.push(on.join(' · '));
+  return parts.join(' — ');
+}
+
+// The Call of Cthulhu number part of a card: characteristics, derived values, skills (or point buy) and wealth. Also
+// draws a former card's numbers, read-only. A render helper (no state of its own): the skill being added lives in the
+// character space.
+interface CocNumbersProps { card: RoleCard; editable: boolean; pointsOn: boolean; rules: Coc7Rules | null; report: PointsReport; isKeeper: boolean; setCardField: (fn: (c: RoleCard) => void) => void; newSkill?: string; setNewSkill?: (s: string) => void }
+function cocNumbers({ card, editable, pointsOn, rules, report, isKeeper, setCardField, newSkill = '', setNewSkill = () => undefined }: CocNumbersProps) {
+  return <>
+            <div className="row"><h4 style={{ margin: '10px 0 6px' }}>{tr('Characteristics')}</h4><span className="grow" />{pointsOn && <span className="pill" title={tr('STR+CON+SIZ+DEX+APP+INT+POW+EDU; Luck apart')}>{tr('Total')} {CHARS.filter((k) => k !== 'LUK').reduce((a, k) => a + (card.characteristics[k] ?? 0), 0)} · LUK {card.characteristics.LUK ?? 0}</span>}</div>
+            <div className="char-grid">
+              {CHARS.map((k) => <div key={k} className="cell"><b>{k}</b>{editable ? <input inputMode="numeric" value={card.characteristics[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete x.characteristics[k]; else if (Number.isFinite(v)) x.characteristics[k] = Math.round(v); })} /> : <span className="v">{card.characteristics[k] ?? '—'}</span>}<span className="halves">{half(card.characteristics[k])}</span></div>)}
+            </div>
+            <h4>{tr('Derived')}</h4>
+            <div className="char-grid">
+              {([['hp', 'HP'], ['hp_max', 'HP max'], ['mp', 'MP'], ['mp_max', 'MP max'], ['san', 'SAN'], ['san_max', 'SAN max'], ['mov', 'MOV'], ['build', 'Build']] as const).map(([k, label]) => <div key={k} className="cell"><b>{label}</b>{editable ? <input inputMode="numeric" value={card.derived[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete (x.derived as any)[k]; else if (Number.isFinite(v)) (x.derived as any)[k] = Math.round(v); })} /> : <span className="v">{card.derived[k] ?? '—'}</span>}</div>)}
+              <div className="cell"><b>DB</b>{editable ? <input value={card.derived.db} onChange={(e) => setCardField((x) => { x.derived.db = e.target.value; })} /> : <span className="v">{card.derived.db || '—'}</span>}</div>
+            </div>
+            {pointsOn && rules && <PointBuy card={card} rules={rules} editable={!!editable} isKeeper={isKeeper} report={report} setCard={setCardField} />}
+            {pointsOn && !rules && <div className="tiny muted">{tr('Loading…')}</div>}
+            {!pointsOn && <><h4>{tr('Skills')}</h4>
+            <div className="skills">
+              {Object.keys(card.skills).sort().map((k) => <div key={k} className="skill"><span>{k}</span><span className="grow" />{editable ? <input inputMode="numeric" value={card.skills[k]} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (Number.isFinite(v)) x.skills[k] = Math.round(v); })} /> : <b>{card.skills[k]}</b>}<span className="tiny muted">{half(card.skills[k])}</span>{editable && <button className="ghost small" onClick={() => setCardField((x) => { delete x.skills[k]; })}>×</button>}</div>)}
+            </div>
+            {editable && (
+              <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+                <input list="coc-skills" placeholder={tr('Add a skill')} value={newSkill} onChange={(e) => setNewSkill(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && newSkill.trim()) { setCardField((x) => { x.skills[newSkill.trim()] = x.skills[newSkill.trim()] ?? 0; }); setNewSkill(''); } }} />
+                <datalist id="coc-skills">{COC_SKILLS.filter((s) => !(s in card.skills)).map((s) => <option key={s} value={s} />)}</datalist>
+                <button className="small" onClick={() => { if (newSkill.trim()) { setCardField((x) => { x.skills[newSkill.trim()] = x.skills[newSkill.trim()] ?? 0; }); setNewSkill(''); } }}>{tr('Add')}</button>
+                <span className="tiny muted">{tr('Characteristics, HP/MP/SAN and skills are what .ra, .sc and .st read in chat.')}</span>
+              </div>
+            )}</>}
+            <h4>{tr('Wealth')}</h4>
+            <div className="char-grid">
+              {(['cash', 'assets', 'spending_level'] as const).map((k) => <div key={k} className="cell"><b>{tr(k === 'cash' ? 'Cash' : k === 'assets' ? 'Assets' : 'Spending level')}</b>{editable ? <input style={{ fontSize: 13, fontWeight: 500 }} value={card.wealth[k]} onChange={(e) => setCardField((x) => { x.wealth[k] = e.target.value; })} /> : <span className="v" style={{ fontSize: 13, fontWeight: 500 }}>{card.wealth[k] || '—'}</span>}</div>)}
+            </div>
+  </>;
+}
 
 // The character space: avatar, main portrait, basic information, the COC7-styled role card, background and items.
 // The Keeper and the character's actor edit; everyone else reads. Images come from uploads or from image AI.
@@ -78,7 +130,8 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const dnd = space?.rule_system === 'dnd2024';
   const [dndRules, setDndRules] = useState<DndRules | null>(null);
   useEffect(() => { if (pointsOn && !dnd && !rules) loadRules().then(setRules).catch((e) => toast(e.message, 'error')); }, [pointsOn, dnd]);
-  useEffect(() => { if (dnd && !dndRules) loadDndRules().then(setDndRules).catch((e) => toast(e.message, 'error')); }, [dnd]);
+  const needsDnd = dnd || !!space?.card_archives?.some((x) => x.rule_system === 'dnd2024');
+  useEffect(() => { if (needsDnd && !dndRules) loadDndRules().then(setDndRules).catch((e) => toast(e.message, 'error')); }, [needsDnd]);
   // Live updates (generation finished, another editor saved) arrive as character.updated → characters refresh.
   const version = characters.find((c) => c.id === characterId);
   useEffect(() => { if (space) refresh(); }, [version?.avatar_asset_id, version?.portrait_asset_id, version?.asset_mode]);
@@ -86,7 +139,6 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   if (!channelId || !space || !card) return <div className="workspace"><div className="content muted">{tr("Loading…")}</div></div>;
   const c = space.character; const editable = c.editable;
   const url = (a: { id: string; version: number } | null) => (a ? api.mediaUrl(channelId, a.id, a.version) : '');
-  const half = (v?: number) => (v === undefined ? '' : `${Math.floor(v / 2)} / ${Math.floor(v / 5)}`);
   const setCardField = (fn: (c: RoleCard) => void) => { const next = JSON.parse(JSON.stringify(card)) as RoleCard; fn(next); setCard(next); setDirty(true); };
   const mutate = async (request: () => Promise<Space>, message?: string, isCardSave = false) => {
     if (busyRef.current) return;
@@ -101,7 +153,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
       if (valid()) { if (isCardSave) setSaveError(e.message); toast(e.message, 'error'); }
     } finally { busyRef.current = false; if (mounted.current) { setBusy(false); setSaving(false); } }
   };
-  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, role_card: card }), tr('Character saved'), true);
+  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, role_card: card }), tr('Character saved'), true);
   // D&D: the build is part of the card; live values (Hit Points, slots left, death saves) are written straight away.
   const setDnd = (fn: (d: DndCard) => void) => setCardField((x) => { x.dnd = x.dnd ?? JSON.parse(JSON.stringify(EMPTY_DND)); fn(x.dnd!); });
   const setLive = (set: Record<string, number>) => mutate(async () => { await api.updateAttributes(channelId, characterId, { set }); return api.characterSpace(channelId, characterId); });
@@ -111,6 +163,14 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const generate = (slots: string[], subtitles: string[]) => mutate(async () => (await api.generateCharacterAssets(channelId, characterId, { slots, subtitles, allow_cloud: true })).space, tr('Image generation queued'));
   const remove = async (assetId: string) => { if (!confirm(tr('Remove this image from the character?'))) return; await mutate(() => api.deleteCharacterAsset(channelId, characterId, assetId)); };
   const back = () => { if (!dirtyRef.current || confirm(tr('Leave without saving character changes?'))) openCharacter(null); };
+  // Rule transitions: numbers of earlier rules, read-only, and the rebuild the channel's switch asked for.
+  const archives = space.card_archives ?? [];
+  const restorable = archives.some((x) => x.rule_system === space.rule_system);
+  const waive = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, role_card: card, card_rebuilt: true }), tr('Marked as rebuilt'), true);
+  const restore = async (x: CardArchive) => {
+    if (!confirm(tr('Use this {system} card again? The numbers on the card now are set aside under Former cards.', { system: systemName(x.rule_system) }))) return;
+    await mutate(() => api.restoreCardArchive(channelId, characterId, x.id), tr('Former card restored'));
+  };
   const pending = space.jobs.filter((j) => j.status === 'pending' || j.status === 'running');
   const canGenerate = editable && look.asset_mode === 'generated' && space.generation_available;
   return (
@@ -150,35 +210,35 @@ export default function CharacterSpace({ characterId }: { characterId: string })
 
         {tab === 'card' && (
           <div className="card role-card">
-            {dnd ? (dndRules ? <DndSheet card={card.dnd ?? EMPTY_DND} rules={dndRules} editable={!!editable} isGm={channel?.my_role === 'gm'} pointsOn={pointsOn} report={space.points} attrs={space.attrs} setCard={setDnd} setLive={setLive} /> : <div className="tiny muted">{tr('Loading…')}</div>) : <>
-            <div className="row"><h4 style={{ margin: '10px 0 6px' }}>{tr('Characteristics')}</h4><span className="grow" />{pointsOn && <span className="pill" title={tr('STR+CON+SIZ+DEX+APP+INT+POW+EDU; Luck apart')}>{tr('Total')} {CHARS.filter((k) => k !== 'LUK').reduce((a, k) => a + (card.characteristics[k] ?? 0), 0)} · LUK {card.characteristics.LUK ?? 0}</span>}</div>
-            <div className="char-grid">
-              {CHARS.map((k) => <div key={k} className="cell"><b>{k}</b>{editable ? <input inputMode="numeric" value={card.characteristics[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete x.characteristics[k]; else if (Number.isFinite(v)) x.characteristics[k] = Math.round(v); })} /> : <span className="v">{card.characteristics[k] ?? '—'}</span>}<span className="halves">{half(card.characteristics[k])}</span></div>)}
-            </div>
-            <h4>{tr('Derived')}</h4>
-            <div className="char-grid">
-              {([['hp', 'HP'], ['hp_max', 'HP max'], ['mp', 'MP'], ['mp_max', 'MP max'], ['san', 'SAN'], ['san_max', 'SAN max'], ['mov', 'MOV'], ['build', 'Build']] as const).map(([k, label]) => <div key={k} className="cell"><b>{label}</b>{editable ? <input inputMode="numeric" value={card.derived[k] ?? ''} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (e.target.value === '') delete (x.derived as any)[k]; else if (Number.isFinite(v)) (x.derived as any)[k] = Math.round(v); })} /> : <span className="v">{card.derived[k] ?? '—'}</span>}</div>)}
-              <div className="cell"><b>DB</b>{editable ? <input value={card.derived.db} onChange={(e) => setCardField((x) => { x.derived.db = e.target.value; })} /> : <span className="v">{card.derived.db || '—'}</span>}</div>
-            </div>
-            {pointsOn && rules && <PointBuy card={card} rules={rules} editable={!!editable} isKeeper={channel?.my_role === 'gm'} report={space.points} setCard={setCardField} />}
-            {pointsOn && !rules && <div className="tiny muted">{tr('Loading…')}</div>}
-            {!pointsOn && <><h4>{tr('Skills')}</h4>
-            <div className="skills">
-              {Object.keys(card.skills).sort().map((k) => <div key={k} className="skill"><span>{k}</span><span className="grow" />{editable ? <input inputMode="numeric" value={card.skills[k]} onChange={(e) => setCardField((x) => { const v = Number(e.target.value); if (Number.isFinite(v)) x.skills[k] = Math.round(v); })} /> : <b>{card.skills[k]}</b>}<span className="tiny muted">{half(card.skills[k])}</span>{editable && <button className="ghost small" onClick={() => setCardField((x) => { delete x.skills[k]; })}>×</button>}</div>)}
-            </div>
-            {editable && (
-              <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
-                <input list="coc-skills" placeholder={tr('Add a skill')} value={newSkill} onChange={(e) => setNewSkill(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && newSkill.trim()) { setCardField((x) => { x.skills[newSkill.trim()] = x.skills[newSkill.trim()] ?? 0; }); setNewSkill(''); } }} />
-                <datalist id="coc-skills">{COC_SKILLS.filter((s) => !(s in card.skills)).map((s) => <option key={s} value={s} />)}</datalist>
-                <button className="small" onClick={() => { if (newSkill.trim()) { setCardField((x) => { x.skills[newSkill.trim()] = x.skills[newSkill.trim()] ?? 0; }); setNewSkill(''); } }}>{tr('Add')}</button>
-                <span className="tiny muted">{tr('Characteristics, HP/MP/SAN and skills are what .ra, .sc and .st read in chat.')}</span>
+            {c.card_pending && (
+              <div className="rule-rebuild" role="status" data-testid="rule-rebuild">
+                <b>{editable ? tr("Rebuild this character's numbers for {system}", { system: systemName(space.rule_system) }) : tr("This character's numbers are being rebuilt for {system}", { system: systemName(space.rule_system) })}</b>
+                <div className="tiny">{tr('The rules of this channel changed. The story part of the card (name, basic information, background, items and look) is kept; the numbers of the earlier rules are kept read-only under Former cards.')}</div>
+                {editable && <div className="tiny">{space.rule_system === 'pbta' ? tr('Choose a playbook and save to finish the rebuild.') : dnd ? tr('Choose a class and save to finish the rebuild.') : tr('Fill in the eight characteristics and save to finish the rebuild.')}{restorable ? ' ' + tr('A former card of these rules is below: you can use it again instead.') : ''}</div>}
+                {channel?.my_role === 'gm' && <div className="row" style={{ marginTop: 6 }}><button className="small" disabled={busy} onClick={waive} title={tr('For a character that will not roll under these rules, or whose card is kept elsewhere')}>{tr('Mark as rebuilt')}</button></div>}
               </div>
-            )}</>}
-            <h4>{tr('Wealth')}</h4>
-            <div className="char-grid">
-              {(['cash', 'assets', 'spending_level'] as const).map((k) => <div key={k} className="cell"><b>{tr(k === 'cash' ? 'Cash' : k === 'assets' ? 'Assets' : 'Spending level')}</b>{editable ? <input style={{ fontSize: 13, fontWeight: 500 }} value={card.wealth[k]} onChange={(e) => setCardField((x) => { x.wealth[k] = e.target.value; })} /> : <span className="v" style={{ fontSize: 13, fontWeight: 500 }}>{card.wealth[k] || '—'}</span>}</div>)}
-            </div>
-            </>}
+            )}
+            {space.rule_system === 'pbta' && space.pbta_rules ? <PbtaSheet pack={space.pbta_rules.pack} sheet={card.pbta} editable={!!editable} dirty={dirty} characterId={characterId} change={(v) => setCardField((x) => { x.pbta = v; })} />
+              : dnd ? (dndRules ? <DndSheet card={card.dnd ?? EMPTY_DND} rules={dndRules} editable={!!editable} isGm={channel?.my_role === 'gm'} pointsOn={pointsOn} report={space.points} attrs={space.attrs} setCard={setDnd} setLive={setLive} /> : <div className="tiny muted">{tr('Loading…')}</div>)
+              : cocNumbers({ card, editable: !!editable, pointsOn, rules, report: space.points, isKeeper: channel?.my_role === 'gm', setCardField, newSkill, setNewSkill })}
+            {archives.length > 0 && (
+              <div className="former-cards" data-testid="former-cards">
+                <h4>{tr('Former cards')}</h4>
+                <div className="tiny muted">{tr('Numbers from earlier rules of this channel, kept read-only. The story part stayed on the card above.')}</div>
+                {archives.map((x, n) => (
+                  <details key={x.id} className="former-card" open={n === 0 && !!c.card_pending}>
+                    <summary><b>{systemName(x.rule_system)}</b> <span className="tiny muted">{new Date(x.archived_at).toLocaleDateString()}{x.archived_by_name ? ` · ${x.archived_by_name}` : ''} · {x.reason === 'restore' ? tr('set aside when a former card came back') : tr('set aside when the rules changed')}</span></summary>
+                    {x.rule_system === 'pbta'
+                      ? <div className="small">{pbtaSummary(x.numbers.pbta, space.pbta_rules?.pack)}</div>
+                      : x.rule_system === 'dnd2024'
+                      ? (dndRules ? <DndSheet card={{ ...EMPTY_DND, ...(x.numbers.dnd ?? {}) }} rules={dndRules} editable={false} isGm={false} pointsOn={false} report={{ enabled: false }} attrs={x.attrs} setCard={() => undefined} setLive={() => undefined} /> : <div className="tiny muted">{tr('Loading…')}</div>)
+                      : cocNumbers({ card: { ...card, ...x.numbers } as RoleCard, editable: false, pointsOn: false, rules: null, report: { enabled: false }, isKeeper: false, setCardField: () => undefined })}
+                    {Object.keys(x.attrs ?? {}).length > 0 && <details className="tiny muted" style={{ marginTop: 6 }}><summary>{tr('Dice values')}</summary>{Object.entries(x.attrs).map(([k, v]) => `${k} ${v}`).join(' · ')}</details>}
+                    {editable && x.rule_system === space.rule_system && <div className="row" style={{ marginTop: 6 }}><button className="small" disabled={busy || dirty} title={dirty ? tr('Save or discard your changes first') : undefined} onClick={() => restore(x)}>{tr('Use this card again')}</button></div>}
+                  </details>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -191,7 +251,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
               <button className={`small ${look.asset_mode === 'generated' ? 'primary' : ''}`} disabled={!editable} onClick={() => saveLook({ asset_mode: 'generated' })}>{tr('Generated assets')}</button>
               {!space.generation_available && <span className="tiny muted">{tr('Image generation is not configured on this server; uploads still work.')}</span>}
             </div>
-            <div className="tiny muted" style={{ marginTop: 6 }}>{tr('In uploaded mode you supply the avatar, the portrait and one image per subtitle (IDLE, SAY, FIGHT, …); the visual novel can only use those subtitles. In generated mode the appearance prompt below drives the image AI, which also takes the campaign\'s era and the current moment of the story into account.')}</div>
+            <div className="tiny muted" style={{ marginTop: 6 }}>{tr("In uploaded mode you supply the avatar, the portrait and one image per subtitle (IDLE, SAY, FIGHT, …); the visual novel can only use those subtitles. In generated mode the appearance prompt below drives the image AI, which also takes the campaign's era and the current moment of the story into account.")}</div>
             <label className="field" style={{ marginTop: 8 }}><span>{tr('Appearance prompt')}</span><textarea value={look.appearance_prompt} disabled={!editable} onChange={(e) => setLook({ ...look, appearance_prompt: e.target.value })} onBlur={() => editable && look.appearance_prompt !== (c.appearance_prompt ?? '') && saveLook({})} placeholder={tr('e.g. A gaunt woman in her forties, grey wool coat, cropped dark hair, round spectacles, a pistol holster under the coat')} style={{ minHeight: 70 }} /></label>
             <div className="tiny muted">{tr('Era')}: {space.era || '—'}{space.narrative_time ? ` · ${tr('now')}: ${space.narrative_time}` : ''}</div>
             <h4 style={{ marginTop: 12 }}>{tr('Subtitle portraits')}</h4>

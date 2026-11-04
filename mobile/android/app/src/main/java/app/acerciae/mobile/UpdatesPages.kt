@@ -121,6 +121,10 @@ import kotlinx.serialization.json.*
         }
     }
     LaunchedEffect(pointsOn,dnd) { if (pointsOn || dnd) { try { pointRules = model.get(listOf(if (dnd) "dnd" else "coc7", "rules")); rulesError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { rulesError = tr("职业规则暂不可用，请重试；草稿保留") } } }
+    if (state.channel.text("rule_system") == "pbta" || space.text("rule_system") == "pbta") {
+        Column { TextButton(onClick = close) { Text(tr("返回角色")) }; Text(tr("PbtA · Edit the playbook in the web or desktop app.")) }
+        return
+    }
     val groups = listOf(
         Triple("basic", tr("基本信息"), listOf("player", "occupation", "age", "sex", "residence", "birthplace")),
         Triple("characteristics", tr("CoC7 属性"), listOf("STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK")),
