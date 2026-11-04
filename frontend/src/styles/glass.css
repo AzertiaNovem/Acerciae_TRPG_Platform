@@ -1,0 +1,121 @@
+/* Keep the dialog actions in reach when the appearance controls or translations need more room. */
+.modal.user-settings { overflow: hidden; }
+.user-settings form, .profile-scroll { min-height: 0; }
+.profile-scroll { overflow: auto; overscroll-behavior: contain; padding: 3px; }
+
+/* Miniature windows in the account's theme picker. The radio keeps native keyboard navigation. */
+.theme-picker { margin: 2px 0; padding: 8px 0 0; border: 0; min-width: 0; }
+.theme-picker legend { padding: 0; font-size: inherit; color: inherit; }
+.theme-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(155px, 100%), 1fr)); gap: 8px; }
+.theme-option { display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: 12px; border: 1px solid var(--bg-4); cursor: pointer; }
+.theme-option:has(:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.theme-option:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-option input[type=radio] { margin: 0 2px 0 auto; width: auto; accent-color: var(--accent); }
+.theme-picker p { margin: 6px 0 0; }
+.theme-swatch { flex: none; position: relative; width: 46px; height: 34px; border-radius: 8px; overflow: hidden; }
+.theme-swatch::before, .theme-swatch::after { content: ''; position: absolute; }
+.theme-swatch.classic { background: #141922; border: 1px solid #465063; }
+.theme-swatch.classic::before { inset: 0 72% 0 0; background: #2d3544; }
+.theme-swatch.classic::after { inset: 8px 7px auto 17px; height: 3px; background: #859ed9; box-shadow: 0 6px #526072, 0 12px #526072; }
+.theme-swatch.glass { background: linear-gradient(130deg, #87b9dd, #c6b9ee 47%, #f1c5b7 75%, #a3d5cd); }
+.theme-swatch.glass::before, .theme-swatch.glass::after { border: 1px solid #ffffffb8; background: #ffffff57; border-radius: 4px; box-shadow: 0 2px 5px #3d49853b; }
+.theme-swatch.glass::before { inset: 5px 30px 5px 4px; }
+.theme-swatch.glass::after { inset: 5px 4px 5px 19px; }
+
+:root[data-theme="glass"] {
+  color-scheme: light;
+  --bg-0: #eaf0f7; --bg-1: #f4f7fb; --bg-2: #f9fbfd; --bg-3: #e3eaf3; --bg-4: #b9c8da;
+  --fg-0: #182b40; --fg-1: #32485f; --fg-2: #435a72; --fg-3: #4e627a;
+  --accent: #21588e; --accent-2: #126559; --warn: #7a4a11; --danger: #9e3048; --ok: #216343;
+  --on-accent: #fff; --violet: #694497; --radius: 15px;
+  --glass-base: #e0eaf4;
+  --glass-wall: radial-gradient(ellipse at 2% 5%, #aacde8 0%, transparent 48%),
+    radial-gradient(ellipse at 77% -5%, #c2b6e3 0%, transparent 52%),
+    radial-gradient(ellipse at 97% 88%, #b4dace 0%, transparent 48%),
+    radial-gradient(ellipse at 17% 100%, #efd5cb 0%, transparent 42%);
+  --glass-pane: rgb(249 252 255 / 64%); --glass-reading: rgb(249 252 255 / 72%);
+  --glass-overlay: rgb(247 251 255 / 88%); --glass-edge: rgb(255 255 255 / 85%);
+  --glass-shadow: 0 5px 20px rgb(37 62 98 / 9%), inset 0 1px 0 var(--glass-edge);
+  --glass-scrim: rgb(43 57 81 / 28%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="glass"] {
+    color-scheme: dark;
+    --bg-0: #111e2c; --bg-1: #1a293b; --bg-2: #213144; --bg-3: #2d4054; --bg-4: #475e75;
+    --fg-0: #f0f6fe; --fg-1: #d6e4f3; --fg-2: #bbcddd; --fg-3: #a4b9ce;
+    --accent: #a3ccff; --accent-2: #82e2d2; --warn: #f0c98b; --danger: #ffadb8; --ok: #92dfb3;
+    --on-accent: #102941; --violet: #d1bdfa;
+    --glass-base: #102132;
+    --glass-wall: radial-gradient(ellipse at 2% 5%, #305974 0%, transparent 48%),
+      radial-gradient(ellipse at 77% -5%, #594977 0%, transparent 52%),
+      radial-gradient(ellipse at 97% 88%, #275952 0%, transparent 48%),
+      radial-gradient(ellipse at 17% 100%, #4a3548 0%, transparent 42%);
+    --glass-pane: rgb(23 37 54 / 65%); --glass-reading: rgb(16 29 43 / 66%);
+    --glass-overlay: rgb(29 45 62 / 90%); --glass-edge: rgb(193 220 247 / 21%);
+    --glass-shadow: 0 6px 20px rgb(4 10 18 / 23%), inset 0 1px 0 var(--glass-edge);
+    --glass-scrim: rgb(5 12 22 / 48%);
+  }
+}
+
+/* Backdrop filtering on a sidebar or the main container would trap their fixed-position dialogs. */
+:root[data-theme="glass"] :is(body, .open-studio) { background: var(--glass-wall), var(--glass-base); }
+:root[data-theme="glass"] .app { gap: 8px; padding: 8px; }
+:root[data-theme="glass"] :is(.server-sidebar, .channel-sidebar, .main) {
+  background: var(--glass-pane); border: 1px solid var(--glass-edge); border-radius: 18px; box-shadow: var(--glass-shadow);
+}
+:root[data-theme="glass"] .main { background: var(--glass-reading); }
+:root[data-theme="glass"] .channel-sidebar .item { border-radius: 11px; }
+:root[data-theme="glass"] :is(.channel-sidebar .item.active, .tabs button.active) {
+  background: color-mix(in srgb, var(--accent) 12%, var(--glass-overlay));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+:root[data-theme="glass"] :is(.chat-header, .sidebar-footer, .tabs, .open-studio-head, .character-save-bar, .initiative-bar) {
+  background: var(--glass-pane); border-color: var(--glass-edge);
+}
+:root[data-theme="glass"] .tabs { padding-block: 6px; gap: 4px; }
+:root[data-theme="glass"] .tabs button { border: 1px solid transparent; border-radius: 9px; }
+:root[data-theme="glass"] :is(.tabs button:hover, .channel-sidebar .item:hover) { background-color: var(--bg-3); }
+:root[data-theme="glass"] .composer {
+  margin: 2px 10px 10px; padding: 9px; border-radius: 15px;
+  background: var(--glass-pane); border: 1px solid var(--glass-edge); box-shadow: var(--glass-shadow);
+}
+:root[data-theme="glass"] :is(.composer textarea, .card) { background: var(--glass-pane); }
+:root[data-theme="glass"] .card { border-color: var(--glass-edge); box-shadow: var(--glass-shadow); }
+:root[data-theme="glass"] .modal-backdrop { background: var(--glass-scrim); }
+:root[data-theme="glass"] :is(.modal, .panel-float, .doc-viewer, .bubble, .toast, .notice-top, .notice-item, .dock-toggle) {
+  background-color: var(--glass-overlay); box-shadow: var(--glass-shadow);
+}
+:root[data-theme="glass"] .modal { border-radius: 20px; border-color: var(--glass-edge); box-shadow: 0 20px 64px var(--glass-scrim), inset 0 1px 0 var(--glass-edge); }
+:root[data-theme="glass"] :is(.notice-top, .notice-item):hover { background-color: var(--bg-2); border-color: var(--accent); }
+:root[data-theme="glass"] :is(.server-icon.active, .server-icon:hover):not(.add, .admin, .studio),
+:root[data-theme="glass"] :is(button.primary, .button.primary, .badge:not(.hl), .unread-badge) { color: var(--on-accent); }
+:root[data-theme="glass"] :is(.mode-banner, .avatar.gm, .notice-icon.gm, .pill.gm) { background: color-mix(in srgb, var(--warn) 11%, var(--bg-2)); border-color: color-mix(in srgb, var(--warn) 34%, var(--bg-2)); }
+:root[data-theme="glass"] :is(.ai-btn, .pill.ai) { background: color-mix(in srgb, var(--accent-2) 10%, var(--bg-2)); border-color: color-mix(in srgb, var(--accent-2) 40%, var(--bg-2)); }
+:root[data-theme="glass"] .ai-btn:hover { background: color-mix(in srgb, var(--accent-2) 18%, var(--bg-2)); }
+:root[data-theme="glass"] :is(.dice-result.ok, .dice-result.crit, .pill.ok) { background: color-mix(in srgb, var(--ok) 12%, var(--bg-2)); border-color: var(--ok); }
+:root[data-theme="glass"] :is(.dice-result.fail, .dice-result.fumble, .pill.danger, button.danger) { background: color-mix(in srgb, var(--danger) 11%, var(--bg-2)); border-color: var(--danger); }
+:root[data-theme="glass"] :is(.chip, .pick.on) { background: color-mix(in srgb, var(--accent) 12%, var(--bg-2)); border-color: var(--bg-4); }
+:root[data-theme="glass"] .status-hypothesis { color: var(--violet); }
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-theme="glass"] :is(.modal-backdrop, .doc-viewer, .panel-float, .bubble, .notice-top, .notice-item) {
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    backdrop-filter: blur(14px) saturate(120%);
+  }
+}
+@media (max-width: 860px) {
+  :root[data-theme="glass"] .app { padding: 4px; gap: 4px; }
+  :root[data-theme="glass"] .channel-sidebar { top: 4px; bottom: 4px; left: 64px; background: var(--bg-1); }
+  :root[data-theme="glass"] .channel-sidebar:not(.open) { visibility: hidden; }
+  :root[data-theme="glass"] .composer { margin: 0 4px 4px; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :root[data-theme="glass"] {
+    --glass-wall: none; --glass-pane: var(--bg-1); --glass-reading: var(--bg-0);
+    --glass-overlay: var(--bg-2); --glass-edge: var(--bg-4); --glass-shadow: none;
+  }
+  :root[data-theme="glass"] :is(.modal-backdrop, .doc-viewer, .panel-float, .bubble, .notice-top, .notice-item) {
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+}

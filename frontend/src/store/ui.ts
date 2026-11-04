@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import type { ConsistencyResult, InspirationResult } from '../types';
+import type { ConsistencyResult, InspirationResult, InterfaceTheme } from '../types';
 
 interface Toast { id: number; text: string; kind?: 'info' | 'error' | 'ai' }
 interface UiState {
+  themePreview: InterfaceTheme | null;
   consistency: ConsistencyResult | null; consistencyBusy: boolean;
   inspiration: InspirationResult | null; inspirationBusy: boolean;
   composerInsert: { text: string; nonce: number } | null;
@@ -18,7 +19,7 @@ interface UiState {
   reset: () => void;
 }
 export const useUi = create<UiState>((set) => ({
-  consistency: null, consistencyBusy: false, inspiration: null, inspirationBusy: false, composerInsert: null, toasts: [], aiActivity: null, evidenceEventIds: null,
+  themePreview: null, consistency: null, consistencyBusy: false, inspiration: null, inspirationBusy: false, composerInsert: null, toasts: [], aiActivity: null, evidenceEventIds: null,
   setConsistency: (r) => set({ consistency: r }), setConsistencyBusy: (b) => set({ consistencyBusy: b }),
   setInspiration: (r) => set({ inspiration: r }), setInspirationBusy: (b) => set({ inspirationBusy: b }),
   insertIntoComposer: (text) => set({ composerInsert: { text, nonce: Date.now() } }),
@@ -26,5 +27,5 @@ export const useUi = create<UiState>((set) => ({
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setAiActivity: (s) => set({ aiActivity: s }),
   showEvidence: (ids) => set({ evidenceEventIds: ids }),
-  reset: () => set({ consistency: null, consistencyBusy: false, inspiration: null, inspirationBusy: false, composerInsert: null, aiActivity: null, evidenceEventIds: null }),
+  reset: () => set({ themePreview: null, consistency: null, consistencyBusy: false, inspiration: null, inspirationBusy: false, composerInsert: null, aiActivity: null, evidenceEventIds: null }),
 }));

@@ -73,7 +73,7 @@ export const api = {
   atmosphere: (ch: string) => get<{ enabled: boolean; id?: string; mock?: boolean; assets?: Record<string,string>; hashes?: Record<string,string> }>(`/api/channels/${ch}/atmosphere`),
   atmosphereHistory: (ch: string) => get<{ id: string; scene_label: string; reason: string; created_at: string; prompts: Record<string,string>; variants: { variant: string; status: string; error?: string }[] }[]>(`/api/channels/${ch}/atmosphere/history`),
   atmosphereImage: (ch: string, id: string) => `${apiBase()}/api/channels/${ch}/atmosphere/assets/${id}?token=${encodeURIComponent(fileToken())}`,
-  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
+  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'ui_theme' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
   avatarUrl: (id: string, version: number) => `${apiBase()}/api/users/${encodeURIComponent(id)}/avatar?v=${version}&token=${encodeURIComponent(fileToken())}`,
   // The signed-in user's avatar: an inline data URI from older servers, otherwise the avatar route (which may redirect
   // to the public media bucket).
