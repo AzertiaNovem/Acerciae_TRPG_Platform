@@ -1,3 +1,5 @@
+import { isDesktop } from '../lib/platform';
+import DesktopAccountPicker from './DesktopAccountPicker';
 import { t as tr } from '../i18n';
 import { activate } from '../lib/a11y';
 import { useEscape } from '../hooks/useEscape';
@@ -157,7 +159,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
       </div>
       <div className="sidebar-footer">
         <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{user && api.ownAvatarUrl(user) ? <CachedImg src={api.ownAvatarUrl(user)} hash={user.avatar_data ? null : user.avatar_hash} alt="" fallback={user.display_name.slice(0, 2).toUpperCase()} /> : user?.display_name.slice(0, 2).toUpperCase()}</div>
-        <div className="grow small"><div>{user?.display_name}</div><div className="tiny muted">@{user?.username}</div></div>
+        {isDesktop ? <DesktopAccountPicker signedIn /> : <div className="grow small"><div>{user?.display_name}</div><div className="tiny muted">@{user?.username}</div></div>}
         <button className="ghost small" title={tr("User settings")} aria-label={tr("User settings")} onClick={() => setUserSettingsOpen(true)}>⚙</button>
         <button className="ghost small" onClick={logout}>{tr("Sign out")}</button>
       </div>

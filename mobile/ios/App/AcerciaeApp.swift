@@ -3,7 +3,13 @@ import AVFoundation
 import AcerciaeCore
 
 @main struct AcerciaeApp: App {
-    var body: some Scene { WindowGroup { RootView().preferredColorScheme(.dark) } }
+    @State private var accountGeneration = UUID()
+    var body: some Scene {
+        WindowGroup {
+            RootView(onAccountChanged: { accountGeneration = UUID() })
+                .id(accountGeneration).preferredColorScheme(.dark)
+        }
+    }
 }
 
 @MainActor final class AppModel: ObservableObject {
@@ -23,6 +29,11 @@ import AcerciaeCore
     @Published var connection = "尚未检查"
     @Published var checking = false
     @Published var notice: String?
+    private let onAccountChanged: () -> Void
+    private static var parkedDrafts: [String: [String: String]] = [:]
+    @Published var accountUsers: [User] = []
+    private let sessionStore: SessionStore
+    private var retired = false
     @Published var session: Session?
     @Published var servers: [Resource] = []
     @Published var channels: [Resource] = []
@@ -62,11 +73,15 @@ import AcerciaeCore
     var serverName: String { servers.first { $0.id == serverId }?.name ?? tr("服务器") }
     var windowName: String { windows.first { $0.id == windowId }?.name ?? tr("聊天") }
     func enabled(_ feature: String) -> Bool { !online || FeatureAccess.enabled(feature, server: serverSettings, channel: channel) }
-    init(client injectedClient: BackendClient? = nil, session injectedSession: Session? = nil) {
+    init(client injectedClient: BackendClient? = nil, session injectedSession: Session? = nil, sessionStore: SessionStore = SessionStore(), onAccountChanged: @escaping () -> Void = {}) {
+        self.onAccountChanged = onAccountChanged
+        self.sessionStore = sessionStore
         if let client = injectedClient, let session = injectedSession { self.client = client; self.session = session; return }
         do {
-            if let saved = try SessionStore.read() {
-                guard ServiceConfiguration.acceptsSavedEndpoint(saved.endpoint) else { try SessionStore.clear(); return }
+            let roster = try sessionStore.roster()
+            accountUsers = roster.accounts.map { $0.session.user }
+            if let saved = roster.accounts.first(where: { $0.session.user.id == roster.active }) {
+                drafts = Self.parkedDrafts[saved.session.user.id] ?? [:]
                 client = try makeClient().withAssets(assets(for: saved.session.user), reads: reads(for: saved.session.user)); session = saved.session; campaign = nil
                 if let code = saved.session.user.uiLanguage { MobileLocale.shared.set(code) }
                 connection = "正在恢复登录…"
@@ -96,7 +111,7 @@ import AcerciaeCore
             else { auth = try await api.login(username: username, password: password) }
             epoch = UUID(); client = api.withAssets(assets(for: auth.user), reads: reads(for: auth.user)); session = auth; draft = ""; drafts = [:]
             if let code = auth.user.uiLanguage { MobileLocale.shared.set(code) }
-            do { try SessionStore.save(SavedLogin(endpoint: endpoint, session: auth)) }
+            do { try sessionStore.save(SavedLogin(endpoint: endpoint, session: auth)); accountUsers = try sessionStore.roster().accounts.map { $0.session.user } }
             catch { notice = tr("登录成功，但设备未能安全保存登录状态") }
             catalogUpdated = .distantPast
             campaign = nil; clearChannel(); servers = []; channels = []
@@ -117,7 +132,7 @@ import AcerciaeCore
             guard self.session?.token == auth.token else { return }
             let updated = Session(token: auth.token, user: user)
             self.session = updated; MobileLocale.shared.set(user.uiLanguage ?? code)
-            try SessionStore.save(SavedLogin(endpoint: self.endpoint, session: updated))
+            try self.sessionStore.save(SavedLogin(endpoint: self.endpoint, session: updated))
         }
     }
     func changeAtmosphere(_ enabled: Bool) async {
@@ -127,17 +142,42 @@ import AcerciaeCore
             guard self.session?.token == auth.token else { return }
             let updated = Session(token: auth.token, user: user)
             self.session = updated
-            try SessionStore.save(SavedLogin(endpoint: self.endpoint, session: updated))
+            try self.sessionStore.save(SavedLogin(endpoint: self.endpoint, session: updated))
         }
     }
+    func selectAccount(_ id: String?) {
+        guard !busy, !retired, id != session?.user.id else { return }
+        do { try sessionStore.select(id) }
+        catch { notice = tr("无法读取已保存的登录，请重新登录"); return }
+        if let user = session?.user {
+            if !windowId.isEmpty { drafts[windowId] = draft }
+            Self.parkedDrafts[user.id] = drafts
+        }
+        retired = true
+        epoch = UUID()
+        navigationTask?.cancel()
+        foreground = false
+        speech.stopSpeaking(at: .immediate)
+        client = nil
+        session = nil
+        AvatarCache.images.removeAllObjects()
+        ArtworkImages.clear()
+        onAccountChanged()
+    }
     func logout() {
+        guard !retired, let id = session?.user.id else { return }
         let api = client; let token = session?.token
-        do { try SessionStore.clear() } catch { notice = tr("设备未能清除登录记录，请保持联网完成退出") }
+        do { try sessionStore.remove(id) }
+        catch { notice = tr("设备未能清除登录记录，请保持联网完成退出"); return }
+        accountUsers.removeAll { $0.id == id }
+        Self.parkedDrafts.removeValue(forKey: id)
         catalogUpdated = .distantPast
         epoch = UUID(); session = nil; client = nil; servers = []; channels = []; serverId = ""; serverSettings = .null
         api?.assets?.invalidate(); api?.reads?.invalidate(); navigationTask?.cancel(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects()
         clearChannel(); drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
+        retired = true
+        onAccountChanged()
     }
     private func clearChannel() {
         stopArtworkPrefetch(reset: true)
@@ -374,7 +414,7 @@ import AcerciaeCore
         guard stamp == epoch else { return }
         if let auth = session, profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.hasAvatar != auth.user.hasAvatar || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled {
             session = Session(token: auth.token, user: profile); if let code = profile.uiLanguage { MobileLocale.shared.set(code) }
-            try? SessionStore.save(SavedLogin(endpoint: endpoint, session: session!))
+            try? sessionStore.save(SavedLogin(endpoint: endpoint, session: session!))
         }
         servers = fetched
         if !fetched.contains(where: { $0.id == serverId }) {
@@ -530,7 +570,7 @@ import AcerciaeCore
         do { try await work() } catch { handle(error) }
     }
     func handle(_ error: Error, silent: Bool = false) {
-        if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+        if retired || error is CancellationError || (error as? URLError)?.code == .cancelled { return }
         if case ClientError.http(401) = error { logout(); notice = tr("登录已过期，请重新登录"); return }
         if silent, let e = error as? ClientError, [403, 404].contains(e.httpStatus ?? 0) { purgeCachedAccess(); epoch = UUID(); clearChannel(); catalogUpdated = .distantPast }
         if case ClientError.gateway(let status) = error { connection = tr("服务入口暂时不可用，请稍后重试") + " (HTTP \(status))" }

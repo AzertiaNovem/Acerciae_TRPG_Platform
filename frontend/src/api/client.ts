@@ -1,18 +1,41 @@
 import type { Pack as PbtaPack, Rules as PbtaRules, DraftReview } from '../components/pbta/types';
 import type * as T from '../types';
-import { apiBase, isDesktop } from '../lib/platform';
+import { createAccountDirectory } from '../lib/desktopAccounts';
+import { apiBase, isDesktop, setServerUrl } from '../lib/platform';
 import { createTokenStore, tauriKeychain } from '../lib/tokenStore';
 
 // The session token: local storage on the web, the system keychain in the desktop app (read before the app renders).
 const tokenStore = createTokenStore(isDesktop, tauriKeychain);
+export const desktopAccounts = isDesktop ? createAccountDirectory(localStorage, tauriKeychain) : null;
 let token: string | null = tokenStore.initial();
 let tokenTouched = false;
 export async function restoreToken() {
+  if (desktopAccounts?.read()) {
+    const account = await desktopAccounts.restore();
+    if (account && !tokenTouched) {
+      setServerUrl(account.server);
+      if (apiBase() === account.server) token = account.token;
+    }
+    return;
+  }
   const saved = await tokenStore.load();
   if (!tokenTouched) token = saved;
 }
 
-export function setToken(t: string | null) { tokenTouched = true; token = t; fileTok = null; void tokenStore.save(t); }
+export function setToken(t: string | null) { tokenTouched = true; token = t; fileTok = null; if (!isDesktop) void tokenStore.save(t); }
+export async function rememberDesktopAccount(user: T.User, credential: string) {
+  if (!desktopAccounts) return;
+  const migrating = !desktopAccounts.read();
+  await desktopAccounts.remember(apiBase(), user, credential);
+  if (migrating) await tokenStore.save(null);
+}
+export async function forgetActiveCredential() {
+  if (desktopAccounts) {
+    await desktopAccounts.removeActive();
+    await tokenStore.save(null);
+  }
+  setToken(null);
+}
 export function getToken() { return token; }
 
 // URLs a browser loads by itself (images, audio, downloads, the WebSocket) carry a short-lived file token, never the

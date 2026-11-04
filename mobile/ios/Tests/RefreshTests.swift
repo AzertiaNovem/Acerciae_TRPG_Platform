@@ -16,6 +16,39 @@ import AcerciaeCore
         RefreshProtocol.reset()
         return model
     }
+    func testAccountRosterMigratesSwitchesAndSignsOutIndependently() throws {
+        let store = SessionStore(service: "app.acerciae.tests." + UUID().uuidString)
+        func login(_ id: String) throws -> SavedLogin {
+            let data = try JSONSerialization.data(withJSONObject: ["token": "fixture-" + id, "user": ["id": id, "username": id, "display_name": id]])
+            return SavedLogin(endpoint: ServiceConfiguration.backendRoot, session: try APIJSON.decoder().decode(Session.self, from: data))
+        }
+        let a = try login("first"), b = try login("second")
+        let legacy = try SavedAccounts.decode(JSONEncoder().encode(a))
+        XCTAssertEqual(legacy.active, "first")
+        XCTAssertEqual(legacy.accounts.first?.session.token, "fixture-first")
+        defer { try? store.remove("first"); try? store.remove("second") }
+        try store.save(a)
+        try store.select(nil)
+        XCTAssertNil(try store.roster().active)
+        XCTAssertEqual(try store.roster().accounts.count, 1)
+        try store.save(b)
+        try store.select("first")
+        let first = AppModel(sessionStore: store)
+        XCTAssertEqual(first.session?.token, a.session.token)
+        first.windowId = "window"
+        first.draft = "private draft"
+        first.selectAccount("second")
+        let second = AppModel(sessionStore: store)
+        XCTAssertEqual(second.session?.token, b.session.token)
+        XCTAssertEqual(second.draft, "")
+        first.handle(ClientError.http(401))
+        XCTAssertEqual(try store.roster().active, "second")
+        try store.remove("second")
+        try store.select("first")
+        XCTAssertEqual(AppModel(sessionStore: store).session?.token, a.session.token)
+        XCTAssertEqual(try store.roster().accounts.count, 1)
+    }
+
     func testArtworkPrefetchDoesNotBlockChatAndStopsWhenBackgrounded() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -31,7 +64,7 @@ import AcerciaeCore
         model.draft = "Still typing while images download"
         let deadline = Date().addingTimeInterval(2)
         while !RefreshProtocol.paths.contains(where: { $0.contains("/media/") }) && Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
-        XCTAssertTrue(RefreshProtocol.paths.contains("/api/channels/channel/media/avatar?v=7"))
+        XCTAssertTrue(RefreshProtocol.paths.contains("/api/channels/channel/media/avatar?v=7"), RefreshProtocol.paths.joined(separator: ", "))
         model.foreground = false
         try await Task.sleep(for: .milliseconds(1100))
         XCTAssertFalse(RefreshProtocol.paths.contains(where: { $0.hasSuffix("/space") }))
@@ -42,7 +75,7 @@ import AcerciaeCore
         let resumed = Date().addingTimeInterval(2)
         let cache = AssetDiskCache(directory: directory)
         while cache.get("sha:portrait-hash") == nil && Date() < resumed { try await Task.sleep(for: .milliseconds(5)) }
-        XCTAssertNotNil(cache.get("sha:portrait-hash"))
+        XCTAssertNotNil(cache.get("sha:portrait-hash"), RefreshProtocol.paths.joined(separator: ", "))
         XCTAssertEqual(RefreshProtocol.paths.filter { $0.contains("/media/avatar") }.count, 1)
         model.foreground = false
     }

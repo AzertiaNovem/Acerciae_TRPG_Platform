@@ -20362,5 +20362,29 @@
     "Требуется выбор игрока",
     "Requer uma escolha do jogador",
     "Richiede una scelta del giocatore"
+  ],
+  "Switch account": [
+    "切换账户",
+    "切換帳戶",
+    "アカウントを切り替え",
+    "계정 전환",
+    "Cambiar de cuenta",
+    "Changer de compte",
+    "Konto wechseln",
+    "Сменить аккаунт",
+    "Trocar de conta",
+    "Cambia account"
+  ],
+  "Add account": [
+    "添加账户",
+    "新增帳戶",
+    "アカウントを追加",
+    "계정 추가",
+    "Añadir cuenta",
+    "Ajouter un compte",
+    "Konto hinzufügen",
+    "Добавить аккаунт",
+    "Adicionar conta",
+    "Aggiungi account"
   ]
 }

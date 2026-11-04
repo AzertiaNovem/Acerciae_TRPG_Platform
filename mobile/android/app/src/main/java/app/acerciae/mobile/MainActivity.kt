@@ -51,14 +51,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink,
                 surface = Ink, surfaceContainer = Panel, secondary = Color(0xFFD6C59D))) {
-                AcerciaeApp()
+                var generation by remember { mutableIntStateOf(0) }
+                key(generation) {
+                    val model: AppViewModel = viewModel()
+                    SideEffect { model.restartAccount = { viewModelStore.clear(); generation++ } }
+                    AcerciaeApp(model)
+                }
             }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun AcerciaeApp(model: AppViewModel = viewModel()) {
+@Composable private fun AcerciaeApp(model: AppViewModel) {
     var studioOpen by rememberSaveable { mutableStateOf(false) }
     if(studioOpen) { LocalStudioScreen({studioOpen=false}); return }
     val state by model.state.collectAsStateWithLifecycle()
@@ -183,6 +188,7 @@ class MainActivity : ComponentActivity() {
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state.online) {
+                item { AccountMenu(state, model) }
                 item {
                     var expanded by remember { mutableStateOf(false) }
                     TextButton(onClick = { expanded = true }) { Text(state.serverName) }
@@ -388,6 +394,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     val scope = rememberCoroutineScope()
     LazyColumn(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { ProfileAvatar(state.user?.displayName.orEmpty(), state, model, ownerId = state.user?.id.orEmpty(), ownerVersion = state.user?.avatarVersion ?: 0, size = 48.dp); Text(state.user?.displayName.orEmpty(), style = MaterialTheme.typography.titleLarge) }; Text(state.user?.username.orEmpty()) }
+        item { AccountMenu(state, model) }
         item { Button(onClick = model::logout, enabled = !state.busy) { Text(tr("退出登录")) } }
         item { LanguagePicker(state, model); Text(tr("This changes your interface only. Server AI output language stays unchanged."), style = MaterialTheme.typography.bodySmall) }
         item { Row(verticalAlignment = Alignment.CenterVertically) { Text(tr("Show channel atmosphere backgrounds"), Modifier.weight(1f)); Switch(state.user?.atmosphereEnabled == true, model::changeAtmosphere, enabled = !state.busy) }; Text(tr("Backgrounds follow the app theme and screen orientation. The server must also enable this feature."), style = MaterialTheme.typography.bodySmall) }
@@ -410,6 +417,12 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     val valid = cleanUsername.isNotEmpty() && password.isNotEmpty() && (!registering || (Regex("^[a-zA-Z0-9_.-]{3,32}$").matches(cleanUsername) && password.length >= 6 && password == confirmation))
     LazyColumn(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Text("Acerciae", style = MaterialTheme.typography.headlineLarge); Text(if (registering) tr("创建账号，加入你的跑团") else tr("登录账号，继续你的故事")) }
+        if (state.accountUsers.isNotEmpty()) item {
+            Text(tr("Switch account"), style = MaterialTheme.typography.titleMedium)
+            state.accountUsers.forEach { user ->
+                TextButton(onClick = { model.selectAccount(user.id) }, enabled = !state.busy) { Text("${user.displayName} · @${user.username}") }
+            }
+        }
         item { LanguagePicker(state, model) }
         item { Text(if (registering) tr("注册账号") else tr("登录"), style = MaterialTheme.typography.titleLarge) }
         item { OutlinedTextField(username, { username = it }, label = { Text(tr("用户名")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !state.busy) }
@@ -424,5 +437,21 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         item { TextButton(onClick = { registering = !registering; password = ""; confirmation = ""; model.notice(null) }, enabled = !state.busy) { Text(if (registering) tr("已有账号？返回登录") else tr("还没有账号？注册")) } }
         item { TextButton(onClick = openStudio) { Text(tr("Open Log Studio (offline, no account) →")) } }
         item { Text(tr("登录状态安全保存在此设备，退出登录后清除。"), style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable private fun AccountMenu(state: AppState, model: AppViewModel) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { open = true }, enabled = !state.busy) { Text(tr("Switch account") + " · " + state.user?.displayName.orEmpty()) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            state.accountUsers.forEach { user ->
+                val active = user.id == state.user?.id
+                DropdownMenuItem(text = { Text((if (active) "✓ " else "") + "${user.displayName} · @${user.username}") }, enabled = !active,
+                    onClick = { open = false; model.selectAccount(user.id) })
+            }
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text(tr("Add account")) }, onClick = { open = false; model.selectAccount(null) })
+        }
     }
 }
