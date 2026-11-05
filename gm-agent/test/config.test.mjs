@@ -94,3 +94,20 @@ test("the GM's calendar pace: defaults, the calendar section, flags, and 0 for n
   assert.deepEqual([flags.calendarMinMinutes, flags.calendarMinLines, flags.calendarMaxDays], [0, 0, 0]);
   assert.equal(buildConfig({}, {}, file({ calendar: { min_minutes: -5 } })).calendarMinMinutes, 0);
 });
+
+test("the rule system of a new channel and the level of new D&D co-players", () => {
+  assert.equal(buildConfig({}, {}, file({})).ruleSystem, "coc7e"); assert.equal(buildConfig({}, {}, file({})).level, 1);
+  assert.equal(buildConfig({}, {}, file({ channel: { rule_system: "dnd2024" }, table: { level: 5 } })).ruleSystem, "dnd2024");
+  assert.equal(buildConfig({ rules: "dnd2024", level: "30" }, {}, file({})).level, 20, "clamped to 1–20");
+  assert.throws(() => buildConfig({ rules: "dnd5e" }, {}, file({})), /must be coc7e, dnd2024 or pbta/);
+});
+
+test("PbtA rules and the existing channel.rules configuration remain supported", () => {
+  for (const key of ["rules", "rule_system"]) {
+    const cfg = buildConfig({}, {}, file({ channel: { [key]: "pbta" } }));
+    assert.equal(cfg.ruleSystem, "pbta");
+    assert.deepEqual(cfg.warnings, []);
+    assert.equal(buildConfig({ rules: "dnd2024" }, {}, file({ channel: { [key]: "pbta" } })).ruleSystem, "dnd2024");
+  }
+  assert.equal(buildConfig({}, {}, file({ channel: { rules: "pbta", rule_system: "dnd2024" } })).ruleSystem, "dnd2024");
+});

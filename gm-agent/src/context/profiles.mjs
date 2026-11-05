@@ -13,10 +13,13 @@ const PROFILE_MAX = 2000;
 const clip = (s, n) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const label = (k) => (k === "sex" ? "gender" : k.replace(/_/g, " "));
 
-// The profile lines under a character's name: empty fields are left out, so a blank card gives no lines.
-export function investigatorProfile(character) {
+// The profile lines under a character's name: empty fields are left out, so a blank card gives no lines. `profile`
+// (rules/*.mjs) adds the build line of a D&D card ("build: level 3 Elf Rogue (Criminal)"), never its numbers.
+export function investigatorProfile(character, profile = null) {
   const card = character?.role_card && typeof character.role_card === "object" ? character.role_card : {};
   const lines = [];
+  const build = profile?.castNote?.(card);
+  if (build) lines.push(`build: ${build}`);
   const basic = BASIC.map((k) => [k, clip(card.basic?.[k], FIELD_MAX)]).filter(([, v]) => v);
   if (basic.length) lines.push(basic.map(([k, v]) => `${label(k)}: ${v}`).join("; "));
   const notable = distinctiveTraits(card);
@@ -29,8 +32,8 @@ export function investigatorProfile(character) {
 }
 
 // Renders a list entry: "- Name (note)" followed by its indented profile lines.
-export function renderProfile(character, note = "") {
-  return [`- ${character.name}${note ? ` (${note})` : ""}`, ...investigatorProfile(character).map((l) => `    ${l}`)].join("\n");
+export function renderProfile(character, note = "", profile = null) {
+  return [`- ${character.name}${note ? ` (${note})` : ""}`, ...investigatorProfile(character, profile).map((l) => `    ${l}`)].join("\n");
 }
 
 // The investigators at the table: player characters first, then co-players; never real NPCs.

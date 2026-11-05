@@ -63,8 +63,8 @@ export const dueAt = (now, minutes, max) => now + Math.round(Math.max(0, Math.mi
 
 // A co-player answers a text in character (or leaves it on read). It is given its own card and memories (in `self`,
 // stable-first) and the thread with this person only.
-export async function coplayerPhoneReply(llm, { language, self, name, from, thread, maxDelay }) {
-  const system = `You play ${name}, an investigator in a tabletop roleplaying game, and you are reading your phone. Text messages are part of this casual game, even when the setting has no phones: treat them as natural. Reply in character, as a text message would read: short, in your own voice, true to what you know. You may wait before answering, as people do, or leave it unanswered if that is what ${name} would do. Write in ${language}.
+export async function coplayerPhoneReply(llm, { language, self, name, from, thread, maxDelay, pc = "investigator" }) {
+  const system = `You play ${name}, an ${pc} in a tabletop roleplaying game, and you are reading your phone. Text messages are part of this casual game, even when the setting has no phones: treat them as natural. Reply in character, as a text message would read: short, in your own voice, true to what you know. You may wait before answering, as people do, or leave it unanswered if that is what ${name} would do. Write in ${language}.
 Reply with only one JSON object: {"reply": "<your text message>" | null, "delay_minutes": <0-${maxDelay}: when you would answer>}`;
   const user = [
     { text: `${self}\n\n`, cache: true },

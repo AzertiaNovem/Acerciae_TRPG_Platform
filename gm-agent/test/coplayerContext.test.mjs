@@ -54,3 +54,10 @@ test("a seat has a start and an end: a co-player hears a window only while it si
 test("a line can carry its timeline for the Keeper", () => {
   assert.match(renderLine(line({ content: "We found a badge." }), { timeline: "The docks" }), /Alice \[timeline: The docks\]: We found a badge\./);
 });
+
+test("renderLine labels the GM account's lines with the rule system's title", () => {
+  const m = line({ content: "The door creaks.", kind: "narration", author_role: "gm", character_name: null, visibility: "gm_only" });
+  assert.match(renderLine(m, { markVisibility: true }), /Keeper \(narration\) \[Keeper only\]: The door creaks\./);
+  assert.match(renderLine(m, { markVisibility: true, gm: "Dungeon Master" }), /Dungeon Master \(narration\) \[Dungeon Master only\]: The door creaks\./);
+  assert.match(renderLine(line({ content: "ok", author_role: "gm", character_name: null }), { gm: "Dungeon Master" }), /Dungeon Master: ok/);
+});
