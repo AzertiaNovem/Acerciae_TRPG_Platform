@@ -349,13 +349,15 @@ private struct MessageBubble: View {
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
                 Text(name + (mine ? " · " + tr("Me") : "") + (message.kind == "narration" ? " · " + tr("Narration") : message.kind == "ooc" ? " · OOC" : ""))
                     .font(.caption).foregroundStyle(.secondary)
-                ForEach(message.referenceIds ?? [], id: \.self) { id in
-                    ChatReferenceView(messageId: id, model: model)
-                        .id("\(model.session?.user.id ?? ""):\(model.scopeKey):\(model.windowId):\(id)")
-                }
-                if message.dice != nil { DiceResultView(message: message) } else {
-                Text(message.displayText)
-                    .textSelection(.enabled)
+                if message.dice != nil && (message.referenceIds ?? []).isEmpty { DiceResultView(message: message) } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(message.referenceIds ?? [], id: \.self) { id in
+                            ChatReferenceView(messageId: id, model: model)
+                                .id("\(model.session?.user.id ?? ""):\(model.scopeKey):\(model.windowId):\(id)")
+                        }
+                        if message.dice != nil { DiceResultView(message: message) }
+                        else { Text(message.displayText).textSelection(.enabled) }
+                    }
                     .padding(14)
                     .background(mine ? Color(red: 0.21, green: 0.26, blue: 0.22) : panelColor,
                         in: UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: mine ? 18 : 5,
@@ -381,22 +383,20 @@ private struct ChatReferenceView: View {
         unavailable ? nil : original ?? model.campaign?.messages.first { $0.id == messageId }
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 3) {
             if let message {
                 Text((message.kind == "ooc" ? nil : message.characterName) ?? message.authorName)
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(message.content).font(.callout).textSelection(.enabled)
-                if let dice = message.dice?["text"].string, !dice.isEmpty, dice != message.content {
-                    Text(dice).font(.callout).textSelection(.enabled)
-                }
+                    .font(.caption2).lineLimit(1)
+                Text(message.displayText).font(.caption).lineLimit(2).textSelection(.enabled)
             } else {
                 Text(tr(unavailable ? "Reference unavailable for your current view." : "Loading…"))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10).background(panelColor, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(accent).frame(width: 3) }
+        .padding(.leading, 8)
+        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1).fill(accent.opacity(0.5)).frame(width: 2) }
         .task {
             let scope = model.scopeKey; let user = model.session?.user.id
             do {

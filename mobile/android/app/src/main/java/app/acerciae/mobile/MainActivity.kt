@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -309,14 +310,16 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
             Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
             Spacer(Modifier.height(6.dp))
-            message.referenceIds.orEmpty().distinct().forEach { id ->
-                key(state.user?.id, state.scopeKey, state.windowId, id) { ChatReference(id, state, model) }
-                Spacer(Modifier.height(6.dp))
-            }
-            if (message.dice != null) DiceResult(message) else Surface(shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
+            if (message.dice != null && message.referenceIds.isNullOrEmpty()) DiceResult(message) else Surface(shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
                 bottomEnd = if (mine) 5.dp else 18.dp, bottomStart = if (mine) 18.dp else 5.dp),
                 color = if (mine) Color(0xFF354337) else Panel) {
-                Text(message.displayText, Modifier.padding(14.dp), style = MaterialTheme.typography.bodyLarge)
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    message.referenceIds.orEmpty().distinct().forEach { id ->
+                        key(state.user?.id, state.scopeKey, state.windowId, id) { ChatReference(id, state, model) }
+                    }
+                    if (message.dice != null) DiceResult(message)
+                    else Text(message.displayText, style = MaterialTheme.typography.bodyLarge)
+                }
             }
         }
         if (mine) { Spacer(Modifier.width(8.dp)); ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()) }
@@ -342,15 +345,16 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
             unavailable = denied || message == null
         }
     }
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(Panel, RoundedCornerShape(8.dp))) {
-        Box(Modifier.width(3.dp).fillMaxHeight().background(Accent, RoundedCornerShape(2.dp)))
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(Modifier.width(2.dp).fillMaxHeight().background(Accent.copy(alpha = 0.5f), RoundedCornerShape(1.dp)))
+        Column(Modifier.padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             if (message != null) {
                 Text((if (message.kind == "ooc") null else message.characterName) ?: message.authorName,
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SelectionContainer { Text(message.content, style = MaterialTheme.typography.bodyMedium) }
-                message.dice?.text("text")?.takeIf { it.isNotEmpty() && it != message.content }?.let {
-                    SelectionContainer { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                SelectionContainer {
+                    Text(message.displayText, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             } else {
                 Text(tr(if (unavailable) "Reference unavailable for your current view." else "Loading…"),
