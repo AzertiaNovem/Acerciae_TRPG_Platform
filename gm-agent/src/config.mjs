@@ -63,9 +63,9 @@ const get = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o =
 // names map to file keys for the warning.
 const SETTINGS = [
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
-  ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rules"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
+  ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rule_system"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
   ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"],
-  ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
+  ["level", null, "table.level"], ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
   ["llm-provider", null, "llm.provider"], ["llm-api-base", null, "llm.api_base"], ["llm-api-key", "LLM_API_KEY", null], ["llm-model", null, "llm.model"], ["llm-effort", null, "llm.effort"],
   ["llm-max-tokens", null, "llm.max_tokens"], ["llm-fallbacks", null, "llm.fallbacks"], ["llm-timeout-ms", null, "llm.timeout_ms"], ["llm-stream", null, "llm.stream"], ["llm-trace", null, "llm.trace"], ["llm-cache-ttl", null, "llm.cache_ttl"],
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
@@ -78,8 +78,9 @@ const SETTINGS = [
   ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
   ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-side-interval-ms", null, "autonomy.side_interval_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
   ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"], ["away-side-interval-ms", null, "autonomy.away_side_interval_ms"],
-  ["timeline-auto", null, "timelines.auto"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
+  ["timeline-auto", null, "timelines.auto"], ["scene-forks", null, "timelines.scene_forks"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
+  ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
   ["improv", null, "modes.improv"], ["world", null, "modes.world_file"], ["secrets", null, "modes.secrets_file"], ["casual", null, "modes.casual"], ["casual-max-delay-minutes", null, "modes.casual_max_delay_minutes"],
   ["state-dir", "STATE_DIR", null],
 ];
@@ -96,7 +97,7 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
-const SECTIONS = ["account", "channel", "table", "llm", "planner", "pacing", "context", "autonomy", "timelines", "scenarios", "modes"];
+const SECTIONS = ["account", "channel", "table", "llm", "planner", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes"];
 
 const TTL = (v) => (["1h", "5m", "off"].includes(String(v)) ? String(v) : "1h");
 // true/false, or undefined when nothing says (a mode kept in the state file is then left as it is).
@@ -110,12 +111,12 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   for (const [name, key] of Object.entries(LEGACY_ENV)) if (env[name] !== undefined) warnings.push(`${name} is no longer read; set ${key} in gm-agent.yml (or pass --${SETTINGS.find((s) => s[2] === key)?.[0] ?? key})`);
   for (const section of Object.keys(data)) {
     if (!SECTIONS.includes(section)) { warnings.push(`gm-agent.yml: unknown section "${section}"`); continue; }
-    for (const key of Object.keys(data[section] ?? {})) if (!SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
+    for (const key of Object.keys(data[section] ?? {})) if (`${section}.${key}` !== "channel.rules" && !SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
   }
   // flag › environment (allowed names only) › file › default
   const pick = (flag, d) => {
     const [, envName, key] = SETTINGS.find((s) => s[0] === flag) ?? [];
-    const fromFile = key ? get(data, key) : undefined;
+    const fromFile = flag === "rules" ? get(data, "channel.rule_system") ?? get(data, "channel.rules") : key ? get(data, key) : undefined;
     const v = args[flag] ?? (envName ? env[envName] : undefined) ?? (fromFile === null ? undefined : fromFile) ?? d;
     return v;
   };
@@ -173,7 +174,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     register: bool(pick("register"), false),
     // The client never creates a server or channel unless asked (`setup --create`): it keeps one the account is GM of.
     create: bool(pick("create"), false),
-    ruleSystem: str(pick("rules", "coc7e")),
+    ruleSystem: (() => { const v = str(pick("rules", "coc7e")) || "coc7e"; if (!["coc7e", "dnd2024", "pbta"].includes(v)) throw new Error(`--rules (channel.rule_system) must be coc7e, dnd2024 or pbta, not "${v}"`); return v; })(),
     requestedPbta: args.rules === "pbta",
     serverId: str(pick("server", "")),
     channelId: str(pick("channel", "")),
@@ -182,6 +183,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     era: str(pick("era", "")),
     coplayersSpecified: pick("coplayers") != null,
     coplayers: Math.max(0, Math.min(8, int(pick("coplayers", 2), 2))),
+    level: Math.max(1, Math.min(20, int(pick("level", 1), 1))),   // D&D: the level of new co-players
     coplayerWindows: list(pick("coplayer-windows", "")),
     language: str(pick("language", "")),
     llm,
@@ -212,6 +214,11 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     autonomyIdleMinutes: Math.max(1, int(pick("autonomy-idle-minutes", 30), 30)),
     // Proactive timelines: the GM reports where investigators are; the table splits and reunites them.
     timelineAuto: bool(pick("timeline-auto"), true),
+    // Scene forks: after the first split the main story moves to a restricted fork and the Main Chat becomes a public
+    // lobby the Keeper never narrates in (for several players who must not read each other's scenes). Off: the main
+    // story stays in the Main Chat with the players; only those who go elsewhere get a window (a single player is
+    // always in the Main Chat; co-players move around them).
+    sceneForks: bool(pick("scene-forks"), false),
     timelineGuardTurns: Math.max(0, int(pick("timeline-guard-turns", 2), 2)),
     timelineGuardMs: Math.max(0, int(pick("timeline-guard-ms", 180000), 180000)),
     timelineMaxActive: Math.max(1, int(pick("timeline-max-active", 4), 4)),
@@ -221,6 +228,12 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     scenarioAuto: bool(pick("scenario-auto"), true),
     scenarioMinMinutes: Math.max(0, int(pick("scenario-min-minutes", 20), 20)),
     scenarioMinLines: Math.max(0, int(pick("scenario-min-lines", 30), 30)),
+    // The GM's pace on the story's calendar (casual games): after the date moves, the GM may move it on again only
+    // after this long and this many player lines, by at most this many days at once (0: no limit). The operator's
+    // `date` and the final review are not held to it.
+    calendarMinMinutes: Math.max(0, int(pick("calendar-min-minutes", 30), 30)),
+    calendarMinLines: Math.max(0, int(pick("calendar-min-lines", 30), 30)),
+    calendarMaxDays: Math.max(0, int(pick("calendar-max-days", 2), 2)),
     // Improvisation and casual modes are kept in the state file; these only change them when given (`setup`, `world`,
     // `casual`).
     improv: tri(pick("improv")),

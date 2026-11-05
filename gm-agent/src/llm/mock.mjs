@@ -37,6 +37,7 @@ export class MockLlm {
       case "movement_evidence": return JSON.stringify(this.movements(JSON.parse(messages[0].content)));
       case "scene_presence": return JSON.stringify(this.presence(JSON.parse(messages[0].content)));
       case "scene_handoff": return JSON.stringify(this.handoff(JSON.parse(messages[0].content)));
+      case "coplayer_build": return JSON.stringify({ dnd: this.dndBuild() });
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
       case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
@@ -46,11 +47,34 @@ export class MockLlm {
     }
   }
 
+  // A legal D&D 2024 build (27 points): a level-1 Elf Rogue with the Criminal background.
+  dndBuild() {
+    return {
+      class: "Rogue", subclass: "", species: "Elf", background: "Criminal", method: "point_buy",
+      base: { STR: 8, DEX: 15, CON: 14, INT: 12, WIS: 13, CHA: 10 }, increases: { DEX: 2, CON: 1 },
+      skills: { "Sleight of Hand": 2, Stealth: 2, Acrobatics: 1, Deception: 1, Insight: 1, Perception: 1, Survival: 1 },
+      features: "[mock] Expertise, Sneak Attack 1d6, Thieves' Cant; Darkvision, Fey Ancestry, Keen Senses", spells: "",
+    };
+  }
+
   card(user, kind) {
     const taken = field(user, "TAKEN NAMES").split(",").map((s) => s.trim());
     const i = Math.max(0, this.calls.filter((c) => c.purpose === `${kind}_card`).length - 1);
     const name = field(user, "NPC NAME") || NAMES.find((n) => !taken.includes(n)) || `Investigator ${i + 1}`;
     const n = (base) => base + ((i * 7) % 20);
+    if (/^DND BUILD RULES/m.test(user)) {
+      return {
+        name, persona: `[mock] ${name} is quick, wry and loyal to the party.`, speaking_style: "plain, quick, short sentences",
+        appearance_prompt: "[mock] Slender elf in a dark leather jerkin, braided black hair, a hooded cloak, daggers at the belt.",
+        role_card: {
+          basic: { player: kind === "npc" ? "NPC" : "AI co-player", occupation: "Rogue", age: String(24 + i * 3), sex: i % 2 ? "male" : "female", residence: "the harbour quarter", birthplace: "the hill villages" },
+          background: { personal_description: "[mock] slender, quick hands", ideology: "[mock] freedom over law", significant_people: "[mock] a sister in the thieves' guild", meaningful_locations: "[mock] the old mill", treasured_possessions: "[mock] a lockpick set", traits: "[mock] reckless, loyal", injuries: "None", phobias: "None", arcane: "None", encounters: "None" },
+          items: [{ name: "Leather armour", note: "AC 11 + DEX", qty: 1 }, { name: "Dagger", note: "", qty: 2 }, { name: "Thieves' tools", note: "", qty: 1 }],
+          wealth: { cash: "15 gp", assets: "a room above the tavern", spending_level: "modest" },
+          dnd: { ...this.dndBuild(), ac: 14 },
+        },
+      };
+    }
     const catalog = JSON.parse(field(user, 'CAREERS') || '[]');
     const career = (catalog.find((c) => c.name === '会计师') ?? catalog[0])?.name;
     return {

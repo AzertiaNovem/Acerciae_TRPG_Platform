@@ -28,7 +28,8 @@ import { Store, storePath, billableTokens } from "./store.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
-import { describeCalendar, renderCalendar } from "./calendar.mjs";
+import { RULE_SYSTEMS, rulesProfile, ruleSystemOf } from "./rules/index.mjs";
+import { calendarPace, describeCalendar, renderCalendar } from "./calendar.mjs";
 import { Guard } from "./whereabouts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -56,7 +57,7 @@ async function resolveChannel(api, cfg, { create }) {
     if (ch.my_role !== "gm") throw new Error(`${cfg.username} is not the GM of channel ${cfg.channelId}; add it as GM first`);
     if (cfg.requestedPbta && ch.rule_system !== "pbta")
       throw Error("Select PbtA under GM workspace → Settings before starting PbtA in this channel.");
-    if (ch.rule_system && !["coc7e","pbta"].includes(ch.rule_system)) throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent supports CoC 7e and PbtA`);
+    if (ch.rule_system && !RULE_SYSTEMS.includes(ch.rule_system)) throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent supports CoC 7e, D&D 2024 and PbtA`);
     return { channel: ch, created: false };
   }
   if (!create) throw new Error("set CHANNEL_ID (or --channel); `setup` lists the channels this account keeps");
@@ -68,7 +69,7 @@ async function resolveChannel(api, cfg, { create }) {
     if (!picked) throw new Error("no channel chosen");
     return resolveChannel(api, { ...cfg, channelId: picked.id }, { create });
   }
-  if (!["coc7e","pbta"].includes(cfg.ruleSystem)) throw Error("Choose --rules coc7e or pbta");
+  if (!RULE_SYSTEMS.includes(cfg.ruleSystem)) throw Error(`Choose --rules ${RULE_SYSTEMS.join(", ")}`);
   let serverId = cfg.serverId;
   if (!serverId) { serverId = (await api.createServer(cfg.serverName)).id; log(`created server "${cfg.serverName}"`); }
   // Casual mode's phones are private only when each player is in a group of their own.
@@ -156,7 +157,9 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     const language = languageName(cfg.language || settings?.language || "en");
     // Point buy is the channel's own option (its GM's); servers before that had a server feature.
     const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
-    let rules = pbta ? await api.pbtaRules(channel.id) : await api.coc7Rules();
+    const profile = rulesProfile(ruleSystemOf(channel));
+    let rules = await profile.fetchRules(api, channel.id);
+    log(`rules: ${profile.id}${pointsMode ? ", point buy on" : ""}${profile.id === "dnd2024" ? `; new co-players at level ${cfg.level}` : ""}`);
     const windows = await api.windows(channel.id);
     const seats = seatWindows(cfg, windows);
     delete state.version;
@@ -209,7 +212,7 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
         await prepareActor(api,llm,channel.id,{rules,language,world,existing:current});
         continue;
       }
-      await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, log });
+      await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, profile, level: cfg.level, log });
     }
 
     const missing = coplayers - roster.coplayers.length;
@@ -219,15 +222,15 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
       const characters = await api.characters(channel.id);
       const takenNames = characters.map((c) => c.name);
       const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-      const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: coplayers, world };
+      const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: coplayers, world, profile, level: cfg.level, log };
       let saved;
       if(pbta) {
         const actor=await prepareActor(api,llm,channel.id,args);
         saved={id:actor.id,name:actor.name,persona:actor.bio,speakingStyle:actor.speaking_style};
-      } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"coplayer",rules,llm,language,pointsMode});
+      } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"coplayer",rules,llm,language,pointsMode,profile,level:cfg.level});
       roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
       if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
-      log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${saved.card?.basic?.occupation || (pbta?"PbtA":"investigator")})`);
+      log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${profile.castNote(saved.card) || saved.card?.basic?.occupation || profile.vocab.pc})`);
     }
     if (pbta) state.pbtaSetup.ready = true;
     if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
@@ -264,12 +267,13 @@ async function openTable(cfg, { llm = null, plannerLlm = null, write = true, hea
   return { api, channel, table };
 }
 
-async function run(cfg) {
+export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   // The lock comes first: healing an interrupted split and every save need to be this process's alone.
   const signedIn = await signIn(cfg);
   const { channel: ch } = await resolveChannel(signedIn, cfg, { create: false });
   const release = acquireLock(cfg.stateDir, ch.id);
   if (!release) throw new Error(`another process (pid ${lockHolder(cfg.stateDir, ch.id) ?? "?"}) already keeps this channel`);
+  onLock();
   // Another writer changed the state file under us: continuing would act on a stale table, so stop loudly.
   const onConflict = (e) => { log(`stopping: ${e.message}. Restart \`run\` to continue from the file.`); release(); process.exit(3); };
   let opened;
@@ -277,7 +281,7 @@ async function run(cfg) {
   const sameModel = ["provider", "apiBase", "model", "effort", "apiKey"].every((k) => cfg.planner[k] === cfg.llm[k]);
   const plannerLlm = sameModel ? null : withProgress(createLlm(cfg.planner), log);
   try {
-    if (ch.rule_system === "pbta") await setupChannel(cfg, signedIn, { channel: ch }, true);
+    if (managed || ch.rule_system === "pbta") await setupChannel(cfg, signedIn, { channel: ch }, true);
     opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), plannerLlm, heal: true, channel: { api: signedIn, channel: ch }, onConflict });
   }
   catch (e) { release(); throw e; }
@@ -318,6 +322,13 @@ async function run(cfg) {
     finish();
   };
   const finish = () => { table.store.close(); release(); process.exit(0); };
+  if (managed) return { stop: async () => {
+    table.stopTicker(); fs.unwatchFile(inbox); rt.stop();
+    for (const pending of table.timers.values()) clearTimeout(pending.timer);
+    table.generation.pause();
+    try { await table.queue; await table.memoryIdle(); }
+    finally { table.store.close(); release(); }
+  }};
   process.on("SIGINT", () => { if (!stopping && cfg.planner.finalReview && table.planner.session?.lines >= cfg.planner.finalReviewMinLines) log("stopping: the session's final review runs first (Ctrl-C again to skip it)"); stop(); });
   process.on("SIGTERM", stop);
 }
@@ -390,7 +401,7 @@ async function status(cfg) {
   const wname = (id) => windows.find((w) => w.id === id)?.name ?? id;
   const cname = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   const holder = lockHolder(cfg.stateDir, channel.id);
-  console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
+  console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; rules: ${{ coc7e: "Call of Cthulhu 7e", dnd2024: "D&D 2024 (SRD 5.2): Dungeon Master, D20 Tests, initiative", pbta: "Powered by the Apocalypse" }[table.profile.id]}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
   if (table.splitWarning) console.log(`warning: ${table.splitWarning}`);
   console.log("GM and real NPCs share the Keeper's context: all chat, the Keeper board, reminders, script knowledge, documents, highlights.");
   console.log(`real NPCs: ${roster.npcs.map((n) => n.name).join(", ") || "(none)"}`);
@@ -409,7 +420,9 @@ async function status(cfg) {
   console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} Keeper chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
   const ca = table.casual;
   console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min); texts between AI characters in ${ca.log ? `"${wname(ca.log)}"` : "the phone log (opened by run)"}, at most ${cfg.casualAiTextsPerHour} answered an hour, ${cfg.casualAiChain} in a row`) : "off (a solemn game: no phones)"}`);
-  console.log(`calendar: ${table.calendarOn() ? `${describeCalendar(table.calendar) || "no date yet (the story planner chooses the first one)"}${table.calendar.log.length ? `; last change by ${table.calendar.log.at(-1).by}` : ""}${table.calendar.routine ? `; routine: ${table.calendar.routine.text}` : ""}` : "off (a solemn game keeps no date; casual mode has one)"}`);
+  const pace = table.calendarPaceCfg(), held = calendarPace(table.calendar, { minMinutes: pace.minMinutes, minLines: pace.minLines });
+  const paceText = pace.minMinutes || pace.minLines || pace.maxDays ? `; GM pace: the date moves on${pace.maxDays ? ` at most ${pace.maxDays} day(s) at once` : ""}${pace.minMinutes || pace.minLines ? `, ${pace.minMinutes} min and ${pace.minLines} player lines after it last moved (${held.ok ? "may move now" : `waits ${held.wait}`})` : ""}` : "; GM pace: no limit";
+  console.log(`calendar: ${table.calendarOn() ? `${describeCalendar(table.calendar) || "no date yet (the story planner chooses the first one)"}${table.calendar.log.length ? `; last change by ${table.calendar.log.at(-1).by}` : ""}${table.calendar.routine ? `; routine: ${table.calendar.routine.text}` : ""}${paceText}` : "off (a solemn game keeps no date; casual mode has one)"}`);
   const nameOf = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   console.log(`relationships: ${table.bonds.length ? table.bonds.map((b) => `${nameOf(b.a)} — ${nameOf(b.b)}: ${b.kind}${b.secret ? " (secret)" : ""}`).join("; ") : "(none recorded)"}`);
   const pl = table.planner, arc = pl.arc;
@@ -422,15 +435,9 @@ async function status(cfg) {
   console.log(`final review: ${cfg.planner.finalReview && pl.on ? `on — after a session of ≥ ${cfg.planner.finalReviewMinLines} player lines, once nobody has written for ${cfg.autonomyIdleMinutes} min (or when run stops); moves the calendar up to ${cfg.planner.finalReviewMaxDays} days` : "off"}${ses ? `; session in progress: ${ses.lines} player line(s) since ${new Date(ses.startedAt).toISOString().slice(0, 16).replace("T", " ")}` : ""}${pl.between ? "; the next session opens from the last review" : ""}`);
   console.log(`improvisation: ${im.on ? `on — world ${im.world.length} characters (${im.published.hash ? "posted in the Main Chat" : "not posted yet; run posts it"}), secrets ${im.secrets.length} characters, ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
   console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
-  console.log(`timelines: ${cfg.timelineAuto ? `proactive (at most ${cfg.timelineMaxActive} at once, ${cfg.timelineMaxArrivalsPerHour} arrivals an hour)` : "model-led (TIMELINE_AUTO=false)"}; scenarios: ${cfg.scenarioAuto ? `GM-driven from the Main Chat after ${cfg.scenarioMinMinutes} min and ${cfg.scenarioMinLines} lines; never during a short split` : "manual only"}`);
+  console.log(`timelines: ${cfg.timelineAuto ? `proactive (at most ${cfg.timelineMaxActive} at once, ${cfg.timelineMaxArrivalsPerHour} arrivals an hour)` : "model-led (TIMELINE_AUTO=false)"}, ${cfg.sceneForks ? "scene forks on (after a split the main story leaves the Main Chat, a lobby)" : "the main story stays in the Main Chat"}; scenarios: ${cfg.scenarioAuto ? `GM-driven from the Main Chat after ${cfg.scenarioMinMinutes} min and ${cfg.scenarioMinLines} lines; never during a short split` : "manual only"}`);
 }
 
-const args = parseArgs(process.argv.slice(2));
-loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
-loadEnvFile(path.join(here, "..", ".env"));
-const cfg = buildConfig(args, process.env, loadConfigFile(configPath(args, process.env, process.cwd(), path.join(here, ".."))));
-for (const w of cfg.warnings) console.error(`warning: ${w}`);
-const command = args._[0] ?? "run";
 // `plan now|on|off|show [--full]`: the story planner, during a campaign. `show` is read-only.
 async function plan(cfg, args) {
   const v = String(args._?.[1] ?? "").toLowerCase();
@@ -452,7 +459,7 @@ async function plan(cfg, args) {
 async function date(cfg, args) {
   if (args.days === undefined && args.set === undefined && args.time === undefined) {
     const { table } = await openTable(cfg, { write: false });
-    console.log(renderCalendar(table.calendar));
+    console.log(renderCalendar(table.calendar, { pace: table.calendarPaceCfg() }));
     return;
   }
   const days = args.days === undefined ? 0 : Number(args.days);
@@ -491,9 +498,20 @@ async function usage(cfg, args) {
   } finally { store.close(); }
 }
 
-const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond };
-if (!commands[command]) {
-  console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
-  process.exit(2);
+export async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
+  loadEnvFile(path.join(here, "..", ".env"));
+  const cfg = buildConfig(args, process.env, loadConfigFile(configPath(args, process.env, process.cwd(), path.join(here, ".."))));
+  for (const w of cfg.warnings) console.error(`warning: ${w}`);
+  const command = args._[0] ?? "run";
+  const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond };
+  if (!commands[command]) {
+    console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+    process.exit(2);
+  }
+  await commands[command](cfg, args);
 }
-commands[command](cfg, args).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(e => { console.error(`error: ${e.message}`); process.exitCode = 1; });
+}

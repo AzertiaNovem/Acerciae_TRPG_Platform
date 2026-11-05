@@ -75,7 +75,7 @@ export function subtitlesOf(c: CharacterSheet): string[] {
 export function standeeFor(c: CharacterSheet | undefined, expression: string | undefined): string | null {
   if (!c) return null;
   const key = lower(trim(expression ?? ''));
-  if (key && key !== 'default') {
+  if (key) {
     for (const [k, v] of Object.entries(c.poses ?? {})) if (lower(trim(k)) === key && typeof v === 'string' && v) return v;
   }
   return c.portrait || null;

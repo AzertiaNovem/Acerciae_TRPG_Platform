@@ -18,6 +18,7 @@ export class GmContext {
   // `history` and `memory` (memory.mjs) hold the chat and its compacted chapters; `budget` is GM_CONTEXT_TOKENS.
   constructor(api, channelId, { history, memory, budget = 60000, recallTokens = 1200, log = () => {} } = {}) {
     this.api = api;
+    this.profile = null;         // the rules profile (rules/*.mjs); the table sets it. Null: the CoC words.
     this.channelId = channelId;
     this.history = history;
     this.memory = memory;
@@ -36,7 +37,7 @@ export class GmContext {
     if (ev.type === "knowledge.reset") this.docCache.clear();
     if (ev.type === "reminder.created" && ev.reminder) this.liveTips.push(`reminder: ${ev.reminder.title} — ${ev.reminder.why ?? ""}`);
     if (ev.type === "highlight.created" && ev.highlight) this.liveTips.push(`highlight: ${ev.highlight.reason ?? ""}`);
-    if (ev.type === "proposal.pending") this.liveTips.push("a memory proposal waits for the Keeper's review");
+    if (ev.type === "proposal.pending") this.liveTips.push(`a memory proposal waits for the ${this.profile?.vocab.gm ?? "Keeper"}'s review`);
     this.liveTips = this.liveTips.slice(-10);
   }
 
@@ -83,9 +84,11 @@ export class GmContext {
   // `storyPlan` is the planner's rendered section (planner.mjs) for part C; `peek` leaves the live tips for the GM (the
   // planner reads the context too, in the background). `calendar` and `bonds` are the rendered calendar.mjs and
   // bonds.mjs sections, and `table` the players' wishes and corrections (wishes.mjs), also for part C.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "" }) {
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "", initiative = null }) {
     const ch = this.channelId;
     const candidates = [];
+    const P = this.profile;
+    const gm = P?.vocab.gm ?? "Keeper", pcs = P?.vocab.pcs ?? "investigators";
     const module = !improv?.on;
     await this.history.sync(windowId);
     const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs, world] = await Promise.all([
@@ -108,7 +111,7 @@ export class GmContext {
     // Every line carries the timeline it comes from, so a story told in one window is never taken as happening now.
     const render = (m) => {
       if (m.whisper_to?.length && !m.whisper_to_names) m.whisper_to_names = m.whisper_to.map(nameOf);
-      return renderLine(m, { markVisibility: true, timeline: timelines ? timelines.ofLine(m).name : "" });
+      return renderLine(m, { markVisibility: true, timeline: timelines ? timelines.ofLine(m).name : "", gm });
     };
     const shown = (m) => !hide?.has(m.id);
     const linesOf = (w) => this.history.lines(w).filter(shown);
@@ -122,14 +125,14 @@ export class GmContext {
     if (prepared.length) a.push(`## Prepared scenarios (enter_scenario)\n${prepared.map((s) => `- ${s.title}${s.location ? ` @ ${s.location}` : ""}${s.narrative_time ? ` (${s.narrative_time})` : ""}${s.summary ? `: ${clip(s.summary, 200)}` : ""}`).join("\n")}`);
     const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-8);
     if (closed.length) a.push(`## Earlier scenarios\n${closed.map((s) => `- ${s.title}: ${clip(s.summary, 800)}`).join("\n")}`);
-    const pcs = characters.filter((c) => isPlayerCharacter(c, roster));
+    const pcList = characters.filter((c) => isPlayerCharacter(c, roster));
     const coplayers = characters.filter((c) => roster.isCoplayer(c.id));
     a.push([
       "## Cast",
       "Player characters (real people play them; never speak or decide for them), with their basic details and background:",
-      ...(pcs.length ? pcs.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`)) : ["- (none yet)"]),
-      "Co-players (AI investigators that play alongside the players; they act on their own turn, so never speak or decide for them either), with their basic details and background:",
-      ...(coplayers.length ? coplayers.map((c) => renderProfile(c)) : ["- (none)"]),
+      ...(pcList.length ? pcList.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`, P)) : ["- (none yet)"]),
+      `Co-players (AI ${pcs} that play alongside the players; they act on their own turn, so never speak or decide for them either), with their basic details and background:`,
+      ...(coplayers.length ? coplayers.map((c) => renderProfile(c, "", P)) : ["- (none)"]),
       "Real NPCs (you voice them; known cast, not everyone currently active), with gender, age and what is most striking about them:",
       ...(roster.npcs.length ? roster.npcs.map((c) => { const look = impression(characters.find((x) => x.id === c.characterId)?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}`; }) : ["- (none yet; use new_npc only when a distinct recurring character is needed)"]),
     ].join("\n"));
@@ -160,11 +163,11 @@ export class GmContext {
       const listed = [...timelines.active(), ...timelines.list.filter((t) => t.status !== "active" && t.mergedInto).slice(-6)];
       c.push([
         "## Timelines",
-        "Investigators may be living different threads of the story. A line is tagged with the timeline it comes from: a character telling the table about events speaks from its own timeline, so those events happened there, not now in this scene. Knowledge crosses timelines only when a character who was there tells it.",
+        `${pcs.charAt(0).toUpperCase()}${pcs.slice(1)} may be living different threads of the story. A line is tagged with the timeline it comes from: a character telling the table about events speaks from its own timeline, so those events happened there, not now in this scene. Knowledge crosses timelines only when a character who was there tells it.`,
         ...listed.map((t) => `- T${t.handle ?? "?"} ${t.name} [${t.status}${t.mergedInto ? ` into ${timelines.get(t.mergedInto)?.name ?? t.mergedInto}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span} split` : ""}]${t.windowId ? ` in window "${windowName(t.windowId)}"` : ""}: ${t.members.map(nameOf).join(", ") || "(no one now)"}${t.narrativeTime ? `; time: ${t.narrativeTime}` : ""}${t.location ? `; place: ${t.location}` : ""}${t.notes ? `\n    notes: ${clip(t.notes, 600)}` : ""}`),
       ].join("\n"));
     }
-    if (board && (board.next || board.notes)) c.push(`## Keeper board (platform AI)\nnext: ${json(board.next, 2500)}\nnotes: ${json(board.notes, 2500)}`);
+    if (board && (board.next || board.notes)) c.push(`## ${gm} board (platform AI)\nnext: ${json(board.next, 2500)}\nnotes: ${json(board.notes, 2500)}`);
     if (script?.length) {
       const flow = script.filter((k) => k.kind === "flow").sort((x, y) => (x.position ?? 0) - (y.position ?? 0));
       const rest = script.filter((k) => k.kind !== "flow" && k.status !== "done").slice(0, 30);
@@ -172,15 +175,15 @@ export class GmContext {
     }
     const worldNow = worldRecordSection(world, Math.max(800, Math.round(this.budget * 0.08)));
     if (worldNow) c.push(worldNow);
-    if (docs.length) c.push(`## Keeper documents (platform AI)\n${docs.join("\n\n")}`);
+    if (docs.length) c.push(`## ${gm} documents (platform AI)\n${docs.join("\n\n")}`);
 
     // ---- D: every turn
     const d = [];
     if (current) d.push(`## Now\nThe current scenario "${current.title}" has ${current.event_count ?? 0} events so far.`);
-    if (reminders?.length) d.push(`## Keeper reminders (platform AI)\n${reminders.slice(0, 8).map((r) => `- [${r.kind}] ${r.title}: ${clip(r.why, 300)}`).join("\n")}`);
+    if (reminders?.length) d.push(`## ${gm} reminders (platform AI)\n${reminders.slice(0, 8).map((r) => `- [${r.kind}] ${r.title}: ${clip(r.why, 300)}`).join("\n")}`);
     if (highlights?.length) d.push(`## Highlights (platform AI)\n${highlights.slice(0, 10).map((h) => `- ${clip(h.reason, 200)}`).join("\n")}`);
     if (hints?.length) d.push(`## Module hints (platform AI)\n${hints.slice(0, 6).map((h) => `- ${clip(h.reason ?? h.description ?? JSON.stringify(h), 200)}`).join("\n")}`);
-    if (proposals?.length) d.push(`## Pending memory proposals\n${proposals.length} waiting for the Keeper's review in the web app.`);
+    if (proposals?.length) d.push(`## Pending memory proposals\n${proposals.length} waiting for the ${gm}'s review in the web app.`);
     if (tips.length) d.push(`## Just pushed by the platform\n${tips.map((t) => `- ${clip(t, 300)}`).join("\n")}`);
     // Who is really in each window's scene, who is a member but elsewhere, and which windows' scenes are over.
     const who = (id) => { const ms = awayOf(id); return ms ? `${nameOf(id)} (player away ${duration(ms)})` : nameOf(id); };
@@ -188,12 +191,18 @@ export class GmContext {
       if (timelines?.retired(w.id)) return "(scene over: merged into another thread)";
       const scene = sceneOf(w.id);
       const memberChars = (w.members ?? []).filter((m) => m.character_id).map((m) => m.character_id);
-      if (!scene) return [...memberChars.map(who), ...roster.coplayersIn(w.id).map((x) => x.name)].join(", ") || "(no investigators)";
+      if (!scene) return [...memberChars.map(who), ...roster.coplayersIn(w.id).map((x) => x.name)].join(", ") || `(no ${pcs})`;
       const here = scene.members.map(who);
       const away = memberChars.filter((id) => !scene.members.includes(id)).map((id) => `${nameOf(id)} (in ${timelines.of(id).name})`);
       return `${here.join(", ") || "(no one)"}${away.length ? `; members elsewhere: ${away.join(", ")}` : ""}`;
     };
     d.push(`## Chat windows\n${windows.map((w) => `- ${w.name} (${w.kind})${w.id === windowId ? " ← this turn" : ""}: ${describe(w)}`).join("\n")}`);
+    // D&D: this window's Initiative order, when a fight is on (the platform keeps it; the dice action moves it).
+    if (initiative?.entries?.length) {
+      const turn = Number(initiative.turn) || 0;
+      d.push([`## Initiative in "${win?.name ?? "this window"}" (round ${initiative.round || 1}; use dice ".init next" after each turn)`,
+        ...initiative.entries.map((e, i) => `- ${e.name} ${e.total}${i === turn ? " ← now" : ""}${e.character_id ? "" : " (yours)"}`)].join("\n"));
+    }
     // Windows whose scene is over are left out, except the last few merged threads: the Keeper needs what just
     // happened there when the party reunites (their chapters stay in A in any case).
     const included = new Set([...frozen, ...tail].map((m) => m.seq));

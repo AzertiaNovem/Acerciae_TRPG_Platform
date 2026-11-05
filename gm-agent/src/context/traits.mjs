@@ -1,9 +1,10 @@
 // What anyone who knows a character would notice: its most distinctive characteristics, in words, never numbers
-// ("extremely good-looking", "slow-witted"). Only the extremes are named: 80 and above, or near the bottom of the
-// range (25 for the 3d6×5 characteristics, 45 for SIZ, INT and EDU, which start at 40). Luck is not something one
-// sees, so it is left out.
+// ("extremely good-looking", "slow-witted"). Only the extremes are named. Call of Cthulhu: 80 and above, or near the
+// bottom of the range (25 for the 3d6×5 characteristics, 45 for SIZ, INT and EDU, which start at 40); Luck is not
+// something one sees, so it is left out. D&D (a card with a build in role_card.dnd): final ability scores of 18 and
+// above, or 7 and below.
+import { ABILITIES, scores } from "../roles/dndcard.mjs";
 
-const HIGH = 80;
 const TRAITS = {
   APP: ["extremely good-looking, striking", "very plain, unattractive", 25],
   INT: ["extremely intelligent", "slow-witted", 45],
@@ -14,12 +15,26 @@ const TRAITS = {
   POW: ["extremely strong-willed, a forceful presence", "weak-willed, easily swayed", 25],
   EDU: ["extremely well educated, erudite", "little formal education", 45],
 };
+export const COC_TRAITS = Object.freeze({ high: 80, table: TRAITS });
+export const DND_TRAITS = Object.freeze({
+  high: 18,
+  table: {
+    STR: ["extremely strong", "physically weak", 7],
+    DEX: ["extremely agile and quick", "clumsy and slow", 7],
+    CON: ["extremely tough, hardly ever ill", "frail and sickly", 7],
+    INT: ["extremely intelligent", "slow-witted", 7],
+    WIS: ["extremely wise and perceptive", "oblivious, poor judgement", 7],
+    CHA: ["extremely charismatic, magnetic", "awkward, off-putting", 7],
+  },
+});
 
 // Up to `max` traits, the most extreme first. `card` is a role card (characteristics as numbers or numeric strings).
 export function distinctiveTraits(card, { max = 3 } = {}) {
-  const ch = card?.characteristics && typeof card.characteristics === "object" ? card.characteristics : {};
+  const dnd = card?.dnd && typeof card.dnd === "object" && card.dnd.base && typeof card.dnd.base === "object" && ABILITIES.some((ab) => Number.isFinite(Number(card.dnd.base[ab])));
+  const { high: HIGH, table } = dnd ? DND_TRAITS : COC_TRAITS;
+  const ch = dnd ? scores(card.dnd) : card?.characteristics && typeof card.characteristics === "object" ? card.characteristics : {};
   const found = [];
-  for (const [key, [high, low, floor]] of Object.entries(TRAITS)) {
+  for (const [key, [high, low, floor]] of Object.entries(table)) {
     const raw = ch[key] ?? ch[key.toLowerCase()];
     const v = Number(typeof raw === "object" && raw !== null ? raw.value : raw);
     if (!Number.isFinite(v) || v <= 0) continue;

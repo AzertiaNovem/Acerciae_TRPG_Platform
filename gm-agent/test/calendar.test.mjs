@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { advanceCalendar, calendarState, dateLabel, describeCalendar, eraYears, fitEra, parseIso, renderCalendar } from "../src/calendar.mjs";
+import { advanceCalendar, calendarPace, calendarState, dateLabel, describeCalendar, eraYears, fitEra, noteCalendarLine, parseIso, renderCalendar } from "../src/calendar.mjs";
 import { distinctiveTraits, impression } from "../src/context/traits.mjs";
 import { investigatorProfile } from "../src/context/profiles.mjs";
 import { applyBond, bondsFor, bondsState, renderBonds, renderBondsFor, resolveBonds } from "../src/bonds.mjs";
@@ -27,6 +27,41 @@ test("calendar: dates are YYYY-MM-DD with their weekday, across months and leap 
   assert.match(renderCalendar(cal), /^## Calendar \(the story's date, YYYY-MM-DD/); assert.match(renderCalendar(cal), /Today in the story: 1924-04-07 \(Monday\)/);
   assert.doesNotMatch(renderCalendar(cal), /day \d+ of the story/);
   assert.match(renderCalendar(calendarState({ time: "dusk" })), /no date set yet \(the story planner chooses the first one\); time of day: dusk/);
+});
+
+test("calendar: the pace holds a day back until enough time and play have passed since the date last moved", () => {
+  const T = Date.UTC(2026, 10, 5, 12);
+  const pace = { minMinutes: 30, minLines: 3 };
+  const cal = calendarState(null);
+  assert.deepEqual(calendarPace(cal, { now: T, ...pace }), { ok: true }, "nothing to wait for before the first date");
+  noteCalendarLine(cal); assert.equal(cal.since, null, "no count before the date moves");
+  advanceCalendar(cal, { date: "1923-10-02", time: "evening", by: "planner", now: T });
+  assert.deepEqual(cal.since, { at: T, lines: 0 }, "the first date starts the pace");
+  // The time of day moves freely within the day.
+  assert.equal(advanceCalendar(cal, { time: "night", now: T + 60000, pace }).changed, true);
+  assert.deepEqual(cal.since, { at: T, lines: 0 }, "a time of day is not the date moving");
+  const r = advanceCalendar(cal, { days: 1, time: "dawn", now: T + 60000, pace });
+  assert.deepEqual([r.changed, r.pace, cal.date, cal.time], [false, true, "1923-10-02", "night"], "held back whole, time of day included");
+  assert.equal(r.refused, "the date moved on too recently: it may move on again after 29 more min and 3 more player lines");
+  assert.equal(advanceCalendar(cal, { date: "1923-10-03", now: T + 60000, pace }).pace, true, "a named date too");
+  for (let i = 0; i < 3; i++) noteCalendarLine(cal);
+  assert.deepEqual(calendarPace(cal, { now: T + 60000, ...pace }), { ok: false, minutes: 29, lines: 0, wait: "29 more min" });
+  assert.deepEqual(calendarPace(cal, { now: T + 30 * 60000, ...pace }), { ok: true });
+  const moved = advanceCalendar(cal, { days: 5, now: T + 30 * 60000, pace, maxDays: 2 });
+  assert.deepEqual([moved.changed, moved.days, moved.clipped, cal.date], [true, 2, 5, "1923-10-04"], "a few days at most, and the days asked for");
+  assert.deepEqual(cal.since, { at: T + 30 * 60000, lines: 0 }, "and the pace starts again");
+  assert.match(advanceCalendar(cal, { date: "1923-10-09", now: T + 90 * 60000, maxDays: 2 }).refused, /5 days is more than 2 at once/);
+  assert.equal(advanceCalendar(cal, { days: 3, by: "operator", now: T + 31 * 60000 }).days, 3, "no pace given: the operator");
+  assert.deepEqual(calendarState(JSON.parse(JSON.stringify(cal))), cal, "the pace survives a round trip");
+  assert.equal(calendarState({ date: "1923-10-02", since: { at: "x" } }).since, null);
+  // The Keeper reads one of two lines, so the section does not change from turn to turn.
+  const P = { ...pace, maxDays: 2 };
+  assert.match(renderCalendar(cal, { pace: P, now: T + 32 * 60000 }), /Pace: the date moved on only recently and may not move on again yet\. Keep play within the current day: move only the time of day; later, at most 2 days at once\./);
+  for (let i = 0; i < 3; i++) noteCalendarLine(cal);
+  assert.match(renderCalendar(cal, { pace: P, now: T + 61 * 60000 }), /Pace: the date may move on now, at most 2 days at once; play the day out rather than skip ahead\./);
+  assert.match(renderCalendar(cal, { pace: { maxDays: 1 } }), /Pace: the date moves on at most 1 day at once\./);
+  assert.doesNotMatch(renderCalendar(cal, { pace: { minMinutes: 0, minLines: 0, maxDays: 0 } }), /Pace/);
+  assert.doesNotMatch(renderCalendar(cal), /Pace/);
 });
 
 test("calendar: the planner's first date stays within the channel's era", () => {

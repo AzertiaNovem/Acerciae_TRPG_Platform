@@ -218,6 +218,11 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
         if (r.isNull() || r["approval_status"] != "approved" || !types.count(r["asset_type"].asString()) || (!gmOnly && r["visibility_scope"] == "gm")) return Json::Value();
         return r;
     };
+    // Resolve media before opening the write transaction; asset() uses the connection pool.
+    for (const auto& s : script["scenes"]) {
+        asset(s["background_asset_id"], {"background"});
+        asset(s["bgm_asset_id"], {"bgm", "audio"});
+    }
     static const std::set<std::string> kinds = {"dialogue","narration","action","ooc","dice","scene_change","system","media"};
     static const std::set<std::string> envs = {"none","rain","fog","dim","warm","cold"};
     static const std::set<std::string> effects = {"none","shake","flash","zoom"};
@@ -233,6 +238,7 @@ void PresentationService::applyScript(const ChannelAccess& a, const std::string&
             auto bgm = asset(s["bgm_asset_id"], {"bgm","audio"});
             Json::Value env; auto e = json::str(s, "environment", "none"); env["effect"] = envs.count(e) ? e : "none";
             Json::Value meta; for (auto k : {"location","time_of_day","mood","summary","background_brief"}) meta[k] = text::utf8Prefix(json::str(s, k), 400);
+            if (p["settings"]["media_mode"] == "hybrid") meta["hybrid_background_asset_id"] = s["background_asset_id"];
             meta["generated"] = true; meta["script_key"] = json::str(s, "key");
             auto sc = Db::queryOne(w, "INSERT INTO presentation_scenes(presentation_id, position, title, canonical_scene_key, background_asset_id, background_asset_version, bgm_asset_id, environment, metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb) RETURNING id",
                 {id, (int64_t)scenePos++, text::utf8Prefix(json::str(s, "title"), 200), text::utf8Prefix(json::str(s, "key"), 64), bg.isNull() ? dbNull() : DbParam(bg["id"].asString()), bg.isNull() ? dbNull() : DbParam((int64_t)bg["version"].asInt()), bgm.isNull() ? dbNull() : DbParam(bgm["id"].asString()), json::dump(env), json::dump(meta)});
@@ -327,6 +333,7 @@ void PresentationService::appendScript(const ChannelAccess& a, const std::string
                 const auto& bgm = looks[si].second;
                 Json::Value env; auto e = json::str(s, "environment", "none"); env["effect"] = envs.count(e) ? e : "none";
                 Json::Value meta; for (auto k : {"location","time_of_day","mood","summary","background_brief"}) meta[k] = text::utf8Prefix(json::str(s, k), 400);
+                if (p["settings"]["media_mode"] == "hybrid") meta["hybrid_background_asset_id"] = s["background_asset_id"];
                 meta["generated"] = true; meta["script_key"] = json::str(s, "key"); meta["continued"] = true;
                 auto sc = Db::queryOne(w, "INSERT INTO presentation_scenes(presentation_id, position, title, canonical_scene_key, background_asset_id, background_asset_version, bgm_asset_id, environment, metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb) RETURNING id",
                     {id, scenePos++, text::utf8Prefix(json::str(s, "title"), 200), text::utf8Prefix(json::str(s, "key"), 64), bg.isNull() ? dbNull() : DbParam(bg["id"].asString()), bg.isNull() ? dbNull() : DbParam((int64_t)bg["version"].asInt()), bgm.isNull() ? dbNull() : DbParam(bgm["id"].asString()), json::dump(env), json::dump(meta)});

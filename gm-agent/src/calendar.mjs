@@ -11,6 +11,10 @@
 // Afterwards the Keeper moves the date on as time passes in play (the `date` action, or `advance_days` on a scenario
 // change), and the final review after a session moves it on between sessions. It never runs backwards. Each timeline
 // keeps its own time of day (timelines.mjs); the date is the campaign's. State key `calendar`.
+//
+// The Keeper is held to a pace (config `calendar`): after the date moves (by anyone), the Keeper may move it on again
+// only once enough real time and enough player lines of play have passed, and never by more than a few days at once.
+// The time of day moves freely within the day. The operator and the final review are not held to it.
 
 const ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -37,7 +41,14 @@ export function calendarState(x) {
     time: clip(c.time, 80),
     log: Array.isArray(c.log) ? c.log.filter((e) => e && e.to).slice(-LOG_KEPT) : [],
     routine: routineState(c.routine),
+    since: sinceState(c.since),
   };
+}
+
+// When the date last moved and how many player lines of play there have been since (the pace); null until it moves.
+function sinceState(s) {
+  const at = Number(s?.at);
+  return s && typeof s === "object" && Number.isFinite(at) ? { at, lines: Math.max(0, Math.trunc(Number(s.lines)) || 0) } : null;
 }
 
 function routineState(r) {
@@ -79,18 +90,23 @@ export function fitEra(date, era) {
 }
 
 // Moves the calendar on. `days` ≥ 0 (clipped to `maxDays`); `date` (YYYY-MM-DD) sets the date (an earlier one is
-// refused); `time` sets the time of day (cleared when days pass without one). Before the first date, days cannot pass.
-// Returns {changed, days, from, to} or {changed: false, refused}.
-export function advanceCalendar(cal, { days, date, time, by = "keeper", why = "", seq = 0, now = Date.now(), maxDays = MAX_ADVANCE_DAYS } = {}) {
+// refused, and so is one more than `maxDays` ahead); `time` sets the time of day (cleared when days pass without one).
+// Before the first date, days cannot pass. With `pace` ({minMinutes, minLines}), a day or more passes only once that
+// much real time and that many player lines have gone by since the date last moved (calendarPace). Returns {changed,
+// days, from, to} (and `clipped`, the days asked for, when fewer passed) or {changed: false, refused} (`pace: true`
+// when the pace held it back).
+export function advanceCalendar(cal, { days, date, time, by = "keeper", why = "", seq = 0, now = Date.now(), maxDays = MAX_ADVANCE_DAYS, pace = null } = {}) {
   const before = describeCalendar(cal);
   let n = Number(days);
   n = Number.isFinite(n) ? Math.round(n) : 0;
   if (n < 0) return { changed: false, refused: "the calendar never runs backwards" };
+  const asked = n;
   n = Math.min(n, maxDays);
   const target = String(date ?? "").trim();
   const cur = parseIso(cal.date);
+  let next = null;
   if (target) {
-    const next = parseIso(target);
+    next = parseIso(target);
     if (!next) return { changed: false, refused: `"${clip(target, 40)}" is not a date: dates are YYYY-MM-DD` };
     if (cur) {
       const diff = Math.round((next - cur) / 86400000);
@@ -98,16 +114,50 @@ export function advanceCalendar(cal, { days, date, time, by = "keeper", why = ""
       if (diff > maxDays) return { changed: false, refused: `${diff} days is more than ${maxDays} at once` };
       n = diff;
     } else n = 0;   // the first date
-    cal.date = isoOf(next);
-  } else if (n && cur) cal.date = isoOf(addDays(cur, n));
+  } else if (n && cur) next = addDays(cur, n);
   else if (n) return { changed: false, refused: "the story has no date yet" };
+  if (n > 0 && pace) {
+    const p = calendarPace(cal, { now, ...pace });
+    if (!p.ok) return { changed: false, refused: `the date moved on too recently: it may move on again after ${p.wait}`, pace: true };
+  }
+  if (next) cal.date = isoOf(next);
   if (time !== undefined && time !== null && String(time).trim()) cal.time = clip(time, 80);
   else if (n) cal.time = "";
   const after = describeCalendar(cal);
   if (after === before && (cal.date || !time)) return { changed: false };
   if (!cal.date) return { changed: true, days: 0, from: "", to: "" };   // a time of day before the first date
+  if (n > 0 || !cur) cal.since = { at: now, lines: 0 };
   cal.log = [...cal.log, { at: new Date(now).toISOString(), seq, from: before, to: after, days: n, by, why: clip(why, 200) }].slice(-LOG_KEPT);
-  return { changed: true, days: n, from: before, to: after };
+  return { changed: true, days: n, from: before, to: after, ...(!target && asked > n ? { clipped: asked } : {}) };
+}
+
+// A player's line of play: it counts toward the pace.
+export function noteCalendarLine(cal) {
+  if (cal?.since) cal.since.lines += 1;
+}
+
+// What is still to pass before the date may move on again: `minMinutes` of real time and `minLines` player lines since
+// it last moved. {ok: true}, or {ok: false, minutes, lines, wait: "12 more min and 5 more player lines"}. A date that
+// has not moved since the pace was kept has nothing to wait for.
+export function calendarPace(cal, { now = Date.now(), minMinutes = 0, minLines = 0 } = {}) {
+  const s = cal?.since;
+  if (!s) return { ok: true };
+  const minutes = Math.max(0, Math.ceil((s.at + Math.max(0, minMinutes) * 60000 - now) / 60000));
+  const lines = Math.max(0, minLines - s.lines);
+  if (!minutes && !lines) return { ok: true };
+  return { ok: false, minutes, lines, wait: [minutes ? `${minutes} more min` : "", lines ? `${lines} more player line${lines === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ") };
+}
+
+// The pace line of the Keeper's Calendar section. Only two states (may move on now / not yet), so the section stays
+// the same from turn to turn and the prompt cache holds.
+function paceLine(cal, pace, now) {
+  if (!pace || !cal.date) return "";
+  const { minMinutes = 0, minLines = 0, maxDays = 0 } = pace;
+  const most = maxDays ? `at most ${maxDays} day${maxDays === 1 ? "" : "s"} at once` : "";
+  if (!minMinutes && !minLines) return most ? `Pace: the date moves on ${most}.` : "";
+  return calendarPace(cal, { now, minMinutes, minLines }).ok
+    ? `Pace: the date may move on now${most ? `, ${most}` : ""}; play the day out rather than skip ahead.`
+    : `Pace: the date moved on only recently and may not move on again yet. Keep play within the current day: move only the time of day${most ? `; later, ${most}` : ""}.`;
 }
 
 // The planner's routine for the current date (null clears it). Returns the stored routine.
@@ -124,13 +174,15 @@ export function describeRoutine(cal) {
   return `Everyday life now${stale}: ${r.text}${r.upcoming.length ? ` Coming up: ${r.upcoming.map((u) => `${u.what}${u.when ? ` (${u.when})` : ""}`).join("; ")}.` : ""}`;
 }
 
-// The Keeper's section (part C): today, everyday life, and the last few changes.
-export function renderCalendar(cal) {
+// The Keeper's section (part C): today, everyday life, the pace ({minMinutes, minLines, maxDays}; none when not given),
+// and the last few changes.
+export function renderCalendar(cal, { pace = null, now = Date.now() } = {}) {
   const recent = cal.log.slice(-3).map((e) => `- ${e.from || "(no date)"} → ${e.to}${e.days ? ` (+${e.days} d)` : ""}, by ${e.by}${e.why ? `: ${e.why}` : ""}`);
   return [
     "## Calendar (the story's date, YYYY-MM-DD; keep to it: weekdays, seasons, how long ago things happened. Move it on with date when time passes; it never runs backwards)",
     `Today in the story: ${cal.date ? describeCalendar(cal) : `no date set yet (the story planner chooses the first one)${cal.time ? `; time of day: ${cal.time}` : ""}`}`,
     ...(cal.routine ? [describeRoutine(cal)] : []),
+    ...(paceLine(cal, pace, now) ? [paceLine(cal, pace, now)] : []),
     ...(recent.length ? ["Latest changes:", ...recent] : []),
   ].join("\n");
 }

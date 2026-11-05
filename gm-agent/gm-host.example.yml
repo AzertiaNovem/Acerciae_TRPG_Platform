@@ -1,0 +1,28 @@
+# Shared configuration. Keep this file private (chmod 600); never commit real keys.
+api_base: http://localhost:8080
+state_dir: .state
+account:
+  username: aikeeper
+  # Omit password to read GM_PASSWORD from .env / environment.
+  # password: ""
+llm:
+  provider: anthropic
+  model: claude-opus-5-5
+  # api_base: https://your-gateway.example/v1
+  # api_key: ""              # alternatively LLM_API_KEY / ANTHROPIC_API_KEY
+  stream: true
+planner:
+  enabled: true
+  effort: high
+webui:
+  enabled: false
+  host: 127.0.0.1
+  port: 8787
+  token: ""                  # required when enabled; at least 24 characters
+channels:
+  - id: YOUR_COC_CHANNEL_ID
+    config: channels/coc.yml
+    enabled: true
+  - id: YOUR_DND_CHANNEL_ID
+    config: channels/dnd.yml
+    enabled: true

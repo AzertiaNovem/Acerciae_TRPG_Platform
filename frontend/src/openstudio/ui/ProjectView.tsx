@@ -22,6 +22,7 @@ export default function ProjectView({ id }: { id: string }) {
     openProject(id).catch((e) => toast(String(e?.message ?? e), 'error'));
     return release;
   }, [id]);
+  useEffect(() => { if (p?.hybrid) setTab('vn'); }, [p?.id]);
   // Changes go through the project store: shown at once, saved half a second after the last one.
   const update = (fn: (draft: Project) => void) => { updateProject(id, fn); };
   if (!p) return <div className="muted">{tr('Loading…')}</div>;

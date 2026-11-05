@@ -17,19 +17,20 @@ export function visibleToCoplayer(coplayer, message) {
   return false;
 }
 
-export function speakerOf(m) {
+// `gm` is the GM's title in this rule system (rules/*.mjs): the label this client gives the GM account's lines.
+export function speakerOf(m, gm = "Keeper") {
   if (m.character_name) return m.character_name;
-  if (m.author_role === "gm") return "Keeper";
+  if (m.author_role === "gm") return gm;
   return m.author_name || "someone";
 }
 
 // `timeline` names the timeline the line comes from (the GM sees it; see timelines.mjs).
-export function renderLine(m, { markVisibility = false, timeline = "" } = {}) {
+export function renderLine(m, { markVisibility = false, timeline = "", gm = "Keeper" } = {}) {
   const text = m.kind === "roll" && m.dice?.text ? `${m.content} → ${m.dice.text}` : m.content;
-  const who = m.kind === "narration" ? `${m.character_name ? m.character_name : "Keeper"} (narration)` : speakerOf(m);
+  const who = m.kind === "narration" ? `${m.character_name ? m.character_name : gm} (narration)` : speakerOf(m, gm);
   const tag = m.kind === "ooc" ? " (out of character)" : "";
   let vis = "";
-  if (markVisibility && m.visibility === "gm_only") vis = " [Keeper only]";
+  if (markVisibility && m.visibility === "gm_only") vis = ` [${gm} only]`;
   if (markVisibility && m.visibility === "whisper") vis = ` [whisper to ${(m.whisper_to_names ?? m.whisper_to ?? []).join(", ")}]`;
   const tl = timeline ? ` [timeline: ${timeline}]` : "";
   return `#${m.seq} ${who}${tag}${vis}${tl}: ${String(text).replace(/\s+/g, " ").trim()}`;
