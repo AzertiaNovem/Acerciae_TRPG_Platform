@@ -5,7 +5,7 @@ import BundleDownload from './BundleDownload';
 import { contextSocket } from '../../api/ws';
 import { useNav } from '../../store/nav';
 import { useUi } from '../../store/ui';
-import type { Presentation, TtsJob, VnScriptJob, VnScriptQuestions, VoiceProfile } from '../../types';
+import type { Presentation, TtsJob, VnScriptJob, VnScriptQuestions, VnScriptWindows, VoiceProfile } from '../../types';
 import VNPlayer from './vn/VNPlayer';
 import { VN_BASE_INFO, VN_BASES, type VnBase } from './vn/templates';
 import { CachedImg } from '../CachedImg';
@@ -32,6 +32,9 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   // A player reads what their character witnessed; in an isolated channel few lines are public to everyone.
   const [scope, setScope] = useState<Scope>(isGm ? 'gm_full' : myCharacters.length ? 'character' : 'pl_public');
   const [scopeChar, setScopeChar] = useState(myCharacters[0] ?? '');
+  // The chat windows to tell: every window with lines in the point of view, except those the author leaves out.
+  const [windowReport, setWindowReport] = useState<VnScriptWindows | null>(null);
+  const [omitted, setOmitted] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState('');
   const [base, setBase] = useState<VnBase>('adv');
   const [direction, setDirection] = useState('');
@@ -59,6 +62,19 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     const j = await api.vnScript(channelId, id); setJob(j);
     if (j.presentation_id) { const p = await api.presentation(channelId, j.presentation_id); setPres(p); if (castTouched.current !== p.id) setCastState((p.settings?.cast as Record<string, string>) ?? {}); }
   };
+  useEffect(() => {
+    if (!channelId || (scope === 'character' && !scopeChar)) { setWindowReport(null); return; }
+    let live = true;
+    api.vnScriptWindows(channelId, scope, scope === 'character' ? scopeChar : undefined).then((r) => { if (live) setWindowReport(r); }).catch(() => { if (live) setWindowReport(null); });
+    return () => { live = false; };
+  }, [channelId, scope, scopeChar]);
+  const tellable = (windowReport?.windows ?? []).filter((w) => w.line_count > 0);
+  const told = tellable.filter((w) => !omitted.has(w.id));
+  // Without anything left out, no list is sent: the visual novel tells every window, later ones too when continued.
+  const windowChoice = windowReport && told.length < tellable.length ? told.map((w) => w.id) : undefined;
+  const noWindow = !!windowReport && tellable.length > 0 && told.length === 0;
+  const toggleWindow = (id: string, on: boolean) => setOmitted((o) => { const n = new Set(o); if (on) n.delete(id); else n.add(id); return n; });
+  const windowName = (id: string) => windowReport?.windows.find((w) => w.id === id)?.name;
   useEffect(() => { if (!channelId) return; api.vnScriptStatus(channelId).then((s) => { setStatus(s); setRetryFailedChunks(s.retry_failed_chunks ?? true); }).catch(() => undefined); loadJobs(); }, [channelId]);
   useEffect(() => { if (jobId) loadJob(jobId).catch((e) => toast(e.message, 'error')); else { setJob(null); setPres(null); } }, [jobId, channelId]);
   useEffect(() => contextSocket.on((m) => {
@@ -102,7 +118,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     if (!channelId) return;
     setBusy(true);
     try {
-      const j = await api.createVnScript(channelId, { scope, scope_character_id: scope === 'character' ? scopeChar : undefined, title: title.trim() || undefined, template: { base }, retry_failed_chunks: retryFailedChunks, instructions: direction.trim() || undefined, allow_cloud: status?.mock ? undefined : cloudOk });
+      const j = await api.createVnScript(channelId, { scope, scope_character_id: scope === 'character' ? scopeChar : undefined, windows: windowChoice, title: title.trim() || undefined, template: { base }, retry_failed_chunks: retryFailedChunks, instructions: direction.trim() || undefined, allow_cloud: status?.mock ? undefined : cloudOk });
       toast(tr('Script job started'), 'ai'); setJobId(j.id); loadJobs();
     } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
@@ -169,7 +185,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
         <div>
           <div className="tiny muted">{tr('The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on, which portrait each speaker shows, and the wording of the story. It leaves out chatter, bot messages and placeholders, never adds lines, and asks you when a line is unclear; the log keeps every original.')}</div>
           <div className="vn-tpl-fields tiny">
-            <label>{tr('Lines to read')}<select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
+            <label title={tr('Who may watch the visual novel, and whose eyes read the log')}>{tr('Point of view')}<select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
               {isGm && <option value="gm_full">{tr('Everything, including private windows (GM only result)')}</option>}
               <option value="pl_public">{tr('Lines every player can read')}</option>
               <option value="character" disabled={!isGm && myCharacters.length === 0}>{tr("One character's point of view")}</option>
@@ -178,19 +194,37 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
             <label>{tr('Title')}<input value={title} maxLength={200} placeholder={tr('Visual novel')} onChange={(e) => setTitle(e.target.value)} /></label>
             <label>{tr('Look template')}<select value={base} onChange={(e) => setBase(e.target.value as VnBase)}>{VN_BASES.map((b) => <option key={b} value={b}>{tr(VN_BASE_INFO[b].label)}</option>)}</select></label>
           </div>
+          {windowReport && (
+            <div className="vn-windows" data-testid="vn-windows">
+              <div className="row tiny" style={{ gap: 6 }}>
+                <b>{tr('Chat windows to tell')}</b><span className="grow" />
+                <button className="ghost small" onClick={() => setOmitted(new Set())}>{tr('All')}</button>
+                <button className="ghost small" onClick={() => setOmitted(new Set(tellable.map((w) => w.id)))}>{tr('None')}</button>
+              </div>
+              {windowReport.windows.map((w) => (
+                <label key={w.id} className="row tiny" style={{ gap: 6 }} title={w.line_count ? undefined : tr('This point of view reads no line of this window')}>
+                  <input type="checkbox" disabled={!w.line_count} checked={w.line_count > 0 && !omitted.has(w.id)} onChange={(e) => toggleWindow(w.id, e.target.checked)} />
+                  <span className={w.line_count ? '' : 'muted'}>{w.name}</span>
+                  <span className="muted">{tr('{n} lines', { n: w.line_count })}</span>
+                </label>
+              ))}
+              <div className="tiny muted">{tr('Windows you leave out are not told. Scene changes outside any window always stay; a continuation tells the same windows.')}</div>
+              {noWindow && <div className="tiny" style={{ color: 'var(--warn)' }}>{tr('Choose at least one chat window.')}</div>}
+            </div>
+          )}
           <label className="tiny" style={{ display: 'block', marginTop: 6 }}>{tr('Direction for the AI (optional)')}<textarea value={direction} maxLength={1000} onChange={(e) => setDirection(e.target.value)} placeholder={tr('e.g. Keep the investigation scenes tense; skip rules discussion.')} style={{ minHeight: 44, display: 'block', width: '100%', marginTop: 2 }} /></label>
           <label className="tiny" style={{ display: 'block', marginTop: 6 }}><input type="checkbox" checked={retryFailedChunks} onChange={(e) => setRetryFailedChunks(e.target.checked)} /> {tr('Keep completed parts when retrying')}</label>
           {needsCloud && (status!.cloud_allowed
             ? <label className="tiny" style={{ display: 'block', marginTop: 6 }}><input type="checkbox" checked={cloudOk} onChange={(e) => setCloudOk(e.target.checked)} /> {tr('Send these lines to the configured model')}</label>
             : <div className="tiny" style={{ marginTop: 6, color: 'var(--warn)' }}>{tr('Cloud processing is off for this campaign. Enable it in Library settings, or use the mock planner.')}</div>)}
-          <div className="row" style={{ marginTop: 8 }}><button className="primary" onClick={generate} disabled={busy || blocked || (scope === 'character' && !scopeChar)}>{busy ? tr('Starting the script job…') : tr('Write the script')}</button></div>
+          <div className="row" style={{ marginTop: 8 }}><button className="primary" onClick={generate} disabled={busy || blocked || noWindow || (scope === 'character' && !scopeChar)}>{busy ? tr('Starting the script job…') : tr('Write the script')}</button></div>
           {jobs.length > 0 && (
             <table className="simple" style={{ marginTop: 10 }}><tbody>
               {jobs.map((j) => (
                 <tr key={j.id} className={j.id === jobId ? 'selected' : ''}>
                   <td>
                     <b>{j.title}</b> <span className={`pill ${j.status === 'failed' ? 'danger' : j.status === 'completed' ? 'ok' : j.status === 'waiting' ? 'gm' : ''}`}>{j.status === 'waiting' ? tr('waiting for your answers') : tr(j.status)}</span>{j.continues_presentation_id && <span className="pill">{tr('continuation')}</span>}
-                    <div className="tiny muted">{j.snapshot_scope}{j.stats ? ` · ${tr('{n} scenes', { n: j.stats.scenes })} · ${tr('{n} lines shown', { n: j.stats.shown })}` : ''}{j.status === 'running' && j.progress?.chunks_total ? ` · ${tr('part {a} of {b}', { a: j.progress.chunks_done ?? 0, b: j.progress.chunks_total })}` : ''}{j.status === 'waiting' && j.progress?.questions_open ? ` · ${tr('{n} parts wait for your answers', { n: j.progress.questions_open })}` : ''}</div>
+                    <div className="tiny muted">{j.snapshot_scope}{j.windows?.length ? ` · ${j.windows.map((id) => windowName(id) ?? '…').join(', ')}` : ''}{j.stats ? ` · ${tr('{n} scenes', { n: j.stats.scenes })} · ${tr('{n} lines shown', { n: j.stats.shown })}` : ''}{j.status === 'running' && j.progress?.chunks_total ? ` · ${tr('part {a} of {b}', { a: j.progress.chunks_done ?? 0, b: j.progress.chunks_total })}` : ''}{j.status === 'waiting' && j.progress?.questions_open ? ` · ${tr('{n} parts wait for your answers', { n: j.progress.questions_open })}` : ''}</div>
                     {j.error && <div className="tiny" style={{ color: 'var(--danger)' }}>{j.error}</div>}
                     {j.status === 'waiting' && (waitingJobs[j.id]?.questions ?? []).filter((q) => !q.answered).map((q) => (
                       <VnQuestionBox key={q.part_index} part={q} busy={busy} onAnswer={(answers, skip) => answerQuestions(j, q, answers, skip)} />

@@ -348,6 +348,7 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .former-card {margin-top:6px;padding:6px 8px;border-radius:8px;border:1px solid var(--bg-4);background:var(--bg-2)}
 .former-card > summary {cursor:pointer}
 .pill.rebuild {color:var(--warn);border-color:color-mix(in srgb, var(--warn) 50%, var(--bg-4));margin:0 4px;font-size:10px}
+.vn-windows {margin-top:8px;padding:6px 10px;border-radius:8px;border:1px solid var(--bg-4);display:flex;flex-direction:column;gap:3px}
 .vn-questions {margin-top:6px;padding:8px 10px;border-radius:8px;border:1px solid var(--warn,#c90);background:var(--panel-2,rgba(127,127,127,.08))}
 .vn-question {margin-top:6px}
 .vn-continue {margin-top:6px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2,rgba(127,127,127,.08))}

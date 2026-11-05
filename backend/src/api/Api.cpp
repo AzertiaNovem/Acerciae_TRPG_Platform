@@ -560,6 +560,8 @@ void registerRoutes() {
     route1("/api/channels/{1}/studio/images/jobs", {Post}, [&](auto& req, auto& p, auto& a) { return S.creative->create(studioAccess(p,a[0]),body(req)); });
     route2("/api/channels/{1}/studio/images/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.creative->cancel(studioAccess(p,a[0]),a[1]); });
     route1("/api/channels/{1}/studio/vn-scripts/status", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->status(studioAccess(p,a[0])); });
+    // The chat windows a visual novel may tell, with their lines in a point of view (?scope=&scope_character_id=).
+    route1("/api/channels/{1}/studio/vn-scripts/windows", {Get}, [&](auto& req, auto& p, auto& a) { return S.studio->scopeWindows(studioAccess(p,a[0]), req->getParameter("scope"), req->getParameter("scope_character_id")); });
     route1("/api/channels/{1}/studio/vn-scripts", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->list(studioAccess(p,a[0])); });
     route1("/api/channels/{1}/studio/vn-scripts", {Post}, [&](auto& req, auto& p, auto& a) { return S.vnScripts->create(studioAccess(p,a[0]),body(req)); });
     route2("/api/channels/{1}/studio/vn-scripts/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.vnScripts->get(studioAccess(p,a[0]),a[1]); });
