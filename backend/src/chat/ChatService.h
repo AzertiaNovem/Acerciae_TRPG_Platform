@@ -66,13 +66,16 @@ public:
     // windows
     Json::Value listWindows(const ChannelAccess& a);
     Json::Value createWindow(const ChannelAccess& a, const Json::Value& body);
+    Json::Value forkWindow(const ChannelAccess& a, const std::string& parentId, const Json::Value& body);
+    Json::Value updateWindow(const ChannelAccess& a, const std::string& windowId, const Json::Value& body);
     Json::Value addWindowMember(const ChannelAccess& a, const std::string& windowId, const std::string& userId, const std::string& characterId);
     Json::Value removeWindowMember(const ChannelAccess& a, const std::string& windowId, const std::string& userId);
     Json::Value windowMembers(const ChannelAccess& a, const std::string& windowId);
+    Json::Value setWindowVisibility(const ChannelAccess& a, const std::string& windowId, const std::string& userId, const Json::Value& body);
     // Records that the viewer has read a window up to `seq` (never backwards); the window list's `unread` counts after it.
     Json::Value markRead(const ChannelAccess& a, const std::string& windowId, int64_t seq);
     // messages
-    Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq);
+    Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq, bool includeHistory = true);
     Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling = {});
     Json::Value getMessage(const ChannelAccess& a, const std::string& messageId);
     Json::Value searchMessages(const ChannelAccess& a, const std::string& query, int limit);

@@ -1,5 +1,5 @@
 import { t as tr, currentLocale } from '../i18n';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../store/auth';
 import { api } from '../api/client';
 import { useChat } from '../store/chat';
@@ -60,24 +60,43 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
 }
 
 export default function MessageList() {
-  const { channelId, windowId } = useNav();
+  const { channelId, windowId, windows } = useNav();
   const messages = useChat((s) => (windowId ? s.byWindow[windowId] : undefined)) ?? [];
   const jumpTo = useChat((s) => s.jumpTo);
   const loadOlder = useChat((s) => s.loadOlder);
   const ref = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [jumped, setJumped] = useState<string | null>(null);
+  const olderPending = useRef(false);
+  const loadPrevious = async () => {
+    const el = ref.current;
+    if (!el || !channelId || !windowId || olderPending.current) return;
+    olderPending.current = true;
+    const height = el.scrollHeight, top = el.scrollTop;
+    setStick(false);
+    try {
+      await loadOlder(channelId, windowId);
+      requestAnimationFrame(() => {
+        if (useNav.getState().windowId === windowId && ref.current === el) el.scrollTop = top + el.scrollHeight - height;
+      });
+    } finally { olderPending.current = false; }
+  };
   useEffect(() => { if (stick && ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [messages.length, stick, windowId]);
   useEffect(() => {
     if (!jumpTo) return;
     const el = document.getElementById(`msg-${jumpTo.messageId}`);
     if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('jumped'); setJumped(jumpTo.messageId); setTimeout(() => { el.classList.remove('jumped'); setJumped(null); }, 2500); }
   }, [jumpTo]);
-  const onScroll = () => { const el = ref.current; if (!el) return; setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 40); if (el.scrollTop < 20 && channelId && windowId) loadOlder(channelId, windowId); };
+  const onScroll = () => { const el = ref.current; if (!el) return; setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 40); if (el.scrollTop < 20) void loadPrevious(); };
   return (
     <div className="message-list" ref={ref} onScroll={onScroll}>
+      {messages.length > 0 && <button className="ghost small" onClick={loadPrevious}>{tr('Load earlier messages')}</button>}
       {messages.length === 0 && <div className="muted small">{tr("No messages yet. The chronicler is listening.")}</div>}
-      {messages.map((m) => <MessageRow key={m.id} m={m} jumped={jumped === m.id} />)}
+      {messages.map((m, i) => <Fragment key={m.id}>
+        {(i === 0 || messages[i - 1].chat_window_id !== m.chat_window_id) && (m.chat_window_id !== windowId || i > 0 && messages[i - 1].chat_window_id !== windowId) &&
+          <div className="section small muted">{m.chat_window_id === windowId ? tr('Current scene') : tr('Earlier history from {name}', { name: windows.find(w => w.id === m.chat_window_id)?.name ?? tr('Previous scene') })}</div>}
+        <MessageRow m={m} jumped={jumped === m.id} />
+      </Fragment>)}
     </div>
   );
 }

@@ -11,10 +11,10 @@
 //   * places     – "new" at the place you already are is no move; "new" at another thread's place joins that thread;
 //   * the scene  – a thread is never emptied by a split: if everyone in it leaves for one place it simply relocates;
 //                  the main timeline keeps the players (co-players left behind get a side window of their own);
-//   * reunions   – always land in the main timeline (the Main Chat), where every player already is;
-//   * privacy    – nobody is ever added to an existing window (its whole history would open to them): joining a
-//                  thread whose window lacks a joining player regroups the thread into a fresh window;
-//   * leaving    – a player who leaves a thread others stay in stops seeing it: those who stay move to a fresh window;
+//   * reunions   – a later arrival joins the earlier party's window; the primary timeline can rebind to that window;
+//   * new scene  – simultaneous convergence forks the source with the most distinct human players;
+//   * privacy    – the harness pauses departing humans and resumes/adds arriving humans before narrating;
+//                  pauses leave permanent gaps, while co-players keep their existing seat-based context boundaries;
 //   * caps       – at most TIMELINE_MAX_ACTIVE active threads; a player gets a new window at most once per cooldown
 //                  (both counted on real new windows only, after the rules above).
 //
@@ -62,7 +62,7 @@ export function whereaboutsBrief({ timelines, scene, nameOf, windowName, isPc, m
   const lines = ["## Whereabouts"];
   for (const t of timelines.active()) {
     const here = scene?.timeline?.id === t.id ? " ← this scene" : "";
-    const where = t.id === MAIN ? "in the Main Chat" : t.windowId ? `in window "${windowName(t.windowId)}"` : "";
+    const where = t.windowId ? `in window "${windowName(t.windowId)}"` : t.id === MAIN ? "in the Main Chat (before the first split)" : "";
     const who = t.members.map((id) => `${nameOf(id)} (${isPc(id) ? "player" : "co-player"})`).join(", ") || "(no one)";
     lines.push(`- T${t.handle} "${t.name}"${here} ${where}${t.location ? `, at ${t.location}` : ""}${t.id === MAIN ? "" : `, ${t.span} split`}: ${who}`);
   }
@@ -136,7 +136,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   for (const [key, g] of groups) if (!g.ids.length) groups.delete(key);
 
   // 5. Normalise.
-  const ops = { moves: new Map(), merges: [], splits: [], relocations: [] };
+  const ops = { moves: new Map(), merges: [], splits: [], relocations: [], bindings: [] };
   const relocate = (timeline, g) => ops.relocations.push({ timeline, location: g.place ?? g.location, narrativeTime: g.time ?? g.narrativeTime ?? "" });
   const keep = (F, key) => {                                   // timeline F takes group `key` instead of a new window
     const g = groups.get(key);
@@ -154,7 +154,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
     if (!remaining.length && leaverKeys.length) {
       // (a) The scene is never emptied by a split: the group with the most players (then the largest) keeps it.
       const best = leaverKeys.map((k) => groups.get(k)).sort((a, b) => pcsIn(b.ids) - pcsIn(a.ids) || b.ids.length - a.ids.length || leaverKeys.indexOf(a.key) - leaverKeys.indexOf(b.key))[0];
-      keep(F, best.key);
+      if (best.ids.every(id => curOf(id) === F.id)) keep(F, best.key);
       continue;
     }
     if (F.id === MAIN && remaining.length && !pcsIn(remaining) && pcsIn(F.members) && leaverKeys.length === 1 && F.members.filter(isPc).every((id) => decisions.get(id)?.key === leaverKeys[0])) {
@@ -165,14 +165,6 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
       keep(F, leaverKeys[0]);
       continue;
     }
-    if (F.id !== MAIN && remaining.length && leavers.some(isPc) && F.windowId) {
-      // (d) A player leaves a thread others stay in: those who stay continue in a fresh window, so the leaver does not
-      // keep reading a scene their character has left (window members cannot be removed without losing history).
-      const key = `regroup:${F.id}`;
-      if (!groups.has(key)) groups.set(key, { key, place: F.location, time: F.narrativeTime, span: F.span, opening: "", ids: [...remaining], replaces: F.id, stay: true });
-      for (const id of remaining) decisions.set(id, { kind: "new", key });
-      continue;
-    }
     if (F.id === MAIN && !remaining.length) {
       // (c) Everyone in the main timeline went to existing threads: the reunion lands in the main timeline.
       const counts = new Map();
@@ -181,27 +173,16 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
       if (X) {
         for (const id of leavers) if (decisions.get(id)?.id === X) decisions.delete(id);
         const xt = timelines.get(X);
+        if (xt.windowId) ops.bindings.push({ op: "bind_main", windowId: xt.windowId });
         ops.merges.push({ from: X, into: MAIN });
         relocate(MAIN, { place: xt.location, time: xt.narrativeTime });
       }
     }
   }
 
-  // 6. Privacy: joining a thread whose window lacks a joining player's user regroups that thread into a fresh window.
-  const merged = new Set(ops.merges.map((m) => m.from));
-  for (const [id, d] of [...decisions]) {
-    if (d.kind !== "tl" || d.id === MAIN || merged.has(d.id) || !isPc(id)) continue;
-    const X = timelines.get(d.id);
-    const users = new Set(windowUsers(X.windowId));
-    if (users.has(userOf(id))) continue;
-    const key = `regroup:${X.id}`;
-    if (!groups.has(key)) groups.set(key, { key, place: X.location, time: X.narrativeTime, span: X.span, opening: "", ids: X.members.filter((m) => !decisions.has(m)), replaces: X.id });
-    groups.get(key).ids.push(id);
-    decisions.set(id, { kind: "new", key });
-  }
-  for (const [id, d] of [...decisions]) {
-    if (d.kind === "tl" && groups.has(`regroup:${d.id}`)) { decisions.set(id, { kind: "new", key: `regroup:${d.id}` }); groups.get(`regroup:${d.id}`).ids.push(id); }
-  }
+  // 6. Ongoing scenes keep their window. The harness pauses departed humans and resumes/adds
+  // arrivals; the server's visibility periods preserve each reader's actual history.
+  const merged = new Set(ops.merges.map(m => m.from));
 
   // 7. Limits on real new windows only (a relocation opens none): a player gets a new window at most once per cooldown,
   // and at most TIMELINE_MAX_ACTIVE threads exist. A refused group's departure is cancelled as a whole, so nobody is
@@ -230,8 +211,11 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   for (const [id, d] of decisions) if (d.kind === "tl") { if (!ops.moves.has(d.id)) ops.moves.set(d.id, []); ops.moves.get(d.id).push(id); }
   // New threads.
   for (const g of groups.values()) {
-    const from = g.ids.map(curOf).sort((a, b) => g.ids.filter((x) => curOf(x) === b).length - g.ids.filter((x) => curOf(x) === a).length)[0] ?? MAIN;
-    ops.splits.push({ ids: [...new Set(g.ids)], place: g.place, time: g.time, span: g.span, opening: g.opening, fromTimeline: from, replaces: g.replaces ?? null });
+    const sources = [...new Set(g.ids.map(curOf))];
+    const players = id => new Set((timelines.get(id)?.members ?? []).filter(isPc).map(userOf).filter(Boolean)).size;
+    const from = sources.sort((a,b) => players(b)-players(a) || (timelines.get(a)?.handle ?? 0)-(timelines.get(b)?.handle ?? 0))[0] ?? MAIN;
+    const primary = sources.length > 1 && timelines.main().members.length > 0 && timelines.main().members.every(id => g.ids.includes(id));
+    ops.splits.push({ ids: [...new Set(g.ids)], place: g.place, time: g.time, span: g.span, opening: g.opening, fromTimeline: from, replaces: g.replaces ?? null, ...(primary ? { primary: true } : {}) });
   }
 
   // Threads left empty are merged into where most of their members went (or the main timeline); if only one thread
@@ -239,7 +223,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   const after = new Map(before);
   for (const [to, ids] of ops.moves) for (const id of ids) after.set(id, to);
   for (const m of ops.merges) for (const [id, t] of after) if (t === m.from) after.set(id, m.into);
-  for (const s of ops.splits) for (const id of s.ids) after.set(id, `split:${s.place}`);
+  for (const s of ops.splits) for (const id of s.ids) after.set(id, s.primary ? MAIN : `split:${s.place}`);
   for (const t of timelines.active()) {
     if (t.id === MAIN || merged.has(t.id) || ops.splits.some((s) => s.replaces === t.id)) continue;
     if ([...after.values()].includes(t.id)) continue;
@@ -252,7 +236,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   if (!live.has(MAIN) && live.size === 1 && !ops.splits.length) {
     const only = [...live][0];
     const t = timelines.get(only);
-    if (t && t.id !== MAIN) { ops.merges.push({ from: t.id, into: MAIN }); relocate(MAIN, { place: t.location, time: t.narrativeTime }); merged.add(t.id); }
+    if (t && t.id !== MAIN) { ops.merges.push({ from: t.id, into: MAIN }); relocate(MAIN, { place: t.location, time: t.narrativeTime }); if (t.windowId) ops.bindings.push({ op: "bind_main", windowId: t.windowId }); merged.add(t.id); }
   }
   // Deduplicate merges by source.
   const seenFrom = new Set();
@@ -268,6 +252,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
     ...ops.splits.map((s) => ({ op: "split", ...s })),
     ...ops.merges.map((m) => ({ op: "merge", ...m })),
     ...ops.relocations.map((r) => ({ op: "relocate", ...r })),
+    ...ops.bindings,
   ];
   return { ops: list, changed: [...changed], ignored, guard: updates, prevOf: curOf };
 

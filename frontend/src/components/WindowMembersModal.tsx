@@ -15,6 +15,7 @@ export default function WindowMembersModal({ windowId, onClose }: { windowId: st
   const me = useAuth((s) => s.user);
   const toast = useUi((s) => s.toast);
   const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
   const win = windows.find((w) => w.id === windowId);
   const members = win?.members ?? [];
   useEffect(() => { if (channelId) api.channelMembers(channelId).then(setChannelMembers).catch(() => undefined); }, [channelId]);
@@ -22,16 +23,25 @@ export default function WindowMembersModal({ windowId, onClose }: { windowId: st
 
   const add = async (userId: string) => { try { await api.addWindowMember(channelId, windowId, userId); await refreshWindows(); } catch (e: any) { toast(e.message, 'error'); } };
   const remove = async (userId: string) => { try { await api.removeWindowMember(channelId, windowId, userId); await refreshWindows(); } catch (e: any) { toast(e.message, 'error'); } };
+  const pause = async (userId: string, value: boolean) => {
+    setBusy(userId);
+    try { await api.setWindowVisibility(channelId, windowId, userId, value); await refreshWindows(); }
+    catch (e: any) { toast(e.message, 'error'); }
+    finally { setBusy(null); }
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal col" role="dialog" aria-modal="true" aria-label={tr("Members")} onClick={(e) => e.stopPropagation()}>
         <h3>{tr("Members of “")}{win.name}”</h3>
+        {win.kind !== 'main' && <p className="small muted">{tr('Pause hides new messages and stops posting here. Resuming does not reveal messages from the pause. Other members of the same player group still share their views.')}</p>}
         <div className="col" style={{ gap: 4 }}>
           {members.length === 0 && <div className="muted small">{tr("Nobody yet.")}</div>}
           {members.map((m) => (
             <div key={m.user_id} className="pick-row">
               <span className="grow">{m.display_name}{m.character_name && <span className="tiny muted">{tr(" as ")}{m.character_name}</span>}</span>
+              {m.visibility_paused && <span className="pill">{tr('Visibility paused')}</span>}
+              {win.kind !== 'main' && channelMembers.some(c => c.id === m.user_id && c.role === 'player') && <button className="small" disabled={busy !== null} onClick={() => pause(m.user_id, !m.visibility_paused)}>{tr(m.visibility_paused ? 'Resume visibility' : 'Pause visibility')}</button>}
               {m.user_id !== me?.id && <button className="small" onClick={() => remove(m.user_id)}>{tr("Remove")}</button>}
             </div>
           ))}

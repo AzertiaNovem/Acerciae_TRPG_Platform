@@ -84,18 +84,17 @@ test("reunions land in the main timeline; a thread left empty is merged", () => 
   const back = plan(w, [{ who: ["alice"], thread: "T0" }], { scene: harbour.id, speakers: ["alice"] });
   assert.deepEqual(back.ops.map((o) => [o.op, o.from ?? o.to, o.into]), [["move", MAIN, undefined], ["merge", harbour.id, MAIN]]);
   const there = plan(w, [{ who: ["bob"], thread: `T${harbour.handle}` }], { speakers: ["bob"] });
-  assert.deepEqual(there.ops.map((o) => o.op), ["merge", "relocate"], "the Main Chat party walks to Alice: her thread comes back to the Main Chat");
+  assert.deepEqual(there.ops.map((o) => o.op), ["merge", "relocate", "bind_main"], "the primary party joins Alice in her existing window");
   assert.equal(there.ops[0].from, harbour.id); assert.equal(there.ops[1].location, "Old Harbour");
 });
 
-test("privacy: a player joining a thread whose window they are not in regroups it into a fresh window", () => {
+test("a later arrival joins the earlier party without forking their scene", () => {
   const w = world({ main: ["bob", "harriet"], threads: [{ place: "Old Harbour", members: ["alice", "tomas"], window: "w-harbour" }] });
   const harbour = w.tl.atPlace("Old Harbour");
   w.tl.main().members.push("carol"); PEOPLE.carol = { pc: true, user: "u-carol" };
   const r = plan(w, [{ who: ["carol"], thread: `T${harbour.handle}` }], { speakers: ["carol"], scope: ["bob", "harriet", "carol"] });
-  const split = r.ops.find((o) => o.op === "split");
-  assert.ok(split, "a fresh window"); assert.equal(split.replaces, harbour.id);
-  assert.deepEqual(split.ids.sort(), ["alice", "carol", "tomas"]);
+  assert.ok(!r.ops.some(o => o.op === "split"));
+  assert.deepEqual(r.ops.find(o => o.op === "move"), { op: "move", ids: ["carol"], to: harbour.id });
   delete PEOPLE.carol;
 });
 
@@ -127,23 +126,23 @@ test("a player gets a new window at most once per cooldown", () => {
   assert.deepEqual(r.ops, []); assert.match(r.ignored[0].why, /moments ago/);
 });
 
-test("a player leaving a thread others stay in: those who stay continue in a fresh window the leaver cannot read", () => {
+test("a player leaving does not fork the stayers scene; visibility is paused by the harness", () => {
   const w = world({ main: ["bob", "tomas"], threads: [{ place: "Docks", members: ["alice", "harriet"], window: "w-docks" }] });
   const docks = w.tl.byName("Docks");
   const r = plan(w, [{ who: ["alice"], thread: "T0" }], { scene: docks.id, speakers: ["alice"] });
-  assert.deepEqual(kinds(r), ["move", "split"], "the order is move, split, merge, relocate");
+  assert.deepEqual(kinds(r), ["move"]);
   assert.deepEqual(r.ops[0].ids, ["alice"]); assert.equal(r.ops[0].to, MAIN);
-  assert.deepEqual(r.ops[1].ids, ["harriet"]); assert.equal(r.ops[1].replaces, docks.id); assert.equal(r.ops[1].place, "Docks");
+
 });
 
-test("limits apply after normalising: a regroup is never refused by the cap or a player's cooldown", () => {
+test("returning to an existing scene needs no new-window budget or cooldown", () => {
   // Three side threads and the main one: the cap of four is reached.
   const w = world({ main: ["tomas"], threads: [{ place: "Docks", members: ["alice", "bob"], window: "w-docks" }, { place: "Mill", members: [], window: "w-mill" }, { place: "Inn", members: [], window: "w-inn" }] });
   const docks = w.tl.byName("Docks");
   const guard = new Guard(); guard.by.bob = { ...guard.rec("bob"), windowAt: 10_000_000 };
   const r = plan(w, [{ who: ["alice"], thread: "T0" }], { scene: docks.id, speakers: ["alice"], guard, now: 10_000_000 + 1000 });
-  const split = r.ops.find((o) => o.op === "split");
-  assert.ok(split, JSON.stringify(r)); assert.deepEqual(split.ids, ["bob"]); assert.equal(split.replaces, docks.id);
+  assert.ok(!r.ops.some(o => o.op === "split"));
+  assert.deepEqual(r.ops.find(o => o.op === "move")?.ids, ["alice"]);
   assert.deepEqual(r.ignored, []);
 });
 
@@ -160,7 +159,7 @@ test("validateWhereabouts never throws and accepts loose booleans", () => {
   assert.deepEqual(validateWhereabouts([null, { who: "x" }, { who: ["a"], thread: "new", place: "p", own_scene: "yes" }]).map((e) => e.ownScene), [true]);
 });
 
-test("confirmed co-presence bypasses movement debounce but still regroups a private window", () => {
+test("confirmed co-presence bypasses movement debounce and joins the existing window", () => {
   const w = world({ main: ["tomas"], threads: [
     { place: "Dorm corridor", members: ["alice"], window: "w-alice" },
     { place: "507", members: ["bob", "harriet"], window: "w-507" },
@@ -170,9 +169,21 @@ test("confirmed co-presence bypasses movement debounce but still regroups a priv
   guard.commit(["alice"], { turn: 5, now: 10_000_000, seq: 1, prevOf: () => MAIN, windowed: ["alice"] });
   const target = w.tl.atPlace("507");
   const r = plan(w, [{ who: ["alice"], thread: "T" + target.handle }], { scene: "Dorm corridor", mode: "presence", guard, turn: 5 });
-  const regroup = r.ops.find(o => o.op === "split");
-  assert.equal(regroup.replaces, target.id);
-  assert.deepEqual(regroup.ids.sort(), ["alice", "bob", "harriet"]);
+  assert.ok(!r.ops.some(o => o.op === "split"));
+  assert.deepEqual(r.ops.find(o => o.op === "move"), { op: "move", ids: ["alice"], to: target.id });
   assert.deepEqual(r.ignored, []);
-  assert.ok(!r.ops.some(o => o.op === "move" && o.to === target.id), "never expose the existing private window's history");
+});
+
+test('simultaneous convergence on a new scene forks the source with the most distinct human players', () => {
+  PEOPLE.carol = { pc: true, user: 'u-carol' };
+  try {
+    const w = world({ main: ['alice', 'harriet', 'tomas'], threads: [{ place: 'Market', members: ['bob', 'carol'], window: 'w-market' }] });
+    const ids = ['alice', 'bob', 'carol', 'harriet', 'tomas'];
+    const r = plan(w, [{ who: ids, thread: 'new', place: 'New station', own_scene: true }], { mode: 'presence', scope: ids });
+    const fork = r.ops.find(o => o.op === 'split');
+    assert.equal(fork.fromTimeline, w.tl.atPlace('Market').id, 'two humans outweigh one human and two AI companions');
+    assert.equal(fork.primary, true);
+    assert.deepEqual(new Set(fork.ids), new Set(ids));
+    assert.equal(r.ops.filter(o => o.op === 'split').length, 1);
+  } finally { delete PEOPLE.carol; }
 });
