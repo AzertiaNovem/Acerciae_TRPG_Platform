@@ -1170,7 +1170,7 @@ Json::Value VnScriptService::list(const ChannelAccess &a) {
   DbParams p{a.channelId};
   auto own = ownerClause(a, p);
   return db_.queryJson("SELECT j.id, j.snapshot_id, j.project_id, j.status, j.provider, j.model, j.progress, j.presentation_id, j.error, j.created_at, j.updated_at, j.created_by, "
-                       "j.params->>'title' AS title, j.params->>'continues_presentation_id' AS continues_presentation_id, s.scope AS snapshot_scope, s.version AS snapshot_version, j.script->'stats' AS stats, j.script->'generation' AS generation "
+                       "j.params->>'title' AS title, j.params->>'continues_presentation_id' AS continues_presentation_id, j.params->'windows' AS windows, s.scope AS snapshot_scope, s.version AS snapshot_version, j.script->'stats' AS stats, j.script->'generation' AS generation "
                        "FROM vn_script_jobs j JOIN log_snapshots s ON s.id=j.snapshot_id WHERE j.channel_id=$1" + own + " ORDER BY j.created_at DESC LIMIT 50",
                        p);
 }
@@ -1209,7 +1209,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
     // Continue a visual novel: the campaign log frozen again in the presentation's own scope.
     continued = pres_.presentationRow(a, cont);
     if (!pres_.canEditPresentation(a, continued)) throw forbidden("only the draft author or GM can continue this visual novel");
-    auto old = db_.queryOne("SELECT project_id, scope, scope_character_id FROM log_snapshots WHERE id=$1", {continued["snapshot_id"].asString()});
+    auto old = db_.queryOne("SELECT project_id, scope, scope_character_id, selection FROM log_snapshots WHERE id=$1", {continued["snapshot_id"].asString()});
     auto projectId = logs_.campaignProjectId(a.channelId);
     if (old.isNull() || old["project_id"].asString() != projectId) throw badRequest("only a visual novel made from the campaign log can be continued");
     if (!db_.queryOne("SELECT id FROM vn_script_jobs WHERE channel_id=$1 AND params->>'continues_presentation_id'=$2 AND status IN ('pending','running','waiting')", {a.channelId, cont}).isNull())
@@ -1220,6 +1220,13 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
     if (old["scope_character_id"].isString()) sb["scope_character_id"] = old["scope_character_id"];
     sb["title"] = clip(continued["title"].asString(), 200);
     sb["selection"]["mode"] = "campaign";
+    // The continuation tells the same chat windows (those still there).
+    if (old["selection"]["windows"].isArray()) {
+      auto kept = db_.queryJson("SELECT id FROM chat_windows WHERE channel_id=$1 AND id = ANY(" + Visibility::uuidArray(json::strArray(old["selection"]["windows"])) + ")", {a.channelId});
+      if (kept.empty()) throw badRequest("the chat windows this visual novel tells no longer exist");
+      sb["selection"]["windows"] = Json::Value(Json::arrayValue);
+      for (const auto& w : kept) sb["selection"]["windows"].append(w["id"]);
+    }
     snapshotId = logs_.createSnapshot(a, projectId, sb)["id"].asString();
   } else if (snapshotId.empty()) {
     // Freeze the campaign log now: the script always reads the latest lines in the requester's scope.
@@ -1230,14 +1237,20 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
     if (b["scope_character_id"].isString()) sb["scope_character_id"] = b["scope_character_id"];
     sb["title"] = clip(json::str(b, "title", "Visual novel"), 200);
     sb["selection"]["mode"] = "campaign";
+    // The chat windows to tell; without the list, every window the point of view can read.
+    if (b.isMember("windows")) sb["selection"]["windows"] = b["windows"];
     snapshotId = logs_.createSnapshot(a, projectId, sb)["id"].asString();
+  } else if (b.isMember("windows")) {
+    throw badRequest("windows choose the lines of a new snapshot; an existing snapshot already holds its lines");
   }
   auto events = logs_.snapshotEvents(a, snapshotId, &snap);
   if (!cont.empty()) {
     events.erase(events.begin(), events.begin() + (std::ptrdiff_t)continuationStart(events, presentedEvents(cont)));
     if (events.empty()) throw badRequest("there are no new lines after the end of this visual novel yet");
   }
-  if (events.empty()) throw badRequest(json::str(b, "scope") == "pl_public" ? "no line of the log is public to every player yet; choose a character's point of view" : "the log has no lines in your scope yet");
+  const bool someWindows = snap["selection"]["windows"].isArray();
+  if (events.empty()) throw badRequest(someWindows ? "the chosen chat windows have no lines in this point of view yet"
+                                       : json::str(b, "scope") == "pl_public" ? "no line of the log is public to every player yet; choose a character's point of view" : "the log has no lines in your scope yet");
   if (events.size() > kMaxLines) throw badRequest("the log has more than " + std::to_string(kMaxLines) + " lines; snapshot a range or a set of scenes");
   bool mock = llm_.isMock(a.channelId);
   if (!mock) {
@@ -1254,6 +1267,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
     params["new_lines"] = (Json::UInt64)events.size();
     params.removeMember("template");   // the presentation keeps its own look
   }
+  if (someWindows) params["windows"] = snap["selection"]["windows"];   // shown with the job
   params["cloud_authorized"] = !mock || json::toBool(b, "allow_cloud");
   params["generate_art"] = json::toBool(b, "generate_art", true);
   params["retry_failed_chunks"] = json::toBool(b, "retry_failed_chunks", llm_.retryFailedVnChunks());

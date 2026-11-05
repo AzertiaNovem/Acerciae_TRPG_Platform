@@ -3,6 +3,12 @@
 The existing native systemd deployment on server-sh uses the [online deployment workflow](ONLINE_DEPLOYMENT.md).
 The Docker instructions below apply to Compose installations.
 
+The scene-window update requires migration `0055_window_forks.sql`. Deploy the backend before clients that use
+fork/archive or pause/resume. Existing memberships retain their history; new memberships start at their join boundary.
+GM-agent updates on server-sh are manual and require a separate explicit deployment request. Do not include its
+process or state directory in automatic platform updates. Before an authorized upgrade, stop its process and back
+up the agent state; start a single process against the migrated backend. See [agent deployment notes](../gm-agent/README.md#deployment-of-the-scene-window-update).
+
 ## Before exposing it
 
 1. **Secrets.** In `.env` set `AUTH_SECRET` and `PDF_WORKER_TOKEN` to two different values from `openssl rand -hex 32`, and

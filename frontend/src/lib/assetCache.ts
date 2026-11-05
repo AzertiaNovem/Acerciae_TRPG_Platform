@@ -31,6 +31,7 @@ export type CacheEntry = { key: string; bytes: number; lastUsed: number; storedA
 interface Entry extends CacheEntry { blob: Blob; mime: string }
 
 let scope = '';
+const transient = new Map<string, number>(); // leased URLs for responses that cannot be kept
 const memory = new Map<string, string>();            // key → object URL, for this page
 const inflight = new Map<string, Promise<string>>();
 let dbPromise: Promise<IDBDatabase | null> | null = null;
@@ -130,15 +131,31 @@ async function write(key: string, blob: Blob, now: number) {
     await trim(d, now);
   } catch { /* a full or unavailable store just means no caching */ }
 }
+// Keep only metadata while scanning; getAll() retains every cached Blob in the result at once.
+function metadata(store: IDBObjectStore): Promise<CacheEntry[]> {
+  return new Promise((resolve, reject) => {
+    const entries: CacheEntry[] = [];
+    const request = store.openCursor();
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) { resolve(entries); return; }
+      const { key, bytes, lastUsed, storedAt } = cursor.value as Entry;
+      entries.push({ key, bytes, lastUsed, storedAt });
+      cursor.continue();
+    };
+  });
+}
+
 // Drops what expired and the least recently used entries beyond the budget.
 async function trim(d: IDBDatabase, now: number) {
   const store = d.transaction(STORE, 'readwrite').objectStore(STORE);
-  const all = await done(store.getAll() as IDBRequest<Entry[]>);
+  const all = await metadata(store);
   for (const key of planEviction(all.map(({ key, bytes, lastUsed, storedAt }) => ({ key, bytes, lastUsed, storedAt })), now)) store.delete(key);
 }
 export async function cacheStats(): Promise<{ entries: number; bytes: number }> {
   const d = await db(); if (!d) return { entries: 0, bytes: 0 };
-  try { const all = await done(d.transaction(STORE, 'readonly').objectStore(STORE).getAll() as IDBRequest<Entry[]>); return { entries: all.length, bytes: all.reduce((n, e) => n + (e.bytes || 0), 0) }; }
+  try { const all = await metadata(d.transaction(STORE, 'readonly').objectStore(STORE)); return { entries: all.length, bytes: all.reduce((n, e) => n + (e.bytes || 0), 0) }; }
   catch { return { entries: 0, bytes: 0 }; }
 }
 // Runs once per session start, after the app is up.
@@ -155,6 +172,22 @@ function remember(key: string, blob: Blob): string {
   memory.set(key, url);
   if (memory.size > MEMORY_KEPT) { const [oldest, old] = memory.entries().next().value as [string, string]; memory.delete(oldest); URL.revokeObjectURL(old); }
   return url;
+}
+
+function transientSrc(blob: Blob): string {
+  const source = URL.createObjectURL(blob);
+  transient.set(source, 0);
+  return source;
+}
+
+// Every cachedSrc caller owns one lease. Shared in-flight downloads release their Blob after the last view exits.
+export function releaseCachedSrc(source: string | undefined): void {
+  if (!source) return;
+  const leases = transient.get(source);
+  if (leases === undefined) return;
+  if (leases > 1) { transient.set(source, leases - 1); return; }
+  transient.delete(source);
+  URL.revokeObjectURL(source);
 }
 
 // What is already at hand for this page, without waiting.
@@ -190,20 +223,24 @@ export function cachedSrc(url: string | null | undefined, hash?: string | null):
         if (!obj.ok) return url;
         const bytes = await obj.blob();
         // The bucket marks every object immutable; whether this one may be kept is the API's call.
-        if (d.keep !== true) return URL.createObjectURL(bytes);
+        if (d.keep !== true) return transientSrc(bytes);
         void write(key, bytes, now);
         return remember(key, bytes);
       }
       const blob = await res.blob();
       // Not marked for keeping (the current version of something, GM-private material): these bytes serve this one
       // view and are neither stored nor remembered, so the next view asks again (and the browser revalidates by ETag).
-      if (!/\bimmutable\b/.test(res.headers.get('Cache-Control') ?? '')) return URL.createObjectURL(blob);
+      if (!/\bimmutable\b/.test(res.headers.get('Cache-Control') ?? '')) return transientSrc(blob);
       void write(key, blob, now);
       return remember(key, blob);
     })().catch(() => url).finally(() => inflight.delete(key));
     inflight.set(key, p);
   }
-  return p;
+  return p.then((source) => {
+    const leases = transient.get(source);
+    if (leases !== undefined) transient.set(source, leases + 1);
+    return source;
+  });
 }
 
 // Empties the device: the user's own choice (personal settings), or another account signing in on this browser.

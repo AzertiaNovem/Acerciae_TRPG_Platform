@@ -1,0 +1,74 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Api } from '../../gm-agent/src/api.mjs';
+import { Table } from '../../gm-agent/src/loop.mjs';
+import { Roster } from '../../gm-agent/src/roles/roster.mjs';
+import { MockLlm } from '../../gm-agent/src/llm/mock.mjs';
+import { buildConfig } from '../../gm-agent/src/config.mjs';
+const base = process.env.API_BASE || 'http://127.0.0.1:18081';
+
+test('GM harness partitions every party, joins existing scenes, and pauses humans without moving stayers', async () => {
+  const suffix = Date.now().toString(36);
+  const [gm, a, b] = await Promise.all(['gm', 'a', 'b'].map(async name => {
+    const api = new Api(base); await api.register(`scene_${name}_${suffix}`, 'password', name); return api;
+  }));
+  const server = await gm.createServer('Scene harness');
+  const ch = await gm.createChannel(server.id, { name: 'Separate perspectives', knowledge_mode: 'isolated', ai_enabled: false });
+  for (const api of [a, b]) await gm.post(`/api/channels/${ch.id}/members`, { user_id: api.user.id, role: 'player' });
+  const alice = await a.createCharacter(ch.id, { name: 'Alice', kind: 'pc' });
+  const bob = await b.createCharacter(ch.id, { name: 'Bob', kind: 'pc' });
+  const companion = await gm.createCharacter(ch.id, { name: 'Companion', kind: 'pc' });
+  const cfg = buildConfig({}, {}); cfg.planner.enabled = false; cfg.autonomy = false; cfg.postDelayMs = 0;
+  const t = await new Table({ api: gm, channelId: ch.id, cfg, llm: new MockLlm(), roster: new Roster(), deferArrivals: true, sleep: async () => {} }).init();
+  const main = t.mainWindow().id;
+  const post = async (win, text) => { const m = await gm.postMessage(ch.id, win, { kind: 'narration', content: text }); t.noteLine(m); return m; };
+  const view = (api, win) => api.get(`/api/channels/${ch.id}/windows/${win}/messages`);
+  const windows = () => gm.windows(ch.id);
+  await post(main, 'Everyone meets before separating.');
+  await t.command({ cmd: 'split', who: ['Alice'], place: 'Library' });
+  let aliceThread = t.timelines.of(alice.id);
+  const library = aliceThread.windowId, bobWindow = t.windowOf(t.timelines.of(bob.id));
+  assert.notEqual(library, main); assert.notEqual(bobWindow, main); assert.notEqual(library, bobWindow);
+  assert.equal(t.scene(main), null, 'Main Chat is now a lobby, not either party’s scene');
+  const privateB = await post(bobWindow, 'BOB_PRIVATE_FIRST');
+  await assert.rejects(view(a, bobWindow), e => e.status === 403);
+  await assert.rejects(view(b, library), e => e.status === 403);
+  // AI-only departure changes its seat, without moving the real player or altering their window.
+  const beforeCp = (await windows()).length;
+  await t.command({ cmd: 'split', who: ['Companion'], place: 'Roof' });
+  assert.equal(t.windowOf(t.timelines.of(bob.id)), bobWindow);
+  assert.equal((await windows()).length, beforeCp + 1);
+  const rooftop = t.timelines.of(companion.id);
+  const cpGap = await post(bobWindow, 'BOB_WHILE_AI_AWAY');
+  const cp = t.roster.coplayers.find(c => c.characterId === companion.id);
+  assert.ok(cp.seats.some(s => s.windowId === bobWindow && s.toSeq !== null && s.toSeq < cpGap.seq));
+  await t.command({ cmd: 'rejoin', timeline: rooftop.id });
+  assert.equal(t.windowOf(t.timelines.of(companion.id)), bobWindow);
+  assert.ok(cp.seats.at(-1).fromSeq > cpGap.seq);
+  // The later human arrival joins Bob's existing scene. No new fork or past secrets.
+  const beforeJoin = (await windows()).length;
+  await t.command({ cmd: 'rejoin', timeline: aliceThread.id });
+  assert.equal((await windows()).length, beforeJoin);
+  assert.equal(t.windowOf(t.timelines.of(alice.id)), bobWindow);
+  assert.ok((await windows()).find(w => w.id === library).archived_at);
+  assert.ok(!(await view(a, bobWindow)).some(m => m.id === privateB.id));
+  const together = await post(bobWindow, 'BOTH_HERE');
+  assert.ok((await view(a, bobWindow)).some(m => m.id === together.id));
+  // On a second departure the same ongoing scene remains open for Bob and Companion.
+  await t.command({ cmd: 'split', who: ['Alice'], place: 'Garden' });
+  aliceThread = t.timelines.of(alice.id);
+  const state = (await windows()).find(w => w.id === bobWindow);
+  assert.ok(!state.archived_at); assert.ok(state.members.find(m => m.user_id === a.user.id).visibility_paused);
+  assert.equal(t.windowOf(t.timelines.of(bob.id)), bobWindow);
+  const gap = await post(bobWindow, 'BOB_DURING_ALICE_ABSENCE');
+  await t.command({ cmd: 'rejoin', timeline: aliceThread.id });
+  assert.equal(t.windowOf(t.timelines.of(alice.id)), bobWindow);
+  const after = await post(bobWindow, 'BOTH_BACK');
+  const returned = await view(a, bobWindow);
+  assert.ok(returned.some(m => m.id === together.id)); assert.ok(returned.some(m => m.id === after.id));
+  assert.ok(!returned.some(m => m.id === gap.id)); assert.ok(!returned.some(m => m.id === privateB.id));
+  assert.ok(!(await windows()).find(w => w.id === bobWindow).members.find(m => m.user_id === a.user.id).visibility_paused);
+  const shared = await post(main, 'Public table discussion');
+  assert.ok((await view(a, main)).some(m => m.id === shared.id)); assert.ok((await view(b, main)).some(m => m.id === shared.id));
+  await t.memoryIdle(); t.store.close();
+});

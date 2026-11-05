@@ -69,7 +69,11 @@ GitHub 上传本次通过测试的确切提交，服务器使用文件锁串行�
 4. 原子切换 `current`，启动后端和 PDF worker，检查本机健康接口及两个服务状态。
 5. 写入 `/srv/acerciae/release.json`，再从 GitHub runner 检查公网 HTTPS 健康接口。
 
-切换期间有短暂停机，现有 WebSocket 会断线重连。保留所有旧 release 和备份，不自动删除。
+切换期间有短暂停机，现有 WebSocket 会断线重连。健康检查成功后自动只保留 3 个 release：
+当前运行版本、记录中的上一运行版本，以及按目录时间排序的最新剩余版本。失败的部署不执行清理。
+清理与部署共用 `.deploy.lock`，不会跟随发布目录中的上传目录符号链接；旧发布附带的源码压缩包一并删除。
+也可以以 deploy 用户运行 `python3 deploy.py --prune`，只清理旧发布，不重启服务。
+这里的三版限制仅针对 `releases/`，`backups/` 中的数据库和上传文件备份保持独立，不随发布目录删除。
 部署日志在 Actions 中以及 `/srv/acerciae/incoming/<release ID>/deploy.log`。
 含密钥的备份目录权限为 700，不上传到 GitHub artifact。
 

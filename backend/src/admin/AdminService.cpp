@@ -17,6 +17,7 @@ const char* kObjects =
     "  SELECT m.channel_id, m.created_by, coalesce(v.bytes, m.bytes) AS bytes, coalesce(v.n, 1) AS n, "
     "         CASE WHEN m.mime LIKE 'image/%' THEN 'image' WHEN m.mime LIKE 'audio/%' THEN 'audio' WHEN m.mime LIKE 'video/%' THEN 'video' ELSE 'other' END AS kind "
     "  FROM media_assets m LEFT JOIN (SELECT asset_id, sum(bytes) AS bytes, count(*) AS n FROM asset_versions GROUP BY asset_id) v ON v.asset_id=m.id "
+    "  UNION ALL SELECT channel_id, NULL, bytes, 1, 'image' FROM image_reference_objects "
     "  UNION ALL SELECT channel_id, NULL, bytes, 1, 'audio' FROM tts_audio_assets "
     "  UNION ALL SELECT channel_id, created_by, coalesce(bytes, 0), 1, 'pdf' FROM pdf_render_jobs WHERE object_key IS NOT NULL "
     "  UNION ALL SELECT channel_id, requested_by, coalesce(bytes, 0), 1, 'bundle' FROM vn_bundle_jobs WHERE object_key IS NOT NULL"

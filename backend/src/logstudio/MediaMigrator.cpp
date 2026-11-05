@@ -1,4 +1,6 @@
 #include "MediaMigrator.h"
+#include "ImageReferences.h"
+#include "ObjectInventory.h"
 #include "../core/Json.h"
 #include "../core/Log.h"
 #include <drogon/utils/Utilities.h>
@@ -11,7 +13,7 @@ void MediaMigrator::start() {
     thread_ = std::thread([this] {
         try {
             auto r = runOnce();
-            if (r.avatarsMoved + r.madePublic + r.uploaded + r.failed + r.localDeleted > 0) ALOG_INFO << "media migration: " << describe(r);
+            if (r.imageJobsMoved + r.avatarsMoved + r.madePublic + r.uploaded + r.failed + r.localDeleted > 0) ALOG_INFO << "media migration: " << describe(r);
         } catch (const std::exception& e) { ALOG_WARN << "media migration stopped: " << e.what(); }
     });
 }
@@ -21,17 +23,36 @@ void MediaMigrator::stop() {
 }
 
 std::string MediaMigrator::describe(const Report& r) {
-    return std::to_string(r.avatarsMoved) + " avatars moved out of the database, " + std::to_string(r.madePublic) + " objects moved to the public bucket, " +
+    return std::to_string(r.imageJobsMoved) + " image jobs externalized, " + std::to_string(r.avatarsMoved) + " avatars moved out of the database, " + std::to_string(r.madePublic) + " objects moved to the public bucket, " +
            std::to_string(r.uploaded) + " local objects uploaded, " + std::to_string(r.alreadyThere) + " already there, " + std::to_string(r.missing) +
            " missing, " + std::to_string(r.failed) + " failed, " + std::to_string(r.localDeleted) + " local copies deleted";
 }
 
 MediaMigrator::Report MediaMigrator::runOnce() {
     Report r;
-    moveInlineAvatars(r);
+    moveImageReferences(r);
+    if (!stopping()) moveInlineAvatars(r);
     if (store_.publicAvailable() && !stopping()) makePublic(r);
     if (!stopping()) uploadLocal(r);
+    if (!stopping()) r.failed += reconcileObjectInventory(db_, store_, [&] { return stopping(); });
     return r;
+}
+
+// Read one job at a time: the old table can contain hundreds of MB of inline image bytes.
+void MediaMigrator::moveImageReferences(Report& r) {
+    for (const auto& row : db_.queryJson("SELECT id FROM asset_generation_jobs WHERE status<>'running' AND params @? '$.request.reference_images[*].data_uri'")) {
+        if (stopping()) return;
+        const auto id = row["id"].asString();
+        try {
+            const auto job = db_.queryOne("SELECT channel_id,params FROM asset_generation_jobs WHERE id=$1 AND status<>'running'", {id});
+            if (job.isNull()) continue;
+            auto params = job["params"];
+            if (!externalizeImageReferences(store_, job["channel_id"].asString(), params["request"])) continue;
+            // A worker may have claimed or changed it while the snapshot was uploaded.
+            if (!db_.queryOne("UPDATE asset_generation_jobs SET params=$2::jsonb WHERE id=$1 AND status<>'running' AND params=$3::jsonb RETURNING id",
+                              {id,json::dump(params),json::dump(job["params"])}).isNull()) ++r.imageJobsMoved;
+        } catch (const std::exception& e) { ++r.failed; ALOG_WARN << "image reference migration " << id << ": " << e.what(); }
+    }
 }
 
 // 1. users.avatar_data (a data URI) → an object; the version is kept so clients' cached pictures stay valid.
@@ -100,6 +121,7 @@ void MediaMigrator::uploadLocal(Report& r) {
     if (!local) return;
     auto rows = db_.queryJson(
         "SELECT object_key AS k, mime FROM media_assets UNION SELECT object_key, mime FROM asset_versions "
+        "UNION SELECT object_key, mime FROM image_reference_objects "
         "UNION SELECT object_key, mime FROM tts_audio_assets UNION SELECT object_key, 'application/pdf' FROM pdf_render_jobs WHERE object_key IS NOT NULL "
         "UNION SELECT raw_object_key, 'application/octet-stream' FROM log_imports WHERE raw_object_key IS NOT NULL "
         "UNION SELECT avatar_key, coalesce(avatar_mime,'image/png') FROM users WHERE avatar_key IS NOT NULL");

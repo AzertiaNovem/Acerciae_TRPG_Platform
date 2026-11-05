@@ -74,9 +74,14 @@ The **Make a visual novel** card on the Visual novel tab has four steps.
 
 ![Dubbing cast step](screenshots/vn-wizard-cast.png)
 
-1. **Script.** Choose which lines the AI reads: everything (Keeper only; the result is Keeper only), lines public to every
-   player, or one character's point of view (a player's own characters only). The request freezes the campaign log in
-   that scope and queues `POST /vn-scripts`. A worker writes the script and builds a draft presentation.
+1. **Script.** Choose the **point of view**: everything (Keeper only; the result is Keeper only), lines public to every
+   player, or one character's point of view (a player's own characters only). It decides who may watch the result and
+   which lines anyone may read. Then tick the **chat windows to tell**: every window the point of view can read is
+   listed with its number of lines (`GET /vn-scripts/windows`), and the windows you leave out are not told. A window
+   the point of view reads nothing of is shown greyed out; a player sees only the windows they are in or can read.
+   Scene changes that belong to no window always stay. The request freezes the campaign log in that scope, narrowed to
+   those windows, and queues `POST /vn-scripts`; a continuation tells the same windows (those that still exist). A
+   worker writes the script and builds a draft presentation.
 2. **Art.** Scenes without an approved background, and portraits the script asks for, are painted by the image AI and
    land in the draft as they finish. Characters in uploaded mode use only the portraits their players uploaded.
 3. **Dubbing cast.** Pick a voice for every speaking character and for the narration (Keeper narration, dice and scene

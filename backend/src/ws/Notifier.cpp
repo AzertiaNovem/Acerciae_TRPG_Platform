@@ -35,8 +35,8 @@ void Notifier::messagePosted(const Json::Value& m) {
     auto vis = m["visibility"].asString();
     std::set<std::string> allowed;
     for (auto& u : gmUsers(channelId)) allowed.insert(u);
-    if (vis == "window") for (auto& u : windowUsers(windowId)) allowed.insert(u);
-    else if (vis == "whisper") for (auto& u : usersOfCharacters(json::strArray(m["whisper_to"]))) allowed.insert(u);
+    // Use the same period-aware group view as HTTP. Direct window membership/whisper ownership
+    // must not bypass a pause and leak a message through the socket before the next fetch.
     for(const auto& r : db_.queryJson("SELECT DISTINCT pm.user_id FROM player_group_members pm JOIN player_group_readable_messages ge ON ge.group_id=pm.group_id WHERE ge.message_id=$1",{m["id"].asString()})) allowed.insert(r["user_id"].asString());
     Json::Value msg; msg["type"] = "message.posted"; msg["channel_id"] = channelId; msg["message"] = m;
     WsGateway::instance().broadcast("chat", channelId, msg, setFilter(std::move(allowed)));

@@ -15,7 +15,15 @@ function fakeIndexedDB() {
       put: (v) => req(() => { rows.set(v.key, v); return v.key; }),
       delete: (k) => req(() => { rows.delete(k); }),
       clear: () => req(() => rows.clear()),
-      getAll: () => req(() => [...rows.values()]),
+      getAll: () => { if (name === 'assets') throw new Error('asset metadata scans must not retain every Blob'); return req(() => [...rows.values()]); },
+      openCursor: () => {
+        const r = {}; const values = [...rows.values()]; let index = 0;
+        const advance = () => setTimeout(() => {
+          r.result = index < values.length ? { value: values[index++], continue: advance } : null;
+          r.onsuccess?.();
+        }, 0);
+        advance(); return r;
+      },
       index: () => ({ getAll: () => req(() => [...rows.values()].sort((a, b) => (a.lastUsed ?? a.used) - (b.lastUsed ?? b.used))) }),
     };
   };
@@ -169,4 +177,21 @@ test('the model cache stand-in keeps files where the webview has no Cache API', 
   assert.deepEqual([...new Uint8Array(await hit.arrayBuffer())], [1, 2, 3]);
   assert.equal(hit.headers.get('content-type'), 'application/octet-stream');
   assert.equal(p.installCachePolyfill({ caches: {} }), false, 'a real Cache API is left alone');
+});
+
+
+test('nonpersistent Blob URLs survive shared consumers and are revoked after the last release', async () => {
+  const revoked = [];
+  class TestURL extends URL { static revokeObjectURL(source) { revoked.push(source); URL.revokeObjectURL(source); } }
+  const c = load('lib/assetCache.ts', { indexedDB: fakeIndexedDB(), URL: TestURL, fetch: async () => response('PRIVATE', { 'Cache-Control': 'private, no-cache' }), location: { href: 'http://app.test/' } });
+  const url = 'http://api.test/api/channels/c/media/temporary';
+  const [first, second] = await Promise.all([c.cachedSrc(url), c.cachedSrc(url)]);
+  assert.equal(first, second);
+  c.releaseCachedSrc(first);
+  assert.deepEqual(revoked, []);
+  c.releaseCachedSrc(second);
+  assert.deepEqual(revoked, [first]);
+  c.releaseCachedSrc(second);
+  assert.deepEqual(revoked, [first], 'late cleanup is harmless');
+  assert.equal(c.peekSrc(url), undefined);
 });

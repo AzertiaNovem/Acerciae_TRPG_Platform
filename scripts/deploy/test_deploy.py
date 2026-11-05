@@ -152,6 +152,82 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual((self.root / 'current').resolve(), self.old)
 
 
+class ReleaseRetentionTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.releases = []
+        for number in range(6):
+            release = self.root / 'releases' / f'{number:040x}-42-1'
+            release.mkdir(parents=True)
+            os.utime(release, (100 + number, 100 + number))
+            self.releases.append(release)
+        (self.root / 'current').symlink_to(self.releases[0])
+        (self.root / 'release.json').write_text(json.dumps({'previous_release': str(self.releases[1])}))
+
+    def test_keeps_current_rollback_and_newest_and_is_repeatable(self):
+        deploy.prune_releases(self.root)
+        self.assertEqual(set((self.root / 'releases').iterdir()),
+                         {self.releases[0], self.releases[1], self.releases[5]})
+        deploy.prune_releases(self.root)
+        self.assertEqual((self.root / 'current').resolve(), self.releases[0])
+
+    def test_deletion_does_not_follow_upload_or_top_level_symlinks(self):
+        uploads = self.root / 'uploads'
+        uploads.mkdir()
+        payload = uploads / 'keep.txt'
+        payload.write_text('user data')
+        (self.releases[2] / 'uploads').symlink_to(uploads)
+        linked = self.root / 'releases/abcdef0'
+        linked.symlink_to(uploads)
+        backup = self.root / 'backups/before-old/database.dump'
+        backup.parent.mkdir(parents=True)
+        backup.write_text('backup')
+        deploy.prune_releases(self.root)
+        self.assertEqual(payload.read_text(), 'user data')
+        self.assertTrue(linked.is_symlink())
+        self.assertTrue(backup.exists())
+
+    def test_removes_obsolete_archives_but_preserves_unknown_files(self):
+        obsolete = self.root / 'releases/abcdef1.tar.gz'
+        obsolete.touch()
+        kept = self.root / 'releases' / (self.releases[0].name + '.tar.gz')
+        kept.touch()
+        unknown = self.root / 'releases/operator-notes'
+        unknown.mkdir()
+        deploy.prune_releases(self.root)
+        self.assertFalse(obsolete.exists())
+        self.assertTrue(kept.exists())
+        self.assertTrue(unknown.exists())
+
+    def test_refuses_external_current_without_deleting_anything(self):
+        (self.root / 'current').unlink()
+        (self.root / 'current').symlink_to(self.root)
+        with self.assertRaises(RuntimeError):
+            deploy.prune_releases(self.root)
+        self.assertTrue(all(p.exists() for p in self.releases))
+
+    def test_prune_mode_health_checks_under_lock_without_activation(self):
+        with patch.object(sys, 'argv', ['deploy.py', '--prune']), patch.object(deploy, 'ROOT', self.root), \
+                patch.dict(deploy.os.environ), patch.object(deploy.os, 'umask'), \
+                patch.object(deploy, 'preflight'), patch.object(deploy, 'health') as health, \
+                patch.object(deploy, 'activate') as activate, patch.object(deploy, 'prepare') as prepare:
+            deploy.main()
+        health.assert_called_once()
+        activate.assert_not_called()
+        prepare.assert_not_called()
+        self.assertEqual(len(list((self.root / 'releases').iterdir())), 3)
+
+    def test_failed_health_never_prunes(self):
+        with patch.object(sys, 'argv', ['deploy.py', '--prune']), patch.object(deploy, 'ROOT', self.root), \
+                patch.dict(deploy.os.environ), patch.object(deploy.os, 'umask'), \
+                patch.object(deploy, 'preflight'), patch.object(deploy, 'health', side_effect=RuntimeError('unhealthy')):
+            with self.assertRaises(RuntimeError):
+                deploy.main()
+        self.assertTrue(all(p.exists() for p in self.releases))
+
+
 @unittest.skipUnless(all(shutil.which(tool) for tool in ('ccache', 'cmake', 'ninja', 'node', 'npm')), 'compiler cache integration needs ccache, CMake, Ninja and Node')
 class CompilerCacheIntegrationTests(unittest.TestCase):
     def test_new_release_reuses_cache_but_header_changes_recompile(self):

@@ -71,6 +71,30 @@ class FakeApi {
     const w = { id: `w-new${this.windows_.length}`, kind: body.kind, name: body.name, members: [{ user_id: "u-bot" }, ...(body.members ?? []).map((m) => ({ ...m, character_name: this.characters_.find((c) => c.id === m.character_id)?.name }))] };
     this.windows_.push(w); this.createdWindows.push(w); return structuredClone(w);
   }
+  async forkWindow(ch, parent, body) {
+    const existing = this.windows_.find(w => w.fork_request_id === body.request_id);
+    if (existing) return structuredClone(existing);
+    const w = await this.createWindow(ch, body);
+    const saved = this.windows_.find(x => x.id === w.id);
+    Object.assign(saved, { fork_parent_id: parent, fork_seq: this.seq, fork_request_id: body.request_id });
+    if (this.loseForkResponse) { this.loseForkResponse = false; throw Error('fork response lost'); }
+    return structuredClone(saved);
+  }
+  async setWindowVisibility(_ch, id, user, paused) {
+    const win = this.windows_.find(w => w.id === id);
+    const member = win?.members.find(m => m.user_id === user);
+    if (!member) throw Error("not a member");
+    member.visibility_paused = paused;
+    (this.visibilityChanges ??= []).push({ id, user, paused });
+    return win.members;
+  }
+  async updateWindow(_ch, id, body) {
+    const w = this.windows_.find(w => w.id === id);
+    if (!w) throw Error('unknown window');
+    if ('archived' in body) w.archived_at = body.archived ? '2026-11-05T00:00:00Z' : null;
+    if (body.name) w.name = body.name;
+    return structuredClone(w);
+  }
   async advanceScenario(_ch, body) { const scene = { id: `sc${this.scenes_.length + 1}`, title: body.title, status: "active", location: body.location, narrative_time: body.narrative_time, event_count: 0, created_at: new Date().toISOString() }; for (const x of this.scenes_) if (x.id === this.currentScene) x.status = "closed"; this.scenes_.push(scene); this.currentScene = scene.id; this.advanced.push(body); return { scene }; }
   async enterScenario(_ch, id) { for (const x of this.scenes_) if (x.id === this.currentScene) x.status = "closed"; this.currentScene = id; this.advanced.push({ entered: id }); return { scene: this.scenes_.find((x) => x.id === id) }; }
   async createCharacter(_ch, body) { const c = { id: `c-new${this.created.length}`, user_id: body.kind === "pc" ? this.user.id : null, ...body }; this.created.push(c); this.characters_.push(c); return c; }
@@ -110,7 +134,7 @@ async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = []
   const t = await new Table({ api, llm, cfg, channelId: "ch", roster: new Roster(), improv, casual, sleep: async () => {}, now: () => clock.t, log: process.env.TEST_LOG ? console.log : () => {} }).init({ heal });
   return { t, api, llm, clock };
 }
-const playerSays = (t, api, content, w = "w-main") => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content }) });
+const playerSays = (t, api, content, w = t.primaryWindowId()) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content }) });
 
 test("co-players and real NPCs are told apart from the platform's characters", async () => {
   const { t } = await table();
@@ -260,30 +284,31 @@ test("TIMELINE_AUTO=false: split moves co-players into a window of their own on 
   const { t, api } = await table({ llm, cfg: { timelineAuto: false } });
   await t.post("w-main", { kind: "ic", character_id: "c-harriet", content: "I go to the Old Harbour." });
   await playerSays(t, api, "Harriet, go and watch the harbour tonight.");
-  const side = api.windows_.find((w) => w.name === "Side: The docks");
+  const side = api.windows_.find((w) => w.name === "Side: Old Harbour");
   assert.ok(side, "a side window was created"); assert.deepEqual(side.members.map((m) => m.user_id), ["u-bot"], "no human sits in it");
   const harriet = t.roster.coplayerByName("Harriet Vance");
   assert.deepEqual(harriet.seats.map((s) => [s.windowId, s.toSeq === null]), [["w-main", false], [side.id, true]], "the Main Chat seat closed, the side seat is open");
-  const tl = t.timelines.byName("The docks");
+  const tl = t.timelines.byName("Old Harbour");
   assert.equal(tl.windowId, side.id); assert.deepEqual(tl.members, ["c-harriet"]); assert.equal(tl.location, "Old Harbour");
   assert.deepEqual(t.timelines.main().members, ["c-alice"]);
-  assert.equal(api.posts.at(-1).window, side.id); assert.equal(api.posts.at(-1).content, "Fog hangs over the harbour.");
+  assert.ok(api.posts.some(p => p.window === side.id && p.content === "Fog hangs over the harbour."));
   // Harriet no longer hears the Main Chat.
   api.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "MAIN-WHILE-AWAY" });
   await t.post(side.id, { kind: "ic", character_id: "c-harriet", content: "I go back to the others." });
-  llm.director = quietDirector({ actions: [{ type: "rejoin", timeline: "The docks", text: "Harriet comes back soaked." }], coplayers_may_act: true });
+  llm.director = quietDirector({ actions: [{ type: "rejoin", timeline: "Old Harbour", text: "Harriet comes back soaked." }], coplayers_may_act: true });
+  await playerSays(t, api, "Come back from the harbour."); await settle(t);
   await playerSays(t, api, "Any news from the harbour?");
-  assert.equal(t.timelines.byName("The docks").status, "merged");
+  assert.equal(t.timelines.byName("Old Harbour").status, "merged");
   assert.deepEqual(t.timelines.main().members.sort(), ["c-alice", "c-harriet"]);
-  assert.deepEqual(harriet.seats.at(-1), { windowId: "w-main", fromSeq: harriet.seats.at(-1).fromSeq, toSeq: null });
+  assert.deepEqual(harriet.seats.at(-1), { windowId: t.primaryWindowId(), fromSeq: harriet.seats.at(-1).fromSeq, toSeq: null });
   const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
   assert.ok(cp.includes("Fog hangs over the harbour."), "Harriet remembers her side trip");
   assert.ok(!cp.includes("MAIN-WHILE-AWAY"), "and not what the Main Chat said while she was away");
   assert.ok(cp.includes("Any news from the harbour?"), "but hears the Main Chat again now");
   assert.ok(cp.includes("YOUR TIMELINE: Main story"));
   const gm = llm.calls.filter((c) => c.purpose === "director").at(-1).messages[0].content;
-  assert.ok(gm.includes("## Timelines") && gm.includes("The docks [merged into Main story]"), "the Keeper sees the timelines");
-  assert.ok(/Fog hangs over the harbour\./.test(gm) && gm.includes("[timeline: The docks]"), "side lines are tagged with their timeline");
+  assert.ok(gm.includes("## Timelines") && gm.includes("Old Harbour [merged into Main story]"), "the Keeper sees the timelines");
+  assert.ok(/Fog hangs over the harbour\./.test(gm) && gm.includes("[timeline: Old Harbour]"), "side lines are tagged with their timeline");
 });
 
 test("a side timeline moves on its own clock, with no human line, and the GM answers the co-players at once", async () => {
@@ -292,7 +317,8 @@ test("a side timeline moves on its own clock, with no human line, and the GM ans
   const { t, api, clock } = await table({ llm, cfg: { timelineAuto: false, autonomySideIntervalMs: 90000, autonomyQuietMs: 10 * MIN } });
   await t.post("w-main", { kind: "ic", character_id: "c-harriet", content: "I go to the Old Harbour." });
   await playerSays(t, api, "Harriet, go and watch the harbour tonight.");
-  const side = api.windows_.find((w) => w.name === "Side: The docks");
+  const side = api.windows_.find((w) => w.name === "Side: Old Harbour");
+  await settle(t);
   llm.director = (user) => ({ actions: user.includes("MODE: side") ? [{ type: "narrate", text: "A boat creaks at the quay." }] : user.includes("MODE: followup") ? [{ type: "narrate", text: "The sailor turns to you." }] : [], coplayers_may_act: true });
   assert.equal(await t.tick(), null, "too soon after the opening line");
   clock.t += 91000;
@@ -302,7 +328,7 @@ test("a side timeline moves on its own clock, with no human line, and the GM ans
   assert.deepEqual(posted.map((p) => [p.window, p.kind, p.character_id ?? null]), [[side.id, "narration", null], [side.id, "ic", "c-harriet"], [side.id, "narration", null]], "Keeper, co-player, Keeper's answer — all in the side window");
   const sideCall = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
   assert.ok(sideCall.includes("No human player is with you here"), "the co-player knows it leads this thread");
-  assert.ok(sideCall.includes("YOUR TIMELINE: The docks; time: Tuesday night; place: Old Harbour"));
+  assert.ok(sideCall.includes("YOUR TIMELINE: Old Harbour; time: Tuesday night; place: Old Harbour"));
   assert.equal(await t.tick(), null, "the side interval has not passed again");
   clock.t += 91000;
   assert.notEqual(await t.tick(), null);
@@ -397,7 +423,7 @@ test("a player who says they go elsewhere gets a window of their own with the GM
   const w = api.createdWindows[0];
   assert.ok(w, "a window was created"); assert.equal(w.name, "Scene: docks to look for the sailor");
   assert.deepEqual(w.members.map((m) => m.user_id), ["u-bot", "u-alice"], "exactly Alice (and the Keeper account)");
-  assert.equal(api.membershipWrites, 1, "members are written once, at creation, and never added later");
+  assert.equal(api.membershipWrites, 2, "both parties receive restricted forks");
   const tl = t.timelines.of("c-alice");
   assert.equal(tl.windowId, w.id); assert.deepEqual(tl.members, ["c-alice"]); assert.equal(tl.span, "short");
   assert.deepEqual(t.timelines.main().members.sort(), ["c-bob", "c-harriet"], "Bob and Harriet stay where they are");
@@ -428,7 +454,7 @@ test("only the player's own line moves them; a co-player follows after its own l
   const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet")).at(-1).messages[0].content;
   assert.ok(cp.includes("I go to the docks"), "she remembers the departure");
   assert.ok(cp.includes("WITH YOU HERE") && cp.indexOf("Alice Hale") > cp.indexOf("WITH YOU HERE"), "she knows Alice is with her");
-  assert.equal(api.membershipWrites, 1, "a co-player joining needs no membership write");
+  assert.equal(api.membershipWrites, 2, "a co-player joining adds no membership writes beyond the initial two forks");
 });
 
 test("coming back: the player's thread merges into the main story, the old window points to the Main Chat, the reunion is narrated", async () => {
@@ -440,9 +466,9 @@ test("coming back: the player's thread merges into the main story, the old windo
   await settle(t);
   assert.equal(t.timelines.of("c-alice").id, "main");
   assert.equal(t.timelines.get(side.id).status, "merged"); assert.ok(t.timelines.retired(side.windowId));
-  assert.ok(api.posts.some((p) => p.window === side.windowId && p.visibility === "window" && p.content === '→ "Main Chat"'), "the old window points back");
+  assert.ok(api.posts.some((p) => p.window === side.windowId && p.visibility === "window" && p.content === `→ "${t.windowName(t.primaryWindowId())}"`), "the old window points back");
   assert.ok(directorCalls(llm).some((u) => u.includes("MODE: arrival") && u.includes("rejoined the others")), "the reunion gets its own scene opening");
-  assert.equal(api.membershipWrites, 1, "no membership write for a reunion");
+  assert.equal(api.membershipWrites, 3, "the late human joins the existing primary scene");
   assert.equal(await t.tick(), null, "a retired window never gets autonomous turns");
 });
 
@@ -490,23 +516,27 @@ test("a platform failure creating the window changes nothing locally and the win
   await settle(t);
   assert.equal(api.createdWindows.length, 1);
   assert.equal(t.timelines.active().length, 1, "no thread without its window");
-  assert.equal(t.journal, null);
-  assert.deepEqual(t.guard.spare.map((x) => x.windowId), [api.createdWindows[0].id], "the window already made is kept");
+  assert.equal(t.journal.phase, "A");
+  assert.equal(t.journal.created[0].windowId, api.createdWindows[0].id, "the persisted request retains the first fork");
   api.failAfter = undefined;
   await Promise.all([alicePosts(t, api, "I go to the docks."), bobSays(t, api, "And I go to the Mill.")]);
   await settle(t);
-  assert.equal(api.createdWindows.length, 2, "only Bob's window is made the second time");
+  assert.equal(api.createdWindows.length, 3, "retry reuses Alice’s fork and creates Bob’s and the stayers’ forks");
   assert.equal(t.timelines.of("c-alice").windowId, api.createdWindows[0].id, "Alice's earlier window is reused");
   assert.deepEqual(t.guard.spare, []);
 });
 
-test("a split the platform fails three times is given up and noted, not retried every turn", async () => {
+test("a failed scene plan stays recoverable and never falls back to public narration", async () => {
   const { t, api } = await table({ bob: true });
   api.failCreate = true;
-  for (let i = 0; i < 4; i++) { await alicePosts(t, api, "I go to the docks."); await settle(t); }
-  assert.equal(api.createAttempts, 3);
-  assert.ok(api.posts.some((p) => p.visibility === "gm_only" && /failed to open this scene three times/.test(p.content)));
+  for (let i = 0; i < 3; i++) { await alicePosts(t, api, "I go to the docks."); await settle(t); }
+  assert.equal(t.journal.phase, "A");
   assert.equal(t.timelines.of("c-alice").id, "main");
+  assert.ok(!api.posts.some(p => p.visibility === "window"));
+  api.failCreate = false;
+  await t.heal(); await settle(t);
+  assert.notEqual(t.windowOf(t.timelines.of("c-alice")), "w-main");
+  assert.notEqual(t.primaryWindowId(), "w-main");
 });
 
 test("an interrupted split is finished on restart with the window it had already made, and its scene still gets an opening turn", async () => {
@@ -517,7 +547,7 @@ test("an interrupted split is finished on restart with the window it had already
   const t2 = new Table({ api, llm, cfg: t.cfg, channelId: "ch", roster: new Roster(), journal, sleep: async () => {} });
   await t2.init({ heal: true });
   await settle(t2);
-  assert.equal(api.createdWindows.length, 1, "no second window");
+  assert.equal(api.createdWindows.length, 2, "the existing window is retained and the stayers get their restricted fork");
   assert.equal(t2.timelines.of("c-alice").windowId, made.id);
   assert.equal(t2.timelines.of("c-alice").location, "Docks");
   assert.equal(t2.journal, null);
@@ -528,7 +558,7 @@ test("a CLI command applied without a run process leaves its arrival for run", a
   const { t, api } = await table();
   t.deferArrivals = true;
   await t.command({ cmd: "split", who: ["Harriet Vance"], place: "Lighthouse", span: "long" });
-  assert.equal(t.owedArrivals.length, 1);
+  assert.equal(t.owedArrivals.length, 2);
   assert.equal(t.timelines.of("c-harriet").span, "long");
   assert.equal(api.createdWindows[0].name, "Side: Lighthouse");
   await t.command({ cmd: "rejoin", timeline: "Lighthouse" });
@@ -543,7 +573,7 @@ test("an interrupted presence regroup resumes without narrating a second arrival
     created: [{ windowId: made.id, placeKey: "507", users: ["u-alice"] }] };
   const t2 = new Table({ api, llm, cfg: t.cfg, channelId: "ch", roster: new Roster(), journal, sleep: async () => {} });
   await t2.init({ heal: true }); await settle(t2);
-  assert.equal(api.createdWindows.length, 1);
+  assert.equal(api.createdWindows.length, 2);
   assert.equal(t2.timelines.of("c-alice").id, t2.timelines.of("c-harriet").id);
   assert.equal(t2.timelines.of("c-alice").opened, true);
   assert.equal(t2.journal, null);
@@ -630,7 +660,7 @@ test("a lone player who leaves keeps the Main Chat (it moves with them); the co-
   assert.equal(t.timelines.main().location, "docks");
   const side = t.timelines.of("c-harriet");
   assert.notEqual(side.id, "main"); assert.equal(side.location, "Hale House");
-  assert.equal(api.createdWindows[0].name, "Side: Hale House"); assert.equal(api.membershipWrites, 0, "a co-players-only window has no members to write");
+  assert.equal(api.createdWindows[0].name, "Side: Hale House"); assert.equal(api.membershipWrites, 1, "the humans also get a private primary scene");
 });
 
 test("an autonomous turn's followup never changes the scenario", async () => {
@@ -663,11 +693,11 @@ test("a player's lines wait for the human turn even when an arrival turn runs fi
   await t.turn("w-main", { mode: "arrival", arrival: { names: ["Harriet Vance"], reunion: true } });
   await human; await settle(t);
   assert.ok(directorCalls(llm).some((u) => u.includes("Harriet Vance just rejoined")));
-  assert.equal(api.createdWindows.length, 1, "her own line still moved her");
+  assert.equal(api.createdWindows.length, 2, "her own line moved her and both parties were partitioned");
   assert.equal(t.timelines.of("c-alice").location, "Docks");
 });
 
-test("a player leaving a shared scene: the co-player who stays continues in a fresh window, and only the leaver is welcomed back", async () => {
+test("a player leaving a shared scene is paused; the co-player keeps the same window", async () => {
   const { t, api, llm } = await table({ bob: true });
   await t.command({ cmd: "split", who: ["Alice Hale", "Harriet Vance"], place: "Docks" });
   await settle(t);
@@ -677,7 +707,8 @@ test("a player leaving a shared scene: the co-player who stays continues in a fr
   await settle(t);
   assert.equal(t.timelines.of("c-alice").id, "main");
   const harriet = t.timelines.of("c-harriet");
-  assert.notEqual(harriet.id, "main"); assert.notEqual(harriet.windowId, docks.windowId, "Harriet's scene moved to a fresh window");
+  assert.notEqual(harriet.id, "main"); assert.equal(harriet.windowId, docks.windowId, "stayers keep their scene");
+  assert.ok(api.visibilityChanges.some(v => v.id === docks.windowId && v.user === "u-alice" && v.paused));
   assert.deepEqual(t.windowUsers(harriet.windowId), [], "Alice cannot read where Harriet stayed");
   const later = directorCalls(llm).slice(callsBefore);
   assert.ok(later.some((u) => u.includes("Alice Hale just rejoined")), "Alice's reunion is narrated");
@@ -1578,6 +1609,24 @@ test("a new player is seated in the planner window, gets a phone in casual mode,
   assert.equal(directorCalls(llm).filter((u) => u.includes("a new player just joined the table")).length, 1, "welcomed once");
 });
 
+test("a newcomer joins the private primary scene before its welcome is posted", async () => {
+  const { t, api } = await table({ bob: true });
+  await t.command({ cmd: "split", who: ["Alice Hale"], place: "Docks" });
+  await settle(t);
+  const scene = t.primaryWindowId();
+  assert.notEqual(scene, "w-main");
+  api.channelUsers.push("u-cara");
+  api.characters_.push({ id: "c-cara", name: "Cara Lind", kind: "pc", user_id: "u-cara" });
+  const post = api.postMessage.bind(api);
+  api.postMessage = async (ch, w, body) => {
+    if (w === scene && body.content.includes("Cara")) assert.ok(api.windows_.find(x => x.id === scene).members.some(m => m.user_id === "u-cara"));
+    return post(ch, w, body);
+  };
+  await t.refresh(); await settle(t);
+  assert.ok(api.addedMembers.some(m => m.window === scene && m.user_id === "u-cara"));
+  assert.equal(t.timelines.of("c-cara").id, "main");
+});
+
 test("recall recovers compacted evidence with source labels; co-players never search Keeper/private records", async () => {
   const { t, api, llm } = await table();
   const put = (content, over = {}) => {
@@ -1679,7 +1728,7 @@ test("a player's correction in chat or the planner window restores the real seat
     const m = api.add({ chat_window_id: source, author_id: "u-alice", author_role: "player", kind: "ooc", content: "江念不是刚说要陪我们找学姐的吗？" });
     await t.onMessage(m);
     const cp = t.roster.coplayerByName("Harriet Vance");
-    assert.deepEqual(cp.seats.filter(s => s.toSeq === null).map(s => s.windowId), ["w-main"]);
+    assert.deepEqual(cp.seats.filter(s => s.toSeq === null).map(s => s.windowId), [t.primaryWindowId()]);
     assert.ok(cp.seats.at(-1).fromSeq > m.seq, "new seat does not expose old lines in a reused window");
     assert.equal(t.timelines.of("c-bob").id, side.id);
     assert.equal(t.guard.rec("c-harriet").correctionSeq, m.seq);
@@ -1700,16 +1749,17 @@ test("time skip posts confirmed lunch and a still-planned dinner before reopenin
   llm.handoff = ({ lines }) => {
     assert.ok(!lines.some(l => /盖饭|私下安排/.test(l.text)));
     const lunch = lines.find(l => l.text.includes("牛肉面")), dinner = lines.find(l => l.text.includes("再去吃晚饭"));
-    return { completed: [{ seq: lunch.seq, quote: lunch.text }, { seq: dinner.seq, quote: "苏婉吃完了晚饭。" }], planned: [{ seq: dinner.seq, quote: dinner.text }] };
+    return { summary: "苏婉和唐小满中午吃过牛肉面了，晚饭还打算等试唱结束再去吃。", source_seqs: [lunch.seq, dinner.seq] };
   };
   llm.director = () => ({ actions: [{ type: "time_skip", time: "周三 17:30" }, { type: "narrate", text: "礼堂的门开了。" }], coplayers_may_act: false });
   await alicePosts(t, api, "跳到试唱吧。");
   const recap = api.posts.find(p => p.content.includes("时间转场"));
   assert.equal(recap.window, "w-main"); assert.equal(recap.visibility, "window");
-  assert.match(recap.content, /已经发生[^\n]*中午吃完了牛肉面/);
-  assert.match(recap.content, /仍是打算[^\n]*再去吃晚饭/);
+  assert.match(recap.content, /中午吃过牛肉面了/);
+  assert.match(recap.content, /晚饭还打算等试唱结束再去吃/);
   assert.doesNotMatch(recap.content, /吃完了晚饭|盖饭|私下安排/);
-  assert.equal(recap.reference_ids.length, 2);
+  assert.ok(!("reference_ids" in recap));
+  assert.equal(recap.content.split("\n").length, 2, "time followed by one short paragraph, without a quote list");
   assert.equal(api.posts.at(-1).content, "礼堂的门开了。");
   await alicePosts(t, api, "继续。");
   assert.equal(api.posts.filter(p => p.content.includes("时间转场")).length, 1);
@@ -1735,7 +1785,7 @@ test("separate arrivals at room 507 reunite before the next response despite sta
   const side = t.timelines.of("c-harriet");
   await t.post(side.windowId, { kind: "ic", character_id: "c-harriet", content: "记着呢，明天吃完饭再去领钥匙。晚安，我也回507洗漱了。" });
   const arrival = await api.postMessage("ch", side.windowId, { kind: "narration", visibility: "window", content: "Harriet上到五楼，回到507。江念各自回寝。SIDE-PUBLIC-DETAIL" }); t.noteLine(arrival);
-  const home = await api.postMessage("ch", "w-main", { kind: "narration", visibility: "window", content: "你回到507，今晚的奔忙到这里结束。" }); t.noteLine(home);
+  const home = await api.postMessage("ch", t.primaryWindowId(), { kind: "narration", visibility: "window", content: "你回到507，今晚的奔忙到这里结束。" }); t.noteLine(home);
   t.noteLine(api.add({ chat_window_id: side.windowId, kind: "narration", author_role: "gm", visibility: "gm_only", content: "HIDDEN-PRESENCE-DETAIL" }));
   t.noteLine(api.add({ chat_window_id: side.windowId, kind: "ic", character_id: "c-jiang", visibility: "whisper", content: "WHISPER-PRESENCE-DETAIL" }));
   llm.presence = ({ threads }) => {
@@ -1755,7 +1805,7 @@ test("separate arrivals at room 507 reunite before the next response despite sta
   assert.equal(t.timelines.main().location, "507");
   assert.equal(t.timelines.of("c-jiang").id, side.id, "same building does not mean everyone is in 507");
   const cp = t.roster.coplayerByName("Harriet Vance");
-  assert.deepEqual(cp.seats.filter(s => s.toSeq === null).map(s => s.windowId), ["w-main"]);
+  assert.deepEqual(cp.seats.filter(s => s.toSeq === null).map(s => s.windowId), [t.primaryWindowId()]);
   const context = llm.calls.findLast(c => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet"));
   assert.match(context.messages[0].content.split("WITH YOU HERE")[1], /Alice Hale/);
   assert.ok(!api.posts.some(p => p.window === "w-main" && p.content.includes("SIDE-PUBLIC-DETAIL")), "comparison never copies another scene's history into chat");
@@ -1933,4 +1983,21 @@ test("pausing an in-flight planner keeps unread wishes across restart and ignore
   await restored.observeHistory({ controlsOnly: true });
   assert.equal(restored.generation.paused, false);
   assert.equal(restored.turns, 0);
+});
+
+test('a lost fork response is recovered by the same persisted request without duplicate scenes', async () => {
+  const { t, api } = await table({ bob: true });
+  t.deferArrivals = true;
+  api.loseForkResponse = true;
+  await assert.rejects(t.command({ cmd: 'split', who: ['Alice Hale'], place: 'Library' }), /response lost/);
+  assert.equal(api.createdWindows.length, 1);
+  assert.equal(t.journal.phase, 'A');
+  assert.equal(t.timelines.of('c-alice').id, 'main');
+  const saved = structuredClone(t.journal);
+  const restored = await new Table({ api, llm: new MockLlm(), cfg: t.cfg, channelId: 'ch', roster: new Roster(),
+    journal: saved, deferArrivals: true, sleep: async () => {} }).init({ heal: true });
+  assert.equal(api.createdWindows.length, 2, 'one fork per party, including the response-lost fork');
+  assert.equal(restored.windowOf(restored.timelines.of('c-alice')), api.createdWindows[0].id);
+  assert.notEqual(restored.primaryWindowId(), 'w-main');
+  assert.equal(restored.journal, null);
 });

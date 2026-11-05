@@ -251,24 +251,26 @@ The table does not always wait for a human, and it does not keep everyone in one
 ### Timelines: proactive splitting
 
 The client keeps **timelines** (threads of the story) in its state file; the platform has none. Every player
-character and co-player is in exactly one. The main timeline (handle `T0`) always exists and is played in the Main
-Chat; every other thread has a window of its own, a persistent handle (`T1`, `T2`, … never reused), a place, a
+character and co-player is in exactly one. The main timeline (handle `T0`) always exists. It starts in Main Chat, then moves to its own restricted
+window on the first split. Main Chat remains a public lobby; every active thread has its own window, a persistent handle (`T1`, `T2`, … never reused), a place, a
 narrative time and a **span**: *short* when the party is briefly apart (two rooms of one house), *long* when it is far
 apart (two cities).
 
 Each Keeper round may report **whereabouts**: who is now where, and whether a group is out of reach of the others and
 can explore on its own. The client decides what that means (`src/whereabouts.mjs`, a pure, tested planner):
 
-- **A player goes elsewhere** → a new window `Scene: <place>` with that player (and any co-players who went too) and
-  the GM. Everyone stays a member of the Main Chat. The player is whispered a pointer to the new window, the opening
-  is posted there, and an **arrival** turn opens the scene at once.
-- **Co-players go elsewhere** → a `Side: <place>` window only they sit in, which moves on by itself (side turns).
-- **Everyone in a scene goes to one place** → the thread just moves there; no new window.
-- **A lone player leaves the co-players behind** → the Main Chat goes with the player (it is relocated); the co-players
-  who stayed get a side window.
-- **They meet again** → reunions always land in the main timeline, in the Main Chat, where every player already is.
-  The old window gets a pointer `→ "Main Chat"` and is closed for autonomy; the reunion gets its own arrival turn.
-- **Going where you already are** is no move; **going to another thread's place** joins that thread.
+- A split creates restricted forks for both the departing party and any party still playing in Main Chat. The
+  fork shows source history only up to its creation boundary, with the original reader permissions. All audiences
+  are prepared before the next narration. Main Chat then carries public conversation, not either private scene.
+- When a real player leaves an existing scene, their new-message visibility there is paused. Those staying keep
+  their window. Returning resumes access; messages during the absence remain hidden. A new arrival gains only
+  future messages. Co-players continue to use their internal seat intervals instead of platform user memberships.
+- A later arrival joins the earlier party's existing window. If multiple parties instead converge on a new scene
+  simultaneously, the fork inherits from the source with the most distinct human players; co-players do not count.
+  Players still cannot read the other party's previously private history.
+- Everyone already together travelling to one destination can relocate in the same window. New scenes may be forked
+  explicitly. Windows whose stories have ended are archived and remain readable in the sidebar's archive section.
+- Going where you already are is no move; going to another thread's place joins that thread.
 
 The rules that keep this safe:
 
@@ -289,23 +291,23 @@ The rules that keep this safe:
   response uses the corrected cast; it does not narrate the arrival a second time.
   Intentions, washroom errands still in progress, different rooms in the same building and incompatible story
   times are distinguished from current co-presence. The reader sees no whispers, Keeper-only notes or planner
-  secrets, and copies none of another thread's history into the reunion window. Existing window access and
-  fresh-window regrouping rules still apply. These checks use the configured LLM; the offline provider reports
+  secrets, and copies none of another thread's history into the reunion window. Window membership intervals and
+  player-group access still apply. These checks use the configured LLM; the offline provider reports
   no inferred reunion unless a test supplies a fixture. Shared journeys through intermediate corridors or lobbies
   are narrated together instead of opened as separate adventures at each waypoint.
 - **No flip-flopping.** A co-player's move that would undo a recent change needs two agreeing turns after it
   (`timelines.guard_turns`, `timelines.guard_ms`). Players' own moves and reconciliation of established presence
   are never deferred.
-- **No history leaks.** Nobody is ever added to an existing window (its whole past would open to them). A player
-  joining a thread whose window they are not in regroups the thread into a fresh window. A window is reused only for
-  exactly the same people at the same place.
+- **No history leaks.** The server enforces membership intervals for reads, search, references, exports and live
+  delivery. Pause/resume never fills the absence with old messages. Same-group players still share the union of
+  their readable perspectives. Fork ancestry does not widen any reader's original permissions.
 - **Bounded.** At most `timelines.max_active` threads at once; a new window for a player at most once per
   `timelines.pc_cooldown_ms`; at most `timelines.max_arrivals_per_hour` arrival turns; arrivals never start further
   splits.
 - **Relay.** A split-off player who keeps writing in the Main Chat is answered in their own scene; the Main Chat only
   gets a whisper pointer. A roll asked of an away player is asked in their window.
-- **Crash-safe.** A split in progress is journaled; `run` finishes it on restart, and a thread whose first scene never
-  played gets its arrival turn.
+- **Crash-safe.** A split in progress is journaled with stable fork request IDs. `run` finishes missing forks and
+  membership changes on restart before any narration; lost HTTP responses cannot create duplicate forks.
 
 Lines carry the timeline their speaker was in **when they wrote them**, so a story told in the Main Chat by someone back
 from a side trip is tagged with that trip, and a player's lines from before a split keep the old tag. A co-player
@@ -339,7 +341,7 @@ closes and summarises the old one. The GM model opens it (`advance_scenario`) or
 stage done, or the platform's own "New scenario?" reminder. The client refuses, with a Keeper-only note saying why,
 unless:
 
-- the turn is in the **Main Chat**, never in a split window;
+- the turn is in the primary story window (`T0`), never in a side thread or the public lobby;
 - it is a turn after a player's or co-player's line, never an autonomous or arrival turn;
 - **no short split** is active (a long one carries on into the new scenario);
 - at least `scenarios.min_minutes` have passed since the current scenario began and it has at least
@@ -374,8 +376,8 @@ is pending, and any human line wakes the table up. `autonomy.enabled: false` tur
 - **Pace.** A human line gives each co-player one turn. In a quiet turn that follows, a co-player who has already
   answered stays quiet, so slow human players are not drowned out by the AI side of the table.
 
-**Costs.** Every player split creates a window with that player as a member; the platform then rebuilds that player
-group's derived memory (journals, reminders) and web clients refresh. Every split or reunion also costs an arrival turn
+**Costs.** A genuine new scene creates a fork and may rebuild the affected player group's derived memory.
+Pausing/resuming an existing member preserves accumulated memory. A split or reunion may also cost an arrival turn
 (a GM call, the co-players and a follow-up).
 
 ## The story planner
@@ -458,8 +460,11 @@ with its weekday: "1923-10-02 (Tuesday), morning". A solemn game has no date fro
   moves it on between sessions, and the operator can use the `date` command.
 
 When play skips ahead, the GM posts the new time in the affected window. The handoff distinguishes completed
-events from outstanding plans and links to the public lines supporting them. This applies to same-day cuts and
-session resumptions as well as date changes. Private planning notes and parallel scenes do not supply those quotes.
+events from outstanding plans in one or two short AI-written sentences, without quoting dialogue or adding reference
+cards. It mentions only what matters for the next scene and avoids repeating reminders already shown. Source line
+numbers remain in internal diagnostics, not the player-facing post. If no reminder is useful, or summarisation fails,
+only the time is shown. Overlong summaries are rewritten rather than cut mid-sentence. This applies to same-day cuts,
+session resumptions and date changes; private planning notes and parallel scenes cannot supply the summary.
 
 ```bash
 node src/cli.mjs date --days 2 --time morning
@@ -606,7 +611,7 @@ including a message in the planner window or on their character’s phone. A pau
 
 **New players.** When someone joins the channel, the platform seats them in the Main Chat. The client then seats them
 in the planner window and, in casual mode, opens their phone. When their player character appears, the GM gets an
-arrival turn in the Main Chat to bring that character into the story. The platform sends no event when a character is
+arrival turn in the current primary scene, after granting access to that scene's future messages. The platform sends no event when a character is
 created, so the client looks again every minute.
 
 ## Setup
@@ -721,7 +726,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `timelines.max_active` | | `4` | at most this many threads at once (the main one included) |
 | `timelines.pc_cooldown_ms` | | `300000` | a player gets a new window at most this often |
 | `timelines.max_arrivals_per_hour` | | `12` | arrival turns (opening a new or changed scene) per hour |
-| `scenarios.auto` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the Main Chat only) |
+| `scenarios.auto` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the primary story window only) |
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
 | `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` (relative to the file) |
@@ -787,9 +792,17 @@ The tests need no backend and no model. They cover:
   private window the Keeper creates in the web app does not seat them automatically and is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side
   thread's events reach the Keeper documents like any other lines.
-- A split-off player stays a member of the Main Chat (as intended), so the platform keeps delivering the Main Chat's
-  lines to them and its chronicler credits their character with them. A player who leaves a thread's window can still
-  read it.
-- Windows accumulate over a campaign: the platform has no way to rename, archive or delete one. Retired windows are
-  reused only for the same people at the same place.
+- Main Chat is always shared. Players in the same player group continue to share views even if only one remains
+  active in a window. Use separate groups when the players need separate knowledge.
+- A paused member keeps access to previously witnessed history. Removing membership entirely is different: it can
+  revoke old history and rebuild derived memory. Use pause/resume for temporary absence.
+- This client requires the backend with migration `0055_window_forks.sql`. Do not run the old agent alongside it or
+  roll back to an old state file during play: old membership logic cannot enforce the new scene lifecycle.
 - One client process keeps one channel.
+
+## Deployment of the scene-window update
+
+GM-agent deployment is manual. Pushing or deploying the platform must not update the agent on server-sh.
+Deploy the backend and migration 0055 first, then the web/desktop UI. Before an explicitly requested agent upgrade,
+stop its old process and back up its state directory. Start only one agent per channel. On restart it recovers
+unfinished forks and audience changes and partitions existing split parties before narrating again.

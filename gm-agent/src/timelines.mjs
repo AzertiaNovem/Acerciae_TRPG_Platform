@@ -3,7 +3,8 @@
 // elsewhere. The client keeps that here, in its state file.
 //
 // Every investigator (player character or co-player) is in exactly one active timeline; the main timeline always
-// exists and is played in the Main Chat. Other timelines are bound to a window of their own. Each has a persistent
+// exists, initially in Main Chat and then in its own restricted window after the first split.
+// Other timelines are bound to a window of their own. Each has a persistent
 // handle (T0 is the main timeline; handles are never reused), a span ("short": the party is briefly apart, as in two
 // rooms of one house; "long": far apart, as in two cities) and `opened` (its first scene has been played).
 //
@@ -26,6 +27,7 @@ export class Timelines {
     const src = Array.isArray(data) ? { list: data } : (data ?? {});
     this.list = (src.list ?? []).map((t) => ({ span: "short", opened: true, handle: null, ...t, members: [...(t.members ?? [])] }));
     this.log = Array.isArray(src.log) ? src.log.map((e) => ({ ...e })) : [];
+    this.pastWindows = Array.isArray(src.pastWindows) ? src.pastWindows.map(e => ({ ...e })) : [];
     if (!this.get(MAIN)) this.list.unshift(this.blank(MAIN, "Main story"));
     this.main().handle = 0;
     this.nextHandle = Math.max(Number(src.nextHandle) || 1, ...this.list.map((t) => (Number.isInteger(t.handle) ? t.handle + 1 : 1)));
@@ -36,7 +38,13 @@ export class Timelines {
     return { id, name, status: "active", members: [], windowId: null, returnTo: [], narrativeTime: "", location: "", notes: "", span: "short", opened: true, handle: null, createdAt: new Date(this.now()).toISOString(), mergedInto: null };
   }
 
-  toJSON() { return { list: this.list, log: this.log, nextHandle: this.nextHandle }; }
+  toJSON() { return { list: this.list, log: this.log, nextHandle: this.nextHandle, pastWindows: this.pastWindows }; }
+  bind(id, windowId) {
+    const t = this.get(id);
+    if (!t || t.windowId === windowId) return;
+    if (t.windowId) this.pastWindows.push({ windowId: t.windowId, timelineId: id });
+    t.windowId = windowId;
+  }
   get(id) { return this.list.find((t) => t.id === id); }
   main() { return this.get(MAIN); }
   active() { return this.list.filter((t) => t.status === "active"); }
@@ -52,7 +60,10 @@ export class Timelines {
   // The timeline a window is bound to: the active one if any, else the last one that was (for older lines).
   ofWindow(windowId) {
     const bound = this.list.filter((t) => t.windowId && t.windowId === windowId);
-    return bound.find((t) => t.status === "active") ?? bound.at(-1) ?? null;
+    const current = bound.find((t) => t.status === "active") ?? bound.at(-1);
+    if (current) return current;
+    const past = this.pastWindows.findLast(e => e.windowId === windowId);
+    return past ? { ...this.get(past.timelineId), windowId, status: "merged" } : null;
   }
   activeOfWindow(windowId) { const t = this.ofWindow(windowId); return t?.status === "active" ? t : null; }
   // A window that was bound to a thread that has since been merged: its scene is over.
