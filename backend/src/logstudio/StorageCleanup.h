@@ -23,7 +23,7 @@ class StorageCleanup {
 public:
     StorageCleanup(Db& db, RoutingObjectStore& store, MediaService& media) : db_(db), store_(store), media_(media) {}
     ~StorageCleanup() { stop(); }
-    struct Report { int characterImages = 0, oldVersions = 0, superseded = 0, orphans = 0, failed = 0; long long bytes = 0; };
+    struct Report { int expiredJobs = 0, characterImages = 0, oldVersions = 0, superseded = 0, orphans = 0, failed = 0; long long bytes = 0; };
     Report runOnce(bool dryRun = false);
     void start();   // runOnce now and every 24 hours, on a background thread
     void stop();

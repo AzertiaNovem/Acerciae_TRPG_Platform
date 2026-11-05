@@ -32,6 +32,7 @@ std::vector<std::string> objectKeys(pqxx::work& w, const std::string& where, con
     std::vector<std::string> keys;
     for (auto& r : Db::queryJson(w,
         "SELECT object_key AS k FROM media_assets WHERE channel_id " + where +
+        " UNION SELECT object_key FROM image_reference_objects WHERE channel_id " + where +
         " UNION SELECT av.object_key FROM asset_versions av JOIN media_assets m ON m.id=av.asset_id WHERE m.channel_id " + where +
         " UNION SELECT object_key FROM tts_audio_assets WHERE channel_id " + where +
         " UNION SELECT object_key FROM pdf_render_jobs WHERE channel_id " + where +

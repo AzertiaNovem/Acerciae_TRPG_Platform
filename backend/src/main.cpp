@@ -1,3 +1,4 @@
+#include "logstudio/ObjectInventory.h"
 #include "modules/ModuleImporter.h"
 #include "script/ScriptKnowledgeService.h"
 #include "app/Services.h"
@@ -75,9 +76,11 @@ int main(int argc, char** argv) {
         // object — that the destination does not have yet. Keys are kept, so reads find the copies by fallback.
         int rc = 0;
         try {
-            auto from = logstudio::makeBackend(copyFrom, cfg), to = logstudio::makeBackend(copyTo, cfg);
+            auto from = logstudio::makeBackend(copyFrom, cfg);
+            auto to = logstudio::trackedObjectStore(std::shared_ptr<logstudio::ObjectStore>(logstudio::makeBackend(copyTo, cfg)), *S.db);
             std::vector<std::pair<std::string, std::string>> keys;
             for (auto& r : S.db->queryJson("SELECT object_key AS k, mime FROM asset_versions UNION SELECT object_key, mime FROM media_assets "
+                                           "UNION SELECT object_key, mime FROM image_reference_objects "
                                            "UNION SELECT avatar_key, coalesce(avatar_mime,'image/png') FROM users WHERE avatar_key IS NOT NULL "
                                            "UNION SELECT object_key, mime FROM tts_audio_assets UNION SELECT object_key, 'application/pdf' FROM pdf_render_jobs WHERE object_key IS NOT NULL "
                                            "UNION SELECT raw_object_key, 'application/octet-stream' FROM log_imports WHERE raw_object_key IS NOT NULL"))
