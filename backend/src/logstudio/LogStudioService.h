@@ -52,7 +52,12 @@ public:
     Json::Value syncFromChannel(const ChannelAccess& a, const std::string& projectId, const Json::Value& selection);
 
     // snapshots
+    // body: {scope, scope_character_id?, title?, selection {mode, …, windows?}}. `selection.windows` narrows any mode
+    // to those chat windows (lines without a window, such as channel-wide scene markers, stay).
     Json::Value createSnapshot(const ChannelAccess& a, const std::string& projectId, const Json::Value& body);
+    // The campaign's chat windows the requester can see, each with its number of lines in a snapshot scope (what a
+    // snapshot of that scope would hold from it), and the lines that belong to no window.
+    Json::Value scopeWindows(const ChannelAccess& a, const std::string& scope, const std::string& scopeCharacterId);
     Json::Value listSnapshots(const ChannelAccess& a, const std::string& projectId);
     Json::Value getSnapshot(const ChannelAccess& a, const std::string& snapshotId, bool withEvents);
     // Viewer-filtered events of a snapshot (GM: all; player: by scope + audience).

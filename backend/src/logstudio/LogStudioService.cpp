@@ -289,15 +289,38 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
 }
 
 // ---- snapshots -------------------------------------------------------------------------------------
+namespace {
+// A snapshot scope the requester may use: players never the Keeper's, and only their own character's point of view.
+void requireScope(const ChannelAccess& a, const std::string& scope, const std::string& scopeChar) {
+    if (scope != "gm_full" && scope != "pl_public" && scope != "character") throw badRequest("invalid scope");
+    if (!a.isGm && scope == "gm_full") throw forbidden("players cannot create GM snapshots");
+    if (scope == "character" && scopeChar.empty()) throw badRequest("scope_character_id required");
+    if (scope == "character" && !Visibility::isUuid(scopeChar)) throw badRequest("invalid scope_character_id");
+    if (!a.isGm && scope == "character" && std::find(a.characterIds.begin(), a.characterIds.end(), scopeChar) == a.characterIds.end()) throw forbidden("not your character");
+}
+} // namespace
+
 Json::Value LogStudioService::createSnapshot(const ChannelAccess& a, const std::string& projectId, const Json::Value& body) {
     projectRow(a, projectId);
     auto scope = json::str(body, "scope", a.isGm ? "gm_full" : "pl_public");
-    if (scope != "gm_full" && scope != "pl_public" && scope != "character") throw badRequest("invalid scope");
-    if (!a.isGm && scope == "gm_full") throw forbidden("players cannot create GM snapshots");
     std::string scopeChar = json::str(body, "scope_character_id");
-    if (scope == "character" && scopeChar.empty()) throw badRequest("scope_character_id required");
-    if (!a.isGm && scope == "character" && std::find(a.characterIds.begin(), a.characterIds.end(), scopeChar) == a.characterIds.end()) throw forbidden("not your character");
+    requireScope(a, scope, scopeChar);
     Json::Value sel = body.isMember("selection") && body["selection"].isObject() ? body["selection"] : Json::Value(Json::objectValue);
+    // The chat windows to tell (any mode): the others are left out. Lines that belong to no window stay.
+    std::string windowSql;
+    if (sel.isMember("windows")) {
+        if (!sel["windows"].isArray()) throw badRequest("selection.windows must be an array of chat window ids");
+        std::vector<std::string> wins;
+        for (const auto& w : sel["windows"]) {
+            if (!w.isString() || !Visibility::isUuid(w.asString())) throw badRequest("invalid chat window id");
+            if (std::find(wins.begin(), wins.end(), w.asString()) == wins.end()) wins.push_back(w.asString());
+        }
+        if (wins.empty()) throw badRequest("choose at least one chat window");
+        if (db_.queryOne("SELECT count(*) AS n FROM chat_windows WHERE channel_id=$1 AND id = ANY(" + Visibility::uuidArray(wins) + ")", {a.channelId})["n"].asInt64() != (int64_t)wins.size())
+            throw badRequest("unknown chat window");
+        sel["windows"] = json::fromStrArray(wins);
+        windowSql = " AND (chat_window_id IS NULL OR chat_window_id = ANY(" + Visibility::uuidArray(wins) + "))";
+    }
     auto mode = json::str(sel, "mode", "campaign");
     std::string sql = "SELECT id, visibility_scope, audience FROM log_events WHERE project_id=$1";
     DbParams p{projectId};
@@ -306,7 +329,7 @@ Json::Value LogStudioService::createSnapshot(const ChannelAccess& a, const std::
     else if (mode == "events") { auto ids = json::strArray(sel["event_ids"]); if (ids.empty()) throw badRequest("event_ids required"); sql += " AND id = ANY(" + Visibility::uuidArray(ids) + ")"; }
     else if (mode == "session") { auto from = json::str(sel, "from"), to = json::str(sel, "to"); if (!from.empty()) { p.push_back(from); sql += " AND occurred_at >= $" + std::to_string(p.size()) + "::timestamptz"; } if (!to.empty()) { p.push_back(to); sql += " AND occurred_at <= $" + std::to_string(p.size()) + "::timestamptz"; } }
     auto story = storyState(db_, a.channelId);
-    sql += " AND " + scopeLogFilter(story, scope, scopeChar, "log_events") + scopeSql(a, "log_events");
+    sql += windowSql + " AND " + scopeLogFilter(story, scope, scopeChar, "log_events") + scopeSql(a, "log_events");
     sql += " ORDER BY sequence_number";
     auto rows = db_.queryJson(sql, p);
     std::vector<std::string> ids;
@@ -332,6 +355,24 @@ Json::Value LogStudioService::createSnapshot(const ChannelAccess& a, const std::
     });
     audit(a, "snapshot.create", snap);
     return snap;
+}
+Json::Value LogStudioService::scopeWindows(const ChannelAccess& a, const std::string& scopeIn, const std::string& scopeChar) {
+    const std::string scope = scopeIn.empty() ? (a.isGm ? "gm_full" : "pl_public") : scopeIn;
+    requireScope(a, scope, scopeChar);
+    auto pid = campaignProjectId(a.channelId);
+    syncCampaign(a.channelId, pid);
+    auto story = storyState(db_, a.channelId);
+    // A line counts when a snapshot of this scope, made by this requester, would hold it (scene markers aside).
+    const std::string inScope = "le.project_id=$2 AND le.event_type<>'scene_change' AND " + scopeLogFilter(story, scope, scopeChar, "le") + scopeSql(a, "le");
+    // Players see the windows they are in and any other window with a line they may read (as in the campaign log).
+    const std::string readable = "EXISTS (SELECT 1 FROM log_events le WHERE le.project_id=$2 AND le.chat_window_id=w.id AND le.event_type<>'scene_change'" + scopeSql(a, "le") + ")";
+    Json::Value out;
+    out["scope"] = scope;
+    out["windows"] = db_.queryJson("SELECT w.id, w.name, w.kind, (SELECT count(*) FROM log_events le WHERE le.chat_window_id=w.id AND " + inScope + ") AS line_count FROM chat_windows w WHERE w.channel_id=$1" +
+        std::string(a.isGm ? "" : " AND (EXISTS (SELECT 1 FROM chat_window_members wm WHERE wm.chat_window_id=w.id AND wm.user_id=$3) OR " + readable + ")") + " ORDER BY w.created_at",
+        a.isGm ? DbParams{a.channelId, pid} : DbParams{a.channelId, pid, a.userId});
+    out["unwindowed"] = db_.queryOne("SELECT count(*) AS n FROM log_events le WHERE le.channel_id=$1 AND le.chat_window_id IS NULL AND " + inScope, {a.channelId, pid})["n"];
+    return out;
 }
 Json::Value LogStudioService::listSnapshots(const ChannelAccess& a, const std::string& projectId) {
     projectRow(a, projectId);

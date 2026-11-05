@@ -11423,18 +11423,6 @@
     "Criar um romance visual",
     "Crea una visual novel"
   ],
-  "Lines to read": [
-    "读取的发言",
-    "讀取的發言",
-    "読み込む行",
-    "읽을 줄",
-    "Líneas a leer",
-    "Lignes à lire",
-    "Zu lesende Zeilen",
-    "Какие реплики читать",
-    "Falas a ler",
-    "Righe da leggere"
-  ],
   "Everything, including private windows (GM only result)": [
     "全部，包括私密窗口（结果仅 GM 可见）",
     "全部，包括私密視窗（結果僅 GM 可見）",
@@ -20650,5 +20638,77 @@
     "Пауза скрывает новые сообщения и запрещает отправку. После возобновления сообщения периода паузы остаются скрытыми. Остальные члены группы продолжают делиться своими видами.",
     "A pausa oculta novas mensagens e impede o envio. Ao retomar, as mensagens da pausa continuam ocultas. Os outros membros do grupo continuam compartilhando suas visões.",
     "La pausa nasconde i nuovi messaggi e blocca l’invio. La ripresa non mostra i messaggi della pausa. Gli altri membri del gruppo continuano a condividere le proprie visuali."
+  ],
+  "Point of view": [
+    "视角",
+    "視角",
+    "視点",
+    "시점",
+    "Punto de vista",
+    "Point de vue",
+    "Blickwinkel",
+    "Точка зрения",
+    "Ponto de vista",
+    "Punto di vista"
+  ],
+  "Who may watch the visual novel, and whose eyes read the log": [
+    "谁可以观看这部视觉小说，以及以谁的视角读取记录",
+    "誰可以觀看這部視覺小說，以及以誰的視角讀取記錄",
+    "誰がこのビジュアルノベルを見られるか、誰の目でログを読むか",
+    "누가 이 비주얼 노벨을 볼 수 있는지, 누구의 눈으로 기록을 읽는지",
+    "Quién puede ver la novela visual y con qué ojos se lee el registro",
+    "Qui peut regarder le roman visuel, et par quels yeux le journal est lu",
+    "Wer die Visual Novel ansehen darf und mit wessen Augen das Protokoll gelesen wird",
+    "Кто может смотреть визуальную новеллу и чьими глазами читается журнал",
+    "Quem pode assistir à visual novel e com os olhos de quem o registro é lido",
+    "Chi può guardare la visual novel e con gli occhi di chi si legge il registro"
+  ],
+  "Chat windows to tell": [
+    "要讲述的聊天窗口",
+    "要講述的聊天視窗",
+    "語るチャットウィンドウ",
+    "이야기할 채팅 창",
+    "Ventanas de chat que contar",
+    "Fenêtres de discussion à raconter",
+    "Zu erzählende Chatfenster",
+    "Окна чата для рассказа",
+    "Janelas de chat a contar",
+    "Finestre di chat da raccontare"
+  ],
+  "This point of view reads no line of this window": [
+    "此视角读不到该窗口的任何发言",
+    "此視角讀不到該視窗的任何發言",
+    "この視点ではこのウィンドウの発言を読めません",
+    "이 시점에서는 이 창의 대사를 읽을 수 없습니다",
+    "Este punto de vista no lee ninguna línea de esta ventana",
+    "Ce point de vue ne lit aucune ligne de cette fenêtre",
+    "Dieser Blickwinkel liest keine Zeile dieses Fensters",
+    "С этой точки зрения не видно ни одной строки этого окна",
+    "Este ponto de vista não lê nenhuma fala desta janela",
+    "Questo punto di vista non legge nessuna riga di questa finestra"
+  ],
+  "Windows you leave out are not told. Scene changes outside any window always stay; a continuation tells the same windows.": [
+    "未勾选的窗口不会被讲述。不属于任何窗口的场景切换始终保留；续写时沿用同样的窗口。",
+    "未勾選的視窗不會被講述。不屬於任何視窗的場景切換始終保留；續寫時沿用同樣的視窗。",
+    "外したウィンドウは語られません。どのウィンドウにも属さない場面転換は常に残り、続きも同じウィンドウを語ります。",
+    "빼 둔 창은 이야기하지 않습니다. 어느 창에도 속하지 않은 장면 전환은 항상 남고, 이어 쓰기도 같은 창을 이야기합니다.",
+    "Las ventanas que dejes fuera no se cuentan. Los cambios de escena fuera de toda ventana se quedan siempre; una continuación cuenta las mismas ventanas.",
+    "Les fenêtres laissées de côté ne sont pas racontées. Les changements de scène hors de toute fenêtre restent toujours ; une suite raconte les mêmes fenêtres.",
+    "Ausgelassene Fenster werden nicht erzählt. Szenenwechsel außerhalb jedes Fensters bleiben immer; eine Fortsetzung erzählt dieselben Fenster.",
+    "Исключённые окна не рассказываются. Смены сцен вне всяких окон остаются всегда; продолжение рассказывает те же окна.",
+    "As janelas deixadas de fora não são contadas. Mudanças de cena fora de qualquer janela sempre ficam; uma continuação conta as mesmas janelas.",
+    "Le finestre escluse non vengono raccontate. I cambi di scena fuori da ogni finestra restano sempre; un seguito racconta le stesse finestre."
+  ],
+  "Choose at least one chat window.": [
+    "请至少选择一个聊天窗口。",
+    "請至少選擇一個聊天視窗。",
+    "チャットウィンドウを1つ以上選んでください。",
+    "채팅 창을 하나 이상 고르세요.",
+    "Elige al menos una ventana de chat.",
+    "Choisissez au moins une fenêtre de discussion.",
+    "Wähle mindestens ein Chatfenster.",
+    "Выберите хотя бы одно окно чата.",
+    "Escolha pelo menos uma janela de chat.",
+    "Scegli almeno una finestra di chat."
   ]
 }
