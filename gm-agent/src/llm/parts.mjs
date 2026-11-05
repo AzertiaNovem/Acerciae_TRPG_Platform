@@ -7,7 +7,7 @@ export const partsOf = (content) => (Array.isArray(content) ? content.filter((p)
 export const textOf = (content) => partsOf(content).map((p) => p.text).join("");
 
 // Wraps a model so every call reports its token usage to `sink` and carries a stable cache key for its purpose.
-export function metered(llm, { sink = () => {}, channelId = "", provider = "", model = "", now = Date.now, log = () => {} } = {}) {
+export function metered(llm, { sink = () => {}, channelId = "", provider = "", model = "", now = Date.now, log = () => {}, signalOf } = {}) {
   const keys = new Map();
   const keyOf = (purpose) => {
     if (!keys.has(purpose)) keys.set(purpose, `acerciae-gm-${crypto.createHash("sha256").update(`${channelId}\n${purpose}`).digest("hex").slice(0, 32)}`);
@@ -15,14 +15,18 @@ export function metered(llm, { sink = () => {}, channelId = "", provider = "", m
   };
   const wrapped = Object.create(llm);
   wrapped.complete = async (req) => {
+    const signal = signalOf?.() ?? req.signal;
+    signal?.throwIfAborted();
     const at = now(), callId = crypto.randomUUID();
     let usage = null, status = "completed", httpStatus = null;
     try {
-      return await llm.complete({ ...req, cacheKey: req.cacheKey ?? keyOf(req.purpose ?? ""), onUsage: (u) => {
+      const reply = await llm.complete({ ...req, signal, cacheKey: req.cacheKey ?? keyOf(req.purpose ?? ""), onUsage: (u) => {
         // Providers report a final snapshot, not deltas; do not double-count duplicate callbacks.
         usage = u;
         req.onUsage?.(u);
       } });
+      signal?.throwIfAborted();   // Some providers may finish just as cancellation arrives.
+      return reply;
     } catch (e) {
       status = "failed";
       httpStatus = Number.isInteger(e.status) ? e.status : null;

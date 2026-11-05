@@ -29,8 +29,8 @@ llm:                          # the GM's, NPCs' and co-players' model
   effort: medium              # low | medium | high (openai_compatible ignores it)
   max_tokens: 16000
   fallbacks: true             # Anthropic server-side refusal fallbacks
-  timeout_ms: 600000
-  stream: true
+  timeout_ms: 600000          # maximum silence between streamed chunks, including the wait for the first
+  stream: true                # both model protocols, including the story planner
   cache_ttl: 1h               # Anthropic prompt cache: 1h | 5m | off
   trace: ""                   # a file: every request and reply as JSON lines (audit)
 

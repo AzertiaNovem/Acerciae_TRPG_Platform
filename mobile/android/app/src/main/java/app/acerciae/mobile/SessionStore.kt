@@ -4,10 +4,12 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import app.acerciae.mobile.core.ServiceConfiguration
 import app.acerciae.mobile.core.Session
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -15,6 +17,20 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 @Serializable class SavedLogin(val endpoint: String, val session: Session)
+
+@Serializable data class SavedAccounts(val accounts: List<SavedLogin>, val active: String? = null) {
+    fun remember(login: SavedLogin) = SavedAccounts(accounts.filterNot { it.session.user.id == login.session.user.id } + login, login.session.user.id)
+    fun selecting(id: String?): SavedAccounts {
+        require(id == null || accounts.any { it.session.user.id == id })
+        return copy(active = id)
+    }
+    fun removing(id: String) = SavedAccounts(accounts.filterNot { it.session.user.id == id }, active?.takeUnless { it == id })
+    companion object {
+        fun decode(text: String): SavedAccounts = if ("accounts" in Json.parseToJsonElement(text).jsonObject) {
+            Json.decodeFromString<SavedAccounts>(text)
+        } else SavedAccounts(emptyList()).remember(Json.decodeFromString<SavedLogin>(text))
+    }
+}
 
 /** Only ciphertext is stored in private preferences, which are excluded from backup. */
 class SessionStore(context: Context) {
@@ -28,19 +44,22 @@ class SessionStore(context: Context) {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    fun read(): SavedLogin? {
-        val value = preferences.getString("ciphertext", null) ?: return null
+    fun roster(): SavedAccounts {
+        val value = preferences.getString("ciphertext", null) ?: return SavedAccounts(emptyList())
         val bytes = Base64.decode(value, Base64.NO_WRAP)
         require(bytes.size > 28)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-        return Json.decodeFromString(String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8))
+        val saved = SavedAccounts.decode(String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8))
+        return saved.copy(accounts = saved.accounts.filter { ServiceConfiguration.acceptsSavedEndpoint(it.endpoint) })
     }
-    fun save(login: SavedLogin) {
+    fun save(login: SavedLogin) = write(roster().remember(login))
+    fun select(id: String?) = write(roster().selecting(id))
+    fun remove(id: String) = write(roster().removing(id))
+    private fun write(saved: SavedAccounts) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
-        val bytes = cipher.iv + cipher.doFinal(Json.encodeToString(login).toByteArray(Charsets.UTF_8))
+        val bytes = cipher.iv + cipher.doFinal(Json.encodeToString(saved).toByteArray(Charsets.UTF_8))
         check(preferences.edit().putString("ciphertext", Base64.encodeToString(bytes, Base64.NO_WRAP)).commit())
     }
-    fun clear() { check(preferences.edit().clear().commit()) }
 }

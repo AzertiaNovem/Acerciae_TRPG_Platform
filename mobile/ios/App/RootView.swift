@@ -6,7 +6,10 @@ private let panelColor = Color(red: 0.14, green: 0.165, blue: 0.18)
 private let accent = Color(red: 0.79, green: 0.85, blue: 0.74)
 
 struct RootView: View {
-    @StateObject private var model = AppModel()
+    @StateObject private var model: AppModel
+    init(onAccountChanged: @escaping () -> Void = {}) {
+        _model = StateObject(wrappedValue: AppModel(onAccountChanged: onAccountChanged))
+    }
     @ObservedObject private var locale = MobileLocale.shared
     @State private var studioOpen = false
     @State private var page = "chat"
@@ -145,6 +148,7 @@ private struct SidebarView: View {
             if model.online {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
+                        AccountMenu(model: model)
                         Menu(model.serverName) {
                             ForEach(model.servers) { server in Button(server.name) { model.navigate { try await model.selectServer(server.id) } } }
                         }.font(.headline)
@@ -457,6 +461,7 @@ private struct SettingsView: View {
                     HStack(spacing: 12) { AvatarView(model: model, name: user.displayName, ownerId: user.id, ownerVersion: user.avatarVersion ?? 0, size: 48, ownerHash: user.avatarHash ?? ""); Text(user.displayName) }
                     Text(user.username).foregroundStyle(.secondary)
                 }
+                AccountMenu(model: model)
                 Button(tr("退出登录"), role: .destructive) { model.logout() }.disabled(model.busy)
             }
             Section { LanguagePicker(model: model); Text(tr("This changes your interface only. Server AI output language stays unchanged.")).font(.caption) }
@@ -498,6 +503,13 @@ private struct AuthenticationView: View {
                 Text("Acerciae").font(.largeTitle.weight(.semibold))
                 Text(registering ? tr("创建账号，加入你的跑团") : tr("登录账号，继续你的故事")).foregroundStyle(.secondary)
             }
+            if !model.accountUsers.isEmpty {
+                Section(tr("Switch account")) {
+                    ForEach(model.accountUsers, id: \.id) { user in
+                        Button("\(user.displayName) · @\(user.username)") { model.selectAccount(user.id) }
+                    }
+                }.disabled(model.busy)
+            }
             Section { LanguagePicker(model: model) }
             Section(registering ? tr("注册账号") : tr("登录")) {
                 TextField(tr("用户名"), text: $username).textContentType(.username).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -522,5 +534,23 @@ private struct AuthenticationView: View {
             }
         }.navigationTitle(registering ? tr("注册") : tr("登录")).navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented:$studioOpen) { LocalStudioView() }
+    }
+}
+
+private struct AccountMenu: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        Menu {
+            ForEach(model.accountUsers, id: \.id) { user in
+                Button { model.selectAccount(user.id) } label: {
+                    if user.id == model.session?.user.id {
+                        Label("\(user.displayName) · @\(user.username)", systemImage: "checkmark")
+                    } else { Text("\(user.displayName) · @\(user.username)") }
+                }.disabled(user.id == model.session?.user.id)
+            }
+            Divider()
+            Button(tr("Add account")) { model.selectAccount(nil) }
+        } label: { Label(model.session?.user.displayName ?? tr("Switch account"), systemImage: "person.2") }
+        .accessibilityLabel(tr("Switch account")).disabled(model.busy)
     }
 }

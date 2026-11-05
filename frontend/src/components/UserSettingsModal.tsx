@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { cacheStats, clearAssetCache, formatCacheSize } from '../lib/assetCache';
 import { useAuth } from '../store/auth';
@@ -27,6 +28,8 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const [username, setUsername] = useState(user.username);
   const [name, setName] = useState(user.display_name);
   const [language, setLanguage] = useState(user.ui_language || 'en');
+  const theme = useUi(s => s.themePreview) ?? user.ui_theme ?? 'classic';
+  useLayoutEffect(() => () => useUi.setState({ themePreview: null }), []);
   const [atmosphere, setAtmosphere] = useState(!!user.atmosphere_enabled);
   const notifyOn = useNotifications((s) => s.enabled);
   const setNotify = useNotifications((s) => s.setEnabled);
@@ -48,14 +51,14 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); const epoch = sessionEpoch();
     try {
-      const updated = await api.updateMe({ username, display_name: name.trim(), ui_language: language, ...(avatarChanged ? { avatar_data: avatar } : {}), atmosphere_enabled: atmosphere });
+      const updated = await api.updateMe({ username, display_name: name.trim(), ui_language: language, ...(theme !== (user.ui_theme ?? 'classic') ? { ui_theme: theme } : {}), ...(avatarChanged ? { avatar_data: avatar } : {}), atmosphere_enabled: atmosphere });
       if (epoch !== sessionEpoch()) return;
       useAuth.setState({ user: updated }); useLocale.getState().setLanguage(updated.ui_language);
       useUi.getState().toast(t('User settings saved')); onClose();
     } catch (e: any) { setError(t(e.message)); } finally { setBusy(false); }
   };
-  return <div className="modal-backdrop" onClick={close}>
-    <div className="modal col" role="dialog" aria-modal="true" aria-labelledby="user-settings-title" ref={dialog} tabIndex={-1} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => {
+  return createPortal(<div className="modal-backdrop" onClick={close}>
+    <div className="modal col user-settings" role="dialog" aria-modal="true" aria-labelledby="user-settings-title" ref={dialog} tabIndex={-1} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => {
       if (e.key === 'Escape') close();
       if (e.key === 'Tab') {
         const items = Array.from(dialog.current!.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([hidden]), select:not(:disabled)'));
@@ -66,36 +69,52 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
     }}>
       <h3 id="user-settings-title">{t('User settings')}</h3>
       <form className="col" onSubmit={save}>
-        <fieldset disabled={busy} className="profile-fields col">
-          <div className="row">
-            <div className="avatar profile-avatar">{avatar ? <img src={avatar} alt={t('Avatar preview')} /> : name.slice(0,2).toUpperCase()}</div>
-            <div className="col grow">
-              <div className="field"><span>{t('Avatar')}</span><button type="button" className="small" onClick={() => fileInput.current?.click()}>{t('Upload avatar')}</button><input hidden ref={fileInput} aria-label={t('Avatar')} type="file" accept="image/png,image/jpeg,image/webp" onChange={async (e) => {
-                const file=e.target.files?.[0]; e.target.value=''; if (!file) return;
-                const sequence=++uploadSequence.current; setReading(true); setError('');
-                try { const data=await avatarFromFile(file); if (sequence === uploadSequence.current) setAvatar(data); }
-                catch(e:any) { if (sequence === uploadSequence.current) setError(e.message); }
-                finally { if (sequence === uploadSequence.current) setReading(false); }
-              }} /></div>
-              <button type="button" className="ghost small" disabled={!avatar || reading} onClick={() => setAvatar('')}>{t('Remove avatar')}</button>
+        <div className="profile-scroll">
+          <fieldset disabled={busy} className="profile-fields col">
+            <div className="row">
+              <div className="avatar profile-avatar">{avatar ? <img src={avatar} alt={t('Avatar preview')} /> : name.slice(0,2).toUpperCase()}</div>
+              <div className="col grow">
+                <div className="field"><span>{t('Avatar')}</span><button type="button" className="small" onClick={() => fileInput.current?.click()}>{t('Upload avatar')}</button><input hidden ref={fileInput} aria-label={t('Avatar')} type="file" accept="image/png,image/jpeg,image/webp" onChange={async (e) => {
+                  const file=e.target.files?.[0]; e.target.value=''; if (!file) return;
+                  const sequence=++uploadSequence.current; setReading(true); setError('');
+                  try { const data=await avatarFromFile(file); if (sequence === uploadSequence.current) setAvatar(data); }
+                  catch(e:any) { if (sequence === uploadSequence.current) setError(e.message); }
+                  finally { if (sequence === uploadSequence.current) setReading(false); }
+                }} /></div>
+                <button type="button" className="ghost small" disabled={!avatar || reading} onClick={() => setAvatar('')}>{t('Remove avatar')}</button>
+              </div>
             </div>
-          </div>
-          <p className="tiny muted">{t('Your image is cropped to a square and saved at 256 × 256 pixels.')}</p>
-          <label className="field"><span>{t('Username')}</span><input required autoComplete="username" minLength={3} maxLength={32} pattern="[a-zA-Z0-9_.\-]{3,32}" value={username} onChange={(e)=>setUsername(e.target.value)} /></label>
-          <p className="tiny muted">{t('Use 3–32 letters, digits, underscores, dots or hyphens. Use your new username next time you sign in.')}</p>
-          <label className="field"><span>{t('Display name')}</span><input required maxLength={60} value={name} onChange={(e)=>setName(e.target.value)} /></label>
-          <label className="field"><span>{t('Interface language')}</span><select value={language} onChange={(e)=>setLanguage(e.target.value)}>{(user.languages || Object.keys(LANGUAGE_LABELS)).map((code)=><option key={code} value={code}>{LANGUAGE_LABELS[code] || code}</option>)}</select></label>
-          <p className="tiny muted">{t('This changes your interface only. Server AI output language stays unchanged.')}</p>
-          <label className="row"><input type="checkbox" checked={atmosphere} onChange={e => setAtmosphere(e.target.checked)} />{t('Show channel atmosphere backgrounds')}</label>
-          <p className="tiny muted">{t('Requires the server atmosphere feature. Follows your device’s light/dark theme and screen orientation; displayed translucently.')}</p>
-          <label className="row"><input type="checkbox" checked={notifyOn} onChange={e => setNotify(e.target.checked)} />{t('Show message notifications')}</label>
-          <p className="tiny muted">{t('A banner in the top-right corner when someone posts in another window you joined in the channel you are viewing. Applies on this device at once.')}{isDesktop ? ' ' + t('In the background, the desktop app shows a system notification instead.') : ''}</p>
-          <div className="row"><span className="small grow">{t('Media kept on this device: {n} files, {size}', { n: cache?.entries ?? 0, size: formatCacheSize(cache?.bytes ?? 0) })}</span><button type="button" className="ghost small" disabled={!cache?.entries} onClick={clearCache}>{t('Clear')}</button></div>
-          <p className="tiny muted">{t('Portraits, backgrounds, avatars and voice clips stay on this device for 30 days after they were last shown, so they open without downloading again. Clearing only frees space.')}</p>
-        </fieldset>
+            <p className="tiny muted">{t('Your image is cropped to a square and saved at 256 × 256 pixels.')}</p>
+            <label className="field"><span>{t('Username')}</span><input required autoComplete="username" minLength={3} maxLength={32} pattern="[a-zA-Z0-9_.\-]{3,32}" value={username} onChange={(e)=>setUsername(e.target.value)} /></label>
+            <p className="tiny muted">{t('Use 3–32 letters, digits, underscores, dots or hyphens. Use your new username next time you sign in.')}</p>
+            <label className="field"><span>{t('Display name')}</span><input required maxLength={60} value={name} onChange={(e)=>setName(e.target.value)} /></label>
+            <label className="field"><span>{t('Interface language')}</span><select value={language} onChange={(e)=>setLanguage(e.target.value)}>{(user.languages || Object.keys(LANGUAGE_LABELS)).map((code)=><option key={code} value={code}>{LANGUAGE_LABELS[code] || code}</option>)}</select></label>
+            <p className="tiny muted">{t('This changes your interface only. Server AI output language stays unchanged.')}</p>
+            <fieldset className="theme-picker">
+              <legend>{t('Interface theme')}</legend>
+              <div className="theme-options">
+                {(['classic', 'glass'] as const).map(id => (
+                  <label className="theme-option" key={id}>
+                    <span className={`theme-swatch ${id}`} aria-hidden="true" />
+                    <span>{id === 'glass' ? t('Frosted glass') : t('Classic dark')}</span>
+                    <input type="radio" name="interface-theme" value={id} checked={theme === id}
+                      onChange={() => useUi.setState({ themePreview: id })} />
+                  </label>
+                ))}
+              </div>
+              <p className="tiny muted">{t('Frosted glass follows your device’s light or dark appearance.')}</p>
+            </fieldset>
+            <label className="row"><input type="checkbox" checked={atmosphere} onChange={e => setAtmosphere(e.target.checked)} />{t('Show channel atmosphere backgrounds')}</label>
+            <p className="tiny muted">{t('Requires the server atmosphere feature. Follows your device’s light/dark theme and screen orientation; displayed translucently.')}</p>
+            <label className="row"><input type="checkbox" checked={notifyOn} onChange={e => setNotify(e.target.checked)} />{t('Show message notifications')}</label>
+            <p className="tiny muted">{t('A banner in the top-right corner when someone posts in another window you joined in the channel you are viewing. Applies on this device at once.')}{isDesktop ? ' ' + t('In the background, the desktop app shows a system notification instead.') : ''}</p>
+            <div className="row"><span className="small grow">{t('Media kept on this device: {n} files, {size}', { n: cache?.entries ?? 0, size: formatCacheSize(cache?.bytes ?? 0) })}</span><button type="button" className="ghost small" disabled={!cache?.entries} onClick={clearCache}>{t('Clear')}</button></div>
+            <p className="tiny muted">{t('Portraits, backgrounds, avatars and voice clips stay on this device for 30 days after they were last shown, so they open without downloading again. Clearing only frees space.')}</p>
+          </fieldset>
+        </div>
         {error && <div role="alert" className="profile-error">{error}</div>}
         <div className="row"><button className="primary" disabled={busy || reading || !name.trim()}>{t(busy ? 'Saving…' : 'Save')}</button><button type="button" className="ghost" disabled={busy} onClick={close}>{t('Cancel')}</button></div>
       </form>
     </div>
-  </div>;
+  </div>, document.body);
 }

@@ -30,7 +30,7 @@ Json::Value AuthService::registerUser(const std::string& username, const std::st
     auto existing = db_.queryOne("SELECT id FROM users WHERE username=$1", {username});
     if (!existing.isNull()) throw conflict("username already taken");
     auto row = db_.queryOne(
-        "INSERT INTO users(username, display_name, password_hash) VALUES($1,$2,$3) RETURNING id, username, display_name, ui_language, atmosphere_enabled, avatar_version, avatar_hash, avatar_data, created_at",
+        "INSERT INTO users(username, display_name, password_hash) VALUES($1,$2,$3) RETURNING id, username, display_name, ui_language, ui_theme, atmosphere_enabled, avatar_version, avatar_hash, avatar_data, created_at",
         {username, displayName.empty() ? username : displayName, crypto::hashPassword(password)});
     return row;
 }
@@ -55,7 +55,7 @@ Json::Value AuthService::login(const std::string& username, const std::string& p
 Json::Value AuthService::profile(const std::string& userId) {
     // avatar_data is only filled for an avatar not yet moved into the object store; clients load the picture from
     // /api/users/{id}/avatar?v=<avatar_version> when has_avatar is true.
-    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, atmosphere_enabled, avatar_data, avatar_version, avatar_hash, (avatar_data<>'' OR avatar_key IS NOT NULL) AS has_avatar, is_admin FROM users WHERE id=$1", {userId});
+    auto result = db_.queryOne("SELECT id, username, display_name, ui_language, ui_theme, atmosphere_enabled, avatar_data, avatar_version, avatar_hash, (avatar_data<>'' OR avatar_key IS NOT NULL) AS has_avatar, is_admin FROM users WHERE id=$1", {userId});
     if (result.isNull()) throw notFound("user not found");
     result["is_admin"] = isPlatformAdmin(result["username"].asString(), result["is_admin"].asBool());
     result["languages"] = Json::arrayValue;
@@ -66,7 +66,7 @@ Json::Value AuthService::profile(const std::string& userId) {
 Json::Value AuthService::updateProfile(const Principal& principal, const Json::Value& body) {
     if (!body.isObject()) throw badRequest("profile must be an object");
     for (const auto& key : body.getMemberNames()) {
-        if (key != "username" && key != "display_name" && key != "ui_language" && key != "avatar_data" && key != "atmosphere_enabled") throw badRequest("unknown profile field");
+        if (key != "username" && key != "display_name" && key != "ui_language" && key != "ui_theme" && key != "avatar_data" && key != "atmosphere_enabled") throw badRequest("unknown profile field");
         if (key != "atmosphere_enabled" && !body[key].isString()) throw badRequest("profile fields must be strings");
     }
     // Validate every supplied field before writing; a failed edit cannot partially change the account.
@@ -80,6 +80,8 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
         auto& languages = ServerSettingsService::languages();
         if (std::find(languages.begin(), languages.end(), body["ui_language"].asString()) == languages.end()) throw badRequest("unsupported interface language");
     }
+    if (body.isMember("ui_theme") && body["ui_theme"] != "classic" && body["ui_theme"] != "glass")
+        throw badRequest("unsupported interface theme");
     std::string avatarBytes, avatarMime;
     if (body.isMember("avatar_data") && !body["avatar_data"].asString().empty()) {
         auto data = body["avatar_data"].asString();
@@ -108,8 +110,9 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
             auto username = json::str(body, "username", current["username"].asString());
             auto name = text::trim(json::str(body, "display_name", current["display_name"].asString()));
             auto language = json::str(body, "ui_language", current["ui_language"].asString());
+            auto theme = json::str(body, "ui_theme", current["ui_theme"].asString());
             if(body.isMember("atmosphere_enabled")) Db::exec(w,"UPDATE users SET atmosphere_enabled=$2 WHERE id=$1",{principal.userId,body["atmosphere_enabled"].asBool()});
-            Db::exec(w, "UPDATE users SET username=$2, display_name=$3, ui_language=$4 WHERE id=$1", {principal.userId, username, name, language});
+            Db::exec(w, "UPDATE users SET username=$2, display_name=$3, ui_language=$4, ui_theme=$5 WHERE id=$1", {principal.userId, username, name, language, theme});
             if (!body.isMember("avatar_data")) return;
             bool had = current["avatar_data"].asString() != "" || current["avatar_key"].isString();
             if (current["avatar_key"].isString()) oldKey = current["avatar_key"].asString();

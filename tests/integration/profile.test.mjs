@@ -53,3 +53,16 @@ test('Personal profile: all server languages, atomic rename, persistent avatar a
   await request(a.token,'PUT','/api/auth/me',{avatar_data:''});
   assert.equal((await fetch(base+avatarPath,{headers:{Authorization:`Bearer ${b.token}`}})).status,404);
 });
+
+test('The interface theme belongs to the account and survives unrelated profile edits', async () => {
+  const create = name => request(null, 'POST', '/api/auth/register', {username: name + Date.now().toString(36), password: 'password'});
+  const a = await create('theme_a'), b = await create('theme_b');
+  assert.equal(a.user.ui_theme, 'classic');
+  assert.equal((await request(a.token, 'PUT', '/api/auth/me', {ui_theme: 'glass'})).ui_theme, 'glass');
+  assert.equal((await request(a.token, 'PUT', '/api/auth/me', {ui_language: 'zh-CN'})).ui_theme, 'glass');
+  for (const theme of ['unknown', null]) await request(a.token, 'PUT', '/api/auth/me', {ui_theme: theme}, 400);
+  const login = await request(null, 'POST', '/api/auth/login', {username: a.user.username, password: 'password'});
+  assert.equal(login.user.ui_theme, 'glass');
+  assert.equal((await request(b.token, 'GET', '/api/auth/me')).ui_theme, 'classic');
+  assert.equal((await request(a.token, 'PUT', '/api/auth/me', {ui_theme: 'classic'})).ui_theme, 'classic');
+});

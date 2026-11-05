@@ -21,6 +21,7 @@ import java.util.UUID
 
 private val emptyObject = JsonObject(emptyMap())
 data class AppState(
+    val accountUsers: List<User> = emptyList(),
     val cacheRevision: Long = 0,
     val chatNotices: List<ChatNotice> = emptyList(), val initiative: JsonObject = emptyObject, val bannersEnabled: Boolean = true, val readAloud: Boolean = false,
     val campaign: DemoCampaign? = null, val error: String? = null,
@@ -96,6 +97,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private val sessionStore = SessionStore(application)
+    var restartAccount: () -> Unit = {}
+    private var retired = false
+    private companion object { val parkedDrafts = mutableMapOf<String, Map<String, String>>() }
+    fun selectAccount(id: String?) {
+        if (retired || state.value.busy || id == session?.user?.id) return
+        try { sessionStore.select(id) } catch (_: Exception) { notice(tr("无法读取已保存的登录，请重新登录")); return }
+        rememberDraft()
+        session?.user?.id?.let { parkedDrafts[it] = drafts.toMap() }
+        retired = true
+        epoch++
+        stopArtworkPrefetch(reset = true)
+        session = null
+        api = null
+        clearAvatarImages()
+        restartAccount()
+    }
     // Downloaded media, one directory per account and server (core/AssetDiskCache.kt); deleted on sign-out.
     private val assetRoot = File(application.filesDir, "offline/assets")
     private fun assetsFor(endpoint: String, user: User) = AssetDiskCache(File(assetRoot, AssetDiskCache.hex("$endpoint|${user.id}")), legacyDir = File(getApplication<Application>().cacheDir, "assets/" + AssetDiskCache.hex("$endpoint|${user.id}")))
@@ -104,8 +121,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         update { copy(bannersEnabled=preferences.getBoolean("banners",true),readAloud=preferences.getBoolean("readAloud",false)) }
         MobileLocale.initialize(application)
         try {
-            sessionStore.read()?.let { saved ->
-                if (!ServiceConfiguration.acceptsSavedEndpoint(saved.endpoint)) { sessionStore.clear(); return@let }
+            val roster = sessionStore.roster()
+            update { copy(accountUsers = roster.accounts.map { it.session.user }) }
+            roster.accounts.find { it.session.user.id == roster.active }?.let { saved ->
+                drafts.putAll(parkedDrafts[saved.session.user.id].orEmpty())
                 api = BackendClient(BackendAddress(ServiceConfiguration.BACKEND_ROOT, BuildConfig.DEBUG), assets = assetsFor(ServiceConfiguration.BACKEND_ROOT, saved.session.user), reads = readsFor(ServiceConfiguration.BACKEND_ROOT, saved.session.user)); session = saved.session
                 saved.session.user.uiLanguage?.let { MobileLocale.set(it) }
                 update { copy(user = saved.session.user, campaign = null, connection = "正在恢复登录…") }
@@ -151,7 +170,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         epoch++; api = client; session = auth; drafts.clear(); catalogUpdated = 0L
         auth.user.uiLanguage?.let { MobileLocale.set(it) }
         update { AppState(endpoint = endpoint, user = auth.user, busy = true, connection = "已连接") }
-        try { sessionStore.save(SavedLogin(state.value.endpoint, auth)) }
+        try { sessionStore.save(SavedLogin(state.value.endpoint, auth)); val users = sessionStore.roster().accounts.map { it.session.user }; update { copy(accountUsers = users) } }
         catch (_: Exception) { notice(tr("登录成功，但设备未能安全保存登录状态")) }
         update { copy(busy = false) }
         restoreCachedCatalog()
@@ -178,13 +197,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!))
     }
     fun logout() {
+        if (retired) return
+        val id = session?.user?.id ?: return
+        val others = state.value.accountUsers.filterNot { it.id == id }
+        try { sessionStore.remove(id) } catch (_: Exception) { notice(tr("设备未能清除登录记录，请保持联网完成退出")); return }
+        parkedDrafts.remove(id)
         stopArtworkPrefetch(reset = true)
         val oldApi = api; val oldToken = session?.token
         epoch++; api = null; session = null; drafts.clear(); catalogUpdated = 0L
-        update { AppState(connection = "已退出登录") }
-        try { sessionStore.clear() } catch (_: Exception) { notice(tr("设备未能清除登录记录，请保持联网完成退出")) }
+        update { AppState(connection = "已退出登录", accountUsers = others) }
         oldApi?.assets?.invalidate(); oldApi?.reads?.invalidate(); navigationJob?.cancel(); clearAvatarImages()
-        if (oldApi != null && oldToken != null) viewModelScope.launch { runCatching { oldApi.resource(listOf("auth", "logout"), oldToken, emptyObject) } }
+        if (oldApi != null && oldToken != null) kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch { runCatching { oldApi.resource(listOf("auth", "logout"), oldToken, emptyObject) } }
+        retired = true
+        restartAccount()
     }
     private fun rememberDraft() { if (state.value.windowId.isNotEmpty()) drafts[state.value.windowId] = state.value.draft }
     private fun clearChannel() {

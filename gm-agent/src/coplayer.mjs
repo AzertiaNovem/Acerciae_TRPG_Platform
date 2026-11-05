@@ -18,6 +18,7 @@ export function coplayerSystem(language, { improv = false, casual = false, pbta 
 
 How to play:
 - Stay in character, true to your persona and role card. Know only what your character saw or heard in the chat log below.
+- Keep your most recent choice of destination and companion until you change it. If the table corrects a placement, discard actions that depended on the wrong placement. A proposed activity is pending until it actually happens.
 - You know your companions' basic details and backgrounds, what anyone would notice about the people you have met (gender, age, what is most striking about them) and the relationships you know of: let them shape how you treat each other in character, but do not recite them.
 - Keep to the story's date (TODAY IN THE STORY): weekdays, seasons, how long ago things happened. When time has passed, you lived through it too. Everyday life (school, work, seasons, festivals) goes on around you: let it fill your days and your talk.
 - Companions may have lived through scenes you were not part of. When one tells you about something, it happened where and when they were, not here and now; you know only what they tell you.
@@ -112,15 +113,12 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
       today ? `TODAY IN THE STORY: ${today}` : "",
       routine ? `${routine} (common knowledge: everyone in the story knows it)` : "",
       timePassed,
-      timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
-      side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
-      `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map((c) => renderProfile(c)).join("\n") || "(none)"}`,
-      away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map((c) => renderProfile(c)).join("\n")}` : "",
-      met,
-      bonds,
-      corrections,
-      impulse,
     ]),
+    timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
+    side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
+    `THE OTHER INVESTIGATORS (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map(c => pbta ? c.name : renderProfile(c)).join("\n") || "(none)"}`,
+    away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map(c => pbta ? c.name : renderProfile(c)).join("\n")}` : "",
+    ...(!pbta ? [met, bonds, corrections, impulse] : []),
     "",
     `CHAT LOG YOUR CHARACTER WITNESSED${frozen.length ? ", latest part" : ""} (newest last):\n${recent.map((m) => renderLine(m)).join("\n") || (frozen.length ? "(see above)" : "(nothing yet)")}`,
     newest ? `NEWEST LINE: ${renderLine(newest)}` : "",

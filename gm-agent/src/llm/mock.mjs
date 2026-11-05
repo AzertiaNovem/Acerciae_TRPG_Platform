@@ -33,6 +33,9 @@ export class MockLlm {
       case "npc_card": return JSON.stringify(this.card(user, "npc"));
       case "coplayer_repair": return JSON.stringify(this.card(user, "coplayer"));
       case "coplayer_points": return JSON.stringify(this.points(user));
+      case "placement_correction": return JSON.stringify(this.placementCorrection(JSON.parse(messages[0].content)));
+      case "movement_evidence": return JSON.stringify(this.movements(JSON.parse(messages[0].content)));
+      case "scene_handoff": return JSON.stringify(this.handoff(JSON.parse(messages[0].content)));
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
       case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
@@ -96,6 +99,26 @@ export class MockLlm {
     spend(rules.hobby_budget, 'hobby', rules.skills.map((s) => s.name).filter((n) => n !== 'Cthulhu Mythos' && n !== 'Credit Rating'));
     return { career: { name: rules.career.name, choices, specialties }, skill_points: points };
   }
+
+  // Offline movement fixtures understand explicit English departures and following a named companion.
+  movements({ actors, lines, destinations }) {
+    const moves = [];
+    for (const actor of actors) {
+      for (const line of lines.filter(l => actor.sources.includes(l.seq)).reverse()) {
+        const going = line.text.match(/\bI (?:go|head|walk|drive|run) to (?:the )?([^.,!?]+)/i);
+        const back = /\bI (?:go|head|walk) back\b/i.test(line.text);
+        const follow = line.text.match(/\bI follow (\w+)/i);
+        if (!going && !back && !follow) continue;
+        const dest = destinations.find(d => back ? d.key === "T0" : going ? d.place?.toLowerCase() === going[1].trim().toLowerCase() : d.companions?.some(n => n.split(" ")[0] === follow[1]));
+        if (dest) moves.push({ id: actor.id, destination: dest.key, seq: line.seq });
+        break;
+      }
+    }
+    return { moves };
+  }
+
+  placementCorrection() { return { moves: [] }; }
+  handoff() { return { completed: [], planned: [] }; }
 
   // Deterministic stand-ins for the Keeper's judgement: "I go to the X" sends the speaker to a new place, "I go back"
   // brings them back to the main story, "next morning" asks for the next scenario.

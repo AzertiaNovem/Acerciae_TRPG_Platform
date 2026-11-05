@@ -1,5 +1,6 @@
 // Shared API types (mirrors backend JSON shapes).
-export interface User { atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; avatar_hash?: string | null; languages?: string[]; is_admin?: boolean }
+export type InterfaceTheme = 'classic' | 'glass';
+export interface User { ui_theme?: InterfaceTheme; atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; avatar_hash?: string | null; languages?: string[]; is_admin?: boolean }
 export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest'; suspended?: boolean; suspended_reason?: string }
 // Platform administration (/api/admin): what the deployment holds and who uses it; suspensions.
 export interface AdminPage<R> { rows: R[]; total: number; limit: number; offset: number }

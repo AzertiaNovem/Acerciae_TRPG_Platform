@@ -37,10 +37,10 @@ let dbPromise: Promise<IDBDatabase | null> | null = null;
 
 // The signed-in account (and server): entries never cross accounts. A different account than the one that filled the
 // cache on this browser empties it first.
-export function setAssetScope(s: string) {
+export function setAssetScope(s: string, keepOtherScopes = false) {
   scope = s;
   const previous = readStorage(OWNER_KEY);
-  if (previous && previous !== s) void clearAssetCache();
+  if (!keepOtherScopes && previous && previous !== s) void clearAssetCache();
   writeStorage(OWNER_KEY, s);
 }
 

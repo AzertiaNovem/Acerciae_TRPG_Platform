@@ -1,6 +1,6 @@
 import { t as tr } from './i18n';
 import { useLocale } from './i18n';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from 'react';
 import { useAuth } from './store/auth';
 import { useNav } from './store/nav';
 import { useUi } from './store/ui';
@@ -60,6 +60,12 @@ function Shell() {
 
 function AuthenticatedApp() {
   const { user, loading, bootstrap } = useAuth();
+  const preview = useUi(s => s.themePreview);
+  const theme = user ? preview ?? user.ui_theme ?? 'classic' : 'classic';
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    return () => { delete document.documentElement.dataset.theme; };
+  }, [theme]);
   const studio = useOpenStudio((s) => s.open);
   const toasts = useUi((s) => s.toasts);
   useEffect(() => { bootstrap(); }, [bootstrap]);

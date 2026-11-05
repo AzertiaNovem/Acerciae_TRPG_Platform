@@ -1,18 +1,41 @@
 import type { Pack as PbtaPack, Rules as PbtaRules, DraftReview } from '../components/pbta/types';
 import type * as T from '../types';
-import { apiBase, isDesktop } from '../lib/platform';
+import { createAccountDirectory } from '../lib/desktopAccounts';
+import { apiBase, isDesktop, setServerUrl } from '../lib/platform';
 import { createTokenStore, tauriKeychain } from '../lib/tokenStore';
 
 // The session token: local storage on the web, the system keychain in the desktop app (read before the app renders).
 const tokenStore = createTokenStore(isDesktop, tauriKeychain);
+export const desktopAccounts = isDesktop ? createAccountDirectory(localStorage, tauriKeychain) : null;
 let token: string | null = tokenStore.initial();
 let tokenTouched = false;
 export async function restoreToken() {
+  if (desktopAccounts?.read()) {
+    const account = await desktopAccounts.restore();
+    if (account && !tokenTouched) {
+      setServerUrl(account.server);
+      if (apiBase() === account.server) token = account.token;
+    }
+    return;
+  }
   const saved = await tokenStore.load();
   if (!tokenTouched) token = saved;
 }
 
-export function setToken(t: string | null) { tokenTouched = true; token = t; fileTok = null; void tokenStore.save(t); }
+export function setToken(t: string | null) { tokenTouched = true; token = t; fileTok = null; if (!isDesktop) void tokenStore.save(t); }
+export async function rememberDesktopAccount(user: T.User, credential: string) {
+  if (!desktopAccounts) return;
+  const migrating = !desktopAccounts.read();
+  await desktopAccounts.remember(apiBase(), user, credential);
+  if (migrating) await tokenStore.save(null);
+}
+export async function forgetActiveCredential() {
+  if (desktopAccounts) {
+    await desktopAccounts.removeActive();
+    await tokenStore.save(null);
+  }
+  setToken(null);
+}
 export function getToken() { return token; }
 
 // URLs a browser loads by itself (images, audio, downloads, the WebSocket) carry a short-lived file token, never the
@@ -73,7 +96,7 @@ export const api = {
   atmosphere: (ch: string) => get<{ enabled: boolean; id?: string; mock?: boolean; assets?: Record<string,string>; hashes?: Record<string,string> }>(`/api/channels/${ch}/atmosphere`),
   atmosphereHistory: (ch: string) => get<{ id: string; scene_label: string; reason: string; created_at: string; prompts: Record<string,string>; variants: { variant: string; status: string; error?: string }[] }[]>(`/api/channels/${ch}/atmosphere/history`),
   atmosphereImage: (ch: string, id: string) => `${apiBase()}/api/channels/${ch}/atmosphere/assets/${id}?token=${encodeURIComponent(fileToken())}`,
-  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
+  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'ui_theme' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
   avatarUrl: (id: string, version: number) => `${apiBase()}/api/users/${encodeURIComponent(id)}/avatar?v=${version}&token=${encodeURIComponent(fileToken())}`,
   // The signed-in user's avatar: an inline data URI from older servers, otherwise the avatar route (which may redirect
   // to the public media bucket).

@@ -73,7 +73,7 @@ export function whereaboutsBrief({ timelines, scene, nameOf, windowName, isPc, m
 
 // reports: validated whereabouts. scene: {timeline, windowId} (timeline null outside any thread's window).
 // scopeIds: who may be reported this round. speakers: player characters whose player posted in this turn's lines here.
-export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers = new Set(), mode, resolve, isPc, userOf = () => null, windowUsers = () => [], guard, turn, now, cfg }) {
+export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers = new Set(), verifiedCompanions = false, mode, resolve, isPc, userOf = () => null, windowUsers = () => [], guard, turn, now, cfg }) {
   const ignored = [];
   const updates = {};
   const rec = (id) => updates[id] ?? guard.rec(id);
@@ -81,6 +81,9 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   for (const t of timelines.active()) for (const id of t.members) before.set(id, t.id);
   const curOf = (id) => before.get(id) ?? MAIN;
   if (!scene?.timeline || !reports?.length) return observeOnly();
+
+  // Direct operator commands and validated player corrections bypass movement debounce.
+  const override = mode === "manual" || mode === "correction";
 
   // 1. Resolve names and targets.
   const claimed = new Set();
@@ -108,13 +111,12 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
         target = { kind: "tl", id: t.id };
       }
       if (target.kind === "tl" && target.id === curOf(id)) continue;
-      const manual = mode === "manual";            // a CLI command from the person running the table
       // 2. Authority.
-      if (manual) { /* the operator decides */ } else if (isPc(id)) {
+      if (!override && isPc(id)) {
         if (!["human", "relay"].includes(mode) || !speakers.has(id)) { ignored.push({ id, why: "a player character moves only when its player says so" }); continue; }
-      } else if (!["followup", "side"].includes(mode)) { ignored.push({ id, why: "a co-player moves only after its own line" }); continue; }
+      } else if (!override && !verifiedCompanions && !["followup", "side"].includes(mode)) { ignored.push({ id, why: "a co-player moves only after its own line" }); continue; }
       // 3. Guard (players' own moves are exempt).
-      if (!isPc(id) && !manual) {
+      if (!isPc(id) && !override) {
         const r = rec(id);
         const key = target.kind === "tl" ? `tl:${target.id}` : target.key;
         const recent = r.changedTurn !== null && (r.obs < cfg.timelineGuardTurns || now - r.changedAt < cfg.timelineGuardMs);
@@ -209,7 +211,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
     for (const id of g.ids) { if (decisions.get(id)?.key === g.key) decisions.delete(id); ignored.push({ id, why }); }
     groups.delete(g.key);
   };
-  if (mode !== "manual") {
+  if (!override) {
     for (const g of [...groups.values()]) {
       if (g.stay) continue;
       const cooling = g.ids.find((id) => isPc(id) && rec(id).windowAt && now - rec(id).windowAt < cfg.timelinePcCooldownMs);
