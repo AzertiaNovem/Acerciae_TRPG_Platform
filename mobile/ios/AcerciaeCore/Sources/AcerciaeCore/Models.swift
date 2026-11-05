@@ -48,6 +48,7 @@ public struct Message: Codable, Identifiable, Sendable {
     public var authorAvatarHash: String? = nil
     public var dice: JSONValue? = nil
     public var visibility: String? = nil
+    public var referenceIds: [String]? = nil
     public var displayText: String { dice?["text"].string ?? (diceTone == .notice ? "" : content) }
     public init(id: String, content: String, authorName: String, characterName: String?, kind: String, seq: Int64) {
         self.id = id; self.content = content; self.authorName = authorName

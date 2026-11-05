@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,6 +35,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.acerciae.mobile.core.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -305,6 +309,10 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
             Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
             Spacer(Modifier.height(6.dp))
+            message.referenceIds.orEmpty().distinct().forEach { id ->
+                key(state.user?.id, state.scopeKey, state.windowId, id) { ChatReference(id, state, model) }
+                Spacer(Modifier.height(6.dp))
+            }
             if (message.dice != null) DiceResult(message) else Surface(shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
                 bottomEnd = if (mine) 5.dp else 18.dp, bottomStart = if (mine) 18.dp else 5.dp),
                 color = if (mine) Color(0xFF354337) else Panel) {
@@ -312,6 +320,43 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
             }
         }
         if (mine) { Spacer(Modifier.width(8.dp)); ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()) }
+    }
+}
+
+@Composable private fun ChatReference(messageId: String, state: AppState, model: AppViewModel) {
+    var original by remember { mutableStateOf<Message?>(null) }
+    var unavailable by remember { mutableStateOf(false) }
+    val message = if (unavailable) null else original ?: state.campaign?.messages?.find { it.id == messageId }
+    LaunchedEffect(messageId) {
+        try {
+            val value = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Message>(
+                model.get(listOf("channels", state.channelId, "messages", messageId)))
+            coroutineContext.ensureActive()
+            if (model.state.value.scopeKey != state.scopeKey || model.state.value.user?.id != state.user?.id) return@LaunchedEffect
+            original = value; unavailable = false
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            if (model.state.value.scopeKey != state.scopeKey || model.state.value.user?.id != state.user?.id) return@LaunchedEffect
+            val denied = e is BackendException && e.apiResponse && e.status in listOf(401, 403, 404)
+            if (denied) original = null
+            unavailable = denied || message == null
+        }
+    }
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(Panel, RoundedCornerShape(8.dp))) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(Accent, RoundedCornerShape(2.dp)))
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (message != null) {
+                Text((if (message.kind == "ooc") null else message.characterName) ?: message.authorName,
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SelectionContainer { Text(message.content, style = MaterialTheme.typography.bodyMedium) }
+                message.dice?.text("text")?.takeIf { it.isNotEmpty() && it != message.content }?.let {
+                    SelectionContainer { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                }
+            } else {
+                Text(tr(if (unavailable) "Reference unavailable for your current view." else "Loading…"),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

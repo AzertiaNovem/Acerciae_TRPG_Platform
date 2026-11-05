@@ -6,6 +6,12 @@ import okhttp3.mockwebserver.*
 import org.junit.Assert.*
 import org.junit.Test
 class CommitSyncTest {
+    @Test fun messageReferencesSurviveOfflineRoundTripAndOlderMessages() {
+        val message = Json.decodeFromString<Message>("""{"id":"reply","content":"Reply","author_name":"Player","kind":"ooc","seq":3,"reference_ids":["first","second"]}""")
+        assertEquals(listOf("first", "second"), message.referenceIds)
+        assertEquals(message.referenceIds, Json.decodeFromString<Message>(Json.encodeToString(message)).referenceIds)
+        assertNull(Json.decodeFromString<Message>("""{"id":"old","content":"Original","author_name":"Player","kind":"ooc","seq":1}""").referenceIds)
+    }
     private fun obj(s: String) = Json.parseToJsonElement(s).jsonObject
     @Test fun channelSwitchesCannotOverrideServerAndOldChannelsRemainCompatible() {
         val server = obj("""{"features":{"consistency":true,"inspiration":true,"atmosphere":true,"dice":true}}""")

@@ -2,6 +2,15 @@ import XCTest
 @testable import AcerciaeCore
 
 final class ContractTests: XCTestCase {
+    func testMessageReferencesSurviveOfflineRoundTripAndOlderMessages() throws {
+        let data = Data(#"{"id":"reply","content":"Reply","author_name":"Player","kind":"ooc","seq":3,"reference_ids":["first","second"]}"#.utf8)
+        let message = try APIJSON.decoder().decode(Message.self, from: data)
+        XCTAssertEqual(message.referenceIds, ["first", "second"])
+        let stored = try JSONEncoder().encode(message)
+        XCTAssertEqual(try APIJSON.decoder().decode(Message.self, from: stored).referenceIds, message.referenceIds)
+        let older = Data(#"{"id":"old","content":"Original","author_name":"Player","kind":"ooc","seq":1}"#.utf8)
+        XCTAssertNil(try APIJSON.decoder().decode(Message.self, from: older).referenceIds)
+    }
     func testUnsafeAddressesAreRejected() {
         for url in ["http://example.com", "https://user:password@example.com", "https://example.com/api", "https://example.com?token=secret"] {
             XCTAssertThrowsError(try BackendAddress(url, allowLocalHTTP: true))

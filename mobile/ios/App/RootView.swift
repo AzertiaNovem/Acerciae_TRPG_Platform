@@ -349,6 +349,10 @@ private struct MessageBubble: View {
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
                 Text(name + (mine ? " · " + tr("Me") : "") + (message.kind == "narration" ? " · " + tr("Narration") : message.kind == "ooc" ? " · OOC" : ""))
                     .font(.caption).foregroundStyle(.secondary)
+                ForEach(message.referenceIds ?? [], id: \.self) { id in
+                    ChatReferenceView(messageId: id, model: model)
+                        .id("\(model.session?.user.id ?? ""):\(model.scopeKey):\(model.windowId):\(id)")
+                }
                 if message.dice != nil { DiceResultView(message: message) } else {
                 Text(message.displayText)
                     .textSelection(.enabled)
@@ -365,6 +369,47 @@ private struct MessageBubble: View {
         let character = ooc ? nil : model.characters.first(where: { $0.id == message.characterId })
         let picture = ooc ? nil : CharacterArtwork.avatar(character: character, message: message)
         return AvatarView(model: model, name: name, assetId: picture?.id ?? "", version: picture?.version ?? 0, ownerId: message.authorId ?? "", ownerVersion: message.authorAvatarVersion ?? 0, hash: picture?.hash ?? "", ownerHash: message.authorAvatarHash ?? "")
+    }
+}
+
+private struct ChatReferenceView: View {
+    let messageId: String
+    @ObservedObject var model: AppModel
+    @State private var original: Message?
+    @State private var unavailable = false
+    private var message: Message? {
+        unavailable ? nil : original ?? model.campaign?.messages.first { $0.id == messageId }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let message {
+                Text((message.kind == "ooc" ? nil : message.characterName) ?? message.authorName)
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(message.content).font(.callout).textSelection(.enabled)
+                if let dice = message.dice?["text"].string, !dice.isEmpty, dice != message.content {
+                    Text(dice).font(.callout).textSelection(.enabled)
+                }
+            } else {
+                Text(tr(unavailable ? "Reference unavailable for your current view." : "Loading…"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10).background(panelColor, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(accent).frame(width: 3) }
+        .task {
+            let scope = model.scopeKey; let user = model.session?.user.id
+            do {
+                let value: Message = try await model.typed(["channels", model.channelId, "messages", messageId])
+                guard !Task.isCancelled, scope == model.scopeKey, user == model.session?.user.id else { return }
+                original = value; unavailable = false
+            } catch {
+                guard !Task.isCancelled, scope == model.scopeKey, user == model.session?.user.id else { return }
+                let denied = [401, 403, 404].contains((error as? ClientError)?.httpStatus ?? 0)
+                if denied { original = nil }
+                unavailable = denied || message == nil
+            }
+        }
     }
 }
 
