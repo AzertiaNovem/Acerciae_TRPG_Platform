@@ -251,8 +251,9 @@ Json::Value TtsService::preview(const ChannelAccess& a, const Json::Value& body)
 }
 
 Json::Value TtsService::createJob(const ChannelAccess& a, const std::string& presentationId, const Json::Value& body) {
-    auto provider = providerFor(a.channelId);
-    auto p = pres_.presentationRow(a, presentationId); if (!(a.isGm || p["created_by"].asString() == a.userId)) throw forbidden("not your presentation");
+    auto p = pres_.presentationRow(a, presentationId);
+    if (p["settings"]["media_mode"] == "hybrid") throw badRequest("hybrid speech is generated in the local studio");
+    auto provider = providerFor(a.channelId); if (!(a.isGm || p["created_by"].asString() == a.userId)) throw forbidden("not your presentation");
     Json::Value scope = body.isMember("scope") && body["scope"].isObject() ? body["scope"] : Json::Value(Json::objectValue);
     bool force = json::toBool(body, "force"); scope["force"] = force; auto kind = json::str(body, "kind", "batch"); auto model = json::str(body, "model_id");
     auto lines = plan(a, presentationId, scope, force, model);

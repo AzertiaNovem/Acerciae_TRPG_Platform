@@ -2,7 +2,7 @@
 // Each piece of work is one request that makes one file in the project's assets, and returns where it is; applying it
 // to the project is a separate, small change (apply*), made on the latest copy, so tasks running side by side never
 // overwrite each other's results. The task manager (tasks.ts) runs them.
-import type { CharacterSheet, Project, VnAssetNeed } from './types';
+import type { CharacterSheet, LocalVoiceConfig, Project, VnAssetNeed } from './types';
 import { generateImage, synthesize } from './providers/providers';
 import type { AiSettings } from './providers/settings';
 import { readAsset, writeAsset } from './storage';
@@ -31,10 +31,10 @@ async function referenceOf(project: Project, path: string | null): Promise<{ byt
 
 // ---- character art ----------------------------------------------------------------------------------
 /** Paints one image of a character (a pose uses the main portrait as its identity reference); returns its path. */
-export async function makeCharacterArt(project: Project, c: CharacterSheet, slot: ArtSlot, ai: AiSettings['image'], signal?: AbortSignal): Promise<string> {
+export async function makeCharacterArt(project: Project, c: CharacterSheet, slot: ArtSlot, ai: AiSettings['image'], signal?: AbortSignal, direction = ''): Promise<string> {
   const kind = slot.kind === 'pose' ? 'standee' : slot.kind;
   const reference = slot.kind === 'pose' ? await referenceOf(project, c.portrait) : undefined;
-  const bytes = await generateImage(ai, { kind, prompt: characterPrompt(project, c, slot), reference, signal });
+  const bytes = await generateImage(ai, { kind, prompt: characterPrompt(project, c, slot) + (direction ? '\nPose direction: ' + direction.slice(0, 2000) : ''), reference, signal });
   return writeAsset(project.id, bytes, 'png');
 }
 /** Files a character image in its slot (the character is found by name; nothing happens when it is gone). */
@@ -53,7 +53,7 @@ export function openNeeds(project: Project): VnAssetNeed[] {
   if (!vn) return [];
   return vn.script.asset_needs.filter((n) => n.kind === 'background'
     ? vn.script.scenes.some((s) => s.key === n.scene_key && !s.background)
-    : !!project.characters.find((c) => c.name === n.character && c.appearance && !Object.keys(c.poses).some((k) => k.toLowerCase() === (n.subtitle ?? '').toLowerCase())));
+    : !!project.characters.find((c) => c.name === n.character && (c.appearance || c.portrait) && !Object.keys(c.poses).some((k) => k.toLowerCase() === (n.subtitle ?? '').toLowerCase())));
 }
 export function needLabel(n: VnAssetNeed): string { return n.kind === 'background' ? n.name || n.brief.slice(0, 60) : `${n.character} ${n.subtitle || 'IDLE'}`; }
 
@@ -67,8 +67,8 @@ export function applyBackground(d: Project, sceneKey: string | undefined, path: 
 }
 
 // ---- voice lines --------------------------------------------------------------------------------------
-export interface VoiceJob { seq: number; text: string; voice: string; delivery: string }
-const VOICED = new Set(['dialogue', 'narration', 'action']);
+export interface VoiceJob { seq: number; text: string; voice: string; delivery: string; config?: LocalVoiceConfig }
+const VOICED = new Set(['dialogue', 'narration', 'action', 'dice']);
 /** Every shown line without a voice yet: a character's own voice, the narrator's for narration and the Keeper. */
 export function voiceJobs(project: Project): VoiceJob[] {
   const vn = project.vn;
@@ -81,18 +81,38 @@ export function voiceJobs(project: Project): VoiceJob[] {
     const e = bySeq.get(l.seq); if (!e) continue;
     const kind = l.display_kind ?? e.type;
     if (!VOICED.has(kind)) continue;
-    const ch = kind === 'narration' ? undefined : charOf(l.speaker ?? e.speaker_key);
-    const voice = ch?.voice || (kind === 'narration' || e.role === 'gm' ? vn.narrator_voice : '');
-    const text = (l.text || e.content).trim();
-    if (voice && text) jobs.push({ seq: l.seq, text, voice, delivery: l.delivery ?? '' });
+    const ch = kind === 'narration' || kind === 'dice' ? undefined : charOf(l.speaker ?? e.speaker_key);
+    const fallback = ch?.voice || (kind === 'narration' || kind === 'dice' || e.role === 'gm' ? vn.narrator_voice : '');
+    const saved = ch?.voice ? ch.voice_config : vn.narrator_voice_config;
+    const config = l.voice_config ?? (saved?.voice_id === fallback ? saved : undefined);
+    const voice = config?.voice_id ?? fallback;
+    const text = (l.tts_text || l.text || e.content).trim();
+    const delivery = [config?.style_instruction, config?.dialect ? `Dialect: ${config.dialect}` : '', l.delivery].filter(Boolean).join('; ');
+    if (voice && text) jobs.push({ seq: l.seq, text, voice, delivery, ...(config ? { config } : {}) });
   }
   return jobs;
 }
 export async function makeVoice(project: Project, j: VoiceJob, ai: AiSettings['tts'], signal?: AbortSignal): Promise<{ path: string; ms: number }> {
-  const s = await synthesize(ai, j.text, j.voice, j.delivery, signal);
+  if (j.config && j.config.provider !== ai.provider) throw new Error('This server voice uses a different provider. Choose a voice from the local service in the dubbing cast.');
+  const settings = j.config?.language ? { ...ai, language: j.config.language } : ai;
+  const s = await synthesize(settings, j.text, j.voice, j.delivery, signal, j.config?.synthesis_parameters);
   return { path: await writeAsset(project.id, s.bytes, s.ext), ms: s.ms };
 }
 /** Stores a voice line for a line of the script. */
 export function applyVoice(d: Project, seq: number, v: { path: string; ms: number }) {
   if (d.vn && d.vn.script.scenes.some((s) => s.lines.some((l) => l.seq === seq))) d.vn.audio[seq] = v;
+}
+
+// A local casting change overrides imported per-line profiles and invalidates only the affected recordings.
+export function setLocalVoice(d: Project, character: string | null, voice: string) {
+  if (!d.vn) return;
+  if (character === null) { d.vn.narrator_voice = voice; delete d.vn.narrator_voice_config; }
+  else { const c = d.characters.find((x) => x.name === character); if (c) { c.voice = voice; delete c.voice_config; } }
+  const bySeq = new Map(d.events.map((e) => [e.seq, e]));
+  for (const s of d.vn.script.scenes) for (const l of s.lines) {
+    const e = bySeq.get(l.seq); if (!e) continue;
+    const kind = l.display_kind ?? e.type;
+    const speaker = kind === 'narration' || kind === 'dice' ? null : d.characters.find((c) => c.name === l.speaker || c.speakers.includes(l.speaker ?? e.speaker_key))?.name ?? null;
+    if (speaker === character) { delete l.voice_config; delete d.vn.audio[l.seq]; }
+  }
 }

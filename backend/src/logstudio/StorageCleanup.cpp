@@ -51,6 +51,7 @@ StorageCleanup::Report StorageCleanup::runOnce(bool dryRun) {
     }
     const std::string expired = "SELECT j.id FROM asset_generation_jobs j WHERE j.status='completed' "
         "AND j.finished_at < now() - make_interval(days => $1) "
+        "AND NOT EXISTS (SELECT 1 FROM channel_atmosphere_variants av WHERE av.job_id=j.id) "
         "AND NOT EXISTS (SELECT 1 FROM asset_generation_jobs child WHERE child.params->>'portrait_job_id'=j.id::text)";
     if (dryRun) r.expiredJobs = db_.queryOne("SELECT count(*) AS n FROM (" + expired + ") expired", {int64_t(days)})["n"].asInt();
     else {

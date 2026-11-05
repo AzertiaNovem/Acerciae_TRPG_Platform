@@ -122,12 +122,14 @@ export function wavDurationMs(b: Uint8Array): number {
 }
 const SPOKEN: Record<string, string> = { zh: 'Mandarin Chinese', en: 'English', ja: 'Japanese', ko: 'Korean', es: 'Spanish', fr: 'French', de: 'German', ru: 'Russian', pt: 'Portuguese', it: 'Italian' };
 export interface Speech { bytes: Uint8Array; mime: string; ext: string; ms: number }
-export async function synthesize(s: AiSettings['tts'], text: string, voice: string, delivery = '', signal?: AbortSignal): Promise<Speech> {
+export async function synthesize(s: AiSettings['tts'], text: string, voice: string, delivery = '', signal?: AbortSignal, parameters: Record<string, number | boolean> = {}): Promise<Speech> {
   if (s.provider === 'none') throw new Error('No speech service is set up.');
   if (s.provider === 'qwen') {
     const input: Record<string, unknown> = { text, voice, format: 'wav' };
-    if (s.language && s.language !== 'auto') input.language_hints = [s.language];
+    if (s.language && s.language !== 'auto') input.language_hints = [s.language === 'zh-dialect' ? 'zh' : s.language];
     if (delivery) input.instruction = delivery;
+    for (const k of ['sample_rate', 'volume', 'rate', 'pitch', 'seed', 'hot_fix']) if (parameters[k] !== undefined) input[k] = parameters[k];
+    if (typeof parameters.speed === 'number') input.rate = parameters.speed;
     const res = await http(`${trimBase(s.base_url)}/api/v1/services/audio/tts/SpeechSynthesizer`, { method: 'POST', signal, headers: { authorization: `Bearer ${await key('tts', 'Qwen')}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: s.model, input }) });
     if (!res.ok) throw await failure(res, 'Qwen speech');
     const j = await res.json(); const audio = j.output?.audio ?? {};
@@ -138,6 +140,7 @@ export async function synthesize(s: AiSettings['tts'], text: string, voice: stri
     return { bytes, mime: 'audio/wav', ext: 'wav', ms: wavDurationMs(bytes) };
   }
   const body: Record<string, unknown> = { model: s.model, input: text, voice: voice || 'alloy', response_format: 'wav' };
+  if (typeof parameters.speed === 'number') body.speed = Math.max(0.25, Math.min(4, parameters.speed));
   const lang = SPOKEN[s.language];
   const instructions = [lang ? `Speak in ${lang}.` : '', delivery].filter(Boolean).join(' ');
   if (instructions && !s.model.startsWith('tts-1')) body.instructions = instructions;

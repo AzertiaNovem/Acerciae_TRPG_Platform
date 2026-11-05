@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useUi } from '../../store/ui';
 import type { CharacterSheet, Project, SpeakerRole } from '../types';
 import { writeAsset } from '../storage';
-import type { ArtSlot } from '../actions';
+import { setLocalVoice, type ArtSlot } from '../actions';
 import { artKey, startCharacterArt, useTasks } from '../tasks';
 import { conflictText } from './TaskTray';
 import { loadAiSettings, TTS_VOICES } from '../providers/settings';
@@ -77,7 +77,7 @@ export default function CharactersPanel({ p, update }: { p: Project; update: (fn
             <input value={c.name} onChange={(e) => { const old = c.name, name = e.target.value; update((d) => { d.characters[i].name = name; if (d.vn) for (const s of d.vn.script.scenes) for (const l of s.lines) for (const st of l.stage ?? []) if (st.character === old) st.character = name; }); }} style={{ fontWeight: 600 }} />
             <select value={c.kind} onChange={(e) => edit(i, (x) => { x.kind = e.target.value as CharacterSheet['kind']; })}><option value="pc">PC</option><option value="npc">NPC</option><option value="gm">GM</option></select>
             <input placeholder={tr('Player')} value={c.player} onChange={(e) => edit(i, (x) => { x.player = e.target.value; })} style={{ width: 160 }} />
-            {voices.length > 0 && <select value={c.voice} onChange={(e) => edit(i, (x) => { x.voice = e.target.value; })} title={tr('Voice')}><option value="">{tr('— no voice —')}</option>{voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</select>}
+            {voices.length > 0 && <select value={c.voice} onChange={(e) => update((d) => { if (d.vn) setLocalVoice(d, c.name, e.target.value); else d.characters[i].voice = e.target.value; })} title={tr('Voice')}><option value="">{tr('— no voice —')}</option>{voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</select>}
             <span className="grow" />
             <button className="ghost small" onClick={() => { if (confirm(tr('Remove {name} from the cast?', { name: c.name }))) update((d) => { d.characters.splice(i, 1); }); }}>{tr('remove')}</button>
           </div>

@@ -8,6 +8,7 @@
 namespace acerciae { class Notifier; }
 namespace acerciae::logstudio {
 class LogStudioService;
+class MediaService;
 
 // Presentation Timeline: how a snapshot is performed. Never touches canonical content.
 class PresentationService {
@@ -17,6 +18,7 @@ public:
     // Builds a presentation from a snapshot: one presentation scene per canonical scene, one event per visible line.
     Json::Value create(const ChannelAccess& a, const std::string& snapshotId, const Json::Value& body);
     Json::Value get(const ChannelAccess& a, const std::string& presentationId);        // scenes + events + canonical text (viewer-filtered)
+    Json::Value hybrid(const ChannelAccess& a, const std::string& presentationId, MediaService& media);
     Json::Value update(const ChannelAccess& a, const std::string& presentationId, const Json::Value& body);   // title, settings, style_profile_id
     Json::Value remove(const ChannelAccess& a, const std::string& presentationId);
     Json::Value updateScene(const ChannelAccess& a, const std::string& sceneId, const Json::Value& body);

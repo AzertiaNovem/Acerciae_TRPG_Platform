@@ -14,9 +14,10 @@ const ProjectView = lazy(() => import('./ProjectView'));
 // app's data folder; nothing needs an account or the server, and AI runs on the user's own keys.
 export default function OpenLogStudio() {
   const close = useOpenStudio((s) => s.setOpen);
+  const selectedProject = useOpenStudio((s) => s.projectId);
   const toast = useUi((s) => s.toast);
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
-  const [view, setView] = useState<{ kind: 'list' } | { kind: 'new' } | { kind: 'project'; id: string }>({ kind: 'list' });
+  const [view, setView] = useState<{ kind: 'list' } | { kind: 'new' } | { kind: 'project'; id: string }>(selectedProject ? { kind: 'project', id: selectedProject } : { kind: 'list' });
   const [ai, setAi] = useState(false);
   const load = () => listProjects().then(setProjects).catch((e) => { toast(String(e?.message ?? e), 'error'); setProjects([]); });
   useEffect(() => { if (view.kind === 'list') load(); }, [view.kind]);

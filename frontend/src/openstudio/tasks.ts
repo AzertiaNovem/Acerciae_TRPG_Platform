@@ -274,7 +274,7 @@ export function startPaint(projectId: string): StudioTask {
           const c = p.characters.find((x) => x.name === n.character);
           if (!c) throw new Error('the character is gone');
           const slot: ArtSlot = { kind: 'pose', subtitle: n.subtitle || 'IDLE' };
-          const path = await ctx.inSlot(() => makeCharacterArt(p, c, slot, ai.image, ctx.signal));
+          const path = await ctx.inSlot(() => makeCharacterArt(p, c, slot, ai.image, ctx.signal, n.brief));
           ctx.update((d) => applyCharacterArt(d, c.name, slot, path));
         }
         ctx.step();

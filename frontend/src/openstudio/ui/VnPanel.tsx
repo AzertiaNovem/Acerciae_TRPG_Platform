@@ -11,6 +11,7 @@ import { loadAiSettings, TTS_VOICES } from '../providers/settings';
 import { assetAbsolutePath, exportToFolder, readAsset } from '../storage';
 import { useAssetUrls } from './useAssetUrls';
 import VNPlayer from '../../components/studio/vn/VNPlayer';
+import HybridCast from './HybridCast';
 import VnTemplatePanel from '../../components/studio/VnTemplatePanel';
 import type { VideoProgress, VideoQuality } from '../../components/studio/vn/videoExport';
 
@@ -100,7 +101,7 @@ export default function VnPanel({ p, update }: { p: Project; update: (fn: (d: Pr
   const voices = ai.tts.provider === 'none' ? [] : TTS_VOICES[ai.tts.provider];
   return (
     <div className="col" style={{ gap: 12 }}>
-      <div className="card col" style={{ gap: 8, maxWidth: 860 }}>
+      {p.hybrid ? <div className="card col" style={{ gap: 8 }}><h3 style={{ margin: 0 }}>{tr('Hybrid · server script ready')}</h3><div className="tiny muted">{tr('The server’s edited script is ready. Only missing media is generated here; finished files survive cancellation and are reused on retry.')}</div></div> : <div className="card col" style={{ gap: 8, maxWidth: 860 }}>
         <h3 style={{ margin: 0 }}>{tr('1. Script')}</h3>
         <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
           <label className="row tiny"><input type="radio" checked={!useModel} onChange={() => setUseModel(false)} />{tr('Rule-based (free, offline)')}</label>
@@ -125,13 +126,14 @@ export default function VnPanel({ p, update }: { p: Project; update: (fn: (d: Pr
           </div>
         )}
         {vn?.script.notes.length ? <div className="tiny muted">{vn.script.notes.join(' · ')}</div> : null}
-      </div>
+      </div>}
       {vn && (
         <div className="card col" style={{ gap: 8, maxWidth: 860 }}>
           <h3 style={{ margin: 0 }}>{tr('2. Art and voices')}</h3>
+          {p.hybrid && <HybridCast p={p} update={update} disabled={running.some((t) => t.kind === 'voice')} />}
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             <button className="small" disabled={!!paintBlocked || ai.image.provider === 'none' || !needs} onClick={paint}>{tr('Paint backgrounds and poses ({n} asked for)', { n: needs })}</button>
-            {voices.length > 0 && <label className="tiny">{tr('Narrator')} <select value={vn.narrator_voice} onChange={(e) => update((d) => { d.vn!.narrator_voice = e.target.value; })}><option value="">{tr('— no voice —')}</option>{voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>}
+            {!p.hybrid && voices.length > 0 && <label className="tiny">{tr('Narrator')} <select value={vn.narrator_voice} onChange={(e) => update((d) => { d.vn!.narrator_voice = e.target.value; })}><option value="">{tr('— no voice —')}</option>{voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>}
             <button className="small" disabled={!!voiceBlocked || ai.tts.provider === 'none'} onClick={voice}>{tr('Voice the lines ({n} done)', { n: voiced })}</button>
             {voiced > 0 && <button className="ghost small" disabled={running.some((t) => t.kind === 'voice')} onClick={() => update((d) => { d.vn!.audio = {}; })}>{tr('Clear voices')}</button>}
           </div>
