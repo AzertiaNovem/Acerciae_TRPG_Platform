@@ -852,7 +852,7 @@ ScriptInputs VnScriptService::inputs(const ChannelAccess &a, const std::string &
     // The visual novel's own backgrounds, by the scene names the writer gave them, whatever their library status:
     // the presentation already shows them. Scenes still waiting for a picture are offered by name, like a
     // background generated earlier in this run, so the writer reuses the name instead of asking again.
-    auto scenes = db_.queryJson("SELECT id, title, canonical_scene_key, background_asset_id, metadata FROM presentation_scenes WHERE presentation_id=$1 ORDER BY position", {cont});
+    auto scenes = db_.queryJson("SELECT id, title, canonical_scene_key, COALESCE(background_asset_id, (metadata->>'hybrid_background_asset_id')::uuid) AS background_asset_id, metadata FROM presentation_scenes WHERE presentation_id=$1 ORDER BY position", {cont});
     auto named = [&](const std::string &name) {
       for (const auto &x : in.assets) if (x["type"] == "background" && text::lower(json::str(x, "name")) == text::lower(name)) return true;
       for (const auto &x : in.knownBackgrounds) if (text::lower(json::str(x, "name")) == text::lower(name)) return true;
@@ -1200,6 +1200,7 @@ Json::Value VnScriptService::get(const ChannelAccess &a, const std::string &id) 
   return j;
 }
 Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b) {
+  if (b.isMember("media_mode") && (!b["media_mode"].isString() || (b["media_mode"] != "server" && b["media_mode"] != "hybrid"))) throw badRequest("media_mode must be server or hybrid");
   if (b.isMember("retry_failed_chunks") && !b["retry_failed_chunks"].isBool()) throw badRequest("retry_failed_chunks must be a boolean");
   Json::Value snap;
   std::string snapshotId = json::str(b, "snapshot_id");
@@ -1208,6 +1209,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
   if (!cont.empty()) {
     // Continue a visual novel: the campaign log frozen again in the presentation's own scope.
     continued = pres_.presentationRow(a, cont);
+    if (b.isMember("media_mode") && json::str(b, "media_mode") != json::str(continued["settings"], "media_mode", "server")) throw badRequest("a continuation keeps its original media mode");
     if (!pres_.canEditPresentation(a, continued)) throw forbidden("only the draft author or GM can continue this visual novel");
     auto old = db_.queryOne("SELECT project_id, scope, scope_character_id, selection FROM log_snapshots WHERE id=$1", {continued["snapshot_id"].asString()});
     auto projectId = logs_.campaignProjectId(a.channelId);
@@ -1269,7 +1271,8 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
   }
   if (someWindows) params["windows"] = snap["selection"]["windows"];   // shown with the job
   params["cloud_authorized"] = !mock || json::toBool(b, "allow_cloud");
-  params["generate_art"] = json::toBool(b, "generate_art", true);
+  params["media_mode"] = cont.empty() ? json::str(b, "media_mode", "server") : json::str(continued["settings"], "media_mode", "server");
+  params["generate_art"] = params["media_mode"] != "hybrid" && json::toBool(b, "generate_art", true);
   params["retry_failed_chunks"] = json::toBool(b, "retry_failed_chunks", llm_.retryFailedVnChunks());
   auto j = db_.queryOne("INSERT INTO vn_script_jobs(channel_id, project_id, snapshot_id, provider, model, params, created_by) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING id, status, provider, snapshot_id, created_at, params",
                         {a.channelId, snap["project_id"].asString(), snapshotId, mock ? "mock" : llm_.mode(a.channelId), llm_.modelName(a.channelId), json::dump(params), a.userId});
@@ -1338,6 +1341,7 @@ Json::Value VnScriptService::retryBackgrounds(const ChannelAccess &a, const std:
   if (job["status"] != "completed" || !job["presentation_id"].isString()) throw badRequest("complete the script before generating backgrounds");
   const auto pid = job["presentation_id"].asString();
   auto presentation = pres_.get(a, pid); // rechecks snapshot visibility as well as draft ownership
+  if (presentation["settings"]["media_mode"] == "hybrid") throw badRequest("hybrid backgrounds are generated in the local studio");
   if (!json::toBool(presentation, "can_edit")) throw forbidden("only the draft author or GM can retry backgrounds");
   if (body.isMember("scene_key") && (!body["scene_key"].isString() || body["scene_key"].asString().empty())) throw badRequest("scene_key must be a nonempty string");
   if (body.isMember("allow_cloud") && !body["allow_cloud"].isBool()) throw badRequest("allow_cloud must be a boolean");
@@ -1407,6 +1411,20 @@ void VnScriptService::run(const Json::Value &j) {
     Json::Value snap;
     const auto cont = json::str(j["params"], "continues_presentation_id");
     auto in = inputs(a, j["snapshot_id"].asString(), &snap, cont);
+    if (j["params"]["media_mode"] == "hybrid" && a.isGm) {
+      // Atmosphere previews are still candidates, not automatically approved for publication. A Keeper may
+      // reuse their existing landscape art locally without changing its approval or uploading a copy.
+      for (const auto& r : db_.queryJson("SELECT m.id, h.scene_label, v.variant FROM channel_atmospheres h JOIN channel_atmosphere_variants v ON v.atmosphere_id=h.id "
+          "JOIN asset_generation_jobs g ON g.id=v.job_id JOIN media_assets m ON m.id=g.result_asset_id WHERE h.channel_id=$1 AND m.channel_id=$1 "
+          "AND g.status='completed' AND m.visibility_scope='channel' AND m.approval_status<>'rejected' AND v.variant IN ('day_landscape','night_landscape') ORDER BY h.created_at DESC LIMIT 100", {channel})) {
+        bool exists = false; for (const auto& x : in.assets) if (x["id"] == r["id"]) exists = true;
+        if (exists) continue;
+        Json::Value asset; asset["id"] = r["id"]; asset["type"] = "background";
+        asset["ref"] = "B_atmosphere_" + std::to_string(in.assets.size());
+        asset["name"] = json::str(r, "scene_label") + " · " + json::str(r, "variant");
+        asset["tags"] = Json::Value(Json::arrayValue); in.assets.append(asset);
+      }
+    }
     Json::Value script;
     if (j["provider"].asString() == "mock") {
       std::vector<Json::Value> flats;
@@ -1424,7 +1442,7 @@ void VnScriptService::run(const Json::Value &j) {
     if (!cont.empty()) {
       // Continue the existing presentation: the new scenes go after its own, which stay as they are.
       script["continues_presentation_id"] = cont;
-      script = fitContinuation(script, db_.queryJson("SELECT title, canonical_scene_key, background_asset_id FROM presentation_scenes WHERE presentation_id=$1 ORDER BY position", {cont}));
+      script = fitContinuation(script, db_.queryJson("SELECT title, canonical_scene_key, COALESCE(background_asset_id, (metadata->>'hybrid_background_asset_id')::uuid) AS background_asset_id FROM presentation_scenes WHERE presentation_id=$1 ORDER BY position", {cont}));
       pres_.appendScript(a, cont, j["snapshot_id"].asString(), script);
       if (json::toBool(j["params"], "generate_art", true)) script["generation"] = queueArt(a, script, cont, json::toBool(j["params"], "cloud_authorized"));
       // The lines are in the presentation now, so the job completes even if it was cancelled meanwhile.
@@ -1437,6 +1455,7 @@ void VnScriptService::run(const Json::Value &j) {
     Json::Value body;
     body["title"] = j["params"]["title"];
     body["settings"]["template"] = j["params"]["template"];
+    body["settings"]["media_mode"] = json::str(j["params"], "media_mode", "server");
     body["settings"]["generated"]["job_id"] = id;
     body["settings"]["generated"]["provider"] = script["provider"];
     body["settings"]["generated"]["model"] = j["model"];

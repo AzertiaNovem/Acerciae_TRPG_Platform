@@ -61,6 +61,12 @@ export interface CharacterSheet {
   portrait: string | null;        // main portrait / default standee
   poses: Record<string, string>;  // subtitle (SAY, IDLE, ANGRY, …) → asset path or URL
   voice: string;                  // TTS voice id for this character ("" = none)
+  voice_config?: LocalVoiceConfig;
+}
+
+export interface LocalVoiceConfig {
+  voice_id: string; provider: string; language: string; style_instruction: string; dialect?: string;
+  voice_type?: string; synthesis_parameters: Record<string, number | boolean>;
 }
 
 export interface ProjectSource { file: string; adapter: ParsedLog['adapter']; events: number; imported_at: string }
@@ -79,6 +85,7 @@ export interface Project {
   vn?: StudioVn;                  // the visual novel made from this project, when there is one
   vn_draft?: VnDraft;             // a script being written whose editor asked the user something (see vn/compose.ts)
   pdf?: Record<string, unknown>;  // the print settings last used (a partial PdfConfig)
+  hybrid?: { presentation_id: string; imported_at: string; scope: string };
 }
 
 // A project's visual novel: the composed script, its look, its voice lines and how it was asked for.
@@ -87,6 +94,7 @@ export interface StudioVn {
   template: Record<string, unknown>;
   audio: Record<number, { path: string; ms: number }>;   // LogEvent.seq → voice line
   narrator_voice: string;
+  narrator_voice_config?: LocalVoiceConfig;
   language: string;
   instructions: string;
   composed_at: string;
@@ -94,7 +102,7 @@ export interface StudioVn {
 
 // The visual-novel script (same shape as the server's normalized script).
 export interface VnStage { character: string; position: 'left' | 'center' | 'right'; expression: string }   // character = CharacterSheet.name
-export interface VnLine { seq: number; hidden: boolean; exclusion_reason?: string; display_kind?: string; text?: string; delivery?: string; effect?: string; speaker?: string; stage?: VnStage[] }
+export interface VnLine { seq: number; hidden: boolean; exclusion_reason?: string; display_kind?: string; text?: string; delivery?: string; effect?: string; speaker?: string; stage?: VnStage[]; tts_text?: string; voice_config?: LocalVoiceConfig }
 export interface VnScene { key: string; title: string; summary: string; background_brief: string; background: string | null; environment: string; lines: VnLine[] }
 export interface VnAssetNeed { kind: 'background' | 'standee'; brief: string; scene_key?: string; character?: string; subtitle?: string; name?: string }
 export interface VnScript { scenes: VnScene[]; asset_needs: VnAssetNeed[]; notes: string[]; provider: string; stats: { scenes: number; shown: number; hidden: number } }

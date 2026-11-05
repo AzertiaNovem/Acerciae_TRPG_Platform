@@ -282,3 +282,32 @@ Set `LLM_VN_MAX_TOKENS=32768` and `LLM_VN_TIMEOUT_MS=300000` in the backend envi
 `VN_SCRIPT_RETRY_FAILED_CHUNKS=true` is the default for new jobs. The Studio checkbox “Keep completed parts when retrying” overrides it for a job. Each successful part is saved in the database before proceeding. Automatic retries and the “Retry script” button reuse the unchanged completed prefix and resume at the failed part; unfinished later parts still run. Turning this off starts each attempt from the beginning. The existing two-attempt allowance still applies; a manual retry resets that allowance for the same snapshot.
 
 Retries recheck membership, snapshot visibility and cloud permission. Changed prompts, model/language, cast, asset references or preceding generated context invalidate the affected cached suffix. Completed parts survive backend restarts; jobs created before this feature have no saved parts to recover. This option resumes script planning, not image or voice jobs. A long-running request is not reclaimed before its configured timeout and possible schema-repair rounds have elapsed.
+
+## Desktop hybrid production
+
+The desktop VN wizard has an optional **Hybrid: server script, local art and voices** switch. The server still
+freezes the authorized log, writes the script, handles questions/retries and continues the story. It records
+`media_mode: hybrid` and forces `generate_art: false`; background retries and TTS jobs for that presentation must
+run locally. A continuation inherits the original mode. Existing server-made novels can also be copied to the local
+studio from the export step.
+
+`GET /api/channels/:channel/studio/presentations/:presentation/hybrid` returns a viewer-filtered timeline,
+needed existing backgrounds/poses, main portraits, image hashes and voice configuration. It exports only referenced
+characters and synthesis fields, never provider credentials or voice consent records. Existing atmosphere landscape
+candidates can be selected by the Keeper's hybrid planner without approving them for publication; players still
+receive only assets their existing media permissions allow. Jobs that are still the ownership link for atmosphere
+variants are retained by task cleanup.
+
+Continue in the local studio downloads the existing images directly from their public bucket when possible,
+checks SHA-256 and shares equal content within the imported project. Each import creates an independent local
+OpenLogStudio project. Interrupted imports discard only that incomplete new project. The server's edited display
+units, hidden lines, staging and pose directions are retained; the client does not run a second script writer.
+Generated pictures and speech stay in the desktop project folder, with local service keys in the system keychain.
+Configured image/voice services may start immediately after import; missing services can be configured later.
+
+Painting, voice generation, bounded concurrency, cancellation, retry, playback, player-folder and video export all
+reuse OpenLogStudio. Successful files are saved as they arrive and skipped when the same task is retried. Voice IDs,
+language, delivery, dialect and synthesis parameters are carried over; the endpoint, model and credentials come
+from the local AI settings. A voice from a different provider must be reassigned locally, and a server-account
+custom voice works only if the local account also has access. Changing a cast member clears only that speaker's
+recordings. This first version targets the desktop app; browser and native mobile do not generate hybrid media.

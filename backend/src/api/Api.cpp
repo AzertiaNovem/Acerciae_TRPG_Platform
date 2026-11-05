@@ -671,6 +671,7 @@ void registerRoutes() {
     route1("/api/channels/{1}/studio/presentations", {Get}, [&](auto& req, auto& p, auto& a) { return S.presentations->list(studioAccess(p, a[0]), req->getParameter("project_id")); });
     route2("/api/channels/{1}/studio/snapshots/{2}/presentations", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->create(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.presentations->get(studioAccess(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/studio/presentations/{2}/hybrid", {Get}, [&](auto&, auto& p, auto& a) { return S.presentations->hybrid(studioAccess(p, a[0]), a[1], *S.media); });
     route2("/api/channels/{1}/studio/presentations/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.presentations->update(studioAccess(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/studio/presentations/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.publication->deletePresentation(studioAccess(p, a[0]), a[1]); });
     route2("/api/channels/{1}/studio/presentations/{2}/events/bulk", {Post}, [&](auto& req, auto& p, auto& a) { return S.presentations->bulkUpdateEvents(studioAccess(p, a[0]), a[1], body(req)); });
