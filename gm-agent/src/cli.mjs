@@ -267,12 +267,13 @@ async function openTable(cfg, { llm = null, plannerLlm = null, write = true, hea
   return { api, channel, table };
 }
 
-async function run(cfg) {
+export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   // The lock comes first: healing an interrupted split and every save need to be this process's alone.
   const signedIn = await signIn(cfg);
   const { channel: ch } = await resolveChannel(signedIn, cfg, { create: false });
   const release = acquireLock(cfg.stateDir, ch.id);
   if (!release) throw new Error(`another process (pid ${lockHolder(cfg.stateDir, ch.id) ?? "?"}) already keeps this channel`);
+  onLock();
   // Another writer changed the state file under us: continuing would act on a stale table, so stop loudly.
   const onConflict = (e) => { log(`stopping: ${e.message}. Restart \`run\` to continue from the file.`); release(); process.exit(3); };
   let opened;
@@ -280,7 +281,7 @@ async function run(cfg) {
   const sameModel = ["provider", "apiBase", "model", "effort", "apiKey"].every((k) => cfg.planner[k] === cfg.llm[k]);
   const plannerLlm = sameModel ? null : withProgress(createLlm(cfg.planner), log);
   try {
-    if (ch.rule_system === "pbta") await setupChannel(cfg, signedIn, { channel: ch }, true);
+    if (managed || ch.rule_system === "pbta") await setupChannel(cfg, signedIn, { channel: ch }, true);
     opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), plannerLlm, heal: true, channel: { api: signedIn, channel: ch }, onConflict });
   }
   catch (e) { release(); throw e; }
@@ -321,6 +322,13 @@ async function run(cfg) {
     finish();
   };
   const finish = () => { table.store.close(); release(); process.exit(0); };
+  if (managed) return { stop: async () => {
+    table.stopTicker(); fs.unwatchFile(inbox); rt.stop();
+    for (const pending of table.timers.values()) clearTimeout(pending.timer);
+    table.generation.pause();
+    try { await table.queue; await table.memoryIdle(); }
+    finally { table.store.close(); release(); }
+  }};
   process.on("SIGINT", () => { if (!stopping && cfg.planner.finalReview && table.planner.session?.lines >= cfg.planner.finalReviewMinLines) log("stopping: the session's final review runs first (Ctrl-C again to skip it)"); stop(); });
   process.on("SIGTERM", stop);
 }
@@ -430,12 +438,6 @@ async function status(cfg) {
   console.log(`timelines: ${cfg.timelineAuto ? `proactive (at most ${cfg.timelineMaxActive} at once, ${cfg.timelineMaxArrivalsPerHour} arrivals an hour)` : "model-led (TIMELINE_AUTO=false)"}, ${cfg.sceneForks ? "scene forks on (after a split the main story leaves the Main Chat, a lobby)" : "the main story stays in the Main Chat"}; scenarios: ${cfg.scenarioAuto ? `GM-driven from the Main Chat after ${cfg.scenarioMinMinutes} min and ${cfg.scenarioMinLines} lines; never during a short split` : "manual only"}`);
 }
 
-const args = parseArgs(process.argv.slice(2));
-loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
-loadEnvFile(path.join(here, "..", ".env"));
-const cfg = buildConfig(args, process.env, loadConfigFile(configPath(args, process.env, process.cwd(), path.join(here, ".."))));
-for (const w of cfg.warnings) console.error(`warning: ${w}`);
-const command = args._[0] ?? "run";
 // `plan now|on|off|show [--full]`: the story planner, during a campaign. `show` is read-only.
 async function plan(cfg, args) {
   const v = String(args._?.[1] ?? "").toLowerCase();
@@ -496,9 +498,20 @@ async function usage(cfg, args) {
   } finally { store.close(); }
 }
 
-const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond };
-if (!commands[command]) {
-  console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
-  process.exit(2);
+export async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
+  loadEnvFile(path.join(here, "..", ".env"));
+  const cfg = buildConfig(args, process.env, loadConfigFile(configPath(args, process.env, process.cwd(), path.join(here, ".."))));
+  for (const w of cfg.warnings) console.error(`warning: ${w}`);
+  const command = args._[0] ?? "run";
+  const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond };
+  if (!commands[command]) {
+    console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+    process.exit(2);
+  }
+  await commands[command](cfg, args);
 }
-commands[command](cfg, args).catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(e => { console.error(`error: ${e.message}`); process.exitCode = 1; });
+}

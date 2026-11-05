@@ -1,0 +1,16 @@
+table:
+  coplayers: 3
+  level: 3
+  language: zh-CN
+pacing:
+  debounce_ms: 2500
+  post_delay_ms: 800
+autonomy:
+  enabled: false
+planner:
+  interval_minutes: 45
+modes:
+  casual: false
+# For an improvised world (paths are relative to this file):
+#  improv: true
+#  world_file: ../worlds/dnd.md

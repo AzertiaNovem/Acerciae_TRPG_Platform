@@ -24,3 +24,7 @@ pdf-worker/output/
 gm-agent/node_modules/
 gm-agent/.state/
 gm-agent/.env
+
+# Local multi-channel GM host configuration (may contain credentials)
+gm-agent/gm-host.yml
+gm-agent/channels/

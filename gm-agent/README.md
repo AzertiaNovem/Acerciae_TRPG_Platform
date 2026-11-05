@@ -21,6 +21,22 @@ The platform's own AI never speaks in chat. It writes tips for the Keeper: the p
 knowledge, documents, highlights and module hints. This client reads those tips for the GM and the real NPCs. Co-players
 never get them.
 
+## Hosting several channels in one process
+
+`npm run host -- --config gm-host.yml` runs one Node.js process with an isolated worker thread per channel. Each worker owns its table, rule profile, API session, WebSockets, timers, SQLite database and state lock. CoC, D&D and PbtA channels can run together. Existing `setup`, `run` and manual commands still work; do not run two hosts for the same channel.
+
+Copy `gm-host.example.yml` to `gm-host.yml`, create `channels/`, and copy the files from `examples/channels/` there. Replace the channel IDs with existing platform channels where the shared account is GM. Paths are relative to the configuration file that contains them. The channel's rule system comes from the platform; change it in the GM workspace and restart that channel.
+
+The shared file contains the platform address, account, state directory, LLM provider/endpoint/key, optional planner connection and channel list. Keep it private (`chmod 600 gm-host.yml`). Passwords and keys can instead come from `.env` (`GM_PASSWORD`, `LLM_API_KEY`/`ANTHROPIC_API_KEY`, `PLANNER_API_KEY`). The shared file takes precedence. Never commit real credentials. Channel files cannot override credentials, provider or endpoint; they can select a model, effort, token budgets, language, co-player count, calendar pacing, autonomy, scene strategies and modes using the existing configuration keys. Each channel has its own daily token budget; there is no combined provider spending cap.
+
+At startup the host prepares each enabled channel independently, adopts existing co-players, creates any missing requested co-players and applies explicit world/casual settings. PbtA waits for its rule review without delaying other channels. A failed worker stays failed until explicitly started or restarted; it does not terminate its peers or repeatedly retry a broken configuration. `enabled: false` prevents automatic startup but still lists the channel in the UI. A second host using the same state directory is refused.
+
+Set `webui.enabled: true` in the shared file and supply a random `webui.token` of at least 24 characters (for example `openssl rand -hex 24`). The UI defaults to `http://127.0.0.1:8787`. Enter the token in its login field; it stays in page memory and is never put into the URL. The UI lists channel status, starts/stops/restarts individual channels and edits their YAML. Save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active. Stopped channels stay stopped. Unsaved edits are not replaced by status refreshes. Shared credentials are never returned to the browser. To change shared connections, the channel registry or the UI listener, edit the shared file and restart the host. Changes made directly to channel files take effect on the next channel restart.
+
+The UI grants administrative control of the configured channels, including world-file paths; give the token only to trusted operators. Keep the default loopback listener or place a deliberately exposed listener behind an HTTPS reverse proxy. The server checks bearer authentication and rejects cross-origin API requests.
+
+On shutdown or configuration restart, workers stop accepting events, cancel generation and drain active work before releasing their locks. A worker that cannot stop within 15 seconds is terminated and its owned lock is released after thread exit. Configuration restarts preserve the session and do not run an end-of-session story review; the existing standalone `run` signal behavior still runs that review. In-flight network calls at forced termination may already have reached the platform, so inspect the last posted lines before resuming a timed-out channel.
+
 ## Hosting a PbtA table
 
 For a channel already created in the web or desktop app, select PbtA in GM workspace → Settings and give the agent account the GM role. With the account and LLM configured, start the host from `gm-agent`:
@@ -897,7 +913,7 @@ The tests need no backend and no model. They cover:
   revoke old history and rebuild derived memory. Use pause/resume for temporary absence.
 - Scene forks require the backend with migration `0055_window_forks.sql`. Do not run the old agent alongside it or
   roll back to an old state file during play: old membership logic cannot enforce the new scene lifecycle.
-- One client process keeps one channel.
+- Standalone `run` keeps one channel; `host` keeps multiple isolated channel workers in one process.
 
 ## Deployment of the scene-window update
 

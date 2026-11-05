@@ -1,0 +1,17 @@
+table:
+  coplayers: 2
+  language: zh-CN
+pacing:
+  debounce_ms: 4000
+  post_delay_ms: 1200
+calendar:
+  min_minutes: 30
+  min_lines: 30
+  max_days: 2
+autonomy:
+  enabled: true
+  quiet_ms: 180000
+planner:
+  interval_minutes: 30
+modes:
+  casual: false

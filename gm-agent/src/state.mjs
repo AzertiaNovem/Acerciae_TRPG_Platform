@@ -56,6 +56,8 @@ export function acquireLock(stateDir, channelId) {
       return () => { try { if (fs.readFileSync(file, "utf8").trim() === String(process.pid)) fs.unlinkSync(file); } catch { /* already gone */ } };
     } catch (e) {
       if (e.code !== "EEXIST") throw e;
+      // Threads share a PID; an existing lock owned by this process still belongs to another table/startup.
+      try { if (fs.readFileSync(file, "utf8").trim() === String(process.pid)) return null; } catch {}
       if (lockHolder(stateDir, channelId)) return null;
       // A stale lock (or one being written this instant: an empty file younger than a second is left alone).
       let stale = true;

@@ -13,17 +13,21 @@ export class Realtime extends EventEmitter {
     this.log = log;
     this.sockets = new Map();
     this.closed = false;
+    this.reconnectTimers = new Set();
   }
 
   start() { for (const s of this.streams) this.open(s, 0); }
 
   stop() {
     this.closed = true;
+    for (const timer of this.reconnectTimers) clearTimeout(timer);
+    this.reconnectTimers.clear();
     for (const { ws, ping } of this.sockets.values()) { clearInterval(ping); ws.terminate(); }
     this.sockets.clear();
   }
 
   open(stream, attempt) {
+    if (this.closed) return;
     if (this.closed) return;
     // Node's built-in WebSocket reuses pooled HTTP connections, which the backend does not upgrade; `ws` always opens a
     // fresh connection.
@@ -53,7 +57,8 @@ export class Realtime extends EventEmitter {
       if (this.closed) return;
       const delay = Math.min(30000, 1000 * 2 ** Math.min(attempt, 5));
       this.log(`${stream} socket closed; reconnecting in ${delay} ms`);
-      setTimeout(() => this.open(stream, attempt + 1), delay);
+      const timer = setTimeout(() => { this.reconnectTimers.delete(timer); this.open(stream, attempt + 1); }, delay);
+      this.reconnectTimers.add(timer);
     });
     ws.on("error", (e) => this.log(`${stream} socket: ${e.message}`));
   }
