@@ -98,14 +98,23 @@ Chat messages carry `character_avatar_asset_id` and `character_avatar_version`; 
 
 ## Chat windows & messages
 | GET/POST | `/channels/{id}/windows` | create `{name, kind: group|private, members:[{user_id, character_id?}]}` (GM); a new window joins the campaign's current scenario |
-| GET/POST | `/channels/{id}/windows/{w}/members` | add `{user_id, character_id?}` (GM) |
+| PUT | `/channels/{id}/windows/{w}` | GM rename `{name}` and/or archive/restore `{archived: boolean}`. Archived windows remain readable; posting and new membership return 409 until restored. Main Chat cannot be archived. |
+| POST | `/channels/{id}/windows/{w}/fork` | GM `{name, kind?: group|private, members:[{user_id, character_id?}], through_seq?, request_id?}`. New window with immutable `fork_parent_id` and `fork_seq`; the GM is included automatically. Defaults to the parent's current history cutoff; nested ancestry respects every cutoff. A request ID is idempotent per channel and creator; reusing it with different settings returns 409. |
+| GET/POST | `/channels/{id}/windows/{w}/members` | add `{user_id, character_id?}` (GM); a new member gains only messages after joining. Rows include `visibility_paused`. Re-adding an existing member does not resume visibility. |
+| PUT | `/channels/{id}/windows/{w}/members/{uid}/visibility` | GM `{paused: boolean}`; idempotent pause/resume. Previously readable history remains available; messages during a pause stay hidden after resuming. A paused user cannot post (403). Main Chat and GM accounts cannot be paused. Same-group active members still share their readable messages. |
 | DELETE | `/channels/{id}/windows/{w}/members/{uid}` | (GM) |
-| GET | `/channels/{id}/windows/{w}/messages?limit&before_seq` | viewer-filtered |
+| GET | `/channels/{id}/windows/{w}/messages?limit&before_seq&include_history` | viewer-filtered, including bounded ancestor history by default; `include_history=false` returns only this window’s stored messages. Original message IDs, sequence numbers and window IDs are preserved. No messages are copied on fork. |
 | POST | `/channels/{id}/windows/{w}/read` | `{seq}`: the caller has read the window up to `seq` (never moves backwards, never past the newest message). `GET /windows` returns each window's `unread`: messages the caller may read, by others, after that point (counted up to 100). |
 | POST | `/channels/{id}/windows/{w}/messages` | `{content, kind: ic|ooc|narration, character_id?, visibility: window|gm_only|whisper, whisper_to?[], reference_ids?: UUID[0..5]}`. When dice are enabled, Sealdice commands are evaluated: `.r [N#]<expr> [reason]`, `.rh` (hidden), `.ra`/`.rc [N#] [hard|extreme|困难|极难] [b|p[n]] <skill> [value][±mod] [reason]`, `.rah`, `.sc <ok>/<fail> [SAN]`, `.st <name><value>…` / `.st <name>±<dice>` / `.st show|del|clr`, `.en <skill>`. In a `dnd2024` channel the D20 commands replace the percentile ones: `.rc`/`.ra [adv|dis] <ability|skill|ABILITY save|attack> [±mod] [dc|ac N] [#reason]`, `.ri`/`.rih [adv|dis] [±mod] [name]` (Initiative, stored per window), `.init [next|del <name>|clr]`, `.ds` (Death Saving Throw), `.ss [<level> [+N|-N]] | .ss reset` (spell slots: list, spend, regain, Long Rest); `.r` and `.st` work in both, and the other system's commands answer 400 `dice_error`. The message keeps the command as `content`, gets `kind: roll` (the only way to get it: `roll` sent without a command is refused) and `dice: {type, command, text, …}`; hidden rolls are whispered to the roller's character and the window gets a `hidden_notice`. Errors (no character, unknown attribute) return 400 `dice_error` |
 | POST | `/channels/{id}/windows/{w}/scene` | deprecated alias of `/scenarios/enter` (`{scene_id}`); scenarios are campaign-wide, the window is ignored |
 | GET | `/channels/{id}/messages?q=` | search |
 | GET | `/channels/{id}/messages/{mid}` | |
+
+Window reads, search, references, player knowledge, Log Studio and WebSocket message delivery use the same
+membership intervals. Resume opens a new interval; it never reveals the gap. Fork history additionally checks
+original source permissions. Archiving only hides a window from the default active list and makes it read-only.
+`GET /windows` returns `fork_parent_id`, `fork_seq`, `archived_at` and each member’s `visibility_paused`.
+On `window.changed`, clients should refresh windows and the current history instead of treating pause as removal.
 
 ## Scenes & events
 | GET/POST | `/channels/{id}/scenes` | Scenarios (stages of the story; a campaign-wide state, one current scenario for every window; POST prepares one without entering it). GM rows carry `summary`, `key_points`, `summary_status: none|pending|ready|gm_edited`, `auto_detected`, `stage_reason`, `boundary_event_id`; players get neutral `Scene N` labels. POST `{title, location?, narrative_time?, summary?}` (GM) |

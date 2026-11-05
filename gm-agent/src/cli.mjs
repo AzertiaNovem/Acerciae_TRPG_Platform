@@ -305,8 +305,8 @@ async function run(cfg) {
   take();
   log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; LLM: ${cfg.llm.provider}; autonomy: ${cfg.autonomy ? `on (side every ${cfg.autonomySideIntervalMs / 1000}s, quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? `${cfg.planner.provider}${cfg.planner.model ? ` ${cfg.planner.model}` : ""} (${cfg.planner.effort})` : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
   if (cfg.kickoff) {
-    const main = table.mainWindow();
-    if (main) table.schedule(main.id, { kickoff: true, delay: 0 });
+    const main = table.primaryWindowId();
+    if (main) table.schedule(main, { kickoff: true, delay: 0 });
   }
   // Stopping ends the session: one with enough play gets its final review first (a second signal skips it).
   let stopping = false;

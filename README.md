@@ -98,6 +98,11 @@ the UI, `llm_mode: "mock"` in the server settings). Provider endpoints must be h
 
 **Product structure** — Servers → Channels (one campaign each, strictly isolated context) → Chat Windows (each with
 its own participants; windows and scenes are many-to-many). GM / player roles; GM-only notes and whispers.
+GM can pause/resume a member's future message visibility from the window's Members dialog. Previously seen history
+remains; messages during absence stay hidden on return. Same-group players still share their views. New scenes can
+fork bounded, permission-filtered history without copying messages; inactive windows can be archived and restored.
+The web and desktop clients share these controls. GM-agent scene handling uses these APIs; its deployment remains
+manual and separate from platform deployment.
 
 **Document-based background assistant** — six documents per channel (`Current Scene`, `Clue Journal`,
 `Relationship Journal`, `Open Threads`, `Timeline`, `Module Progress` (GM)) with stable ids, independent version numbers,

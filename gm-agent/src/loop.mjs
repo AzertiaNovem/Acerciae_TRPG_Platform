@@ -17,6 +17,8 @@
 // The GM may also open the next scenario (campaign-wide), only from the Main Chat, never while a short split is
 // active, and not before SCENARIO_MIN_MINUTES and SCENARIO_MIN_LINES.
 import { GmContext, duration } from "./context/gmContext.mjs";
+import { sceneForks } from "./sceneForks.mjs";
+import { randomUUID } from "node:crypto";
 import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
 import { Store, billableTokens } from "./store.mjs";
 import { History, Memory, estimateTokens, CHUNK_LINES } from "./memory.mjs";
@@ -170,10 +172,22 @@ export class Table {
     if (this.journal?.phase === "A") {
       this.log("finishing a split that was interrupted");
       const j = this.journal; this.journal = null;
-      for (const c of j.created ?? []) this.guard.spare.push(c);          // reuse the windows it already opened
-      await this.applyPlan({ ops: j.ops, changed: j.changed ?? [], ignored: [], guard: {}, prevOf: () => null }, { windowId: j.windowId, mode: ["correction", "presence"].includes(j.mode) ? j.mode : "manual", correctionSeq: j.correctionSeq, turn: this.guard.turn, quiet: true });
-    } else if (this.journal) { this.journal = null; changed = true; }
-    for (const t of this.timelines.active()) if (t.id !== MAIN && t.windowId && !t.opened) this.scheduleArrival(t.windowId, { names: t.members.map((id) => this.nameOf(id)), place: t.location, reunion: false }, { force: true });
+      // One-time recovery of pre-fork agent journals: retain windows already created by that version.
+      for (const op of j.ops) if (op.op === "split" && !op.requestId) {
+        const users = op.ids.filter(id => this.isPc(id)).map(id => this.userOf(id)).sort();
+        const old = j.created?.find(c => c.placeKey === placeKey(op.place) && JSON.stringify([...(c.users ?? [])].sort()) === JSON.stringify(users));
+        if (old && this.windows.some(w => w.id === old.windowId)) op.legacyWindowId = old.windowId;
+      }
+      await this.applyPlan({ ops: j.ops, changed: j.changed ?? [], ignored: [], guard: {}, prevOf: () => null }, { windowId: j.windowId, mode: ["correction", "presence"].includes(j.mode) ? j.mode : "manual", correctionSeq: j.correctionSeq, turn: this.guard.turn, quiet: true, opId: j.opId });
+    } else if (this.journal) {
+      await this.applyAudience(this.journal.audience ?? []);
+      this.journal = null; changed = true;
+    }
+    // Upgrade an existing split table before another narration can expose the primary scene.
+    const partition = this.partitionPlan([]);
+    if (partition.length) await this.applyPlan({ ops: partition, changed: [], ignored: [], guard: {} }, { windowId: this.windowOf(this.timelines.main()), mode: "presence", turn: this.guard.turn, quiet: true });
+    await this.archiveRetired();
+    for (const t of this.timelines.active()) if (t.windowId && !t.opened) this.scheduleArrival(t.windowId, { names: t.members.map((id) => this.nameOf(id)), place: t.location, reunion: false }, { force: true });
     const owed = this.owedArrivals.splice(0);
     for (const a of owed) this.scheduleArrival(a.windowId, a.arrival, { force: true });
     if (changed || owed.length) this.save();
@@ -209,14 +223,45 @@ export class Table {
   // A player character, played by a real person (a GM-cast PC is a co-player).
   isPc(id) { return isPlayerCharacter(this.characters.find((c) => c.id === id), this.roster); }
   userOf(id) { return this.characters.find((c) => c.id === id)?.user_id ?? null; }
-  // The active timeline played in a window: the main one in the Main Chat, a thread in its own window, else none.
+  // After the first split even the primary story has a private window; Main Chat becomes the lobby.
   scene(windowId) {
-    if (windowId === this.mainWindow()?.id) return this.timelines.main();
+    if (windowId === this.mainWindow()?.id) return this.timelines.main().windowId ? null : this.timelines.main();
     return this.timelines.activeOfWindow(windowId);
   }
   // Where a timeline is played.
-  windowOf(timeline) { return timeline.id === MAIN ? this.mainWindow()?.id : timeline.windowId; }
-  windowUsers(windowId) { return (this.windows.find((w) => w.id === windowId)?.members ?? []).map((m) => m.user_id).filter((u) => u && u !== this.me?.id); }
+  windowOf(timeline) { return timeline?.windowId ?? (timeline?.id === MAIN ? this.mainWindow()?.id : null); }
+  primaryWindowId() { return this.windowOf(this.timelines.main()); }
+  sceneHistory(windowId) {
+    const seen = new Set(), lines = [];
+    let id = windowId, cutoff = Infinity;
+    while (id && !seen.has(id)) {
+      seen.add(id);
+      lines.push(...this.history.lines(id).filter(m => m.seq <= cutoff));
+      const win = this.windows.find(w => w.id === id);
+      cutoff = Math.min(cutoff, win?.fork_seq ?? 0);
+      id = win?.fork_parent_id;
+    }
+    return lines.sort((a,b) => a.seq-b.seq);
+  }
+  partitionPlan(ops) { return sceneForks(this.timelines, ops, { windowOf: t => this.windowOf(t) }); }
+  async archiveRetired() {
+    for (const w of this.windows) if (w.kind !== "main" && !w.archived_at && this.timelines.retired(w.id)) {
+      await this.api.updateWindow(this.channelId, w.id, { archived: true });
+      w.archived_at = new Date(this.now()).toISOString();
+    }
+  }
+  windowUsers(windowId) { return (this.windows.find((w) => w.id === windowId)?.members ?? []).filter(m => !m.visibility_paused).map((m) => m.user_id).filter((u) => u && u !== this.me?.id); }
+
+  async applyAudience(actions) {
+    for (const action of actions) {
+      const win = this.windows.find(w => w.id === action.windowId);
+      const member = win?.members?.find(m => m.user_id === action.userId);
+      if (!member && action.paused) continue;
+      if (!member) await this.api.addWindowMember(this.channelId, action.windowId, { user_id: action.userId, character_id: action.characterId });
+      else if (!!member.visibility_paused !== action.paused) await this.api.setWindowVisibility(this.channelId, action.windowId, action.userId, action.paused);
+    }
+    if (actions.length) await this.refresh();
+  }
 
   state(windowId) {
     if (!this.windowState.has(windowId)) this.windowState.set(windowId, { lastLineAt: 0, lastHumanAt: 0, lastTurnAt: 0, quietTurns: 0 });
@@ -393,7 +438,7 @@ export class Table {
     if (this.isHuman(m) && !this.isPlannerWindow(m.chat_window_id)) this.noteSession(m);
     // A correction in chat or the planner window takes effect before the next GM/companion turn.
     let placement;
-    if (this.isTrigger(m) && (this.isPlannerWindow(m.chat_window_id) || (this.scene(m.chat_window_id) &&
+    if (this.isTrigger(m) && (this.isPlannerWindow(m.chat_window_id) || ((this.scene(m.chat_window_id) || m.chat_window_id === this.mainWindow()?.id) &&
         (m.kind === "ooc" || this.timelines.active().length > 1)))) {
       placement = this.queue = this.queue.then(this.generation.task(() => this.correctPlacement(m))).catch(e => this.log("placement correction: " + e.message));
     }
@@ -438,12 +483,16 @@ export class Table {
   // ---- one turn
   async turn(windowId, { kickoff = false, mode = "human", ...extra } = {}) {
     if (this.generation.signal.aborted) return;
+    if (this.journal) await this.heal();
     await this.adoptPlan();
     if (mode === "phone") { this.turns++; await this.refresh(); return this.phoneTurn(windowId, extra.phone ?? {}); }
     this.turns++;
     const turnNo = this.guard.beginTurn();
     await this.refresh();
     this.generation.signal.throwIfAborted();
+    const partition = this.partitionPlan([]);
+    if (partition.length) await this.applyPlan({ ops: partition, changed: [], ignored: [], guard: {} }, { windowId, mode: "presence", turn: turnNo, quiet: true });
+    if (this.windows.find(w => w.id === windowId)?.archived_at) return;
     if (this.timelines.retired(windowId) && mode !== "human") return;   // that scene is over
     const st = this.state(windowId);
     st.lastTurnAt = this.now();
@@ -457,16 +506,23 @@ export class Table {
     const autonomous = mode === "quiet" || mode === "side" || (mode === "arrival" && Boolean(extra.autonomous));
     let scene = this.scene(windowId);
     const sceneThread = scene;
+    if (extra.arrival?.newcomer && scene) {
+      // A player joining after the first split needs access to the private primary scene
+      // before its welcome is posted. Do not grant access to its earlier private messages.
+      const ids = (extra.arrival.ids ?? []).filter(id => scene.members.includes(id) && this.isPc(id));
+      await this.applyAudience(ids.map(id => ({ windowId, userId: this.userOf(id), characterId: id, paused: false })));
+    }
     if (extra.arrival?.names && scene && !extra.arrival.newcomer) {
       const names = extra.arrival.names.filter(name => scene.members.includes(this.investigatorByName(name)));
       if (!names.length && mode === "arrival") return;
       extra.arrival = names.length ? { ...extra.arrival, names } : undefined;
     }
-    if (mode === "arrival" && sceneThread && sceneThread.id !== MAIN && !sceneThread.opened) { sceneThread.opened = true; this.save(); }
+    if (mode === "arrival" && sceneThread && !sceneThread.opened) { sceneThread.opened = true; this.save(); }
 
     // Relay: lines here only from players whose character is in another scene with a window of its own (this
     // window's own scene, or a scene that is over).
-    if (mode === "human" && this.cfg.timelineAuto && batch.length && (scene || this.timelines.retired(windowId))) {
+    const lobby = windowId === this.mainWindow()?.id && !scene;
+    if (mode === "human" && this.cfg.timelineAuto && batch.length && (scene || this.timelines.retired(windowId) || lobby)) {
       const visitors = batch.filter((l) => !scene || !scene.members.includes(l.id));
       if (visitors.length === batch.length) {
         const away = visitors.filter((l) => this.windowOf(this.timelines.of(l.id)) && this.windowOf(this.timelines.of(l.id)) !== windowId);
@@ -484,13 +540,15 @@ export class Table {
         }
       }
     }
+    // Public conversation remains public; it does not wake the Keeper or any scene's co-players.
+    if (lobby) return;
     const speakerIds = new Set(batch.map((l) => l.id));
     const visitorsIn = scene ? [...speakerIds].filter((id) => !scene.members.includes(id)) : [];
 
     let budget = this.cfg.maxActionsPerTurn;
     const timeline = this.timelines.ofWindow(windowId);
     // The first turn a player starts after a final review opens the new session from what it prepared (once).
-    let between = windowId === this.mainWindow()?.id && (["human", "relay"].includes(mode) || kickoff) ? this.betweenNote() : null;
+    let between = windowId === this.primaryWindowId() && (["human", "relay"].includes(mode) || kickoff) ? this.betweenNote() : null;
     if (between?.transition) {
       if (!await this.postHandoff(windowId, between.transition)) throw Error("session handoff was not posted; keeping it for the next turn");
       delete this.planner.between.transition;
@@ -500,10 +558,11 @@ export class Table {
     let lastCtx = null;
     const round = async (roundMode, roundExtra) => {
       if (this.cfg.timelineAuto && MOVE_MODES.has(roundMode)) {
+        const sourceReaders = new Set(this.windowUsers(windowId));
         await this.reconcilePresence(windowId, turnNo);
         if (this.timelines.retired(windowId)) {
           // A human line which triggered the reunion still needs an answer, in the actual scene.
-          const readers = new Set(this.windowUsers(windowId));
+          const readers = sourceReaders;
           for (const l of batch) {
             const home = this.windowOf(this.timelines.of(l.id));
             if (!home || home === windowId || !this.windowUsers(home).every(u => readers.has(u))) continue;
@@ -561,6 +620,16 @@ export class Table {
         }
       }
       this.generation.signal.throwIfAborted();
+      if (placements?.ops.some(o => ["split", "move", "merge", "fork_main"].includes(o.op))) {
+        const out = await this.applyPlan(placements, { windowId, mode: roundMode, turn: turnNo, autonomous });
+        placements = null;
+        if (out?.moved.length) {
+          if (out.here) here = out.here;
+          // Discard prose written for the old audience. Each new scene gets its own opening/context.
+          if (this.scene(windowId) && !here) this.schedule(windowId, { mode: "followup", delay: 0 });
+          return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
+        }
+      }
       if (between) { between = null; this.planner.between = null; this.save(); }
       this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} Keeper action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
       const evidenceThrough = this.lastSeq;
@@ -569,6 +638,7 @@ export class Table {
         if (budget <= 0) break;
         if (this.pbta && action.type === "move" && !intents.some(m => m.id === action.source_id && m.character_id === action.character_id)) continue;
         budget -= await this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope, evidenceThrough });
+        if (sceneThread && !this.scene(windowId)) break;
         if (this.pbta && (action.type === "move" || (["npc", "new_npc"].includes(action.type) && action.move_id))) {
           // Discard any consequences the model guessed before it saw the server's dice.
           if (!roundExtra.rulingReady && budget > 0) return round("followup", { rulingReady: true });
@@ -623,7 +693,7 @@ export class Table {
     return this.timelines.active().filter(t => t.members.length).map(t => {
       // Reused side windows must not supply records from the previous scene that occupied them.
       const start = t.id === MAIN ? 0 : this.timelines.log.find(e => e.timelineId === t.id)?.fromSeq ?? 0;
-      const lines = this.history.lines(this.windowOf(t), { after: Math.max(0, start - 1) })
+      const lines = this.sceneHistory(this.windowOf(t)).filter(m => m.seq >= start)
         .filter(m => m.visibility === "window" && !hidden.has(m.id) && ["ic", "narration", "ooc"].includes(m.kind) &&
           (!m.character_id || this.timelines.timelineAt(m.character_id, m.seq).id === t.id))
         .slice(-40).map(m => ({ seq: m.seq, actor: m.character_id || null, kind: m.kind,
@@ -783,69 +853,66 @@ export class Table {
     return this.memberCache;
   }
 
-  async applyPlan(result, { windowId, mode, turn, autonomous = false, quiet = false, correctionSeq = 0 }) {
+  async applyPlan(result, { windowId, mode, turn, autonomous = false, quiet = false, correctionSeq = 0, opId = randomUUID() }) {
     const reconciling = mode === "correction" || mode === "presence";
-    const ops = result.ops.map((o) => ({ ...o }));
-    // A split the platform failed three times is given up (the people stay), so it is not retried every turn.
-    const factOf = (o) => JSON.stringify([placeKey(o.place), [...o.ids].sort()]);
-    const givenUp = [];
-    for (const o of ops) if (o.op === "split" && (this.guard.retries[factOf(o)] ?? 0) >= 3) { o.skip = true; givenUp.push(...o.ids.map((id) => ({ id, why: "the platform failed to open this scene three times" }))); }
-    if (!ops.some((o) => !o.skip)) { this.guard.apply(result.guard); const ig = [...result.ignored, ...givenUp]; if (ig.length) this.noteIgnored(windowId, ig); return null; }
+    const ops = this.partitionPlan(result.ops.map(o => ({ ...o })));
+    if (!ops.length) { this.guard.apply(result.guard); if (result.ignored?.length) this.noteIgnored(windowId, result.ignored); return null; }
     const lastSeq = this.lastSeq;
-    // A. Platform calls first: windows for the new threads. Nothing local changes until they exist.
-    this.journal = { opId: `${turn}-${lastSeq}`, mode, correctionSeq, ops, changed: result.changed, windowId, created: [], phase: "A" };
+    // Persist the exact parent and idempotency key BEFORE sending a fork request. Recovery also covers
+    // a server commit whose response was lost. No scene is played until every audience has its fork.
+    for (const [i, o] of ops.entries()) if (["split", "fork_main"].includes(o.op)) {
+      o.parentWindowId ??= this.windowOf(this.timelines.get(o.replaces || o.fromTimeline) ?? this.timelines.main());
+      o.requestId ??= `scene:${opId}:${i}`;
+    }
+    this.journal = { opId, mode, correctionSeq, ops, changed: result.changed, windowId, created: [], phase: "A" };
     this.save();
     const users = await this.channelUsers();
     const windowFor = new Map();
-    const dropped = [...givenUp];
-    const reusedSpares = [];
-    for (const s of ops.filter((o) => o.op === "split" && !o.skip)) {
-      const pcs = s.ids.filter((id) => this.isPc(id));
-      const seatable = pcs.filter((id) => this.userOf(id) && (!users || users.has(this.userOf(id))));
-      for (const id of pcs.filter((p) => !seatable.includes(p))) { s.ids = s.ids.filter((x) => x !== id); dropped.push({ id, why: "not a channel member, so no window can seat them" }); }
-      if (!s.ids.length) { s.skip = true; continue; }
-      const wantUsers = [...new Set(seatable.map((id) => this.userOf(id)))].sort();
-      const key = placeKey(s.place);
-      const spare = this.guard.spare.find((x) => x.placeKey === key && JSON.stringify([...x.users].sort()) === JSON.stringify(wantUsers));
-      const retired = this.windows.find((w) => this.timelines.retired(w.id) && placeKey(this.timelines.ofWindow(w.id)?.location) === key && JSON.stringify(this.windowUsers(w.id).sort()) === JSON.stringify(wantUsers));
-      if (spare) { windowFor.set(s, spare.windowId); this.guard.spare = this.guard.spare.filter((x) => x !== spare); reusedSpares.push(spare); continue; }
-      if (retired) { windowFor.set(s, retired.id); continue; }
-      try {
-        const members = [];
-        for (const id of seatable) if (!members.some((m) => m.user_id === this.userOf(id))) members.push({ user_id: this.userOf(id), character_id: id });
-        const w = await this.api.createWindow(this.channelId, { name: `${pcs.length ? "Scene" : "Side"}: ${String(s.place).slice(0, 60)}`, kind: "group", members });
-        windowFor.set(s, w.id);
-        this.journal.created.push({ windowId: w.id, placeKey: key, users: wantUsers });
-        this.save();
-      } catch (e) {
-        if (e.status >= 400 && e.status < 500) { s.skip = true; for (const id of s.ids) dropped.push({ id, why: `the platform refused a window (${e.status})` }); continue; }
-        // A server or network failure: nothing local changes; created windows are kept for reuse; retried later.
-        for (const c of [...this.journal.created, ...reusedSpares]) this.guard.spare.push(c);
-        this.guard.retries[factOf(s)] = (this.guard.retries[factOf(s)] ?? 0) + 1;
-        this.guard.apply(result.guard);
-        this.journal = null;
-        this.save();
-        this.log(`split postponed (${e.message}); ${this.guard.retries[factOf(s)] >= 3 ? "given up after 3 tries" : "will retry"}`);
-        return null;
+    for (const o of ops.filter(o => ["split", "fork_main"].includes(o.op))) {
+      if (o.legacyWindowId) { windowFor.set(o, o.legacyWindowId); continue; }
+      const pcs = o.ids.filter(id => this.isPc(id));
+      const members = [];
+      for (const id of pcs) {
+        const user_id = this.userOf(id);
+        if (!user_id || (users && !users.has(user_id))) throw Error("Cannot fork a scene for someone outside this channel");
+        if (!members.some(m => m.user_id === user_id)) members.push({ user_id, character_id: id });
       }
+      const w = await this.api.forkWindow(this.channelId, o.parentWindowId, {
+        name: `${pcs.length ? "Scene" : "Side"}: ${String(o.place).slice(0, 60)}`, kind: "group", members, request_id: o.requestId,
+      });
+      windowFor.set(o, w.id);
+      this.journal.created.push({ windowId: w.id });
+      this.save();
     }
 
-    // B. Local state, all at once: moves, then splits, then merges (a thread emptied by a departure merges empty).
-    for (const o of ops) if (o.op === "split" && !o.skip) delete this.guard.retries[factOf(o)];
+    // B. Commit all local placements together, after every server fork exists.
     const fromSeq = lastSeq + 1;
     const before = new Map(investigatorsFor(this.characters, this.roster).map((c) => [c.id, this.timelines.of(c.id).id]));
+    const beforeWindows = new Map([...before].map(([id, t]) => [id, this.windowOf(this.timelines.get(t))]));
     for (const o of ops) if (o.op === "move") this.timelines.move(o.ids, o.to, fromSeq);
     const created = [];
     for (const o of ops) {
       if (o.op !== "split" || o.skip) continue;
-      const t = this.timelines.split({ name: o.place, members: o.ids, windowId: windowFor.get(o), returnTo: [windowId], location: o.place, narrativeTime: o.time ?? "", span: o.span, opened: reconciling, fromSeq });
+      let t;
+      if (o.primary) {
+        t = this.timelines.move(o.ids, MAIN, fromSeq);
+        this.timelines.bind(MAIN, windowFor.get(o));
+        this.timelines.relocate(MAIN, { location: o.place, narrativeTime: o.time });
+        t.opened = reconciling;
+      } else t = this.timelines.split({ name: o.place, members: o.ids, windowId: windowFor.get(o), returnTo: [windowId], location: o.place, narrativeTime: o.time ?? "", span: o.span, opened: reconciling, fromSeq });
       if (o.replaces) this.timelines.merge(o.replaces, t.id, fromSeq);
       created.push({ op: o, timeline: t });
     }
     for (const o of ops) if (o.op === "merge") this.timelines.merge(o.from, o.into, fromSeq);
     for (const o of ops) if (o.op === "relocate") this.timelines.relocate(o.timeline, { location: o.location, narrativeTime: o.narrativeTime });
+    for (const o of ops) if (o.op === "bind_main") this.timelines.bind(MAIN, o.windowId);
+    for (const o of ops.filter(o => o.op === "fork_main")) {
+      this.timelines.bind(MAIN, windowFor.get(o));
+      this.timelines.main().opened = reconciling;
+      created.push({ op: o, timeline: this.timelines.main() });
+    }
     const after = new Map([...before.keys()].map((id) => [id, this.timelines.of(id).id]));
-    const moved = [...before.keys()].filter((id) => before.get(id) !== after.get(id));
+    const moved = [...before.keys()].filter((id) => before.get(id) !== after.get(id) || beforeWindows.get(id) !== this.windowOf(this.timelines.of(id)));
     // Co-players' seats follow their timeline's window, cut per window.
     const cut = (w) => this.windowSeq.get(w) ?? lastSeq;
     for (const id of moved) {
@@ -854,27 +921,41 @@ export class Table {
       if (cp && target) this.roster.moveSeats([cp], [target], cut, () => fromSeq);
     }
     this.guard.apply(result.guard);
-    this.guard.commit(moved, { turn, now: this.now(), seq: lastSeq, prevOf: (id) => before.get(id), windowed: created.flatMap((c) => c.op.ids.filter((id) => this.isPc(id))) });
-    if (correctionSeq) for (const id of moved) this.guard.by[id].correctionSeq = correctionSeq;
-    this.journal = { ...this.journal, phase: "B" };
+    const travelled = moved.filter(id => before.get(id) !== after.get(id));
+    this.guard.commit(travelled, { turn, now: this.now(), seq: lastSeq, prevOf: (id) => before.get(id), windowed: created.flatMap((c) => c.op.ids.filter((id) => this.isPc(id))) });
+    if (correctionSeq) for (const id of travelled) this.guard.by[id].correctionSeq = correctionSeq;
+    const audience = [];
+    for (const id of moved.filter(id => this.isPc(id))) {
+      const userId = this.userOf(id), source = beforeWindows.get(id), dest = this.windowOf(this.timelines.of(id));
+      if (source === dest) continue;
+      if (source && source !== this.mainWindow()?.id && !this.scene(source)?.members.some(other => this.isPc(other) && this.userOf(other) === userId))
+        audience.push({ windowId: source, userId, paused: true });
+      if (dest) audience.push({ windowId: dest, userId, characterId: id, paused: false });
+    }
+    this.journal = { ...this.journal, phase: "B", audience };
     this.checkInvariants();
     this.save();
 
     // C. Refresh (the new windows), then D. posts and E. arrivals. A failed refresh never stops the posts.
     try { await this.refresh(); } catch (e) { this.log(`refresh after a split failed: ${e.message}`); }
-    const ignored = [...(result.ignored ?? []), ...dropped];
+    await this.applyAudience(audience);
+    const ignored = [...(result.ignored ?? [])];
     const summary = [];
     for (const { op, timeline: t } of created) {
       const w = t.windowId;
       if (op.opening) await this.post(w, { content: op.opening, kind: "narration" }, { count: false });
-      const leaving = op.ids.filter((id) => this.isPc(id) && before.get(id) !== t.id);
-      const sources = [...new Set(leaving.map((id) => this.windowOf(this.timelines.get(before.get(id)) ?? this.timelines.main())))].filter(Boolean);
+      const leaving = op.ids.filter((id) => this.isPc(id) && beforeWindows.get(id) !== w);
+      const sources = [...new Set(leaving.map((id) => beforeWindows.get(id)))].filter(Boolean);
       for (const src of sources) {
-        const to = leaving.filter((id) => this.windowOf(this.timelines.get(before.get(id)) ?? this.timelines.main()) === src);
+        const to = leaving.filter((id) => beforeWindows.get(id) === src);
         if (to.length) await this.post(src, { content: `→ "${this.windowName(w)}"`, kind: "narration", visibility: "whisper", whisper_to: to }, { count: false });
       }
       summary.push(`${op.ids.map((id) => this.nameOf(id)).join(", ")} → ${t.name} ("${this.windowName(w)}", ${t.span} split)`);
-      if (!reconciling) this.scheduleArrival(w, { names: op.ids.map((id) => this.nameOf(id)), place: t.location, opening: op.opening, reunion: false }, { autonomous, mode });
+      if (!reconciling) {
+        const continuing = op.op === "fork_main" && !ops.some(o => o.op === "relocate" && o.timeline === MAIN);
+        if (continuing && !this.deferArrivals) { t.opened = true; this.schedule(w, { mode: "followup", delay: 0 }); }
+        else this.scheduleArrival(w, { names: op.ids.map((id) => this.nameOf(id)), place: t.location, opening: op.opening, reunion: false }, { autonomous, mode });
+      }
     }
     // Reunions: everyone who ended in an existing thread, grouped by where they ended, one arrival per window.
     let here = null;
@@ -919,6 +1000,7 @@ export class Table {
     if (ignored.length) this.noteIgnored(windowId, ignored);
     this.journal = null;
     this.save();
+    await this.archiveRetired();
     return { here, moved };
   }
 
@@ -1101,7 +1183,7 @@ export class Table {
   async scenarioVerdict(windowId, mode, parent = mode) {
     if (mode === "manual") return { ok: true };
     if (!this.cfg.scenarioAuto) return { ok: false, reason: "automatic scenario changes are off" };
-    if (windowId !== this.mainWindow()?.id) return { ok: false, reason: "only from the Main Chat" };
+    if (windowId !== this.primaryWindowId()) return { ok: false, reason: "only from the primary scene" };
     if (!["human", "followup"].includes(mode) || !["human", "relay"].includes(parent)) return { ok: false, reason: "only right after a player's or co-player's line, never in an autonomous turn" };
     const short = this.timelines.active().find((t) => t.id !== MAIN && t.span !== "long");
     if (short) return { ok: false, reason: `the party is briefly split ("${short.name}"): bring them together first` };
@@ -1162,9 +1244,9 @@ export class Table {
       if (!a || !b) throw new Error(`bond: no character named ${!a ? cmd.a : cmd.b}`);
       return this.recordBond({ a: this.nameOf(a), b: this.nameOf(b), kind: cmd.kind, note: cmd.note, secret: cmd.secret, end: cmd.end }, "operator");
     }
-    if (cmd.cmd === "advance") return this.changeScenario(this.mainWindow().id, { type: "advance_scenario", title: cmd.title, location: cmd.location, narrative_time: cmd.time, reason: "by the operator" }, "manual");
+    if (cmd.cmd === "advance") return this.changeScenario(this.primaryWindowId(), { type: "advance_scenario", title: cmd.title, location: cmd.location, narrative_time: cmd.time, reason: "by the operator" }, "manual");
     let reports;
-    let windowId = this.mainWindow().id;
+    let windowId = this.primaryWindowId();
     if (cmd.cmd === "split") {
       const ids = resolveAll(cmd.who);
       if (!ids.length) throw new Error("split: no investigator matched");
@@ -1258,7 +1340,7 @@ export class Table {
     this.save();
     const since = session ? Math.min(p.lastRunSeq, session.fromSeq - 1) : p.lastRunSeq;
     return this.memory.run("planner", this.generation.task(async () => {
-      const windowId = this.mainWindow()?.id;
+      const windowId = this.primaryWindowId();
       if (!windowId) return;
       const ctx = await this.buildGm(windowId, { peek: true });
       const hidden = this.hiddenLines();
@@ -1492,12 +1574,12 @@ export class Table {
     return undefined;
   }
 
-  // New players at the table: the Keeper brings each one's character into the story in the Main Chat.
+  // New players join the current primary scene, which may now be a private fork.
   welcomeNewcomers(list) {
-    const main = this.mainWindow();
+    const main = this.primaryWindowId();
     if (!main) return;
     for (const c of list) this.log(`new player: ${c.player_name ?? c.user_id} with ${c.name}`);
-    this.schedule(main.id, { mode: "arrival", delay: this.cfg.debounceMs, arrival: { names: list.map((c) => c.name), newcomer: true } });
+    this.schedule(main, { mode: "arrival", delay: this.cfg.debounceMs, arrival: { names: list.map((c) => c.name), ids: list.map(c => c.id), newcomer: true } });
   }
 
   // Every player character with a player gets a phone: a private window with only that player in it.
@@ -1736,43 +1818,31 @@ export class Table {
 
   async legacySplit(fromWindowId, a) {
     const proposed = this.coplayersNamed(a.coplayers);
-    const checked = await this.checkDestinations(fromWindowId, [{ who: proposed.map(c => c.name), thread: "NEW", place: a.location || a.name }], new Set(proposed.map(c => c.characterId)), [], "side");
+    const checked = await this.checkDestinations(fromWindowId, [{ who: proposed.map(c => c.name), thread: "NEW", place: a.location || a.name, ownScene: true, time: a.narrative_time || "", span: "short", opening: a.opening || "" }], new Set(proposed.map(c => c.characterId)), [], "side");
     const members = this.coplayersNamed(checked.reports[0]?.who || []);
     if (!members.length) { this.log(`split "${a.name}": no co-player named; skipped`); return 0; }
-    const name = String(a.name || "Side thread").trim().slice(0, 60);
-    let window;
-    try { window = await this.api.createWindow(this.channelId, { name: `Side: ${name}`, kind: "group", members: [] }); }
-    catch (e) { this.log(`split "${name}": could not create the window: ${e.message}`); return 0; }
-    this.roster.moveSeats(members, [window.id], this.lastSeq);
-    this.timelines.split({ name, members: members.map((c) => c.characterId), windowId: window.id, returnTo: [fromWindowId], narrativeTime: a.narrative_time ?? "", location: a.location ?? "", fromSeq: this.lastSeq + 1 });
-    this.save();
-    await this.refresh();
-    this.log(`split: ${members.map((c) => c.name).join(", ")} → "${name}"`);
-    const opening = checked.disputed ? "" : String(a.opening ?? a.text ?? "").trim();
-    return opening ? this.post(window.id, { content: opening, kind: "narration" }) : 0;
+    const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: this.scene(fromWindowId) },
+      reports: checked.reports, scopeIds: new Set(members.map(c => c.characterId)), mode: "manual",
+      resolve: n => this.investigatorByName(n), isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
+      guard: this.guard, turn: this.guard.turn, now: this.now(), cfg: this.cfg });
+    await this.applyPlan(result, { windowId: fromWindowId, mode: "manual", turn: this.guard.turn });
+    return 0;
   }
 
   async legacyRejoin(a) {
     const t = this.timelines.byName(a.timeline);
-    if (!t || t.id === MAIN || t.status !== "active") { this.log(`rejoin "${a.timeline}": no such active timeline; skipped`); return 0; }
-    const into = a.into ? this.windows.find((w) => norm(w.name) === norm(a.into) || w.id === a.into) : null;
-    const targets = into ? [into.id] : (t.returnTo?.length ? t.returnTo : [this.mainWindow()?.id].filter(Boolean));
-    const dest = this.timelines.ofWindow(targets[0]) ?? (targets[0] === this.mainWindow()?.id ? this.timelines.main() : null);
-    const target = dest?.status === "active" ? dest : this.timelines.main();
-    if (!t.windowId || target === t) return 0;
+    if (!t || t.id === MAIN || t.status !== "active") return 0;
+    const targetWindow = a.into ? this.windows.find(w => norm(w.name) === norm(a.into) || w.id === a.into) : null;
+    const target = this.scene(targetWindow?.id) ?? this.timelines.main();
+    if (target === t) return 0;
     const companions = this.roster.coplayers.filter(c => t.members.includes(c.characterId));
     const checked = await this.checkDestinations(t.windowId, [{ who: companions.map(c => c.name), thread: "T" + target.handle }], new Set(companions.map(c => c.characterId)), [], "side");
-    const members = this.coplayersNamed(checked.reports[0]?.who || []);
-    if (!members.length) return 0;
-    this.roster.moveSeats(members, targets, this.lastSeq, this.lastSeq);
-    this.timelines.move(members.map(c => c.characterId), target.id, this.lastSeq);
-    if (!t.members.length) this.timelines.merge(t.id, target.id, this.lastSeq);
-    this.save();
-    this.log(`rejoin: ${members.map((c) => c.name).join(", ")} ← "${t.name}"`);
-    let n = 0;
-    if (!t.members.length && t.windowId) n += await this.post(t.windowId, { content: `Thread "${t.name}" rejoined the main party.`, kind: "narration", visibility: "gm_only" });
-    if (!checked.disputed && a.text) n += await this.post(targets[0], { content: a.text, kind: "narration" });
-    return n;
+    const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: t }, reports: checked.reports,
+      scopeIds: new Set(companions.map(c => c.characterId)), mode: "manual", resolve: n => this.investigatorByName(n),
+      isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
+      guard: this.guard, turn: this.guard.turn, now: this.now(), cfg: this.cfg });
+    await this.applyPlan(result, { windowId: t.windowId, mode: "manual", turn: this.guard.turn });
+    return 0;
   }
 
   // Time, place, span and notes of a timeline. (With TIMELINE_AUTO, membership changes only through whereabouts.)
@@ -1814,10 +1884,10 @@ export class Table {
     if (this.autonomousTurns.length >= this.cfg.autonomyMaxTurnsPerHour) return null;
     const candidates = [];
     for (const w of this.windows) {
-      if (this.timelines.retired(w.id) || this.isTableWindow(w.id)) continue;   // that scene is over; a phone, the phone log or the planner window is no scene
+      if (w.archived_at || this.timelines.retired(w.id) || this.isTableWindow(w.id) || !this.scene(w.id)) continue;
       const st = this.state(w.id);
       const scene = this.scene(w.id);
-      const isMain = w.id === this.mainWindow()?.id;
+      const isMain = w.id === this.primaryWindowId();
       const humans = this.presentPlayers(w.id).length > 0;
       const sinceLine = now - Math.max(st.lastLineAt, st.lastTurnAt);
       if (scene && !isMain && !humans && this.roster.coplayersIn(w.id).length) {

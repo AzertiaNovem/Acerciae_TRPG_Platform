@@ -81,9 +81,12 @@ export class Api {
   // ---- chat
   windows(ch) { return this.get(`/api/channels/${ch}/windows`); }
   createWindow(ch, body) { return this.post(`/api/channels/${ch}/windows`, body); }
+  forkWindow(ch, parent, body) { return this.post(`/api/channels/${ch}/windows/${parent}/fork`, body); }
+  setWindowVisibility(ch, w, user, paused) { return this.put(`/api/channels/${ch}/windows/${w}/members/${user}/visibility`, { paused }); }
+  updateWindow(ch, w, body) { return this.put(`/api/channels/${ch}/windows/${w}`, body); }
   // Adds a channel member to a window (the platform seats their first player character when none is given).
   addWindowMember(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/members`, body); }
-  messages(ch, w, limit = 60, beforeSeq = 0) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}${beforeSeq > 0 ? `&before_seq=${beforeSeq}` : ""}`); }
+  messages(ch, w, limit = 60, beforeSeq = 0) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}&include_history=false${beforeSeq > 0 ? `&before_seq=${beforeSeq}` : ""}`); }
   postMessage(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/messages`, body); }
 
   // ---- the Keeper's context and the platform's AI tips (GM only)

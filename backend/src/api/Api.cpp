@@ -397,10 +397,13 @@ void registerRoutes() {
     // ---- windows / messages ----
     route1("/api/channels/{1}/windows", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->listWindows(access(p, a[0])); });
     route1("/api/channels/{1}/windows", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->createWindow(access(p, a[0]), body(req)); });
+    route2("/api/channels/{1}/windows/{2}/fork", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->forkWindow(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/windows/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->updateWindow(access(p, a[0]), a[1], body(req)); });
     route2("/api/channels/{1}/windows/{2}/members", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->windowMembers(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/windows/{2}/members", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->addWindowMember(access(p, a[0]), a[1], json::requireStr(b, "user_id"), json::str(b, "character_id")); });
     route3("/api/channels/{1}/windows/{2}/members/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeWindowMember(access(p, a[0]), a[1], a[2]); });
-    route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint(req, "before_seq", 0)); });
+    route3("/api/channels/{1}/windows/{2}/members/{3}/visibility", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->setWindowVisibility(access(p,a[0]),a[1],a[2],body(req)); });
+    route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint(req, "before_seq", 0), req->getParameter("include_history") != "false"); });
     route1("/api/channels/{1}/pbta", {Get}, [&](auto&, auto& p, auto& a) { return pbta::read(*S.db, access(p,a[0])); });
     route1("/api/channels/{1}/pbta/draft", {Get}, [&](auto&, auto& p, auto& a) { return pbta::review(*S.db,access(p,a[0])); });
     route1("/api/channels/{1}/pbta/draft", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::changeReview(*S.db,access(p,a[0]),body(req)); });
