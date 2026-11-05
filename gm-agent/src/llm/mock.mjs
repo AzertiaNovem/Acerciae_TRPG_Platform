@@ -35,6 +35,7 @@ export class MockLlm {
       case "coplayer_points": return JSON.stringify(this.points(user));
       case "placement_correction": return JSON.stringify(this.placementCorrection(JSON.parse(messages[0].content)));
       case "movement_evidence": return JSON.stringify(this.movements(JSON.parse(messages[0].content)));
+      case "scene_presence": return JSON.stringify(this.presence(JSON.parse(messages[0].content)));
       case "scene_handoff": return JSON.stringify(this.handoff(JSON.parse(messages[0].content)));
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
@@ -118,6 +119,7 @@ export class MockLlm {
   }
 
   placementCorrection() { return { moves: [] }; }
+  presence() { return { placements: [] }; }
   handoff() { return { completed: [], planned: [] }; }
 
   // Deterministic stand-ins for the Keeper's judgement: "I go to the X" sends the speaker to a new place, "I go back"

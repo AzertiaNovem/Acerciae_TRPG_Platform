@@ -535,6 +535,21 @@ test("a CLI command applied without a run process leaves its arrival for run", a
   assert.equal(t.timelines.of("c-harriet").id, "main");
 });
 
+test("an interrupted presence regroup resumes without narrating a second arrival", async () => {
+  const { t, api, llm } = await table({ bob: true });
+  const made = await api.createWindow("ch", { name: "Scene: 507", kind: "group", members: [{ user_id: "u-alice", character_id: "c-alice" }] });
+  const journal = { mode: "presence", opId: "reunion", phase: "A", windowId: "w-main", changed: ["c-alice", "c-harriet"],
+    ops: [{ op: "split", ids: ["c-alice", "c-harriet"], place: "507", time: "", span: "short", opening: "", fromTimeline: "main", replaces: null }],
+    created: [{ windowId: made.id, placeKey: "507", users: ["u-alice"] }] };
+  const t2 = new Table({ api, llm, cfg: t.cfg, channelId: "ch", roster: new Roster(), journal, sleep: async () => {} });
+  await t2.init({ heal: true }); await settle(t2);
+  assert.equal(api.createdWindows.length, 1);
+  assert.equal(t2.timelines.of("c-alice").id, t2.timelines.of("c-harriet").id);
+  assert.equal(t2.timelines.of("c-alice").opened, true);
+  assert.equal(t2.journal, null);
+  assert.ok(!directorCalls(llm).some(u => u.includes("MODE: arrival")));
+});
+
 test("an arrival riding on a pending human turn keeps its note and never shortens the human's wait", async () => {
   const { t, api, llm } = await table({ cfg: { debounceMs: 30 } });
   const human = alicePosts(t, api, "Anyone?");
@@ -1710,6 +1725,102 @@ test("an explicit placement correction can restore a missing side thread without
   assert.equal(side.opened, true);
   assert.ok(api.posts.some(p => p.window === side.windowId && p.content.includes("Placement corrected")));
   assert.ok(!directorCalls(llm).some(u => u.includes("MODE: arrival")));
+});
+
+test("separate arrivals at room 507 reunite before the next response despite stale thread labels and a fresh split", async () => {
+  const { t, api, llm } = await table({ extraCharacters: [{ id: "c-jiang", name: "江念", kind: "pc", user_id: "u-bot", role_card: {} }] });
+  t.deferArrivals = true;
+  t.timelines.main().location = "教室";
+  await t.command({ cmd: "split", who: ["Harriet Vance", "江念"], place: "七号楼一楼门厅" });
+  const side = t.timelines.of("c-harriet");
+  await t.post(side.windowId, { kind: "ic", character_id: "c-harriet", content: "记着呢，明天吃完饭再去领钥匙。晚安，我也回507洗漱了。" });
+  const arrival = await api.postMessage("ch", side.windowId, { kind: "narration", visibility: "window", content: "Harriet上到五楼，回到507。江念各自回寝。SIDE-PUBLIC-DETAIL" }); t.noteLine(arrival);
+  const home = await api.postMessage("ch", "w-main", { kind: "narration", visibility: "window", content: "你回到507，今晚的奔忙到这里结束。" }); t.noteLine(home);
+  t.noteLine(api.add({ chat_window_id: side.windowId, kind: "narration", author_role: "gm", visibility: "gm_only", content: "HIDDEN-PRESENCE-DETAIL" }));
+  t.noteLine(api.add({ chat_window_id: side.windowId, kind: "ic", character_id: "c-jiang", visibility: "whisper", content: "WHISPER-PRESENCE-DETAIL" }));
+  llm.presence = ({ threads }) => {
+    assert.ok(!JSON.stringify(threads).includes("HIDDEN-PRESENCE-DETAIL"));
+    assert.ok(!JSON.stringify(threads).includes("WHISPER-PRESENCE-DETAIL"));
+    const source = threads.find(th => th.members.some(m => m.id === "c-harriet"));
+    if (source.key === "T0") return { placements: [] };
+    assert.equal(source.location, "七号楼一楼门厅", "an obsolete label must not hide a published arrival");
+    return { placements: [{ id: "c-harriet", thread: "T0", with: "c-alice", actor_seq: arrival.seq, target_seq: home.seq, place: "507" }] };
+  };
+  llm.director = () => {
+    assert.equal(t.timelines.of("c-harriet").id, "main", "membership is corrected before the GM responds");
+    return { actions: [], coplayers_may_act: true };
+  };
+  await alicePosts(t, api, "晚安。");
+  assert.equal(t.timelines.of("c-harriet").id, "main");
+  assert.equal(t.timelines.main().location, "507");
+  assert.equal(t.timelines.of("c-jiang").id, side.id, "same building does not mean everyone is in 507");
+  const cp = t.roster.coplayerByName("Harriet Vance");
+  assert.deepEqual(cp.seats.filter(s => s.toSeq === null).map(s => s.windowId), ["w-main"]);
+  const context = llm.calls.findLast(c => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet"));
+  assert.match(context.messages[0].content.split("WITH YOU HERE")[1], /Alice Hale/);
+  assert.ok(!api.posts.some(p => p.window === "w-main" && p.content.includes("SIDE-PUBLIC-DETAIL")), "comparison never copies another scene's history into chat");
+  assert.ok(!directorCalls(llm).some(u => u.includes("MODE: arrival")), "bookkeeping does not narrate a second arrival");
+  const log = t.timelines.log.length;
+  await t.reconcilePresence("w-main", t.guard.turn);
+  assert.equal(t.timelines.log.length, log, "already-synchronised membership is not applied again");
+});
+
+test("an arrival published this round reconciles even after a rejected movement proposal; a future return does not", async () => {
+  const { t, api, llm } = await table();
+  t.deferArrivals = true;
+  await t.command({ cmd: "split", who: ["Harriet Vance"], place: "七号楼一楼门厅" });
+  const side = t.timelines.of("c-harriet");
+  const source = await api.postMessage("ch", side.windowId, { kind: "narration", visibility: "window", content: "Harriet回到507，收好了相机。" }); t.noteLine(source);
+  let arrived = false;
+  llm.presence = ({ threads }) => {
+    const main = threads.find(th => th.key === "T0"), there = threads.find(th => th.key !== "T0");
+    const target = main.lines.findLast(l => l.text === "你回到507，放下书包。");
+    return { placements: target && there ? [{ id: "c-harriet", thread: "T0", with: "c-alice", actor_seq: source.seq, target_seq: target.seq, place: "507" }] : [] };
+  };
+  llm.movements = () => ({ moves: [] }); // Reproduce the strict movement reader's rejection from the reported log.
+  llm.director = () => ({ actions: [{ type: "narrate", text: arrived ? "你回到507，放下书包。" : "你还在洗漱间，打算洗完回507。" }],
+    coplayers_may_act: false, whereabouts: arrived ? [{ who: ["Alice Hale"], thread: "T" + side.handle }] : [] });
+  await alicePosts(t, api, "我还在洗漱，洗完就回去。");
+  assert.equal(t.timelines.of("c-harriet").id, side.id);
+  arrived = true;
+  await alicePosts(t, api, "（回507放下书包）");
+  assert.equal(t.timelines.of("c-harriet").id, "main");
+  assert.equal(side.status, "merged");
+  assert.equal(t.timelines.main().location, "507");
+  assert.ok(llm.calls.some(c => c.purpose === "movement_evidence"));
+});
+
+test("presence analysis ignores asynchronous Keeper audit notes, and records the shared scene for a human reunion", async () => {
+  const { t, api, llm } = await table();
+  t.deferArrivals = true;
+  const side = t.timelines.split({ name: "Lobby", location: "Lobby", members: ["c-alice"], windowId: "w-priv", fromSeq: t.lastSeq + 1 });
+  const from = await api.postMessage("ch", side.windowId, { kind: "narration", visibility: "window", content: "Alice arrives at room 507." }); t.noteLine(from);
+  const target = await api.postMessage("ch", "w-main", { kind: "narration", visibility: "window", content: "Harriet arrives at room 507." }); t.noteLine(target);
+  llm.presence = () => {
+    t.noteLine(api.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", visibility: "gm_only", content: "Whereabouts not applied: a stale movement proposal" }));
+    return { placements: [{ id: "c-alice", thread: "T0", with: "c-harriet", actor_seq: from.seq, target_seq: target.seq, place: "507" }] };
+  };
+  llm.director = () => ({ actions: [], coplayers_may_act: false });
+  await alicePosts(t, api, "We are here. What can I see?", side.windowId);
+  await settle(t);
+  assert.equal(t.timelines.of("c-alice").id, "main");
+  assert.equal(t.timelines.main().location, "507");
+  assert.ok(directorCalls(llm).some(u => u.includes("MODE: relay") && u.includes("What can I see?")), "the triggering question is answered in the shared scene");
+});
+
+test("a newer departure during presence analysis invalidates the proposed reunion", async () => {
+  const { t, api, llm } = await table();
+  t.deferArrivals = true;
+  await t.command({ cmd: "split", who: ["Harriet Vance"], place: "Lobby" });
+  const side = t.timelines.of("c-harriet");
+  const from = await api.postMessage("ch", side.windowId, { kind: "narration", visibility: "window", content: "Harriet arrives at room 507." }); t.noteLine(from);
+  const target = await api.postMessage("ch", "w-main", { kind: "narration", visibility: "window", content: "Alice arrives at room 507." }); t.noteLine(target);
+  llm.presence = () => {
+    t.noteLine(api.add({ chat_window_id: "w-main", author_id: "u-alice", character_id: "c-alice", content: "I leave for the library." }));
+    return { placements: [{ id: "c-harriet", thread: "T0", with: "c-alice", actor_seq: from.seq, target_seq: target.seq, place: "507" }] };
+  };
+  await t.reconcilePresence("w-main", t.guard.turn);
+  assert.equal(t.timelines.of("c-harriet").id, side.id);
 });
 
 test("planner /pause cancels queued turns; scheduled phone texts still arrive exactly once without replies", async () => {

@@ -151,10 +151,28 @@ test("the brief shows handles, places, spans, who may move and the cap", () => {
   const w = world({ main: ["bob"], threads: [{ place: "Old Harbour", members: ["alice"], window: "w-harbour", span: "long" }] });
   const text = whereaboutsBrief({ timelines: w.tl, scene: { timeline: w.tl.main() }, nameOf: (id) => id, windowName: () => "Scene: Old Harbour", isPc: (id) => PEOPLE[id].pc, mayMove: ["bob"], capReached: true });
   assert.match(text, /T0 "Main story" ← this scene/); assert.match(text, /T1 "Old Harbour" in window "Scene: Old Harbour", at Old Harbour, long split: alice \(player\)/);
-  assert.match(text, /May move this turn: bob/); assert.match(text, /No new scene can open now/);
+  assert.match(text, /May move this turn: bob/); assert.match(text, /No new independent scene can open now/);
+  assert.match(text, /Still report reunions/);
 });
 
 test("validateWhereabouts never throws and accepts loose booleans", () => {
   assert.deepEqual(validateWhereabouts("nonsense"), []);
   assert.deepEqual(validateWhereabouts([null, { who: "x" }, { who: ["a"], thread: "new", place: "p", own_scene: "yes" }]).map((e) => e.ownScene), [true]);
+});
+
+test("confirmed co-presence bypasses movement debounce but still regroups a private window", () => {
+  const w = world({ main: ["tomas"], threads: [
+    { place: "Dorm corridor", members: ["alice"], window: "w-alice" },
+    { place: "507", members: ["bob", "harriet"], window: "w-507" },
+    { place: "Empty", members: [], window: "w-empty" },
+  ] });
+  const guard = new Guard();
+  guard.commit(["alice"], { turn: 5, now: 10_000_000, seq: 1, prevOf: () => MAIN, windowed: ["alice"] });
+  const target = w.tl.atPlace("507");
+  const r = plan(w, [{ who: ["alice"], thread: "T" + target.handle }], { scene: "Dorm corridor", mode: "presence", guard, turn: 5 });
+  const regroup = r.ops.find(o => o.op === "split");
+  assert.equal(regroup.replaces, target.id);
+  assert.deepEqual(regroup.ids.sort(), ["alice", "bob", "harriet"]);
+  assert.deepEqual(r.ignored, []);
+  assert.ok(!r.ops.some(o => o.op === "move" && o.to === target.id), "never expose the existing private window's history");
 });

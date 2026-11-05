@@ -280,8 +280,22 @@ The rules that keep this safe:
 - A player can correct a misplaced companion in the scene chat or the planner window. Once the correction
   identifies the character and thread, the agent updates the actual seat before answering and bypasses the
   ordinary move cooldown. Players can also correct their own character.
+- **Already together is not a new movement request.** Before and after a normal Keeper round, an independent
+  presence reader compares up to forty recent public play lines per occupied thread. It recognises established
+  arrivals from character actions and published narration, including contextual room names and stale window
+  labels. If two investigators have separately arrived in room 507, their actual timeline and co-player seats
+  reunite without requiring another declaration or waiting out a move cooldown. Each reconciliation cites a
+  confirming line from both scenes in the agent log. Newer messages invalidate an in-flight result. The next
+  response uses the corrected cast; it does not narrate the arrival a second time.
+  Intentions, washroom errands still in progress, different rooms in the same building and incompatible story
+  times are distinguished from current co-presence. The reader sees no whispers, Keeper-only notes or planner
+  secrets, and copies none of another thread's history into the reunion window. Existing window access and
+  fresh-window regrouping rules still apply. These checks use the configured LLM; the offline provider reports
+  no inferred reunion unless a test supplies a fixture. Shared journeys through intermediate corridors or lobbies
+  are narrated together instead of opened as separate adventures at each waypoint.
 - **No flip-flopping.** A co-player's move that would undo a recent change needs two agreeing turns after it
-  (`timelines.guard_turns`, `timelines.guard_ms`). Players' own moves are never deferred.
+  (`timelines.guard_turns`, `timelines.guard_ms`). Players' own moves and reconciliation of established presence
+  are never deferred.
 - **No history leaks.** Nobody is ever added to an existing window (its whole past would open to them). A player
   joining a thread whose window they are not in regroups the thread into a fresh window. A window is reused only for
   exactly the same people at the same place.
