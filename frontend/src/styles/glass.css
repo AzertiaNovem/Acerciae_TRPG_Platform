@@ -7,12 +7,13 @@
 .theme-picker { margin: 2px 0; padding: 8px 0 0; border: 0; min-width: 0; }
 .theme-picker legend { padding: 0; font-size: inherit; color: inherit; }
 .theme-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(155px, 100%), 1fr)); gap: 8px; }
-.theme-option { display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: 12px; border: 1px solid var(--bg-4); cursor: pointer; }
+.theme-option { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid var(--bg-4); cursor: pointer; min-width: 0; }
+.theme-option > span:not(.theme-swatch) { grid-row: 2; grid-column: 1 / -1; overflow-wrap: anywhere; }
 .theme-option:has(:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .theme-option:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .theme-option input[type=radio] { margin: 0 2px 0 auto; width: auto; accent-color: var(--accent); }
 .theme-picker p { margin: 6px 0 0; }
-.theme-swatch { flex: none; position: relative; width: 46px; height: 34px; border-radius: 8px; overflow: hidden; }
+.theme-swatch { position: relative; grid-row: 1; grid-column: 1; width: 46px; height: 34px; border-radius: 8px; overflow: hidden; }
 .theme-swatch::before, .theme-swatch::after { content: ''; position: absolute; }
 .theme-swatch.classic { background: #141922; border: 1px solid #465063; }
 .theme-swatch.classic::before { inset: 0 72% 0 0; background: #2d3544; }

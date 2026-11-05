@@ -93,16 +93,21 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
             <fieldset className="theme-picker">
               <legend>{t('Interface theme')}</legend>
               <div className="theme-options">
-                {(['classic', 'glass'] as const).map(id => (
+                {([
+                  { id: 'classic', label: t('Classic dark') },
+                  { id: 'glass', label: t('Frosted glass') },
+                  { id: 'parchment', label: t('Parchment') },
+                ] as const).map(({ id, label }) => (
                   <label className="theme-option" key={id}>
                     <span className={`theme-swatch ${id}`} aria-hidden="true" />
-                    <span>{id === 'glass' ? t('Frosted glass') : t('Classic dark')}</span>
+                    <span>{label}</span>
                     <input type="radio" name="interface-theme" value={id} checked={theme === id}
                       onChange={() => useUi.setState({ themePreview: id })} />
                   </label>
                 ))}
               </div>
               <p className="tiny muted">{t('Frosted glass follows your device’s light or dark appearance.')}</p>
+              {theme === 'parchment' && <p className="tiny muted">{t('Parchment keeps a warm, light paper appearance.')}</p>}
             </fieldset>
             <label className="row"><input type="checkbox" checked={atmosphere} onChange={e => setAtmosphere(e.target.checked)} />{t('Show channel atmosphere backgrounds')}</label>
             <p className="tiny muted">{t('Requires the server atmosphere feature. Follows your device’s light/dark theme and screen orientation; displayed translucently.')}</p>

@@ -1,0 +1,86 @@
+/* A paper sample in the picker is visible in every theme. */
+.theme-swatch.parchment { background: linear-gradient(110deg, #ddc59e, #f8ecd2 52%, #ead4ae); border: 1px solid #b59c77; border-radius: 3px; }
+.theme-swatch.parchment::before { inset: 0 auto 0 0; width: 8px; background: #63513e; border-right: 2px solid #a8875f; }
+.theme-swatch.parchment::after { inset: 8px 6px auto 15px; height: 2px; background: #954e3e; box-shadow: 0 6px #ae9774, 0 12px #ae9774; }
+
+/* Fixed warm light appearance: ink stays readable regardless of the device's dark mode.
+   Texture is CSS only, underneath the content; it needs no image requests or animation. */
+:root[data-theme="parchment"] {
+  color-scheme: light;
+  --bg-0: #f3e8d1; --bg-1: #ecddbe; --bg-2: #fbf3e2; --bg-3: #e3d1af; --bg-4: #b9a17b;
+  --fg-0: #352b22; --fg-1: #514334; --fg-2: #685640; --fg-3: #736046;
+  --accent: #8c3e30; --accent-2: #356254; --warn: #795014; --danger: #9d3036; --ok: #376147;
+  --hl: rgb(211 167 50 / 25%); --hl-strong: rgb(211 167 50 / 45%); --hl-conflict: rgb(157 48 54 / 18%);
+  --radius: 5px;
+  --paper-serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'Noto Serif SC', 'Songti SC', 'STSong', Georgia, serif;
+  --paper-texture: radial-gradient(ellipse at 0% 0%, rgb(151 106 42 / 8%), transparent 55%),
+    radial-gradient(ellipse at 100% 100%, rgb(151 106 42 / 6%), transparent 55%),
+    repeating-linear-gradient(0deg, rgb(120 89 45 / 2%) 0 1px, transparent 1px 4px);
+  --paper-shadow: 0 3px 12px rgb(66 44 20 / 10%), inset 0 1px 0 rgb(255 252 241 / 70%);
+}
+
+:root[data-theme="parchment"] :is(body, .open-studio) { background: #d5c2a1; }
+:root[data-theme="parchment"] .app { padding: 10px; }
+:root[data-theme="parchment"] .server-sidebar { background: #493a2e; border-color: #66513c; border-radius: 6px 0 0 6px; }
+:root[data-theme="parchment"] .server-icon { background: #64513e; color: #fff0d3; border-radius: 7px; }
+:root[data-theme="parchment"] .server-icon:is(.add, .admin, .studio) { background: transparent; color: #efdbb7; border-color: #b59c77; }
+:root[data-theme="parchment"] .server-icon:is(.active, :hover):not(.add, .admin, .studio) { background: var(--accent); color: #fff8e9; border-color: #be8a6c; }
+:root[data-theme="parchment"] .channel-sidebar { background: var(--paper-texture), var(--bg-1); border-right: 3px double var(--bg-4); }
+:root[data-theme="parchment"] .channel-sidebar .section { color: var(--fg-2); }
+:root[data-theme="parchment"] .channel-sidebar .item { border-radius: 3px; }
+:root[data-theme="parchment"] .channel-sidebar .item.active {
+  background: rgb(140 62 48 / 8%); box-shadow: inset 3px 0 var(--accent); color: var(--accent);
+}
+:root[data-theme="parchment"] .channel-sidebar .item:hover { background: var(--bg-3); }
+/* No filters or transforms on these containers: dialogs inside them must remain viewport-fixed. */
+:root[data-theme="parchment"] .main {
+  margin-left: 8px; background: var(--paper-texture), var(--bg-0);
+  border: 1px solid var(--bg-4); border-radius: 4px; box-shadow: var(--paper-shadow);
+}
+:root[data-theme="parchment"] :is(.chat-header, .tabs, .open-studio-head) {
+  background: var(--paper-texture), var(--bg-1); border-bottom: 3px double var(--bg-4);
+}
+:root[data-theme="parchment"] :is(.chat-header h2, .card h3, .modal h3, .doc-viewer h3, .bubble .title) { font-family: var(--paper-serif); }
+:root[data-theme="parchment"] :is(.chat-header h2, .card h3, .modal h3) { letter-spacing: .02em; }
+:root[data-theme="parchment"] .message.narration .content { font-family: var(--paper-serif); font-size: 16px; line-height: 1.65; }
+:root[data-theme="parchment"] .tabs button { border-radius: 4px 4px 0 0; }
+:root[data-theme="parchment"] .tabs button.active { background: var(--bg-2); color: var(--accent); box-shadow: inset 0 3px var(--accent); }
+:root[data-theme="parchment"] :is(.sidebar-footer, .character-save-bar, .initiative-bar) { background: var(--bg-1); border-color: var(--bg-4); }
+:root[data-theme="parchment"] .composer { background: var(--paper-texture), var(--bg-1); border-top: 3px double var(--bg-4); }
+:root[data-theme="parchment"] :is(input, textarea, select) { background-color: var(--bg-2); border-radius: 4px; }
+:root[data-theme="parchment"] select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23685640' stroke-width='1.5'/%3E%3C/svg%3E"); }
+:root[data-theme="parchment"] :is(input, textarea)::placeholder { color: var(--fg-2); opacity: 1; }
+:root[data-theme="parchment"] :is(input, textarea, select):focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+:root[data-theme="parchment"] input:is([type=checkbox], [type=radio]) { accent-color: var(--accent); }
+:root[data-theme="parchment"] :is(button, .button, .avatar, .role-card, .role-card .char-grid .cell) { border-radius: 5px; }
+:root[data-theme="parchment"] :is(button.primary, .button.primary, .badge:not(.hl), .unread-badge) { color: #fff8e9; }
+:root[data-theme="parchment"] :is(.card, .role-card) { background: var(--paper-texture), var(--bg-2); border-color: var(--bg-4); box-shadow: var(--paper-shadow); }
+:root[data-theme="parchment"] .modal-backdrop { background: rgb(45 33 20 / 48%); }
+:root[data-theme="parchment"] :is(.modal, .panel-float, .doc-viewer, .bubble, .toast, .notice-top, .notice-item, .dock-toggle) {
+  background: var(--paper-texture), var(--bg-2); border-color: var(--bg-4); border-radius: 5px; box-shadow: var(--paper-shadow);
+}
+:root[data-theme="parchment"] .modal { border: 3px double var(--bg-4); box-shadow: 0 18px 60px rgb(45 33 20 / 28%); }
+:root[data-theme="parchment"] .doc-viewer header { border-bottom: 3px double var(--bg-4); }
+:root[data-theme="parchment"] .bubble:hover { border-color: var(--accent); }
+:root[data-theme="parchment"] .bubble.has-highlight { border-color: var(--warn); box-shadow: inset 3px 0 var(--warn), var(--paper-shadow); }
+:root[data-theme="parchment"] .bubble.reminder { border-left-color: var(--accent-2); }
+:root[data-theme="parchment"] :is(.notice-top, .notice-item):hover { background-color: var(--bg-1); border-color: var(--accent); }
+:root[data-theme="parchment"] :is(.mode-banner, .avatar.gm, .notice-icon.gm, .pill.gm) {
+  background: color-mix(in srgb, var(--warn) 10%, var(--bg-2)); border-color: color-mix(in srgb, var(--warn) 35%, var(--bg-2));
+}
+:root[data-theme="parchment"] :is(.ai-btn, .pill.ai) { background: color-mix(in srgb, var(--accent-2) 9%, var(--bg-2)); border-color: var(--accent-2); }
+:root[data-theme="parchment"] .ai-btn:hover { background: color-mix(in srgb, var(--accent-2) 17%, var(--bg-2)); }
+:root[data-theme="parchment"] :is(.dice-result.ok, .dice-result.crit, .pill.ok) { background: color-mix(in srgb, var(--ok) 10%, var(--bg-2)); border-color: var(--ok); }
+:root[data-theme="parchment"] :is(.dice-result.fail, .dice-result.fumble, .pill.danger, button.danger) { background: color-mix(in srgb, var(--danger) 9%, var(--bg-2)); border-color: var(--danger); }
+:root[data-theme="parchment"] :is(.chip, .pick.on) { background: color-mix(in srgb, var(--accent) 8%, var(--bg-2)); border-color: var(--bg-4); }
+:root[data-theme="parchment"] .status-hypothesis { color: #785075; }
+
+@media (max-width: 860px) {
+  :root[data-theme="parchment"] .app { padding: 4px; }
+  :root[data-theme="parchment"] .main { margin-left: 4px; }
+  :root[data-theme="parchment"] .channel-sidebar { top: 4px; bottom: 4px; left: 60px; }
+  :root[data-theme="parchment"] .channel-sidebar:not(.open) { visibility: hidden; }
+}
+@media (prefers-contrast: more), (forced-colors: active) {
+  :root[data-theme="parchment"] { --paper-texture: linear-gradient(transparent, transparent); --paper-shadow: none; }
+}

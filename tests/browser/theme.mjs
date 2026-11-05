@@ -50,6 +50,24 @@ try {
     await page.waitForFunction(mode => getComputedStyle(document.documentElement).colorScheme === mode, colorScheme);
     await page.getByText('The harbour bell rings twice.').waitFor();
   }
+  await settings.click();
+  await choose('Parchment');
+  await active('parchment');
+  assert.equal((await request('/auth/me', null, token)).ui_theme, 'glass');
+  await page.keyboard.press('Escape');
+  await active('glass');
+  await settings.click();
+  await choose('Parchment');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  await page.reload();
+  await active('parchment');
+  assert.equal((await request('/auth/me', null, token)).ui_theme, 'parchment');
+  for (const colorScheme of ['dark', 'light']) {
+    await page.emulateMedia({ colorScheme });
+    await page.waitForFunction(() => getComputedStyle(document.documentElement).colorScheme === 'light');
+    await page.getByText('The harbour bell rings twice.').waitFor();
+  }
   await page.setViewportSize({ width: 480, height: 720 });
   await page.locator('.server-icon.active').click();
   await settings.click();
@@ -57,9 +75,10 @@ try {
   assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 480 && bounds.height <= 720);
   const saveBounds = await dialog.getByRole('button', { name: 'Save', exact: true }).boundingBox();
   assert.ok(saveBounds.y >= bounds.y && saveBounds.y + saveBounds.height <= bounds.y + bounds.height);
+  assert.equal(await dialog.locator('.profile-scroll').evaluate(el => el.scrollWidth <= el.clientWidth), true, 'theme cards fit without horizontal scrolling');
   await choose('Classic dark');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
   assert.equal((await request('/auth/me', null, token)).ui_theme, 'classic');
-  console.log(`${engine}: theme preview, cancel, save, reload, light/dark and narrow layout passed`);
+  console.log(`${engine}: all three themes, preview, cancel, save, reload, light/dark and narrow layout passed`);
 } finally { await browser.close(); }
