@@ -37,6 +37,7 @@
 #include "core/Errors.h"
 #include "logstudio/StorageCleanup.h"
 #include "logstudio/ImageReferences.h"
+#include "logstudio/VnScriptService.h"
 #include "logstudio/MediaMigrator.h"
 #include "logstudio/ObjectInventory.h"
 #include <drogon/utils/Utilities.h>
@@ -184,6 +185,31 @@ int main() {
         S.db->exec("UPDATE stored_objects SET protected_until=now()-interval '1 second' WHERE object_key=$1",{key});
         S.storageCleanup->runOnce(); CHECK(!store.exists(key));
         CHECK(S.db->queryOne("SELECT object_key FROM stored_objects WHERE object_key=$1",{key}).isNull());
+    });
+    test("hybrid reuses atmosphere candidates locally and retains their ownership link", [&] {
+        Json::Value body; body["name"] = "Hybrid harbour";
+        auto ch = S.chat->createChannel(gmP, server["id"].asString(), body)["id"].asString();
+        auto access = S.auth->channelAccess(gmUser,ch);
+        auto window = S.db->queryOne("SELECT id,name FROM chat_windows WHERE channel_id=$1 ORDER BY created_at LIMIT 1",{ch});
+        Json::Value message; message["kind"] = "narration"; message["content"] = "Fog rolls over the harbour.";
+        S.chat->postMessage(access,window["id"].asString(),message);
+        Json::Value meta; meta["visibility_scope"] = "channel"; meta["approval_status"] = "candidate"; meta["created_by"] = gmUser; meta["name"] = "Existing atmosphere";
+        const auto png = drogon::utils::base64Decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+        auto asset = S.media->storeInternal(ch,"background","generated",png,"image/png",meta)["id"].asString();
+        auto imageJob = S.db->queryOne("INSERT INTO asset_generation_jobs(channel_id,kind,status,provider,prompt,result_asset_id,finished_at) VALUES($1,'background','completed','mock','existing',$2,now()-interval '31 days') RETURNING id",{ch,asset})["id"].asString();
+        auto atmosphere = S.db->queryOne("INSERT INTO channel_atmospheres(channel_id,scene_label,mood,reason,prompts,source_event_ids,created_by) VALUES($1,$2,'fog','fixture','{}','{}',$3) RETURNING id",{ch,std::string("Opening scene"),gmUser})["id"].asString();
+        S.db->exec("INSERT INTO channel_atmosphere_variants(atmosphere_id,variant,job_id) VALUES($1,'day_landscape',$2)",{atmosphere,imageJob});
+        Json::Value request; request["media_mode"] = "hybrid";
+        auto job = S.vnScripts->create(access,request); CHECK(S.vnScripts->processNext());
+        auto done = S.vnScripts->get(access,job["id"].asString()); CHECK(done["status"] == "completed");
+        if (done["status"] != "completed") throw std::runtime_error(json::str(done,"error"));
+        auto handoff = S.presentations->hybrid(access,done["presentation_id"].asString(),*S.media);
+        CHECK(handoff["assets"].size() == 1); CHECK(handoff["assets"][0]["id"] == asset);
+        CHECK(handoff["presentation"]["scenes"][0]["background"] == asset + "@1");
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM asset_generation_jobs WHERE channel_id=$1",{ch})["n"].asInt() == 1);
+        S.storageCleanup->runOnce();
+        CHECK(!S.db->queryOne("SELECT id FROM asset_generation_jobs WHERE id=$1",{imageJob}).isNull());
+        CHECK(!S.db->queryOne("SELECT job_id FROM channel_atmosphere_variants WHERE atmosphere_id=$1",{atmosphere}).isNull());
     });
     test("AI confirmed status requires a GM-authored source; player sources are downgraded", [&] {
         auto playerMsg = say(p1User, splitWin, "I find a brass key under the mat.");

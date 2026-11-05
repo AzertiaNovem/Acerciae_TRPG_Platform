@@ -1,5 +1,5 @@
 import { t as tr } from '../../i18n';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import BundleDownload from './BundleDownload';
 import { contextSocket } from '../../api/ws';
@@ -9,6 +9,8 @@ import type { Presentation, TtsJob, VnScriptJob, VnScriptQuestions, VnScriptWind
 import VNPlayer from './vn/VNPlayer';
 import { VN_BASE_INFO, VN_BASES, type VnBase } from './vn/templates';
 import { CachedImg } from '../CachedImg';
+import { isDesktop } from '../../lib/platform';
+const HybridVnTransfer = lazy(() => import('./HybridVnTransfer'));
 
 type Step = 'script' | 'art' | 'cast' | 'export';
 const STEPS: { id: Step; label: string }[] = [{ id: 'script', label: 'Script' }, { id: 'art', label: 'Art' }, { id: 'cast', label: 'Dubbing cast' }, { id: 'export', label: 'Export' }];
@@ -40,6 +42,8 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   const [direction, setDirection] = useState('');
   const [cloudOk, setCloudOk] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hybrid, setHybrid] = useState(false);
+  const hybridResult = pres?.settings?.media_mode === 'hybrid';
   const [retryFailedChunks, setRetryFailedChunks] = useState(true);
   const [imageStatus, setImageStatus] = useState<{ enabled: boolean; mock: boolean } | null>(null);
   const [artCloudOk, setArtCloudOk] = useState(false);
@@ -83,8 +87,8 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   }), [channelId, jobId, pres?.id]);
   useEffect(() => {
     setArtCloudOk(false); setImageStatus(null);
-    if (step === 'art' && channelId) api.vnImageStatus(channelId).then(setImageStatus).catch((e) => toast(e.message, 'error'));
-  }, [channelId, jobId, step]);
+    if (step === 'art' && channelId && !hybridResult) api.vnImageStatus(channelId).then(setImageStatus).catch((e) => toast(e.message, 'error'));
+  }, [channelId, jobId, step, hybridResult]);
   // Polling covers reconnects while the script or the art is still on its way.
   const running = jobs.some((j) => j.status === 'pending' || j.status === 'running');
   // A job that waits for answers carries its questions in its own record, not in the list.
@@ -101,7 +105,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     finally { setBusy(false); }
   };
   const artPending = !!pres && ((pres.scenes ?? []).some((s) => !s.background_asset_id) || (pres.events ?? []).some((e) => (e.character_asset_ids ?? []).some((p) => !p.asset_id)));
-  useEffect(() => { if (!running && !(step === 'art' && artPending)) return; const t = setInterval(() => { loadJobs(); if (jobId) loadJob(jobId).catch(() => undefined); }, 2500); return () => clearInterval(t); }, [running, step, artPending, jobId]);
+  useEffect(() => { if (!running && !(step === 'art' && artPending && !hybridResult)) return; const t = setInterval(() => { loadJobs(); if (jobId) loadJob(jobId).catch(() => undefined); }, 2500); return () => clearInterval(t); }, [running, step, artPending, jobId, hybridResult]);
   useEffect(() => { if (step !== 'cast' || !channelId) return; Promise.all([api.voices(channelId), api.ttsAvailableVoices(channelId)]).then(([v, a]) => { setVoices(v); setPresets(a); }).catch(() => undefined); }, [step, channelId]);
   useEffect(() => { if (!tts || !channelId || tts.status === 'completed' || tts.status === 'failed' || tts.status === 'cancelled') return; const t = setInterval(async () => { const s = await api.ttsJob(channelId, tts.id).catch(() => null); if (s) { setTts(s); if (s.status === 'completed' && jobId) loadJob(jobId); } }, 1500); return () => clearInterval(t); }, [tts?.id, tts?.status]);
 
@@ -118,7 +122,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     if (!channelId) return;
     setBusy(true);
     try {
-      const j = await api.createVnScript(channelId, { scope, scope_character_id: scope === 'character' ? scopeChar : undefined, windows: windowChoice, title: title.trim() || undefined, template: { base }, retry_failed_chunks: retryFailedChunks, instructions: direction.trim() || undefined, allow_cloud: status?.mock ? undefined : cloudOk });
+      const j = await api.createVnScript(channelId, { media_mode: isDesktop && hybrid ? 'hybrid' : 'server', scope, scope_character_id: scope === 'character' ? scopeChar : undefined, windows: windowChoice, title: title.trim() || undefined, template: { base }, retry_failed_chunks: retryFailedChunks, instructions: direction.trim() || undefined, allow_cloud: status?.mock ? undefined : cloudOk });
       toast(tr('Script job started'), 'ai'); setJobId(j.id); loadJobs();
     } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
@@ -168,7 +172,8 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
   const needsCloud = status && !status.mock;
   const blocked = !!needsCloud && (!status!.cloud_allowed || !cloudOk);
   const done = job?.status === 'completed' && !!pres;
-  const stepIndex = STEPS.findIndex((s) => s.id === step);
+  const steps = hybridResult ? STEPS.filter((s) => s.id === 'script' || s.id === 'art') : STEPS;
+  const stepIndex = steps.findIndex((s) => s.id === step);
   const gen = job?.script?.generation;
   const artNeedsCloud = !!imageStatus?.enabled && !imageStatus.mock && !job?.params?.cloud_authorized;
   const artRetryBlocked = busy || !pres?.can_edit || !imageStatus?.enabled || (artNeedsCloud && !artCloudOk);
@@ -178,12 +183,13 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     <div className="card" style={{ marginTop: 10 }}>
       <div className="row"><h3 style={{ margin: 0 }}>{tr('Make a visual novel')}</h3><span className="grow" />{status && (status.mock ? <span className="pill">MOCK</span> : <span className="pill ai">{status.model}</span>)}</div>
       <ol className="wizard-steps">
-        {STEPS.map((s, i) => <li key={s.id} className={`${s.id === step ? 'current' : ''} ${i < stepIndex ? 'done' : ''}`}><button className="ghost small" disabled={i > 0 && !done} onClick={() => setStep(s.id)}>{i + 1}. {tr(s.label)}</button></li>)}
+        {steps.map((s, i) => <li key={s.id} className={`${s.id === step ? 'current' : ''} ${i < stepIndex ? 'done' : ''}`}><button className="ghost small" disabled={i > 0 && !done} onClick={() => setStep(s.id)}>{i + 1}. {tr(hybridResult && s.id === 'art' ? 'Local production' : s.label)}</button></li>)}
       </ol>
 
       {step === 'script' && (
         <div>
           <div className="tiny muted">{tr('The AI reads the campaign log block by block (a block ends after an hour without lines) and writes the script: which background each line plays on, which portrait each speaker shows, and the wording of the story. It leaves out chatter, bot messages and placeholders, never adds lines, and asks you when a line is unclear; the log keeps every original.')}</div>
+          {isDesktop && <label className="tiny" style={{ display: 'block', marginTop: 8 }}><input type="checkbox" checked={hybrid} onChange={(e) => setHybrid(e.target.checked)} /> {tr('Hybrid: server script, local art and voices')}</label>}
           <div className="vn-tpl-fields tiny">
             <label title={tr('Who may watch the visual novel, and whose eyes read the log')}>{tr('Point of view')}<select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
               {isGm && <option value="gm_full">{tr('Everything, including private windows (GM only result)')}</option>}
@@ -258,7 +264,8 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
         </div>
       )}
 
-      {step === 'art' && pres && (
+      {step === 'art' && pres && hybridResult && (isDesktop ? <Suspense fallback={<div className="tiny muted">{tr('Loading…')}</div>}><HybridVnTransfer channelId={channelId!} presentationId={pres.id} /></Suspense> : <div className="tiny muted">{tr('Open this hybrid novel in the desktop app to finish it locally.')}</div>)}
+      {step === 'art' && pres && !hybridResult && (
         <div>
           <div className="tiny muted">{imageStatus?.enabled === false ? tr('Image generation is off on this server: upload backgrounds in Assets and portraits in each character space, then assign them in the editor.') : tr('Backgrounds the log needs and portraits for characters in generated mode are being painted. Characters in uploaded mode use only the portraits their players uploaded.')}</div>
           <div className="wizard-art">
@@ -285,7 +292,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
         </div>
       )}
 
-      {step === 'cast' && pres && (
+      {step === 'cast' && pres && !hybridResult && (
         <div>
           <div className="tiny muted">{tr('Choose a voice for every character and for the narration (Keeper narration, dice and scene titles). Pick an existing voice or a preset to create one.')}</div>
           <table className="simple" style={{ marginTop: 6 }}><tbody>
@@ -317,7 +324,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
         </div>
       )}
 
-      {step === 'export' && pres && (
+      {step === 'export' && pres && !hybridResult && (
         <div>
           {visible.length > 0 && <VNPlayer channelId={channelId!} presentation={pres} index={Math.min(index, visible.length - 1)} onIndexChange={setIndex} editorMode characterNames={names} />}
           <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
@@ -326,6 +333,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
             <button className="ghost small" onClick={() => onOpenEditor(pres.id)}>{tr('Advanced editor')}</button>
             <BundleDownload channelId={channelId!} presentationId={pres.id} primary />
           </div>
+          {isDesktop && <Suspense fallback={<div className="tiny muted">{tr('Loading…')}</div>}><HybridVnTransfer channelId={channelId!} presentationId={pres.id} /></Suspense>}
           <div className="tiny muted" style={{ marginTop: 4 }}>{tr('The zip holds index.html with every image and voice line; open it in any browser, no server needed.')}</div>
         </div>
       )}
