@@ -83,3 +83,14 @@ test("recall budget defaults, YAML, flag, disabling and ceiling", () => {
   assert.equal(buildConfig({ "context-recall-tokens": "99999" }, {}).recallTokens, 4000);
   assert.deepEqual(buildConfig({}, {}, file({ context: { recall_tokens: 600 } })).warnings, []);
 });
+
+test("the GM's calendar pace: defaults, the calendar section, flags, and 0 for no limit", () => {
+  const d = buildConfig({}, {});
+  assert.deepEqual([d.calendarMinMinutes, d.calendarMinLines, d.calendarMaxDays], [30, 30, 2]);
+  const f = buildConfig({}, {}, file({ calendar: { min_minutes: 60, min_lines: 50, max_days: 1 } }));
+  assert.deepEqual([f.calendarMinMinutes, f.calendarMinLines, f.calendarMaxDays], [60, 50, 1]);
+  assert.deepEqual(f.warnings, []);
+  const flags = buildConfig({ "calendar-min-minutes": "0", "calendar-min-lines": "0", "calendar-max-days": "0" }, {}, file({ calendar: { min_minutes: 60 } }));
+  assert.deepEqual([flags.calendarMinMinutes, flags.calendarMinLines, flags.calendarMaxDays], [0, 0, 0]);
+  assert.equal(buildConfig({}, {}, file({ calendar: { min_minutes: -5 } })).calendarMinMinutes, 0);
+});

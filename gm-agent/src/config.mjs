@@ -80,6 +80,7 @@ const SETTINGS = [
   ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"], ["away-side-interval-ms", null, "autonomy.away_side_interval_ms"],
   ["timeline-auto", null, "timelines.auto"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
+  ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
   ["improv", null, "modes.improv"], ["world", null, "modes.world_file"], ["secrets", null, "modes.secrets_file"], ["casual", null, "modes.casual"], ["casual-max-delay-minutes", null, "modes.casual_max_delay_minutes"],
   ["state-dir", "STATE_DIR", null],
 ];
@@ -96,7 +97,7 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
-const SECTIONS = ["account", "channel", "table", "llm", "planner", "pacing", "context", "autonomy", "timelines", "scenarios", "modes"];
+const SECTIONS = ["account", "channel", "table", "llm", "planner", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes"];
 
 const TTL = (v) => (["1h", "5m", "off"].includes(String(v)) ? String(v) : "1h");
 // true/false, or undefined when nothing says (a mode kept in the state file is then left as it is).
@@ -221,6 +222,12 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     scenarioAuto: bool(pick("scenario-auto"), true),
     scenarioMinMinutes: Math.max(0, int(pick("scenario-min-minutes", 20), 20)),
     scenarioMinLines: Math.max(0, int(pick("scenario-min-lines", 30), 30)),
+    // The GM's pace on the story's calendar (casual games): after the date moves, the GM may move it on again only
+    // after this long and this many player lines, by at most this many days at once (0: no limit). The operator's
+    // `date` and the final review are not held to it.
+    calendarMinMinutes: Math.max(0, int(pick("calendar-min-minutes", 30), 30)),
+    calendarMinLines: Math.max(0, int(pick("calendar-min-lines", 30), 30)),
+    calendarMaxDays: Math.max(0, int(pick("calendar-max-days", 2), 2)),
     // Improvisation and casual modes are kept in the state file; these only change them when given (`setup`, `world`,
     // `casual`).
     improv: tri(pick("improv")),

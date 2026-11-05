@@ -40,7 +40,7 @@ import { addTruth, hashText, improvState, worldMessages } from "./improv.mjs";
 import { PHONE_LOG, PHONE_PREFIX, casualState, coplayerPhoneReply, dueAt, pairKey, parseAddress, renderThread } from "./casual.mjs";
 import { WISH_WINDOW, addToInbox, mergeTableNotes, plannerReply, renderCorrectionsFor, renderInbox, renderTableNotes } from "./wishes.mjs";
 import { leaksSecret, noteSessionLine, planStory, plannerDue, plannerModeOf, plannerState, renderFinalNote, renderImpulse, renderPlanNote, renderStoryPlan, sessionEnded, stallSignature } from "./planner.mjs";
-import { advanceCalendar, calendarState, describeCalendar, describeRoutine, fitEra, renderCalendar, setRoutine } from "./calendar.mjs";
+import { MAX_ADVANCE_DAYS, advanceCalendar, calendarPace, calendarState, describeCalendar, describeRoutine, fitEra, noteCalendarLine, renderCalendar, setRoutine } from "./calendar.mjs";
 import { applyBond, bondsState, renderBonds, renderBondsFor, resolveBonds } from "./bonds.mjs";
 import { impression } from "./context/traits.mjs";
 
@@ -294,10 +294,12 @@ export class Table {
 
   // The story keeps a date only in a casual game; a solemn game has none (calendar.mjs).
   calendarOn() { return Boolean(this.casual.on); }
+  // The Keeper's pace on the calendar (config `calendar`; 0: no limit).
+  calendarPaceCfg() { return { minMinutes: this.cfg.calendarMinMinutes ?? 0, minLines: this.cfg.calendarMinLines ?? 0, maxDays: this.cfg.calendarMaxDays ?? 0 }; }
 
   // The Keeper's context for a turn in `windowId` (gmContext.mjs), with the calendar (casual games) and the relationships.
   buildGm(windowId, extra = {}) {
-    return this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines(), awayOf: (id) => this.awayOf(id), calendar: this.calendarOn() ? renderCalendar(this.calendar) : "", bonds: renderBonds(this.bonds, (id) => this.nameOf(id)), table: renderTableNotes(this.planner.table), ...extra });
+    return this.gm.build({ windowId, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines(), awayOf: (id) => this.awayOf(id), calendar: this.calendarOn() ? renderCalendar(this.calendar, { pace: this.calendarPaceCfg(), now: this.now() }) : "", bonds: renderBonds(this.bonds, (id) => this.nameOf(id)), table: renderTableNotes(this.planner.table), ...extra });
   }
 
   // How the Keeper reads a line: visibility and the timeline it comes from (see gmContext.mjs).
@@ -436,6 +438,8 @@ export class Table {
     this.noteLine(m);
     if (this.generation.paused) return;
     if (this.isHuman(m) && !this.isPlannerWindow(m.chat_window_id)) this.noteSession(m);
+    // A player's line of play counts toward the calendar's pace (chatter out of character does not).
+    if (this.playerSpeech(m) && m.kind !== "ooc" && !this.isPlannerWindow(m.chat_window_id)) noteCalendarLine(this.calendar);
     // A correction in chat or the planner window takes effect before the next GM/companion turn.
     let placement;
     if (this.isTrigger(m) && (this.isPlannerWindow(m.chat_window_id) || ((this.scene(m.chat_window_id) || m.chat_window_id === this.mainWindow()?.id) &&
@@ -1080,12 +1084,13 @@ export class Table {
         const first = !this.calendar.date && a.date && this.plannerMode() !== "off";
         if (first) this.log(`calendar: the Keeper's first date "${a.date}" left to the story planner`);
         const change = this.moveCalendar({ days: a.advance_days, date: first ? undefined : a.date, time: a.time, why: a.reason ?? a.text, by: "keeper" });
+        const held = await this.calendarHeld(windowId, change);
         if (change.changed && change.from && change.to) {
           const scene = this.scene(windowId);
           if (scene && a.time) { this.timelines.relocate(scene.id, { narrativeTime: a.time }); this.save(); }
-          return this.postHandoff(windowId, change.to, evidenceThrough);
+          return held + await this.postHandoff(windowId, change.to, evidenceThrough);
         }
-        return 0;
+        return held;
       }
       case "bond": this.recordBond(a, "keeper"); return 0;
       case "text": return this.casualOn() ? this.sendText(a) : 0;
@@ -1201,6 +1206,13 @@ export class Table {
   async changeScenario(windowId, a, mode, parent = mode, evidenceThrough) {
     const v = await this.scenarioVerdict(windowId, mode, parent);
     if (!v.ok) return this.post(windowId, { content: `Scenario change refused: ${v.reason}.`, kind: "narration", visibility: "gm_only" });
+    // A scenario change that jumps days ahead keeps to the calendar's pace: refused whole, so the new scene's time and
+    // the date never disagree.
+    if (this.calendarOn() && Number(a.advance_days) > 0 && mode !== "manual") {
+      const { minMinutes, minLines } = this.calendarPaceCfg();
+      const p = calendarPace(this.calendar, { now: this.now(), minMinutes, minLines });
+      if (!p.ok) return this.post(windowId, { content: `Scenario change refused: the date moved on too recently to jump ahead again (${p.wait} first). Change the scenario within the same day (advance_days 0), or let the day play out.`, kind: "narration", visibility: "gm_only" });
+    }
     try {
       let res;
       if (a.type === "enter_scenario") {
@@ -1216,14 +1228,15 @@ export class Table {
       this.scenario = { id: this.channel.current_scene_id, since: this.now() };
       const oldTime = this.timelines.main().narrativeTime;
       this.timelines.relocate(MAIN, { location: scene?.location || a.location, narrativeTime: scene?.narrative_time || a.narrative_time });
-      if (Number(a.advance_days) > 0 && this.calendarOn()) this.moveCalendar({ days: a.advance_days, why: `scenario: ${scene?.title ?? a.title ?? a.scenario ?? ""}`, by: "keeper" });
+      const moved = Number(a.advance_days) > 0 && this.calendarOn() ? this.moveCalendar({ days: a.advance_days, why: `scenario: ${scene?.title ?? a.title ?? a.scenario ?? ""}`, by: "keeper" }) : null;
+      const held = moved ? await this.calendarHeld(windowId, moved) : 0;
       this.beatClosed();   // the planner's "move on" is spent; the next plan opens the next beat
       this.save();
       this.log(`scenario: ${scene?.title ?? a.title ?? a.scenario} (${a.reason ?? "the story moved on"})`);
       const time = this.timelines.main().narrativeTime;
-      const advancedDay = this.calendarOn() && Number(a.advance_days) > 0;
-      if ((time && time !== oldTime) || advancedDay) return this.postHandoff(windowId, advancedDay ? describeCalendar(this.calendar, { time }) : time, evidenceThrough);
-      return 0;
+      const advancedDay = Boolean(moved?.changed);
+      if ((time && time !== oldTime) || advancedDay) return held + await this.postHandoff(windowId, advancedDay ? describeCalendar(this.calendar, { time }) : time, evidenceThrough);
+      return held;
     } catch (e) {
       return this.post(windowId, { content: `Scenario change failed: ${e.message}`, kind: "narration", visibility: "gm_only" });
     }
@@ -1489,11 +1502,23 @@ export class Table {
   }
 
   // ---- the calendar and relationships
+  // The Keeper keeps to the pace (config `calendar`); the final review has its own most days; the operator and the
+  // planner's first date have neither.
   moveCalendar({ days, date, time, why = "", by = "keeper" }) {
-    const r = advanceCalendar(this.calendar, { days, date, time, why, by, seq: this.lastSeq, now: this.now(), ...(by === "final review" ? { maxDays: this.cfg.planner?.finalReviewMaxDays ?? 30 } : {}) });
-    if (r.changed) { if (r.to) this.log(`calendar: ${r.from || "(no date)"} → ${r.to} (${by})`); this.save(); }
+    const pace = this.calendarPaceCfg();
+    const limits = by === "final review" ? { maxDays: this.cfg.planner?.finalReviewMaxDays ?? 30 }
+      : by === "keeper" ? { maxDays: pace.maxDays || MAX_ADVANCE_DAYS, pace: { minMinutes: pace.minMinutes, minLines: pace.minLines } } : {};
+    const r = advanceCalendar(this.calendar, { days, date, time, why, by, seq: this.lastSeq, now: this.now(), ...limits });
+    if (r.changed) { if (r.to) this.log(`calendar: ${r.from || "(no date)"} → ${r.to} (${by})${r.clipped ? `, ${r.days} of the ${r.clipped} day(s) asked` : ""}`); this.save(); }
     else if (r.refused) this.log(`calendar unchanged: ${r.refused}`);
     return r;
+  }
+  // The Keeper's date move that the pace held back or cut short: a note only the Keeper reads, so the story can follow
+  // the date that stands.
+  calendarHeld(windowId, r) {
+    const text = r.pace ? `Calendar unchanged: ${r.refused}. Keep play within the current day (only the time of day moves).`
+      : r.clipped ? `Calendar moved on ${r.days} day(s), not ${r.clipped}: at most ${r.days} at once. Tell the time that passed to match.` : "";
+    return text ? this.post(windowId, { content: text, kind: "narration", visibility: "gm_only" }, { count: false }) : 0;
   }
   recordBond(a, by = "keeper") {
     const [x] = resolveBonds([a], (n) => this.characterByName(n)?.id);

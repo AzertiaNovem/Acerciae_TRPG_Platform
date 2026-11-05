@@ -28,7 +28,7 @@ import { Store, storePath, billableTokens } from "./store.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
-import { describeCalendar, renderCalendar } from "./calendar.mjs";
+import { calendarPace, describeCalendar, renderCalendar } from "./calendar.mjs";
 import { Guard } from "./whereabouts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -409,7 +409,9 @@ async function status(cfg) {
   console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} Keeper chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
   const ca = table.casual;
   console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min); texts between AI characters in ${ca.log ? `"${wname(ca.log)}"` : "the phone log (opened by run)"}, at most ${cfg.casualAiTextsPerHour} answered an hour, ${cfg.casualAiChain} in a row`) : "off (a solemn game: no phones)"}`);
-  console.log(`calendar: ${table.calendarOn() ? `${describeCalendar(table.calendar) || "no date yet (the story planner chooses the first one)"}${table.calendar.log.length ? `; last change by ${table.calendar.log.at(-1).by}` : ""}${table.calendar.routine ? `; routine: ${table.calendar.routine.text}` : ""}` : "off (a solemn game keeps no date; casual mode has one)"}`);
+  const pace = table.calendarPaceCfg(), held = calendarPace(table.calendar, { minMinutes: pace.minMinutes, minLines: pace.minLines });
+  const paceText = pace.minMinutes || pace.minLines || pace.maxDays ? `; GM pace: the date moves on${pace.maxDays ? ` at most ${pace.maxDays} day(s) at once` : ""}${pace.minMinutes || pace.minLines ? `, ${pace.minMinutes} min and ${pace.minLines} player lines after it last moved (${held.ok ? "may move now" : `waits ${held.wait}`})` : ""}` : "; GM pace: no limit";
+  console.log(`calendar: ${table.calendarOn() ? `${describeCalendar(table.calendar) || "no date yet (the story planner chooses the first one)"}${table.calendar.log.length ? `; last change by ${table.calendar.log.at(-1).by}` : ""}${table.calendar.routine ? `; routine: ${table.calendar.routine.text}` : ""}${paceText}` : "off (a solemn game keeps no date; casual mode has one)"}`);
   const nameOf = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   console.log(`relationships: ${table.bonds.length ? table.bonds.map((b) => `${nameOf(b.a)} — ${nameOf(b.b)}: ${b.kind}${b.secret ? " (secret)" : ""}`).join("; ") : "(none recorded)"}`);
   const pl = table.planner, arc = pl.arc;
@@ -452,7 +454,7 @@ async function plan(cfg, args) {
 async function date(cfg, args) {
   if (args.days === undefined && args.set === undefined && args.time === undefined) {
     const { table } = await openTable(cfg, { write: false });
-    console.log(renderCalendar(table.calendar));
+    console.log(renderCalendar(table.calendar, { pace: table.calendarPaceCfg() }));
     return;
   }
   const days = args.days === undefined ? 0 : Number(args.days);
