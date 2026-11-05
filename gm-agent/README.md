@@ -251,13 +251,37 @@ The table does not always wait for a human, and it does not keep everyone in one
 ### Timelines: proactive splitting
 
 The client keeps **timelines** (threads of the story) in its state file; the platform has none. Every player
-character and co-player is in exactly one. The main timeline (handle `T0`) always exists. It starts in Main Chat, then moves to its own restricted
-window on the first split. Main Chat remains a public lobby; every active thread has its own window, a persistent handle (`T1`, `T2`, … never reused), a place, a
-narrative time and a **span**: *short* when the party is briefly apart (two rooms of one house), *long* when it is far
-apart (two cities).
+character and co-player is in exactly one. The main timeline (handle `T0`) always exists and starts in the Main Chat;
+every other thread has a window of its own, a persistent handle (`T1`, `T2`, … never reused), a place, a narrative
+time and a **span**: *short* when the party is briefly apart (two rooms of one house), *long* when it is far apart (two
+cities).
 
 Each Keeper round may report **whereabouts**: who is now where, and whether a group is out of reach of the others and
-can explore on its own. The client decides what that means (`src/whereabouts.mjs`, a pure, tested planner):
+can explore on its own. The client decides what that means (`src/whereabouts.mjs`, a pure, tested planner), in one of
+two ways, chosen with `timelines.scene_forks` (`--scene-forks`):
+
+**Main Chat stays the story (`scene_forks: false`, the default; best for a single player).** The main timeline is
+always played in the Main Chat, with the players; only those who go elsewhere get a window. A single player is always
+in the Main Chat, and the co-players move around them.
+
+- **A player goes elsewhere** → a new window `Scene: <place>` with that player (and any co-players who went too) and
+  the GM. Everyone stays a member of the Main Chat. The player is whispered a pointer to the new window, the opening
+  is posted there, and an **arrival** turn opens the scene at once.
+- **Co-players go elsewhere** → a `Side: <place>` window only they sit in, which moves on by itself (side turns).
+- **Everyone in a scene goes to one place** → the thread just moves there; no new window.
+- **A lone player leaves the co-players behind** → the Main Chat goes with the player (it is relocated); the co-players
+  who stayed get a side window.
+- **They meet again** → reunions always land in the main timeline, in the Main Chat, where every player already is.
+  The old window gets a pointer `→ "Main Chat"` and is closed for autonomy; the reunion gets its own arrival turn.
+- **No history leaks.** Nobody is ever added to an existing window (its whole past would open to them). A player
+  joining a thread whose window they are not in regroups the thread into a fresh window; when a player leaves a
+  thread others stay in, those who stay continue in a fresh window. A window is reused only for exactly the same
+  people at the same place; a window the platform failed to open three times is given up (the people stay).
+- Going where you already are is no move; going to another thread's place joins that thread.
+
+**Scene forks (`scene_forks: true`; for several players who must not read each other's scenes).** The main timeline
+moves to its own restricted window on the first split, and the Main Chat becomes a public lobby the Keeper never
+narrates in.
 
 - A split creates restricted forks for both the departing party and any party still playing in Main Chat. The
   fork shows source history only up to its creation boundary, with the original reader permissions. All audiences
@@ -298,7 +322,7 @@ The rules that keep this safe:
 - **No flip-flopping.** A co-player's move that would undo a recent change needs two agreeing turns after it
   (`timelines.guard_turns`, `timelines.guard_ms`). Players' own moves and reconciliation of established presence
   are never deferred.
-- **No history leaks.** The server enforces membership intervals for reads, search, references, exports and live
+- **No history leaks** (scene forks). The server enforces membership intervals for reads, search, references, exports and live
   delivery. Pause/resume never fills the absence with old messages. Same-group players still share the union of
   their readable perspectives. Fork ancestry does not widen any reader's original permissions.
 - **Bounded.** At most `timelines.max_active` threads at once; a new window for a player at most once per
@@ -306,8 +330,11 @@ The rules that keep this safe:
   splits.
 - **Relay.** A split-off player who keeps writing in the Main Chat is answered in their own scene; the Main Chat only
   gets a whisper pointer. A roll asked of an away player is asked in their window.
-- **Crash-safe.** A split in progress is journaled with stable fork request IDs. `run` finishes missing forks and
-  membership changes on restart before any narration; lost HTTP responses cannot create duplicate forks.
+- **Crash-safe.** A split in progress is journaled; `run` finishes it on restart before any narration, and a thread
+  whose first scene never played gets its arrival turn. With scene forks the journal keeps stable fork request IDs,
+  so lost HTTP responses cannot create duplicate forks; without them, windows already opened are reused.
+- **Switching.** Decide `scene_forks` when the campaign starts. Turned off later, a main story still played in a fork
+  comes back to the Main Chat at the next start once nobody is split off (until then it stays where it is).
 
 Lines carry the timeline their speaker was in **when they wrote them**, so a story told in the Main Chat by someone back
 from a side trip is tagged with that trip, and a player's lines from before a split keep the old tag. A co-player
@@ -341,7 +368,7 @@ closes and summarises the old one. The GM model opens it (`advance_scenario`) or
 stage done, or the platform's own "New scenario?" reminder. The client refuses, with a Keeper-only note saying why,
 unless:
 
-- the turn is in the primary story window (`T0`), never in a side thread or the public lobby;
+- the turn is in the primary story window (`T0`: the Main Chat, or its fork with scene forks), never in a side thread or the public lobby;
 - it is a turn after a player's or co-player's line, never an autonomous or arrival turn;
 - **no short split** is active (a long one carries on into the new scenario);
 - at least `scenarios.min_minutes` have passed since the current scenario began and it has at least
@@ -732,6 +759,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `autonomy.max_turns_per_hour`, `autonomy.idle_minutes` | | `20`, `30` | hourly cap on autonomous turns; "away" once nobody has posted for this long |
 | `autonomy.away_side_interval_ms` | | `21600000` (6 h) | while away, how often a co-players-only thread moves (0: never) |
 | `timelines.auto` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: model-led co-player splits |
+| `timelines.scene_forks` | `--scene-forks` | `false` | `true`: after the first split the main story moves to a private fork and the Main Chat becomes a lobby the GM never narrates in; `false`: the main story stays in the Main Chat with the players (see Timelines) |
 | `timelines.guard_turns`, `timelines.guard_ms` | | `2`, `180000` | a co-player's move that undoes a recent change waits for two agreeing turns within this window |
 | `timelines.max_active` | | `4` | at most this many threads at once (the main one included) |
 | `timelines.pc_cooldown_ms` | | `300000` | a player gets a new window at most this often |
@@ -805,9 +833,12 @@ The tests need no backend and no model. They cover:
   thread's events reach the Keeper documents like any other lines.
 - Main Chat is always shared. Players in the same player group continue to share views even if only one remains
   active in a window. Use separate groups when the players need separate knowledge.
-- A paused member keeps access to previously witnessed history. Removing membership entirely is different: it can
+- Without scene forks, a split-off player stays a member of the Main Chat (as intended), so the platform keeps
+  delivering the Main Chat's lines to them and its chronicler credits their character with them; windows accumulate,
+  reused only for the same people at the same place.
+- With scene forks, a paused member keeps access to previously witnessed history. Removing membership entirely is different: it can
   revoke old history and rebuild derived memory. Use pause/resume for temporary absence.
-- This client requires the backend with migration `0055_window_forks.sql`. Do not run the old agent alongside it or
+- Scene forks require the backend with migration `0055_window_forks.sql`. Do not run the old agent alongside it or
   roll back to an old state file during play: old membership logic cannot enforce the new scene lifecycle.
 - One client process keeps one channel.
 

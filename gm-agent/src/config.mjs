@@ -78,7 +78,7 @@ const SETTINGS = [
   ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
   ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-side-interval-ms", null, "autonomy.side_interval_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
   ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"], ["away-side-interval-ms", null, "autonomy.away_side_interval_ms"],
-  ["timeline-auto", null, "timelines.auto"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
+  ["timeline-auto", null, "timelines.auto"], ["scene-forks", null, "timelines.scene_forks"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
   ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
   ["improv", null, "modes.improv"], ["world", null, "modes.world_file"], ["secrets", null, "modes.secrets_file"], ["casual", null, "modes.casual"], ["casual-max-delay-minutes", null, "modes.casual_max_delay_minutes"],
@@ -213,6 +213,11 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     autonomyIdleMinutes: Math.max(1, int(pick("autonomy-idle-minutes", 30), 30)),
     // Proactive timelines: the GM reports where investigators are; the table splits and reunites them.
     timelineAuto: bool(pick("timeline-auto"), true),
+    // Scene forks: after the first split the main story moves to a restricted fork and the Main Chat becomes a public
+    // lobby the Keeper never narrates in (for several players who must not read each other's scenes). Off: the main
+    // story stays in the Main Chat with the players; only those who go elsewhere get a window (a single player is
+    // always in the Main Chat; co-players move around them).
+    sceneForks: bool(pick("scene-forks"), false),
     timelineGuardTurns: Math.max(0, int(pick("timeline-guard-turns", 2), 2)),
     timelineGuardMs: Math.max(0, int(pick("timeline-guard-ms", 180000), 180000)),
     timelineMaxActive: Math.max(1, int(pick("timeline-max-active", 4), 4)),

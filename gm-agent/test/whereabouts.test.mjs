@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Timelines, MAIN } from "../src/timelines.mjs";
 import { Guard, planWhereabouts, validateWhereabouts, whereaboutsBrief } from "../src/whereabouts.mjs";
 
-const CFG = { timelineGuardTurns: 2, timelineGuardMs: 180000, timelineMaxActive: 4, timelinePcCooldownMs: 300000 };
+const CFG = { sceneForks: true, timelineGuardTurns: 2, timelineGuardMs: 180000, timelineMaxActive: 4, timelinePcCooldownMs: 300000 };
 const PEOPLE = { alice: { pc: true, user: "u-alice" }, bob: { pc: true, user: "u-bob" }, harriet: { pc: false }, tomas: { pc: false } };
 
 function world({ main = ["alice", "bob", "harriet", "tomas"], threads = [] } = {}) {
@@ -16,14 +16,16 @@ function world({ main = ["alice", "bob", "harriet", "tomas"], threads = [] } = {
   return { tl, windows };
 }
 
-function plan(w, reports, { scene = MAIN, mode = "human", speakers = [], guard = new Guard(), turn = 1, now = 10_000_000, scope } = {}) {
+function plan(w, reports, { scene = MAIN, mode = "human", speakers = [], guard = new Guard(), turn = 1, now = 10_000_000, scope, cfg = CFG } = {}) {
   const sceneTl = w.tl.get(scene) ?? w.tl.byName(scene);
   return planWhereabouts({
     timelines: w.tl, scene: { timeline: sceneTl }, reports: validateWhereabouts(reports), scopeIds: new Set(scope ?? sceneTl.members), speakers: new Set(speakers), mode,
     resolve: (n) => (PEOPLE[n.toLowerCase()] ? n.toLowerCase() : null), isPc: (id) => PEOPLE[id]?.pc, userOf: (id) => PEOPLE[id]?.user, windowUsers: (win) => w.windows[win] ?? [],
-    guard, turn, now, cfg: CFG,
+    guard, turn, now, cfg,
   });
 }
+const OLD_CFG = { ...CFG, sceneForks: false };
+const planOld = (w, reports, o = {}) => plan(w, reports, { ...o, cfg: OLD_CFG });
 const kinds = (r) => r.ops.map((o) => o.op);
 
 test("a player who says so leaves for a place of their own; nobody else moves", () => {
@@ -186,4 +188,64 @@ test('simultaneous convergence on a new scene forks the source with the most dis
     assert.deepEqual(new Set(fork.ids), new Set(ids));
     assert.equal(r.ops.filter(o => o.op === 'split').length, 1);
   } finally { delete PEOPLE.carol; }
+});
+
+// ---- without scene forks (timelines.scene_forks: false, the default): the main story stays in the Main Chat
+
+test("without scene forks: reunions land in the main timeline; a thread left empty is merged", () => {
+  const w = world({ main: ["bob"], threads: [{ place: "Old Harbour", members: ["alice"], window: "w-harbour" }] });
+  const harbour = w.tl.atPlace("Old Harbour");
+  const back = planOld(w, [{ who: ["alice"], thread: "T0" }], { scene: harbour.id, speakers: ["alice"] });
+  assert.deepEqual(back.ops.map((o) => [o.op, o.from ?? o.to, o.into]), [["move", MAIN, undefined], ["merge", harbour.id, MAIN]]);
+  const there = planOld(w, [{ who: ["bob"], thread: `T${harbour.handle}` }], { speakers: ["bob"] });
+  assert.deepEqual(there.ops.map((o) => o.op), ["merge", "relocate"], "the Main Chat party walks to Alice: her thread comes back to the Main Chat");
+  assert.equal(there.ops[0].from, harbour.id); assert.equal(there.ops[1].location, "Old Harbour");
+});
+
+test("without scene forks: privacy: a player joining a thread whose window they are not in regroups it into a fresh window", () => {
+  const w = world({ main: ["bob", "harriet"], threads: [{ place: "Old Harbour", members: ["alice", "tomas"], window: "w-harbour" }] });
+  const harbour = w.tl.atPlace("Old Harbour");
+  w.tl.main().members.push("carol"); PEOPLE.carol = { pc: true, user: "u-carol" };
+  const r = planOld(w, [{ who: ["carol"], thread: `T${harbour.handle}` }], { speakers: ["carol"], scope: ["bob", "harriet", "carol"] });
+  const split = r.ops.find((o) => o.op === "split");
+  assert.ok(split, "a fresh window"); assert.equal(split.replaces, harbour.id);
+  assert.deepEqual(split.ids.sort(), ["alice", "carol", "tomas"]);
+  delete PEOPLE.carol;
+});
+
+test("without scene forks: a player leaving a thread others stay in: those who stay continue in a fresh window the leaver cannot read", () => {
+  const w = world({ main: ["bob", "tomas"], threads: [{ place: "Docks", members: ["alice", "harriet"], window: "w-docks" }] });
+  const docks = w.tl.byName("Docks");
+  const r = planOld(w, [{ who: ["alice"], thread: "T0" }], { scene: docks.id, speakers: ["alice"] });
+  assert.deepEqual(kinds(r), ["move", "split"], "the order is move, split, merge, relocate");
+  assert.deepEqual(r.ops[0].ids, ["alice"]); assert.equal(r.ops[0].to, MAIN);
+  assert.deepEqual(r.ops[1].ids, ["harriet"]); assert.equal(r.ops[1].replaces, docks.id); assert.equal(r.ops[1].place, "Docks");
+});
+
+test("without scene forks: limits apply after normalising: a regroup is never refused by the cap or a player's cooldown", () => {
+  // Three side threads and the main one: the cap of four is reached.
+  const w = world({ main: ["tomas"], threads: [{ place: "Docks", members: ["alice", "bob"], window: "w-docks" }, { place: "Mill", members: [], window: "w-mill" }, { place: "Inn", members: [], window: "w-inn" }] });
+  const docks = w.tl.byName("Docks");
+  const guard = new Guard(); guard.by.bob = { ...guard.rec("bob"), windowAt: 10_000_000 };
+  const r = planOld(w, [{ who: ["alice"], thread: "T0" }], { scene: docks.id, speakers: ["alice"], guard, now: 10_000_000 + 1000 });
+  const split = r.ops.find((o) => o.op === "split");
+  assert.ok(split, JSON.stringify(r)); assert.deepEqual(split.ids, ["bob"]); assert.equal(split.replaces, docks.id);
+  assert.deepEqual(r.ignored, []);
+});
+
+test("without scene forks: confirmed co-presence bypasses movement debounce but still regroups a private window", () => {
+  const w = world({ main: ["tomas"], threads: [
+    { place: "Dorm corridor", members: ["alice"], window: "w-alice" },
+    { place: "507", members: ["bob", "harriet"], window: "w-507" },
+    { place: "Empty", members: [], window: "w-empty" },
+  ] });
+  const guard = new Guard();
+  guard.commit(["alice"], { turn: 5, now: 10_000_000, seq: 1, prevOf: () => MAIN, windowed: ["alice"] });
+  const target = w.tl.atPlace("507");
+  const r = planOld(w, [{ who: ["alice"], thread: "T" + target.handle }], { scene: "Dorm corridor", mode: "presence", guard, turn: 5 });
+  const regroup = r.ops.find(o => o.op === "split");
+  assert.equal(regroup.replaces, target.id);
+  assert.deepEqual(regroup.ids.sort(), ["alice", "bob", "harriet"]);
+  assert.deepEqual(r.ignored, []);
+  assert.ok(!r.ops.some(o => o.op === "move" && o.to === target.id), "never expose the existing private window's history");
 });

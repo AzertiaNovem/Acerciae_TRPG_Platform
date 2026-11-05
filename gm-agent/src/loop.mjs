@@ -172,8 +172,10 @@ export class Table {
     if (this.journal?.phase === "A") {
       this.log("finishing a split that was interrupted");
       const j = this.journal; this.journal = null;
+      // Without scene forks, the windows it already opened are reused.
+      if (!this.forks) for (const c of j.created ?? []) if (c.placeKey !== undefined) this.guard.spare.push(c);
       // One-time recovery of pre-fork agent journals: retain windows already created by that version.
-      for (const op of j.ops) if (op.op === "split" && !op.requestId) {
+      if (this.forks) for (const op of j.ops) if (op.op === "split" && !op.requestId) {
         const users = op.ids.filter(id => this.isPc(id)).map(id => this.userOf(id)).sort();
         const old = j.created?.find(c => c.placeKey === placeKey(op.place) && JSON.stringify([...(c.users ?? [])].sort()) === JSON.stringify(users));
         if (old && this.windows.some(w => w.id === old.windowId)) op.legacyWindowId = old.windowId;
@@ -182,6 +184,15 @@ export class Table {
     } else if (this.journal) {
       await this.applyAudience(this.journal.audience ?? []);
       this.journal = null; changed = true;
+    }
+    // Scene forks turned off: a primary story still played in its own fork comes back to the Main Chat once nobody
+    // is split off (while the party is split it stays where it is, so nobody's scene moves under them).
+    const main = this.timelines.main();
+    if (!this.forks && main.windowId && !this.timelines.active().some(t => t.id !== MAIN && t.members.length)) {
+      this.timelines.bind(MAIN, null);
+      this.log("scene forks are off: the main story is played in the Main Chat again");
+      this.checkInvariants();                                  // its co-players' seats follow it
+      changed = true;
     }
     // Upgrade an existing split table before another narration can expose the primary scene.
     const partition = this.partitionPlan([]);
@@ -243,8 +254,13 @@ export class Table {
     }
     return lines.sort((a,b) => a.seq-b.seq);
   }
-  partitionPlan(ops) { return sceneForks(this.timelines, ops, { windowOf: t => this.windowOf(t) }); }
+  // Scene forks (timelines.scene_forks): after the first split the primary story moves to a restricted fork and the
+  // Main Chat becomes a public lobby the Keeper never narrates in. Off (the default), the main story stays in the Main
+  // Chat with the players, and only those who go elsewhere get a window of their own.
+  get forks() { return Boolean(this.cfg.sceneForks); }
+  partitionPlan(ops) { return this.forks ? sceneForks(this.timelines, ops, { windowOf: t => this.windowOf(t) }) : ops; }
   async archiveRetired() {
+    if (!this.forks) return;      // retired windows are kept for the same people at the same place
     for (const w of this.windows) if (w.kind !== "main" && !w.archived_at && this.timelines.retired(w.id)) {
       await this.api.updateWindow(this.channelId, w.id, { archived: true });
       w.archived_at = new Date(this.now()).toISOString();
@@ -510,7 +526,7 @@ export class Table {
     const autonomous = mode === "quiet" || mode === "side" || (mode === "arrival" && Boolean(extra.autonomous));
     let scene = this.scene(windowId);
     const sceneThread = scene;
-    if (extra.arrival?.newcomer && scene) {
+    if (this.forks && extra.arrival?.newcomer && scene) {
       // A player joining after the first split needs access to the private primary scene
       // before its welcome is posted. Do not grant access to its earlier private messages.
       const ids = (extra.arrival.ids ?? []).filter(id => scene.members.includes(id) && this.isPc(id));
@@ -584,7 +600,7 @@ export class Table {
       const scope = new Set([...(scene?.members ?? []), ...visitorsIn]);
       const mayMove = [...scope].filter(id => this.isPc(id) ? ["human", "relay"].includes(roundMode) && speakerIds.has(id) : MOVE_MODES.has(roundMode));
       const whereabouts = this.cfg.timelineAuto && scene
-        ? whereaboutsBrief({ timelines: this.timelines, scene: { timeline: scene }, nameOf: (id) => this.nameOf(id), windowName: (id) => this.windowName(id), isPc: (id) => this.isPc(id), mayMove, capReached: this.timelines.active().length >= this.cfg.timelineMaxActive })
+        ? whereaboutsBrief({ timelines: this.timelines, scene: { timeline: scene }, nameOf: (id) => this.nameOf(id), windowName: (id) => this.windowName(id), isPc: (id) => this.isPc(id), mayMove, capReached: this.timelines.active().length >= this.cfg.timelineMaxActive, forks: this.forks })
         : "";
       const verdict = await this.scenarioVerdict(windowId, roundMode, mode);
       const scenario = this.cfg.scenarioAuto ? `Scenario change: ${verdict.ok ? (verdict.planner ? "possible this turn (the story planner judges the current event has run its course)." : "possible this turn, if the story as a whole has moved on.") : `not this turn (${verdict.reason}).`}` : "";
@@ -604,7 +620,7 @@ export class Table {
       // A public handoff or seat correction just posted by the table must not replace the player's question.
       const newest = roundMode === "human" && ctx.newest && !this.isHuman(ctx.newest)
         ? ctx.lines(windowId).findLast(m => this.isTrigger(m)) ?? ctx.newest : ctx.newest;
-      const request = { language: this.language, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra };
+      const request = { language: this.language, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra };
       let plan = await directTurn(this.llm, request);
       const moves = MOVE_MODES.has(roundMode) && !(roundMode === "followup" && (mode === "arrival" || mode === "kickoff"));
       let placements;
@@ -624,7 +640,7 @@ export class Table {
         }
       }
       this.generation.signal.throwIfAborted();
-      if (placements?.ops.some(o => ["split", "move", "merge", "fork_main"].includes(o.op))) {
+      if (this.forks && placements?.ops.some(o => ["split", "move", "merge", "fork_main"].includes(o.op))) {
         const out = await this.applyPlan(placements, { windowId, mode: roundMode, turn: turnNo, autonomous });
         placements = null;
         if (out?.moved.length) {
@@ -642,7 +658,7 @@ export class Table {
         if (budget <= 0) break;
         if (this.pbta && action.type === "move" && !intents.some(m => m.id === action.source_id && m.character_id === action.character_id)) continue;
         budget -= await this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope, evidenceThrough });
-        if (sceneThread && !this.scene(windowId)) break;
+        if (this.forks && sceneThread && !this.scene(windowId)) break;
         if (this.pbta && (action.type === "move" || (["npc", "new_npc"].includes(action.type) && action.move_id))) {
           // Discard any consequences the model guessed before it saw the server's dice.
           if (!roundExtra.rulingReady && budget > 0) return round("followup", { rulingReady: true });
@@ -857,13 +873,10 @@ export class Table {
     return this.memberCache;
   }
 
-  async applyPlan(result, { windowId, mode, turn, autonomous = false, quiet = false, correctionSeq = 0, opId = randomUUID() }) {
-    const reconciling = mode === "correction" || mode === "presence";
-    const ops = this.partitionPlan(result.ops.map(o => ({ ...o })));
-    if (!ops.length) { this.guard.apply(result.guard); if (result.ignored?.length) this.noteIgnored(windowId, result.ignored); return null; }
-    const lastSeq = this.lastSeq;
-    // Persist the exact parent and idempotency key BEFORE sending a fork request. Recovery also covers
-    // a server commit whose response was lost. No scene is played until every audience has its fork.
+  // A, with scene forks: restricted forks for the new scenes. Persist the exact parent and idempotency key BEFORE
+  // sending a fork request; recovery also covers a server commit whose response was lost. No scene is played until
+  // every audience has its fork.
+  async forkScenes(ops, { opId, mode, correctionSeq, result, windowId }) {
     for (const [i, o] of ops.entries()) if (["split", "fork_main"].includes(o.op)) {
       o.parentWindowId ??= this.windowOf(this.timelines.get(o.replaces || o.fromTimeline) ?? this.timelines.main());
       o.requestId ??= `scene:${opId}:${i}`;
@@ -888,8 +901,67 @@ export class Table {
       this.journal.created.push({ windowId: w.id });
       this.save();
     }
+    return windowFor;
+  }
 
-    // B. Commit all local placements together, after every server fork exists.
+  // A, without scene forks: a fresh window for each new scene (or a spare/retired one for the same people at the same
+  // place). Nothing local changes until they exist; a server failure postpones the whole plan (null).
+  async openSceneWindows(ops, { mode, correctionSeq, result, windowId, turn, lastSeq, dropped, factOf }) {
+    this.journal = { opId: `${turn}-${lastSeq}`, mode, correctionSeq, ops, changed: result.changed, windowId, created: [], phase: "A" };
+    this.save();
+    const users = await this.channelUsers();
+    const windowFor = new Map();
+    const reusedSpares = [];
+    for (const s of ops.filter((o) => o.op === "split" && !o.skip)) {
+      const pcs = s.ids.filter((id) => this.isPc(id));
+      const seatable = pcs.filter((id) => this.userOf(id) && (!users || users.has(this.userOf(id))));
+      for (const id of pcs.filter((p) => !seatable.includes(p))) { s.ids = s.ids.filter((x) => x !== id); dropped.push({ id, why: "not a channel member, so no window can seat them" }); }
+      if (!s.ids.length) { s.skip = true; continue; }
+      const wantUsers = [...new Set(seatable.map((id) => this.userOf(id)))].sort();
+      const key = placeKey(s.place);
+      const spare = this.guard.spare.find((x) => x.placeKey === key && JSON.stringify([...x.users].sort()) === JSON.stringify(wantUsers));
+      const retired = this.windows.find((w) => !w.archived_at && this.timelines.retired(w.id) && placeKey(this.timelines.ofWindow(w.id)?.location) === key && JSON.stringify(this.windowUsers(w.id).sort()) === JSON.stringify(wantUsers));
+      if (spare) { windowFor.set(s, spare.windowId); this.guard.spare = this.guard.spare.filter((x) => x !== spare); reusedSpares.push(spare); continue; }
+      if (retired) { windowFor.set(s, retired.id); continue; }
+      try {
+        const members = [];
+        for (const id of seatable) if (!members.some((m) => m.user_id === this.userOf(id))) members.push({ user_id: this.userOf(id), character_id: id });
+        const w = await this.api.createWindow(this.channelId, { name: `${pcs.length ? "Scene" : "Side"}: ${String(s.place).slice(0, 60)}`, kind: "group", members });
+        windowFor.set(s, w.id);
+        this.journal.created.push({ windowId: w.id, placeKey: key, users: wantUsers });
+        this.save();
+      } catch (e) {
+        if (e.status >= 400 && e.status < 500) { s.skip = true; for (const id of s.ids) dropped.push({ id, why: `the platform refused a window (${e.status})` }); continue; }
+        // A server or network failure: nothing local changes; created windows are kept for reuse; retried later.
+        for (const c of [...this.journal.created, ...reusedSpares]) this.guard.spare.push(c);
+        this.guard.retries[factOf(s)] = (this.guard.retries[factOf(s)] ?? 0) + 1;
+        this.guard.apply(result.guard);
+        this.journal = null;
+        this.save();
+        this.log(`split postponed (${e.message}); ${this.guard.retries[factOf(s)] >= 3 ? "given up after 3 tries" : "will retry"}`);
+        return null;
+      }
+    }
+    for (const o of ops) if (o.op === "split" && !o.skip) delete this.guard.retries[factOf(o)];
+    return windowFor;
+  }
+
+  async applyPlan(result, { windowId, mode, turn, autonomous = false, quiet = false, correctionSeq = 0, opId = randomUUID() }) {
+    const reconciling = mode === "correction" || mode === "presence";
+    const ops = this.partitionPlan(result.ops.map(o => ({ ...o })));
+    // Without scene forks, a split the platform failed three times is given up (the people stay), so it is not retried
+    // every turn.
+    const factOf = (o) => JSON.stringify([placeKey(o.place), [...o.ids].sort()]);
+    const dropped = [];
+    if (!this.forks) for (const o of ops) if (o.op === "split" && (this.guard.retries[factOf(o)] ?? 0) >= 3) { o.skip = true; dropped.push(...o.ids.map((id) => ({ id, why: "the platform failed to open this scene three times" }))); }
+    if (!ops.some(o => !o.skip)) { this.guard.apply(result.guard); const ig = [...(result.ignored ?? []), ...dropped]; if (ig.length) this.noteIgnored(windowId, ig); return null; }
+    const lastSeq = this.lastSeq;
+    const windowFor = this.forks
+      ? await this.forkScenes(ops, { opId, mode, correctionSeq, result, windowId })
+      : await this.openSceneWindows(ops, { mode, correctionSeq, result, windowId, turn, lastSeq, dropped, factOf });
+    if (!windowFor) return null;
+
+    // B. Commit all local placements together, after every new scene's window exists.
     const fromSeq = lastSeq + 1;
     const before = new Map(investigatorsFor(this.characters, this.roster).map((c) => [c.id, this.timelines.of(c.id).id]));
     const beforeWindows = new Map([...before].map(([id, t]) => [id, this.windowOf(this.timelines.get(t))]));
@@ -928,8 +1000,9 @@ export class Table {
     const travelled = moved.filter(id => before.get(id) !== after.get(id));
     this.guard.commit(travelled, { turn, now: this.now(), seq: lastSeq, prevOf: (id) => before.get(id), windowed: created.flatMap((c) => c.op.ids.filter((id) => this.isPc(id))) });
     if (correctionSeq) for (const id of travelled) this.guard.by[id].correctionSeq = correctionSeq;
+    // Scene forks: departed players stop seeing new lines where they were; arrivals see the new scene's from now on.
     const audience = [];
-    for (const id of moved.filter(id => this.isPc(id))) {
+    if (this.forks) for (const id of moved.filter(id => this.isPc(id))) {
       const userId = this.userOf(id), source = beforeWindows.get(id), dest = this.windowOf(this.timelines.of(id));
       if (source === dest) continue;
       if (source && source !== this.mainWindow()?.id && !this.scene(source)?.members.some(other => this.isPc(other) && this.userOf(other) === userId))
@@ -943,7 +1016,7 @@ export class Table {
     // C. Refresh (the new windows), then D. posts and E. arrivals. A failed refresh never stops the posts.
     try { await this.refresh(); } catch (e) { this.log(`refresh after a split failed: ${e.message}`); }
     await this.applyAudience(audience);
-    const ignored = [...(result.ignored ?? [])];
+    const ignored = [...(result.ignored ?? []), ...dropped];
     const summary = [];
     for (const { op, timeline: t } of created) {
       const w = t.windowId;
@@ -1188,7 +1261,7 @@ export class Table {
   async scenarioVerdict(windowId, mode, parent = mode) {
     if (mode === "manual") return { ok: true };
     if (!this.cfg.scenarioAuto) return { ok: false, reason: "automatic scenario changes are off" };
-    if (windowId !== this.primaryWindowId()) return { ok: false, reason: "only from the primary scene" };
+    if (windowId !== this.primaryWindowId()) return { ok: false, reason: this.forks ? "only from the primary scene" : "only from the Main Chat" };
     if (!["human", "followup"].includes(mode) || !["human", "relay"].includes(parent)) return { ok: false, reason: "only right after a player's or co-player's line, never in an autonomous turn" };
     const short = this.timelines.active().find((t) => t.id !== MAIN && t.span !== "long");
     if (short) return { ok: false, reason: `the party is briefly split ("${short.name}"): bring them together first` };
@@ -1686,7 +1759,7 @@ export class Table {
       const ctx = await this.buildGm(windowId);
       const last = this.store.thread(fromId, toId, 1).at(-1);
       let plan;
-      try { plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, pbta:this.pbta, newest: null, mode: "phone", auto: this.cfg.timelineAuto, improv: this.improv.on, casual: true, phone: { from: this.nameOf(fromId), to: this.nameOf(toId), thread, text: last?.text ?? "" } }); }
+      try { plan = await directTurn(this.llm, { language: this.language, context: ctx.parts, pbta:this.pbta, newest: null, mode: "phone", auto: this.cfg.timelineAuto, forks: this.forks, improv: this.improv.on, casual: true, phone: { from: this.nameOf(fromId), to: this.nameOf(toId), thread, text: last?.text ?? "" } }); }
       catch (e) { this.log(`phone turn: ${e.message}`); return; }
       // Only messages and the Keeper's own notes: nothing happens in a scene because of a text.
       for (const a of plan.actions.filter((x) => ["text", "note", "truth", "world_change"].includes(x.type))) {
@@ -1909,7 +1982,7 @@ export class Table {
     if (this.autonomousTurns.length >= this.cfg.autonomyMaxTurnsPerHour) return null;
     const candidates = [];
     for (const w of this.windows) {
-      if (w.archived_at || this.timelines.retired(w.id) || this.isTableWindow(w.id) || !this.scene(w.id)) continue;
+      if (w.archived_at || this.timelines.retired(w.id) || this.isTableWindow(w.id) || (this.forks && !this.scene(w.id))) continue;
       const st = this.state(w.id);
       const scene = this.scene(w.id);
       const isMain = w.id === this.primaryWindowId();

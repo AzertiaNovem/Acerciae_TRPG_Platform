@@ -79,6 +79,9 @@ autonomy:
 
 timelines:
   auto: true                  # proactive splitting and reunions
+  scene_forks: false          # true: after the first split the main story moves to a private fork and the Main Chat
+                              # becomes a lobby the GM never narrates in (several players). false: the main story stays
+                              # in the Main Chat with the players; co-players and departing players get windows
   guard_turns: 2
   guard_ms: 180000
   max_active: 4
