@@ -1389,7 +1389,8 @@ test("the Keeper's date and bond actions; traits, gender and relationships, and 
       { type: "npc", name: "Mr. Grimsby", text: "Good night, miss." }, { type: "narrate", text: "Dawn comes grey." }], coplayers_may_act: true }
     : base(u));
   const lady = { id: "c-lady", name: "Lady Ashcombe", kind: "npc", user_id: null, bio: "LADY-BRIEF: owns the mill", role_card: { basic: { sex: "female", age: "40" }, characteristics: { APP: 90, INT: 85 } } };
-  const { t, api } = await table({ llm, casual: { on: true }, extraCharacters: [lady] });
+  // No pace here (the next test has it): the Keeper sets the date and moves it on a day in one turn.
+  const { t, api } = await table({ llm, casual: { on: true }, extraCharacters: [lady], cfg: { calendarMinMinutes: 0, calendarMinLines: 0 } });
   api.characters_[0].role_card.characteristics = { INT: 88, APP: 50 };
   api.characters_[0].role_card.basic.sex = "female";
   Object.assign(api.characters_[2].role_card, { basic: { sex: "male", age: "62" }, characteristics: { SIZ: 90 } });
@@ -1449,11 +1450,61 @@ test("the first date and the everyday routine come from the planner, from the wo
   // A routine is common knowledge: one quoting a secret is dropped; the next date move marks it as dated.
   t.applyRoutine({ routine: "Everyone says the Guild master drowned the lighthouse keeper.", upcoming: [] });
   assert.match(t.calendar.routine.text, /herring season/, "kept the old one");
-  t.moveCalendar({ days: 1, by: "keeper" });
+  t.moveCalendar({ days: 1, by: "operator" });
   assert.match(renderCalendarOf(t), /Everyday life now \(as of 1923-10-02 \(Tuesday\)\)/);
 });
+
+test("the Keeper's pace on the calendar: a day passes only after enough time and play, a few days at once at most", async () => {
+  const llm = new MockLlm();
+  const base = llm.director.bind(llm);
+  const turns = {
+    "We sleep.": [{ type: "date", advance_days: 1, time: "dawn", reason: "a night's rest" }, { type: "narrate", text: "Night falls." }],
+    "A week of research, then.": [{ type: "date", advance_days: 7, reason: "research" }, { type: "narrate", text: "The days pass in the library." }],
+    "We take the train north.": [{ type: "advance_scenario", title: "The north", location: "Kingsport", narrative_time: "two days later", advance_days: 2, reason: "a journey" }],
+    "Off to the docks.": [{ type: "advance_scenario", title: "The docks", location: "Harbour", narrative_time: "noon", reason: "same day" }],
+  };
+  llm.director = (u) => { const k = Object.keys(turns).find((x) => u.includes(`NEWEST LINE: Alice Hale: ${x}`)); return k && !/^MODE: /m.test(u) ? { actions: turns[k], coplayers_may_act: true } : base(u); };
+  const { t, api, clock } = await table({ llm, casual: { on: true }, cfg: { calendarMinMinutes: 30, calendarMinLines: 3, calendarMaxDays: 2, scenarioMinMinutes: 0, scenarioMinLines: 0 } });
+  await t.command({ cmd: "date", date: "1923-10-02", time: "evening" });   // the operator is not held to the pace
+  assert.deepEqual(t.calendar.since, { at: clock.t, lines: 0 }, "the date moved: the pace starts again");
+  assert.match(renderCalendarOf(t, t.calendarPaceCfg()), /Pace: the date moved on only recently and may not move on again yet\. Keep play within the current day: move only the time of day; later, at most 2 days at once\./);
+  // Too soon: the date stays, and the Keeper reads why.
+  await alicePosts(t, api, "We sleep."); await settle(t);
+  assert.deepEqual([t.calendar.date, t.calendar.time], ["1923-10-02", "evening"]);
+  const held = api.posts.find((p) => p.visibility === "gm_only" && p.content.startsWith("Calendar unchanged: the date moved on too recently"));
+  assert.ok(held, "a Keeper-only note"); assert.match(held.content, /after 30 more min and 2 more player lines/);
+  const gm = directorCalls(llm).at(-1);
+  assert.match(gm, /Pace: the date moved on only recently and may not move on again yet/);
+  assert.match(llm.calls.find((c) => c.purpose === "director").system, /Let the calendar move slowly/);
+  // Chatter out of character does not count; play does.
+  t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: t.primaryWindowId(), author_id: "u-alice", author_role: "player", character_id: "c-alice", kind: "ooc", content: "brb" }) }); await settle(t);
+  assert.equal(t.calendar.since.lines, 1, "one line of play so far");
+  clock.t += 31 * 60000;
+  await alicePosts(t, api, "We sleep."); await settle(t);
+  assert.equal(t.calendar.since.lines, 2);
+  assert.equal(t.calendar.date, "1923-10-02", "enough time, not yet enough play");
+  await alicePosts(t, api, "Still awake, reading."); await settle(t);
+  assert.match(renderCalendarOf(t, t.calendarPaceCfg()), /Pace: the date may move on now, at most 2 days at once; play the day out rather than skip ahead\./);
+  await alicePosts(t, api, "We sleep."); await settle(t);
+  assert.deepEqual([t.calendar.date, t.calendar.time, t.calendar.log.at(-1).by], ["1923-10-03", "dawn", "keeper"], "a day passed");
+  // A week asked: two days at most, and the Keeper is told.
+  clock.t += 31 * 60000;
+  for (const line of ["One.", "Two."]) { await alicePosts(t, api, line); await settle(t); }
+  await alicePosts(t, api, "A week of research, then."); await settle(t);
+  assert.equal(t.calendar.date, "1923-10-05", "two days, not seven");
+  assert.ok(api.posts.some((p) => p.visibility === "gm_only" && /^Calendar moved on 2 day\(s\), not 7: at most 2 at once/.test(p.content)));
+  // A scenario change that jumps ahead too soon is refused whole; one within the day goes through.
+  await alicePosts(t, api, "We take the train north."); await settle(t);
+  assert.ok(api.posts.some((p) => p.visibility === "gm_only" && /^Scenario change refused: the date moved on too recently to jump ahead again/.test(p.content)));
+  assert.equal(t.calendar.date, "1923-10-05"); assert.notEqual(t.timelines.main().location, "Kingsport");
+  await alicePosts(t, api, "Off to the docks."); await settle(t);
+  assert.equal(t.timelines.main().location, "Harbour");
+  // The operator and the final review are not held to it.
+  await t.command({ cmd: "date", days: 5 });
+  assert.equal(t.calendar.date, "1923-10-10");
+});
 import { renderCalendar as _renderCalendar } from "../src/calendar.mjs";
-const renderCalendarOf = (t) => _renderCalendar(t.calendar);
+const renderCalendarOf = (t, pace = null) => _renderCalendar(t.calendar, { pace, now: t.now() });
 
 test("a solemn game keeps no date: no calendar for anyone, no date action, and the final review moves no calendar", async () => {
   const llm = new MockLlm();

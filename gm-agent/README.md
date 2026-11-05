@@ -223,7 +223,7 @@ new character, or reuses the existing character when that name is already in the
    | `truth` | improvisation mode: a hidden fact the GM just decided, kept for later turns and declared as a secret |
    | `text` | casual mode: a real NPC texts a player character's phone |
    | `planner_note` | a word for the story planner: what the players did that changed the plan, or that the beat is done |
-   | `date` | casual mode: moves the story's calendar on (`advance_days`, the time of day) or to a later YYYY-MM-DD date; never backwards |
+   | `date` | casual mode: moves the story's calendar on (`advance_days`, the time of day) or to a later YYYY-MM-DD date; never backwards, and the date only at the GM's pace (`calendar.*`) |
    | `bond` | records, changes or ends a relationship between two characters (`secret`: the investigators do not know it) |
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
    | `whisper` | posts a whisper to one character |
@@ -458,6 +458,16 @@ with its weekday: "1923-10-02 (Tuesday), morning". A solemn game has no date fro
 - **It moves forward only.** The GM moves it with the `date` action when time passes in play, or with `advance_days`
   on a scenario change. The planner says in its plan when it should move next. The final review after each session
   moves it on between sessions, and the operator can use the `date` command.
+- **The GM moves it slowly.** After the date moves (by anyone), the GM may move it on again only once
+  `calendar.min_minutes` of real time and `calendar.min_lines` player lines of play have passed (out-of-character
+  chatter does not count), and by at most `calendar.max_days` days at once (30 minutes, 30 lines and 2 days by
+  default; 0 turns a limit off). Until then only the time of day moves. The GM's Calendar section says which of the
+  two it is ("may move on now" or "may not move on again yet"; no countdown, so the prompt cache holds). A `date`
+  action that comes too soon is refused, and the GM gets a GM-only note saying how much time and play are still
+  missing. One that asks for more days is cut to the most, with a note to tell the time to match. A scenario change
+  with `advance_days` that comes too soon is refused whole, so the new scene's time and the date never disagree; the
+  same change within the day goes through. The operator's `date` command and the final review are not held to it
+  (the final review keeps `planner.final_review_max_days`). `status` shows the pace and what it is waiting for.
 
 When play skips ahead, the GM posts the new time in the affected window. The handoff distinguishes completed
 events from outstanding plans in one or two short AI-written sentences, without quoting dialogue or adding reference
@@ -728,6 +738,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `timelines.max_arrivals_per_hour` | | `12` | arrival turns (opening a new or changed scene) per hour |
 | `scenarios.auto` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the primary story window only) |
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
+| `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
 | `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` (relative to the file) |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |

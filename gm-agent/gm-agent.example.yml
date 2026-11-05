@@ -90,6 +90,11 @@ scenarios:
   min_minutes: 20             # ... after at least this long and this many lines (lifted when the planner says move on)
   min_lines: 30
 
+calendar:                     # casual games: how fast the GM may move the story's date (0 = no limit)
+  min_minutes: 30             # after the date moves, the GM moves it on again only after this long
+  min_lines: 30               # ... and this many player lines of play; until then only the time of day moves
+  max_days: 2                 # the most days the GM skips at once (the operator's `date` and the final review are not held to it)
+
 modes:                        # set with `setup`, `world`, `casual`; then kept in the state file. Empty = leave as it is.
   improv:                     # true: improvisation mode (no module; your world setting)
   world_file: ""              # the world setting (plain text or Markdown), relative to this file
