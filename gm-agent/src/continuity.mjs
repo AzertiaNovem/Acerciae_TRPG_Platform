@@ -44,62 +44,37 @@ export function correctionNotice(language, scene, names) {
   return `${correctionLabels[language] || correctionLabels.English} [${scene}] · ${names.join(", ")}`;
 }
 
-const labels = {
-  English: ["Time", "Confirmed", "Still planned", "No further outcome confirmed"],
-  "Simplified Chinese": ["时间转场", "已经发生", "仍是打算", "没有其他已确认的结果"],
-  "Traditional Chinese": ["時間轉場", "已經發生", "仍是打算", "沒有其他已確認的結果"],
-  Japanese: ["場面転換", "確認済み", "予定", "ほかの結果は未確認"],
-  Korean: ["시간 경과", "확인된 일", "계획", "추가로 확인된 결과 없음"],
-  French: ["Ellipse", "Faits établis", "Encore prévu", "Aucun autre résultat confirmé"],
-  German: ["Zeitsprung", "Geschehen", "Noch geplant", "Kein weiteres Ergebnis bestätigt"],
-  Spanish: ["Salto temporal", "Ya ocurrió", "Aún previsto", "Sin otros resultados confirmados"],
-  Portuguese: ["Salto temporal", "Já aconteceu", "Ainda previsto", "Nenhum outro resultado confirmado"],
-  Italian: ["Salto temporale", "Già accaduto", "Ancora in programma", "Nessun altro esito confermato"],
-  Russian: ["Переход во времени", "Уже произошло", "Пока в планах", "Других подтверждённых итогов нет"],
+const handoffLabels = {
+  English: "Time", "Simplified Chinese": "时间转场", "Traditional Chinese": "時間轉場",
+  Japanese: "場面転換", Korean: "시간 경과", French: "Ellipse", German: "Zeitsprung",
+  Spanish: "Salto temporal", Portuguese: "Salto temporal", Italian: "Salto temporale", Russian: "Переход во времени",
 };
 
-// A verbatim substring can still reverse a fact ("吃过饭" cut out of "吃过饭就去暗房").
-// Keep whole clauses, including any negation, subject and conditional that surround a selection.
-function wholeClause(text, quote) {
-  const start = text.indexOf(quote);
-  if (start < 0) return "";
-  const boundary = /[.!?;。！？；\n]/u;
-  let left = start, right = start + quote.length;
-  while (left > 0 && !boundary.test(text[left - 1])) left--;
-  if (!boundary.test(text[right - 1])) {
-    while (right < text.length && !boundary.test(text[right])) right++;
-    if (right < text.length) right++;
-  }
-  const clause = text.slice(left, right).trim();
-  return clause.length <= 400 ? clause : "";
-}
-
-export async function sceneHandoff(llm, { messages, time, language, log }) {
-  const [heading, confirmed, planned, unconfirmed] = labels[language] ?? labels.English;
-  const lines = publicLines(messages).filter(l => !l.text.startsWith(heading + " · "));
-  const parts = [heading + " · " + time];
-  const refs = new Set(), quoted = new Set();
+export async function sceneHandoff(llm, { messages, time, language, log = () => {} }) {
+  const heading = handoffLabels[language] ?? handoffLabels.English;
+  const recent = publicLines(messages);
+  const isHandoff = l => Object.values(handoffLabels).some(label => l.text.startsWith(label + " · "));
+  const lines = recent.filter(l => !isHandoff(l));
+  const previous = recent.findLast(isHandoff)?.text || "";
+  const limit = /Chinese|Japanese|Korean/.test(language) ? 140 : 280;
+  let summary = "";
   if (lines.length) {
     try {
-      const result = await completeJson(llm, { purpose: "scene_handoff", user: JSON.stringify({ time, lines }),
-        system: 'Select the few public facts needed to bridge this time skip, especially outstanding commitments. For each, return the source seq and a short exact quote in the original language. Keep the people, time/meal and tense in the quote. "completed" requires a witnessed action, outcome, or an explicit later correction; intentions, schedules and offers without subsequent confirmation go under "planned". Do not repeat a superseded plan or report events for a different group. An earlier lunch does not establish dinner. In Chinese 吃过饭就去暗房 means a plan to go after eating, not confirmation that anyone has eaten. Never drop a negation, condition or future qualifier from a quote. Never assume something happened just because time passed. Return {"completed":[{"seq":1,"quote":"..."}],"planned":[...]}, up to five items total. Empty lists are valid.' },
-      x => { if (!Array.isArray(x.completed) || !Array.isArray(x.planned)) throw Error("expected completed and planned lists"); return x; });
-      for (const [title, items] of [[confirmed, result.completed], [planned, result.planned]]) {
-        const quotes = [];
-        for (const item of items) {
-          const line = lines.find(l => l.seq === item?.seq);
-          const selection = typeof item?.quote === "string" && item.quote.trim();
-          if (!line || !selection || selection.length > 400) continue;
-          const quote = wholeClause(line.text, selection);
-          if (!quote || quoted.size >= 5 || quoted.has(line.seq + ":" + quote)) continue;
-          quotes.push(line.speaker + "「" + quote + "」");
-          refs.add(line.seq);
-          quoted.add(line.seq + ":" + quote);
-        }
-        if (quotes.length) parts.push(title + " · " + quotes.join(" / "));
-      }
+      const result = await completeJson(llm, { purpose: "scene_handoff", user: JSON.stringify({ time, lines, previous_handoff: previous }),
+        system: `Write a brief player-facing transition reminder in ${language || "English"}: one or two short, natural sentences in a single paragraph. Aim for at most 80 Chinese characters or 40 words; the hard limit is ${limit} characters. Paraphrase directly, with no dialogue quotations, speaker-by-speaker recap, lists, category labels, source numbers or citations. The time is displayed separately; do not repeat it.
+Only mention what matters for the immediate next scene: a relevant completed activity or current situation, and at most one still-relevant plan if players need reminding. Do not inventory old invitations or commitments. The previous handoff was already shown: avoid repeating its reminders unless newly relevant, and never treat it as independent evidence. An empty summary is appropriate if there is nothing useful to remind players of.
+Use only the supplied public play. Preserve who did what, negations and conditions. Completed events require an established action, outcome or later correction. Intentions, invitations and schedules must remain plans, never completed events simply because time passed. An earlier lunch does not establish dinner; 吃过饭就去暗房 is a plan, not confirmation of eating. Omit superseded plans and unrelated groups. Return {"summary":"...","source_seqs":[123]} with the supporting source numbers kept only in source_seqs for internal checking. Return an empty list with an empty summary.` }, x => {
+        if (typeof x.summary !== "string" || !Array.isArray(x.source_seqs)) throw Error("expected summary and source_seqs");
+        const text = x.summary.trim().replace(/\s+/gu, " ");
+        if ([...text].length > limit) throw Error(`summary exceeds ${limit} characters; rewrite it more briefly without losing conditions`);
+        if (x.source_seqs.some(seq => !lines.some(l => l.seq === seq)) || (text && !x.source_seqs.length))
+          throw Error("summary must be supported by the supplied public source lines");
+        return { text, sources: [...new Set(x.source_seqs)] };
+      });
+      summary = result.text;
+      if (summary) log("scene handoff sources: " + result.sources.map(seq => "#" + seq).join(", "));
     } catch (e) { log("scene handoff: " + e.message); }
   }
-  if (parts.length === 1) parts.push(unconfirmed);
-  return { content: parts.join("\n"), kind: "narration", reference_ids: messages.filter(m => refs.has(m.seq)).map(m => m.id) };
+  // Do not truncate a failed recap into a different meaning or fall back to a wall of quoted chat.
+  return { content: [heading + " · " + time, summary].filter(Boolean).join("\n"), kind: "narration" };
 }

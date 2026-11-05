@@ -1700,16 +1700,17 @@ test("time skip posts confirmed lunch and a still-planned dinner before reopenin
   llm.handoff = ({ lines }) => {
     assert.ok(!lines.some(l => /盖饭|私下安排/.test(l.text)));
     const lunch = lines.find(l => l.text.includes("牛肉面")), dinner = lines.find(l => l.text.includes("再去吃晚饭"));
-    return { completed: [{ seq: lunch.seq, quote: lunch.text }, { seq: dinner.seq, quote: "苏婉吃完了晚饭。" }], planned: [{ seq: dinner.seq, quote: dinner.text }] };
+    return { summary: "苏婉和唐小满中午吃过牛肉面了，晚饭还打算等试唱结束再去吃。", source_seqs: [lunch.seq, dinner.seq] };
   };
   llm.director = () => ({ actions: [{ type: "time_skip", time: "周三 17:30" }, { type: "narrate", text: "礼堂的门开了。" }], coplayers_may_act: false });
   await alicePosts(t, api, "跳到试唱吧。");
   const recap = api.posts.find(p => p.content.includes("时间转场"));
   assert.equal(recap.window, "w-main"); assert.equal(recap.visibility, "window");
-  assert.match(recap.content, /已经发生[^\n]*中午吃完了牛肉面/);
-  assert.match(recap.content, /仍是打算[^\n]*再去吃晚饭/);
+  assert.match(recap.content, /中午吃过牛肉面了/);
+  assert.match(recap.content, /晚饭还打算等试唱结束再去吃/);
   assert.doesNotMatch(recap.content, /吃完了晚饭|盖饭|私下安排/);
-  assert.equal(recap.reference_ids.length, 2);
+  assert.ok(!("reference_ids" in recap));
+  assert.equal(recap.content.split("\n").length, 2, "time followed by one short paragraph, without a quote list");
   assert.equal(api.posts.at(-1).content, "礼堂的门开了。");
   await alicePosts(t, api, "继续。");
   assert.equal(api.posts.filter(p => p.content.includes("时间转场")).length, 1);

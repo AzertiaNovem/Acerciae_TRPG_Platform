@@ -120,7 +120,7 @@ export class MockLlm {
 
   placementCorrection() { return { moves: [] }; }
   presence() { return { placements: [] }; }
-  handoff() { return { completed: [], planned: [] }; }
+  handoff() { return { summary: "", source_seqs: [] }; }
 
   // Deterministic stand-ins for the Keeper's judgement: "I go to the X" sends the speaker to a new place, "I go back"
   // brings them back to the main story, "next morning" asks for the next scenario.

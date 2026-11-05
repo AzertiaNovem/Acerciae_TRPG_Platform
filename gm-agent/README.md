@@ -458,8 +458,11 @@ with its weekday: "1923-10-02 (Tuesday), morning". A solemn game has no date fro
   moves it on between sessions, and the operator can use the `date` command.
 
 When play skips ahead, the GM posts the new time in the affected window. The handoff distinguishes completed
-events from outstanding plans and links to the public lines supporting them. This applies to same-day cuts and
-session resumptions as well as date changes. Private planning notes and parallel scenes do not supply those quotes.
+events from outstanding plans in one or two short AI-written sentences, without quoting dialogue or adding reference
+cards. It mentions only what matters for the next scene and avoids repeating reminders already shown. Source line
+numbers remain in internal diagnostics, not the player-facing post. If no reminder is useful, or summarisation fails,
+only the time is shown. Overlong summaries are rewritten rather than cut mid-sentence. This applies to same-day cuts,
+session resumptions and date changes; private planning notes and parallel scenes cannot supply the summary.
 
 ```bash
 node src/cli.mjs date --days 2 --time morning
