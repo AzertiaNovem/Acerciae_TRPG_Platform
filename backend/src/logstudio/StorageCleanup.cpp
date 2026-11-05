@@ -1,7 +1,10 @@
 #include "StorageCleanup.h"
+#include "ObjectInventory.h"
+#include <cstdlib>
 #include "MediaService.h"
 #include "../core/Log.h"
 #include <chrono>
+#include <algorithm>
 #include <ctime>
 #include <set>
 #include <unordered_set>
@@ -22,7 +25,7 @@ void StorageCleanup::start() {
         while (!stopping()) {
             try {
                 auto r = runOnce();
-                if (r.characterImages + r.oldVersions + r.superseded + r.orphans + r.failed > 0) ALOG_INFO << "storage cleanup: " << describe(r);
+                if (r.expiredJobs + r.characterImages + r.oldVersions + r.superseded + r.orphans + r.failed > 0) ALOG_INFO << "storage cleanup: " << describe(r);
             } catch (const std::exception& e) { ALOG_WARN << "storage cleanup stopped: " << e.what(); }
             for (int i = 0; i < 24 * 3600 && !stopping(); ++i) std::this_thread::sleep_for(std::chrono::seconds(1));
         }
@@ -34,13 +37,27 @@ void StorageCleanup::stop() {
 }
 
 std::string StorageCleanup::describe(const Report& r, bool dryRun) {
-    return std::string(dryRun ? "would delete " : "deleted ") + std::to_string(r.characterImages) + " replaced or unused character images, " + std::to_string(r.oldVersions) +
+    return std::string(dryRun ? "would delete " : "deleted ") + std::to_string(r.expiredJobs) + " expired image jobs, " + std::to_string(r.characterImages) + " replaced or unused character images, " + std::to_string(r.oldVersions) +
            " old asset versions, " + std::to_string(r.superseded) + " images no publication shows any more, " + std::to_string(r.orphans) + " stored objects nothing refers to (" +
            std::to_string(r.bytes / (1024 * 1024)) + " MB); " + std::to_string(r.failed) + " failed";
 }
 
 StorageCleanup::Report StorageCleanup::runOnce(bool dryRun) {
     Report r;
+    // A pending child still needs its completed portrait parent. Keep that receipt until the dependency is resolved.
+    int days = 30;
+    if (const auto value = std::getenv("RETENTION_IMAGE_JOB_DAYS")) {
+        try { days = std::clamp(std::stoi(value), 1, 3650); } catch (...) {}
+    }
+    const std::string expired = "SELECT j.id FROM asset_generation_jobs j WHERE j.status='completed' "
+        "AND j.finished_at < now() - make_interval(days => $1) "
+        "AND NOT EXISTS (SELECT 1 FROM asset_generation_jobs child WHERE child.params->>'portrait_job_id'=j.id::text)";
+    if (dryRun) r.expiredJobs = db_.queryOne("SELECT count(*) AS n FROM (" + expired + ") expired", {int64_t(days)})["n"].asInt();
+    else {
+        r.failed += reconcileObjectInventory(db_, store_, [&] { return stopping(); });
+        // Preserve ownership receipts before expiring the task records that supplied them.
+        if (r.failed == 0) r.expiredJobs = db_.exec("DELETE FROM asset_generation_jobs WHERE id IN (" + expired + ")", {int64_t(days)}).affected_rows();
+    }
     characterImages(r, dryRun);
     if (!stopping()) oldVersions(r, dryRun);
     if (!stopping()) {
@@ -129,6 +146,7 @@ void StorageCleanup::orphans(Report& r, bool dryRun) {
     std::unordered_set<std::string> referenced, channels, users;
     for (auto& k : db_.queryJson(
             "SELECT object_key AS k FROM media_assets UNION SELECT object_key FROM asset_versions UNION SELECT object_key FROM tts_audio_assets "
+            "UNION SELECT object_key FROM image_reference_objects "
             "UNION SELECT object_key FROM pdf_render_jobs WHERE object_key IS NOT NULL UNION SELECT raw_object_key FROM log_imports WHERE raw_object_key IS NOT NULL "
             "UNION SELECT object_key FROM vn_bundle_jobs WHERE object_key IS NOT NULL UNION SELECT avatar_key FROM users WHERE avatar_key IS NOT NULL UNION " + kLiveKeys))
         if (k["k"].isString()) referenced.insert(k["k"].asString());
@@ -153,8 +171,7 @@ void StorageCleanup::orphans(Report& r, bool dryRun) {
             if (o.modified == 0 || o.modified > cutoff || !owner(o.key)) continue;
             try {
                 if (referenced.count(o.key)) continue;
-                ++r.orphans; r.bytes += o.size;
-                if (!dryRun) backend->remove(o.key);
+                if (dryRun || backend->removeOrphan(o.key)) { ++r.orphans; r.bytes += o.size; }
             } catch (const std::exception& e) { ALOG_WARN << "storage cleanup: " << o.key << ": " << e.what(); ++r.failed; }
         }
     }

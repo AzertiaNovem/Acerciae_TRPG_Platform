@@ -36,6 +36,10 @@
 #include "core/Text.h"
 #include "core/Errors.h"
 #include "logstudio/StorageCleanup.h"
+#include "logstudio/ImageReferences.h"
+#include "logstudio/MediaMigrator.h"
+#include "logstudio/ObjectInventory.h"
+#include <drogon/utils/Utilities.h>
 #include <filesystem>
 #include <iostream>
 #include <cstdlib>
@@ -132,6 +136,55 @@ int main() {
     auto eventOf = [&](const std::string& messageId) { return S.db->queryOne("SELECT id, audience FROM events WHERE message_id=$1", {messageId}); };
 
     std::string clueFactId, clueEntryId, clueDocId;
+    test("image references migrate once, retain their exact bytes and inventory, and expire completed tasks safely", [&] {
+        Json::Value body; body["name"] = "Reference retention";
+        auto ch = S.chat->createChannel(gmP, server["id"].asString(), body)["id"].asString();
+        const std::string bytes = "frozen original image bytes";
+        Json::Value ref; ref["id"] = crypto::uuid4(); ref["version"] = 1;
+        ref["data_uri"] = "data:image/png;base64," + drogon::utils::base64Encode(bytes);
+        Json::Value params; params["request"]["reference_images"].append(ref);
+        auto insert = [&](const std::string& status, const Json::Value& value) {
+            return S.db->queryOne("INSERT INTO asset_generation_jobs(channel_id,kind,status,provider,prompt,params,finished_at) "
+                "VALUES($1,'standee',$2,'mock','test',$3::jsonb,now()-interval '31 days') RETURNING id", {ch,status,json::dump(value)})["id"].asString();
+        };
+        auto complete = insert("completed", params), failed = insert("failed", params), running = insert("running", params);
+        auto& store = static_cast<logstudio::RoutingObjectStore&>(*S.objectStore);
+        logstudio::MediaMigrator migrator(*S.db,store,false);
+        auto moved = migrator.runOnce();
+        CHECK(moved.failed == 0); CHECK(moved.imageJobsMoved == 2);
+        auto saved = S.db->queryOne("SELECT params FROM asset_generation_jobs WHERE id=$1", {failed})["params"];
+        const auto snapshot = saved["request"]["reference_images"][0];
+        CHECK(!snapshot.isMember("data_uri")); CHECK(snapshot["id"] == ref["id"]); CHECK(snapshot["version"] == 1);
+        CHECK(snapshot["content_hash"] == crypto::sha256Hex(bytes));
+        auto key = snapshot["object_key"].asString(); CHECK(key.rfind("pub/",0) != 0);
+        CHECK(logstudio::hydrateImageReferences(store,ch,saved["request"])["reference_images"][0]["data_uri"] == ref["data_uri"]);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM stored_objects WHERE object_key=$1", {key})["n"].asInt() == 1);
+        auto receipt = S.db->queryOne("SELECT owner_kind,owner_id,provenance FROM stored_objects WHERE object_key=$1", {key});
+        CHECK(receipt["owner_kind"] == "channel"); CHECK(receipt["owner_id"] == ch); CHECK(receipt["provenance"].size() == 2);
+        CHECK(migrator.runOnce().imageJobsMoved == 0);
+        CHECK(S.db->queryOne("SELECT params FROM asset_generation_jobs WHERE id=$1", {running})["params"] == params);
+        auto other = saved["request"]; bool refused = false;
+        try { logstudio::hydrateImageReferences(store,channelId,other); } catch (...) { refused = true; } CHECK(refused);
+        auto parent = insert("completed", Json::Value(Json::objectValue));
+        Json::Value dependent; dependent["portrait_job_id"] = parent; insert("pending",dependent);
+        auto dry = S.storageCleanup->runOnce(true); CHECK(dry.expiredJobs >= 1);
+        CHECK(!S.db->queryOne("SELECT id FROM asset_generation_jobs WHERE id=$1",{complete}).isNull());
+        auto cleaned = S.storageCleanup->runOnce(); CHECK(cleaned.expiredJobs >= 1);
+        CHECK(S.db->queryOne("SELECT id FROM asset_generation_jobs WHERE id=$1",{complete}).isNull());
+        for (const auto& id : {failed,running,parent}) CHECK(!S.db->queryOne("SELECT id FROM asset_generation_jobs WHERE id=$1",{id}).isNull());
+        CHECK(store.exists(key)); // The failed task still pins the shared snapshot.
+        store.put(key,"corrupted bytes","image/png"); refused = false;
+        try { logstudio::hydrateImageReferences(store,ch,saved["request"]); } catch (...) { refused = true; } CHECK(refused);
+        store.put(key,bytes,"image/png");
+        S.db->exec("DELETE FROM asset_generation_jobs WHERE channel_id=$1",{ch});
+        std::filesystem::last_write_time(std::filesystem::path(cfg.uploadDir) / "objects" / key,
+                                       std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
+        store.retain(key); // A new request has reserved this existing snapshot but has not committed its job yet.
+        S.storageCleanup->runOnce(); CHECK(store.exists(key));
+        S.db->exec("UPDATE stored_objects SET protected_until=now()-interval '1 second' WHERE object_key=$1",{key});
+        S.storageCleanup->runOnce(); CHECK(!store.exists(key));
+        CHECK(S.db->queryOne("SELECT object_key FROM stored_objects WHERE object_key=$1",{key}).isNull());
+    });
     test("AI confirmed status requires a GM-authored source; player sources are downgraded", [&] {
         auto playerMsg = say(p1User, splitWin, "I find a brass key under the mat.");
         auto ev = eventOf(playerMsg["id"].asString());

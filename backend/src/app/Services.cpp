@@ -76,6 +76,7 @@ Services& Services::build(const Config& cfg) {
     s.modules = std::make_unique<ModuleImporter>(s.cfg, *s.db, *s.llm, *s.notifier);
     s.studio = std::make_unique<logstudio::LogStudioService>(s.cfg, *s.db, *s.notifier);
     s.objectStore = logstudio::makeObjectStore(s.cfg);
+    static_cast<logstudio::RoutingObjectStore&>(*s.objectStore).enableInventory(*s.db);
     s.auth->setObjectStore(s.objectStore.get());   // avatars are media objects
     { const char* d = std::getenv("MEDIA_MIGRATION_DELETE_LOCAL"); bool del = d && (std::string(d) == "true" || std::string(d) == "1");
       s.mediaMigrator = std::make_unique<logstudio::MediaMigrator>(*s.db, static_cast<logstudio::RoutingObjectStore&>(*s.objectStore), del); }

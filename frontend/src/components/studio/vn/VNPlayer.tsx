@@ -8,7 +8,7 @@ import { inkFor, resolveVnTemplate, speakerColor, templateStyle } from './templa
 import './vn.css';
 import { CachedImg } from '../../CachedImg';
 import { useCachedSrc } from '../../../hooks/useCachedSrc';
-import { cachedSrc } from '../../../lib/assetCache';
+import { cachedSrc, releaseCachedSrc } from '../../../lib/assetCache';
 
 export interface VNPlayerProps {
   channelId: string;
@@ -63,6 +63,7 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
     if (scene?.id && scene.id !== prevSceneId.current) { prevSceneId.current = scene.id; if (cur.display_kind === 'scene_change' || index === 0) { setSceneTitleFlash(scene.title); setTimeout(() => setSceneTitleFlash(null), tpl.scene_card === 'caption' ? 2600 : 1400); } }
     const bgm = scene?.bgm_asset_id ? (assetUrl ? assetUrl(scene.bgm_asset_id) : api.mediaUrl(channelId, scene.bgm_asset_id)) : null; audio.playBgm(bgm);
     let timer: number | null = null; let cancelled = false;
+    let acquiredVoice: string | undefined;
     const total = chars.length;
     const finishLine = () => { if (cancelled || doneRef.current) return; doneRef.current = true; setTyped(total); };
     if (hasAudio && cur.audio_asset_id) {
@@ -75,14 +76,18 @@ export default function VNPlayer({ channelId, presentation, index, onIndexChange
         audio.onVoiceTime = (ms) => { setAudioMs(ms); const dur = audio.voiceDurationMs() || cur.audio_duration_ms || 1; if (!cur.word_timestamps) setTyped(Math.min(total, Math.round(total * (ms / dur) * 1.05))); };
         // A known format can play from the local cache (Howler needs the format for a blob URL).
         const play = (s: string) => { if (!cancelled) audio.playVoice(s, fmt, () => { finishLine(); if (playing) advance(); }); };
-        if (!audioUrl && fmt) void cachedSrc(src).then(play); else play(src);
+        if (!audioUrl && fmt) void cachedSrc(src).then((source) => {
+          if (cancelled) { releaseCachedSrc(source); return; }
+          acquiredVoice = source;
+          play(source);
+        }); else play(src);
       });
     } else {
       // Manual/auto reading: character-paced typewriter, then dwell by estimated duration when auto-playing.
       const step = Math.max(8, 1000 / cps); let n = 0;
       timer = window.setInterval(() => { n += Math.max(1, Math.round(cps / 30)); if (n >= total) { if (timer) clearInterval(timer); finishLine(); if (playing) { const dwell = Math.max(600, (cur.estimated_duration_ms || 1500) / speed - total * step); timer = window.setTimeout(() => advance(), dwell) as unknown as number; } } else setTyped(n); }, step);
     }
-    return () => { cancelled = true; if (timer) { clearInterval(timer); clearTimeout(timer); } };
+    return () => { cancelled = true; audio.stopVoice(); releaseCachedSrc(acquiredVoice); if (timer) { clearInterval(timer); clearTimeout(timer); } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cur?.id, playing, skipTts, speed, needUnlock === false]);
 

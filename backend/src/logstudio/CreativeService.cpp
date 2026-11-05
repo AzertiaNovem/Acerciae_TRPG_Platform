@@ -1,5 +1,6 @@
 #include "../core/Text.h"
 #include "CreativeService.h"
+#include "ImageReferences.h"
 #include "../core/Crypto.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
@@ -49,7 +50,7 @@ void CreativeService::usePortraitReference(const ChannelAccess &a, const std::st
       (mime != "image/png" && mime != "image/jpeg" && mime != "image/webp") || bytes.size() > 20*1024*1024)
     throw badRequest("main portrait must be a PNG, JPEG or WebP image up to 20 MB");
   Json::Value ref; ref["id"] = id; ref["version"] = m["version"];
-  ref["data_uri"] = "data:" + mime + ";base64," + drogon::utils::base64Encode(bytes);
+  ref = freezeImageReference(media_.store(), a.channelId, ref, bytes, mime);
   params["request"]["reference_images"] = Json::Value(Json::arrayValue);
   params["request"]["reference_images"].append(ref);
   params["portrait_reference"]["asset_id"] = id;
@@ -144,8 +145,7 @@ Json::Value CreativeService::create(const ChannelAccess &a,
     Json::Value r;
     r["id"] = id;
     r["version"] = m["version"];
-    r["data_uri"] =
-        "data:" + mime + ";base64," + drogon::utils::base64Encode(bytes);
+    r = freezeImageReference(media_.store(), a.channelId, r, bytes, mime);
     params["request"]["reference_images"].append(r);
   }
   auto snapshot = json::str(b, "snapshot_id");
@@ -386,12 +386,15 @@ void CreativeService::run(const Json::Value &j) {
       std::string bytes, mime, name;
       if (!media_.fetch(a, asset["id"].asString(), asset["version"].asInt(), bytes, mime, name)) throw std::runtime_error("main portrait is unavailable");
       Json::Value ref; ref["id"] = asset["id"]; ref["version"] = asset["version"];
-      ref["data_uri"] = "data:" + mime + ";base64," + drogon::utils::base64Encode(bytes);
+      ref = freezeImageReference(media_.store(), j["channel_id"].asString(), ref, bytes, mime);
       params["request"]["reference_images"] = Json::Value(Json::arrayValue); params["request"]["reference_images"].append(ref);
       params["portrait_reference"]["asset_id"] = asset["id"]; params["portrait_reference"]["version"] = asset["version"];
       params["request"]["identity_instruction"] = "Preserve the attached main profile portrait's face, hairstyle, clothing and art style. Change only pose, expression and framing.";
       // Freeze references before the external request so a retry uses the same image version.
       params.removeMember("portrait_job_id");
+      db_.exec("UPDATE asset_generation_jobs SET params=$2::jsonb WHERE id=$1 AND status='running'", {id, json::dump(params)});
+    }
+    if (externalizeImageReferences(media_.store(), j["channel_id"].asString(), params["request"])) {
       db_.exec("UPDATE asset_generation_jobs SET params=$2::jsonb WHERE id=$1 AND status='running'", {id, json::dump(params)});
     }
     // Real providers spend the server's image budget and hold one of its concurrent AI slots while they run.
@@ -404,7 +407,8 @@ void CreativeService::run(const Json::Value &j) {
       }
       slot = policy_.acquire(j["channel_id"].asString());
     }
-    auto r = provider_->generate(params["request"]);
+    auto request = hydrateImageReferences(media_.store(), j["channel_id"].asString(), params["request"]);
+    auto r = provider_->generate(request);
     slot.reset();
     if (r.ok && provider_->name() != "mock") {
       try { policy_.recordImage(j["channel_id"].asString(), j["kind"].asString()); } catch (const std::exception &e) { ALOG_WARN << "image usage not recorded: " << e.what(); }

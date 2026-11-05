@@ -168,9 +168,57 @@ def activate(root, release, commit, run_number):
     print(f'Deployed {commit}; backup: {backup}', flush=True)
 
 
+def prune_releases(root):
+    """Called with the deployment lock held, only after the running release is healthy."""
+    releases = root / 'releases'
+    if releases.is_symlink():
+        raise RuntimeError('Refusing to prune a symlinked releases directory')
+    releases = releases.resolve(strict=True)
+    current = (root / 'current').resolve(strict=True)
+    if current.parent != releases or not current.is_dir():
+        raise RuntimeError('Current release must be a direct child of releases')
+    managed = re.compile(r'(?:[0-9a-f]{7,40}|[0-9a-f]{40}-[0-9]+-[0-9]+)')
+    candidates = sorted((p for p in releases.iterdir()
+                         if not p.is_symlink() and p.is_dir() and managed.fullmatch(p.name)),
+                        key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
+    keep = {current}
+    metadata = root / 'release.json'
+    if metadata.exists():
+        previous = Path(json.loads(metadata.read_text()).get('previous_release', ''))
+        # Preserve the explicit rollback target even if failed builds have newer timestamps.
+        if previous in candidates:
+            keep.add(previous)
+    for release in candidates:
+        if len(keep) >= 3:
+            break
+        keep.add(release)
+    removed = 0
+    for release in candidates:
+        if release not in keep:
+            shutil.rmtree(release)  # Does not follow nested symlinks to shared uploads.
+            print(f'Removed old release: {release.name}', flush=True)
+            removed += 1
+    # Older manual deployments also left source archives beside the extracted releases.
+    for archive in releases.glob('*.tar.gz'):
+        name = archive.name.removesuffix('.tar.gz')
+        if not archive.is_symlink() and archive.is_file() and managed.fullmatch(name) and releases / name not in keep:
+            archive.unlink()
+            print(f'Removed old release archive: {archive.name}', flush=True)
+    print(f'Retained releases: {", ".join(sorted(p.name for p in keep))}; removed {removed}', flush=True)
+
+
+def prune_after_success(root):
+    try:
+        prune_releases(root)
+    except (OSError, ValueError, RuntimeError) as error:
+        # Cleanup must not report a healthy deployment as failed or trigger rollback.
+        print(f'Warning: release cleanup failed: {error}', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true', help='Read-only readiness check; no build, backup, or restart')
+    parser.add_argument('--prune', action='store_true', help='Keep three releases; no build, backup, or restart')
     parser.add_argument('--archive', type=Path)
     parser.add_argument('--commit')
     parser.add_argument('--release-id')
@@ -181,6 +229,12 @@ def main():
     preflight(ROOT)
     if args.check:
         print('Deployment prerequisites and sudo permissions verified; services unchanged.')
+        return
+    if args.prune:
+        with (ROOT / '.deploy.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            health()
+            prune_releases(ROOT)
         return
     if not args.commit or not re.fullmatch(r'[0-9a-f]{40}', args.commit):
         parser.error('--commit must be a full Git SHA')
@@ -198,11 +252,13 @@ def main():
                 return
             if previous.get('commit') == args.commit:
                 health()
+                prune_after_success(ROOT)
                 print('This commit is already deployed and healthy.')
                 return
         release = ROOT / 'releases' / args.release_id
         prepare(args.archive, release, ROOT)
         activate(ROOT, release, args.commit, args.run_number)
+        prune_after_success(ROOT)
 
 
 def interrupted(signum, frame):

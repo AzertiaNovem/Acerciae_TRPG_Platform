@@ -1,6 +1,7 @@
 #pragma once
 #include "../core/Config.h"
 #include <ctime>
+namespace acerciae { class Db; }
 #include <functional>
 #include <string>
 #include <memory>
@@ -27,7 +28,11 @@ public:
     virtual std::optional<std::string> get(const std::string& key) = 0;
     virtual bool exists(const std::string& key) = 0;
     virtual void remove(const std::string& key) = 0;
+    // Protect a snapshot while its new job is being committed. Orphan deletion rechecks this lease and live claims.
+    virtual void retain(const std::string& key) { (void)key; }
+    virtual bool removeOrphan(const std::string& key) { remove(key); return true; }
     virtual std::string kind() const = 0;
+    virtual std::string identity() const { return kind(); }
     // Where a browser can fetch the object directly, or "" when it must be streamed through the backend.
     virtual std::string publicUrl(const std::string& key) const { (void)key; return ""; }
     // Whether new non-secret media should get "pub/" keys (a public bucket is configured).
@@ -68,8 +73,10 @@ public:
     // `fallbacks` are extra backends that are only read from (and cleaned up on remove).
     RoutingObjectStore(std::shared_ptr<ObjectStore> general, std::shared_ptr<ObjectStore> images, std::vector<std::shared_ptr<ObjectStore>> fallbacks = {});
     // The public bucket for "pub/" keys and the base URL browsers fetch them from (e.g. https://media.example.com).
+    void enableInventory(Db& db);
     void setPublic(std::shared_ptr<ObjectStore> store, std::string baseUrl);
     void put(const std::string& key, const std::string& bytes, const std::string& contentType) override;
+    void retain(const std::string& key) override;
     std::optional<std::string> get(const std::string& key) override;
     bool exists(const std::string& key) override;
     void remove(const std::string& key) override;

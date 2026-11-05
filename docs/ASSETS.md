@@ -94,3 +94,35 @@ answer to an `<img>` load (no CORS header) for a `fetch()` from the app.
 on the same browser it is emptied first. Personal settings show its size with a **Clear** button. Without IndexedDB
 (private windows, blocked storage) or on any error the direct URL is used as before, so the cache is never required.
 
+
+
+## Image references and object inventory
+
+Image-generation jobs store reference asset IDs, versions, SHA-256 hashes and private snapshot keys. The image
+bytes live under `channels/<channel>/image-references/<sha256>.png` in IMAGE_STORE. The extension is a routing
+marker; the recorded MIME type describes the actual bytes. Identical reference bytes within a channel share one
+snapshot. A snapshot survives replacement or deletion of its original portrait. The worker verifies its hash and
+builds the provider's Base64 payload in memory when needed.
+
+On startup, the media migrator converts old inline references one job at a time. It stores the snapshot before
+replacing the JSON, skips running jobs and uses a compare-and-swap update. Workers also convert legacy references
+when claiming a job. Failed uploads keep the old JSON for retry. `MEDIA_MIGRATION=false` disables the startup pass.
+
+Storage cleanup expires completed image jobs after `RETENTION_IMAGE_JOB_DAYS` (default 30, 1–3650). A job still
+named as a portrait dependency stays. Failed, pending and running jobs stay. Once no job uses a snapshot, the normal
+orphan sweep can remove it after its protection period. Cleanup rechecks live references and a database-backed lease
+under a row lock, so a new queued request can safely reuse an older snapshot. `STORAGE_CLEANUP=false` disables this
+maintenance. Removing job rows does not remove their generated media assets.
+
+`stored_objects` records each physical bucket/key separately with SHA-256, size, MIME when known, owner kind/ID,
+verification time and bounded provenance receipts. Normal puts register the object and successful deletes remove
+its record. Startup migration and daily cleanup reconcile configured buckets, including legacy files and external
+removals. Existing verified immutable objects are not downloaded again unless size or modification time changed.
+`stored_object_claims` exposes the current media/version, avatar, TTS, import, PDF, bundle, publication and image-job links.
+Unknown owners are explicitly `unclaimed`. Inventory records are not authorization grants or GC pins. A completed
+task can expire while a media object's independent ownership receipt remains. All-bucket reconciliation requires
+List/Get permissions on the configured backends; failures are logged and retried on the next pass.
+
+Reference snapshots are included in storage totals, copy-media operations and channel deletion. After conversion,
+PostgreSQL can reuse the released table space. Returning the existing table's allocated disk space to the OS requires
+separate database compaction; the background migration does not take an exclusive table-rewrite lock.

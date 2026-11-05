@@ -1,5 +1,6 @@
 #include "../core/Text.h"
 #include "ObjectStore.h"
+#include "ObjectInventory.h"
 #include "../core/Crypto.h"
 #include "../core/Log.h"
 #include <curl/curl.h>
@@ -34,16 +35,22 @@ public:
         if (key.find("..") != std::string::npos || key.empty() || key[0] == '/') throw std::runtime_error("invalid object key");
         return fs::path(root_) / key;
     }
-    void put(const std::string& key, const std::string& bytes, const std::string&) override { auto p = pathFor(key); fs::create_directories(p.parent_path()); std::ofstream o(p, std::ios::binary); o.write(bytes.data(), (std::streamsize)bytes.size()); }
+    void put(const std::string& key, const std::string& bytes, const std::string&) override { auto p = pathFor(key); fs::create_directories(p.parent_path()); auto temporary = p.string() + "." + crypto::randomHex(8) + ".tmp";
+        try {
+            std::ofstream o(temporary, std::ios::binary); o.exceptions(std::ios::badbit | std::ios::failbit);
+            o.write(bytes.data(), (std::streamsize)bytes.size()); o.close(); fs::rename(temporary, p);
+        } catch (...) { std::error_code error; fs::remove(temporary, error); throw; } }
     std::optional<std::string> get(const std::string& key) override { auto p = pathFor(key); if (!fs::exists(p)) return std::nullopt; std::ifstream i(p, std::ios::binary); return std::string((std::istreambuf_iterator<char>(i)), std::istreambuf_iterator<char>()); }
     bool exists(const std::string& key) override { return fs::exists(pathFor(key)); }
-    void remove(const std::string& key) override { std::error_code ec; fs::remove(pathFor(key), ec); }
+    void remove(const std::string& key) override { std::error_code ec; fs::remove(pathFor(key), ec); if (ec) throw std::runtime_error("local remove failed: " + ec.message()); }
     void removePrefix(const std::string& prefix) override {
         // Only whole channel or user folders: never the root, never anything outside it.
         if (prefix.empty() || prefix.back() != '/' || prefix.find("..") != std::string::npos || prefix[0] == '/') return;
         std::error_code ec; fs::remove_all(fs::path(root_) / prefix, ec);
+        if (ec) throw std::runtime_error("local prefix removal failed: " + ec.message());
     }
     std::string kind() const override { return "local"; }
+    std::string identity() const override { return "local:" + fs::absolute(root_).lexically_normal().string(); }
     void list(const std::string& prefix, const std::function<void(const Listed&)>& fn) override {
         if (prefix.find("..") != std::string::npos || (!prefix.empty() && prefix[0] == '/')) return;
         auto base = fs::path(root_) / prefix;
@@ -76,9 +83,10 @@ public:
     // "pub/" keys are content-addressed by a fresh uuid per version, so browsers and Cloudflare may cache them for good.
     void put(const std::string& key, const std::string& bytes, const std::string& ct) override { long st; auto r = request("PUT", key, bytes, ct, st, isPublicKey(key) ? "Cache-Control: public, max-age=31536000, immutable" : ""); if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " put failed: http " + std::to_string(st) + " " + text::utf8Prefix(r, 200)); }
     std::optional<std::string> get(const std::string& key) override { long st; auto r = request("GET", key, "", "", st); if (st == 404) return std::nullopt; if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " get failed: http " + std::to_string(st)); return r; }
-    bool exists(const std::string& key) override { long st; request("HEAD", key, "", "", st); return st >= 200 && st < 300; }
-    void remove(const std::string& key) override { long st; request("DELETE", key, "", "", st); }
+    bool exists(const std::string& key) override { long st; request("HEAD", key, "", "", st); if (st == 404) return false; if (st < 200 || st >= 300) throw std::runtime_error(kind_ + " exists failed: http " + std::to_string(st)); return true; }
+    void remove(const std::string& key) override { long st; request("DELETE", key, "", "", st); if (st != 404 && (st < 200 || st >= 300)) throw std::runtime_error(kind_ + " delete failed: http " + std::to_string(st)); }
     std::string kind() const override { return kind_; }
+    std::string identity() const override { return kind_ + ":" + endpoint_ + "/" + bucket_; }
     void list(const std::string& prefix, const std::function<void(const Listed&)>& fn) override {
         std::string token;
         for (int page = 0; page < 100000; ++page) {
@@ -166,6 +174,17 @@ RoutingObjectStore::RoutingObjectStore(std::shared_ptr<ObjectStore> general, std
         if (std::find(all_.begin(), all_.end(), s) == all_.end()) all_.push_back(s);
     for (auto& s : fallbacks) if (s && std::find(all_.begin(), all_.end(), s) == all_.end()) all_.push_back(s);
 }
+void RoutingObjectStore::enableInventory(Db& db) {
+    std::map<ObjectStore*, std::shared_ptr<ObjectStore>> tracked;
+    for (auto& backend : all_) {
+        auto original = backend.get();
+        backend = trackedObjectStore(backend, db);
+        tracked.emplace(original, backend);
+    }
+    general_ = tracked.at(general_.get());
+    images_ = tracked.at(images_.get());
+    if (public_) public_ = tracked.at(public_.get());
+}
 void RoutingObjectStore::setPublic(std::shared_ptr<ObjectStore> store, std::string baseUrl) {
     while (!baseUrl.empty() && baseUrl.back() == '/') baseUrl.pop_back();
     public_ = std::move(store); publicBase_ = std::move(baseUrl);
@@ -187,6 +206,9 @@ std::vector<ObjectStore*> RoutingObjectStore::readOrder(const std::string& key) 
     for (auto& s : all_) if (s.get() != order[0]) order.push_back(s.get());
     return order;
 }
+void RoutingObjectStore::retain(const std::string& key) {
+    for (auto& backend : all_) backend->retain(key);
+}
 void RoutingObjectStore::put(const std::string& key, const std::string& bytes, const std::string& contentType) {
     targetFor(key, contentType).put(key, bytes, contentType);
 }
@@ -204,7 +226,12 @@ std::optional<std::string> RoutingObjectStore::get(const std::string& key) {
     return std::nullopt;
 }
 bool RoutingObjectStore::exists(const std::string& key) {
-    for (auto* s : readOrder(key)) { try { if (s->exists(key)) return true; } catch (const std::exception& e) { ALOG_WARN << "object store " << s->kind() << ": " << e.what(); } }
+    std::optional<std::runtime_error> firstError;
+    for (auto* backend : readOrder(key)) {
+        try { if (backend->exists(key)) return true; }
+        catch (const std::exception& error) { if (!firstError) firstError.emplace(error.what()); }
+    }
+    if (firstError) throw *firstError;
     return false;
 }
 void RoutingObjectStore::remove(const std::string& key) {

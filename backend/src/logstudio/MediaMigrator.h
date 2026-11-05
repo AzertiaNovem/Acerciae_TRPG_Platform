@@ -20,12 +20,13 @@ class MediaMigrator {
 public:
     MediaMigrator(Db& db, RoutingObjectStore& store, bool deleteLocal) : db_(db), store_(store), deleteLocal_(deleteLocal) {}
     ~MediaMigrator() { stop(); }
-    struct Report { int avatarsMoved = 0, madePublic = 0, uploaded = 0, alreadyThere = 0, missing = 0, failed = 0, localDeleted = 0; };
+    struct Report { int imageJobsMoved = 0, avatarsMoved = 0, madePublic = 0, uploaded = 0, alreadyThere = 0, missing = 0, failed = 0, localDeleted = 0; };
     Report runOnce();
     void start();   // runOnce on a background thread
     void stop();
     static std::string describe(const Report& r);
 private:
+    void moveImageReferences(Report& r);
     void moveInlineAvatars(Report& r);
     void makePublic(Report& r);
     void uploadLocal(Report& r);
