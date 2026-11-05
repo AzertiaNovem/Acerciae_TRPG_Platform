@@ -281,7 +281,7 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   const sameModel = ["provider", "apiBase", "model", "effort", "apiKey"].every((k) => cfg.planner[k] === cfg.llm[k]);
   const plannerLlm = sameModel ? null : withProgress(createLlm(cfg.planner), log);
   try {
-    if (managed || ch.rule_system === "pbta") await setupChannel(cfg, signedIn, { channel: ch }, true);
+    if ((managed && cfg.prepareOnStart !== false) || ch.rule_system === "pbta") await setupChannel(cfg, signedIn, { channel: ch }, true);
     opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), plannerLlm, heal: true, channel: { api: signedIn, channel: ch }, onConflict });
   }
   catch (e) { release(); throw e; }

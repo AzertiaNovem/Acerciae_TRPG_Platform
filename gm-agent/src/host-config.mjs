@@ -32,7 +32,8 @@ export function loadHost(file) {
     if (config === fs.realpathSync(file) || files.has(config)) throw Error('Each channel needs a distinct configuration file');
     files.add(config);
     if (entry.enabled !== undefined && typeof entry.enabled !== 'boolean') throw Error('enabled must be boolean');
-    return { id: entry.id, config, enabled: entry.enabled !== false };
+    if (entry.prepare_on_start !== undefined && typeof entry.prepare_on_start !== 'boolean') throw Error('prepare_on_start must be boolean');
+    return { id: entry.id, config, enabled: entry.enabled !== false, prepareOnStart: entry.prepare_on_start !== false };
   });
   const web = data.webui ?? {};
   if (web.enabled !== undefined && typeof web.enabled !== 'boolean') throw Error('webui.enabled must be boolean');
@@ -51,6 +52,7 @@ export function channelConfig(host, entry, text = fs.readFileSync(entry.config, 
   delete data.account?.password; delete data.llm?.api_key; delete data.planner?.api_key;
   const cfg = buildConfig({ api: shared.api_base ?? 'http://localhost:8080', channel: entry.id, 'state-dir': host.stateDir }, env, { data, dir: path.dirname(entry.config) });
   if (cfg.warnings.length) throw Error(cfg.warnings.join('; '));
+  cfg.prepareOnStart = entry.prepareOnStart !== false;
   return cfg;
 }
 export function atomicWrite(file, text) {
