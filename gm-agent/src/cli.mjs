@@ -28,6 +28,7 @@ import { Store, storePath, billableTokens } from "./store.mjs";
 import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadState, lockHolder, saveState } from "./state.mjs";
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
+import { RULE_SYSTEMS, rulesProfile, ruleSystemOf } from "./rules/index.mjs";
 import { calendarPace, describeCalendar, renderCalendar } from "./calendar.mjs";
 import { Guard } from "./whereabouts.mjs";
 
@@ -56,7 +57,7 @@ async function resolveChannel(api, cfg, { create }) {
     if (ch.my_role !== "gm") throw new Error(`${cfg.username} is not the GM of channel ${cfg.channelId}; add it as GM first`);
     if (cfg.requestedPbta && ch.rule_system !== "pbta")
       throw Error("Select PbtA under GM workspace → Settings before starting PbtA in this channel.");
-    if (ch.rule_system && !["coc7e","pbta"].includes(ch.rule_system)) throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent supports CoC 7e and PbtA`);
+    if (ch.rule_system && !RULE_SYSTEMS.includes(ch.rule_system)) throw new Error(`channel ${cfg.channelId} plays ${ch.rule_system}; the GM agent supports CoC 7e, D&D 2024 and PbtA`);
     return { channel: ch, created: false };
   }
   if (!create) throw new Error("set CHANNEL_ID (or --channel); `setup` lists the channels this account keeps");
@@ -68,7 +69,7 @@ async function resolveChannel(api, cfg, { create }) {
     if (!picked) throw new Error("no channel chosen");
     return resolveChannel(api, { ...cfg, channelId: picked.id }, { create });
   }
-  if (!["coc7e","pbta"].includes(cfg.ruleSystem)) throw Error("Choose --rules coc7e or pbta");
+  if (!RULE_SYSTEMS.includes(cfg.ruleSystem)) throw Error(`Choose --rules ${RULE_SYSTEMS.join(", ")}`);
   let serverId = cfg.serverId;
   if (!serverId) { serverId = (await api.createServer(cfg.serverName)).id; log(`created server "${cfg.serverName}"`); }
   // Casual mode's phones are private only when each player is in a group of their own.
@@ -156,7 +157,9 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     const language = languageName(cfg.language || settings?.language || "en");
     // Point buy is the channel's own option (its GM's); servers before that had a server feature.
     const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
-    let rules = pbta ? await api.pbtaRules(channel.id) : await api.coc7Rules();
+    const profile = rulesProfile(ruleSystemOf(channel));
+    let rules = await profile.fetchRules(api, channel.id);
+    log(`rules: ${profile.id}${pointsMode ? ", point buy on" : ""}${profile.id === "dnd2024" ? `; new co-players at level ${cfg.level}` : ""}`);
     const windows = await api.windows(channel.id);
     const seats = seatWindows(cfg, windows);
     delete state.version;
@@ -209,7 +212,7 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
         await prepareActor(api,llm,channel.id,{rules,language,world,existing:current});
         continue;
       }
-      await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, log });
+      await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, profile, level: cfg.level, log });
     }
 
     const missing = coplayers - roster.coplayers.length;
@@ -219,15 +222,15 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
       const characters = await api.characters(channel.id);
       const takenNames = characters.map((c) => c.name);
       const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-      const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: coplayers, world };
+      const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: coplayers, world, profile, level: cfg.level, log };
       let saved;
       if(pbta) {
         const actor=await prepareActor(api,llm,channel.id,args);
         saved={id:actor.id,name:actor.name,persona:actor.bio,speakingStyle:actor.speaking_style};
-      } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"coplayer",rules,llm,language,pointsMode});
+      } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"coplayer",rules,llm,language,pointsMode,profile,level:cfg.level});
       roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
       if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
-      log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${saved.card?.basic?.occupation || (pbta?"PbtA":"investigator")})`);
+      log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${profile.castNote(saved.card) || saved.card?.basic?.occupation || profile.vocab.pc})`);
     }
     if (pbta) state.pbtaSetup.ready = true;
     if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
@@ -390,7 +393,7 @@ async function status(cfg) {
   const wname = (id) => windows.find((w) => w.id === id)?.name ?? id;
   const cname = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   const holder = lockHolder(cfg.stateDir, channel.id);
-  console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
+  console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; rules: ${{ coc7e: "Call of Cthulhu 7e", dnd2024: "D&D 2024 (SRD 5.2): Dungeon Master, D20 Tests, initiative", pbta: "Powered by the Apocalypse" }[table.profile.id]}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
   if (table.splitWarning) console.log(`warning: ${table.splitWarning}`);
   console.log("GM and real NPCs share the Keeper's context: all chat, the Keeper board, reminders, script knowledge, documents, highlights.");
   console.log(`real NPCs: ${roster.npcs.map((n) => n.name).join(", ") || "(none)"}`);

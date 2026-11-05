@@ -63,9 +63,9 @@ const get = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o =
 // names map to file keys for the warning.
 const SETTINGS = [
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
-  ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rules"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
+  ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rule_system"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
   ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"],
-  ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
+  ["level", null, "table.level"], ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
   ["llm-provider", null, "llm.provider"], ["llm-api-base", null, "llm.api_base"], ["llm-api-key", "LLM_API_KEY", null], ["llm-model", null, "llm.model"], ["llm-effort", null, "llm.effort"],
   ["llm-max-tokens", null, "llm.max_tokens"], ["llm-fallbacks", null, "llm.fallbacks"], ["llm-timeout-ms", null, "llm.timeout_ms"], ["llm-stream", null, "llm.stream"], ["llm-trace", null, "llm.trace"], ["llm-cache-ttl", null, "llm.cache_ttl"],
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
@@ -111,12 +111,12 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   for (const [name, key] of Object.entries(LEGACY_ENV)) if (env[name] !== undefined) warnings.push(`${name} is no longer read; set ${key} in gm-agent.yml (or pass --${SETTINGS.find((s) => s[2] === key)?.[0] ?? key})`);
   for (const section of Object.keys(data)) {
     if (!SECTIONS.includes(section)) { warnings.push(`gm-agent.yml: unknown section "${section}"`); continue; }
-    for (const key of Object.keys(data[section] ?? {})) if (!SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
+    for (const key of Object.keys(data[section] ?? {})) if (`${section}.${key}` !== "channel.rules" && !SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
   }
   // flag › environment (allowed names only) › file › default
   const pick = (flag, d) => {
     const [, envName, key] = SETTINGS.find((s) => s[0] === flag) ?? [];
-    const fromFile = key ? get(data, key) : undefined;
+    const fromFile = flag === "rules" ? get(data, "channel.rule_system") ?? get(data, "channel.rules") : key ? get(data, key) : undefined;
     const v = args[flag] ?? (envName ? env[envName] : undefined) ?? (fromFile === null ? undefined : fromFile) ?? d;
     return v;
   };
@@ -174,7 +174,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     register: bool(pick("register"), false),
     // The client never creates a server or channel unless asked (`setup --create`): it keeps one the account is GM of.
     create: bool(pick("create"), false),
-    ruleSystem: str(pick("rules", "coc7e")),
+    ruleSystem: (() => { const v = str(pick("rules", "coc7e")) || "coc7e"; if (!["coc7e", "dnd2024", "pbta"].includes(v)) throw new Error(`--rules (channel.rule_system) must be coc7e, dnd2024 or pbta, not "${v}"`); return v; })(),
     requestedPbta: args.rules === "pbta",
     serverId: str(pick("server", "")),
     channelId: str(pick("channel", "")),
@@ -183,6 +183,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     era: str(pick("era", "")),
     coplayersSpecified: pick("coplayers") != null,
     coplayers: Math.max(0, Math.min(8, int(pick("coplayers", 2), 2))),
+    level: Math.max(1, Math.min(20, int(pick("level", 1), 1))),   // D&D: the level of new co-players
     coplayerWindows: list(pick("coplayer-windows", "")),
     language: str(pick("language", "")),
     llm,

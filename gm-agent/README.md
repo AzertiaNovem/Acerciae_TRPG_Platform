@@ -8,7 +8,7 @@ HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile app
 | **GM (Keeper)** | the client's account, channel role `gm` | – | everything the Keeper may read (below) |
 | **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the Keeper by hand) | **the same context as the GM** |
 | **Story planner** | nothing on the platform | – | the Keeper's whole context plus the previous plan, in the background, with its own model |
-| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its CoC or PbtA role card** at setup (or the Keeper made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
+| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its CoC, D&D or PbtA role card** at setup (or the Keeper made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
 Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
 platform they are PCs cast by the GM: player characters owned by the client's own (Keeper) account, so players see them
@@ -227,7 +227,8 @@ new character, or reuses the existing character when that name is already in the
    | `bond` | records, changes or ends a relationship between two characters (`secret`: the investigators do not know it) |
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
    | `whisper` | posts a whisper to one character |
-   | `request_roll` | asks a player to roll; for the client's own characters, the platform rolls against their sheet |
+   | `request_roll` | asks a player to roll (`.ra Spot Hidden`; in D&D `.rc Stealth dc 15`); for the client's own characters, the platform rolls against their sheet |
+   | `dice` | D&D only: a dice command run as the DM account itself: `.ri +2 Goblin` (a monster's initiative), `.init next`, `.init del <name>`, `.init clr`, `.r 1d8+3` |
    | `note` | posts a Keeper-only line |
    | `timeline` | records a thread's narrative time, place, span and the Keeper's private notes |
    | `advance_scenario`, `enter_scenario` | opens the next scenario, or enters a prepared one (see below) |
@@ -235,8 +236,8 @@ new character, or reuses the existing character when that name is already in the
    The same call says whether co-players may act now, and reports **whereabouts**: who is now where (see
    [Timelines](#timelines-proactive-splitting)). A line the GM model writes for a co-player or a player is dropped.
 3. **Co-players' moves** (`src/coplayer.mjs`). Each co-player seated in the window gets its own model call with its
-   own context. It speaks (in character or out of character), rolls (`.ra`, `.rc`, `.r` or `.sc`, rolled by the
-   platform's dice against its own sheet), or passes.
+   own context. It speaks (in character or out of character), rolls (`.ra`, `.rc`, `.r` or `.sc`; in D&D `.rc`, `.ri`,
+   `.ds`, `.ss` or `.r`, rolled by the platform's dice against its own sheet), or passes.
 4. **The Keeper answers the co-players at once.** If any co-player acted, a follow-up GM round runs in the same turn,
    so a co-player's choice gets its consequence now, not at the next human line. The GM prompt says every player,
    co-players included, needs an immediate response that propels the story.
@@ -487,7 +488,8 @@ node src/cli.mjs date
 **What is striking about people.** Characteristics are never shown as numbers. The extremes are turned into words
 (`src/context/traits.mjs`): 80 and above is "extremely good-looking, striking" for APP or "extremely intelligent" for
 INT. Near the bottom of the range is the opposite, such as "very plain" or "slow-witted": 25 for STR, CON, DEX, APP and
-POW, and 45 for SIZ, INT and EDU, which start at 40. Luck is left out. At most three traits are given, the most extreme
+POW, and 45 for SIZ, INT and EDU, which start at 40. Luck is left out. In a D&D channel the six ability scores count
+instead: 18 and above, or 7 and below. At most three traits are given, the most extreme
 first, with gender and age. The GM and the planner read them for everyone; a co-player reads them for its companions
 and for the NPCs it has met.
 
@@ -532,7 +534,8 @@ node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2 --improv --world wor
 - **No module.** The platform's script knowledge and module hints are not read in this mode.
 - **BRP with CoC presets.** An improvised campaign is a Basic Roleplaying game on the Call of Cthulhu 7th edition
   presets: CoC's characteristics, skills, dice and sanity, with genre and tone taken from your world, not necessarily
-  horror. A module-led campaign stays Call of Cthulhu as such.
+  horror. A module-led campaign stays Call of Cthulhu as such. In a D&D channel the same holds with the fifth-edition
+  rules: a fifth-edition game whose genre and tone follow the world setting, not necessarily fantasy.
 
 To change the setting during a campaign, use `world` (handed to `run` if it is up):
 
@@ -550,6 +553,48 @@ node src/cli.mjs world --improv false
 
 A text you leave out keeps its current version. `status` shows whether the mode is on, the setting's size, whether it
 has been posted, and how many truths the GM has recorded.
+
+## D&D 2024 channels
+
+A channel plays by one rule system, its GM's choice on the platform: Call of Cthulhu 7e (`coc7e`, the default), D&D
+2024 from the System Reference Document 5.2 (`dnd2024`; see `docs/DND_2024.md`), or PbtA (`pbta`). The client reads `rule_system` from
+the channel and chooses a rules profile (`src/rules/`): the words its prompts use, the game's framing, the dice each
+role may use, how role cards are written and checked, and what counts as striking. A CoC table gets exactly the prompts
+it had before D&D support (a test holds them byte for byte), so its prompt caches are untouched.
+
+```bash
+node src/cli.mjs setup --create --rules dnd2024 --coplayers 2 --level 1
+```
+
+- **Words.** The GM is the Dungeon Master, the player characters are adventurers, and the game is "a fifth-edition
+  fantasy roleplaying game (D&D 2024 rules, SRD 5.2)", as the platform's own prompts name them. The GM's lines are
+  labelled "Dungeon Master" for every model.
+- **Cards.** A co-player's card is a D&D build in `role_card.dnd` (`src/roles/dndcard.mjs`): class, species and
+  background from the SRD lists, a 27-point array of base scores, the background's increases, the proficiencies, AC,
+  features and spells. The model chooses the character; the client computes saves, hit points, speed, hit dice, spell
+  slots and the spellcasting ability, checks the build against the same rules the platform applies under point buy
+  (budget, 8–15, increases, saves, skill counts), asks the model for one repair when it breaks them, and still repairs
+  the platform's own `points_rule` refusals. New co-players are built at `table.level` (`--level`, default 1);
+  existing GM-cast PCs keep their level and their own scores, and `setup` only fills what is missing. The CoC
+  background fields carry the D&D texts: ideals under ideology, bonds under significant people, personality traits and
+  flaws under traits. NPCs get a build too; under point buy an NPC is a legal character build like anyone's. Monsters
+  have no card: the DM rolls them by name.
+- **Dice.** Co-players roll `.rc` D20 Tests (checks, saves, attacks with their own bonus typed), `.ri` initiative,
+  `.ds` death saves, `.ss` spell slots and `.r`; never `.init`, `.st`, hidden rolls or `.sc`. The DM asks players with
+  `request_roll` (`.rc Stealth dc 15`, `.rc WIS save dc 13`, `.rc attack +5 ac 14`) and has a `dice` action of its
+  own for what the platform lets the GM account roll without a sheet: a monster's initiative (`.ri +2 Goblin`), the
+  order (`.init next`, `.init del`, `.init clr`) and plain rolls (`.r 1d20+4`, `.r 1d8+3`).
+- **Combat.** The DM's prompt carries a combat rule: when a fight starts everyone rolls initiative, the DM follows the
+  window's Initiative order (shown in its context while a fight is on, refreshed on the platform's
+  `initiative.changed` event), acts for the monsters on their turns, asks each character's player on theirs, calls
+  `.init next` after every turn, removes the fallen and clears the order when the fight is over. Monsters' AC and hit
+  points live in the DM's notes.
+- **What is striking.** Final ability scores of 18 and above are named ("extremely strong", "extremely charismatic,
+  magnetic"), 7 and below the opposite; a co-player's own sheet shows its modifiers, proficiency bonus, AC, live HP,
+  saves, skills and slots, while companions see its build line ("level 3 Elf Rogue (Criminal)") and traits only.
+
+Everything else (timelines, scenarios, the planner, phones, the calendar, relationships, the final review) is the same
+across the supported systems.
 
 ## Casual mode: phones
 
@@ -655,16 +700,20 @@ node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2
 Without `--channel`, `setup` lists the channels the account is GM of and asks which one to keep (or, with none, says how
 to create one). The client never creates a server, a channel or an invite code on its own. If you want it to anyway (for
 scripts and tests), `setup --create` makes a new server and channel, prints an invite code for the players, and uses
-`channel.server_name`, `channel.channel_name` and `--era`:
+`channel.server_name`, `channel.channel_name`, `--era` and `--rules` (`channel.rule_system`: `coc7e`, `dnd2024` or `pbta`):
 
 ```bash
 node src/cli.mjs setup --create --coplayers 3 --era 1920s
 ```
 
+```bash
+node src/cli.mjs setup --create --coplayers 2 --rules dnd2024 --level 3
+```
+
 `setup` prints the channel id. Add the players to the channel in the web app, or with `POST /api/channels/{id}/members`.
 Every setup first checks existing co-players on the
-platform: it fills missing appearance prompts, basic information, characteristics and background fields while preserving
-filled values (including current HP/SAN). Complete characters are skipped without a model call. It then creates only
+platform: it fills missing appearance prompts, basic information, characteristics (in D&D: the build) and background
+fields while preserving filled values (including current HP/SAN, and in D&D the level, AC, hit points and improvements). Complete characters are skipped without a model call. It then creates only
 the additional co-players needed to reach `table.coplayers`. It never recreates existing characters or fills human players' cards.
 
 Appearance prompts are generated alongside new role cards (also for new NPCs during play) and saved under Appearance &
@@ -697,7 +746,9 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `account.register` | `--register` | `false` | register the account when sign-in fails |
 | `channel.create` | `--create` | `false` | let `setup` create a new server and channel (and an invite code) instead of keeping one the account is GM of |
 | `channel.server_id`, `channel.server_name`, `channel.channel_name`, `channel.era` | `--server`, `--server-name`, `--channel-name`, `--era` | | used only with `--create` |
+| `channel.rule_system` | `--rules` | `coc7e` | the rule system of a channel made by `setup --create`: `coc7e`, `dnd2024` or `pbta`; `channel.rules` remains an alias (an existing channel's is read from the platform) |
 | `table.coplayers` | `--coplayers` | `2` | number of co-players (0–8) |
+| `table.level` | `--level` | `1` | D&D: the level new co-players are built at (1–20); existing characters keep theirs |
 | `table.coplayer_windows` | `--coplayer-windows` | Main Chat | window ids or names the co-players sit in |
 | `table.language` | `--language` | server language | language of everything the client writes |
 | `table.kickoff`, `table.verbose` | `--kickoff`, `--verbose` | `false` | open the session without waiting; log every post |
@@ -780,7 +831,10 @@ The tests need no backend and no model. They cover:
   privacy, pace-only in module play, the lifted pace guard, no run while nobody is at the table, and the final review
   after a session;
 - the calendar, the distinctive traits and the relationships, and which role reads which of them;
-- the phone log and its limits, the planner window (wishes, corrections, who reads them), and new players.
+- the phone log and its limits, the planner window (wishes, corrections, who reads them), and new players;
+- D&D 2024: the rules profile, the build maths and the local point-buy check, generation, repair and completion of
+  D&D cards, the DM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
+  keeps a CoC table's prompts byte for byte.
 
 ## Known limitations
 
@@ -792,6 +846,9 @@ The tests need no backend and no model. They cover:
 - The story planner's impulses are planner text in a co-player's prompt: quoted, capped and filtered, but not provably
   inert. Its stall detector counts turns, so a long, talky scene can cost one extra advisory run. The GM may ignore the
   plan, and a plan can change every ten minutes: the "Story plan" section re-caches each time (parts A and B do not).
+- D&D: NPCs under point buy are legal character builds, never stat blocks (monsters have no card). Attack bonuses are
+  typed by the DM or the co-player, not read from the sheet, as the platform's `.rc attack` works. The GM account has no
+  character, so it cannot roll `.rc` for itself. The Initiative order is read for this turn's window only.
 - The era check reads years from the channel's era text only. An era with no year in it ("Victorian") is not
   checked.
 - The calendar is the campaign's: a long split shares one date, and each thread keeps only its own time of day.

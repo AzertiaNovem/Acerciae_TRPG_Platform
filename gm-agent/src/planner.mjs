@@ -17,6 +17,7 @@
 import { NPC_CONTINUITY_RULES } from "./context/npcContinuity.mjs";
 import { completeJson } from "./llm/index.mjs";
 import { estimateTokens } from "./memory.mjs";
+import { adaptPrompt } from "./rules/index.mjs";
 
 const clip = (s, n) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 const STATUSES = new Set(["seed", "live", "ripe", "resolved", "dropped"]);
@@ -306,21 +307,23 @@ You are now a second Keeper, a harsh script editor who did not write the draft a
 // `final` ({maxDays}) makes it the final review of a session: the reply also carries `between`.
 // `calendar`: the story keeps a date (casual games only).
 // `table`: the planner window is open; `wishes` the players' new words and the standing notes (wishes.mjs renderInbox).
-export async function planStory(llm, { language, mode, contextText, prev, since, coplayers, secrets, nextId, lastSeq, trigger, now, impulseLines, final = null, calendar = false, table = false, wishes = "", log = () => {} }) {
-  const system = plannerSystem(language, { mode, final: Boolean(final), calendar, table });
+// `profile` is the rules profile: its words replace the CoC ones in the planner's prompts (adaptPrompt).
+export async function planStory(llm, { language, mode, contextText, prev, since, coplayers, secrets, nextId, lastSeq, trigger, now, impulseLines, final = null, calendar = false, table = false, wishes = "", profile = null, log = () => {} }) {
+  const adapt = (t) => adaptPrompt(profile, t);
+  const system = adapt(plannerSystem(language, { mode, final: Boolean(final), calendar, table }));
   const briefing = [
     `## Previous story plan${prev ? ` (v${prev.version}, ${prev.trigger})` : ""}\n${prev ? renderStoryPlan(prev, 4000).split("\n").slice(1).join("\n") : "(none yet: this is the first plan)"}`,
     `## Since the last plan\n${since || "(nothing recorded)"}`,
     wishes,
     mode === "full" ? `## Co-players you may give an impulse\n${coplayers.map((c) => `- ${c.name}`).join("\n") || "(none)"}` : "",
   ].filter(Boolean).join("\n\n");
-  const draftAsk = `STEP: draft\n${final ? "This is the FINAL REVIEW of the session that just ended. Write the story plan for the next session" : `Write the story plan now${trigger ? ` (why you were asked: ${trigger})` : ""}`}. Reply with only this JSON:\n${DRAFT_SCHEMA(mode, Boolean(final), calendar, table)}`;
-  const critiqueAsk = final ? CRITIQUE.replace("Reply with only this JSON:", `${FINAL_CRITIQUE.trim()} Reply with only this JSON:`) : CRITIQUE;
+  const draftAsk = adapt(`STEP: draft\n${final ? "This is the FINAL REVIEW of the session that just ended. Write the story plan for the next session" : `Write the story plan now${trigger ? ` (why you were asked: ${trigger})` : ""}`}. Reply with only this JSON:\n${DRAFT_SCHEMA(mode, Boolean(final), calendar, table)}`);
+  const critiqueAsk = adapt(final ? CRITIQUE.replace("Reply with only this JSON:", `${FINAL_CRITIQUE.trim()} Reply with only this JSON:`) : CRITIQUE);
   const context = [{ text: `${contextText}\n\n${briefing}\n\n`, cache: true }];
   const draftJson = await completeJson(llm, { system, user: [...context, { text: draftAsk }], purpose: "planner", phase: final ? "final_draft" : "draft" }, (x) => { if (!x || typeof x !== "object") throw new Error("expected an object"); return x; });
   const draftText = JSON.stringify(draftJson);
   const critique = await completeJson(llm, { system, messages: [{ role: "user", content: [...context, { text: draftAsk }] }, { role: "assistant", content: draftText }, { role: "user", content: [{ text: critiqueAsk, cache: true }] }], purpose: "planner", phase: final ? "final_critique" : "critique" }, validateCritique);
-  const reviseAsk = `STEP: revise\nRevise the draft: fix every must_fix, keep thread ids and titles unless a fault names them, change the beat only if beat_done is true or the Keeper closed it, keep impulses in character and free of secrets. Replace unnecessary proposed newcomers with suitable existing NPCs and follow through on their relationships; do not merge or rewrite already established people. Let peripheral subplots rest. Fill "changed" with what you changed and why${critique.must_fix.length ? "" : " (nothing, if the critique found no fault)"}. Reply with only the same JSON shape as the draft.`;
+  const reviseAsk = adapt(`STEP: revise\nRevise the draft: fix every must_fix, keep thread ids and titles unless a fault names them, change the beat only if beat_done is true or the Keeper closed it, keep impulses in character and free of secrets. Replace unnecessary proposed newcomers with suitable existing NPCs and follow through on their relationships; do not merge or rewrite already established people. Let peripheral subplots rest. Fill "changed" with what you changed and why${critique.must_fix.length ? "" : " (nothing, if the critique found no fault)"}. Reply with only the same JSON shape as the draft.`);
   const finalJson = await completeJson(llm, { system, messages: [{ role: "user", content: [...context, { text: draftAsk }] }, { role: "assistant", content: draftText }, { role: "user", content: [{ text: critiqueAsk, cache: true }] }, { role: "assistant", content: JSON.stringify(critique) }, { role: "user", content: reviseAsk }], purpose: "planner", phase: final ? "final_revise" : "revise" }, (x) => { if (!x || typeof x !== "object") throw new Error("expected an object"); return x; });
   const summary = [...critique.must_fix, ...critique.boring, ...critique.contradictions, ...critique.stale].slice(0, 6).join("; ");
   const { arc, nextId: next, rawImpulses, rawBonds } = validateStoryPlan({ ...finalJson, critique: summary }, { mode, prev, nextId, seq: lastSeq, trigger, now });

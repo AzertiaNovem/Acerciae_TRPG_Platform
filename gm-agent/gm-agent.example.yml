@@ -9,14 +9,15 @@ account:
 
 channel:                      # only used by `setup --create`; otherwise the client keeps a channel the account is GM of
   create: false
-  rules: coc7e                # new channels: coc7e or pbta; attached channels keep their own rules
   server_id: ""
   server_name: AI Keeper's table
   channel_name: A campaign with an AI Keeper
-  era: ""                     # e.g. 1920s
+  era: ""                    # e.g. 1920s
+  rule_system: coc7e          # coc7e | dnd2024 | pbta; new channels only (channel.rules is also accepted)
 
 table:
-  coplayers: 2                # AI investigators playing alongside the players (0–8)
+  coplayers: 2                # AI co-players alongside the players (0–8)
+  level: 1                   # D&D: level of new co-players; existing characters keep theirs
   coplayer_windows: []        # window names or ids the co-players start in (default: the Main Chat)
   language: ""                # GM language; empty follows the server's
   kickoff: false              # open the session without waiting for a player
