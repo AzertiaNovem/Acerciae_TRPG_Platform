@@ -32,6 +32,7 @@ import { generateNpc, saveCharacter } from "./roles/cardgen.mjs";
 import { isPlayerCharacter, openWindows } from "./roles/roster.mjs";
 import { Timelines, MAIN, placeKey } from "./timelines.mjs";
 import { correctionNotice, publicLines, readDestinations, sceneHandoff } from "./continuity.mjs";
+import { readPresence } from "./presence.mjs";
 import { Guard, planWhereabouts, whereaboutsBrief } from "./whereabouts.mjs";
 import { addTruth, hashText, improvState, worldMessages } from "./improv.mjs";
 import { PHONE_LOG, PHONE_PREFIX, casualState, coplayerPhoneReply, dueAt, pairKey, parseAddress, renderThread } from "./casual.mjs";
@@ -170,7 +171,7 @@ export class Table {
       this.log("finishing a split that was interrupted");
       const j = this.journal; this.journal = null;
       for (const c of j.created ?? []) this.guard.spare.push(c);          // reuse the windows it already opened
-      await this.applyPlan({ ops: j.ops, changed: j.changed ?? [], ignored: [], guard: {}, prevOf: () => null }, { windowId: j.windowId, mode: j.mode === "correction" ? "correction" : "manual", correctionSeq: j.correctionSeq, turn: this.guard.turn, quiet: true });
+      await this.applyPlan({ ops: j.ops, changed: j.changed ?? [], ignored: [], guard: {}, prevOf: () => null }, { windowId: j.windowId, mode: ["correction", "presence"].includes(j.mode) ? j.mode : "manual", correctionSeq: j.correctionSeq, turn: this.guard.turn, quiet: true });
     } else if (this.journal) { this.journal = null; changed = true; }
     for (const t of this.timelines.active()) if (t.id !== MAIN && t.windowId && !t.opened) this.scheduleArrival(t.windowId, { names: t.members.map((id) => this.nameOf(id)), place: t.location, reunion: false }, { force: true });
     const owed = this.owedArrivals.splice(0);
@@ -498,6 +499,20 @@ export class Table {
     let here = null;                       // an arrival that lands in this very window
     let lastCtx = null;
     const round = async (roundMode, roundExtra) => {
+      if (this.cfg.timelineAuto && MOVE_MODES.has(roundMode)) {
+        await this.reconcilePresence(windowId, turnNo);
+        if (this.timelines.retired(windowId)) {
+          // A human line which triggered the reunion still needs an answer, in the actual scene.
+          const readers = new Set(this.windowUsers(windowId));
+          for (const l of batch) {
+            const home = this.windowOf(this.timelines.of(l.id));
+            if (!home || home === windowId || !this.windowUsers(home).every(u => readers.has(u))) continue;
+            this.speakers.set(home, [...(this.speakers.get(home) ?? []), l]);
+            this.schedule(home, { mode: "relay", delay: 0, relay: { speaker: this.nameOf(l.id), window: this.windowName(windowId), text: l.content } });
+          }
+          return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
+        }
+      }
       scene = this.scene(windowId);
       const ctx = await this.buildGm(windowId, { storyPlan: this.storyPlanSection() });
       lastCtx = ctx;
@@ -564,12 +579,15 @@ export class Table {
       // Whereabouts apply in rounds that may move someone; never inside an arrival or a kickoff (no cascades).
       this.generation.signal.throwIfAborted();
       if (placements) {
-        for (const i of placements.ignored) this.log(`whereabouts: ${this.nameOf(i.id)} stays (${i.why})`);
+        for (const i of placements.ignored) this.log(`whereabouts: ${this.nameOf(i.id)}: movement proposal not applied (${i.why})`);
         const out = await this.applyPlan(placements, { windowId, mode: roundMode, turn: turnNo, autonomous });
         if (out?.here) here = out.here;
       } else if (this.cfg.timelineAuto && scene) {
         this.guard.apply(planWhereabouts({ timelines: this.timelines, scene: { timeline: scene }, reports: [], scopeIds: scope, guard: this.guard, turn: turnNo, now: this.now(), cfg: this.cfg }).guard);
       }
+      // Published arrivals may establish a reunion even if the director omitted whereabouts or a movement
+      // proposal was rejected. Reconcile before choosing co-players so their next turn reads the real cast.
+      if (this.cfg.timelineAuto && moves) await this.reconcilePresence(windowId, turnNo);
       return plan;
     };
     // Players back after being away are welcomed back in this turn.
@@ -598,6 +616,58 @@ export class Table {
       await round("followup", {});
       if (here) { const arrival = here; here = null; await round("arrival", { arrival }); }
     }
+  }
+
+  presenceThreads() {
+    const hidden = this.hiddenLines();
+    return this.timelines.active().filter(t => t.members.length).map(t => {
+      // Reused side windows must not supply records from the previous scene that occupied them.
+      const start = t.id === MAIN ? 0 : this.timelines.log.find(e => e.timelineId === t.id)?.fromSeq ?? 0;
+      const lines = this.history.lines(this.windowOf(t), { after: Math.max(0, start - 1) })
+        .filter(m => m.visibility === "window" && !hidden.has(m.id) && ["ic", "narration", "ooc"].includes(m.kind) &&
+          (!m.character_id || this.timelines.timelineAt(m.character_id, m.seq).id === t.id))
+        .slice(-40).map(m => ({ seq: m.seq, actor: m.character_id || null, kind: m.kind,
+          keeper: m.author_role === "gm" && !m.character_id && m.kind === "narration",
+          speaker: m.character_name || m.author_name || "Keeper", text: m.content }));
+      return { key: "T" + t.handle, location: t.location, time: t.narrativeTime,
+        members: t.members.map(id => ({ id, name: this.nameOf(id) })), lines };
+    });
+  }
+
+  async reconcilePresence(windowId, turn) {
+    const scene = this.scene(windowId);
+    const threads = this.presenceThreads();
+    if (!scene || threads.length < 2) return;
+    const current = "T" + scene.handle;
+    const digest = hashText(JSON.stringify(threads));
+    if (this.presenceChecked?.get(current) === digest) return;
+    let placements;
+    try { placements = await readPresence(this.llm, { current, threads }); }
+    catch (e) { this.generation.signal.throwIfAborted(); this.log("scene presence: " + e.message); return; }
+    this.generation.signal.throwIfAborted();
+    // A newer correction/departure received while the model was thinking invalidates its snapshot.
+    if (hashText(JSON.stringify(this.presenceThreads())) !== digest) return;
+    (this.presenceChecked ??= new Map()).set(current, digest);
+    if (!placements.length) return;
+    const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: scene, windowId },
+      reports: placements.map(p => ({ who: [this.nameOf(p.id)], thread: p.thread })),
+      scopeIds: new Set(placements.map(p => p.id)), mode: "presence", resolve: n => this.investigatorByName(n),
+      isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
+      guard: this.guard, turn, now: this.now(), cfg: this.cfg });
+    // If an entire thread is folded into the Main Chat, keep the confirmed room instead of its stale label.
+    for (const p of placements) {
+      const destination = this.timelines.byHandle(p.thread);
+      const regroup = result.ops.find(o => o.op === "split" && o.replaces === destination.id && o.ids.includes(p.id));
+      if (regroup) { regroup.place = p.place; continue; }
+      const merged = result.ops.find(o => o.op === "merge" && o.from === destination.id);
+      const final = merged?.into || destination.id;
+      const relocation = result.ops.find(o => o.op === "relocate" && o.timeline === final);
+      if (relocation) relocation.location = p.place;
+      else if (result.ops.some(o => o.op === "move" && o.to === final && o.ids.includes(p.id)))
+        result.ops.push({ op: "relocate", timeline: final, location: p.place });
+    }
+    this.log("scene presence: " + placements.map(p => `${this.nameOf(p.id)} joins ${this.nameOf(p.with)} at ${p.place} (#${p.actorSeq}, #${p.targetSeq})`).join("; "));
+    await this.applyPlan(result, { windowId, mode: "presence", turn });
   }
 
   async checkDestinations(windowId, reports, scope, batch, mode) {
@@ -632,7 +702,8 @@ export class Table {
     }
     const destinations = [...options].map(([key, r]) => {
       const t = this.timelines.byHandle(key);
-      return { key, place: t?.location || r.place || t?.name, companions: t?.members.map(id => this.nameOf(id)) };
+      return { key, place: t?.location || r.place || t?.name, companions: t?.members.map(id => this.nameOf(id)),
+        recent: t ? publicLines(this.history.lines(this.windowOf(t)).filter(m => !this.hiddenLines().has(m.id))).slice(-16) : [] };
     });
     let decisions = [];
     try { decisions = await readDestinations(this.llm, { lines, actors, destinations }); }
@@ -642,7 +713,9 @@ export class Table {
     for (const [key, r] of options) {
       const who = decisions.filter(m => m.destination === key).map(m => this.nameOf(m.id));
       const proposed = reports.filter(other => other.thread === r.thread && (r.thread !== "NEW" || placeKey(other.place) === placeKey(r.place))).flatMap(other => other.who);
-      const missing = proposed.map(n => this.investigatorByName(n)).filter(id => id && !who.includes(this.nameOf(id)));
+      const target = r.thread === "NEW" ? this.timelines.atPlace(r.place) : this.timelines.byHandle(r.thread);
+      const missing = proposed.map(n => this.investigatorByName(n)).filter(id => id &&
+        this.timelines.of(id) !== target && !who.includes(this.nameOf(id)));
       const changed = missing.length > 0 || who.some(name => !proposed.some(n => this.investigatorByName(n) === this.investigatorByName(name)));
       disputed ||= changed;
       for (const id of missing) ignored.push({ id, why: "their own latest decision does not support this destination" });
@@ -711,6 +784,7 @@ export class Table {
   }
 
   async applyPlan(result, { windowId, mode, turn, autonomous = false, quiet = false, correctionSeq = 0 }) {
+    const reconciling = mode === "correction" || mode === "presence";
     const ops = result.ops.map((o) => ({ ...o }));
     // A split the platform failed three times is given up (the people stay), so it is not retried every turn.
     const factOf = (o) => JSON.stringify([placeKey(o.place), [...o.ids].sort()]);
@@ -764,7 +838,7 @@ export class Table {
     const created = [];
     for (const o of ops) {
       if (o.op !== "split" || o.skip) continue;
-      const t = this.timelines.split({ name: o.place, members: o.ids, windowId: windowFor.get(o), returnTo: [windowId], location: o.place, narrativeTime: o.time ?? "", span: o.span, opened: mode === "correction", fromSeq });
+      const t = this.timelines.split({ name: o.place, members: o.ids, windowId: windowFor.get(o), returnTo: [windowId], location: o.place, narrativeTime: o.time ?? "", span: o.span, opened: reconciling, fromSeq });
       if (o.replaces) this.timelines.merge(o.replaces, t.id, fromSeq);
       created.push({ op: o, timeline: t });
     }
@@ -800,7 +874,7 @@ export class Table {
         if (to.length) await this.post(src, { content: `→ "${this.windowName(w)}"`, kind: "narration", visibility: "whisper", whisper_to: to }, { count: false });
       }
       summary.push(`${op.ids.map((id) => this.nameOf(id)).join(", ")} → ${t.name} ("${this.windowName(w)}", ${t.span} split)`);
-      if (mode !== "correction") this.scheduleArrival(w, { names: op.ids.map((id) => this.nameOf(id)), place: t.location, opening: op.opening, reunion: false }, { autonomous, mode });
+      if (!reconciling) this.scheduleArrival(w, { names: op.ids.map((id) => this.nameOf(id)), place: t.location, opening: op.opening, reunion: false }, { autonomous, mode });
     }
     // Reunions: everyone who ended in an existing thread, grouped by where they ended, one arrival per window.
     let here = null;
@@ -827,11 +901,11 @@ export class Table {
     for (const [w, { dest, ids }] of byWindow) {
       summary.push(`${ids.map((id) => this.nameOf(id)).join(", ")} → ${dest.name}`);
       const arrival = { names: ids.map((id) => this.nameOf(id)), place: dest.location, reunion: true };
-      if (mode === "correction") continue;
+      if (reconciling) continue;
       if (w === windowId) here = arrival;
       else this.scheduleArrival(w, arrival, { autonomous, mode });
     }
-    if (mode === "correction") {
+    if (reconciling) {
       // Correct both casts without announcing a fictional journey or revealing the other room.
       const affected = new Set(moved.flatMap(id => [before.get(id), after.get(id)]));
       for (const id of affected) {
@@ -849,7 +923,7 @@ export class Table {
   }
 
   noteIgnored(windowId, ignored) {
-    const text = ignored.map((i) => `${this.nameOf(i.id)} stays (${i.why})`).join("; ");
+    const text = ignored.map((i) => `${this.nameOf(i.id)}: ${i.why}`).join("; ");
     this.post(windowId, { content: `Whereabouts not applied: ${text}`, kind: "narration", visibility: "gm_only" }, { count: false }).catch(() => {});
   }
 

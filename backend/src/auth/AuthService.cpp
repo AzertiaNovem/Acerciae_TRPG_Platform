@@ -80,7 +80,7 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
         auto& languages = ServerSettingsService::languages();
         if (std::find(languages.begin(), languages.end(), body["ui_language"].asString()) == languages.end()) throw badRequest("unsupported interface language");
     }
-    if (body.isMember("ui_theme") && body["ui_theme"] != "classic" && body["ui_theme"] != "glass")
+    if (body.isMember("ui_theme") && body["ui_theme"] != "classic" && body["ui_theme"] != "glass" && body["ui_theme"] != "parchment")
         throw badRequest("unsupported interface theme");
     std::string avatarBytes, avatarMime;
     if (body.isMember("avatar_data") && !body["avatar_data"].asString().empty()) {

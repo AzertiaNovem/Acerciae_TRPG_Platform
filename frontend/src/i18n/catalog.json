@@ -95,6 +95,30 @@
     "O vidro fosco acompanha o modo claro ou escuro do dispositivo.",
     "Il vetro satinato segue la modalità chiara o scura del dispositivo."
   ],
+  "Parchment": [
+    "羊皮纸",
+    "羊皮紙",
+    "羊皮紙",
+    "양피지",
+    "Pergamino",
+    "Parchemin",
+    "Pergament",
+    "Пергамент",
+    "Pergaminho",
+    "Pergamena"
+  ],
+  "Parchment keeps a warm, light paper appearance.": [
+    "羊皮纸始终使用暖色浅纸面。",
+    "羊皮紙始終使用暖色淺紙面。",
+    "羊皮紙は常に温かみのある明るい紙の色で表示されます。",
+    "양피지는 항상 따뜻하고 밝은 종이 색상을 유지합니다.",
+    "El pergamino mantiene un aspecto de papel claro y cálido.",
+    "Le parchemin conserve un aspect de papier clair et chaleureux.",
+    "Pergament behält eine warme, helle Papieroptik.",
+    "Пергамент всегда сохраняет тёплый светлый оттенок бумаги.",
+    "O pergaminho mantém a aparência de papel claro e quente.",
+    "La pergamena mantiene un aspetto di carta chiara dai toni caldi."
+  ],
   "Avatar": [
     "头像",
     "頭像",

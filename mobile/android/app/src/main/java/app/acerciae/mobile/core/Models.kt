@@ -27,6 +27,7 @@ import kotlinx.serialization.json.*
     @SerialName("author_avatar_version") val authorAvatarVersion: Int? = null,
     @SerialName("character_avatar_hash") val characterAvatarHash: String? = null,
     @SerialName("author_avatar_hash") val authorAvatarHash: String? = null,
+    @SerialName("reference_ids") val referenceIds: List<String>? = null,
 )
 @Serializable data class DocumentSummary(
     val id: String,

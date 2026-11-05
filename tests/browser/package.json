@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:references": "node references.mjs chromium && node references.mjs webkit",
     "test:desktop-accounts": "node desktop-accounts.mjs chromium && node desktop-accounts.mjs webkit",
     "test:theme": "node theme.mjs chromium && node theme.mjs webkit",
     "test:pbta": "node pbta.mjs chromium && node pbta.mjs webkit",

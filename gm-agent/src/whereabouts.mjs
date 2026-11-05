@@ -67,7 +67,7 @@ export function whereaboutsBrief({ timelines, scene, nameOf, windowName, isPc, m
     lines.push(`- T${t.handle} "${t.name}"${here} ${where}${t.location ? `, at ${t.location}` : ""}${t.id === MAIN ? "" : `, ${t.span} split`}: ${who}`);
   }
   lines.push(`May move this turn: ${mayMove.map(nameOf).join(", ") || "(no one)"}.`);
-  if (capReached) lines.push("No new scene can open now (too many threads at once): keep the party where it is.");
+  if (capReached) lines.push("No new independent scene can open now (too many threads at once). Still report reunions and the whole party moving together: these do not need another thread.");
   return lines.join("\n");
 }
 
@@ -82,8 +82,8 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   const curOf = (id) => before.get(id) ?? MAIN;
   if (!scene?.timeline || !reports?.length) return observeOnly();
 
-  // Direct operator commands and validated player corrections bypass movement debounce.
-  const override = mode === "manual" || mode === "correction";
+  // Reconciliation records co-presence that has already happened, rather than authorising new travel.
+  const override = mode === "manual" || mode === "correction" || mode === "presence";
 
   // 1. Resolve names and targets.
   const claimed = new Set();
