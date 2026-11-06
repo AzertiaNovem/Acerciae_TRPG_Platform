@@ -322,7 +322,7 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
     finish();
   };
   const finish = () => { table.store.close(); release(); process.exit(0); };
-  if (managed) return { stop: async () => {
+  if (managed) return { table, channel, realtime: rt, cfg, stop: async () => {
     table.stopTicker(); fs.unwatchFile(inbox); rt.stop();
     for (const pending of table.timers.values()) clearTimeout(pending.timer);
     table.generation.pause();

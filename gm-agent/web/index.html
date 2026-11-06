@@ -1,3 +1,100 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>GM 控制台</title><link rel="stylesheet" href="/style.css"></head><body>
-<header><div><small>ACERCIAE</small><h1>GM 控制台</h1></div><form id="login"><label for="token">访问令牌</label><input id="token" type="password" autocomplete="off" required><button>连接</button></form></header>
-<main><aside><h2>主持频道</h2><p>各频道独立运行，共享 LLM 连接。</p><div id="channels"></div></aside><section><div class="toolbar"><h2 id="title">选择频道</h2><div><button data-action="start">启动</button><button data-action="stop">停止</button><button data-action="restart">重启</button></div></div><p>修改当前频道的节奏、模式、模型及上下文配置。保存后仅重启正在运行的当前频道；停止的频道保持停止。</p><label for="yaml">频道配置 · YAML</label><textarea id="yaml" spellcheck="false" disabled></textarea><div class="toolbar"><button id="save" disabled>保存并应用</button><button id="reload" disabled>重新载入</button></div><p id="notice" role="status" aria-live="polite">输入公共配置中的 Web UI 访问令牌。</p></section></main><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GM 控制台</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><small>ACERCIAE</small><h1>GM 控制台</h1></div>
+  <div id="summary" class="summary" hidden></div>
+  <form id="login" class="login">
+    <label for="token">访问令牌</label>
+    <input id="token" type="password" autocomplete="off" required placeholder="公共配置中的 webui.token">
+    <button>连接</button>
+  </form>
+  <div id="session" class="session" hidden><span class="dot ok"></span><span>已连接</span><button id="logout" type="button" class="quiet">断开</button></div>
+</header>
+
+<main id="app" class="app">
+  <aside class="side">
+    <div class="side-head"><h2>主持频道</h2><span id="channel-count" class="muted"></span></div>
+    <div id="channels" class="channels"><p class="muted">连接后显示频道。</p></div>
+    <section id="host" class="host-card" hidden></section>
+  </aside>
+
+  <section class="content">
+    <div id="empty" class="empty">
+      <h2>选择一个频道</h2>
+      <p>各频道在独立的工作线程中运行，共享平台账户与 LLM 连接。在左侧选择频道，查看它的实时状态、修改设置或查看日志。</p>
+    </div>
+
+    <div id="channel" hidden>
+      <div class="channel-head">
+        <div class="channel-title">
+          <div class="title-row"><h2 id="title"></h2><span id="state" class="pill"></span><span id="rule" class="tag"></span></div>
+          <p id="subtitle" class="muted mono"></p>
+        </div>
+        <div class="actions">
+          <button data-action="start">启动</button>
+          <button data-action="restart">重启</button>
+          <button data-action="stop" class="danger">停止</button>
+        </div>
+      </div>
+      <div id="error-banner" class="banner error" hidden></div>
+
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="overview" aria-selected="true">概览</button>
+        <button role="tab" data-tab="settings" aria-selected="false">设置<span id="dirty-count" class="count" hidden></span></button>
+        <button role="tab" data-tab="yaml" aria-selected="false">YAML</button>
+        <button role="tab" data-tab="logs" aria-selected="false">日志</button>
+      </nav>
+
+      <div id="tab-overview" class="tab" role="tabpanel">
+        <p id="snapshot-note" class="muted small"></p>
+        <div id="overview" class="grid"></div>
+      </div>
+
+      <div id="tab-settings" class="tab" role="tabpanel" hidden>
+        <div class="settings-bar">
+          <input id="filter" type="search" placeholder="搜索设置（名称或键名）" aria-label="搜索设置">
+          <label class="check"><input id="only-set" type="checkbox"> 只看已设置</label>
+        </div>
+        <p class="muted small">留空或“默认”表示不写入本频道文件，使用默认值。灰色文字是该频道当前生效的值。保存后只写入修改过的键，保留文件中的注释；正在运行的频道会以新设置重启。</p>
+        <div id="form" class="form"></div>
+        <div id="savebar" class="savebar" hidden>
+          <span id="savebar-text"></span>
+          <div><button id="discard" type="button" class="quiet">放弃修改</button><button id="save-form" type="button" class="primary">保存并应用</button></div>
+        </div>
+      </div>
+
+      <div id="tab-yaml" class="tab" role="tabpanel" hidden>
+        <p class="muted small">直接编辑频道文件 <span id="yaml-path" class="mono"></span>。凭据、服务商与地址只能写在公共配置中。</p>
+        <textarea id="yaml" spellcheck="false" aria-label="频道配置 YAML"></textarea>
+        <div class="row">
+          <button id="validate" type="button">校验</button>
+          <button id="save-yaml" type="button" class="primary">保存并应用</button>
+          <button id="reload" type="button" class="quiet">重新载入</button>
+          <span id="yaml-result" class="muted small"></span>
+        </div>
+      </div>
+
+      <div id="tab-logs" class="tab" role="tabpanel" hidden>
+        <div class="settings-bar">
+          <input id="log-filter" type="search" placeholder="筛选日志" aria-label="筛选日志">
+          <label class="check"><input id="log-follow" type="checkbox" checked> 自动滚动</label>
+          <label class="check"><input id="log-errors" type="checkbox"> 只看错误</label>
+          <button id="log-clear" type="button" class="quiet">清空视图</button>
+        </div>
+        <pre id="log" class="log" aria-live="off"></pre>
+        <p class="muted small">日志在主机内存中保留最近 600 行；已知的密钥、令牌与凭据形式的字符串会被遮盖。</p>
+      </div>
+    </div>
+  </section>
+</main>
+<p id="notice" class="notice" role="status" aria-live="polite">输入公共配置中的 Web UI 访问令牌。</p>
+<script src="/app.js"></script>
+</body>
+</html>
