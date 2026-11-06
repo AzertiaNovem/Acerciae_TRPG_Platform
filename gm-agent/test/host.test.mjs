@@ -373,6 +373,13 @@ test('Web UI origin check: its own address, a reverse proxy that forwards the ho
   assert.equal(originAllowed({ ...own, origin: 'https://gm.example.com' }, ['https://gm.example.com']), true, 'allowed_origins');
   assert.equal(originAllowed({ ...own, origin: 'https://evil.example' }, ['https://gm.example.com']), false);
   assert.equal(originAllowed({ ...own, origin: 'null' }), false);
+  // nginx on a non-default port: $http_host keeps it; $host drops it, which still names the site.
+  const site = 'https://intelligence.missazertia.com:15505';
+  assert.equal(originAllowed({ host: 'intelligence.missazertia.com:15505', origin: site }), true, '$http_host');
+  assert.equal(originAllowed({ host: 'intelligence.missazertia.com', origin: site }), true, '$host drops the port');
+  assert.equal(originAllowed({ host: 'intelligence.missazertia.com:8443', origin: site }), false, 'another port, stated, is another site');
+  assert.equal(originAllowed({ ...own, origin: site }, [site]), true, 'allowed_origins with the port');
+  assert.equal(originAllowed({ ...own, origin: site }, ['https://intelligence.missazertia.com']), false, 'the port is part of the origin');
   // Configuration and the message the UI shows.
   const host = fixture(t), data = JSON.parse(fs.readFileSync(host.file, 'utf8'));
   data.webui.allowed_origins = ['https://gm.example.com/console/']; fs.writeFileSync(host.file, JSON.stringify(data));
@@ -387,5 +394,5 @@ test('Web UI origin check: its own address, a reverse proxy that forwards the ho
   assert.equal((await post('https://gm.example.com')).status, 200);
   const refused = await post('https://evil.example');
   assert.equal(refused.status, 403);
-  assert.match((await refused.json()).error, /opened at https:\/\/evil\.example, but the request reached the host as 127\.0\.0\.1:\d+.*proxy_set_header Host \$host.*webui\.allowed_origins/);
+  assert.match((await refused.json()).error, /opened at https:\/\/evil\.example, but the request reached the host as 127\.0\.0\.1:\d+.*proxy_set_header Host \$http_host.*webui\.allowed_origins/);
 });

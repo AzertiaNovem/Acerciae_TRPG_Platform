@@ -17,7 +17,10 @@ export function originAllowed(headers, allowed = []) {
   if (!origin) return false;
   const hosts = [headers.host, String(headers['x-forwarded-host'] ?? '').split(',')[0].trim()].filter(Boolean);
   const own = hosts.flatMap(h => [originOf(`http://${h}`), originOf(`https://${h}`)]);
-  return [...own, ...allowed].includes(origin);
+  if ([...own, ...allowed].includes(origin)) return true;
+  // A proxy that forwards the host name without its port (nginx's $host) still names this site.
+  const name = new URL(origin).hostname;
+  return hosts.some(h => !/:\d+$/.test(h) && originOf(`http://${h}`) && new URL(`http://${h}`).hostname === name);
 }
 export async function startWeb(manager, options) {
   const server = http.createServer(async (req, res) => {
@@ -33,7 +36,7 @@ export async function startWeb(manager, options) {
       }
       const supplied = digest(req.headers.authorization ?? ''), expected = digest(`Bearer ${options.token}`);
       if (!crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) return send(401, { error: 'Authentication required' });
-      if (!originAllowed(req.headers, options.allowedOrigins)) return send(403, { error: `Origin not allowed: this page was opened at ${req.headers.origin}, but the request reached the host as ${req.headers.host ?? '(no Host)'}. Behind a reverse proxy, forward the original Host header (nginx: proxy_set_header Host $host;) or add ${req.headers.origin} to webui.allowed_origins in the shared configuration.` });
+      if (!originAllowed(req.headers, options.allowedOrigins)) return send(403, { error: `Origin not allowed: this page was opened at ${req.headers.origin}, but the request reached the host as ${req.headers.host ?? '(no Host)'}. Behind a reverse proxy, forward the original Host header with its port (nginx: proxy_set_header Host $http_host;) or add ${req.headers.origin} to webui.allowed_origins in the shared configuration.` });
       if (req.method === 'GET' && url.pathname === '/api/channels') { manager.warm(); return send(200, manager.status()); }
       if (req.method === 'GET' && url.pathname === '/api/host') return send(200, manager.hostInfo());
       if (req.method === 'GET' && url.pathname === '/api/schema') return send(200, schema());
