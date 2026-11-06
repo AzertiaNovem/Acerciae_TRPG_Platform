@@ -36,7 +36,7 @@ test("asset caching: versioned player-visible assets may be kept for good, the r
   const current = await get(p1, `/api/channels/${ch}/media/${asset.id}`);
   assert.equal(current.headers.get("cache-control"), "private, no-cache"); assert.equal(current.headers.get("etag"), etag);
 
-  // GM-private material is never marked for keeping, even for the Keeper.
+  // GM-private material is never marked for keeping, even for the GM.
   const gmFd = new FormData(); gmFd.append("gm_only", "true"); gmFd.append("file", new Blob([PNG], { type: "image/png" }), "secret.png");
   const secret = await call(gm, "POST", `/api/channels/${ch}/media`, undefined, gmFd);
   const gmView = await get(gm, `/api/channels/${ch}/media/${secret.id}?v=1`);

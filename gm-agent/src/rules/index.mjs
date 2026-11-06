@@ -18,15 +18,16 @@ export function rulesProfile(id = "coc7e") {
   return p;
 }
 
-// A one-shot word swap for large static prompts written with the CoC words (the planner's, the memory's): the
-// identity for CoC, so its text is untouched. Only ever applied to prompt text this client wrote, never to the
-// chat or the context, where "Keeper" may be anyone's word.
+// A one-shot word swap for large static prompts written with the CoC words (the director's, the planner's): the
+// identity for CoC, so its text is untouched. The GM is "GM" in every system, so the prompts say "GM" as written;
+// what still differs per system is the game's name and the player characters' (investigators, adventurers,
+// characters). Only ever applied to prompt text this client wrote, never to the chat or the context, where
+// "investigator" may be anyone's word.
 export function adaptPrompt(profile, text) {
   if (!profile || profile.id === "coc7e") return text;
   const v = profile.vocab;
   return String(text)
     .replace(/Call of Cthulhu 7th edition/g, v.game)
-    .replace(/\bKeeper's\b/g, `${v.gm}'s`).replace(/\bKeeper\b/g, v.gm).replace(/\bKP\b/g, v.gmShort)
     .replace(/\binvestigators\b/g, v.pcs).replace(/\binvestigator\b/g, v.pc)
     .replace(/\bInvestigators\b/g, v.pcs.charAt(0).toUpperCase() + v.pcs.slice(1)).replace(/\bInvestigator\b/g, v.pc.charAt(0).toUpperCase() + v.pc.slice(1));
 }

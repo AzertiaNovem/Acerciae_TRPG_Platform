@@ -151,7 +151,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             )}
             {isGm && (
               <>
-                <div className="section"><span>{tr("Game master")}</span></div>
+                <div className="section"><span>{tr("GM")}</span></div>
                 <div className={`item ${nav.gmWorkspaceOpen ? 'active' : ''}`} {...activate(() => { nav.setGmWorkspaceOpen(true); onClose(); })}><span>⚙</span><span className="name">{tr("GM workspace")}</span></div>
                 <div className="item" {...activate(() => setDialog('member'))}><span>＋</span><span className="name">{tr("Invite player")}</span></div>
               </>

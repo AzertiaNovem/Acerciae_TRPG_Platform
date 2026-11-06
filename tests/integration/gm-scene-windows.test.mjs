@@ -18,7 +18,8 @@ test('GM harness partitions every party, joins existing scenes, and pauses human
   const alice = await a.createCharacter(ch.id, { name: 'Alice', kind: 'pc' });
   const bob = await b.createCharacter(ch.id, { name: 'Bob', kind: 'pc' });
   const companion = await gm.createCharacter(ch.id, { name: 'Companion', kind: 'pc' });
-  const cfg = buildConfig({}, {}); cfg.planner.enabled = false; cfg.autonomy = false; cfg.postDelayMs = 0;
+  // This harness is the scene-forks one (the Main Chat becomes a lobby on the first split); forks are off by default.
+  const cfg = buildConfig({}, {}); cfg.sceneForks = true; cfg.planner.enabled = false; cfg.autonomy = false; cfg.postDelayMs = 0;
   const t = await new Table({ api: gm, channelId: ch.id, cfg, llm: new MockLlm(), roster: new Roster(), deferArrivals: true, sleep: async () => {} }).init();
   const main = t.mainWindow().id;
   const post = async (win, text) => { const m = await gm.postMessage(ch.id, win, { kind: 'narration', content: text }); t.noteLine(m); return m; };

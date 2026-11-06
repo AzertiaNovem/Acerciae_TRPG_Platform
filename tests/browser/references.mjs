@@ -15,14 +15,14 @@ try {
     const gate = new Promise(resolve => { release = resolve; });
     const pending = new Promise(resolve => { requested = resolve; });
     const requests = [];
-    const message = (id, content, extra = {}) => ({id, content, author_id:'keeper', author_name:'Keeper', author_role:'gm', channel_id:'north', chat_window_id:'north-table', kind:'narration', visibility:'window', seq:1, created_at:'2026-11-05T12:00:00Z', ...extra});
+    const message = (id, content, extra = {}) => ({id, content, author_id:'keeper', author_name:'GM', author_role:'gm', channel_id:'north', chat_window_id:'north-table', kind:'narration', visibility:'window', seq:1, created_at:'2026-11-05T12:00:00Z', ...extra});
     const original = message('original', 'First line of the original.\nSecond line stays visible.');
     const dice = message('dice', '.r 1d20', {dice:{text:'1d20 = 17'}});
     const cached = message('cached', 'Already loaded original.');
     await ctx.route('**/api/**', async route => {
       const url = new URL(route.request().url()), path = url.pathname;
       let body = [], status = 200;
-      if (path === '/api/auth/me') body = {id:'keeper', username:'fixture', display_name:'Keeper', ui_language:'en', ui_theme:theme};
+      if (path === '/api/auth/me') body = {id:'keeper', username:'fixture', display_name:'GM', ui_language:'en', ui_theme:theme};
       else if (path === '/api/auth/file-token') body = {token:'fixture-file', expires_at:Math.floor(Date.now()/1000)+3600};
       else if (path === '/api/servers') body = [{id:'s', name:'Reference table', my_role:'owner'}];
       else if (path === '/api/servers/s/settings') body = {features:{dice:true,atmosphere:false}};

@@ -129,7 +129,7 @@ struct LiveServerView: View {
             Section(model.serverName) {
                 Text(model.serverSettings["is_maintainer"].bool ? tr("服务器管理员") : tr("服务器成员"))
                 Toggle(tr("Channel atmosphere backgrounds"), isOn: $atmosphere)
-                Text(tr("Allow automatic image generation from public Keeper narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display.")).font(.caption)
+                Text(tr("Allow automatic image generation from public GM narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display.")).font(.caption)
                 Toggle(tr("日志制作"), isOn: $studio)
                 Toggle(tr("骰子"), isOn: $dice)
                 Toggle(tr("一致性检查"), isOn: $consistency)
@@ -184,7 +184,7 @@ struct LiveChannelView: View {
                     if model.studioAvailable { NavigationLink(tr("Voice settings")) { VoiceSettings(model: model).id(model.scopeKey) } }
                     NavigationLink(tr("Module imports")) { ModuleImports(model: model).id(model.scopeKey) }
                     Section { Text(model.channel["name"].text).font(.headline); Text(tr("以下设置仅作用于当前频道")).font(.caption) }
-                Section(tr("守密人设置")) {
+                Section(tr("GM 设置")) {
                     TextField(tr("频道名称"), text: $channelName)
                     TextField(tr("频道介绍"), text: $channelDescription, axis: .vertical)
                     TextField(tr("故事年代"), text: $era)
@@ -208,7 +208,7 @@ struct LiveChannelView: View {
                     Toggle(tr("根据叙述建议新阶段"), isOn: $autoScenarios)
                     Button(tr("保存频道设置")) { Task { await model.run {
                         model.channel = try await model.get(["channels", model.channelId], body: .object(["name": .string(channelName.trimmingCharacters(in: .whitespacesAndNewlines)), "description": .string(channelDescription), "era": .string(era), "knowledge_mode": .string(knowledgeMode), "dice_text_group": .string(diceGroup), "rule_system": .string(ruleSystem), "point_buy": .bool(pointBuy), "ai_enabled": .bool(ai), "consistency_enabled": .bool(consistency), "inspiration_enabled": .bool(inspiration), "atmosphere_enabled": .bool(atmosphere), "studio_visible": .bool(visible), "studio_player_access": .bool(playerAccess), "auto_scenarios": .bool(autoScenarios)]), method: "PUT")
-                        try await model.refreshCatalog(); try await model.refresh(); model.notice = tr("守密人设置已保存")
+                        try await model.refreshCatalog(); try await model.refresh(); model.notice = tr("GM 设置已保存")
                     } } }.disabled(channelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || era.count > 80)
                     if studioLoaded {
                         Toggle(tr("允许日志制作使用云端处理"), isOn: $cloud)

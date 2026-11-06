@@ -38,24 +38,24 @@
 | `knowledge/Visibility` | Builds the SQL predicates that restrict facts / messages / events / highlights to what a viewer may know | auth |
 | `events/EventStore` | Append-only event log with channel-wide `seq`; viewer-filtered search | core, Visibility |
 | `scenes/SceneManager` | Scenes, window↔scene links, channel current scene, scene logs | EventStore, Notifier |
-| `scenes/ScenarioService` | Scenes as scenarios, a campaign-wide state: the Keeper opens the next scenario or enters a prepared one for every window; the previous one closes, is summarized (GM-edited summaries are never overwritten) and becomes read-only; the observer's stage detection only raises a "New scenario?" suggestion bubble (`auto_scenarios`) | SceneManager, EventStore, LlmGateway, Notifier |
-| `reminders/ReminderService` | Reminder bubbles for a player group (after its observer batch) and for the Keeper: the planner quotes chat lines verbatim, every quote is re-verified against readable lines before storage, one combined create/maintain plan with quoted current-batch evidence, version checks and transactional revision history; per-user dismissal, chat-log context around the quotes; maintains the players' per-scenario outlines (`player_scenario_outlines`) | Retrieval, LlmGateway, Notifier |
-| `characters/CharacterSpaceService` | The character space: COC7 role card (bounded, mirrored into `sheet.attrs`), bio, asset mode, uploads and generated images attached to avatar / portrait / subtitle slots; Keeper or actor edits | MediaService, CreativeService, Notifier |
-| `script/ScriptKnowledgeService` | The Keeper's script knowledge built from a structured module (flow, relationships, clues, foreshadowing, background with page citations); per batch: a first model proposes changes with chat quotes, a second reviews, approved ones are applied and all are logged; the pinned board (next per the script, notes); Keeper edits are final | Retrieval, LlmGateway, ReminderService, Notifier |
+| `scenes/ScenarioService` | Scenes as scenarios, a campaign-wide state: the GM opens the next scenario or enters a prepared one for every window; the previous one closes, is summarized (GM-edited summaries are never overwritten) and becomes read-only; the observer's stage detection only raises a "New scenario?" suggestion bubble (`auto_scenarios`) | SceneManager, EventStore, LlmGateway, Notifier |
+| `reminders/ReminderService` | Reminder bubbles for a player group (after its observer batch) and for the GM: the planner quotes chat lines verbatim, every quote is re-verified against readable lines before storage, one combined create/maintain plan with quoted current-batch evidence, version checks and transactional revision history; per-user dismissal, chat-log context around the quotes; maintains the players' per-scenario outlines (`player_scenario_outlines`) | Retrieval, LlmGateway, Notifier |
+| `characters/CharacterSpaceService` | The character space: COC7 role card (bounded, mirrored into `sheet.attrs`), bio, asset mode, uploads and generated images attached to avatar / portrait / subtitle slots; GM or actor edits | MediaService, CreativeService, Notifier |
+| `script/ScriptKnowledgeService` | The GM's script knowledge built from a structured module (flow, relationships, clues, foreshadowing, background with page citations); per batch: a first model proposes changes with chat quotes, a second reviews, approved ones are applied and all are logged; the pinned board (next per the script, notes); GM edits are final | Retrieval, LlmGateway, ReminderService, Notifier |
 | `chat/ChatService` | Servers, channels, windows, characters, messages (each message ⇒ `message.posted` event with its witnessing audience) | Auth, EventStore, SceneManager, DocumentService (core docs on channel creation) |
 | `knowledge/KnowledgeService` | Fact–Knower scope derivation (`deriveScope`), entity/relation upsert, viewer queries | Visibility |
 | `documents/DocumentService` | `Proposal` → validation → ops → entries/facts/index tables → revision snapshot; GM corrections, rollback, pending proposals | KnowledgeService, Notifier |
 | `highlights/HighlightService` | Create (dedup/extend), list by scope, dismiss, expiry sweep | Notifier |
-| `retrieval/ContextRetrievalService` | The Tool API (shards, searches, module excerpts, `list_scenarios`, `get_chat_log`, `get_script_knowledge`), rule-based related-history retrieval, prompt snapshots, the hidden knowledge prelude (players: relationships, clues, open threads, story index; Keeper: the script first, then the records), embeddings | KnowledgeService, EventStore, LlmGateway |
+| `retrieval/ContextRetrievalService` | The Tool API (shards, searches, module excerpts, `list_scenarios`, `get_chat_log`, `get_script_knowledge`), rule-based related-history retrieval, prompt snapshots, the hidden knowledge prelude (players: relationships, clues, open threads, story index; GM: the script first, then the records), embeddings | KnowledgeService, EventStore, LlmGateway |
 | `llm/` | `ILlmClient` abstraction, OpenAI-compatible client (libcurl), deterministic mock, JSON-schema validator, tool-call loop with repair round | core |
-| `observer/ObserverScheduler` | The three schedulers, group cursors, task locks, context building, applying extraction output (proposals, highlights, module hints), then scenario detection, script knowledge changes + board + Keeper reminders; the player-group observer (`PlayerGroupObserver.cpp`) summarizes each group's readable chat into its own journals and raises its reminders | everything above |
+| `observer/ObserverScheduler` | The three schedulers, group cursors, task locks, context building, applying extraction output (proposals, highlights, module hints), then scenario detection, script knowledge changes + board + GM reminders; the player-group observer (`PlayerGroupObserver.cpp`) summarizes each group's readable chat into its own journals and raises its reminders | everything above |
 | `consistency/`, `inspiration/` | User-triggered features; both run under the requesting character's scope | Retrieval, LlmGateway, Highlights |
 | `modules/ModuleImporter` | PDF/text → pages → chunked structuring → nodes/edges with citations; GM workspace aggregate | LlmGateway, Notifier |
 | `ws/` | Two WebSocket endpoints, subscription registry, audience-aware `Notifier` | Auth |
 | `api/` | Route table; each handler: parse → authorise → service → JSON | all services |
 | `app/Services` | Composition root; swapping the LLM, rule system or storage happens here | – |
 
-Planned (design only, not implemented): AI players and an AI Keeper as real channel members — see [AI_AGENTS_DESIGN.md](AI_AGENTS_DESIGN.md).
+Planned (design only, not implemented): AI players and an AI GM as real channel members — see [AI_AGENTS_DESIGN.md](AI_AGENTS_DESIGN.md).
 
 Replacing the model: implement `ILlmClient` and construct it in `Services::build` (or extend `LlmGateway`'s constructor
 to switch on `LLM_PROVIDER`). Prompts, schemas and tools are untouched.
@@ -74,7 +74,7 @@ share a prefix meet in one cache (other gateways are not sent it: some reject un
 For Anthropic, `LlmRequest::cache` marks where the reusable prefix ends: `prefix` marks the system prompt (which covers
 the tools) and any message flagged `cacheBreakpoint` (the stable knowledge index, the VN assets); `conversation` also marks the
 newest message, so each tool-call or schema-repair round reads the round before it. Tasks that repeat within minutes opt
-in (Keeper and player-group observers, stage detection, script-knowledge updates and reviews, reminders, consistency, inspiration, module and
+in (GM and player-group observers, stage detection, script-knowledge updates and reviews, reminders, consistency, inspiration, module and
 script-knowledge builds, VN parts); calls that rarely repeat stay `off`, since a cache write costs more than plain input.
 Usage records keep counting the whole prompt (`prompt_tokens`), so budgets are unchanged; `cache_read_tokens` and
 `cache_write_tokens` show the cached share (server settings show it under "Tokens used").
@@ -100,7 +100,7 @@ Migrations live in `backend/migrations/` and are applied in order at startup.
 * **World record** (per partition, on `entities`): `status` (`active|inactive|missing|dead|destroyed|unknown`), `state` (one short
   line of what is true now), `location_entity_id` (same partition), `state_version`, `state_updated_at`, `state_source_event_ids`,
   `state_by` (`ai|gm`); `entity_state_history` keeps every applied change (version, status, state, location, sources, actor). Written
-  only by the observer's `entity_state` op and accepted Keeper reviews; Keeper declarations arrive as `gm.declared` events
+  only by the observer's `entity_state` op and accepted GM reviews; GM declarations arrive as `gm.declared` events
   (`gm_only`, no chat message).
 * **Views**: `documents` (one per `doc_type` per channel, `version`, `gm_only`), `document_entries` (stable entry id ⇄ fact,
   `content_md`, created/updated version, soft `removed`), `document_revisions` (ops + full snapshot per version),
@@ -112,9 +112,9 @@ Migrations live in `backend/migrations/` and are applied in order at startup.
 * **Characters**: `characters` carry `avatar_asset_id`, `portrait_asset_id`, `asset_mode`, `appearance_prompt`, `bio`, `role_card`; `channels.era`; per-subtitle images in `character_visual_profiles.expressions`.
 * **Scenarios**: `scenes` carry `auto_detected`, `stage_reason`, `boundary_event_id`, `summary_status` (`none|pending|ready|gm_edited`),
   `key_points`, `summary_source_event_ids`; `channels.auto_scenarios`.
-* **Reminders**: `reminders` (group or Keeper, kind, title, why, `citations[{event_id, …, quotes[]}]`, `script_refs`, dedupe key,
+* **Reminders**: `reminders` (group or GM, kind, title, why, `citations[{event_id, …, quotes[]}]`, `script_refs`, dedupe key,
   status, version, review evidence, expiry), `reminder_revisions` (before/after state and evidence), `reminder_dismissals` (per user), `player_scenario_outlines` (the players' hidden story index).
-* **Script knowledge (Keeper)**: `script_knowledge` (kind `flow|relationship|clue|foreshadowing|background`, body, data,
+* **Script knowledge (GM)**: `script_knowledge` (kind `flow|relationship|clue|foreshadowing|background`, body, data,
   page citations, node ids, flow position, status `pending|active|done|skipped`, origin `script|play|gm`, `gm_edited`),
   `script_knowledge_changes` (proposal, verified evidence, reviewer verdict and reason, applied), `kp_board` (`next`, `notes`).
 
@@ -133,8 +133,8 @@ scoped by `channel_id`.
 | Highlights | gm/public/character + own | public ∨ their characters' ∨ their own user-scoped |
 | Documents | all | not `gm_only`; entries filtered as facts |
 | Module layer, proposals, jobs | all | forbidden |
-| Reminders | the Keeper's own | their group's; opening one re-runs the chat-log filter |
-| World record (`/world`) | the Keeper's partition | their group's partition; entities their facts mention or whose state cites chat they can still read |
+| Reminders | the GM's own | their group's; opening one re-runs the chat-log filter |
+| World record (`/world`) | the GM's partition | their group's partition; entities their facts mention or whose state cites chat they can still read |
 | Script knowledge, board, changes | all | forbidden (403); never in a player prelude or tool list |
 
 The same `ChannelAccess` is passed into the Tool API, so the model working for a player cannot retrieve more than the
@@ -157,7 +157,7 @@ derived from the cited events (see DATA_FLOW).
 
 | Loop | Default cadence | Work | Lock |
 |---|---|---|---|
-| observe | 5 s | per (channel, window, scene) group with `seq > cursor`: build context, LLM + tools, validate & commit (documents, then `entity_state` world changes), highlights, hints; then stage detection (a suggestion bubble for the Keeper), script knowledge propose → review → apply, board refresh, Keeper reminders; advance cursor | in-process set + `ai_jobs(channel, kind, group_key) WHERE status='running'` |
+| observe | 5 s | per (channel, window, scene) group with `seq > cursor`: build context, LLM + tools, validate & commit (documents, then `entity_state` world changes), highlights, hints; then stage detection (a suggestion bubble for the GM), script knowledge propose → review → apply, board refresh, GM reminders; advance cursor | in-process set + `ai_jobs(channel, kind, group_key) WHERE status='running'` |
 | observe (player groups) | same tick | per player group with readable events after its cursor: the group's journals and world record from readable chat only, its scenario outlines, its reminder bubbles | `player:<group>:<version>` group key |
 | consolidate | 60 s | per channel when new events exist since its own cursor: thread resolution, duplicate relationships, timeline notes | same |
 | cleanup | 30 s | delete expired highlights, push `highlight.expired` | – |

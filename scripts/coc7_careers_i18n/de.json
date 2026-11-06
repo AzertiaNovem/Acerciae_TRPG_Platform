@@ -1,7 +1,7 @@
 {
  "1": {
   "name": "Eigener Beruf",
-  "description": "Höchstens 8 Berufsfertigkeiten. Gib rechts bei den Berufsattributen den Wert der zweiten Berufseigenschaft ein (leer gelassen gilt Bildung) und lege die anfängliche Finanzkraft selbst fest. Sprich vor der Verwendung eines eigenen Berufs mit deinem Spielleiter."
+  "description": "Höchstens 8 Berufsfertigkeiten. Gib rechts bei den Berufsattributen den Wert der zweiten Berufseigenschaft ein (leer gelassen gilt Bildung) und lege die anfängliche Finanzkraft selbst fest. Sprich vor der Verwendung eines eigenen Berufs mit deinem GM."
  },
  "2": {
   "name": "Buchhalter",
@@ -157,7 +157,7 @@
  },
  "40": {
   "name": "Deprogrammierer (Gegenwart)",
-  "description": "Zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Autofahren, Nahkampf (Handgemenge) oder Schusswaffen, Geschichtswissen, Okkultismus, Psychologie, Heimlichkeit. ※ Mit Erlaubnis des Spielleiters kann Hypnose eine dieser Fertigkeiten ersetzen."
+  "description": "Zwei soziale Fertigkeiten (Charme, Überreden, Einschüchtern, Überzeugen), Autofahren, Nahkampf (Handgemenge) oder Schusswaffen, Geschichtswissen, Okkultismus, Psychologie, Heimlichkeit. ※ Mit Erlaubnis des GM kann Hypnose eine dieser Fertigkeiten ersetzen."
  },
  "41": {
   "name": "Designer",
@@ -321,7 +321,7 @@
  },
  "81": {
   "name": "Okkultist",
-  "description": "Anthropologie, Geschichtswissen, Bibliotheksnutzung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Okkultismus, Fremdsprache, Naturwissenschaft (Astronomie), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität. ※ Mit Erlaubnis des Spielleiters kann dies Cthulhu-Mythos einschließen."
+  "description": "Anthropologie, Geschichtswissen, Bibliotheksnutzung, eine soziale Fertigkeit (Charme, Überreden, Einschüchtern, Überzeugen), Okkultismus, Fremdsprache, Naturwissenschaft (Astronomie), eine beliebige weitere Fertigkeit als persönliche oder zeittypische Spezialität. ※ Mit Erlaubnis des GM kann dies Cthulhu-Mythos einschließen."
  },
  "82": {
   "name": "Weltenbummler",
@@ -653,7 +653,7 @@
  },
  "164": {
   "name": "Ichiko (blind)",
-  "description": "Kunst/Handwerk (Schauspielern), Horchen, Überlieferung (Shintō), Okkultismus, Geschichtswissen, Überreden oder Überzeugen, Psychologie, eine beliebige Spezialität. ※ Mit Zustimmung des Spielleiters kann die Fertigkeit „Medium“ eine frei gewählte Fertigkeit ersetzen."
+  "description": "Kunst/Handwerk (Schauspielern), Horchen, Überlieferung (Shintō), Okkultismus, Geschichtswissen, Überreden oder Überzeugen, Psychologie, eine beliebige Spezialität. ※ Mit Zustimmung des GM kann die Fertigkeit „Medium“ eine frei gewählte Fertigkeit ersetzen."
  },
  "165": {
   "name": "Kotodama-Meister/Onmyōji",

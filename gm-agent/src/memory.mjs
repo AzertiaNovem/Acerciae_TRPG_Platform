@@ -1,6 +1,6 @@
 // Long context with compaction. The table keeps a local copy of the chat (History, in the store) and gives the models
 // as much of it as fits a token budget: the newest lines word for word, older ones compacted into chapters.
-//   * The Keeper (scope "gm") has chapters per window. When a window's lines since its last chapter pass ~60% of
+//   * The GM (scope "gm") has chapters per window. When a window's lines since its last chapter pass ~60% of
 //     GM_CONTEXT_TOKENS, the oldest half becomes a chapter; when a window's chapters pass ~25%, the oldest half of them
 //     merge into one chapter a level up. A window whose scene is over is compacted whole.
 //   * Each co-player (scope "coplayer:<id>") has its own chapters, written in the first person from the lines it
@@ -20,7 +20,7 @@ export function estimateTokens(text) {
 
 export const CHUNK_LINES = 50;   // raw lines are frozen in chunks of this size, so the cached prefix grows in steps
 
-// The chat as the Keeper account reads it, kept in the store. Live lines arrive through `add`; `sync` refreshes a
+// The chat as the GM account reads it, kept in the store. Live lines arrive through `add`; `sync` refreshes a
 // window's newest page, fills any gap since its last sync and, the first time, backfills up to HISTORY_BACKFILL_LINES
 // older lines.
 export class History {
@@ -73,7 +73,7 @@ export class Memory {
     return job;
   }
 
-  // ---- the Keeper's memory of a window
+  // ---- the GM's memory of a window
   gmChapters(windowId) { return this.store.chapters("gm", windowId); }
   // Raw lines since the window's last chapter.
   gmRaw(windowId, lines) {
@@ -82,7 +82,7 @@ export class Memory {
     return lines.filter((m) => m.seq > after);
   }
 
-  // Compacts a window when it has grown past its thresholds. `render` turns a line into the text the Keeper reads.
+  // Compacts a window when it has grown past its thresholds. `render` turns a line into the text the GM reads.
   maintainGm(windowId, lines, render, { windowName = "this window", whole = false } = {}) {
     return this.run(`gm:${windowId}`, async () => {
       const raw = this.gmRaw(windowId, lines);

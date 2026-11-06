@@ -10,8 +10,8 @@ class ServerSettingsService;
 namespace logstudio { class MediaService; class CreativeService; }
 
 // The character space page: avatar, main portrait, per-subtitle portraits, the COC7-styled role card, background
-// and items. The Keeper and the character's actor edit; everyone at the table reads a PC's space, NPC spaces are
-// Keeper-only. Images come either from uploads or from image generation driven by an appearance prompt and the
+// and items. The GM and the character's actor edit; everyone at the table reads a PC's space, NPC spaces are
+// GM-only. Images come either from uploads or from image generation driven by an appearance prompt and the
 // campaign's era; a character is in one of the two modes at a time.
 class CharacterSpaceService {
 public:
@@ -32,7 +32,7 @@ public:
     // Brings an archived card of the channel's current rule system back as the active numbers (the numbers it replaces,
     // if any, are archived in turn); the archive entry is used up.
     Json::Value restoreArchive(const ChannelAccess& a, const std::string& characterId, const std::string& archiveId);
-    // A library upload of a character's standee or portrait with a subtitle, by the Keeper or the character's actor,
+    // A library upload of a character's standee or portrait with a subtitle, by the GM or the character's actor,
     // becomes that character's image for the subtitle (the older one is deleted). Anyone else's stays a library image.
     void adoptLibraryUpload(const ChannelAccess& a, const Json::Value& asset);
 

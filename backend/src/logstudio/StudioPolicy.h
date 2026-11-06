@@ -12,7 +12,7 @@ inline void requireCloudPermission(Db &db, const std::string &channel) {
                     "campaign; the GM can enable it in Library settings");
 }
 
-// Whether the Keeper has ended the story, and whether Keeper-only lines were revealed with it.
+// Whether the GM has ended the story, and whether GM-only lines were revealed with it.
 struct StoryState { bool ended = false; bool revealAll = false; };
 inline StoryState storyState(Db &db, const std::string &channelId) {
   auto r = db.queryOne("SELECT story_status, story_reveal_all FROM channels WHERE id=$1", {channelId});
@@ -22,14 +22,14 @@ inline StoryState storyState(Db &db, const std::string &channelId) {
 }
 
 // SQL predicate over a log_events row `le`: may this viewer read the line?
-// - The Keeper reads everything.
+// - The GM reads everything.
 // - Lines from the channel's own chat follow the chat's rule (player_group_readable_messages), evaluated now, so a
 //   side window, another group's window or a whisper never becomes readable through the Studio, whatever the
 //   knowledge mode. Imported lines follow their stored scope and audience.
 //   A whisper (a hidden roll, a private aside) stays with the characters it was addressed to, even inside a shared
 //   player group.
-// - Once the story has ended, every member reads the whole story except Keeper-only lines (all of it when the
-//   Keeper revealed those too).
+// - Once the story has ended, every member reads the whole story except GM-only lines (all of it when the
+//   GM revealed those too).
 inline std::string whisperOutside(const std::string &le, const std::string &characters) {
   return "NOT EXISTS (SELECT 1 FROM messages wm WHERE wm.id=" + le + ".source_message_id AND wm.visibility='whisper' AND NOT (wm.whisper_to && " + characters + "))";
 }

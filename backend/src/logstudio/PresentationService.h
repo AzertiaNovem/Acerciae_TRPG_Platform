@@ -48,12 +48,12 @@ public:
     // Continues a presentation with a script of new lines (VnScriptService::fitContinuation): rebinds it to the
     // newer snapshot that holds them, appends their events and scenes after the existing ones (the first scene may
     // join the last), and re-applies the stored dubbing cast. Existing scenes and events are not touched. Backgrounds
-    // the presentation already shows may be reused even when they are Keeper-only or still waiting for approval.
+    // the presentation already shows may be reused even when they are GM-only or still waiting for approval.
     void appendScript(const ChannelAccess& a, const std::string& presentationId, const std::string& snapshotId, const Json::Value& script);
     bool canEditPresentation(const ChannelAccess& a, const Json::Value& pres) { return canEdit(a, pres); }
     // The image each character shows now: per subtitle (lower-cased) the image its character space holds for it,
     // else the newest approved library standee filed under it; under "" its main portrait (the default).
-    // Values: {id, version, expression}. Keeper-only images only when gmOnly.
+    // Values: {id, version, expression}. GM-only images only when gmOnly.
     std::map<std::string, std::map<std::string, Json::Value>> currentStandees(const std::string& channelId, bool gmOnly);
     // A stage placement names a character and a subtitle, never an image. These fill in the image each placement
     // shows now (asset_id/asset_version, the default when the subtitle has none) for reading.

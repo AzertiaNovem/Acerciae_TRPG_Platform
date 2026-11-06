@@ -1,10 +1,10 @@
 // Reconcile established co-presence, not permission to choose a new destination.
-// The Keeper may compare public play across threads; none of that context is copied to a player's window.
+// The GM may compare public play across threads; none of that context is copied to a player's window.
 import { completeJson } from "./llm/index.mjs";
 
 const SYSTEM = `Determine which investigators are ALREADY together in the fiction, even when their recorded threads disagree. This is scene bookkeeping, not deciding whether a character is allowed to travel. Return all supported reunions involving the current thread; do not default to "stay" just because an actor did not repeat a movement declaration.
 
-Read each thread's public play in sequence. Latest established actions and arrivals take priority over an old window title or recorded location. Keeper narration can confirm an arrival that has already happened; the actor need not say it again. A player's later correction supersedes contradictory earlier narration. Use dialogue and parenthesised actions too. Resolve "back to my room" using earlier room/roommate declarations, and resolve contextual place names rather than demanding identical strings. A statement of where someone lives alone does not mean they are there now.
+Read each thread's public play in sequence. Latest established actions and arrivals take priority over an old window title or recorded location. The GM's narration (a line with keeper: true) can confirm an arrival that has already happened; the actor need not say it again. A player's later correction supersedes contradictory earlier narration. Use dialogue and parenthesised actions too. Resolve "back to my room" using earlier room/roommate declarations, and resolve contextual place names rather than demanding identical strings. A statement of where someone lives alone does not mean they are there now.
 
 Distinguish current presence from intentions: an invitation, a proposed meeting, "after washing I'll go back", a hypothetical event or a plan for tomorrow is not an arrival. A later departure supersedes an earlier arrival. Do not put people in different rooms together merely because they are in the same building; do not merge scenes at incompatible story times. Compatible time does not require identical clocks: someone who has arrived and remains or sleeps there continues to occupy that place until a departure is established. A paused side thread's older clock alone does not prevent a later arrival from joining them. Conversely, do not keep people apart when both accounts establish the same room and compatible time just because they arrived separately or once split into different threads. For example, after both roommates have returned to room 507, place them together. While one is still in the washroom, do not claim they are already back in 507; if both accounts instead place them together at the washroom door, recognise that meeting. Walking together through a lobby on the way upstairs is a shared transition, not an independent adventure in the lobby. Read the ordinary continuity of published action, not just literal "I arrived" phrases.
 
@@ -23,7 +23,7 @@ export async function readPresence(llm, { current, threads }) {
     const to = threads.find(t => t.key === p?.thread);
     if (!from || !to || from === to || (from.key !== current && to.key !== current)) return [];
     if (!to.members.some(m => m.id === p.with)) return [];
-    // An actor's own action or published Keeper narration establishes presence. Other PCs' claims do not.
+    // An actor's own action or published GM narration establishes presence. Other PCs' claims do not.
     const confirms = (thread, seq, id) => thread.lines.find(l => l.seq === seq && l.kind !== "ooc" && (l.keeper || l.actor === id));
     const source = confirms(from, p.actor_seq, p.id), target = confirms(to, p.target_seq, p.with);
     const place = typeof p.place === "string" ? p.place.trim() : "";

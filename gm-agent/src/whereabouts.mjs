@@ -1,12 +1,12 @@
 // Whereabouts: the GM reports where investigators are; the table decides what that means for timelines and windows.
 //
-// Each Keeper round may return `whereabouts`: groups of investigators with the thread they are now with (a handle such
+// Each GM round may return `whereabouts`: groups of investigators with the thread they are now with (a handle such
 // as "T0", or "new" for a place no thread is at), the place, and whether they are out of reach of the others and can
 // explore on their own (`own_scene`). Anyone not listed stays where they are. `planWhereabouts` turns those facts into
 // operations (move, merge, split, relocate) with fixed, testable rules:
 //
 //   * authority  – a player character moves only because its own player said so in this turn's lines in this window;
-//                  co-players move only after their own lines (followup and side rounds). The Keeper decides for no one;
+//                  co-players move only after their own lines (followup and side rounds). The GM decides for no one;
 //   * guard      – a change that would undo a recent one needs two agreeing turns (players' own moves are exempt);
 //   * places     – "new" at the place you already are is no move; "new" at another thread's place joins that thread;
 //   * the scene  – a thread is never emptied by a split: if everyone in it leaves for one place it simply relocates;

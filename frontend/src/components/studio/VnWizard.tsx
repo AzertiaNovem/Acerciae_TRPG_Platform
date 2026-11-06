@@ -153,7 +153,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
     if (!channelId || !presetId) return;
     try {
       const preset = presets.find((p) => p.id === presetId);
-      // A voice is bound to a character only by its actor or the Keeper; anyone else's voice for it stays unbound
+      // A voice is bound to a character only by its actor or the GM; anyone else's voice for it stays unbound
       // and the cast alone assigns it, so it never changes how that character sounds elsewhere.
       const bind = key !== 'narrator' && (isGm || myCharacters.includes(key));
       const v = await api.createVoice(channelId, { name: key === 'narrator' ? tr('Narrator') : names[key] ?? preset?.name, character_id: bind ? key : undefined, voice_type: 'preset', voice_id: presetId });
@@ -294,7 +294,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
 
       {step === 'cast' && pres && !hybridResult && (
         <div>
-          <div className="tiny muted">{tr('Choose a voice for every character and for the narration (Keeper narration, dice and scene titles). Pick an existing voice or a preset to create one.')}</div>
+          <div className="tiny muted">{tr('Choose a voice for every character and for the narration (GM narration, dice and scene titles). Pick an existing voice or a preset to create one.')}</div>
           <table className="simple" style={{ marginTop: 6 }}><tbody>
             {[['narrator', tr('Narrator')] as [string, string], ...speakers].map(([key, name]) => (
               <tr key={key}>
@@ -320,7 +320,7 @@ export default function VnWizard({ onOpenEditor }: { onOpenEditor: (presentation
             <button className="small" onClick={applyCastAndVoice} disabled={busy || !pres.can_edit || Object.values(cast).every((v) => !v)}>{busy ? tr('Working…') : tr('Apply cast and voice every line')}</button>
             <button className="primary small" onClick={() => setStep('export')}>{tr('Next: export')}</button>
           </div>
-          {!pres.can_edit && <div className="tiny muted">{tr('Only the author of this draft or the Keeper can change its cast.')}</div>}
+          {!pres.can_edit && <div className="tiny muted">{tr('Only the author of this draft or the GM can change its cast.')}</div>}
         </div>
       )}
 

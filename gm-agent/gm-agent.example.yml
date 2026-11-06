@@ -1,17 +1,17 @@
-# gm-agent.yml — the AI Keeper's settings. Copy to gm-agent.yml next to where you run the client (or point at it with
+# gm-agent.yml — the AI GM's settings. Copy to gm-agent.yml next to where you run the client (or point at it with
 # --config / GM_AGENT_CONFIG). Secrets and deployment stay in the environment or .env: GM_PASSWORD, ANTHROPIC_API_KEY,
 # LLM_API_KEY, PLANNER_API_KEY, ACERCIAE_API_BASE, CHANNEL_ID, STATE_DIR. A command-line flag overrides any key for one run.
 
 account:
-  username: aikeeper          # the Keeper account (its password is GM_PASSWORD)
-  display_name: AI Keeper
+  username: aikeeper          # the GM account (its password is GM_PASSWORD)
+  display_name: AI GM
   register: false             # register the account on first run
 
 channel:                      # only used by `setup --create`; otherwise the client keeps a channel the account is GM of
   create: false
   server_id: ""
-  server_name: AI Keeper's table
-  channel_name: A campaign with an AI Keeper
+  server_name: AI GM's table
+  channel_name: A campaign with an AI GM
   era: ""                    # e.g. 1920s
   rule_system: coc7e          # coc7e | dnd2024 | pbta; new channels only (channel.rules is also accepted)
 
@@ -102,7 +102,7 @@ calendar:                     # casual games: how fast the GM may move the story
 modes:                        # set with `setup`, `world`, `casual`; then kept in the state file. Empty = leave as it is.
   improv:                     # true: improvisation mode (no module; your world setting)
   world_file: ""              # the world setting (plain text or Markdown), relative to this file
-  secrets_file: ""            # the Keeper's hidden layer
+  secrets_file: ""            # the GM's hidden layer
   casual:                     # true: casual mode (a phone per player character; needs an isolated channel)
   casual_max_delay_minutes: 240
   casual_ai_texts_per_hour: 12   # texts between co-players and NPCs answered at most this many an hour

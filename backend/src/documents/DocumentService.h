@@ -53,7 +53,7 @@ public:
     // Throws ApiError for structural problems (unknown document, version conflict).
     CommitResult commit(const Proposal& p);
     // The living world record: entity_state ops (no document). Same provenance and partition rules as commit();
-    // an AI change to a state the Keeper set becomes a needs_gm_review proposal. res.version = worldVersion.
+    // an AI change to a state the GM set becomes a needs_gm_review proposal. res.version = worldVersion.
     CommitResult commitWorld(const Proposal& p);
     Json::Value world(const ChannelAccess& a);   // GET /world: the caller's partition
     static int64_t worldVersion(pqxx::work& w, const std::string& channelId, const std::string& groupId);

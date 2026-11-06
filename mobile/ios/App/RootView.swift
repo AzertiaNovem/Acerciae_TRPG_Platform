@@ -218,8 +218,8 @@ private struct SidebarView: View {
                             row("托马斯", icon: "person.crop.circle") {
                                 showDetail(SidebarDetail(title: "托马斯", body: "示例角色 · 退役水手\n由 Carol 操作，昨夜独自调查了码头。"))
                             }
-                            row(tr("守秘人"), icon: "person.crop.circle") {
-                                showDetail(SidebarDetail(title: tr("守秘人"), body: "频道 GM\n负责场景叙述与裁定；频道 GM 身份不等于服务器管理员。"))
+                            row("GM", icon: "person.crop.circle") {
+                                showDetail(SidebarDetail(title: "GM", body: "频道 GM\n负责场景叙述与裁定；频道 GM 身份不等于服务器管理员。"))
                             }
                         }.padding(.top, 6)
                     }.font(.subheadline)
@@ -451,7 +451,7 @@ private struct Composer: View {
         Menu {
             ForEach(model.playable) { item in Button(item.name) { model.chooseRole(item.id) } }
             Button(model.gm ? tr("— as GM —") : model.session?.user.displayName ?? tr("Me")) { model.chooseRole("") }
-        } label: { Text(model.characterId.isEmpty ? (model.gm ? tr("Keeper") : tr("Me")) : model.role).font(.subheadline).lineLimit(1) }
+        } label: { Text(model.characterId.isEmpty ? (model.gm ? "GM" : tr("Me")) : model.role).font(.subheadline).lineLimit(1) }
     }
     private var assistance: some View {
         Button(tr("一致性")) { Task { await model.assistance("consistency") } }.disabled(model.busy || !model.enabled("consistency") || model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).font(.subheadline).frame(minHeight: 44)

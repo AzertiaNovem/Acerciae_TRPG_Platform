@@ -2,11 +2,11 @@
 // co-player gets its own card and its companions' profiles (profiles.mjs), never documents, reminders, board, script
 // knowledge, highlights or other platform AI tips.
 //
-// The client signs in as the Keeper, and the Keeper's API view includes every line. So the filter is applied here,
+// The client signs in as the GM, and the GM's API view includes every line. So the filter is applied here,
 // the same way the platform filters for a player (backend knowledge/Visibility):
 //   * only windows the co-player sat in, and only lines posted while it sat there (its seats);
 //   * `window` lines, plus `whisper` lines addressed to the co-player's own character;
-//   * never `gm_only` lines (Keeper notes, hidden roll results) and never whispers to anyone else.
+//   * never `gm_only` lines (GM notes, hidden roll results) and never whispers to anyone else.
 
 export function visibleToCoplayer(coplayer, message) {
   if (!message) return false;
@@ -18,14 +18,14 @@ export function visibleToCoplayer(coplayer, message) {
 }
 
 // `gm` is the GM's title in this rule system (rules/*.mjs): the label this client gives the GM account's lines.
-export function speakerOf(m, gm = "Keeper") {
+export function speakerOf(m, gm = "GM") {
   if (m.character_name) return m.character_name;
   if (m.author_role === "gm") return gm;
   return m.author_name || "someone";
 }
 
 // `timeline` names the timeline the line comes from (the GM sees it; see timelines.mjs).
-export function renderLine(m, { markVisibility = false, timeline = "", gm = "Keeper" } = {}) {
+export function renderLine(m, { markVisibility = false, timeline = "", gm = "GM" } = {}) {
   const text = m.kind === "roll" && m.dice?.text ? `${m.content} → ${m.dice.text}` : m.content;
   const who = m.kind === "narration" ? `${m.character_name ? m.character_name : gm} (narration)` : speakerOf(m, gm);
   const tag = m.kind === "ooc" ? " (out of character)" : "";

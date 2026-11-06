@@ -30,6 +30,7 @@ test('shared credentials, independent policies, relative paths and invalid overr
   assert.equal(a.password, 'password-secret'); assert.equal(a.calendarMaxDays, 1);
   assert.equal(b.level, 4); assert.equal(b.autonomy, false); assert.notEqual(a.channelId, b.channelId);
   assert.equal(a.stateDir, path.join(host.root, '.state'));
+  assert.equal(channelConfig(host, { ...host.channels[0], prepareOnStart: false }).prepareOnStart, false);
   assert.throws(() => channelConfig(host, host.channels[0], 'llm:\n  api_key: override'), /shared configuration/);
   assert.throws(() => channelConfig(host, host.channels[0], 'llm:\n  api_base: http:\/\/other'), /shared configuration/);
   assert.throws(() => channelConfig(host, host.channels[0], 'mystery: true'), /unknown section/);
@@ -102,6 +103,7 @@ test('two real workers host CoC and D&D concurrently and restart independently',
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   host.data.api_base = `http://127.0.0.1:${server.address().port}`;
+  for (const entry of host.channels) entry.prepareOnStart = false;
   for (const entry of host.channels) fs.writeFileSync(entry.config, 'table:\n  coplayers: 0\nautonomy:\n  enabled: false\nplanner:\n  enabled: false\n');
   const manager = new HostManager(host, { stopTimeout: 1000 });
   t.after(async () => { await manager.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });

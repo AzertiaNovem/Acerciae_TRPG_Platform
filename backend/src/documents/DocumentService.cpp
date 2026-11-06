@@ -132,7 +132,7 @@ void DocumentService::indexFact(pqxx::work& w, const std::string& channelId, con
     }
 }
 
-// Provenance shared by every AI write: the Keeper's chronicler cites lines of the batch it was given (removals and
+// Provenance shared by every AI write: the GM's chronicler cites lines of the batch it was given (removals and
 // links included); a player group's memory cites only chat of its batch that the group can read.
 std::string DocumentService::sourceProblem(pqxx::work& w, const OpContext& ctx, const std::vector<std::string>& sources) {
     if (ctx.access.isGm && ctx.actor == "ai" && !ctx.allowedSources.empty()) {
@@ -170,7 +170,7 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
     const bool isAi = ctx.actor == "ai";
     if (auto why = sourceProblem(w, ctx, mergeSources(op, ctx.defaultSources)); !why.empty()) return reject(why);
     if (!ctx.access.isGm) {
-        if (ctx.docType=="module_progress" || json::str(op,"status")=="gm_secret" || json::str(op["fact"],"status")=="gm_secret") return reject("KP-only content");
+        if (ctx.docType=="module_progress" || json::str(op,"status")=="gm_secret" || json::str(op["fact"],"status")=="gm_secret") return reject("GM-only content");
         // References in free-form data must resolve inside the same memory partition.
         auto checkData=[&](const Json::Value& data) {
             for (const auto& key : {"related_fact_ids","note_for_fact_id"}) {
@@ -215,10 +215,10 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
             auto gm = Db::queryOne(w, "SELECT count(*) AS n FROM events WHERE channel_id=$1 AND id = ANY(" + Visibility::uuidArray(sources) + ") AND actor_role IN ('gm','system')", {ctx.channelId});
             if (gm.isNull() || gm["n"].asInt() == 0) { status = "attempted"; log["note"] = "downgraded to attempted: no GM confirmation among sources"; }
         }
-        // What the Keeper declared as a secret stays one, whatever status the model chose.
+        // What the GM declared as a secret stays one, whatever status the model chose.
         if (isAi && ctx.access.isGm && status != "gm_secret" && !sources.empty()) {
             auto sec = Db::queryOne(w, "SELECT count(*) AS n FROM events WHERE channel_id=$1 AND id = ANY(" + Visibility::uuidArray(sources) + ") AND kind='gm.declared' AND payload->'secret'='true'::jsonb", {ctx.channelId});
-            if (sec["n"].asInt() > 0) { status = "gm_secret"; log["note"] = "secret Keeper declaration: recorded as gm_secret"; }
+            if (sec["n"].asInt() > 0) { status = "gm_secret"; log["note"] = "secret GM declaration: recorded as gm_secret"; }
         }
         // Deduplicate: same kind + near-identical summary already in this document → update instead.
         auto dup = Db::queryOne(w, "SELECT f.id FROM knowledge_facts f JOIN document_entries de ON de.fact_id=f.id WHERE de.document_id=$1 AND f.kind=$2 AND lower(f.summary)=lower($3) AND NOT de.removed LIMIT 1",
@@ -230,7 +230,7 @@ void DocumentService::applyOp(pqxx::work& w, OpContext& ctx, const Json::Value& 
             log["note"] = "merged into existing entry"; 
             return applyOp(w, ctx, upd, res);
         }
-        // Validate event ownership; legacy audience flags never publish KP facts.
+        // Validate event ownership; legacy audience flags never publish GM facts.
         knowledge_.deriveScope(w, ctx.channelId, ctx.knowledgeMode, sources);
         KnowledgeScope scope{"gm", {}};
         Json::Value data = fact.isMember("data") && fact["data"].isObject() ? fact["data"] : Json::Value(Json::objectValue);
@@ -459,7 +459,7 @@ void DocumentService::applyEntityState(pqxx::work& w, OpContext& ctx, const Json
         if (ev["n"].asInt() != (int)uniq.size()) return reject("Source event not found in this channel");
         declared = ev["declared"].asInt() > 0;
     }
-    // A Keeper declaration is authoritative, as is the Keeper's own change (an accepted review). Player groups never
+    // A GM declaration is authoritative, as is the GM's own change (an accepted review). Player groups never
     // read gm.declared events, so their partition only ever holds AI state.
     const std::string stateBy = ctx.actor == "gm" || (ctx.access.isGm && declared) ? "gm" : "ai";
 
@@ -493,13 +493,13 @@ void DocumentService::applyEntityState(pqxx::work& w, OpContext& ctx, const Json
     if (hasStatus && !hasState && newStatus != curStatus) newState = "";
     const bool changed = newStatus != curStatus || newState != curState || newPlace || (!locRef.empty() && locId != curLoc);
     if (!changed && !(stateBy == "gm" && curBy != "gm")) { log["decision"] = "skipped"; log["reason"] = "No change to the entity's state"; res.log.append(log); return; }
-    // What the Keeper set is changed only by the Keeper: the AI's contradiction waits for review.
+    // What the GM set is changed only by the GM: the AI's contradiction waits for review.
     if (stateBy == "ai" && curBy == "gm") {
-        if (!ctx.access.isGm) return reject("contradicts a state the Keeper set");
+        if (!ctx.access.isGm) return reject("contradicts a state the GM set");
         Json::Value payload = op; payload["op"] = "entity_state"; payload["entity"] = id; payload["entity_name"] = cur["name"]; payload["source_event_ids"] = json::fromStrArray(sources);
         payload["previous"]["status"] = curStatus; payload["previous"]["state"] = curState; payload["previous"]["location_entity_id"] = cur["location_entity_id"];
         Json::Value ops(Json::arrayValue); ops.append(payload);
-        const std::string why = "contradicts a state the Keeper set";
+        const std::string why = "contradicts a state the GM set";
         auto pr = Db::queryOne(w, "INSERT INTO document_proposals(channel_id, document_id, ai_job_id, expected_version, ops, source_event_ids, evidence, status, rejection_reason) "
                                   "VALUES($1,NULL,$2,$3,$4::jsonb,$5::uuid[],'[]'::jsonb,'needs_gm_review',$6) RETURNING id",
             {ctx.channelId, ctx.aiJobId.empty() ? dbNull() : DbParam(ctx.aiJobId), (int64_t)cur["state_version"].asInt(), json::dump(ops), pgArrayLiteral(sources), why});
@@ -748,7 +748,7 @@ Json::Value DocumentService::decideProposal(const ChannelAccess& a, const std::s
     p.ops = pr["ops"]; p.sourceEventIds = json::strArray(pr["source_event_ids"]); p.summary = "GM accepted AI proposal";
     for (auto& op : p.ops) { op.removeMember("previous"); op.removeMember("previous_status"); }
     CommitResult res;
-    // A world-state review has no document: accepting it makes the change the Keeper's own (state_by='gm').
+    // A world-state review has no document: accepting it makes the change the GM's own (state_by='gm').
     const bool world = p.ops.isArray() && !p.ops.empty() && json::str(p.ops[0], "op") == "entity_state";
     try { res = world ? commitWorld(p) : commit(p); }
     catch (...) { db_.exec("UPDATE document_proposals SET status='needs_gm_review' WHERE id=$1 AND status='applying'", {proposalId}); throw; }

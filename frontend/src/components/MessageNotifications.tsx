@@ -16,7 +16,7 @@ function openMessage(n: MessageNotice) {
 const WINDOW_GLYPH: Record<string, string> = { main: '◎', group: '○', private: '◌' };
 
 // One card, in the chat's own terms: the window (with its sidebar glyph) and the time, then the speaker as the chat
-// names them — the character, or the player out of character, "(GM)" for the Keeper — and two lines of what was said.
+// names them — the character, or the player out of character, "(GM)" for the GM — and two lines of what was said.
 function Card({ n, count, inList, onClick, onClose }: { n: MessageNotice; count?: number; inList?: boolean; onClick: () => void; onClose?: (e: React.SyntheticEvent) => void }) {
   const m = n.message;
   const kind = useNav((s) => s.windows.find((w) => w.id === m.chat_window_id)?.kind ?? 'group');

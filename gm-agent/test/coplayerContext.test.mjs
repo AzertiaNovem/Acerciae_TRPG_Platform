@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { coplayerLog, visibleToCoplayer, renderLine } from "../src/context/coplayerContext.mjs";
+import { RULE_SYSTEMS, rulesProfile } from "../src/rules/index.mjs";
 
 const me = { characterId: "c-me", name: "Harriet", seats: [{ windowId: "w-main", fromSeq: 0, toSeq: null }, { windowId: "w-private", fromSeq: 0, toSeq: null }] };
 let seq = 0;
@@ -15,9 +16,9 @@ test("a co-player sees window lines and whispers to itself, in the windows it si
   assert.deepEqual(coplayerLog(me, lines).map((m) => m.content), ["public line", "whisper to me", "private window line"]);
 });
 
-test("Keeper-only lines, other characters' whispers and other windows never reach a co-player", () => {
+test("GM-only lines, other characters' whispers and other windows never reach a co-player", () => {
   const secret = [
-    line({ content: "KEEPER NOTE: the butler did it", visibility: "gm_only", author_role: "gm" }),
+    line({ content: "GM NOTE: the butler did it", visibility: "gm_only", author_role: "gm" }),
     line({ content: "hidden roll result 07", visibility: "gm_only", kind: "roll", dice: { text: "secret" } }),
     line({ content: "whisper to Bob", visibility: "whisper", whisper_to: ["c-bob"] }),
     line({ content: "another window", chat_window_id: "w-other" }),
@@ -33,9 +34,9 @@ test("the newest lines are kept, oldest first", () => {
   assert.deepEqual(log.map((m) => m.content), ["l25", "l26", "l27", "l28", "l29"]);
 });
 
-test("roll lines show the platform's dice text; narration is attributed to the Keeper", () => {
+test("roll lines show the platform's dice text; narration is attributed to the GM", () => {
   assert.match(renderLine(line({ kind: "roll", content: ".ra Spot Hidden", dice: { text: "Alice rolled 23/60: Success" } })), /\.ra Spot Hidden → Alice rolled 23\/60/);
-  assert.match(renderLine(line({ kind: "narration", character_name: null, author_role: "gm", content: "Rain." })), /Keeper \(narration\): Rain\./);
+  assert.match(renderLine(line({ kind: "narration", character_name: null, author_role: "gm", content: "Rain." })), /GM \(narration\): Rain\./);
 });
 
 test("a seat has a start and an end: a co-player hears a window only while it sits there", () => {
@@ -51,13 +52,13 @@ test("a seat has a start and an end: a co-player hears a window only while it si
   assert.deepEqual(coplayerLog(traveller, lines).map((m) => m.content), ["before leaving", "on the side trip", "after returning"]);
 });
 
-test("a line can carry its timeline for the Keeper", () => {
+test("a line can carry its timeline for the GM", () => {
   assert.match(renderLine(line({ content: "We found a badge." }), { timeline: "The docks" }), /Alice \[timeline: The docks\]: We found a badge\./);
 });
 
-test("renderLine labels the GM account's lines with the rule system's title", () => {
+test("renderLine labels the GM account's lines \"GM\", in every rule system", () => {
   const m = line({ content: "The door creaks.", kind: "narration", author_role: "gm", character_name: null, visibility: "gm_only" });
-  assert.match(renderLine(m, { markVisibility: true }), /Keeper \(narration\) \[Keeper only\]: The door creaks\./);
-  assert.match(renderLine(m, { markVisibility: true, gm: "Dungeon Master" }), /Dungeon Master \(narration\) \[Dungeon Master only\]: The door creaks\./);
-  assert.match(renderLine(line({ content: "ok", author_role: "gm", character_name: null }), { gm: "Dungeon Master" }), /Dungeon Master: ok/);
+  assert.match(renderLine(m, { markVisibility: true }), /^#\d+ GM \(narration\) \[GM only\]: The door creaks\.$/);
+  for (const id of RULE_SYSTEMS) assert.equal(renderLine(m, { markVisibility: true, gm: rulesProfile(id).vocab.gm }), renderLine(m, { markVisibility: true }), id);
+  assert.match(renderLine(line({ content: "ok", author_role: "gm", character_name: null })), /^#\d+ GM: ok$/);
 });

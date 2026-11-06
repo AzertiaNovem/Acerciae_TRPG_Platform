@@ -23,7 +23,7 @@ test('PbtA playbooks, private GM moves, auditable outcomes and portable packs', 
         password: 'password',
       })
     ).token;
-  const gm = await signup('MC'),
+  const gm = await signup('GM'),
     pl = await signup('Scout');
   const server = await call(gm, 'POST', '/servers', { name: 'Frontier' });
   const channel = async (name) =>

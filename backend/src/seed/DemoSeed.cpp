@@ -17,7 +17,7 @@ An introductory scenario for Call of Cthulhu / Basic Roleplaying
 Introduction
 In the autumn of 1925 the fishing town of Blackwater Cove, Massachusetts, is troubled by lights seen on the water at night and by the disappearance of the lighthouse keeper, Elias Thorne. The investigators are hired by his sister, Mrs. Agnes Hale, to find out what became of him.
 
-Keeper's Information
+GM's Information
 The truth is that Elias Thorne discovered a drowned idol in the shoals and brought it to the lighthouse. The idol calls to the Deep Ones at every new moon. Elias is not dead: he is held in the sea cave beneath the lighthouse, kept alive by the cult that calls itself the Lantern Society. The Sheriff, Amos Dunmore, is a member of the Lantern Society and will mislead the investigators while appearing helpful.
 )",
 R"(Chapter One: Arrival in Blackwater Cove
@@ -68,11 +68,11 @@ bool DemoSeed::run(Services& s, bool force) {
     if (!existing.isNull() && !force) { ALOG_INFO << "demo campaign already present; skipping seed"; return false; }
     if (!existing.isNull() && force) { s.db->exec("DELETE FROM channels WHERE id=$1", {existing["id"].asString()}); }
     ALOG_INFO << "seeding demonstration campaign…";
-    auto keeperId = ensureUser(s, "keeper", "The Keeper");
+    auto keeperId = ensureUser(s, "keeper", "The GM");
     auto aliceId = ensureUser(s, "alice", "Alice");
     auto bobId = ensureUser(s, "bob", "Bob");
     auto carolId = ensureUser(s, "carol", "Carol");
-    Principal keeper{keeperId, "keeper", "The Keeper"};
+    Principal keeper{keeperId, "keeper", "The GM"};
     auto servers = s.chat->listServers(keeper);
     std::string serverId;
     for (auto& sv : servers) if (sv["name"].asString() == "Arkham Table") serverId = sv["id"].asString();
@@ -115,7 +115,7 @@ bool DemoSeed::run(Services& s, bool force) {
     };
     auto winGazette = mkWin("Investigation: Gazette Office", "group", {{aliceId, harvey}, {bobId, nora}});
     auto winDocks = mkWin("Solo: The Docks", "private", {{carolId, thomas}});
-    // Scenarios are campaign-wide: the Keeper opens each session for every window; the previous one closes.
+    // Scenarios are campaign-wide: the GM opens each session for every window; the previous one closes.
     s.scenes->enterScene(gm, sceneOffice);
 
     auto say = [&](const std::string& userId, const std::string& win, const std::string& content, const std::string& kind = "ic") {

@@ -24,7 +24,7 @@ struct ScriptInputs {
   Json::Value cast = Json::Value(Json::arrayValue);
   Json::Value assets = Json::Value(Json::arrayValue); // [{ref:"B1"|"M1"|"S1", id, type, name, tags, character_id, expression}]
   std::string era;                                    // the campaign's period, for background and portrait prompts
-  std::string gmShort = "KP";                         // how transcript labels name the GM: KP (Keeper) or DM
+  std::string gmShort = "GM";                         // how transcript labels name the GM: GM(Narrative), GM(as NAME)
   // Continuation only: where the visual novel ended ({scene, background, lines:[...]}) and the names of its scenes
   // still waiting for a background ([{name, prompt}]), which the planner may reuse like any listed background.
   Json::Value story;
@@ -83,8 +83,8 @@ public:
   // Validates one or more raw plans against the inputs and produces the stored script (real ids, bounded values).
   // Lines the plans skip stay visible in place; only lines excluded with a reason are hidden.
   static Json::Value normalize(const ScriptInputs &in, const std::vector<Json::Value> &plans, const std::string &provider);
-  // The label a line carries in the transcript: "Ada Quill", "Ada Quill(OOC)", "KP(Narrative)", "KP(as Old Tom)".
-  static std::string speakerLabel(const LogEvent &e, const std::string &gm = "KP");
+  // The label a line carries in the transcript: "Ada Quill", "Ada Quill(OOC)", "GM(Narrative)", "GM(as Old Tom)".
+  static std::string speakerLabel(const LogEvent &e, const std::string &gm = "GM");
   // ---- continuation ----
   // The system prompt's editing rules: edit boldly, leave out what is not the play (with reasons), ask the table
   // rather than guess. Shared with Open Log Studio's composer.

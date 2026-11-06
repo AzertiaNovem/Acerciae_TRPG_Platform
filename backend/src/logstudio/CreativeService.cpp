@@ -196,7 +196,7 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
                                                  const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud, const std::string &portraitJobId) {
   bool owner = character["user_id"].isString() && character["user_id"].asString() == a.userId;
   if (!a.isGm && !owner)
-    throw forbidden("only the Keeper or the character's actor may generate this character's images");
+    throw forbidden("only the GM or the character's actor may generate this character's images");
   auto provider_ = providerFor(a.channelId);
   if (provider_ && provider_->name() != "mock") policy_.checkImages(a.channelId);
   if (!provider_)
@@ -264,7 +264,7 @@ Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::
     params["request"]["character"]["description"] = ch["appearance_prompt"];
     std::string parentJob;
     if (json::str(ch, "portrait_asset_id").empty()) {
-      // Never invent a fresh identity for every pose. Only the actor/Keeper can establish a missing main portrait.
+      // Never invent a fresh identity for every pose. Only the actor/GM can establish a missing main portrait.
       auto main = createForCharacter(a, ch, "portrait", "portrait", "", json::str(ch, "appearance_prompt") + ". Main profile portrait, neutral pose.", allowCloud);
       parentJob = main["id"].asString();
     }
@@ -429,7 +429,7 @@ void CreativeService::run(const Json::Value &j) {
       return;
     const Json::Value &attachTo = j["params"]["attach"];
     const bool forScript = attachTo.isObject() && attachTo.isMember("presentation_id");
-    // Art a visual-novel script asked for changes a character's own profile only when the Keeper or that
+    // Art a visual-novel script asked for changes a character's own profile only when the GM or that
     // character's actor asked; anyone else's script gets it in their draft only.
     const bool forCharacter = attachTo.isObject() && attachTo.isMember("character_id");
     bool updatesProfile = forCharacter;
@@ -442,7 +442,7 @@ void CreativeService::run(const Json::Value &j) {
     m["name"] =
         (provider_->name() == "mock" ? "MOCK test pattern: " : "Candidate: ") +
         j["kind"].asString();
-    // A character's own art is the actor's to use at once; everything else waits for the Keeper's review.
+    // A character's own art is the actor's to use at once; everything else waits for the GM's review.
     // Script art lands straight in the draft it was asked for; the author reviews it in the player.
     m["approval_status"] = forCharacter || forScript ? "approved" : "candidate";
     m["visibility_scope"] = forCharacter || forScript ? "channel" : "gm";

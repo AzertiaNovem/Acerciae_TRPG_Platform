@@ -365,7 +365,7 @@ void ModuleImporter::structurePages(const std::string &moduleId,
     req.maxTokens = cfg_.llmModuleMaxTokens;
     req.system =
         R"(You convert tabletop RPG module text (Call of Cthulhu / BRP) into a conditional knowledge graph. Extract nodes of type npc, location, item, clue, secret, stage, scene, condition, twist, ending and edges (requires, reveals, leads_to, located_in, knows, holds, unlocks, triggers, found_in, takes_place_at, appears_in). Every node MUST cite page numbers and a short verbatim excerpt. Keys are stable slugs like "npc|sheriff dunmore" so later chunks can reference earlier nodes. Do not invent content that is not in the text. Output JSON {"nodes":[{"key","node_type","name","description","citations":[{"page","excerpt"}]}],"edges":[{"from_key","to_key","relation"}]})";
-    // A D&D adventure's creatures come with stat blocks: kept with the node for the DM.
+    // A D&D adventure's creatures come with stat blocks: kept with the node for the GM.
     auto rs = db_.queryOne("SELECT rule_system FROM channels WHERE id=$1", {channelId});
     if (!rs.isNull() && rs["rule_system"].asString() == "dnd2024")
       req.system += " This is a D&D 2024 (5e) adventure: extract each monster or NPC that has a stat block as node_type "

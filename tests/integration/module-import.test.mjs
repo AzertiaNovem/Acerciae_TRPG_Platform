@@ -49,7 +49,7 @@ test('module import accepts promptly, reports durable progress, deduplicates ret
  assert.equal(ready.import_stage,'ready');assert.equal(ready.completed_chunks,ready.total_chunks);assert.equal(ready.import_warning,null);
  const moduleCalls=requests.filter(b=>systemText(b).includes('conditional knowledge graph'));
  assert.equal(moduleCalls.length,ready.total_chunks);
- assert.ok(requests.filter(b=>systemText(b).includes("Keeper's working knowledge")).every(b=>b.max_output_tokens===32768));
+ assert.ok(requests.filter(b=>systemText(b).includes("GM's working knowledge")).every(b=>b.max_output_tokens===32768));
  const restored=moduleCalls.flatMap(b=>JSON.parse(userText(b)).pages).map(p=>p.text).join('');
  assert.equal(restored,text);
  assert.equal((await call(gm,'POST',root+'/text',{text,async:true})).id,a.id);

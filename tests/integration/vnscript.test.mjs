@@ -193,7 +193,7 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   const pzip = await fetch(base + root + `/presentations/${pd.presentation_id}/bundle.zip`, { headers: { Authorization: `Bearer ${p2}` } });
   assert.equal(pzip.status, 200);
 
-  // The Keeper hides the Studio in this channel: every Studio route closes for everyone, chat and media stay open.
+  // The GM hides the Studio in this channel: every Studio route closes for everyone, chat and media stay open.
   await call(gm, "PUT", `/api/channels/${ch}`, { studio_visible: false });
   assert.equal((await call(gm, "GET", `/api/channels/${ch}`)).studio_visible, false);
   assert.equal((await rejects(call(p2, "GET", root + "/vn-scripts"), 403)).code, "studio_hidden");

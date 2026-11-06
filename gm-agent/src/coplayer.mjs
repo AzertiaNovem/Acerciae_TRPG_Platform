@@ -1,6 +1,6 @@
 // A co-player's turn. Its model is given its own role card and persona, its companions' basic details and
 // backgrounds (profiles.mjs), and the chat log its character witnessed (coplayerContext.mjs). It gets nothing from the
-// Keeper's side: no Keeper notes, no platform AI tips, no real NPC's details, no other window and no other character's
+// GM's side: no GM notes, no platform AI tips, no real NPC's details, no other window and no other character's
 // whispers.
 import { completeJson } from "./llm/index.mjs";
 import { renderLine } from "./context/coplayerContext.mjs";
@@ -13,7 +13,7 @@ import { COC7E } from "./rules/coc7e.mjs";
 // `casual` lets a co-player text another character on their phone (casual.mjs).
 export function coplayerSystem(language, { improv = false, casual = false, pbta = null, profile = COC7E } = {}) {
   const { gm, pc } = profile.vocab;
-  return `You play one ${pc} in ${pbta ? "a Powered by the Apocalypse game" : profile.coplayerGame(improv)} on an online table, alongside human players. The ${gm} (GM) runs the world. You are a fellow player, not the ${gm} and not the protagonist.
+  return `You play one ${pc} in ${pbta ? "a Powered by the Apocalypse game" : profile.coplayerGame(improv)} on an online table, alongside human players. The ${gm} runs the world. You are a fellow player, not the ${gm} and not the protagonist.
 
 How to play:
 - Stay in character, true to your persona and role card. Know only what your character saw or heard in the chat log below.

@@ -56,7 +56,7 @@ std::vector<Career> load() {
         c.names["zh-CN"] = c.name; c.descriptions["zh-CN"] = c.description;
         const Json::Value& tr = i18n[std::to_string(c.id)];
         for (const auto& lang : tr.getMemberNames()) { c.names[lang] = tr[lang]["name"]; c.descriptions[lang] = tr[lang]["description"]; }
-        if (c.id == 1) c.free = 8;   // 自定义职业: up to eight skills of the player's choice, with the Keeper's blessing
+        if (c.id == 1) c.free = 8;   // 自定义职业: up to eight skills of the player's choice, with the GM's blessing
         out.push_back(std::move(c));
     }
     return out;

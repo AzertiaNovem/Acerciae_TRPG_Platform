@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 // D&D 2024 (SRD 5.2) as a channel's rule system: the GM's switch and point buy, the D&D card, D20 Tests, the Initiative
-// order, and module import with creature stat blocks under prompts that name the game and the Dungeon Master.
+// order, and module import with creature stat blocks under prompts that name the game and the GM.
 const base = process.env.API_BASE || 'http://127.0.0.1:18081';
 async function call(token, method, path, body) {
   const r = await fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20000) });
@@ -31,7 +31,7 @@ test('D&D 2024 channel: GM options, the D&D card with point buy, D20 Tests, Init
   t.after(() => { fixture.closeAllConnections(); fixture.close(); });
 
   const suffix = Math.random().toString(36).slice(2);
-  const gm = (await call('', 'POST', '/api/auth/register', { username: 'dm' + suffix, password: 'password', display_name: 'DM' })).token;
+  const gm = (await call('', 'POST', '/api/auth/register', { username: 'dm' + suffix, password: 'password', display_name: 'GM' })).token;
   const pl = (await call('', 'POST', '/api/auth/register', { username: 'pl' + suffix, password: 'password', display_name: 'Pat' })).token;
   const srv = await call(gm, 'POST', '/api/servers', { name: 'Sword Coast' });
   const ch = (await call(gm, 'POST', `/api/servers/${srv.id}/channels`, { name: 'Phandelver' })).id;
@@ -75,7 +75,7 @@ test('D&D 2024 channel: GM options, the D&D card with point buy, D20 Tests, Init
   const ds = await say(pl, '.ds', { character_id: hero.id });
   assert.equal(ds.dice.type, 'death_save');
 
-  // Initiative: players join with .ri, the DM adds monsters and runs the turn; the order is per window.
+  // Initiative: players join with .ri, the GM adds monsters and runs the turn; the order is per window.
   const mine = await say(pl, '.ri', { character_id: hero.id });
   assert.equal(mine.dice.type, 'initiative');
   await say(gm, '.ri +2 Goblin');
@@ -90,7 +90,7 @@ test('D&D 2024 channel: GM options, the D&D card with point buy, D20 Tests, Init
   assert.match(listed.dice.text, /▶ /); assert.match(listed.dice.text, /Goblin/);
   const turn = await say(gm, '.init next');
   assert.match(turn.dice.text, /Round 1: .*'s turn/);
-  // A player removes their own entry; clearing is the DM's.
+  // A player removes their own entry; clearing is the GM's.
   const own = order.entries.find((e) => e.name === 'Lia Quickfoot');
   order = await call(pl, 'POST', `/api/channels/${ch}/windows/${main}/initiative`, { action: 'remove', entry_id: own.id });
   assert.deepEqual(order.entries.map((e) => e.name), ['Goblin']);
@@ -107,7 +107,7 @@ test('D&D 2024 channel: GM options, the D&D card with point buy, D20 Tests, Init
   assert.equal(goblin.data.stat_block.actions[0].name, 'Scimitar'); assert.equal(goblin.data.stat_block.bogus, undefined);
   const structuring = requests.find((b) => String(b.instructions).includes('knowledge graph'));
   assert.match(structuring.instructions, /D&D 2024/); assert.match(structuring.instructions, /stat_block/);
-  assert.doesNotMatch(structuring.instructions, /Call of Cthulhu|Keeper/);
+  assert.doesNotMatch(structuring.instructions, /Call of Cthulhu|Keeper|Dungeon Master/);
 
   // Back to Call of Cthulhu: the D&D commands are refused, the CoC ones work again.
   await call(gm, 'PUT', `/api/channels/${ch}`, { rule_system: 'coc7e' });

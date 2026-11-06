@@ -162,7 +162,7 @@ import kotlinx.serialization.json.*
                 Text(next.text("summary")); Text(tr("Now") + ": " + next.obj("current").text("title"))
                 Text(tr("Next") + ": " + next.obj("next").text("title"), style = MaterialTheme.typography.titleSmall)
                 Text(next.obj("next").obj("data").text("location")); Text(next.obj("next").text("body"))
-                listOf("keeper_actions" to "What the Keeper does there", "prerequisites" to "Needs first", "twists" to "Twists planted here").forEach { (key, title) ->
+                listOf("keeper_actions" to "What the GM does there", "prerequisites" to "Needs first", "twists" to "Twists planted here").forEach { (key, title) ->
                     val values = next.obj("next").obj("data")[key] as? JsonArray
                     if (!values.isNullOrEmpty()) { Text(tr(title), style = MaterialTheme.typography.titleSmall); values.forEach { Text(it.jsonPrimitive.content) } }
                 }
@@ -171,7 +171,7 @@ import kotlinx.serialization.json.*
                 Text("${next.number("stages_done")}/${next.number("stages_total")} " + tr("stages done"))
             }
         } else {
-            Text(tr("Keeper's notes"), style = MaterialTheme.typography.titleMedium)
+            Text(tr("GM's notes"), style = MaterialTheme.typography.titleMedium)
             HintRows("Open threads", notes.rows("open_threads")); HintRows("Timeline", notes.rows("timeline")); HintRows("Script stages played", notes.rows("stages_done")); HintRows("Latest reviewed changes", notes.rows("recent_changes"))
         }
     }

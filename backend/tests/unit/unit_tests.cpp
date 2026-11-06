@@ -577,16 +577,18 @@ int main() {
         const auto& R = dnd2024::rules();
         CHECK(R["classes"].size() == 12); CHECK(R["species"].size() == 9); CHECK(R["backgrounds"].size() == 4); CHECK(R["skills"].size() == 18);
         CHECK(R["slots"]["full"].size() == 20); CHECK(R["slots"]["full"][19].size() == 9); CHECK(R["slots"]["pact"][10]["slots"].asInt() == 3);
-        // Prompts: the D&D channel's names for the game and the GM; Call of Cthulhu prompts stay as written.
-        const std::string prompt = "You help the Keeper of a Call of Cthulhu / BRP game. KP(Narrative) is the Keeper's narration.";
+        // Prompts: the D&D channel's name for the game; Call of Cthulhu prompts stay as written. The GM is "GM" everywhere.
+        const std::string prompt = "You help the GM of a Call of Cthulhu / BRP game. GM(Narrative) is the GM's narration.";
         CHECK(acerciae::rules::adapt(prompt, acerciae::rules::profile("coc7e")) == prompt);
         auto dndPrompt = acerciae::rules::adapt(prompt, acerciae::rules::profile("dnd2024"));
-        CHECK(dndPrompt.find("Keeper") == std::string::npos); CHECK(dndPrompt.find("Dungeon Master's narration") != std::string::npos);
-        CHECK(dndPrompt.find("DM(Narrative)") != std::string::npos); CHECK(dndPrompt.find("D&D 2024") != std::string::npos);
+        CHECK(dndPrompt.find("Call of Cthulhu") == std::string::npos); CHECK(dndPrompt.find("the GM's narration") != std::string::npos);
+        CHECK(dndPrompt.find("GM(Narrative)") != std::string::npos); CHECK(dndPrompt.find("D&D 2024") != std::string::npos);
+        for (const auto* rs : {"coc7e", "dnd2024", "pbta"})   // the placeholders name the GM "GM" in every rule system
+            CHECK(acerciae::rules::adapt("the {GM}: {GM_SHORT}(Narrative)", acerciae::rules::profile(rs)) == "the GM: GM(Narrative)");
         CHECK(acerciae::rules::profile("unknown").id == "coc7e"); CHECK(!acerciae::rules::valid("dnd5e")); CHECK(acerciae::rules::valid("dnd2024"));
         CHECK(acerciae::rules::canonical("coc7") == "coc7e"); CHECK(acerciae::rules::canonical("dnd2024") == "dnd2024"); CHECK(acerciae::rules::canonical("dnd5e").empty());
         logstudio::LogEvent e; e.eventType = "narration"; e.speakerRole = "gm"; e.speakerDisplayName = "Keeper";
-        CHECK(logstudio::VnScriptService::speakerLabel(e, "DM") == "DM(Narrative)"); CHECK(logstudio::VnScriptService::speakerLabel(e) == "KP(Narrative)");
+        CHECK(logstudio::VnScriptService::speakerLabel(e, "Narrator") == "Narrator(Narrative)"); CHECK(logstudio::VnScriptService::speakerLabel(e) == "GM(Narrative)");
     });
     test("dice command parsing (Sealdice syntax)", [] {
         auto c = dice::parseCommand(".ra research"); CHECK(c && c->name == "ra" && c->args == "research" && !c->hidden);
@@ -718,11 +720,11 @@ int main() {
         // A gap longer than an hour between e4 and e5 opens the second block.
         auto blocks = VnScriptService::blocks(in.events); CHECK(blocks.size() == 2); CHECK(blocks[1].first == 4);
         CHECK(VnScriptService::blocks(in.events, 10000).size() == 1);
-        CHECK(VnScriptService::speakerLabel(in.events[0]) == "KP(Narrative)"); CHECK(VnScriptService::speakerLabel(in.events[2]) == "Mo(OOC)");
-        CHECK(VnScriptService::speakerLabel(in.events[3]) == "KP(as Old Tom)"); CHECK(VnScriptService::speakerLabel(in.events[1]) == "Mo");
+        CHECK(VnScriptService::speakerLabel(in.events[0]) == "GM(Narrative)"); CHECK(VnScriptService::speakerLabel(in.events[2]) == "Mo(OOC)");
+        CHECK(VnScriptService::speakerLabel(in.events[3]) == "GM(as Old Tom)"); CHECK(VnScriptService::speakerLabel(in.events[1]) == "Mo");
         auto t = VnScriptService::transcript(in, 0, 4, Json::Value(Json::arrayValue));
         CHECK(t.find("Era: 1920s Arkham") != std::string::npos); CHECK(t.find("C1 \"Ada\" mode=generated subtitles=[IDLE] prompt=\"red-haired") != std::string::npos);
-        CHECK(t.find("## Window: Main table") != std::string::npos); CHECK(t.find("[L1] KP(Narrative)(22:13): Fog rolls over the harbour.") != std::string::npos);
+        CHECK(t.find("## Window: Main table") != std::string::npos); CHECK(t.find("[L1] GM(Narrative)(22:13): Fog rolls over the harbour.") != std::string::npos);
         CHECK(t.find("[L3] Mo(OOC)(22:14): brb") != std::string::npos); CHECK(t.find("[L5]") == std::string::npos);
         // Mock answer: SAY/IDLE portraits, a background to generate, OOC left out.
         auto flat = VnScriptService::mockFlat(in, 0, in.events.size());
@@ -926,7 +928,7 @@ int main() {
         CHECK(fit2["scenes"][1]["background_asset_id"] == "bg-cellar"); CHECK(fit2["scenes"][1]["key"] == "cellar-2");
         CHECK(fit2["asset_needs"].size() == 2); CHECK(fit2["asset_needs"][0]["scene_key"] == "pier"); CHECK(fit2["asset_needs"][1]["kind"] == "standee");
     });
-    test("scenario detection fires only on Keeper time or place shifts with enough history; summaries use only the log", [] {
+    test("scenario detection fires only on GM time or place shifts with enough history; summaries use only the log", [] {
         Json::Value ctx; ctx["current"]["event_count"] = 10; ctx["current"]["manual_move"] = false;
         auto ev = [](const char* id, const char* role, const char* content) { Json::Value e; e["event_id"] = id; e["kind"] = "message.posted"; e["actor_role"] = role; e["content"] = content; return e; };
         ctx["new_events"].append(ev("e1", "player", "Later we should check the docks.")); ctx["new_events"].append(ev("e2", "gm", "Dunmore keeps talking about the ledger."));
@@ -1016,7 +1018,7 @@ int main() {
         int sheriff = -1, lighthouse = -1; for (int k = 0; k < (int)flow.size(); ++k) { if (flow[k].find("Sheriff") != std::string::npos) sheriff = k; if (flow[k] == "The Lighthouse") lighthouse = k; }
         CHECK(sheriff >= 0 && lighthouse > sheriff);                                        // script order is kept
         auto terms = ScriptKnowledgeService::titleTerms("Chapter 2: The Lighthouse"); CHECK(terms.size() == 1 && terms[0] == "lighthouse");
-        // Play: the Keeper's narration reaches the lighthouse; a player's guess moves nothing.
+        // Play: the GM's narration reaches the lighthouse; a player's guess moves nothing.
         Json::Value k(Json::arrayValue); int id = 0;
         for (auto& e : built["entries"]) { Json::Value x; x["id"] = "k" + std::to_string(id++); x["kind"] = e["kind"]; x["title"] = e["title"]; x["status"] = "pending"; x["position"] = e.isMember("position") ? e["position"] : Json::Value(0); k.append(x); }
         Json::Value pctx; pctx["knowledge"] = k;
@@ -1028,15 +1030,15 @@ int main() {
         Json::Value flowChange; for (auto& c : changes) { CHECK(c["op"] == "status"); CHECK(c["evidence"][0]["event_id"] == "e2"); for (auto& e : k) if (e["id"] == c["knowledge_id"] && e["kind"] == "flow") flowChange = c; }
         CHECK(!flowChange.isNull() && flowChange["status"] == "active");
         CHECK(narr["content"].asString().find(flowChange["evidence"][0]["text"].asString()) != std::string::npos);   // evidence is verbatim
-        // The reviewer: approves the verified change, rejects a misquote, an illegal transition and a Keeper-edited update.
+        // The reviewer: approves the verified change, rejects a misquote, an illegal transition and a GM-edited update.
         Json::Value entry; for (auto& e : k) if (e["id"] == flowChange["knowledge_id"]) entry = e;
         Json::Value rctx; rctx["change"] = flowChange; rctx["entry"] = entry; Json::Value line; line["event_id"] = "e2"; line["content"] = narr["content"]; rctx["evidence_lines"].append(line);
         CHECK(ScriptKnowledgeService::mockReview(rctx)["verdict"] == "approved");
         Json::Value bad = rctx; bad["change"]["evidence"][0]["text"] = "The Lighthouse rises ahead, a GOLDEN tower"; CHECK(ScriptKnowledgeService::mockReview(bad)["verdict"] == "rejected");
         Json::Value done = rctx; done["entry"]["status"] = "done"; CHECK(ScriptKnowledgeService::mockReview(done)["verdict"] == "rejected");
-        Json::Value upd = rctx; upd["change"]["op"] = "update"; upd["change"]["body"] = "x"; upd["entry"]["gm_edited"] = true; CHECK(ScriptKnowledgeService::mockReview(upd)["reason"].asString().find("Keeper-edited") != std::string::npos);
+        Json::Value upd = rctx; upd["change"]["op"] = "update"; upd["change"]["body"] = "x"; upd["entry"]["gm_edited"] = true; CHECK(ScriptKnowledgeService::mockReview(upd)["reason"].asString().find("GM-edited") != std::string::npos);
         Json::Value unrelated = rctx; unrelated["entry"]["title"] = "The Quarry"; CHECK(ScriptKnowledgeService::mockReview(unrelated)["verdict"] == "rejected");
-        // Keeper reminders: a pending clue the newest narration touches is "needed", with a script reference.
+        // GM reminders: a pending clue the newest narration touches is "needed", with a script reference.
         Json::Value rem; rem["knowledge"] = k; rem["existing_titles"] = Json::Value(Json::arrayValue); rem["current_log"] = Json::Value(Json::arrayValue); rem["previous_tail"] = Json::Value(Json::arrayValue);
         Json::Value n2; n2["event_id"] = "e3"; n2["actor_role"] = "gm"; n2["character_name"] = ""; n2["content"] = "Dust covers a desk. Something like a diary lies under a loose board."; rem["new_events"].append(n2);
         auto plan = ReminderService::mockPlanKp(rem);

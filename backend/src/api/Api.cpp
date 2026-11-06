@@ -245,7 +245,7 @@ void ai2(const std::string& path, std::vector<drogon::internal::HttpConstraint> 
     app().registerHandler(path, [fn](const HttpRequestPtr& req, Cb&& cb, std::string a, std::string b) { offload(req, std::move(cb), {a, b}, fn); }, m);
 }
 ChannelAccess access(const Principal& p, const std::string& channelId) { return services().auth->channelAccess(p.userId, channelId); }
-// The Log Studio, when the server maintainer has not turned it off: before the story ends, the Keeper decides whether
+// The Log Studio, when the server maintainer has not turned it off: before the story ends, the GM decides whether
 // it is shown at all and whether players may open it; once the story has ended it opens to every member, so that
 // everyone can read the whole story.
 ChannelAccess studioAccess(const Principal& p, const std::string& channelId) {
@@ -254,8 +254,8 @@ ChannelAccess studioAccess(const Principal& p, const std::string& channelId) {
     auto row = services().db->queryOne("SELECT studio_visible, studio_player_access, story_status FROM channels WHERE id=$1", {a.channelId});
     if (row.isNull()) throw notFound("channel not found");
     if (row["story_status"].asString() == "ended") return a;
-    if (!row["studio_visible"].asBool()) throw ApiError(403, "studio_hidden", "The Keeper has hidden the Log Studio in this channel");
-    if (!a.isGm && !row["studio_player_access"].asBool()) throw ApiError(403, "studio_locked", "The Keeper opens the Log Studio to players when the story ends");
+    if (!row["studio_visible"].asBool()) throw ApiError(403, "studio_hidden", "The GM has hidden the Log Studio in this channel");
+    if (!a.isGm && !row["studio_player_access"].asBool()) throw ApiError(403, "studio_locked", "The GM opens the Log Studio to players when the story ends");
     return a;
 }
 Json::Value ok() { Json::Value v; v["ok"] = true; return v; }
@@ -464,7 +464,7 @@ void registerRoutes() {
     route2("/api/channels/{1}/entries/{2}/related", {Get}, [&](auto&, auto& p, auto& a) { return S.documents->relatedEntries(access(p, a[0]), a[1]); });
     // ---- the living world record (the caller's memory partition) ----
     route1("/api/channels/{1}/world", {Get}, [&](auto&, auto& p, auto& a) { return S.documents->world(access(p, a[0])); });
-    // A Keeper declaration about the world, often off-screen: a GM-only event (no chat message) that the Keeper's
+    // A GM declaration about the world, often off-screen: a GM-only event (no chat message) that the GM's
     // observer treats as authoritative. Player groups never read it. ?observe=true runs the observer like observe-now.
     ai1("/api/channels/{1}/world/declare", {Post}, [&](auto& req, auto& p, auto& a) {
         auto ac = access(p, a[0]); S.auth->requireGm(ac);
@@ -498,7 +498,7 @@ void registerRoutes() {
     route1("/api/channels/{1}/reminders", {Get}, [&](auto&, auto& p, auto& a) { return S.reminders->list(access(p, a[0])); });
     route2("/api/channels/{1}/reminders/{2}/dismiss", {Post}, [&](auto&, auto& p, auto& a) { return S.reminders->dismiss(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/reminders/{2}/context", {Get}, [&](auto& req, auto& p, auto& a) { return S.reminders->context(access(p, a[0]), a[1], qint(req, "limit", 30)); });
-    // ---- Keeper script knowledge and the pinned board ----
+    // ---- GM script knowledge and the pinned board ----
     route1("/api/channels/{1}/script-knowledge", {Get}, [&](auto& req, auto& p, auto& a) { return S.script->list(access(p, a[0]), req->getParameter("kind")); });
     ai1("/api/channels/{1}/script-knowledge/rebuild", {Post}, [&](auto& req, auto& p, auto& a) { return S.script->rebuild(access(p, a[0]), json::str(body(req), "module_id"), json::toBool(body(req),"async",false)); }, true);
     route1("/api/channels/{1}/script-knowledge/builds", {Get}, [&](auto&, auto& p, auto& a) { return S.script->builds(access(p,a[0])); });
@@ -531,7 +531,7 @@ void registerRoutes() {
     ai1("/api/channels/{1}/inspiration", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "inspiration"); S.chat->requireChannelAi(ac, "inspiration_enabled"); return S.inspiration->draft(ac, json::str(b, "chat_window_id"), json::str(b, "character_id"), json::str(b, "hint"), json::toInt(b, "variant", 0)); });
 
     // ---- AI observer admin ----
-    // Members see the channel's AI mode; the observer's cursors (group keys, private window ids) stay with the Keeper.
+    // Members see the channel's AI mode; the observer's cursors (group keys, private window ids) stay with the GM.
     route1("/api/channels/{1}/ai/status", {Get}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); Json::Value s; if (ac.isGm) { s = S.observer->status(); s["cursors"] = S.db->queryJson("SELECT kind, group_key, last_seq, updated_at FROM ai_processing_cursors WHERE channel_id=$1", {a[0]}); } s["llm"] = S.llm->status(a[0]); return s; });
     route1("/api/channels/{1}/ai/jobs", {Get}, [&](auto& req, auto& p, auto& a) { auto ac = access(p, a[0]); S.auth->requireGm(ac); return S.observer->listJobs(a[0], qint(req, "limit", 30)); });
     ai1("/api/channels/{1}/ai/observe-now", {Post}, [&](auto&, auto& p, auto& a) { auto ac = access(p, a[0]); S.auth->requireGm(ac); Json::Value v; v["jobs"] = S.observer->observeChannel(a[0], true); return v; });
@@ -741,7 +741,7 @@ void registerRoutes() {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             auto ac = studioAccess(*pr, ch);
             // A clip id names one recording. A player was checked to be allowed to hear it, so theirs may be kept;
-            // the Keeper hears every line, GM-only ones too, so the Keeper's copy is never marked for keeping.
+            // the GM hears every line, GM-only ones too, so the GM's copy is never marked for keeping.
             std::string cc = ac.isGm ? "private, max-age=86400" : kKeep, etag = etagOf(id);
             std::string bytes, mime, direct; if (!S.tts->fetchAudio(ac, id, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "audio not found")); return; }
             if (!direct.empty()) { cb(toBucket(req, direct, !ac.isGm, "private, max-age=86400")); return; }

@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import type { Reminder } from '../types';
 import { sessionEpoch, isStale } from './session';
 
-// Reminder bubbles for the current channel. Players see their group's, the Keeper their own.
+// Reminder bubbles for the current channel. Players see their group's, the GM their own.
 interface ReminderState {
   list: Reminder[];
   openId: string | null;

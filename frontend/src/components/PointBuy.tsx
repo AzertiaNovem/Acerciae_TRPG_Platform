@@ -91,7 +91,7 @@ export default function PointBuy({ card, rules, editable, isKeeper, report, setC
         </div>
         {career && (
           <div className="col grow tiny">
-            <div><span className="pill">{tr('Credit Rating')} {career.credit ? `${career.credit[0]}–${career.credit[1]}` : tr('set with your Keeper')}</span> <span className="pill">{tr('Career points')} {formulaLabel(career, rules, lang)} = {budget}</span> <span className="pill">{tr('Hobby points')} INT×2 = {hobbyBudget}</span></div>
+            <div><span className="pill">{tr('Credit Rating')} {career.credit ? `${career.credit[0]}–${career.credit[1]}` : tr('set with your GM')}</span> <span className="pill">{tr('Career points')} {formulaLabel(career, rules, lang)} = {budget}</span> <span className="pill">{tr('Hobby points')} INT×2 = {hobbyBudget}</span></div>
             <div className="muted">{careerDescription(career, lang)}</div>
           </div>
         )}
@@ -126,7 +126,7 @@ export default function PointBuy({ card, rules, editable, isKeeper, report, setC
                 <td>{ok ? '★' : ''}</td>
                 <td title={label(key) !== key ? key : undefined}>{label(key)}{custom && editable && <button className="ghost small" title={tr('remove')} onClick={() => setCard((x) => { delete x.skill_points?.[key]; delete x.skills[key]; })}>×</button>}</td>
                 <td>{custom && editable ? <input inputMode="numeric" value={p?.base ?? 0} onChange={(e) => setPoints(key, { base: Math.min(99, num(e.target.value)) })} /> : baseOf(key, chars, rules, p?.base)}</td>
-                <td>{editable && !mythos && isKeeper ? <input inputMode="numeric" aria-label={tr('Growth points for {skill}', { skill: label(key) })} value={p?.growth ?? 0} onChange={(e) => setPoints(key, { growth: num(e.target.value) })} /> : <span title={tr('Growth comes from improvement checks; the Keeper records it.')}>{p?.growth ?? 0}</span>}</td>
+                <td>{editable && !mythos && isKeeper ? <input inputMode="numeric" aria-label={tr('Growth points for {skill}', { skill: label(key) })} value={p?.growth ?? 0} onChange={(e) => setPoints(key, { growth: num(e.target.value) })} /> : <span title={tr('Growth comes from improvement checks; the GM records it.')}>{p?.growth ?? 0}</span>}</td>
                 <td>{editable && ok && !mythos ? <input inputMode="numeric" value={p?.career ?? 0} onChange={(e) => setPoints(key, { career: num(e.target.value) })} /> : mythos ? '—' : p?.career ?? 0}</td>
                 <td>{editable && !mythos ? <input inputMode="numeric" value={p?.hobby ?? 0} onChange={(e) => setPoints(key, { hobby: num(e.target.value) })} /> : mythos ? '—' : p?.hobby ?? 0}</td>
                 <td className={total > 99 ? 'over' : ''}><b>{total}</b></td>

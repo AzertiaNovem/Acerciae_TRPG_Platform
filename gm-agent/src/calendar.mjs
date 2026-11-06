@@ -1,18 +1,20 @@
-// The story's calendar: what date it is in the fiction, so the Keeper, the planner and the co-players share one sense of
+// The story's calendar: what date it is in the fiction, so the GM, the planner and the co-players share one sense of
 // time (weekdays, seasons, "three days ago"). A date is always YYYY-MM-DD (a world with its own calendar numbers its
 // years and months the same way), shown with its weekday: "1923-10-02 (Tuesday)".
 //
 // The first date is the story planner's to choose, from the era, the World setting and the plots, with a time of day
 // that fits; a year outside the channel's era is moved into it. With it, the planner sets the `routine`: what everyday
 // life is busy with on that date, from the world's own calendar (the World setting may describe one: a school year, a
-// fishing season, holidays), and the routine events coming up. The routine is common knowledge: the Keeper and every
+// fishing season, holidays), and the routine events coming up. The routine is common knowledge: the GM and every
 // co-player read it.
 //
-// Afterwards the Keeper moves the date on as time passes in play (the `date` action, or `advance_days` on a scenario
+// Afterwards the GM moves the date on as time passes in play (the `date` action, or `advance_days` on a scenario
 // change), and the final review after a session moves it on between sessions. It never runs backwards. Each timeline
-// keeps its own time of day (timelines.mjs); the date is the campaign's. State key `calendar`.
+// keeps its own time of day (timelines.mjs); the date is the campaign's. State key `calendar`; each change in its log
+// says who made it (`by`: "operator", "planner", "final review", or "keeper" for the GM: the stored value is kept,
+// so older state files read the same; changedBy shows it as "GM").
 //
-// The Keeper is held to a pace (config `calendar`): after the date moves (by anyone), the Keeper may move it on again
+// The GM is held to a pace (config `calendar`): after the date moves (by anyone), the GM may move it on again
 // only once enough real time and enough player lines of play have passed, and never by more than a few days at once.
 // The time of day moves freely within the day. The operator and the final review are not held to it.
 
@@ -22,6 +24,8 @@ const LOG_KEPT = 12;
 const MAX_UPCOMING = 3;
 export const MAX_ADVANCE_DAYS = 3650;
 const clip = (s, n) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n) : t; };
+// Who made a change, as shown to the GM and the operator: the stored "keeper" reads "GM".
+export const changedBy = (by) => (by === "keeper" ? "GM" : String(by ?? ""));
 
 // A UTC date for "YYYY-MM-DD", or null (also for impossible dates such as 1925-02-30).
 export function parseIso(s) {
@@ -148,7 +152,7 @@ export function calendarPace(cal, { now = Date.now(), minMinutes = 0, minLines =
   return { ok: false, minutes, lines, wait: [minutes ? `${minutes} more min` : "", lines ? `${lines} more player line${lines === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ") };
 }
 
-// The pace line of the Keeper's Calendar section. Only two states (may move on now / not yet), so the section stays
+// The pace line of the GM's Calendar section. Only two states (may move on now / not yet), so the section stays
 // the same from turn to turn and the prompt cache holds.
 function paceLine(cal, pace, now) {
   if (!pace || !cal.date) return "";
@@ -174,10 +178,10 @@ export function describeRoutine(cal) {
   return `Everyday life now${stale}: ${r.text}${r.upcoming.length ? ` Coming up: ${r.upcoming.map((u) => `${u.what}${u.when ? ` (${u.when})` : ""}`).join("; ")}.` : ""}`;
 }
 
-// The Keeper's section (part C): today, everyday life, the pace ({minMinutes, minLines, maxDays}; none when not given),
+// The GM's section (part C): today, everyday life, the pace ({minMinutes, minLines, maxDays}; none when not given),
 // and the last few changes.
 export function renderCalendar(cal, { pace = null, now = Date.now() } = {}) {
-  const recent = cal.log.slice(-3).map((e) => `- ${e.from || "(no date)"} → ${e.to}${e.days ? ` (+${e.days} d)` : ""}, by ${e.by}${e.why ? `: ${e.why}` : ""}`);
+  const recent = cal.log.slice(-3).map((e) => `- ${e.from || "(no date)"} → ${e.to}${e.days ? ` (+${e.days} d)` : ""}, by ${changedBy(e.by)}${e.why ? `: ${e.why}` : ""}`);
   return [
     "## Calendar (the story's date, YYYY-MM-DD; keep to it: weekdays, seasons, how long ago things happened. Move it on with date when time passes; it never runs backwards)",
     `Today in the story: ${cal.date ? describeCalendar(cal) : `no date set yet (the story planner chooses the first one)${cal.time ? `; time of day: ${cal.time}` : ""}`}`,

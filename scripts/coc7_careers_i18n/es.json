@@ -1,7 +1,7 @@
 {
  "1": {
   "name": "Ocupación personalizada",
-  "description": "No más de 8 habilidades de ocupación. Introduce en los atributos de ocupación de la derecha el valor de la segunda característica de la ocupación (si se deja en blanco, se usa Educación) y fija tú mismo el Crédito inicial. Consulta a tu Guardián antes de usar una ocupación personalizada."
+  "description": "No más de 8 habilidades de ocupación. Introduce en los atributos de ocupación de la derecha el valor de la segunda característica de la ocupación (si se deja en blanco, se usa Educación) y fija tú mismo el Crédito inicial. Consulta a tu GM antes de usar una ocupación personalizada."
  },
  "2": {
   "name": "Contable",
@@ -157,7 +157,7 @@
  },
  "40": {
   "name": "Desprogramador (época moderna)",
-  "description": "Dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Conducir automóvil, Combatir (Pelea) o Armas de fuego, Historia, Ciencias ocultas, Psicología, Sigilo. ※ Con permiso del Guardián, Hipnosis puede sustituir a una de ellas."
+  "description": "Dos habilidades interpersonales (Encanto, Charlatanería, Intimidar o Persuasión), Conducir automóvil, Combatir (Pelea) o Armas de fuego, Historia, Ciencias ocultas, Psicología, Sigilo. ※ Con permiso del GM, Hipnosis puede sustituir a una de ellas."
  },
  "41": {
   "name": "Diseñador",
@@ -321,7 +321,7 @@
  },
  "81": {
   "name": "Ocultista",
-  "description": "Antropología, Historia, Buscar libros, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Ciencias ocultas, Otras lenguas, Ciencia (Astronomía), otra habilidad cualquiera como especialidad personal o de la época. ※ Con permiso del Guardián, puede incluir Mitos de Cthulhu."
+  "description": "Antropología, Historia, Buscar libros, una habilidad interpersonal (Encanto, Charlatanería, Intimidar o Persuasión), Ciencias ocultas, Otras lenguas, Ciencia (Astronomía), otra habilidad cualquiera como especialidad personal o de la época. ※ Con permiso del GM, puede incluir Mitos de Cthulhu."
  },
  "82": {
   "name": "Viajero",
@@ -653,7 +653,7 @@
  },
  "164": {
   "name": "Ichiko (médium ciega)",
-  "description": "Arte/Artesanía (Interpretación), Escuchar, Saber (sintoísmo), Ciencias ocultas, Historia, Charlatanería o Persuasión, Psicología, otra especialidad cualquiera. ※ Con el consentimiento del Guardián, la habilidad «Médium» puede sustituir a una habilidad elegida libremente."
+  "description": "Arte/Artesanía (Interpretación), Escuchar, Saber (sintoísmo), Ciencias ocultas, Historia, Charlatanería o Persuasión, Psicología, otra especialidad cualquiera. ※ Con el consentimiento del GM, la habilidad «Médium» puede sustituir a una habilidad elegida libremente."
  },
  "165": {
   "name": "Maestro del kotodama/onmyōji",

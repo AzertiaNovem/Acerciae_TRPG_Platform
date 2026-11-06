@@ -170,7 +170,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     apiBase: str(pick("api", "http://localhost:8080")).replace(/\/+$/, ""),
     username: str(pick("username", "")),
     password: str(pick("password", "")),
-    displayName: str(pick("display-name", "AI Keeper")),
+    displayName: str(pick("display-name", "AI GM")),
     register: bool(pick("register"), false),
     // The client never creates a server or channel unless asked (`setup --create`): it keeps one the account is GM of.
     create: bool(pick("create"), false),
@@ -178,8 +178,8 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     requestedPbta: args.rules === "pbta",
     serverId: str(pick("server", "")),
     channelId: str(pick("channel", "")),
-    serverName: str(pick("server-name", "AI Keeper's table")),
-    channelName: str(pick("channel-name", "A campaign with an AI Keeper")),
+    serverName: str(pick("server-name", "AI GM's table")),
+    channelName: str(pick("channel-name", "A campaign with an AI GM")),
     era: str(pick("era", "")),
     coplayersSpecified: pick("coplayers") != null,
     coplayers: Math.max(0, Math.min(8, int(pick("coplayers", 2), 2))),
@@ -215,7 +215,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     // Proactive timelines: the GM reports where investigators are; the table splits and reunites them.
     timelineAuto: bool(pick("timeline-auto"), true),
     // Scene forks: after the first split the main story moves to a restricted fork and the Main Chat becomes a public
-    // lobby the Keeper never narrates in (for several players who must not read each other's scenes). Off: the main
+    // lobby the GM never narrates in (for several players who must not read each other's scenes). Off: the main
     // story stays in the Main Chat with the players; only those who go elsewhere get a window (a single player is
     // always in the Main Chat; co-players move around them).
     sceneForks: bool(pick("scene-forks"), false),

@@ -5,8 +5,8 @@ import type { KpStageBrief } from '../types';
 
 const stage = (s: KpStageBrief | null | Record<string, never> | undefined): KpStageBrief | null => (s && 'id' in s && s.id ? (s as KpStageBrief) : null);
 
-// The two pinned Keeper cards, opened. "Next" reads the script's flow: the running stage, the stage planned
-// after it, what it needs, what the Keeper still holds. "Notes" gathers open threads, the timeline and the
+// The two pinned GM cards, opened. "Next" reads the script's flow: the running stage, the stage planned
+// after it, what it needs, what the GM still holds. "Notes" gathers open threads, the timeline and the
 // latest reviewed changes. Everything shown is data from the tables; only the summary sentence is phrased.
 export default function KpBoardViewer({ slot, onClose }: { slot: 'next' | 'notes'; onClose: () => void }) {
   const board = useKp((s) => s.board);
@@ -18,7 +18,7 @@ export default function KpBoardViewer({ slot, onClose }: { slot: 'next' | 'notes
     <div className="doc-viewer kp-board-viewer">
       <header>
         <span className="pill gm">{slot === 'next' ? tr('Next per the script') : tr('Notes')}</span>
-        <h3>{slot === 'next' ? (nx?.title ?? tr('What the script plans next')) : tr("Keeper's notes")}</h3>
+        <h3>{slot === 'next' ? (nx?.title ?? tr('What the script plans next')) : tr("GM's notes")}</h3>
         <button className="ghost small" onClick={() => { onClose(); setOpen(true); }} title={tr('Open the script knowledge in the GM workspace')}>{tr('Script ↗')}</button>
         <button className="ghost small" onClick={onClose}>✕</button>
       </header>
@@ -35,7 +35,7 @@ export default function KpBoardViewer({ slot, onClose }: { slot: 'next' | 'notes
                     <span className="tiny muted">{tr('Next')}</span>
                     <div className="small"><b>{nx.title}</b>{nx.data?.location && <span className="muted"> · {nx.data.location}</span>}</div>
                     {nx.body && <div className="small muted" style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{nx.body}</div>}
-                    {list(nx.data?.keeper_actions).length > 0 && <div style={{ marginTop: 6 }}><span className="tiny muted">{tr('What the Keeper does there')}</span><ul className="small kp-list">{list(nx.data?.keeper_actions).map((a: string, i: number) => <li key={i}>{a}</li>)}</ul></div>}
+                    {list(nx.data?.keeper_actions).length > 0 && <div style={{ marginTop: 6 }}><span className="tiny muted">{tr('What the GM does there')}</span><ul className="small kp-list">{list(nx.data?.keeper_actions).map((a: string, i: number) => <li key={i}>{a}</li>)}</ul></div>}
                     {list(nx.data?.prerequisites).length > 0 && <div><span className="tiny muted">{tr('Needs first')}</span><ul className="small kp-list">{list(nx.data?.prerequisites).map((a: string, i: number) => <li key={i}>{a}</li>)}</ul></div>}
                     {list(nx.data?.twists).length > 0 && <div><span className="tiny muted">{tr('Twists planted here')}</span><ul className="small kp-list">{list(nx.data?.twists).map((a: string, i: number) => <li key={i}>{a}</li>)}</ul></div>}
                     {nx.citation && <div className="cit">{tr('p.')}{nx.citation.page}: “{nx.citation.excerpt.slice(0, 160)}”</div>}

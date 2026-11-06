@@ -13,7 +13,7 @@ const rejects = async (p, status) => { try { await p; } catch (e) { assert.equal
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const waitFor = async (fn, ms = 20000) => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw Error("timeout"); await new Promise((r) => setTimeout(r, 400)); } };
 
-test("character space: role card mirrors into dice attributes, uploads and generated images attach, actors edit, others read, NPCs stay with the Keeper", async () => {
+test("character space: role card mirrors into dice attributes, uploads and generated images attach, actors edit, others read, NPCs stay with the GM", async () => {
   const s = Math.random().toString(36).slice(2); const u = {};
   for (const r of ["gm", "p1", "p2"]) u[r] = await call(null, "POST", "/api/auth/register", { username: r + s, password: "password", display_name: r });
   const gm = u.gm.token, p1 = u.p1.token, p2 = u.p2.token;
@@ -31,7 +31,7 @@ test("character space: role card mirrors into dice attributes, uploads and gener
   assert.equal(sp.character.editable, true); assert.equal(sp.character.role_card.skills["Spot Hidden"], 65); assert.equal(sp.character.bio, "A reporter who asks one question too many."); assert.equal(sp.era, "1925, Arkham");
   const attrs = await call(p1, "GET", `/api/channels/${ch}/characters/${ada.id}/attributes`);
   assert.equal(attrs.attrs["Spot Hidden"], 65); assert.ok(Object.entries(attrs.attrs).some(([k, v]) => k.toLowerCase() === "str" && v === 55));
-  // Another player reads but cannot edit; NPC spaces are the Keeper's.
+  // Another player reads but cannot edit; NPC spaces are the GM's.
   const seen = await call(p2, "GET", `/api/channels/${ch}/characters/${ada.id}/space`);
   assert.equal(seen.character.editable, false); assert.equal(seen.character.role_card.basic.occupation, "Journalist");
   await rejects(call(p2, "PUT", `/api/channels/${ch}/characters/${ada.id}/card`, { name: "Hijacked" }), 403);

@@ -45,7 +45,7 @@ test("a reply that is not JSON gets one repair round", async () => {
   assert.equal(llm.calls, 2);
 });
 
-test("improvisation: a co-player is written into the Keeper's world setting", async () => {
+test("improvisation: a co-player is written into the GM's world setting", async () => {
   const llm = new MockLlm();
   await generateCoplayer(llm, { language: "English", era: "1920s", rules: null, pointsMode: false, takenNames: [], partyNotes: "", index: 0, total: 1, world: "WORLD-GEN: Kingsport, 1923" });
   assert.ok(llm.calls[0].messages[0].content.includes("WORLD-GEN: Kingsport, 1923"));

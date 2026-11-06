@@ -234,7 +234,7 @@ int main() {
         auto r = S.documents->commit(p);
         CHECK(r.applied == 0); CHECK(r.rejected == 1);
     });
-    test("KP records are inaccessible to players; each group independently summarizes witnessed chat", [&] {
+    test("GM records are inaccessible to players; each group independently summarizes witnessed chat", [&] {
         for(const auto& viewer : {p1,p3}) {
             bool denied=false; try {S.documents->getDocument(viewer,clueDocId,"",-1);} catch(const ApiError& e){denied=e.status()==404;} CHECK(denied);
             denied=false; try {S.documents->listRevisions(viewer,clueDocId,10);} catch(const ApiError& e){denied=e.status()==404;} CHECK(denied);
@@ -352,7 +352,7 @@ int main() {
         std::string entryId, factId;
         for (auto& e : doc["entries"]) if (e["summary"].asString().find("silver locket") != std::string::npos && e["status"] == "confirmed") { entryId = e["id"].asString(); factId = e["fact_id"].asString(); }
         CHECK(!entryId.empty());
-        Json::Value body; body["status"] = "gm_secret"; body["summary"] = "The silver locket is the cult's key to the sea cave"; body["reason"] = "keeper only";
+        Json::Value body; body["status"] = "gm_secret"; body["summary"] = "The silver locket is the cult's key to the sea cave"; body["reason"] = "GM only";
         S.documents->gmCorrectEntry(gm, clueDocId, entryId, body);
         bool threw = false; try { S.documents->getEntry(p3, entryId); } catch (const ApiError& e) { threw = e.status() == 404; }
         CHECK(threw);
@@ -368,18 +368,18 @@ int main() {
         CHECK(!leaked);
         CHECK(S.knowledge->listFacts(p1, "", "Crowley", "", 10).empty());
     });
-    test("scenario system: campaign-wide; the observer only suggests, the Keeper opens the next scenario for every window, the old one closes and is summarized", [&] {
+    test("scenario system: campaign-wide; the observer only suggests, the GM opens the next scenario for every window, the old one closes and is summarized", [&] {
         for (int i = 0; i < 6; ++i) say(gmUser, mainWin, "The office clock ticks on; Dunmore shuffles another stack of papers (" + std::to_string(i) + ").", "narration");
         S.observer->observeChannel(channelId, true);
         auto before = S.db->queryOne("SELECT current_scene_id FROM channels WHERE id=$1", {channelId})["current_scene_id"].asString();
         CHECK(S.db->queryOne("SELECT active_scene_id FROM chat_windows WHERE id=$1", {splitWin})["active_scene_id"] == before);   // every window shares it
         auto boundary = say(gmUser, mainWin, "The next morning, you arrive at the Hale boarding house. Mrs. Hale opens the door.", "narration");
         S.observer->observeChannel(channelId, true);
-        // The observer does not move the story: the scenario is unchanged and the Keeper got a suggestion anchored to the line.
+        // The observer does not move the story: the scenario is unchanged and the GM got a suggestion anchored to the line.
         CHECK(S.db->queryOne("SELECT current_scene_id FROM channels WHERE id=$1", {channelId})["current_scene_id"] == before);
         bool suggested = false; for (auto& r : S.reminders->list(gm)) if (r["kind"] == "plan" && r["title"].asString().rfind("New scenario?", 0) == 0) { suggested = true; CHECK(r["citations"][0]["message_id"] == boundary["id"]); CHECK(r["title"].asString().find("Hale boarding house") != std::string::npos); }
         CHECK(suggested);
-        // The Keeper opens the next scenario: all windows move, the previous one closes and is summarized.
+        // The GM opens the next scenario: all windows move, the previous one closes and is summarized.
         Json::Value adv; adv["title"] = "Hale boarding house"; adv["location"] = "Hale boarding house"; adv["narrative_time"] = "The next morning";
         auto res = S.scenarios->advance(gm, adv);
         auto newScene = res["scene"]["id"].asString(); CHECK(newScene != before);
@@ -394,7 +394,7 @@ int main() {
         CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {after2["id"].asString()})["scene_id"] == newScene);
         CHECK(S.db->queryOne("SELECT scene_id FROM messages WHERE id=$1", {boundary["id"].asString()})["scene_id"] == before);
         bool refused = false; try { S.scenarios->enter(gm, before); } catch (const ApiError& e) { refused = e.status() == 409; } CHECK(refused);
-        // The Keeper sees summaries; players only get neutral labels. Chat can be located by scenario and by time.
+        // The GM sees summaries; players only get neutral labels. Chat can be located by scenario and by time.
         bool summarised = false; for (auto& s : S.scenes->list(gm)) if (s["id"] == before && !s["summary"].asString().empty()) summarised = true; CHECK(summarised);
         for (auto& s : S.scenes->list(p1)) CHECK(!s.isMember("summary"));
         auto aev = eventOf(after1["id"].asString());
@@ -404,11 +404,11 @@ int main() {
         bool anchored = false; for (auto& e : ctxLog["events"]) if (e["anchor"].asBool()) anchored = true; CHECK(anchored);
         CHECK(!S.retrieval->executeTool(p1, "list_scenarios", Json::Value(Json::objectValue)).empty());
         // A GM-edited summary is never overwritten by the model; an explicit regeneration replaces it.
-        Json::Value edit; edit["summary"] = "Keeper's own words."; S.scenes->update(gm, newScene, edit);
+        Json::Value edit; edit["summary"] = "GM's own words."; S.scenes->update(gm, newScene, edit);
         S.scenarios->summarize(gm, newScene);
-        Json::Value edit2; edit2["summary"] = "Keeper's final words."; S.scenes->update(gm, newScene, edit2);
+        Json::Value edit2; edit2["summary"] = "GM's final words."; S.scenes->update(gm, newScene, edit2);
         Json::Value adv2; adv2["title"] = "Manual stage"; adv2["location"] = "Lighthouse"; S.scenarios->advance(gm, adv2);
-        CHECK(S.db->queryOne("SELECT summary, summary_status FROM scenes WHERE id=$1", {newScene})["summary"] == "Keeper's final words.");
+        CHECK(S.db->queryOne("SELECT summary, summary_status FROM scenes WHERE id=$1", {newScene})["summary"] == "GM's final words.");
         // A prepared scenario can be entered; closing the current one without a successor opens a fresh one on the next line.
         Json::Value prep; prep["title"] = "Prepared: the chapel"; auto prepared = S.scenes->create(gm, prep);
         auto entered = S.scenarios->enter(gm, prepared["id"].asString());
@@ -422,7 +422,7 @@ int main() {
         say(gmUser, mainWin, "On the mantel you notice a tarnished badge; it bears a lantern sigil instead of the county seal.", "narration");
         for (int i = 0; i < 9; ++i) say(gmUser, mainWin, "The fire crackles and the rain keeps falling (" + std::to_string(i) + ").", "narration");
         S.observer->observeChannel(channelId, true);
-        Json::Value secret; secret["content"] = "KEEPER NOTE: the lantern sigil marks members of the Society."; secret["kind"] = "narration"; secret["visibility"] = "gm_only";
+        Json::Value secret; secret["content"] = "GM NOTE: the lantern sigil marks members of the Society."; secret["kind"] = "narration"; secret["visibility"] = "gm_only";
         auto secretMsg = S.chat->postMessage(gm, mainWin, secret);
         auto ask = say(p1User, mainWin, "Wait, that lantern sigil on the badge: does it match the one we saw at the docks?");
         S.observer->observeChannel(channelId, true);
@@ -442,11 +442,11 @@ int main() {
         auto ctx = S.reminders->context(p1, first, 20);
         bool cited = false; for (auto& e : ctx["events"]) if (e["cited"].asBool()) { cited = true; CHECK(!e["quotes"].empty()); }
         CHECK(cited); CHECK(json::dump(ctx).find("marks members of the Society") == std::string::npos);
-        // Another group neither lists nor opens it; the Keeper sees none of the players' bubbles in their own list.
+        // Another group neither lists nor opens it; the GM sees none of the players' bubbles in their own list.
         for (auto& r : S.reminders->list(p3)) CHECK(r["id"] != first);
         bool denied = false; try { S.reminders->context(p3, first, 20); } catch (const ApiError& e) { denied = e.status() == 404; } CHECK(denied);
         for (auto& r : S.reminders->list(gm)) CHECK(r["player_group_id"].isNull());
-        // Dismissal is per user and the knowledge prelude carries the group's story index, never KP text.
+        // Dismissal is per user and the knowledge prelude carries the group's story index, never GM text.
         S.reminders->dismiss(p1, first);
         for (auto& r : S.reminders->list(p1)) CHECK(r["id"] != first);
         auto prelude = S.retrieval->knowledgePrelude(p1);
@@ -502,7 +502,7 @@ int main() {
             return S.db->queryOne("INSERT INTO reminders(channel_id,player_group_id,scene_id,kind,title,why,citations,source_event_ids,dedupe_key,player_group_version) VALUES($1,$2::uuid,$3,'needed',$4,'Return it',$5::jsonb,$6::uuid[],$7,$8) RETURNING *", {channelId, view.isGm ? dbNull() : DbParam(view.playerGroupId), original["scene_id"].asString(), title, json::dump(citations), pgArrayLiteral({original["event_id"].asString()}), title, view.isGm ? dbNull() : DbParam((int64_t)view.playerGroupVersion)});
         };
         auto old = insert("Return amber compass", p1);
-        auto kp = insert("Keeper classified compass", gm);
+        auto kp = insert("GM classified compass", gm);
         auto other = insert("Other group compass", S.auth->channelAccess(p3User, channelId));
         auto row = [&](const Json::Value& r) { return S.db->queryOne("SELECT * FROM reminders WHERE id=$1", {r["id"].asString()}); };
         auto change = [&](const Json::Value& r, const std::string& action, const Json::Value& e) {
@@ -550,21 +550,21 @@ int main() {
         reset(); auto bad = change(stable, "resolve", next); bad["quotes"][0]["text"] = "The ledger was delivered."; fixture->plan["changes"].append(bad); run(next); CHECK(row(ledger) == stable);
         reset(); fixture->plan["changes"].append(change(stable, "resolve", original)); run(next); CHECK(row(ledger) == stable);
         reset(); bad = change(stable, "resolve", next); bad["expected_version"] = 1; fixture->plan["changes"].append(bad); run(next); CHECK(row(ledger) == stable);
-        auto secret = event("The blue ledger conceals the Keeper's private solution.", true);
+        auto secret = event("The blue ledger conceals the GM's private solution.", true);
         reset(); fixture->plan["changes"].append(change(stable, "resolve", secret)); run(next); CHECK(row(ledger) == stable);
         // Simulate a concurrent edit between model input and commit.
         reset(); fixture->plan["changes"].append(change(stable, "resolve", next));
         fixture->beforeReturn = [&] { S.db->exec("UPDATE reminders SET version=version+1 WHERE id=$1", {ledger["id"].asString()}); };
         run(next); fixture->beforeReturn = nullptr; CHECK(row(ledger)["status"] == "active");
         reset(); fixture->plan["changes"].append(change(row(old), "reactivate", next)); run(next); CHECK(row(old)["status"] == "resolved");
-        // The Keeper has the same lifecycle but never receives player reminder state.
+        // The GM has the same lifecycle but never receives player reminder state.
         reset(); fixture->plan["changes"].append(change(kp, "resolve", next)); result = run(next, true);
         CHECK(result["changed"].asInt() == 1); CHECK(row(kp)["status"] == "resolved");
         for (const auto& r : fixture->context["managed_reminders"]) CHECK(r["player_group_id"].isNull());
         CHECK(S.db->queryOne("SELECT count(*) AS n FROM reminder_revisions WHERE reminder_id=$1", {ledger["id"].asString()})["n"].asInt() == 3);
         CHECK(S.db->queryOne("SELECT payload->>'content' AS content FROM events WHERE id=$1", {original["event_id"].asString()})["content"] == original["content"]);
     });
-    test("script knowledge: built from the module, moved only by reviewed changes, pinned on the Keeper's board, Keeper-only", [&] {
+    test("script knowledge: built from the module, moved only by reviewed changes, pinned on the GM's board, GM-only", [&] {
         std::vector<std::string> pages = {
             "THE LANTERN SOCIETY\nA scenario for Call of Cthulhu set in Arkham, 1925.\n\nChapter 1: The Sheriff's Office\nThe investigators meet Sheriff Dunmore, who holds the only key to the lighthouse. He stalls them politely.\nNPC: Sheriff Dunmore\nA tired lawman who secretly belongs to the Lantern Society.\nItem: The Lighthouse Key\nAn iron key stamped with a lantern sigil.\nIf the investigators obtain the key they may enter the lighthouse at night.",
             "Chapter 2: The Lighthouse\nLocation: The Lighthouse\nA ruined tower on the cliffs north of town.\nHandout 1: The Keeper's Diary\nThe diary names the Society's members.\nTwist: The Sheriff's Betrayal\nSheriff Dunmore locks the investigators inside once they find the diary.\nSecret: What Really Happened\nThe Society drowned the lighthouse keeper in 1919.",
@@ -574,7 +574,7 @@ int main() {
         auto all = S.script->list(gm, "");
         std::map<std::string, int> byKind; for (auto& e : all) { byKind[e["kind"].asString()]++; CHECK(e["status"] == "pending"); CHECK(e["origin"] == "script"); CHECK(!e["citations"].empty() || !e["node_ids"].empty()); }
         CHECK(byKind["flow"] >= 3 && byKind["clue"] >= 2 && byKind["foreshadowing"] >= 1 && byKind["background"] >= 1 && byKind["relationship"] >= 1);
-        // Keeper-only: players get 403, their tools and prelude never carry it; the Keeper's prelude leads with it.
+        // GM-only: players get 403, their tools and prelude never carry it; the GM's prelude leads with it.
         bool denied = false; try { S.script->list(p1, ""); } catch (const ApiError& e) { denied = e.status() == 403; } CHECK(denied);
         for (auto& t : ContextRetrievalService::toolSpecs(false)) CHECK(t.name != "get_script_knowledge");
         CHECK(S.retrieval->knowledgePrelude(p1).find("Script flow") == std::string::npos);
@@ -591,7 +591,7 @@ int main() {
         }
         auto tool = S.retrieval->executeTool(gm, "get_script_knowledge", json::parse(R"({"kind":"flow"})")); CHECK(tool["entries"].size() == byKind["flow"]);
         auto b0 = S.script->board(gm); CHECK(b0["next"]["has_script"].asBool()); CHECK(b0["next"]["current"].empty()); CHECK(!json::str(b0["next"]["next"], "title").empty());
-        // Play. The Keeper narrates the first stage; a player's speculation about the lighthouse moves nothing.
+        // Play. The GM narrates the first stage; a player's speculation about the lighthouse moves nothing.
         say(gmUser, mainWin, "You step into the Sheriff's Office. Sheriff Dunmore looks up from his desk and stalls you politely.", "narration");
         say(p1User, mainWin, "I bet the Lighthouse is where the Society meets. Let's ask about the key.");
         S.observer->observeChannel(channelId, true);
@@ -608,14 +608,14 @@ int main() {
         auto b1 = S.script->board(gm);
         CHECK(json::str(b1["next"]["current"], "title").find("Sheriff") != std::string::npos); CHECK(b1["next"]["next"]["title"] == "The Lighthouse");
         CHECK(b1["next"]["summary"].asString().find("Next per the script: The Lighthouse") != std::string::npos); CHECK(b1["notes"].isMember("timeline") && b1["notes"].isMember("open_threads"));
-        // A Keeper edit is final and logged.
+        // A GM edit is final and logged.
         std::string keyId; for (auto& e : S.script->list(gm, "clue")) if (e["title"] == "The Lighthouse Key") keyId = e["id"].asString();
         CHECK(!keyId.empty());
         Json::Value edit; edit["status"] = "done"; edit["body"] = "Handed over by Dunmore after the bribe.";
         auto upd = S.script->update(gm, keyId, edit); CHECK(upd["gm_edited"].asBool() && upd["status"] == "done");
-        CHECK(S.script->changes(gm, 1)[0]["reviewer_reason"] == "Keeper edit");
+        CHECK(S.script->changes(gm, 1)[0]["reviewer_reason"] == "GM edit");
         // The party reaches the lighthouse: stage two active, stage one done. A player asks about the diary: the
-        // Keeper gets a reminder pointing at the unrevealed handout; the players' dock shows nothing of it.
+        // GM gets a reminder pointing at the unrevealed handout; the players' dock shows nothing of it.
         say(gmUser, mainWin, "Night. You climb the cliff path to the Lighthouse; the ruined tower groans in the wind.", "narration");
         say(p1User, mainWin, "Is there a diary anywhere in here? I search the desk.");
         S.observer->observeChannel(channelId, true);
@@ -627,7 +627,7 @@ int main() {
         CHECK(diary);
         for (auto& r : S.reminders->list(p1)) { CHECK(r["title"].asString().find("Diary") == std::string::npos); CHECK(r["script_refs"].empty()); }
         auto b2 = S.script->board(gm); CHECK(b2["next"]["current"]["title"] == "The Lighthouse"); CHECK(b2["next"]["next"]["title"] == "Dawn"); CHECK(b2["notes"]["stages_done"].size() == 1);
-        // Rebuilding from the module keeps the Keeper's edit and the play history.
+        // Rebuilding from the module keeps the GM's edit and the play history.
         S.script->rebuild(gm, "");
         bool kept = false; for (auto& e : S.script->list(gm, "clue")) if (e["id"].asString() == keyId) kept = e["gm_edited"].asBool() && e["status"] == "done";
         CHECK(kept);
@@ -768,7 +768,7 @@ int main() {
         S.chat->removeWindowMember(keeper,privateWin,p1User);one=S.auth->channelAccess(p1User,ch);CHECK(S.knowledge->listFacts(one,"","","",200).empty());
         observer.observeChannel(ch,true);CHECK(json::dump(S.knowledge->listFacts(one,"","","",200)).find("GROUP_ONE_ONLY")==std::string::npos);
         CHECK(S.knowledge->getFact(keeper,kpResult.touchedFactIds[0])["summary"]=="KP_FACT_CLASSIFIED_998");
-        // Public-mode invitation defaults to one group, without admitting the KP.
+        // Public-mode invitation defaults to one group, without admitting the GM.
         cb2["name"]="Shared default";cb2["knowledge_mode"]="public";auto sharedCh=S.chat->createChannel(gmP,server["id"].asString(),cb2)["id"].asString();auto sharedKeeper=S.auth->channelAccess(gmUser,sharedCh);
         S.chat->addChannelMember(sharedKeeper,p1User,"player");S.chat->addChannelMember(sharedKeeper,p2User,"player");
         CHECK(S.auth->channelAccess(p1User,sharedCh).playerGroupId==S.auth->channelAccess(p2User,sharedCh).playerGroupId);CHECK(sharedKeeper.playerGroupId.empty());
@@ -1160,7 +1160,7 @@ int main() {
         S.presentations->updateEvent(gm, pe["id"].asString(), edit);
         CHECK(S.db->queryOne("SELECT script_text FROM presentation_events WHERE id=$1", {pe["id"].asString()})["script_text"] == repeat("😀", 1000));
     });
-    test("world record: entity_state creates, updates, cites its batch, stays in its partition; Keeper state needs review", [&] {
+    test("world record: entity_state creates, updates, cites its batch, stays in its partition; GM state needs review", [&] {
         Json::Value cbw; cbw["name"] = "World record"; cbw["knowledge_mode"] = "isolated";
         auto ch = S.chat->createChannel(gmP, server["id"].asString(), cbw)["id"].asString();
         auto keeper = S.auth->channelAccess(gmUser, ch);
@@ -1197,7 +1197,7 @@ int main() {
         r = kpWorld(op("Constable Barnes", "", "undead", "", e2), {e2}); CHECK(r.rejected == 1);
         CHECK(find(S.documents->world(keeper), "Constable Barnes")["status"] == "dead");
 
-        // A Keeper declaration is authoritative: state_by gm, its facts confirmed (or gm_secret when secret).
+        // A GM declaration is authoritative: state_by gm, its facts confirmed (or gm_secret when secret).
         NewEvent d; d.channelId = ch; d.actorUserId = gmUser; d.actorRole = "gm"; d.kind = "gm.declared"; d.visibility = "gm_only";
         d.payload["content"] = "Doctor Mora is missing."; d.payload["secret"] = true;
         auto decl = S.events->append(d)["id"].asString();
@@ -1211,7 +1211,7 @@ int main() {
         fp.allowedSourceEventIds = {decl2}; fp.ops = Json::Value(Json::arrayValue);
         fo["fact"]["summary"] = "The harbour is closed"; fo["fact"]["source_event_ids"] = Json::Value(Json::arrayValue); fo["fact"]["source_event_ids"].append(decl2); fp.ops.append(fo);
         fr = S.documents->commit(fp); CHECK(fr.applied == 1); CHECK(fr.log[0]["status"] == "confirmed");   // gm.declared backs "confirmed"
-        // An AI change contradicting the Keeper's state waits for review; accepting it makes it the Keeper's.
+        // An AI change contradicting the GM's state waits for review; accepting it makes it the GM's.
         auto e3 = post(pl, "Doctor Mora is dead, I saw her body.", "ic");
         r = kpWorld(op("Doctor Mora", "", "dead", "", e3), {e3});
         CHECK(r.applied == 0); CHECK(r.pendingReview == 1);
@@ -1229,7 +1229,7 @@ int main() {
         CHECK(gr.applied == 1); CHECK(gr.log[0]["entity_id"] != barnes);
         auto groupBarnes = gr.log[0]["entity_id"].asString();
         CHECK(groupWorld(op("Doctor Mora", "npc", "missing", "", decl), {e1, decl}).rejected == 1);   // a declaration is never group evidence
-        CHECK(groupWorld(op(barnes, "", "missing", "", e1), {e1}).rejected == 1);                     // a Keeper entity is out of reach
+        CHECK(groupWorld(op(barnes, "", "missing", "", e1), {e1}).rejected == 1);                     // a GM entity is out of reach
         bool threw = false;
         try { S.db->exec("UPDATE entities SET location_entity_id=$2 WHERE id=$1", {barnes, groupBarnes}); } catch (const std::exception&) { threw = true; }
         CHECK(threw);
@@ -1255,7 +1255,7 @@ int main() {
         };
         auto mustFail = [&](const std::function<void()>& fn) { bool failed=false; try { fn(); } catch(const std::exception&) { failed=true; } CHECK(failed); };
         // Location is inserted first: the failing FK action can run before the owner's history is cascaded away.
-        auto location=entity("Dock",g1), owner=entity("Witness",g1), other=entity("Other group",g2), secret=entity("Keeper","");
+        auto location=entity("Dock",g1), owner=entity("Witness",g1), other=entity("Other group",g2), secret=entity("GM","");
         S.db->exec("UPDATE entities SET location_entity_id=$2 WHERE id=$1", {owner,location});
         history(owner,location,g1);
         mustFail([&] { history(owner,other,g1,2); });
@@ -1278,7 +1278,7 @@ int main() {
         S.db->exec("DELETE FROM entities WHERE id=$1",{place});
         CHECK(S.db->queryOne("SELECT location_entity_id FROM entity_state_history WHERE entity_id=$1",{survivor})["location_entity_id"].isNull());
         CHECK(S.db->queryOne("SELECT count(*) AS n FROM entity_state_history WHERE entity_id=$1",{survivor})["n"].asInt()==1);
-        // The same ordering is possible during channel deletion, including the Keeper partition.
+        // The same ordering is possible during channel deletion, including the GM partition.
         auto privatePlace=entity("Secret room",""), privateOwner=entity("Secret witness",""); history(privateOwner,privatePlace,"");
         S.db->exec("DELETE FROM channels WHERE id=$1",{ch});
         CHECK(S.db->queryOne("SELECT count(*) AS n FROM entity_state_history WHERE channel_id=$1",{ch})["n"].asInt()==0);

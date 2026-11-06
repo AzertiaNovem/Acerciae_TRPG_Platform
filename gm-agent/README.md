@@ -1,23 +1,24 @@
-# gm-agent — an AI Game Master for Acerciae
+# gm-agent — an AI GM for Acerciae
 
-A Node.js client that sits at an Acerciae table as the **Keeper**. It talks to the platform only through the public
-HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile apps use. It plays three kinds of role:
+A Node.js client that sits at an Acerciae table as the **GM** (Game master), in every rule system. It talks to the
+platform only through the public HTTP and WebSocket API (`docs/API.md`), the same contract the web and mobile apps
+use. It plays three kinds of role:
 
 | Role | On the platform | Who writes it | What its model is given |
 |---|---|---|---|
-| **GM (Keeper)** | the client's account, channel role `gm` | – | everything the Keeper may read (below) |
-| **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the Keeper by hand) | **the same context as the GM** |
-| **Story planner** | nothing on the platform | – | the Keeper's whole context plus the previous plan, in the background, with its own model |
-| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its CoC, D&D or PbtA role card** at setup (or the Keeper made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
+| **GM** | the client's account, channel role `gm` | – | everything the GM may read (below) |
+| **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the GM by hand) | **the same context as the GM** |
+| **Story planner** | nothing on the platform | – | the GM's whole context plus the previous plan, in the background, with its own model |
+| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its CoC, D&D or PbtA role card** at setup (or the GM made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
 Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
-platform they are PCs cast by the GM: player characters owned by the client's own (Keeper) account, so players see them
+platform they are PCs cast by the GM: player characters owned by the client's own (GM) account, so players see them
 in the character list and can read (not edit) their sheets, and Log Studio files their lines as investigators' lines.
-Every PC the Keeper account owns is a co-player: `setup` adopts the ones already in the channel (made by hand in the web
+Every PC the GM account owns is a co-player: `setup` adopts the ones already in the channel (made by hand in the web
 app, say) and generates only the missing ones. Inside this client co-players are separate from the real NPCs: they get
 different context, and the GM model is never allowed to speak for them.
 
-The platform's own AI never speaks in chat. It writes tips for the Keeper: the pinned board, reminder bubbles, script
+The platform's own AI never speaks in chat. It writes tips for the GM: the pinned board, reminder bubbles, script
 knowledge, documents, highlights and module hints. This client reads those tips for the GM and the real NPCs. Co-players
 never get them.
 
@@ -29,7 +30,7 @@ Copy `gm-host.example.yml` to `gm-host.yml`, create `channels/`, and copy the fi
 
 The shared file contains the platform address, account, state directory, LLM provider/endpoint/key, optional planner connection and channel list. Keep it private (`chmod 600 gm-host.yml`). Passwords and keys can instead come from `.env` (`GM_PASSWORD`, `LLM_API_KEY`/`ANTHROPIC_API_KEY`, `PLANNER_API_KEY`). The shared file takes precedence. Never commit real credentials. Channel files cannot override credentials, provider or endpoint; they can select a model, effort, token budgets, language, co-player count, calendar pacing, autonomy, scene strategies and modes using the existing configuration keys. Each channel has its own daily token budget; there is no combined provider spending cap.
 
-At startup the host prepares each enabled channel independently, adopts existing co-players, creates any missing requested co-players and applies explicit world/casual settings. PbtA waits for its rule review without delaying other channels. A failed worker stays failed until explicitly started or restarted; it does not terminate its peers or repeatedly retry a broken configuration. `enabled: false` prevents automatic startup but still lists the channel in the UI. A second host using the same state directory is refused.
+At startup the host prepares each enabled channel independently, adopts existing co-players, creates any missing requested co-players and applies explicit world/casual settings. PbtA waits for its rule review without delaying other channels. A failed worker stays failed until explicitly started or restarted; it does not terminate its peers or repeatedly retry a broken configuration. `enabled: false` prevents automatic startup but still lists the channel in the UI. A second host using the same state directory is refused. For an established CoC/D&D table being migrated, set `prepare_on_start: false` on its shared channel entry to attach without generating or completing cards or reapplying setup modes; existing state remains authoritative. PbtA still performs its required review checks.
 
 Set `webui.enabled: true` in the shared file and supply a random `webui.token` of at least 24 characters (for example `openssl rand -hex 24`). The UI defaults to `http://127.0.0.1:8787`. Enter the token in its login field; it stays in page memory and is never put into the URL. The UI lists channel status, starts/stops/restarts individual channels and edits their YAML. Save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active. Stopped channels stay stopped. Unsaved edits are not replaced by status refreshes. Shared credentials are never returned to the browser. To change shared connections, the channel registry or the UI listener, edit the shared file and restart the host. Changes made directly to channel files take effect on the next channel restart.
 
@@ -58,13 +59,13 @@ node src/cli.mjs run --channel <CHANNEL_ID>
 
 The first setup prints the channel ID and exits before creating the cast. Edit the proposed moves, save a draft to return later, then choose **Activate draft** or **Keep current rules**. Retry design in the workspace and rerun setup if the local agent was interrupted. Use the same state directory when repeating `--create`. With the channel ID you can always resume using `setup --channel <CHANNEL_ID>`. An attached PbtA table with play history or a custom pack uses its existing rules. Without a public world, a new PbtA table starts with the platform starter. Only the public world file is sent to the rules designer.
 
-The MC can invoke a triggered move for the speaking player, with a reference to their declaration. The platform rolls or returns the diceless instructions. For a player choice the MC asks in the same window and waits for their answer. Required choices may be marked for each outcome in the rule editor. When the cost is known the MC records the old and new resource or condition values on the card and cites the ruling in chat. Conflicting edits require manual reconciliation. Keep private sessions in their own window. Co-players see their own playbook and witnessed chat. GM reference moves stay in the MC context.
+The GM can invoke a triggered move for the speaking player, with a reference to their declaration. The platform rolls or returns the diceless instructions. For a player choice the GM asks in the same window and waits for their answer. Required choices may be marked for each outcome in the rule editor. When the cost is known the GM records the old and new resource or condition values on the card and cites the ruling in chat. Conflicting edits require manual reconciliation. Keep private sessions in their own window. Co-players see their own playbook and witnessed chat. GM reference moves stay in the GM context.
 
 ## What each role sees
 
 **GM and real NPCs** (one shared context, built per turn by `src/context/gmContext.mjs`):
 
-- every line in every chat window, including Keeper-only notes, whispers and hidden rolls (older history as compacted
+- every line in every chat window, including GM-only notes, whispers and hidden rolls (older history as compacted
   chapters; see "Long campaigns");
 - the cast: every player character and co-player with its basic details (occupation, age, gender, residence,
   birthplace), its most distinctive traits, bio and background from its role card, and each real NPC with its gender,
@@ -78,13 +79,13 @@ The MC can invoke a triggered move for the speaking player, with a reference to 
   - `/highlights` and `/modules/hints`
   - live `reminder.created` and `highlight.created` pushes on `/ws/context`.
 
-**Each co-player** (`src/context/coplayerContext.mjs`). The client signs in as the Keeper, who can read every line, so
+**Each co-player** (`src/context/coplayerContext.mjs`). The client signs in as the GM, who can read every line, so
 it applies the platform's player filter itself. A co-player gets only:
 
 - lines in the windows it sits in (the Main Chat by default);
 - lines with `window` visibility, and whispers addressed to its own character.
 
-It never gets `gm_only` lines (Keeper notes, hidden roll results), whispers to anyone else, other windows, or any
+It never gets `gm_only` lines (GM notes, hidden roll results), whispers to anyone else, other windows, or any
 platform AI tip.
 
 Besides the log, its prompt holds:
@@ -108,7 +109,7 @@ characteristic and skill numbers.
 
 The client keeps its own data store: one SQLite file per channel, `STATE_DIR/<channel>.db`, built into Node (no extra
 package). It holds:
-- a local copy of the chat as the Keeper reads it, fetched once, with any gap filled after the table was down;
+- a local copy of the chat as the GM reads it, fetched once, with any gap filled after the table was down;
 - compacted chapters;
 - the token usage of every model call.
 
@@ -126,18 +127,18 @@ lines.
   moments. When a window's chapters pass about 25% of the budget, the oldest half merge into one. A scene that ends
   (a thread merged) becomes a chapter whole.
 - **Each co-player** (`context.coplayer_tokens`, default 24,000) has its own memory in the same way. Its chapters are
-  written in the first person, only from the lines it witnessed. They never include Keeper notes, others' whispers or
+  written in the first person, only from the lines it witnessed. They never include GM notes, others' whispers or
   another timeline's lines, and no one else reads them.
-- **Keeper documents** keep their newest entries when they are too long; a note says how many older ones were left
+- **GM documents** keep their newest entries when they are too long; a note says how many older ones were left
   out. Their full versions stay in the local document cache, so older entries can still be found without fetching
   the document again. A version change or platform update invalidates the cache; failed fetches are retried.
 
 **Relevant earlier evidence.** Before a turn, the client searches locally for Chinese/English terms from the recent
-conversation in older chat lines and omitted Keeper document entries. It adds a few source-labelled excerpts after
+conversation in older chat lines and omitted GM document entries. It adds a few source-labelled excerpts after
 the cached context. This can recover names, clues and promises lost from a summary, without an extra model or
 embedding call. Earlier excerpts are explicitly historical; current state and recent corrections take precedence.
 Co-players search only the lines they witnessed, after the existing window, timeline and whisper filters. They
-never search Keeper documents or another character's private history.
+never search GM documents or another character's private history.
 
 `context.recall_tokens` defaults to 1,200 approximate tokens per turn, additionally capped at 5% of that role's
 context budget (maximum setting 4,000; `0` disables it). That allowance is reserved from the raw-history limit.
@@ -151,7 +152,7 @@ Compaction runs beside the turns, so a turn never waits for it.
 1. The fixed rules.
 2. Parts that change rarely: campaign, world setting, cast, scenarios, chapters.
 3. This window's older lines, in separate frozen blocks of 50. Appending a block leaves earlier blocks byte-identical.
-4. Parts that change every few turns: hidden truths, timelines, Keeper board and documents.
+4. Parts that change every few turns: hidden truths, timelines, GM board and documents.
 5. This turn's details: relevant earlier excerpts, the scenario's event count, reminders, tips, the newest lines, the instruction. These come last
    and are never cached.
 
@@ -209,15 +210,15 @@ The client works with it in three ways:
 - **Reading it.** The GM and real NPCs get it as "The world now" in their context.
 - **Declaring changes.** When the world moves on where play does not show it (off-screen, between visits, while the
   investigators are elsewhere), the GM records the change with a `world_change` action. A secret declaration stays
-  Keeper-only. Declarations never appear in chat.
-- **Improvisation mode.** The world setting and the Keeper's secrets are handed to the record once per version of the
+  GM-only. Declarations never appear in chat.
+- **Improvisation mode.** The world setting and the GM's secrets are handed to the record once per version of the
   text, so the observer knows the places, groups and people from the start. Hidden truths the GM decides are declared
-  as secrets too, so a human Keeper sees them in the web app.
+  as secrets too, so a human GM sees them in the web app.
 
 Co-players never read the record. They know only what their characters witnessed and the public world setting. A
 platform without the record (404) is noted once, and the table carries on with its own notes.
 
-The Keeper and planner favour a small recurring NPC cast and relationships that develop over multiple scenes and
+The GM and planner favour a small recurring NPC cast and relationships that develop over multiple scenes and
 sessions. They consult existing people and bonds before introducing someone new, follow through on promises and
 shared experiences, and let peripheral NPCs stay off-screen. The planner's critique/revision explicitly checks for
 unnecessary newcomers and neglected relationships. This is guidance, not a hard NPC quota: new people remain
@@ -229,13 +230,13 @@ new character, or reuses the existing character when that name is already in the
 ## How a turn runs
 
 1. A real person posts a line in a window. After `pacing.debounce_ms` of quiet, one turn starts.
-2. **The GM's move** (`src/director.mjs`). One model call with the GM context returns the Keeper's actions:
+2. **The GM's move** (`src/director.mjs`). One model call with the GM context returns the GM's actions:
 
    | Action | What happens |
    |---|---|
    | `narrate` | posts narration |
    | `npc` | a line from a real NPC |
-   | `world_change` | a change to the world the chat does not show, recorded by the platform's world record (`secret` keeps it Keeper-only) |
+   | `world_change` | a change to the world the chat does not show, recorded by the platform's world record (`secret` keeps it GM-only) |
    | `truth` | improvisation mode: a hidden fact the GM just decided, kept for later turns and declared as a secret |
    | `text` | casual mode: a real NPC texts a player character's phone |
    | `planner_note` | a word for the story planner: what the players did that changed the plan, or that the beat is done |
@@ -244,9 +245,9 @@ new character, or reuses the existing character when that name is already in the
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
    | `whisper` | posts a whisper to one character |
    | `request_roll` | asks a player to roll (`.ra Spot Hidden`; in D&D `.rc Stealth dc 15`); for the client's own characters, the platform rolls against their sheet |
-   | `dice` | D&D only: a dice command run as the DM account itself: `.ri +2 Goblin` (a monster's initiative), `.init next`, `.init del <name>`, `.init clr`, `.r 1d8+3` |
-   | `note` | posts a Keeper-only line |
-   | `timeline` | records a thread's narrative time, place, span and the Keeper's private notes |
+   | `dice` | D&D only: a dice command run as the GM account itself: `.ri +2 Goblin` (a monster's initiative), `.init next`, `.init del <name>`, `.init clr`, `.r 1d8+3` |
+   | `note` | posts a GM-only line |
+   | `timeline` | records a thread's narrative time, place, span and the GM's private notes |
    | `advance_scenario`, `enter_scenario` | opens the next scenario, or enters a prepared one (see below) |
 
    The same call says whether co-players may act now, and reports **whereabouts**: who is now where (see
@@ -254,12 +255,12 @@ new character, or reuses the existing character when that name is already in the
 3. **Co-players' moves** (`src/coplayer.mjs`). Each co-player seated in the window gets its own model call with its
    own context. It speaks (in character or out of character), rolls (`.ra`, `.rc`, `.r` or `.sc`; in D&D `.rc`, `.ri`,
    `.ds`, `.ss` or `.r`, rolled by the platform's dice against its own sheet), or passes.
-4. **The Keeper answers the co-players at once.** If any co-player acted, a follow-up GM round runs in the same turn,
+4. **The GM answers the co-players at once.** If any co-player acted, a follow-up GM round runs in the same turn,
    so a co-player's choice gets its consequence now, not at the next human line. The GM prompt says every player,
    co-players included, needs an immediate response that propels the story.
 5. At most `pacing.max_actions_per_turn` lines are posted per turn. Lines the client posted never start a turn by themselves.
 
-The client never decides memory proposals; those stay with the human Keeper in the web app.
+The client never decides memory proposals; those stay with the human GM in the web app.
 
 ## Timelines and autonomy
 
@@ -273,7 +274,7 @@ every other thread has a window of its own, a persistent handle (`T1`, `T2`, …
 time and a **span**: *short* when the party is briefly apart (two rooms of one house), *long* when it is far apart (two
 cities).
 
-Each Keeper round may report **whereabouts**: who is now where, and whether a group is out of reach of the others and
+Each GM round may report **whereabouts**: who is now where, and whether a group is out of reach of the others and
 can explore on its own. The client decides what that means (`src/whereabouts.mjs`, a pure, tested planner), in one of
 two ways, chosen with `timelines.scene_forks` (`--scene-forks`):
 
@@ -297,7 +298,7 @@ in the Main Chat, and the co-players move around them.
 - Going where you already are is no move; going to another thread's place joins that thread.
 
 **Scene forks (`scene_forks: true`; for several players who must not read each other's scenes).** The main timeline
-moves to its own restricted window on the first split, and the Main Chat becomes a public lobby the Keeper never
+moves to its own restricted window on the first split, and the Main Chat becomes a public lobby the GM never
 narrates in.
 
 - A split creates restricted forks for both the departing party and any party still playing in Main Chat. The
@@ -323,7 +324,7 @@ The rules that keep this safe:
 - A player can correct a misplaced companion in the scene chat or the planner window. Once the correction
   identifies the character and thread, the agent updates the actual seat before answering and bypasses the
   ordinary move cooldown. Players can also correct their own character.
-- **Already together is not a new movement request.** Before and after a normal Keeper round, an independent
+- **Already together is not a new movement request.** Before and after a normal GM round, an independent
   presence reader compares up to forty recent public play lines per occupied thread. It recognises established
   arrivals from character actions and published narration, including contextual room names and stale window
   labels. If two investigators have separately arrived in room 507, their actual timeline and co-player seats
@@ -331,7 +332,7 @@ The rules that keep this safe:
   confirming line from both scenes in the agent log. Newer messages invalidate an in-flight result. The next
   response uses the corrected cast; it does not narrate the arrival a second time.
   Intentions, washroom errands still in progress, different rooms in the same building and incompatible story
-  times are distinguished from current co-presence. The reader sees no whispers, Keeper-only notes or planner
+  times are distinguished from current co-presence. The reader sees no whispers, GM-only notes or planner
   secrets, and copies none of another thread's history into the reunion window. Window membership intervals and
   player-group access still apply. These checks use the configured LLM; the offline provider reports
   no inferred reunion unless a test supplies a fixture. Shared journeys through intermediate corridors or lobbies
@@ -382,7 +383,7 @@ node src/cli.mjs status --channel <id>                                # read-onl
 Scenarios are the platform's story stages, for the whole campaign: opening the next one moves every window there and
 closes and summarises the old one. The GM model opens it (`advance_scenario`) or enters a prepared one
 (`enter_scenario`) when the story as a whole moves on: a jump in time, the party reaching a new place for good, a module
-stage done, or the platform's own "New scenario?" reminder. The client refuses, with a Keeper-only note saying why,
+stage done, or the platform's own "New scenario?" reminder. The client refuses, with a GM-only note saying why,
 unless:
 
 - the turn is in the primary story window (`T0`: the Main Chat, or its fork with scene forks), never in a side thread or the public lobby;
@@ -450,11 +451,11 @@ event has run its course.
   lines of it, and prepares the next one. It is bolder than a plan made during play: in a casual game it moves the
   calendar on (up to `planner.final_review_max_days`; one day when it does not say) and sets the routine for the new
   date; it records what the world did meanwhile in the world record (improvisation mode only; secret when the
-  investigators would not know it), and writes how the next session should open. The Keeper gets a Keeper-only note;
+  investigators would not know it), and writes how the next session should open. The GM gets a GM-only note;
   the first GM turn of the next session is told how many days passed, what happened off-screen and how to open. Ctrl-C
   on `run` waits for the review; a second Ctrl-C skips it.
 - **It reviews itself.** One run is three calls in one conversation, so the big context is cached once: a draft; a
-  critique by "a second Keeper, a harsh script editor who did not write this" (what is boring, implausible or contradicts
+  critique by "a second GM, a harsh script editor who did not write this" (what is boring, implausible or contradicts
   the world and the truths, which threads are stale or should be merged, whether the beat is done, whether the verdict
   is honest); and a revision that must fix every fault. The critique is kept with the plan.
 - **It dares.** In improvisation mode it invents original plots, weaves several into one situation and raises the
@@ -464,7 +465,7 @@ event has run its course.
   quotes a secret or a truth, or talks about the game itself, is discarded. The GM sees only who got one.
 - **Module-led campaigns: pace only.** With a module, the planner invents nothing and judges only when to let an event
   go.
-- **The Keeper sees it.** Every new plan version is announced once as a Keeper-only note in the Main Chat; `status`
+- **The GM sees it.** Every new plan version is announced once as a GM-only note in the Main Chat; `status`
   shows the plan, and `plan show` prints it (`--full`: the draft, the critique and the revision).
 
 ```bash
@@ -564,7 +565,7 @@ node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2 --improv --world wor
     version of the text.
   - The GM, the real NPCs and every co-player get it as a section of their prompt. The posted copy is left out of
     their chat logs, so it is not read twice.
-- **`secrets.md`, the Keeper's hidden layer** (optional): what is really going on. Only the GM and the real NPCs read
+- **`secrets.md`, the GM's hidden layer** (optional): what is really going on. Only the GM and the real NPCs read
   it; it is never posted.
 - **The GM improvises.** It grows the story from the world, the investigators' backgrounds and the players' choices,
   and is told to reveal hidden things only through play.
@@ -602,16 +603,17 @@ has been posted, and how many truths the GM has recorded.
 A channel plays by one rule system, its GM's choice on the platform: Call of Cthulhu 7e (`coc7e`, the default), D&D
 2024 from the System Reference Document 5.2 (`dnd2024`; see `docs/DND_2024.md`), or PbtA (`pbta`). The client reads `rule_system` from
 the channel and chooses a rules profile (`src/rules/`): the words its prompts use, the game's framing, the dice each
-role may use, how role cards are written and checked, and what counts as striking. A CoC table gets exactly the prompts
-it had before D&D support (a test holds them byte for byte), so its prompt caches are untouched.
+role may use, how role cards are written and checked, and what counts as striking. A test holds a CoC table's prompts
+byte for byte, so a release does not rebuild its prompt caches by accident (calling the GM "GM" in every system
+rebuilt them once).
 
 ```bash
 node src/cli.mjs setup --create --rules dnd2024 --coplayers 2 --level 1
 ```
 
-- **Words.** The GM is the Dungeon Master, the player characters are adventurers, and the game is "a fifth-edition
-  fantasy roleplaying game (D&D 2024 rules, SRD 5.2)", as the platform's own prompts name them. The GM's lines are
-  labelled "Dungeon Master" for every model.
+- **Words.** The player characters are adventurers and the game is "a fifth-edition fantasy roleplaying game (D&D
+  2024 rules, SRD 5.2)", as the platform's own prompts name them. The GM is "GM", as in every system, and its lines
+  are labelled "GM" for every model.
 - **Cards.** A co-player's card is a D&D build in `role_card.dnd` (`src/roles/dndcard.mjs`): class, species and
   background from the SRD lists, a 27-point array of base scores, the background's increases, the proficiencies, AC,
   features and spells. The model chooses the character; the client computes saves, hit points, speed, hit dice, spell
@@ -621,17 +623,17 @@ node src/cli.mjs setup --create --rules dnd2024 --coplayers 2 --level 1
   existing GM-cast PCs keep their level and their own scores, and `setup` only fills what is missing. The CoC
   background fields carry the D&D texts: ideals under ideology, bonds under significant people, personality traits and
   flaws under traits. NPCs get a build too; under point buy an NPC is a legal character build like anyone's. Monsters
-  have no card: the DM rolls them by name.
+  have no card: the GM rolls them by name.
 - **Dice.** Co-players roll `.rc` D20 Tests (checks, saves, attacks with their own bonus typed), `.ri` initiative,
-  `.ds` death saves, `.ss` spell slots and `.r`; never `.init`, `.st`, hidden rolls or `.sc`. The DM asks players with
+  `.ds` death saves, `.ss` spell slots and `.r`; never `.init`, `.st`, hidden rolls or `.sc`. The GM asks players with
   `request_roll` (`.rc Stealth dc 15`, `.rc WIS save dc 13`, `.rc attack +5 ac 14`) and has a `dice` action of its
   own for what the platform lets the GM account roll without a sheet: a monster's initiative (`.ri +2 Goblin`), the
   order (`.init next`, `.init del`, `.init clr`) and plain rolls (`.r 1d20+4`, `.r 1d8+3`).
-- **Combat.** The DM's prompt carries a combat rule: when a fight starts everyone rolls initiative, the DM follows the
+- **Combat.** The GM's prompt carries a combat rule: when a fight starts everyone rolls initiative, the GM follows the
   window's Initiative order (shown in its context while a fight is on, refreshed on the platform's
   `initiative.changed` event), acts for the monsters on their turns, asks each character's player on theirs, calls
   `.init next` after every turn, removes the fallen and clears the order when the fight is over. Monsters' AC and hit
-  points live in the DM's notes.
+  points live in the GM's notes.
 - **What is striking.** Final ability scores of 18 and above are named ("extremely strong", "extremely charismatic,
   magnetic"), 7 and below the opposite; a co-player's own sheet shows its modifiers, proficiency bonus, AC, live HP,
   saves, skills and slots, while companions see its build line ("level 3 Elf Rogue (Criminal)") and traits only.
@@ -668,9 +670,10 @@ node src/cli.mjs casual off
 - **Other players.** A text to another player appears in their phone at once, posted as the sender's character.
 - **First contact.** The GM may have an NPC text a player or a co-player (a hook, news, an invitation). A co-player
   may text anyone it knows instead of speaking in the scene: a player, a companion, or an NPC it has met.
-- **The phone log.** Texts with no player character in them go to `Phone log (Keeper only)`, a window with only the
-  Keeper's account in it. That covers co-player to co-player, co-player to NPC, and NPC to co-player. Each line is one
-  text, posted as the sender: "→ Tomas Leclerc: Meet me at the pier at nine." The recipient answers there in its own
+- **The phone log.** Texts with no player character in them go to `Phone log (GM only)`, a window with only the
+  GM's account in it (a channel that already has one keeps it under the name it was made with). That covers co-player
+  to co-player, co-player to NPC, and NPC to co-player. Each line is one text, posted as the sender: "→ Tomas
+  Leclerc: Meet me at the pier at nine." The recipient answers there in its own
   time: a co-player through its own model, an NPC through the GM. The GM reads the log like any other window.
 - **AI texting has limits.** Two AI characters stop after `modes.casual_ai_chain` texts in a row until a person writes
   again. At most `modes.casual_ai_texts_per_hour` such texts are answered an hour, and none while everyone is away
@@ -734,7 +737,7 @@ the environment or `.env` holds only secrets and what differs between deployment
 - `PLANNER_API_KEY`, when the story planner uses another provider than the GM.
 
 The client keeps a channel you already run. In the web app, create a server and a channel (or open an existing one)
-and make the Keeper account its GM (channel members → role GM). Then:
+and make the client's account its GM (channel members → role GM). Then:
 
 ```bash
 node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2
@@ -785,7 +788,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 
 | Key in `gm-agent.yml` | Flag | Default | Meaning |
 |---|---|---|---|
-| `account.username`, `account.display_name` | `--username`, `--display-name` | –, `AI Keeper` | the Keeper account the client signs in as (its password: `GM_PASSWORD`) |
+| `account.username`, `account.display_name` | `--username`, `--display-name` | –, `AI GM` | the GM account the client signs in as (its password: `GM_PASSWORD`) |
 | `account.register` | `--register` | `false` | register the account when sign-in fails |
 | `channel.create` | `--create` | `false` | let `setup` create a new server and channel (and an invite code) instead of keeping one the account is GM of |
 | `channel.server_id`, `channel.server_name`, `channel.channel_name`, `channel.era` | `--server`, `--server-name`, `--channel-name`, `--era` | | used only with `--create` |
@@ -835,7 +838,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
 | `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
-| `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the Keeper's secrets, read by `setup` and `world` (relative to the file) |
+| `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the GM's secrets, read by `setup` and `world` (relative to the file) |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
 | `modes.casual_max_delay_minutes` | | `240` | longest delay before an NPC's or co-player's reply to a text |
 | `modes.casual_ai_texts_per_hour`, `modes.casual_ai_chain` | | `12`, `4` | texts between AI characters answered at most an hour; how many in a row before an exchange rests until a person writes |
@@ -845,7 +848,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | env `GM_PASSWORD`, `ANTHROPIC_API_KEY`, `LLM_API_KEY`, `PLANNER_API_KEY` | | | secrets |
 | env `GM_AGENT_CONFIG` | `--config` | | where `gm-agent.yml` is |
 
-**Mock mode.** `llm.provider: mock` writes labelled placeholder text (`[mock Keeper] …`). It exercises every pipeline
+**Mock mode.** `llm.provider: mock` writes labelled placeholder text (`[mock GM] …`). It exercises every pipeline
 without a provider. It is for tests and demos, not for play.
 
 During setup, the CLI prints which co-player it is generating and reports elapsed time every 15 seconds while waiting
@@ -854,7 +857,7 @@ can keep an idle-timeout gateway connection active once the model starts sending
 upstream or a gateway's absolute request deadline. After a failure, run setup again; it keeps previously saved co-players.
 
 **Recovering a lost roster.** If the state file is lost, the roster is rebuilt from the channel's characters: PCs owned by
-the Keeper account are co-players and every NPC is a real NPC (including ones the Keeper makes in the web app).
+the GM account are co-players and every NPC is a real NPC (including ones the GM makes in the web app).
 Co-players made by older versions are NPCs whose speaking style starts with `[co-player]`; they are still recognised,
 because the platform cannot change a character's kind.
 
@@ -866,7 +869,7 @@ npm test
 
 The tests need no backend and no model. They cover:
 
-- the co-player filter (Keeper notes, other characters' whispers, other windows and AI tips never reach a co-player);
+- the co-player filter (GM notes, other characters' whispers, other windows and AI tips never reach a co-player);
 - role-card checks;
 - a whole turn against an in-memory platform, with the mock model recording every prompt;
 - the request shape of the Claude and OpenAI Responses providers;
@@ -877,21 +880,21 @@ The tests need no backend and no model. They cover:
 - the calendar, the distinctive traits and the relationships, and which role reads which of them;
 - the phone log and its limits, the planner window (wishes, corrections, who reads them), and new players;
 - D&D 2024: the rules profile, the build maths and the local point-buy check, generation, repair and completion of
-  D&D cards, the DM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
+  D&D cards, the GM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
   keeps a CoC table's prompts byte for byte.
 
 ## Known limitations
 
-- **Co-player lines count as Keeper lines.** They are posted by the Keeper account, so the platform records them with
+- **Co-player lines count as GM lines.** They are posted by the GM account, so the platform records them with
   `actor_role = gm`. The platform's chronicler accepts GM-authored lines as grounds for `confirmed` facts, so a
   co-player's in-character guess may be recorded as established. Log Studio and the players' group memory count them
-  as the investigator's lines (the character is a PC); the Keeper-side observers, reminders and script tracking still
-  see a Keeper line.
+  as the investigator's lines (the character is a PC); the GM-side observers, reminders and script tracking still
+  see a GM line.
 - The story planner's impulses are planner text in a co-player's prompt: quoted, capped and filtered, but not provably
   inert. Its stall detector counts turns, so a long, talky scene can cost one extra advisory run. The GM may ignore the
   plan, and a plan can change every ten minutes: the "Story plan" section re-caches each time (parts A and B do not).
 - D&D: NPCs under point buy are legal character builds, never stat blocks (monsters have no card). Attack bonuses are
-  typed by the DM or the co-player, not read from the sheet, as the platform's `.rc attack` works. The GM account has no
+  typed by the GM or the co-player, not read from the sheet, as the platform's `.rc attack` works. The GM account has no
   character, so it cannot roll `.rc` for itself. The Initiative order is read for this turn's window only.
 - The era check reads years from the channel's era text only. An era with no year in it ("Victorian") is not
   checked.
@@ -901,9 +904,9 @@ The tests need no backend and no model. They cover:
   take minutes (a second Ctrl-C skips it). If the client was down when the players left, the review runs at the next
   start, unless a player writes first.
 - Co-players start in the windows of `table.coplayer_windows` and move only through whereabouts (or `split` and `rejoin`). A
-  private window the Keeper creates in the web app does not seat them automatically and is not part of any thread.
+  private window the GM creates in the web app does not seat them automatically and is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side
-  thread's events reach the Keeper documents like any other lines.
+  thread's events reach the GM documents like any other lines.
 - Main Chat is always shared. Players in the same player group continue to share views even if only one remains
   active in a window. Use separate groups when the players need separate knowledge.
 - Without scene forks, a split-off player stays a member of the Main Chat (as intended), so the platform keeps

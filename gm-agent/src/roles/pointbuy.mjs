@@ -57,7 +57,7 @@ Career points are purchased increments, NOT final skill totals. Spend the career
     }
     return value;
   });
-  // Growth is Keeper-authored. Ignore model-supplied growth and preserve recorded growth.
+  // Growth is GM-authored. Ignore model-supplied growth and preserve recorded growth.
   const points = Object.fromEntries(Object.entries(allocation.skill_points).map(([key, p]) => [key, {
     career: p.career, hobby: p.hobby, growth: growth[key]?.growth ?? 0,
     ...(card.skill_points?.[key]?.base !== undefined ? { base: card.skill_points[key].base } : {}),

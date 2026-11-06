@@ -1,10 +1,10 @@
-// Improvisation mode: no module. The story grows from a world setting the Keeper writes, the investigators' own
+// Improvisation mode: no module. The story grows from a world setting the GM writes, the investigators' own
 // personalities and backgrounds, and the players' choices.
 //   world   – the public setting: posted in the Main Chat for the human players, given to the GM, the real NPCs and
 //             every co-player;
-//   secrets – the Keeper's own hidden layer (what is really going on), given to the GM and the real NPCs only;
+//   secrets – the GM's own hidden layer (what is really going on), given to the GM and the real NPCs only;
 //   truths  – hidden facts the GM decides during play (the `truth` action), kept so the story stays consistent.
-// The texts come from the Keeper's own files (`--world`, `--secrets`) and are kept in the state file.
+// The texts come from the GM's own files (`--world`, `--secrets`) and are kept in the state file.
 import crypto from "node:crypto";
 import fs from "node:fs";
 
@@ -28,7 +28,7 @@ export function improvState(s) {
 
 export const hashText = (t) => crypto.createHash("sha256").update(String(t)).digest("hex").slice(0, 16);
 
-// Reads one of the Keeper's setting files: plain text or Markdown, used as written.
+// Reads one of the GM's setting files: plain text or Markdown, used as written.
 export function readSetting(file, { what, max }) {
   let text;
   try { text = fs.readFileSync(file, "utf8").trim(); } catch (e) { throw new Error(`cannot read the ${what} file ${file}: ${e.message}`); }
