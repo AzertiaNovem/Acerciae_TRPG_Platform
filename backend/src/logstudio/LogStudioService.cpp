@@ -248,7 +248,7 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
         if (kind != "message.posted") { e.eventType = "scene_change"; e.content = e.sceneTitle.empty() ? json::str(r["payload"], "content") : e.sceneTitle; e.speakerRole = "system"; e.speakerKey = "system"; e.speakerDisplayName = "Scene"; e.metadata["location"] = r["payload"]["location"]; events.push_back(e); continue; }
         e.content = r["message_content"].isString() ? r["message_content"].asString() : json::str(r["payload"], "content");
         bool gm = r["actor_role"].asString() == "gm";
-        // The Keeper speaking as a GM-cast PC (an AI co-player) is that investigator's line, not an NPC's.
+        // The GM speaking as a GM-cast PC (an AI co-player) is that investigator's line, not an NPC's.
         e.speakerRole = gm ? (r["character_id"].isNull() ? "gm" : json::str(r, "character_kind") == "pc" ? "pc" : "npc") : "pc";
         e.speakerCharacterId = r["character_id"].isNull() ? "" : r["character_id"].asString();
         e.speakerDisplayName = r["character_name"].isNull() ? (gm ? "GM" : r["actor_name"].asString()) : r["character_name"].asString();
@@ -276,7 +276,7 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
             }
             e.dice=d;
         } else e.dice = parseDice(e.content); } else if (mk == "narration") e.eventType = "narration";
-        // The Keeper without a character narrates; the Keeper speaking as an NPC talks like anyone else.
+        // The GM without a character narrates; the GM speaking as an NPC talks like anyone else.
         else e.eventType = gm && e.speakerCharacterId.empty() ? "narration" : classifyMessage(e.content, false, false);
         if (vis == "gm_only") e.eventType = "secret";
         events.push_back(e);
@@ -290,7 +290,7 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
 
 // ---- snapshots -------------------------------------------------------------------------------------
 namespace {
-// A snapshot scope the requester may use: players never the Keeper's, and only their own character's point of view.
+// A snapshot scope the requester may use: players never the GM's, and only their own character's point of view.
 void requireScope(const ChannelAccess& a, const std::string& scope, const std::string& scopeChar) {
     if (scope != "gm_full" && scope != "pl_public" && scope != "character") throw badRequest("invalid scope");
     if (!a.isGm && scope == "gm_full") throw forbidden("players cannot create GM snapshots");
@@ -533,7 +533,7 @@ Json::Value LogStudioService::nativeExport(const ChannelAccess& a, const std::ve
     }
 
     // The cast: names, who plays them, role cards and art. Players get player characters (and, once the story ended,
-    // the NPCs' names and art); NPC cards and appearance notes stay with the Keeper.
+    // the NPCs' names and art); NPC cards and appearance notes stay with the GM.
     std::map<std::string, std::string> characterName;   // character id → name
     out["characters"] = Json::Value(Json::arrayValue);
     for (auto& c : db_.queryJson("SELECT c.id, c.name, c.kind, c.user_id, c.bio, c.speaking_style, c.appearance_prompt, c.role_card, c.avatar_asset_id, c.portrait_asset_id, cv.expressions "
@@ -553,7 +553,7 @@ Json::Value LogStudioService::nativeExport(const ChannelAccess& a, const std::ve
         out["characters"].append(x);
     }
 
-    // Windows: the Keeper's all; a player's those with a line they may read.
+    // Windows: the GM's all; a player's those with a line they may read.
     std::set<std::string> usedWindows, usedScenes;
     for (auto& e : events) { if (!e.chatWindowId.empty()) usedWindows.insert(e.chatWindowId); if (!e.sceneId.empty()) usedScenes.insert(e.sceneId); }
     std::map<std::string, Json::Value> windowName;

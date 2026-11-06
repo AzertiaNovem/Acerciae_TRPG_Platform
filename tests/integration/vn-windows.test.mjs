@@ -42,7 +42,7 @@ test("visual novel windows: pick the chat windows to tell, counted per point of 
   await say(p2, pier, "I wait by the bollard.", { character_id: mo.id });
   await say(p2, main, "Anyone seen the boat?", { character_id: mo.id });
 
-  // The windows and their lines, per point of view. The Keeper sees every window.
+  // The windows and their lines, per point of view. The GM sees every window.
   const all = await call(gm, "GET", root + "/vn-scripts/windows?scope=gm_full");
   const count = (r, id) => r.windows.find((w) => w.id === id)?.line_count;
   assert.equal(all.scope, "gm_full");
@@ -55,7 +55,7 @@ test("visual novel windows: pick the chat windows to tell, counted per point of 
   const hers = await call(p1, "GET", root + `/vn-scripts/windows?scope=character&scope_character_id=${ada.id}`);
   assert.equal(count(hers, archive), 2); assert.equal(count(hers, main), 2);
   assert.equal(hers.windows.some((w) => w.id === pier), false);
-  // A player cannot ask for the Keeper's view or another character's.
+  // A player cannot ask for the GM's view or another character's.
   await rejects(call(p1, "GET", root + "/vn-scripts/windows?scope=gm_full"), 403);
   await rejects(call(p1, "GET", root + `/vn-scripts/windows?scope=character&scope_character_id=${mo.id}`), 403);
   await rejects(call(p1, "GET", root + "/vn-scripts/windows?scope=everyone"), 400);
@@ -69,7 +69,7 @@ test("visual novel windows: pick the chat windows to tell, counted per point of 
   const empty = await rejects(call(gm, "POST", root + "/vn-scripts", { scope: "pl_public", windows: [pier] }), 400);
   assert.match(JSON.stringify(empty.body), /chosen chat windows have no lines/);
 
-  // The Keeper tells the main table and the archive, and leaves the pier out.
+  // The GM tells the main table and the archive, and leaves the pier out.
   const job = await call(gm, "POST", root + "/vn-scripts", { title: "Two windows", windows: [main, archive, main] });
   assert.deepEqual([...job.params.windows].sort(), [main, archive].sort(), "duplicates collapse");
   const snap = await call(gm, "GET", root + `/snapshots/${job.snapshot_id}?events=1`);

@@ -64,7 +64,7 @@ Json::Value ConsistencyService::check(const ChannelAccess& a, const std::string&
     if (ctx.isMember("pbta_rules")) req.system += " Use pbta_rules as game reference only. Distinguish a fictional intent, a move trigger, and its outcome. Only humans initiate a move or decide its consequences.";
     req.tools = ContextRetrievalService::toolSpecs(false);
     req.cache = LlmCache::conversation;   // tool rounds re-read the same context
-    for (auto& k : retrieval_.knowledgeMessages(view, a.isGm ? "KEEPER KNOWLEDGE INDEX (script knowledge first, then the Keeper's records; a shortcut for searching):" : "KNOWLEDGE INDEX (what this character's group already knows; a shortcut for searching):")) req.messages.push_back(k);
+    for (auto& k : retrieval_.knowledgeMessages(view, a.isGm ? "GM KNOWLEDGE INDEX (script knowledge first, then the GM's records; a shortcut for searching):" : "KNOWLEDGE INDEX (what this character's group already knows; a shortcut for searching):")) req.messages.push_back(k);
     LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
     auto outcome = llm_.runStructured(req, [&](const std::string& n, const Json::Value& args) { return retrieval_.executeTool(view, n, args); }, 3);
     Json::Value result;

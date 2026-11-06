@@ -43,8 +43,8 @@ public:
     void requireChannelAi(const ChannelAccess& a, const std::string& column);   // consistency_enabled | inspiration_enabled
     // A system tip in a window (kind system, visible to the window, logged as a message.posted event); returns the message row.
     Json::Value postSystemMessage(pqxx::work& w, const std::string& channelId, const std::string& windowId, const std::string& authorId, const std::string& content);
-    // The Keeper ends the story: every member can then read the whole story in the campaign log, Keeper-only lines
-    // included when `reveal_keeper_lines` is set. Reopening returns to the Keeper's own visibility rules.
+    // The GM ends the story: every member can then read the whole story in the campaign log, GM-only lines
+    // included when `reveal_keeper_lines` is set. Reopening returns to the GM's own visibility rules.
     Json::Value endStory(const ChannelAccess& a, const Json::Value& body);
     Json::Value reopenStory(const ChannelAccess& a);
     // `user` is a user id or a username. Someone outside the server is added as a member when a maintainer invites

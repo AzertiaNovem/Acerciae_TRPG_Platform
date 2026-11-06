@@ -8,8 +8,8 @@ namespace acerciae::rules {
 struct Profile {
     std::string id;         // coc7e | dnd2024 | pbta
     std::string game;       // how prompts name the game
-    std::string gm;         // the game master's title: Keeper | Dungeon Master | Master of Ceremonies
-    std::string gmShort;    // KP | DM | MC (transcript labels)
+    std::string gm;         // the game master's title: "GM" in every system
+    std::string gmShort;    // "GM" in every system (transcript labels: GM(Narrative), GM(as NAME))
     std::string hints;      // conventions the consistency check applies
     bool dnd = false;
 };
@@ -21,7 +21,7 @@ std::string canonical(const std::string& id);
 const Profile& profile(const std::string& id);   // unknown ids read as coc7e
 
 // Prompts are written for Call of Cthulhu (or with {GAME}, {GM} and {GM_SHORT}); this fills them in for a channel's rule
-// system: in a D&D channel "Call of Cthulhu / BRP" names the game, "Keeper" becomes "Dungeon Master" and "KP(" "DM(".
+// system: in a D&D channel "Call of Cthulhu / BRP" names the game. The GM is "GM" in every system.
 // System prompts only: chat lines and other data are never rewritten.
 std::string adapt(std::string prompt, const Profile& p);
 

@@ -12,7 +12,7 @@ const rejects = async (p, status) => { try { await p; } catch (e) { assert.equal
 
 test("COC7 point-buy: a server feature; careers from the list gate career points, hobby points go anywhere, totals reach the dice", async () => {
   const suffix = Math.random().toString(36).slice(2);
-  const gm = (await call(null, "POST", "/api/auth/register", { username: "kp" + suffix, password: "password", display_name: "Keeper" })).token;
+  const gm = (await call(null, "POST", "/api/auth/register", { username: "kp" + suffix, password: "password", display_name: "GM" })).token;
   const p1 = (await call(null, "POST", "/api/auth/register", { username: "p1" + suffix, password: "password", display_name: "Sofia" })).token;
   const server = await call(gm, "POST", "/api/servers", { name: "Point buy" });
   const ch = (await call(gm, "POST", `/api/servers/${server.id}/channels`, { name: "Arkham", knowledge_mode: "isolated" })).id;
@@ -61,7 +61,7 @@ test("COC7 point-buy: a server feature; careers from the list gate career points
   assert.deepEqual(saved.points.violations, []); assert.deepEqual(saved.points.warnings, []);
   assert.equal(saved.attrs["Spot Hidden"], 65, "dice attributes mirror the computed totals");
   assert.equal(saved.attrs["Dodge"], 65);
-  // Growth is the Keeper's to record (improvement checks); the player's next save keeps it.
+  // Growth is the GM's to record (improvement checks); the player's next save keeps it.
   const grown = await call(gm, "PUT", `/api/channels/${ch}/characters/${ada.id}/card`, { role_card: card });
   assert.equal(grown.character.role_card.skills["Stealth"], 25);
   const kept = await save({ ...card, skill_points: { ...card.skill_points, Stealth: { growth: 40 } } });
@@ -76,7 +76,7 @@ test("COC7 point-buy: a server feature; careers from the list gate career points
   assert.match(e3.body.message, /exceed 99|hobby points/);
   await rejects(save({ ...card, career: { name: "会计师", choices: [], specialties: ["Fighting (Brawl)", "Swim", "Climb"] } }), 400);
   await rejects(save({ ...card, career: { name: "星际海盗" } }), 400);
-  // The Keeper is held to the same rules in this mode.
+  // The GM is held to the same rules in this mode.
   await rejects(call(gm, "PUT", `/api/channels/${ch}/characters/${ada.id}/card`, { role_card: { ...card, skill_points: { ...card.skill_points, Stealth: { career: 10 } } } }), 400);
   // Credit Rating outside the career's range is a warning, not a block.
   const low = await save({ ...card, skill_points: { ...card.skill_points, "Credit Rating": { career: 10 } } });
@@ -95,7 +95,7 @@ test("COC7 point-buy: a server feature; careers from the list gate career points
 
 test("COC7 skill names follow the server language: the sheet gets the names, .ra takes English or that language", async () => {
   const suffix = Math.random().toString(36).slice(2);
-  const gm = (await call(null, "POST", "/api/auth/register", { username: "kpja" + suffix, password: "password", display_name: "Keeper" })).token;
+  const gm = (await call(null, "POST", "/api/auth/register", { username: "kpja" + suffix, password: "password", display_name: "GM" })).token;
   const server = await call(gm, "POST", "/api/servers", { name: "Names" });
   await call(gm, "PUT", `/api/servers/${server.id}/settings`, { language: "ja" });
   const ch = (await call(gm, "POST", `/api/servers/${server.id}/channels`, { name: "Innsmouth", point_buy: true })).id;

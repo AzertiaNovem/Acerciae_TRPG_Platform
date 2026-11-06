@@ -4,7 +4,7 @@
 #include <set>
 
 namespace acerciae::narrative_memory {
-// Shared by Keeper and player observers. Editorial judgment belongs to the model, not a keyword blacklist.
+// Shared by GM and player observers. Editorial judgment belongs to the model, not a keyword blacklist.
 inline const char* guidance() {
     return R"(
 NARRATIVE EDITING: these documents are useful story memory, NOT a transcript or one-entry-per-message log.

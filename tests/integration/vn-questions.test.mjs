@@ -15,7 +15,7 @@ async function until(fn) {
   throw Error('visual novel fixture timed out');
 }
 
-// The script editor may ask the players or the Keeper about a part instead of guessing. The job then waits while the
+// The script editor may ask the players or the GM about a part instead of guessing. The job then waits while the
 // other parts go on; the user's answers resume the part with the model's own turn replayed, sealed reasoning included
 // only when the provider can still verify it.
 test('VN questions: a part asks, the job waits, the answers resume the part with its replayed turn', async (t) => {

@@ -6,7 +6,7 @@
 namespace acerciae {
 
 // Builds SQL fragments that restrict rows to what a viewer may know.
-// Memory: KP records and each player group's records are independent partitions.
+// Memory: GM records and each player group's records are independent partitions.
 // Player facts additionally require readable chat provenance and a current group generation.
 struct Visibility {
     static std::string partitionFilter(const ChannelAccess& a, const std::string& alias);

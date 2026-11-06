@@ -81,7 +81,7 @@ Json::Value KnowledgeService::getScopeJson(const ChannelAccess& a, const std::st
 }
 Json::Value KnowledgeService::gmSetScope(const ChannelAccess& a, const std::string& factId, const KnowledgeScope& s) {
     if (!a.isGm) throw forbidden("GM role required");
-    throw conflict("KP memory cannot be shared directly. Reveal information in chat; each player group summarizes its own chat.");
+    throw conflict("GM memory cannot be shared directly. Reveal information in chat; each player group summarizes its own chat.");
 }
 
 std::string KnowledgeService::upsertEntity(pqxx::work& w, const std::string& channelId, const std::string& kind, const std::string& nameIn, const std::string& description, const std::string& groupId) {

@@ -111,13 +111,13 @@ Json::Value SceneManager::enterScene(const ChannelAccess& a, const std::string& 
     return out;
 }
 std::string SceneManager::resolveSceneForWindow(pqxx::work& w, const std::string& channelId, const std::string& chatWindowId) {
-    // Locked so that a message racing the Keeper's "next scenario" lands in one scenario or the other, never in a
+    // Locked so that a message racing the GM's "next scenario" lands in one scenario or the other, never in a
     // just-closed one, and two first messages do not each open a scenario.
     auto ch = Db::queryOne(w, "SELECT c.current_scene_id, s.status FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1 FOR NO KEY UPDATE OF c", {channelId});
     std::string sceneId;
     if (!ch.isNull() && !ch["current_scene_id"].isNull() && ch["status"].asString() == "active") sceneId = ch["current_scene_id"].asString();
     else {
-        // No open scenario (or the Keeper closed the current one without opening the next): start a fresh one.
+        // No open scenario (or the GM closed the current one without opening the next): start a fresh one.
         auto row = Db::queryOne(w, "INSERT INTO scenes(channel_id, title, sequence) SELECT $1, CASE WHEN coalesce(max(sequence),0)=0 THEN 'Opening scene' ELSE 'Scenario ' || (max(sequence)+1)::text END, coalesce(max(sequence),0)+1 FROM scenes WHERE channel_id=$1 RETURNING id", {channelId});
         sceneId = row["id"].asString();
         Db::exec(w, "UPDATE channels SET current_scene_id=$2 WHERE id=$1", {channelId, sceneId});

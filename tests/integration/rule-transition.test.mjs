@@ -15,7 +15,7 @@ const rejects = async (p, status) => { try { await p; } catch (e) { assert.equal
 
 test('rule transition: the story stays, the numbers are archived read-only and rebuilt, an archived card can come back', async () => {
   const sfx = Math.random().toString(36).slice(2, 8);
-  const gm = (await call('', 'POST', '/api/auth/register', { username: `rt_gm_${sfx}`, password: 'password', display_name: 'Keeper' })).token;
+  const gm = (await call('', 'POST', '/api/auth/register', { username: `rt_gm_${sfx}`, password: 'password', display_name: 'GM' })).token;
   const pl = await call('', 'POST', '/api/auth/register', { username: `rt_pl_${sfx}`, password: 'password', display_name: 'Sam' });
   const other = (await call('', 'POST', '/api/auth/register', { username: `rt_ot_${sfx}`, password: 'password', display_name: 'Ola' })).token;
   const srv = await call(gm, 'POST', '/api/servers', { name: `Rules ${sfx}` });
@@ -73,7 +73,7 @@ test('rule transition: the story stays, the numbers are archived read-only and r
   // The Call of Cthulhu numbers and dice values, read-only in the archive.
   assert.equal(after.card_archives.length, 1);
   const arch = after.card_archives[0];
-  assert.equal(arch.rule_system, 'coc7e'); assert.equal(arch.reason, 'rule_change'); assert.equal(arch.archived_by_name, 'Keeper');
+  assert.equal(arch.rule_system, 'coc7e'); assert.equal(arch.reason, 'rule_change'); assert.equal(arch.archived_by_name, 'GM');
   assert.deepEqual(arch.numbers.characteristics, cocCard.characteristics); assert.deepEqual(arch.numbers.skills, cocCard.skills);
   assert.equal(arch.numbers.derived.san, 65); assert.equal(arch.numbers.wealth.cash, '$40');
   assert.equal(arch.numbers.background, undefined, 'the story is not in the archive: it stayed on the card');

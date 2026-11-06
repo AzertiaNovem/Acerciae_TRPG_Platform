@@ -399,7 +399,7 @@ Json::Value ChatService::spectate(const Principal& p, const std::string& channel
     out["window"] = win;
     out["messages"] = Json::Value(Json::arrayValue);
     if (win.isNull()) return out;
-    // Only lines every Main Chat participant sees; never whispers or Keeper-only lines.
+    // Only lines every Main Chat participant sees; never whispers or GM-only lines.
     std::string sql = MSG_SELECT + "WHERE m.chat_window_id=$1 AND m.visibility='window'";
     DbParams params{win["id"].asString()};
     if (beforeSeq > 0) { sql += " AND m.seq < $2"; params.push_back(beforeSeq); }
@@ -436,8 +436,8 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
             throw badRequest("Create the character and select a PbtA playbook");
         auto c = Db::queryOne(w, "INSERT INTO characters(channel_id, user_id, name, kind, speaking_style, sheet) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *",
             {a.channelId, ownerId.empty() ? dbNull() : DbParam(ownerId), name, kind, json::str(body, "speaking_style"), json::dump(sheet)});
-        // A PC owned by a GM account (a "GM-cast" PC, such as an AI co-player) is voiced by the Keeper like an NPC: the
-        // Keeper's own window memberships stay unbound, or every window the Keeper sits in would count it as present.
+        // A PC owned by a GM account (a "GM-cast" PC, such as an AI co-player) is voiced by the GM like an NPC: the
+        // GM's own window memberships stay unbound, or every window the GM sits in would count it as present.
         bool gmCast = ownerId.empty() ? false : ownerId == a.userId ? a.isGm
             : !Db::queryOne(w, "SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2 AND role='gm'", {a.channelId, ownerId}).isNull();
         if (kind == "pc" && !ownerId.empty() && !gmCast) {
@@ -600,7 +600,7 @@ Json::Value ChatService::addWindowMember(const ChannelAccess& a, const std::stri
     auto cm = db_.queryOne("SELECT role FROM channel_members WHERE channel_id=$1 AND user_id=$2", {a.channelId, userId});
     if (cm.isNull()) throw badRequest("user is not a channel member");
     std::string cid = characterId;
-    // A Keeper speaks as any character; their GM-cast PCs are never their default identity in a window.
+    // A GM speaks as any character; their GM-cast PCs are never their default identity in a window.
     if (cid.empty() && cm["role"].asString() != "gm") {
         auto c = db_.queryOne("SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2 AND kind='pc' ORDER BY created_at LIMIT 1", {a.channelId, userId});
         if (!c.isNull()) cid = c["id"].asString();
