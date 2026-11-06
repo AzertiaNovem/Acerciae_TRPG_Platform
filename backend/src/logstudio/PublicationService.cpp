@@ -215,7 +215,7 @@ Json::Value PublicationService::pdfJob(const ChannelAccess &a,
       {id, a.channelId});
   if (j.isNull())
     throw notFound("PDF job not found");
-  if(j["kp_memory"].asBool() && !a.isGm) throw forbidden("KP memory export");
+  if(j["kp_memory"].asBool() && !a.isGm) throw forbidden("GM memory export");
   if(!j["memory_group_id"].isNull() && (a.isGm || j["memory_group_id"].asString()!=a.playerGroupId || j["memory_group_version"].asInt()!=a.playerGroupVersion)) throw forbidden("Player memory export belongs to another group version");
   snapshotAccess(a, j["snapshot_id"].asString());
   return j;
@@ -623,7 +623,7 @@ void PublicationService::runBundle(const std::string &jobId) {
       last = std::chrono::steady_clock::now();
       db_.exec("UPDATE vn_bundle_jobs SET progress=$2::jsonb WHERE id=$1", {jobId, json::dump(prog)});
     });
-    // Every bundle, Keeper-only ones included, goes to the public bucket when one is configured: the key is
+    // Every bundle, GM-only ones included, goes to the public bucket when one is configured: the key is
     // unguessable, only the requester is handed the link, and the file is deleted when it expires.
     auto key = publicObjectKey(store_, a.channelId, "bundles", "zip");
     key = key.substr(0, key.size() - 4) + "/" + fileName;   // ".../bundles/<uuid>/<Title>.zip": the download keeps its name

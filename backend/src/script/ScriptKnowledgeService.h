@@ -11,24 +11,24 @@
 namespace acerciae {
 class LlmGateway; class ContextRetrievalService; class ReminderService; class Notifier;
 
-// The Keeper's script knowledge. Built once from the structured module: who relates to whom, which clues exist,
+// The GM's script knowledge. Built once from the structured module: who relates to whom, which clues exist,
 // what is foreshadowed, the background, and above all the flow of the script (its stages in order, with what
-// each needs and what the Keeper does there). It is read by the model before anything else when it works for
-// the Keeper. During play the model proposes changes (a stage reached, a clue revealed, a twist paid off); a
+// each needs and what the GM does there). It is read by the model before anything else when it works for
+// the GM. During play the model proposes changes (a stage reached, a clue revealed, a twist paid off); a
 // second model reviews each proposal against the quoted chat lines and the script before it is applied.
-// Keeper edits are final and never overwritten automatically. Nothing here is reachable by a player group.
+// GM edits are final and never overwritten automatically. Nothing here is reachable by a player group.
 class ScriptKnowledgeService {
 public:
     ScriptKnowledgeService(Db& db, LlmGateway& llm, ContextRetrievalService& retrieval, ReminderService& reminders, Notifier& n)
         : db_(db), llm_(llm), retrieval_(retrieval), reminders_(reminders), notifier_(n) {}
 
-    // Builds (or rebuilds) the script-origin entries of one module; Keeper-edited and play-origin entries survive.
+    // Builds (or rebuilds) the script-origin entries of one module; GM-edited and play-origin entries survive.
     Json::Value buildFromModule(const std::string& channelId, const std::string& moduleId, int& llmCalls, std::function<void(int,int)> progress = {});
-    // Keeper observer hook for one processed batch: propose → review → apply, refresh the board, raise reminders.
+    // GM observer hook for one processed batch: propose → review → apply, refresh the board, raise reminders.
     Json::Value afterBatch(const ChannelAccess& sys, const Json::Value& batch, const std::string& aiJobId, int& llmCalls);
 
     Json::Value list(const ChannelAccess& a, const std::string& kind);
-    Json::Value update(const ChannelAccess& a, const std::string& id, const Json::Value& body);   // Keeper edit: title, body, status
+    Json::Value update(const ChannelAccess& a, const std::string& id, const Json::Value& body);   // GM edit: title, body, status
     Json::Value rebuild(const ChannelAccess& a, const std::string& moduleId, bool async = false);
     Json::Value builds(const ChannelAccess& a);
     void recoverInterrupted();

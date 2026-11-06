@@ -18,7 +18,7 @@ struct KnowledgeScope {
     static KnowledgeScope fromJson(const Json::Value& v);
 };
 
-// Independent KP/player-group memory. Legacy scope helpers remain for historical metadata.
+// Independent GM/player-group memory. Legacy scope helpers remain for historical metadata.
 class KnowledgeService {
 public:
     explicit KnowledgeService(Db& db) : db_(db) {}
@@ -28,7 +28,7 @@ public:
     void setScope(pqxx::work& w, const std::string& factId, const KnowledgeScope& s, const std::string& source);
     KnowledgeScope getScope(pqxx::work& w, const std::string& factId);
     Json::Value getScopeJson(const ChannelAccess& a, const std::string& factId);
-    // Retired sharing endpoint: rejects attempts to expose KP facts to player groups.
+    // Retired sharing endpoint: rejects attempts to expose GM facts to player groups.
     Json::Value gmSetScope(const ChannelAccess& a, const std::string& factId, const KnowledgeScope& s);
 
     // Entities and relations ----------------------------------------------------------------

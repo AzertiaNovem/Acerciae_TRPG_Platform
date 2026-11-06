@@ -1,8 +1,8 @@
 // The client's own data store: one SQLite file per channel next to the state file (`<channel>.db`), through Node's
 // built-in node:sqlite. The JSON state file stays the source of truth for the table (roster, timelines, guard); this
 // holds what grows with a campaign:
-//   lines    – a local copy of the chat as the Keeper account reads it, so a long history is fetched once;
-//   chapters – compacted history: `scope` is "gm" (the Keeper's memory of a window) or "coplayer:<character id>" (what
+//   lines    – a local copy of the chat as the GM account reads it, so a long history is fetched once;
+//   chapters – compacted history: `scope` is "gm" (the GM's memory of a window) or "coplayer:<character id>" (what
 //              that co-player remembers, built only from lines it witnessed); level 0 summarises lines, level 1+ merges
 //              chapters;
 //   usage    – one row per model call (input, cache reads and writes, output tokens);

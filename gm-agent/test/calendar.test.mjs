@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { advanceCalendar, calendarPace, calendarState, dateLabel, describeCalendar, eraYears, fitEra, noteCalendarLine, parseIso, renderCalendar } from "../src/calendar.mjs";
+import { advanceCalendar, calendarPace, calendarState, changedBy, dateLabel, describeCalendar, eraYears, fitEra, noteCalendarLine, parseIso, renderCalendar } from "../src/calendar.mjs";
 import { distinctiveTraits, impression } from "../src/context/traits.mjs";
 import { investigatorProfile } from "../src/context/profiles.mjs";
 import { applyBond, bondsFor, bondsState, renderBonds, renderBondsFor, resolveBonds } from "../src/bonds.mjs";
@@ -21,7 +21,9 @@ test("calendar: dates are YYYY-MM-DD with their weekday, across months and leap 
   assert.match(advanceCalendar(cal, { days: -1 }).refused, /never runs backwards/);
   assert.equal(advanceCalendar(cal, { date: "1924-03-08", time: "noon" }).days, 7, "a later date counts the days between");
   assert.equal(advanceCalendar(cal, { days: 400, maxDays: 30 }).days, 30, "clipped to the most days at once");
-  assert.equal(cal.log.at(-1).by, "keeper"); assert.equal(cal.log[1].seq, 40);
+  assert.equal(cal.log.at(-1).by, "keeper", "the GM's changes keep their stored value"); assert.equal(cal.log[1].seq, 40);
+  assert.match(renderCalendar(cal), /, by GM$/, "and read \"GM\" in the GM's section"); assert.doesNotMatch(renderCalendar(cal), /keeper/i);
+  assert.deepEqual(["keeper", "operator", "planner", "final review"].map(changedBy), ["GM", "operator", "planner", "final review"]);
   assert.deepEqual(calendarState(JSON.parse(JSON.stringify(cal))), cal, "survives a round trip");
   assert.equal(calendarState({ date: "the 3rd of Rain-moon" }).date, "", "an old free-text date is dropped");
   assert.match(renderCalendar(cal), /^## Calendar \(the story's date, YYYY-MM-DD/); assert.match(renderCalendar(cal), /Today in the story: 1924-04-07 \(Monday\)/);
@@ -54,7 +56,7 @@ test("calendar: the pace holds a day back until enough time and play have passed
   assert.equal(advanceCalendar(cal, { days: 3, by: "operator", now: T + 31 * 60000 }).days, 3, "no pace given: the operator");
   assert.deepEqual(calendarState(JSON.parse(JSON.stringify(cal))), cal, "the pace survives a round trip");
   assert.equal(calendarState({ date: "1923-10-02", since: { at: "x" } }).since, null);
-  // The Keeper reads one of two lines, so the section does not change from turn to turn.
+  // The GM reads one of two lines, so the section does not change from turn to turn.
   const P = { ...pace, maxDays: 2 };
   assert.match(renderCalendar(cal, { pace: P, now: T + 32 * 60000 }), /Pace: the date moved on only recently and may not move on again yet\. Keep play within the current day: move only the time of day; later, at most 2 days at once\./);
   for (let i = 0; i < 3; i++) noteCalendarLine(cal);
@@ -88,7 +90,7 @@ test("traits: only the extremes, in words, the most extreme first; luck and numb
   assert.doesNotMatch(profile, /\b(88|90|95)\b/, "no numbers");
 });
 
-test("bonds: unordered pairs, updated in place, ended; the Keeper reads all, a co-player its own and the public ones it knows", () => {
+test("bonds: unordered pairs, updated in place, ended; the GM reads all, a co-player its own and the public ones it knows", () => {
   const bonds = bondsState(null);
   assert.equal(applyBond(bonds, { a: "alice", b: "harriet", kind: "Lives with", note: "a flat above the shop" }), "added");
   assert.equal(applyBond(bonds, { a: "harriet", b: "alice", kind: "lives with" }), null, "the same pair either way round");

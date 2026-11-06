@@ -15,7 +15,7 @@ try {
     assert.ok(reply.ok(), `${endpoint}: ${reply.status()}`);
     return reply.json();
   }
-  const { token } = await request('/auth/register', { username: 'theme' + Date.now(), display_name: 'The Keeper', password: 'password' });
+  const { token } = await request('/auth/register', { username: 'theme' + Date.now(), display_name: 'The GM', password: 'password' });
   const server = await request('/servers', { name: 'Arkham Table' }, token);
   const channel = await request('/servers/' + server.id + '/channels', { name: 'The Lantern of Blackwater Cove' }, token);
   const [window] = await request('/channels/' + channel.id + '/windows', null, token);

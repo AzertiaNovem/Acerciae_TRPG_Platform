@@ -6,7 +6,7 @@
 namespace acerciae {
 class ChatService; class DiceService; class Notifier;
 
-// COC7 investigator development, run automatically when a scenario closes (the Keeper opens the next one, enters a
+// COC7 investigator development, run automatically when a scenario closes (the GM opens the next one, enters a
 // prepared one or closes the current one): every skill a player character succeeded with in the scenario (a .ra/.rc
 // check at Regular or better) is marked for improvement and checked as the rulebook says — D100 above the skill or
 // above 95 improves it by 1D10, Cthulhu Mythos and Credit Rating are never checked, and a skill reaching 90 grants

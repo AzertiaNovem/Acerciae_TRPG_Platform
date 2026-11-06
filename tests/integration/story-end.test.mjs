@@ -22,10 +22,10 @@ test('story end and Log Studio access: hidden or locked before the end, the whol
   const c1 = await request(p1.token, 'POST', `/api/channels/${ch}/characters`, { name: 'Ward' });
   const c2 = await request(p2.token, 'POST', `/api/channels/${ch}/characters`, { name: 'Marsh' });
   const main = (await request(kp.token, 'GET', `/api/channels/${ch}/windows`))[0].id;
-  const side = (await request(kp.token, 'POST', `/api/channels/${ch}/windows`, { name: 'Keeper prep', kind: 'private', members: [] })).id;
+  const side = (await request(kp.token, 'POST', `/api/channels/${ch}/windows`, { name: 'GM prep', kind: 'private', members: [] })).id;
   const post = (token, win, content, extra = {}) => request(token, 'POST', `/api/channels/${ch}/windows/${win}/messages`, { content, ...extra });
 
-  // A scenario that is played, and one the Keeper only prepared.
+  // A scenario that is played, and one the GM only prepared.
   const played = await request(kp.token, 'POST', `/api/channels/${ch}/scenes`, { title: 'TITLE_The_Gilman_House', location: 'LOC_hotel' });
   await request(kp.token, 'POST', `/api/channels/${ch}/windows/${main}/scene`, { scene_id: played.id });
   await request(kp.token, 'POST', `/api/channels/${ch}/scenes`, { title: 'TITLE_Unplayed_Reef', location: 'LOC_reef' });
@@ -50,7 +50,7 @@ test('story end and Log Studio access: hidden or locked before the end, the whol
   for (const hidden of ['KP_ONLY_line', 'SIDE_WINDOW_prep', 'TITLE_', '.rh 1d100']) assert.ok(!snapAsP1.includes(hidden), 'players snapshot leaks ' + hidden);
   assert.ok(JSON.stringify(await exportJson(kp.token, root)).includes('TITLE_The_Gilman_House'));
 
-  // The Keeper locks the Studio for players, then hides it altogether.
+  // The GM locks the Studio for players, then hides it altogether.
   await request(p1.token, 'PUT', `/api/channels/${ch}`, { studio_player_access: false }, 403);
   await request(kp.token, 'PUT', `/api/channels/${ch}`, { studio_player_access: false });
   assert.equal((await request(p1.token, 'GET', root + '/log', undefined, 403)).error, 'studio_locked');
@@ -58,7 +58,7 @@ test('story end and Log Studio access: hidden or locked before the end, the whol
   await request(kp.token, 'PUT', `/api/channels/${ch}`, { studio_visible: false });
   assert.equal((await request(kp.token, 'GET', root + '/log', undefined, 403)).error, 'studio_hidden');
 
-  // The end: every member reads the whole story (Keeper-only lines stay with the Keeper unless revealed).
+  // The end: every member reads the whole story (GM-only lines stay with the GM unless revealed).
   await request(p1.token, 'POST', `/api/channels/${ch}/story/end`, {}, 403);
   assert.equal((await request(kp.token, 'POST', `/api/channels/${ch}/story/end`, {})).story_status, 'ended');
   const ended = JSON.stringify(await exportJson(p1.token, root));
@@ -69,13 +69,13 @@ test('story end and Log Studio access: hidden or locked before the end, the whol
   await request(kp.token, 'POST', `/api/channels/${ch}/story/end`, { reveal_keeper_lines: true });
   assert.ok(JSON.stringify(await exportJson(p2.token, root)).includes('KP_ONLY_line'));
 
-  // Reopening restores the Keeper's rules.
+  // Reopening restores the GM's rules.
   await request(kp.token, 'POST', `/api/channels/${ch}/story/reopen`);
   await request(p1.token, 'GET', root + '/log', undefined, 403);
   await request(kp.token, 'PUT', `/api/channels/${ch}`, { studio_visible: true, studio_player_access: true });
   assert.ok(!JSON.stringify(await exportJson(p1.token, root)).includes('SIDE_WINDOW_prep'));
 
-  // An NPC's art never appears in a player's media library, and its appearance notes stay with the Keeper.
+  // An NPC's art never appears in a player's media library, and its appearance notes stay with the GM.
   const npc = await request(kp.token, 'POST', `/api/channels/${ch}/characters`, { name: 'NPC_Zadok', kind: 'npc' });
   const form = new FormData(); form.append('slot', 'portrait'); form.append('file', new Blob([Buffer.from(png, 'base64')], { type: 'image/png' }), 'zadok.png');
   const up = await fetch(base + `/api/channels/${ch}/characters/${npc.id}/assets`, { method: 'POST', headers: { Authorization: `Bearer ${kp.token}` }, body: form });

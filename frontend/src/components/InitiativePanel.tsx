@@ -6,7 +6,7 @@ import { useUi } from '../store/ui';
 import type { InitiativeOrder } from '../types';
 
 // The window's Initiative order (D&D channels): who acts in which order and whose turn it is. Players join it with .ri;
-// the Dungeon Master moves the turn, removes an entry or clears the order (here or with .init next / del / clr).
+// the GM moves the turn, removes an entry or clears the order (here or with .init next / del / clr).
 export default function InitiativePanel({ channelId, windowId, isGm }: { channelId: string; windowId: string; isGm: boolean }) {
   const toast = useUi((s) => s.toast);
   const me = useAuth((s) => s.user?.id);

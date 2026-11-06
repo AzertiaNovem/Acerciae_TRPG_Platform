@@ -9,7 +9,7 @@ async function call(token, method, path, body) {
   return data;
 }
 
-test("a GM-cast PC: owned by the Keeper, a PC to everyone, never the Keeper's identity in a window, a PC in the log", async () => {
+test("a GM-cast PC: owned by the GM, a PC to everyone, never the GM's identity in a window, a PC in the log", async () => {
   const s = Math.random().toString(36).slice(2); const u = {};
   for (const r of ["gm", "p1"]) u[r] = await call(null, "POST", "/api/auth/register", { username: r + s, password: "password", display_name: r });
   const gm = u.gm.token, p1 = u.p1.token;
@@ -21,9 +21,9 @@ test("a GM-cast PC: owned by the Keeper, a PC to everyone, never the Keeper's id
 
   const ada = await call(p1, "POST", `/api/channels/${ch}/characters`, { name: "Ada Quill" });
   const harriet = await call(gm, "POST", `/api/channels/${ch}/characters`, { name: "Harriet Vance", kind: "pc" });
-  assert.equal(harriet.kind, "pc"); assert.equal(harriet.user_id, u.gm.user.id, "the Keeper owns it");
+  assert.equal(harriet.kind, "pc"); assert.equal(harriet.user_id, u.gm.user.id, "the GM owns it");
 
-  // Not bound into the Keeper's windows: neither the existing ones nor new ones.
+  // Not bound into the GM's windows: neither the existing ones nor new ones.
   const keeperIn = async (w) => (await call(gm, "GET", `/api/channels/${ch}/windows`)).find((x) => x.id === w).members.find((m) => m.user_id === u.gm.user.id);
   assert.equal((await keeperIn(main)).character_id, null);
   const side = await call(gm, "POST", `/api/channels/${ch}/windows`, { name: "Side", kind: "group", members: [{ user_id: u.p1.user.id }] });
@@ -36,7 +36,7 @@ test("a GM-cast PC: owned by the Keeper, a PC to everyone, never the Keeper's id
   const space = await call(p1, "GET", `/api/channels/${ch}/characters/${harriet.id}/space`);
   assert.equal(space.character.editable, false);
 
-  // The Keeper speaks as it; the line is that investigator's in the log, not an NPC's.
+  // The GM speaks as it; the line is that investigator's in the log, not an NPC's.
   await call(gm, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content: "I keep watch by the door.", character_id: harriet.id });
   await call(p1, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content: "I open my notebook.", character_id: ada.id });
   const root = `/api/channels/${ch}/studio`;

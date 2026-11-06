@@ -112,7 +112,7 @@ LlmGateway::Outcome LlmGateway::runStructured(LlmRequest req, ToolExecutor exec,
     auto& client = *resolved.client;
     // Mock calls cost nothing; live calls spend the server's budget and hold one of its concurrent AI slots.
     AiMeter* meter = client.mode() == "live" && !resolved.fixed ? meter_ : nullptr;
-    // The channel's rules name the game and the GM (Keeper or Dungeon Master) in the system prompt.
+    // The channel's rules name the game in the system prompt (the GM is "GM" in every rule system).
     req.system = rules::adapt(req.system, rules::profile(resolved.ruleSystem));
     auto lang = languageName(resolved.language);
     if (!lang.empty())

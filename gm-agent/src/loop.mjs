@@ -1,9 +1,9 @@
 // The table loop. A line from a real person starts a turn (after a short quiet period): first the GM and the real
-// NPCs act with the Keeper's context, then the co-players seated in that window act, each with only its own chat log,
+// NPCs act with the GM's context, then the co-players seated in that window act, each with only its own chat log,
 // and the GM answers their moves at once in a follow-up round. Lines this client posts never start a turn by
 // themselves, so it cannot talk to itself without bound.
 //
-// Proactive timelines (TIMELINE_AUTO): each Keeper round may report where investigators are (whereabouts.mjs). The
+// Proactive timelines (TIMELINE_AUTO): each GM round may report where investigators are (whereabouts.mjs). The
 // table then splits them into threads of their own — a window for the place, with the players who went and the GM —
 // and reunites them in the Main Chat when they are together again. Every new or changed scene gets an arrival turn
 // at once. A player who keeps writing in the old window is answered in their own scene (relay).
@@ -40,7 +40,7 @@ import { addTruth, hashText, improvState, worldMessages } from "./improv.mjs";
 import { PHONE_LOG, PHONE_PREFIX, casualState, coplayerPhoneReply, dueAt, pairKey, parseAddress, renderThread } from "./casual.mjs";
 import { WISH_WINDOW, addToInbox, mergeTableNotes, plannerReply, renderCorrectionsFor, renderInbox, renderTableNotes } from "./wishes.mjs";
 import { leaksSecret, noteSessionLine, planStory, plannerDue, plannerModeOf, plannerState, renderFinalNote, renderImpulse, renderPlanNote, renderStoryPlan, sessionEnded, stallSignature } from "./planner.mjs";
-import { MAX_ADVANCE_DAYS, advanceCalendar, calendarPace, calendarState, describeCalendar, describeRoutine, fitEra, noteCalendarLine, renderCalendar, setRoutine } from "./calendar.mjs";
+import { MAX_ADVANCE_DAYS, advanceCalendar, calendarPace, calendarState, changedBy, describeCalendar, describeRoutine, fitEra, noteCalendarLine, renderCalendar, setRoutine } from "./calendar.mjs";
 import { applyBond, bondsState, renderBonds, renderBondsFor, resolveBonds } from "./bonds.mjs";
 import { impression } from "./context/traits.mjs";
 import { rulesProfile, ruleSystemOf } from "./rules/index.mjs";
@@ -260,7 +260,7 @@ export class Table {
     return lines.sort((a,b) => a.seq-b.seq);
   }
   // Scene forks (timelines.scene_forks): after the first split the primary story moves to a restricted fork and the
-  // Main Chat becomes a public lobby the Keeper never narrates in. Off (the default), the main story stays in the Main
+  // Main Chat becomes a public lobby the GM never narrates in. Off (the default), the main story stays in the Main
   // Chat with the players, and only those who go elsewhere get a window of their own.
   get forks() { return Boolean(this.cfg.sceneForks); }
   partitionPlan(ops) { return this.forks ? sceneForks(this.timelines, ops, { windowOf: t => this.windowOf(t) }) : ops; }
@@ -315,16 +315,16 @@ export class Table {
 
   // The story keeps a date only in a casual game; a solemn game has none (calendar.mjs).
   calendarOn() { return Boolean(this.casual.on); }
-  // The Keeper's pace on the calendar (config `calendar`; 0: no limit).
+  // The GM's pace on the calendar (config `calendar`; 0: no limit).
   calendarPaceCfg() { return { minMinutes: this.cfg.calendarMinMinutes ?? 0, minLines: this.cfg.calendarMinLines ?? 0, maxDays: this.cfg.calendarMaxDays ?? 0 }; }
 
-  // The Keeper's context for a turn in `windowId` (gmContext.mjs), with the calendar (casual games) and the relationships.
+  // The GM's context for a turn in `windowId` (gmContext.mjs), with the calendar (casual games) and the relationships.
   async buildGm(windowId, extra = {}) {
     const initiative = await this.initiativeOf(windowId);
     return this.gm.build({ windowId, initiative, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines(), awayOf: (id) => this.awayOf(id), calendar: this.calendarOn() ? renderCalendar(this.calendar, { pace: this.calendarPaceCfg(), now: this.now() }) : "", bonds: renderBonds(this.bonds, (id) => this.nameOf(id)), table: renderTableNotes(this.planner.table), ...extra });
   }
 
-  // How the Keeper reads a line: visibility and the timeline it comes from (see gmContext.mjs).
+  // How the GM reads a line: visibility and the timeline it comes from (see gmContext.mjs).
   renderForGm(m) { return renderLine({ ...m, whisper_to_names: (m.whisper_to ?? []).map((id) => this.nameOf(id)) }, { markVisibility: true, timeline: this.timelines.ofLine(m).name, gm: this.profile?.vocab.gm }); }
   // How a co-player reads a line (its own view, no visibility marks).
   renderForCoplayer(m) { return renderLine(m, { gm: this.profile?.vocab.gm }); }
@@ -482,7 +482,7 @@ export class Table {
       this.onWishLine(m);
       return placement;
     }
-    if (m && m.chat_window_id && m.chat_window_id === this.casual.log) return undefined;   // the Keeper's own phone log
+    if (m && m.chat_window_id && m.chat_window_id === this.casual.log) return undefined;   // the GM's own phone log
     if (m && this.isPhone(m.chat_window_id)) return this.onPhoneLine(m);   // a phone never starts a scene turn
     if (!this.isTrigger(m)) return undefined;
     return this.schedule(m.chat_window_id);
@@ -576,7 +576,7 @@ export class Table {
         }
       }
     }
-    // Public conversation remains public; it does not wake the Keeper or any scene's co-players.
+    // Public conversation remains public; it does not wake the GM or any scene's co-players.
     if (lobby) return;
     const speakerIds = new Set(batch.map((l) => l.id));
     const visitorsIn = scene ? [...speakerIds].filter((id) => !scene.members.includes(id)) : [];
@@ -667,7 +667,7 @@ export class Table {
         }
       }
       if (between) { between = null; this.planner.between = null; this.save(); }
-      this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} Keeper action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
+      this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} GM action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
       const evidenceThrough = this.lastSeq;
       for (const action of plan.actions) {
         this.generation.signal.throwIfAborted();
@@ -717,7 +717,7 @@ export class Table {
       if (n) (st2.coplayersActed ??= new Set()).add(c.characterId);
       acted += n; budget -= n;
     }
-    // Co-players are players too: their choices get the Keeper's answer now, not at the next human line.
+    // Co-players are players too: their choices get the GM's answer now, not at the next human line.
     if (acted > 0 && budget > 0) {
       await round("followup", {});
       if (here) { const arrival = here; here = null; await round("arrival", { arrival }); }
@@ -734,7 +734,7 @@ export class Table {
           (!m.character_id || this.timelines.timelineAt(m.character_id, m.seq).id === t.id))
         .slice(-40).map(m => ({ seq: m.seq, actor: m.character_id || null, kind: m.kind,
           keeper: m.author_role === "gm" && !m.character_id && m.kind === "narration",
-          speaker: m.character_name || m.author_name || "Keeper", text: m.content }));
+          speaker: m.character_name || m.author_name || "GM", text: m.content }));
       return { key: "T" + t.handle, location: t.location, time: t.narrativeTime,
         members: t.members.map(id => ({ id, name: this.nameOf(id) })), lines };
     });
@@ -1069,7 +1069,7 @@ export class Table {
       const went = moved.filter((id) => before.get(id) === o.from).map((id) => this.windowOf(this.timelines.get(after.get(id)) ?? this.timelines.main()));
       const target = went.sort((a, b) => went.filter((x) => x === b).length - went.filter((x) => x === a).length)[0];
       if (target && target !== old.windowId) await this.post(old.windowId, { content: `→ "${this.windowName(target)}"`, kind: "narration" }, { count: false });
-      // Its scene is over: what happened there becomes a chapter of the Keeper's memory.
+      // Its scene is over: what happened there becomes a chapter of the GM's memory.
       this.memory.maintainGm(old.windowId, this.history.lines(old.windowId).filter((m) => !this.hiddenLines().has(m.id)), (m) => this.renderForGm(m), { windowName: this.windowName(old.windowId), whole: true });
     }
     for (const [w, { dest, ids }] of byWindow) {
@@ -1148,7 +1148,7 @@ export class Table {
     }
   }
 
-  // ---- the Keeper's moves. Returns how many lines were posted.
+  // ---- the GM's moves. Returns how many lines were posted.
   async act(windowId, a, ctx, { mode, parent = mode, scope = null, evidenceThrough } = {}) {
     this.generation.signal.throwIfAborted();
     switch (a.type) {
@@ -1171,7 +1171,7 @@ export class Table {
         if (!this.calendarOn()) return 0;
         // While the planner is on, the story's first date is its to choose (from the era, the world and its plots).
         const first = !this.calendar.date && a.date && this.plannerMode() !== "off";
-        if (first) this.log(`calendar: the Keeper's first date "${a.date}" left to the story planner`);
+        if (first) this.log(`calendar: the GM's first date "${a.date}" left to the story planner`);
         const change = this.moveCalendar({ days: a.advance_days, date: first ? undefined : a.date, time: a.time, why: a.reason ?? a.text, by: "keeper" });
         const held = await this.calendarHeld(windowId, change);
         if (change.changed && change.from && change.to) {
@@ -1187,12 +1187,12 @@ export class Table {
       case "npc":
       case "new_npc": {
         const who = this.characterByName(a.name);
-        if (this.roster.coplayerByName(a.name) || who?.kind === "pc") { this.log(`the Keeper tried to voice ${a.name}, a ${this.roster.isCoplayer(who?.id) || !who ? "co-player" : "player character"}; skipped`); return 0; }
+        if (this.roster.coplayerByName(a.name) || who?.kind === "pc") { this.log(`the GM tried to voice ${a.name}, a ${this.roster.isCoplayer(who?.id) || !who ? "co-player" : "player character"}; skipped`); return 0; }
         let npc = this.roster.npcByName(a.name);
         if (!npc && a.type === "npc") {
           // Not posted: a misspelled or invented name must not create a character by accident. The note tells the next
           // round how to bring a new person in.
-          this.log(`the Keeper named an unknown NPC (${a.name}); skipped instead of creating a character`);
+          this.log(`the GM named an unknown NPC (${a.name}); skipped instead of creating a character`);
           await this.post(windowId, { content: `Not posted: ${a.name} is not in the cast, and npc only voices someone in it. If this is a new person who passes the three tests for new people, introduce them with new_npc (name, brief, first line); otherwise use a cast member or keep them unnamed in narration.`, kind: "narration", visibility: "gm_only" }, { count: false });
           return 0;
         }
@@ -1447,7 +1447,7 @@ export class Table {
     return this.runPlanner(reason);
   }
 
-  // The planning job: the Keeper's context plus the planner's briefing, three model calls, the result parked for the
+  // The planning job: the GM's context plus the planner's briefing, three model calls, the result parked for the
   // next turn boundary. One at a time; failures are logged, never thrown. With `session` it is that session's final
   // review: it reads every window's lines of the session and also prepares the next one (`between`).
   runPlanner(reason, { session = null } = {}) {
@@ -1472,7 +1472,7 @@ export class Table {
       const minutes = session ? Math.max(1, Math.round((session.lastAt - session.startedAt) / 60000)) : 0;
       const sinceText = [
         session ? `The session that just ended: ${session.lines} player lines over ${minutes} min, from line #${session.fromSeq}. Its lines in every window follow (window named when not the Main Chat).` : `${this.lastSeq - since} lines since (the newest ${Math.min(200, this.lastSeq - since)} of this window below)`,
-        notes.length ? `The Keeper's notes to you: ${notes.map((n) => `"${n.text}"${n.beatDone ? " (beat done)" : ""}`).join("; ")}` : "",
+        notes.length ? `The GM's notes to you: ${notes.map((n) => `"${n.text}"${n.beatDone ? " (beat done)" : ""}`).join("; ")}` : "",
         p.scenarioId && p.scenarioId !== this.scenario?.id ? "The scenario changed since the last plan." : "",
         fresh ? `Recent lines:\n${fresh}` : "",
       ].filter(Boolean).join("\n");
@@ -1493,7 +1493,7 @@ export class Table {
     }));
   }
 
-  // Makes a finished plan the current one (idempotent), records it and tells the Keeper once per version. A plan may
+  // Makes a finished plan the current one (idempotent), records it and tells the GM once per version. A plan may
   // set the story's first date and change relationships; a final review also moves the calendar on and records what
   // happened off-screen.
   async adoptPlan() {
@@ -1610,18 +1610,18 @@ export class Table {
   }
 
   // ---- the calendar and relationships
-  // The Keeper keeps to the pace (config `calendar`); the final review has its own most days; the operator and the
+  // The GM keeps to the pace (config `calendar`); the final review has its own most days; the operator and the
   // planner's first date have neither.
   moveCalendar({ days, date, time, why = "", by = "keeper" }) {
     const pace = this.calendarPaceCfg();
     const limits = by === "final review" ? { maxDays: this.cfg.planner?.finalReviewMaxDays ?? 30 }
       : by === "keeper" ? { maxDays: pace.maxDays || MAX_ADVANCE_DAYS, pace: { minMinutes: pace.minMinutes, minLines: pace.minLines } } : {};
     const r = advanceCalendar(this.calendar, { days, date, time, why, by, seq: this.lastSeq, now: this.now(), ...limits });
-    if (r.changed) { if (r.to) this.log(`calendar: ${r.from || "(no date)"} → ${r.to} (${by})${r.clipped ? `, ${r.days} of the ${r.clipped} day(s) asked` : ""}`); this.save(); }
+    if (r.changed) { if (r.to) this.log(`calendar: ${r.from || "(no date)"} → ${r.to} (${changedBy(by)})${r.clipped ? `, ${r.days} of the ${r.clipped} day(s) asked` : ""}`); this.save(); }
     else if (r.refused) this.log(`calendar unchanged: ${r.refused}`);
     return r;
   }
-  // The Keeper's date move that the pace held back or cut short: a note only the Keeper reads, so the story can follow
+  // The GM's date move that the pace held back or cut short: a note only the GM reads, so the story can follow
   // the date that stands.
   calendarHeld(windowId, r) {
     const text = r.pace ? `Calendar unchanged: ${r.refused}. Keep play within the current day (only the time of day moves).`
@@ -1632,7 +1632,7 @@ export class Table {
     const [x] = resolveBonds([a], (n) => this.characterByName(n)?.id);
     if (!x) { this.log(`bond skipped: no characters named "${a.a}" and "${a.b}"`); return null; }
     const r = applyBond(this.bonds, x, { by, now: this.now() });
-    if (r) { this.log(`bond ${r}: ${this.nameOf(x.a)} — ${this.nameOf(x.b)}${x.kind ? `: ${x.kind}` : ""} (${by})`); this.save(); }
+    if (r) { this.log(`bond ${r}: ${this.nameOf(x.a)} — ${this.nameOf(x.b)}${x.kind ? `: ${x.kind}` : ""} (${changedBy(by)})`); this.save(); }
     return r;
   }
 
@@ -1651,7 +1651,7 @@ export class Table {
     if (this.casual.on) await this.ensureTableWindows();
   }
 
-  // ---- the table's own windows: the planner window (wishes.mjs), the phones and the Keeper's phone log (casual.mjs)
+  // ---- the table's own windows: the planner window (wishes.mjs), the phones and the GM's phone log (casual.mjs)
   isPlannerWindow(windowId) { return Boolean(windowId) && windowId === this.planner.window; }
   // Windows that are no scene: no turn is played there and autonomy never moves them.
   isTableWindow(windowId) { return this.isPhone(windowId) || this.isPlannerWindow(windowId) || (Boolean(windowId) && windowId === this.casual.log); }
@@ -1666,7 +1666,7 @@ export class Table {
     } finally { this.ensuringWindows = false; }
   }
 
-  // The planner window: every player of the channel in it (a newcomer is added), the Keeper reading.
+  // The planner window: every player of the channel in it (a newcomer is added), the GM reading.
   async ensurePlannerWindow() {
     const { rows } = await this.channelMemberRows();
     if (!rows) return;
@@ -1678,7 +1678,7 @@ export class Table {
       this.save();
       this.windows = [...this.windows, w];
       this.log(`planner window: opened "${w.name}"`);
-      await this.post(w.id, { content: "🧭 This window is for the story planner, out of character. Tell it where you would like the story to go, or what went against your setting (\"Harriet would never leave a friend behind\", \"there is no magic in this world\"). It reads what you write here the next time it plans, answers here, and the Keeper keeps to it. No scene is played here. Send /pause to pause hosting until the next player message in the channel.", kind: "ooc" }, { count: false, allowPaused: true });
+      await this.post(w.id, { content: "🧭 This window is for the story planner, out of character. Tell it where you would like the story to go, or what went against your setting (\"Harriet would never leave a friend behind\", \"there is no magic in this world\"). It reads what you write here the next time it plans, answers here, and the GM keeps to it. No scene is played here. Send /pause to pause hosting until the next player message in the channel.", kind: "ooc" }, { count: false, allowPaused: true });
       return;
     }
     const seated = new Set((w.members ?? []).map((m) => m.user_id));
@@ -1688,7 +1688,7 @@ export class Table {
     }
   }
 
-  // Casual mode: the Keeper's phone log, a window with only the Keeper in it, for texts no player is part of.
+  // Casual mode: the GM's phone log, a window with only the GM in it, for texts no player is part of.
   async ensurePhoneLog() {
     if (!this.casualOn() || (this.casual.log && this.windows.some((w) => w.id === this.casual.log))) return;
     const w = await this.api.createWindow(this.channelId, { name: PHONE_LOG, kind: "private", members: [] });
@@ -1696,7 +1696,7 @@ export class Table {
     this.save();
     this.windows = [...this.windows, w];
     this.log(`casual: opened "${w.name}"`);
-    await this.post(w.id, { content: "📒 Texts between co-players and NPCs, for the Keeper only. Every line is one text: the sender, then → and the recipient.", kind: "narration" }, { count: false, allowPaused: true });
+    await this.post(w.id, { content: "📒 Texts between co-players and NPCs, for the GM only. Every line is one text: the sender, then → and the recipient.", kind: "narration" }, { count: false, allowPaused: true });
   }
 
   // A line in the planner window: kept for the planner's next run, whatever triggers it (no run of its own).
@@ -1796,7 +1796,7 @@ export class Table {
       let plan;
       try { plan = await directTurn(this.llm, { language: this.language, profile: this.profile, context: ctx.parts, pbta:this.pbta, newest: null, mode: "phone", auto: this.cfg.timelineAuto, forks: this.forks, improv: this.improv.on, casual: true, phone: { from: this.nameOf(fromId), to: this.nameOf(toId), thread, text: last?.text ?? "" } }); }
       catch (e) { this.log(`phone turn: ${e.message}`); return; }
-      // Only messages and the Keeper's own notes: nothing happens in a scene because of a text.
+      // Only messages and the GM's own notes: nothing happens in a scene because of a text.
       for (const a of plan.actions.filter((x) => ["text", "note", "truth", "world_change"].includes(x.type))) {
         if (a.type === "note") await this.post(this.mainWindow().id, { content: a.text, kind: "narration", visibility: "gm_only" }, { count: false });
         else await this.act(windowId, a, ctx, { mode: "phone", parent: "phone" });
@@ -1810,7 +1810,7 @@ export class Table {
   async sendText(a) {
     const from = this.characterByName(a.from);
     const to = this.characterByName(a.to);
-    if (!from || !this.roster.isNpc(from.id)) { this.log(`text from "${a.from}" skipped: the Keeper texts only as a real NPC`); return 0; }
+    if (!from || !this.roster.isNpc(from.id)) { this.log(`text from "${a.from}" skipped: the GM texts only as a real NPC`); return 0; }
     if (to && this.roster.isCoplayer(to.id)) return this.aiText(from.id, to.id, a.text, a.delay_minutes);   // to a co-player: the phone log
     if (!to || !this.isPc(to.id) || !this.casual.phones[to.id]) { this.log(`text to "${a.to}" skipped: not a player character with a phone`); return 0; }
     this.queueText({ windowId: this.casual.phones[to.id], from: from.id, to: to.id, text: a.text, minutes: a.delay_minutes });
@@ -1886,7 +1886,7 @@ export class Table {
       this.log(`world ${secret ? "secret " : ""}declared: ${t.slice(0, 100)}`);
       return true;
     } catch (e) {
-      if (e.status === 404 || e.status === 405) { this.worldUnsupported = true; this.log("this platform keeps no world record; world changes stay in the Keeper's notes"); }
+      if (e.status === 404 || e.status === 405) { this.worldUnsupported = true; this.log("this platform keeps no world record; world changes stay in the GM's notes"); }
       else this.log(`world declaration failed: ${e.message}`);
       return false;
     }
@@ -1907,7 +1907,7 @@ export class Table {
     this.log(`improvisation ${this.improv.on ? "on" : "off"}: world ${this.improv.world.length} characters, secrets ${this.improv.secrets.length}, hidden truths ${this.improv.truths.length}`);
   }
 
-  // Hands the world setting (public) and the Keeper's secrets (secret) to the platform's world record, once per version
+  // Hands the world setting (public) and the GM's secrets (secret) to the platform's world record, once per version
   // of each text, so its observer knows the places, groups and people from the start.
   async seedWorld() {
     const im = this.improv;
@@ -2082,7 +2082,7 @@ export class Table {
   }
 
   // A co-player's move, from its own witnessed chat (every window it sat in, during its seats) and its companions'
-  // profiles. Nothing from the Keeper's side. Lines a player wrote while their character was in another scene are not
+  // profiles. Nothing from the GM's side. Lines a player wrote while their character was in another scene are not
   // something this co-player witnessed, even in a window it sits in.
   async coplayerAct(windowId, coplayer, spotlight, { side = false } = {}) {
     const me = coplayer.characterId;
@@ -2157,7 +2157,7 @@ export class Table {
     const met = [...new Set(witnessed.filter((m) => m.character_id && npcs.has(m.character_id)).map((m) => m.character_id).reverse())].reverse().slice(-12);
     return { met, all: new Set([...investigatorsFor(this.characters, this.roster).map((c) => c.id), ...met]) };
   }
-  // What anyone would notice about the NPCs a co-player has met: gender, age, striking traits; never the Keeper's brief.
+  // What anyone would notice about the NPCs a co-player has met: gender, age, striking traits; never the GM's brief.
   metBy(ids) {
     const lines = ids.map((id) => { const c = this.characters.find((x) => x.id === id); return c ? `- ${c.name}${impression(c.role_card) ? ` ${impression(c.role_card)}` : ""}` : ""; }).filter(Boolean);
     return lines.length ? `PEOPLE YOU HAVE MET (what anyone would notice about them):\n${lines.join("\n")}` : "";

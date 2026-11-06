@@ -92,7 +92,7 @@ test("completing an existing D&D PC fills the missing build and text, keeps its 
 test("an NPC in a D&D channel gets a build too: legal under point buy, any scores otherwise", async () => {
   const llm = new MockLlm();
   const npc = await generateNpc(llm, { language: "English", era: "", rules, name: "Grog", brief: "an orc bouncer", gmContext: "", profile, pointsMode: false });
-  assert.match(llm.calls[0].system, /^You are the Dungeon Master's assistant in a fifth-edition fantasy campaign/); assert.match(llm.calls[0].messages[0].content, /DM'S BRIEF: an orc bouncer/);
+  assert.match(llm.calls[0].system, /^You are the GM's assistant in a fifth-edition fantasy campaign/); assert.match(llm.calls[0].messages[0].content, /GM'S BRIEF: an orc bouncer/);
   assert.equal(npc.role_card.dnd.class, "Rogue"); assert.equal(npc.role_card.basic.player, "NPC");
   const api = new MemoryApi({});
   const saved = await saveCharacter(api, "ch", npc, { kind: "npc", rules, llm, language: "English", pointsMode: false, profile, level: 1 });

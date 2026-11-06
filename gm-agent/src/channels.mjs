@@ -1,4 +1,4 @@
-// Which channel the client keeps. By default it never creates anything on the platform: the Keeper account is made GM
+// Which channel the client keeps. By default it never creates anything on the platform: the client's account is made GM
 // of a channel in the web app, and the client is pointed at it (CHANNEL_ID / --channel). Without that, `setup` lists
 // the channels the account already keeps and asks which one; with none, it says how to create one. Creating a server
 // and a channel from the client is an explicit choice (`setup --create`), kept for scripts and tests.

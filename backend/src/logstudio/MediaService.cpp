@@ -59,7 +59,7 @@ Json::Value MediaService::get(const ChannelAccess& a, const std::string& id) {
     auto r = db_.queryOne("SELECT " + ASSET_COLS + " FROM media_assets WHERE id=$1 AND channel_id=$2" + std::string(a.isGm ? "" : " AND visibility_scope='channel' AND approval_status='approved'"), {id, a.channelId});
     if (r.isNull()) throw notFound("asset not found");
     if (!a.isGm && r["character_id"].isString() && db_.queryOne("SELECT 1 AS ok FROM characters WHERE id=$1 AND kind='npc'", {r["character_id"].asString()}).isMember("ok")) {
-        r.removeMember("prompt"); r.removeMember("source_reference");   // an NPC's appearance notes stay with the Keeper
+        r.removeMember("prompt"); r.removeMember("source_reference");   // an NPC's appearance notes stay with the GM
     }
     r["versions"] = db_.queryJson("SELECT version, mime, bytes, note, created_at FROM asset_versions WHERE asset_id=$1 ORDER BY version DESC", {id});
     return r;
@@ -213,8 +213,8 @@ bool MediaService::resolve(const ChannelAccess& a, const std::string& id, int ve
 bool MediaService::fetchRow(const ChannelAccess& a, const std::string& id, int version, std::string& mime, std::string& fileName, MediaMeta& meta) {
     auto cur = db_.queryOne("SELECT m.*, c.kind AS character_kind FROM media_assets m LEFT JOIN characters c ON c.id=m.character_id WHERE m.id=$1 AND m.channel_id=$2", {id, a.channelId});
     if (cur.isNull()) return false;
-    // Players get every approved channel-scoped asset, an NPC's art included (its notes stay with the Keeper, see
-    // get()). What a player's client may keep for good is narrower: an NPC's art is the Keeper's, shown or withdrawn
+    // Players get every approved channel-scoped asset, an NPC's art included (its notes stay with the GM, see
+    // get()). What a player's client may keep for good is narrower: an NPC's art is the GM's, shown or withdrawn
     // as the story goes, so it is never marked immutable.
     const bool visible = cur["visibility_scope"].asString() != "gm" && cur["approval_status"] == "approved";
     if (!a.isGm && !visible) return false;

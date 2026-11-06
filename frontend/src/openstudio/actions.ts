@@ -69,7 +69,7 @@ export function applyBackground(d: Project, sceneKey: string | undefined, path: 
 // ---- voice lines --------------------------------------------------------------------------------------
 export interface VoiceJob { seq: number; text: string; voice: string; delivery: string; config?: LocalVoiceConfig }
 const VOICED = new Set(['dialogue', 'narration', 'action', 'dice']);
-/** Every shown line without a voice yet: a character's own voice, the narrator's for narration and the Keeper. */
+/** Every shown line without a voice yet: a character's own voice, the narrator's for narration and the GM. */
 export function voiceJobs(project: Project): VoiceJob[] {
   const vn = project.vn;
   if (!vn) return [];

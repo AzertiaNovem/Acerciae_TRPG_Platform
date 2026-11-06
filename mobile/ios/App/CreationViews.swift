@@ -19,7 +19,7 @@ struct CreateChannelView: View {
                 Text(tr("隔离：只使用各自掌握的线索")).tag("isolated")
                 Text(tr("公开：共享知识")).tag("public")
             }
-            Text(tr("创建后你将成为此频道的守密人，并自动建立主聊天窗口。")).font(.caption)
+            Text(tr("创建后你将成为此频道的 GM，并自动建立主聊天窗口。")).font(.caption)
         }.navigationTitle(tr("添加频道")).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(tr("取消")) { dismiss() }.disabled(model.busy) }

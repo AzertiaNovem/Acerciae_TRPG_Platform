@@ -25,7 +25,7 @@ test('run prepares a pre-created PbtA channel, waits through restart, and hosts 
   });
   const gm = new Api(base);
   const username = 'mail' + Date.now().toString(36);
-  await gm.register(username, 'password', 'MC');
+  await gm.register(username, 'password', 'GM');
   const server = await gm.createServer('Air mail');
   const { id } = await gm.createChannel(server.id, { name: 'Pilots', rule_system: 'pbta' });
   const window = (await gm.windows(id))[0].id;

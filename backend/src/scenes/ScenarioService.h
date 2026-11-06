@@ -9,10 +9,10 @@ namespace acerciae {
 class EventStore; class SceneManager; class LlmGateway; class Notifier;
 
 // Scenarios are the stages of the story and a campaign-wide state: every chat window is in the channel's
-// current scenario. Only the Keeper opens the next one (or enters a prepared one); the moment a new scenario
+// current scenario. Only the GM opens the next one (or enters a prepared one); the moment a new scenario
 // begins, the previous one closes, its AI summary is written into the scenario list, and it can only be
-// consulted from then on. The Keeper's observer still watches the narration: when it sees a shift of time or
-// place it raises a suggestion bubble for the Keeper, never a scenario of its own. Summaries written by the GM
+// consulted from then on. The GM's observer still watches the narration: when it sees a shift of time or
+// place it raises a suggestion bubble for the GM, never a scenario of its own. Summaries written by the GM
 // are never overwritten.
 class ScenarioService {
 public:
@@ -20,8 +20,8 @@ public:
     // Where background summaries run: a bounded pool that shutdown waits for (false = queue full).
     void setExecutor(std::function<bool(std::function<void()>)> f) { executor_ = std::move(f); }
 
-    // Observer hook for one (window, scenario) batch that was just processed. When the Keeper's narration moved
-    // the story, a "New scenario?" reminder is raised for the Keeper, anchored to the boundary line.
+    // Observer hook for one (window, scenario) batch that was just processed. When the GM's narration moved
+    // the story, a "New scenario?" reminder is raised for the GM, anchored to the boundary line.
     Json::Value detectAndSuggest(const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, int& llmCalls);
     // GM: open the next scenario for the whole campaign now. body {title?, location?, narrative_time?}
     Json::Value advance(const ChannelAccess& a, const Json::Value& body);

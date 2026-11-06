@@ -5,6 +5,6 @@ export const PBTA_RULES = {
     stats: [{ id: "sense", name: "Sense" }], bands: [],
     resources: [{ id: "supply", name: "Supply" }], conditions: [],
     moves: [{ id: "explore", name: "Explore", stat: "sense", trigger: "When you explore the station." }],
-    gmMoves: [{ text: "PRIVATE-MC-MOVE" }],
+    gmMoves: [{ text: "PRIVATE-GM-MOVE" }],
   },
 };

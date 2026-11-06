@@ -1,7 +1,7 @@
 {
  "1": {
   "name": "Profession personnalisée",
-  "description": "8 compétences d'occupation au maximum. Saisissez la valeur de la seconde caractéristique d'occupation dans les attributs d'occupation à droite (si le champ est vide, l'ÉDU est utilisée) et fixez vous-même le Crédit de départ. Consultez votre Gardien avant d'utiliser une profession personnalisée."
+  "description": "8 compétences d'occupation au maximum. Saisissez la valeur de la seconde caractéristique d'occupation dans les attributs d'occupation à droite (si le champ est vide, l'ÉDU est utilisée) et fixez vous-même le Crédit de départ. Consultez votre GM avant d'utiliser une profession personnalisée."
  },
  "2": {
   "name": "Comptable",
@@ -157,7 +157,7 @@
  },
  "40": {
   "name": "Déprogrammeur (moderne)",
-  "description": "Deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Conduite automobile, Combat rapproché (Corps à corps) ou Armes à feu, Histoire, Occultisme, Psychologie, Discrétion. ※ Avec l'accord du Gardien, Hypnose peut remplacer l'une de ces compétences."
+  "description": "Deux compétences relationnelles (Charme, Baratin, Intimidation, Persuasion), Conduite automobile, Combat rapproché (Corps à corps) ou Armes à feu, Histoire, Occultisme, Psychologie, Discrétion. ※ Avec l'accord du GM, Hypnose peut remplacer l'une de ces compétences."
  },
  "41": {
   "name": "Designer",
@@ -321,7 +321,7 @@
  },
  "81": {
   "name": "Occultiste",
-  "description": "Anthropologie, Histoire, Bibliothèque, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Occultisme, Langue étrangère, Sciences (Astronomie), une autre compétence au choix (spécialité personnelle ou d'époque). ※ Avec l'accord du Gardien, peut inclure Mythe de Cthulhu."
+  "description": "Anthropologie, Histoire, Bibliothèque, une compétence relationnelle (Charme, Baratin, Intimidation, Persuasion), Occultisme, Langue étrangère, Sciences (Astronomie), une autre compétence au choix (spécialité personnelle ou d'époque). ※ Avec l'accord du GM, peut inclure Mythe de Cthulhu."
  },
  "82": {
   "name": "Voyageur",
@@ -653,7 +653,7 @@
  },
  "164": {
   "name": "Ichiko (médium aveugle)",
-  "description": "Art/Artisanat (Comédie), Écouter, Savoir (Shintoïsme), Occultisme, Histoire, Baratin ou Persuasion, Psychologie, une spécialité au choix. ※ Avec l'accord du Gardien, la compétence « Médium » peut remplacer une compétence au choix."
+  "description": "Art/Artisanat (Comédie), Écouter, Savoir (Shintoïsme), Occultisme, Histoire, Baratin ou Persuasion, Psychologie, une spécialité au choix. ※ Avec l'accord du GM, la compétence « Médium » peut remplacer une compétence au choix."
  },
  "165": {
   "name": "Maître du kotodama/Onmyōji",

@@ -8,7 +8,7 @@ test('GM agent world review, sourced moves, player choices and atomic bookkeepin
   const gm = new Api(base),
     pl = new Api(base),
     tag = Date.now().toString(36);
-  await gm.register('host' + tag, 'password', 'MC');
+  await gm.register('host' + tag, 'password', 'GM');
   await pl.register('crew' + tag, 'password', 'Crew');
   const server = await gm.createServer('Station');
   const ch = (await gm.createChannel(server.id, { name: 'Orbital kitchen', rule_system: 'pbta' })).id;
@@ -196,7 +196,7 @@ test('GM agent world review, sourced moves, player choices and atomic bookkeepin
   assert.equal((await gm.pbtaDraft(ch)).eligible, false);
 });
 
-test('the running MC reads real dice before asking; a co-player only receives its own moves', async () => {
+test('the running GM reads real dice before asking; a co-player only receives its own moves', async () => {
   const { Table } = await import('../../gm-agent/src/loop.mjs');
   const { Roster } = await import('../../gm-agent/src/roles/roster.mjs');
   const { buildConfig } = await import('../../gm-agent/src/config.mjs');
@@ -205,7 +205,7 @@ test('the running MC reads real dice before asking; a co-player only receives it
   const tag = Date.now().toString(36),
     gm = new Api(base),
     pl = new Api(base);
-  await gm.register('k' + tag, 'password', 'MC');
+  await gm.register('k' + tag, 'password', 'GM');
   await pl.register('h' + tag, 'password', 'Human');
   const server = await gm.createServer('Late ferry');
   const ch = (await gm.createChannel(server.id, { name: 'Crew galley', rule_system: 'pbta' })).id;

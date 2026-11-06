@@ -1,30 +1,30 @@
-# Independent KP and player-group knowledge
+# Independent GM and player-group knowledge
 
 The application still uses React/TypeScript, C++20/Drogon, PostgreSQL/libpqxx, HTTP and WebSocket. This change replaces
 shared fact visibility with independent memory partitions; it does not replace the existing chat or Log Studio architecture.
 
 ## Data and AI flow
 
-KP has six private document categories: Current Scene, Clue Journal, Relationship Journal, Open Threads, Timeline and
+GM has six private document categories: Current Scene, Clue Journal, Relationship Journal, Open Threads, Timeline and
 Module Progress. GM Workshop exposes them with sections, status/search filters, original sources, revisions and corrections.
-The KP observer may use module information and KP scene metadata. KP memory is never a player retrieval source.
+The GM observer may use module information and GM scene metadata. GM memory is never a player retrieval source.
 
 Each player group has its own facts, entities, relations, five journals and revisions. `player_group_id IS NULL` identifies
-KP memory; a non-null group ID identifies player memory. Players share the union of chat perspectives granted to members
+GM memory; a non-null group ID identifies player memory. Players share the union of chat perspectives granted to members
 of that group, including addressed whispers. This expands reading only; posting and character control still require the
 caller's own permissions. GM-only messages are excluded.
 
 The group observer reads `player_group_chat_events`, its own earlier documents and authorized retrieval results. It receives
-no KP module graph, scene description, character sheet, journal text or entity registry. AI-produced operations must cite
-readable source chat from the authorized batch; a summary cannot import a KP fact ID or another group's fact. Source status
+no GM module graph, scene description, character sheet, journal text or entity registry. AI-produced operations must cite
+readable source chat from the authorized batch; a summary cannot import a GM fact ID or another group's fact. Source status
 is still distinguished: a player's claim does not become a confirmed fact merely by being summarized.
 
 Each partition also keeps a world record on its entities: what is true now (status `active|inactive|missing|dead|destroyed|unknown`,
 a short state line, whereabouts as another entity of the same partition), versioned with an `entity_state_history`. Both observers
-maintain it with `entity_state` operations under the same provenance rules. The KP alone receives `gm.declared` events — Keeper
+maintain it with `entity_state` operations under the same provenance rules. The GM alone receives `gm.declared` events — GM
 declarations about the world made through `POST /world/declare`, often off-screen — which are authoritative: their facts are
 confirmed (or `gm_secret` when secret) and their state changes are marked `state_by='gm'`; a later AI change to such a state waits
-for KP review. Declarations are `gm_only` events, never chat, so no player group can read them or learn their effects; a group's
+for GM review. Declarations are `gm_only` events, never chat, so no player group can read them or learn their effects; a group's
 record only changes from its own readable chat. `GET /world` returns the caller's partition and `world.updated` reaches only that
 partition's audience. Regrouping resets a group's entities, and with them its world record and history.
 
@@ -34,18 +34,18 @@ lock and check it so an in-flight AI response cannot restore knowledge after a m
 
 ## Group management and migration
 
-KP manages groups per channel in GM Workshop or channel settings. Existing public channels migrate to one player group;
-existing isolated channels create one group per player. New invitations follow the same default. The KP can create an
+GM manages groups per channel in GM Workshop or channel settings. Existing public channels migrate to one player group;
+existing isolated channels create one group per player. New invitations follow the same default. The GM can create an
 empty group and move members to merge or split perspectives. Changing the default mode does not regroup existing players.
 
-Migrations 0013–0015 preserve old facts and documents as KP-only records, retain historical visibility metadata without
-using it to authorize reads, and create fresh independent player journals. They retire direct KP knowledge sharing.
+Migrations 0013–0015 preserve old facts and documents as GM-only records, retain historical visibility metadata without
+using it to authorize reads, and create fresh independent player journals. They retire direct GM knowledge sharing.
 Membership and window-access changes clear affected derived player memory, increment generations and rebuild it from
-currently readable chat on the next observer pass. Raw chat, canonical logs and KP records are retained. Document IDs
+currently readable chat on the next observer pass. Raw chat, canonical logs and GM records are retained. Document IDs
 and revisions in rebuilt player partitions change deliberately; clients must discard stale caches on `knowledge.reset`.
 
 PDF appendix jobs bind to the originating memory partition and generation. Public exports cannot include private memory
-appendices, and such PDFs cannot be published through sharing links. Legacy exports with memory appendices become KP-only;
+appendices, and such PDFs cannot be published through sharing links. Legacy exports with memory appendices become GM-only;
 existing publication links for those exports are revoked. This does not revoke ordinary canonical-log publications.
 Run the usual numbered migration runner after taking a database backup; do not reset the production schema.
 
@@ -60,12 +60,12 @@ but cannot open an unauthorized original. Manually typed message text remains or
 ## Validation and limits
 
 The database suite records actual mock-provider requests and attempts hostile module/entity/scene tool retrieval to check
-that KP markers and other groups' markers never enter player prompts. It also exercises provenance checks, stale commits,
+that GM markers and other groups' markers never enter player prompts. It also exercises provenance checks, stale commits,
 merge/split/revocation and quote access. `tests/integration/knowledge-groups.test.mjs` checks the HTTP and WebSocket paths;
 the scenario suite covers observer behavior and the Log Studio suite covers real rendering of three PDF templates.
 The browser acceptance screenshots are in `docs/screenshots/kp-knowledge-groups.png` and `chat-references.png`.
 
 Mock extraction is deliberately labeled and uses English heuristics. Live AI quality and costs require the configured
 provider; these boundary tests do not claim to validate a real provider's narrative quality. Incremental player summaries
-update existing journals; low-frequency consolidation currently applies only to KP memory. Multi-instance WebSocket
+update existing journals; low-frequency consolidation currently applies only to GM memory. Multi-instance WebSocket
 fan-out still needs a shared broker, while generation checks and polling reconcile missed notifications.

@@ -203,7 +203,7 @@ Json::Value MockLlmClient::observerExtract(const Json::Value& ctx) {
         std::string timeMark = detectTime(content);
         auto worldOf = [&](const std::string& text) { for (auto op : worldChanges(text, characters)) { op["source_event_ids"].append(eid); out["world"].append(op); } };
         if (kind == "gm.declared") {
-            // The Keeper's declaration is authoritative: confirmed, or a secret that stays with the Keeper.
+            // The GM's declaration is authoritative: confirmed, or a secret that stays with the GM.
             bool secret = json::toBool(e["payload"], "secret", false);
             Json::Value td; td["when"] = timeMark.empty() ? (sceneTime.empty() ? "unspecified" : sceneTime) : timeMark;
             addOp("timeline", mkFact(truncate(content, 160), secret ? "gm_secret" : "confirmed", td, eid, ents));
@@ -628,7 +628,7 @@ Json::Value MockLlmClient::moduleStructure(const Json::Value& ctx) {
                 } else if (anyOf(l, {"ending", "conclusion", "epilogue", "rewards", "aftermath"})) {
                     auto key = addNode("ending", name, body, page, line + " " + body); if (!currentScene.empty()) addEdge(currentScene, key, "leads_to");
                 } else if (anyOf(l, {"twist", "reveal", "revelation"})) { auto key = addNode("twist", name, body, page, line + " " + body); if (!currentScene.empty()) addEdge(currentScene, key, "triggers"); }
-                else if (anyOf(l, {"secret", "the truth", "what really happened", "keeper's information", "keeper information", "background"})) { auto key = addNode("secret", name, body, page, line + " " + body); if (!currentScene.empty()) addEdge(key, currentScene, "hidden_in"); }
+                else if (anyOf(l, {"secret", "the truth", "what really happened", "keeper's information", "keeper information", "gm's information", "gm information", "background"})) { auto key = addNode("secret", name, body, page, line + " " + body); if (!currentScene.empty()) addEdge(key, currentScene, "hidden_in"); }
                 else if (anyOf(l, {"handout", "clue", "letter", "diary", "journal", "newspaper", "note", "ledger"})) { auto key = addNode("clue", name, body, page, line + " " + body); if (!currentLocation.empty()) addEdge(key, currentLocation, "located_in"); else if (!currentScene.empty()) addEdge(key, currentScene, "found_in"); }
                 else if (guessEntityKind(name, Json::Value(Json::arrayValue)) == "location" || l.rfind("location", 0) == 0) { currentLocation = addNode("location", name, body, page, line + " " + body); if (!currentScene.empty()) addEdge(currentScene, currentLocation, "takes_place_at"); }
                 else if (guessEntityKind(name, Json::Value(Json::arrayValue)) == "npc" || l.rfind("npc", 0) == 0 || anyOf(lower(body), {"str ", "con ", "dex ", "pow ", "san ", "hit points", "skills:"})) { auto key = addNode("npc", name, body, page, line + " " + body); if (!currentLocation.empty()) addEdge(key, currentLocation, "found_at"); else if (!currentScene.empty()) addEdge(key, currentScene, "appears_in"); }

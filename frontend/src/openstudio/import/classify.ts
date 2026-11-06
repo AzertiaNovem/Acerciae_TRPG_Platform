@@ -99,7 +99,7 @@ export function extractCqMedia(text: string): { media: MediaRef[] | null; cleane
   return media.length ? { media, cleaned } : { media: null, cleaned: text };
 }
 
-// The server's speaker-role guess from a nickname: dice bots (骰, dice, bot, 海豹), observers (ob…), the Keeper
+// The server's speaker-role guess from a nickname: dice bots (骰, dice, bot, 海豹), observers (ob…), the GM
 // (kp, gm, keeper, 守秘人, 主持); everyone else is a player character.
 export function guessRole(nick: string, isDice: boolean): SpeakerRole {
   const l = asciiLower(nick);

@@ -1,5 +1,5 @@
-// The GM's turn: one model call with the Keeper's whole context, which returns the Keeper's and the real NPCs' moves
-// for this turn. Real NPCs are voiced here, so they share the Keeper's knowledge. Co-players are not: the director only
+// The GM's turn: one model call with the GM's whole context, which returns the GM's and the real NPCs' moves
+// for this turn. Real NPCs are voiced here, so they share the GM's knowledge. Co-players are not: the director only
 // says whether they may act now (and who has the spotlight), and never hands them anything to say.
 //
 // A turn has a mode:
@@ -31,8 +31,8 @@ const DICE_RULE = (profile) => `- Call for dice when the outcome is uncertain an
 const COMMON_RULES = `- Every player, co-players included, needs an immediate response to each choice and line: acknowledge what they did, give its consequence, and propel the story (new information, a complication, a decision point). Never leave a move hanging or stall with vague atmosphere; then hand the scene back with an open situation.
 - For any jump over play (including a same-day cut), establish the new time BEFORE narrating the next scene. Use date, a timed scenario change or time_skip. The table posts a public handoff using this window's chat. Distinguish completed actions, by actor and time, from plans still outstanding. A planner's suggested montage does not mean anyone ate, traveled, or made a decision. Do not replay established events. If completion is unclear, leave it open or ask.
 - Never write words, thoughts or decisions for player characters or co-players.
-- Use the platform's notes (Keeper board, reminders, script knowledge, documents, highlights) to stay on the module's track, pace clues and pay off foreshadowing, but reveal secrets only through play.
-- Whisper private information to one character; use a note (Keeper-only line) for your own bookkeeping.`;
+- Use the platform's notes (GM board, reminders, script knowledge, documents, highlights) to stay on the module's track, pace clues and pay off foreshadowing, but reveal secrets only through play.
+- Whisper private information to one character; use a note (GM-only line) for your own bookkeeping.`;
 
 const WHEREABOUTS_RULES = `- Whereabouts: investigators may be in different places, each place played as its own thread (see Whereabouts and Timelines). The table splits and reunites them for you; you only report facts in "whereabouts". When someone in this scene ends up somewhere out of reach of the others, where they can explore on their own, list them with thread "new", the place, own_scene true and the span ("short" when they are briefly apart, as in two rooms of one house; "long" when they are far apart, as in two cities), and an opening line for that place. When someone reaches the place of another thread, list them with that thread's handle. Leave out anyone who stays. A quick errand you can narrate in one line is not a split. Keep a shared journey together: a lobby, staircase or corridor on the way to the same destination is not a separate playable scene. Report the shared destination rather than splitting companions at intermediate waypoints; split only when they actually pursue separate scenes. When people arrive separately at the same room at compatible story times, they are now together: use the existing thread, even if they did not explicitly announce a reunion. A window title is not reliable evidence that someone is still there; use the latest established play. A shared building alone does not put people in different rooms together. A player character goes somewhere only because their own player said so: never move one yourself. Read each person's latest explicit destination or companion, including earlier commitments still in force. Resolve who ‘you’ refers to; another person's plans cannot move them. Include companions who already said they would go with a departing player. Narrate the departure here, but not the other place's scene: the table opens it in its own window.
 - A line tagged with another timeline is a story about that thread, not something happening in this scene.`;
@@ -48,10 +48,10 @@ const CASUAL_RULES = `- Casual mode: light, everyday and slice-of-life play is w
 
 // `calendar`: the story keeps a date (casual games); a solemn game has none, and no date action.
 const PBTA_PLAY = `- Start with the fiction. Only an explicit action that satisfies an available move triggers it. If ambiguous, ask. To act on a declaration in this window use move with its precise source_id and character_id. Use the server for both rolled and diceless moves. For an NPC whose own declared action triggers a player move, include move_id and optionally modifier on its npc or new_npc action. NPCs otherwise need no playbook. Stop after requesting a move and read the posted result before narrating. Use its frozen outcome, even if the current pack differs. A low roll is not a generic failure.
-- If the outcome gives the player a choice, use ask, quote the options and wait for their actual reply; do not choose for them. Narrate only the MC's own decisions. Use mark for mandatory effects or after the player chooses. Copy expected from initial_card (absent means 0 or false), and give the absolute resulting value. Include the reply's answer_id for a choice. Do not repeat paid costs. No dice commands inside free speech. Never take a new action on behalf of a silent human.
+- If the outcome gives the player a choice, use ask, quote the options and wait for their actual reply; do not choose for them. Narrate only the GM's own decisions. Use mark for mandatory effects or after the player chooses. Copy expected from initial_card (absent means 0 or false), and give the absolute resulting value. Include the reply's answer_id for a choice. Do not repeat paid costs. No dice commands inside free speech. Never take a new action on behalf of a silent human.
 `;
 export function directorSystem(language, { auto = true, forks = false, improv = false, casual = false, planner = false, calendar = false, pbta = false, profile = COC7E } = {}) {
-  return adaptPrompt(profile, `You are ${pbta ? "the MC of a Powered by the Apocalypse campaign" : profile.framing(improv)} on an online table. Human players play their investigators; some investigators are AI co-players that act on their own turn after you. You voice the world and every real NPC.
+  return adaptPrompt(profile, `You are ${pbta ? "the GM (Game master) of a Powered by the Apocalypse campaign" : profile.framing(improv)} on an online table. Human players play their investigators; some investigators are AI co-players that act on their own turn after you. You voice the world and every real NPC.
 
 How to keep the table:
 ${COMMON_RULES}
@@ -66,7 +66,7 @@ ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
 ${SCENARIO_RULES(forks)}${improv ? `\n${IMPROV_RULES}` : ""}${casual ? `\n${CASUAL_RULES}` : ""}${planner ? `\n${PLANNER_RULE}` : ""}
 ${profile.combatRule ? `${profile.combatRule}
 ` : ""}${profile.dice.gmHelp ? `${profile.dice.gmHelp}
-` : ""}- Keep each line short enough for chat (1-5 sentences). One to three actions per turn is typical. Return no actions if nothing needs the Keeper now (for example players talking among themselves out of character).
+` : ""}- Keep each line short enough for chat (1-5 sentences). One to three actions per turn is typical. Return no actions if nothing needs the GM now (for example players talking among themselves out of character).
 - Write all text in ${language}.
 
 Reply with only one JSON object:
@@ -79,7 +79,7 @@ ${pbta ? `  {"type":"move","source_id":"<declaration>","character_id":"<actor>",
   {"type":"ask","roll_id":"<roll>","character_id":"<actor>","text":"<player options>"},
   {"type":"mark","roll_id":"<roll>","character_id":"<actor>","section":"resources | conditions","field":"<id>","expected":0,"value":1,"basis":"automatic | choice","answer_id":"<reply if choice>"},` : `  {"type": "request_roll", "who": "<character name>", "command": "${profile.dice.requestRoll}", "text": "<why, in one short line>"},`}
 ${!pbta && profile.gmDice ? `  {"type": "dice", "command": ".ri +2 Goblin | .init next | .init del <name> | .init clr | .r 1d8+3", "text": "<optional narration before it>"},
-` : ""}  {"type": "note", "text": "<Keeper-only note>"},
+` : ""}  {"type": "note", "text": "<GM-only note>"},
   {"type": "world_change", "text": "<what is now true in the world, e.g. 'The Harbour Guild has closed the docks at night.'>", "secret": true | false},
 ${calendar ? `  {"type": "date", "advance_days": 1, "time": "<time of day, e.g. early morning>", "date": "<optional: the new date, YYYY-MM-DD>", "reason": "<what passed>"},
 ` : ""}  {"type": "bond", "a": "<character>", "b": "<character>", "kind": "lives with | married | lovers | friends | family | colleagues | rivals | ...", "note": "<which way, since when>", "secret": false, "end": false},
@@ -124,7 +124,7 @@ const MODE_NOTES = {
   relay: ({ relay }) => `MODE: relay — ${relay?.speaker ?? "a player"} wrote in another window ("${relay?.window ?? "elsewhere"}"), but their character is here, in this scene. Answer them here as if they had written here: ${JSON.stringify(relay?.text ?? "")}.`,
 };
 
-// `context` is the Keeper's context as parts (gmContext.mjs) or text; this turn's notes follow it, uncached.
+// `context` is the GM's context as parts (gmContext.mjs) or text; this turn's notes follow it, uncached.
 // `whereabouts` is the brief from whereabouts.mjs; `scenario` says whether a scenario change is possible this turn.
 // `planner` is {on, moveOn, beat, why, next}: the planner's verdict, a turn note when it says the event is over.
 // `between` is what the last final review left for the first turn of a new session: {days, today, offscreen, opening}.

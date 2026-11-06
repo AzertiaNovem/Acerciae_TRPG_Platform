@@ -22,7 +22,7 @@ Screenshots (taken from the running app in mock mode):
 | GM workspace | Module knowledge graph | Revision history |
 |---|---|---|
 | ![](docs/screenshots/gm-workspace.png) | ![](docs/screenshots/gm-module.png) | ![](docs/screenshots/revision-history.png) |
-| Next per the script, pinned for the Keeper | The script knowledge and its reviewed changes | A reminder bubble opened: the quoted lines highlighted |
+| Next per the script, pinned for the GM | The script knowledge and its reviewed changes | A reminder bubble opened: the quoted lines highlighted |
 | ![](docs/screenshots/kp-board.png) | ![](docs/screenshots/script-knowledge.png) | ![](docs/screenshots/reminder-viewer.png) |
 | The character space: COC7 role card | Appearance mode, generated portrait and subtitles | The Scenarios manager |
 | ![](docs/screenshots/character-space.png) | ![](docs/screenshots/character-look.png) | ![](docs/screenshots/scenarios.png) |
@@ -97,7 +97,7 @@ the UI, `llm_mode: "mock"` in the server settings). Provider endpoints must be h
 **Personal settings** — Eleven interface languages matching server settings, saved per account; editable login username, Unicode display name and uploaded avatar. The sidebar profile gear opens these controls. Personal language is independent of the server's AI/dice language. See [USER_SETTINGS.md](docs/USER_SETTINGS.md) for the API and validation.
 
 **Product structure** — Servers → Channels (one campaign each, strictly isolated context) → Chat Windows (each with
-its own participants; windows and scenes are many-to-many). GM / player roles; GM-only notes and whispers.
+its own participants; windows and scenes are many-to-many). GM (Game master) / player roles; GM-only notes and whispers.
 GM can pause/resume a member's future message visibility from the window's Members dialog. Previously seen history
 remains; messages during absence stay hidden on return. Same-group players still share their views. New scenes can
 fork bounded, permission-filtered history without copying messages; inactive windows can be archived and restored.
@@ -114,11 +114,11 @@ sources, permissions, epistemic status, version and conflicts before committing.
 gm_secret | resolved | retracted`. The validator downgrades AI "confirmed" claims that lack a GM-authored source, and turns
 contradictions of confirmed records into **pending GM proposals** instead of overwriting.
 
-**Independent memory partitions** — KP memory and each channel player group's facts, entities, documents and revisions
+**Independent memory partitions** — GM memory and each channel player group's facts, entities, documents and revisions
 have separate identities. Players share their group's readable chat perspectives. A separate observer builds each group's
-five journals only from that chat and its own earlier summaries; it cannot retrieve KP/module memory. KP's six categories
+five journals only from that chat and its own earlier summaries; it cannot retrieve GM/module memory. GM's six categories
 are available in GM Workshop, with sections, source citations, revisions and correction controls.
-Group or window-access changes invalidate and rebuild the affected player summaries. Existing KP records remain intact.
+Group or window-access changes invalidate and rebuild the affected player summaries. Existing GM records remain intact.
 See [knowledge architecture and migration](docs/KNOWLEDGE_GROUPS.md).
 
 **One campaign log** — a channel keeps a single log of the entire campaign across every chat window, pulled from the
@@ -127,26 +127,26 @@ SealDice-compatible JSON per chat window, text, HTML or a zip of all of them. PD
 one log.
 
 **Character space** — every character has a page: the avatar shown in chat, the main portrait, basic information,
-the COC7-styled role card (characteristics, derived values, skills, wealth), background and carried items. The Keeper and
+the COC7-styled role card (characteristics, derived values, skills, wealth), background and carried items. The GM and
 the character's actor edit it; everyone at the table reads a PC's page. Images come from uploads or, in generated mode,
 from an appearance prompt that the image AI combines with the campaign's era and the current moment of the story; one
 image per subtitle (IDLE, SAY, FIGHT, …) feeds the visual novel.
 
 **Scenarios** — the story's stages, and a campaign-wide state: every chat window is in the channel's current
-scenario. Only the Keeper opens the next one (or enters a prepared one), after a confirmation window that names the
+scenario. Only the GM opens the next one (or enters a prepared one), after a confirmation window that names the
 current and the new scenario; at that moment the previous scenario closes,
-gets an AI summary in the scenario list, and can only be consulted from then on. The Keeper's observer still watches the
-narration: when it sees a shift of time or place it raises a "New scenario?" bubble in the Keeper's dock, anchored to the
+gets an AI summary in the scenario list, and can only be consulted from then on. The GM's observer still watches the
+narration: when it sees a shift of time or place it raises a "New scenario?" bubble in the GM's dock, anchored to the
 line, but never opens one itself. Chat can be located by scenario or by time (`list_scenarios`, `get_chat_log`).
 GM-edited summaries are never overwritten. Players see neutral scenario labels only.
 
-**Keeper script knowledge** — when a module is imported, the model reads its structured graph and pages and writes the
-Keeper's working knowledge: the flow of the script (its stages in order, what each needs, what the Keeper does there),
+**GM script knowledge** — when a module is imported, the model reads its structured graph and pages and writes the
+GM's working knowledge: the flow of the script (its stages in order, what each needs, what the GM does there),
 NPC and investigator relationships, clues, foreshadowing and background, each citing pages. The model reads this first
-whenever it works for the Keeper. During play it proposes changes (a stage reached, a clue revealed, a twist paid off);
-a second model reviews every proposal against the quoted chat lines before it is applied, and the Keeper's own edits are
-final. Two cards stay pinned at the top of the Keeper's dock: what the script plans next, and the Keeper's notes (open
-threads, timeline, latest reviewed changes). Keeper reminders can point at the script as well as at the chat. Nothing of
+whenever it works for the GM. During play it proposes changes (a stage reached, a clue revealed, a twist paid off);
+a second model reviews every proposal against the quoted chat lines before it is applied, and the GM's own edits are
+final. Two cards stay pinned at the top of the GM's dock: what the script plans next, and the GM's notes (open
+threads, timeline, latest reviewed changes). GM reminders can point at the script as well as at the chat. Nothing of
 this is reachable by a player group.
 
 **Reminder bubbles** — the players' dock no longer shows journals: their group's knowledge (relationships, clues,
@@ -154,13 +154,13 @@ open threads, and a per-scenario story index) is a hidden prelude the model read
 After each batch the group's observer reads the current scenario and the end of the previous one and points out what the
 players most likely forgot or need, as bubbles on the right. Every bubble is anchored to verbatim quotes from lines the
 group can read (checked by `get_chat_log`; unverifiable quotes are dropped). Clicking a bubble opens the chat log around
-the quoted lines with the passages highlighted in yellow-green, with jump and quote-as-reference. The Keeper keeps the six
+the quoted lines with the passages highlighted in yellow-green, with jump and quote-as-reference. The GM keeps the six
 documents.
 
 **Scheduled AI observer** — every 5 s (configurable) per (channel, window, scene) group: cursor-based event reading, DB-level
 task locks (`ai_jobs` partial unique index) plus in-process locks, batch analysis, tool-assisted retrieval, validated commit,
 WebSocket notification, cursor advance. Player groups use independent generation-bound cursors and commits.
-No new events ⇒ no LLM call. A separate KP consolidator runs at low frequency.
+No new events ⇒ no LLM call. A separate GM consolidator runs at low frequency.
 
 **Sharded context and the Tool API** — `get_current_scene`, `get_scene_by_id`, `search_scene_history`, `search_events`,
 `get_entity`, `get_relationships`, `get_clue`, `get_open_threads`, `get_module_excerpt`, `get_knowledge_scope`, `get_shard`.
@@ -186,7 +186,7 @@ a gray hint follows the command (`.ra research —— Alice's research is 53`). 
 or server-defined text groups; each channel's GM picks one. GMs maintain NPC sheets by speaking as the NPC or in the character sheet. Checks follow 7e: a fumble is 100, or 96–100 when the number needed (after Hard/Extreme) is below 50; `.en` cannot
 improve Cthulhu Mythos, and a skill improved to 90+ grants 2D6 SAN. `.st fast-talk 50` and `.sc 1 / 1d6` are accepted.
 
-**Investigator development between scenarios** — on a COC7 channel, when a scenario closes (the Keeper opens the next
+**Investigator development between scenarios** — on a COC7 channel, when a scenario closes (the GM opens the next
 one, enters a prepared one or closes the current one), every skill a player character succeeded with in it is checked
 as the rulebook says: D100 above the skill or above 95 improves it by 1D10, Cthulhu Mythos and Credit Rating are never
 checked, a skill reaching 90 grants 2D6 SAN. The sheet and the role card take the improvements, and a system tip in the
@@ -236,7 +236,7 @@ and pixel-perfect generated identity are not implemented. Docker/MinIO deploymen
 C++/PostgreSQL/Node path was tested.
 
 Open Log Studio: the campaign log is there for every member within their own view, and snapshots of it feed PDFs and
-visual novels. The Keeper decides whether the Studio is shown and whether players may open it before the story ends; ending
+visual novels. The GM decides whether the Studio is shown and whether players may open it before the story ends; ending
 the story opens it to everyone with the whole story. The GM sets the speech budget and enables cloud processing for Studio
 work under Campaign production settings (disabled by default); providers and keys come from Server settings → AI. A
 separate PDF worker must be running for PDF jobs to leave pending state:
@@ -251,7 +251,7 @@ On the Visual novel tab any member can make a visual novel in four steps: the LL
 as time blocks and writes the script (backgrounds and portrait subtitles, never new text), the image AI paints missing
 backgrounds and generated-mode portraits, the author casts a voice for every character and the narration (Qwen TTS),
 and a zip with a standalone HTML player, the images and the voice lines downloads for offline viewing. The server
-maintainer can turn the Log Studio off, and the Keeper can hide it per channel or keep it from players until the story
+maintainer can turn the Log Studio off, and the GM can hide it per channel or keep it from players until the story
 ends. See
 [visual novel guide](docs/VISUAL_NOVEL.md).
 
@@ -265,8 +265,8 @@ the server language, and dice commands take them in English or that language (`.
 The GM can also switch a channel to **D&D 2024** (rules from the System Reference Document 5.2, CC-BY-4.0): a D&D
 character sheet with the 2024 point buy or standard array and background increases, D20 Tests with Advantage and
 Disadvantage (`.rc stealth dc 15`, `.rc attack +5 ac 13`), Initiative (`.ri`, `.init next`) with an Initiative bar in
-the chat window, Death Saving Throws (`.ds`) and spell slots (`.ss`), AI prompts that name the game and the Dungeon
-Master, and creature stat blocks in module import. See [D&D 2024](docs/DND_2024.md).
+the chat window, Death Saving Throws (`.ds`) and spell slots (`.ss`), AI prompts that name the game (the GM is
+"the GM" in every system), and creature stat blocks in module import. See [D&D 2024](docs/DND_2024.md).
 
 [PbtA channels](docs/PBTA.md) support human-led games with editable playbooks, shared and playbook moves, custom outcome bands, and private GM reference moves. The included Frontier Investigation pack can be played directly or adapted in the GM workspace.
 
@@ -286,10 +286,10 @@ downloads, visual novels saved file by file or exported as video, and system not
 Studio**: the Log Studio on your own computer without an account (SealDice/QQ/Acerciae logs → HTML, PDF, visual novel
 player or video, with your own AI keys). See [desktop/README.md](desktop/README.md).
 
-## AI Game Master client
+## AI GM client
 
-[`gm-agent/`](gm-agent/README.md) is an optional Node.js client that sits at the table as the Keeper through the same
-HTTP + WebSocket API the web and mobile apps use. It narrates and voices the NPCs with the Keeper's full context,
+[`gm-agent/`](gm-agent/README.md) is an optional Node.js client that sits at the table as the GM through the same
+HTTP + WebSocket API the web and mobile apps use. It narrates and voices the NPCs with the GM's full context,
 including the platform's AI tips (board, reminders, script knowledge, documents, highlights). It also plays a chosen
 number of **co-players**: AI investigators whose COC7 role cards its LLM writes, and who see only the chat lines their
 character witnessed.
@@ -319,7 +319,7 @@ reproduce it by hand with the demo campaign.
 
 ## Documentation
 
-* [第十三声雾钟](docs/DEMO_STORY.zh-CN.md) — Chinese demo story and feature walkthrough for the Keeper, with a separate [player handout](docs/DEMO_STORY_PLAYER_HANDOUT.zh-CN.md)
+* [第十三声雾钟](docs/DEMO_STORY.zh-CN.md) — Chinese demo story and feature walkthrough for the GM, with a separate [player handout](docs/DEMO_STORY_PLAYER_HANDOUT.zh-CN.md)
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — modules, data model, permission model, schedulers
 * [docs/DATA_FLOW.md](docs/DATA_FLOW.md) — the vertical flow from message to highlighted document, proposal validation
 * [docs/API.md](docs/API.md) — HTTP and WebSocket reference
@@ -327,7 +327,7 @@ reproduce it by hand with the demo campaign.
 * [docs/OPERATIONS.md](docs/OPERATIONS.md) — deployment checklist, TLS, backups and restore, upgrades, housekeeping
 * [docs/ADMIN.md](docs/ADMIN.md) — platform administration: inspecting storage, database and account use; suspending servers and accounts
 * [docs/SERVER_AI_SETTINGS.zh-CN.md](docs/SERVER_AI_SETTINGS.zh-CN.md) — server AI providers and AI policy
-* [gm-agent/README.md](gm-agent/README.md) — the AI Game Master client: roles, what each role sees, configuration
+* [gm-agent/README.md](gm-agent/README.md) — the AI GM client: roles, what each role sees, configuration
 
 ## Known limitations (explicitly out of the MVP)
 
@@ -336,8 +336,8 @@ reproduce it by hand with the demo campaign.
 * Semantic (pgvector) retrieval is wired but only active when the server sets an embedding model; FTS + trigram is the default.
 * Timeline compression and relationship merging in the consolidator are conservative (resolve promise threads, drop exact
   duplicate relationships); richer long-term compression is left to the live model.
-* Group membership is managed explicitly by the KP. Changing it rebuilds derived player journals from currently readable
-  chat; the AI never directly shares or copies KP facts. Public/isolated channel mode controls new-player allocation.
+* Group membership is managed explicitly by the GM. Changing it rebuilds derived player journals from currently readable
+  chat; the AI never directly shares or copies GM facts. Public/isolated channel mode controls new-player allocation.
 * Database access is synchronous on Drogon's IO threads (pooled libpqxx connections); adequate for table-sized loads,
   not tuned for very large deployments. Multi-instance deployment is possible (locks and cursors live in PostgreSQL;
   WebSocket fan-out is per instance and would need a broker for cross-instance pushes).
@@ -350,14 +350,14 @@ BSD 3-Clause; see [LICENSE](LICENSE).
 
 ### Optional channel atmosphere
 
-Server settings → Channel atmosphere backgrounds enables automatic generation using that server's image provider and budget; User settings → Show channel atmosphere backgrounds enables personal display. Both switches default off. The Keeper-side LLM conservatively evaluates public narration and remembers previous prompts. It generates four images of the same place: landscape day, landscape night, portrait day, portrait night. Web selects day/night by the device light/dark theme, not the story clock, and displays the appropriate orientation at 26% opacity.
+Server settings → Channel atmosphere backgrounds enables automatic generation using that server's image provider and budget; User settings → Show channel atmosphere backgrounds enables personal display. Both switches default off. The GM-side LLM conservatively evaluates public narration and remembers previous prompts. It generates four images of the same place: landscape day, landscape night, portrait day, portrait night. Web selects day/night by the device light/dark theme, not the story clock, and displays the appropriate orientation at 26% opacity.
 
-A new set requires a 30-minute cooldown and at least 12 further public Keeper narrations; uncertain/minor changes reuse existing art. All four images must finish before switching. Prompts and source references are retained, with Keeper-readable history in Log Studio → Assets; generated images remain candidates for publication review and can be reused after approval. Private Keeper knowledge and split-party chat are excluded from shared background generation. Migration `0030_channel_atmosphere.sql` is additive. [API and native client contract](docs/API.md#channel-atmosphere-backgrounds).
+A new set requires a 30-minute cooldown and at least 12 further public GM narrations; uncertain/minor changes reuse existing art. All four images must finish before switching. Prompts and source references are retained, with GM-readable history in Log Studio → Assets; generated images remain candidates for publication review and can be reused after approval. Private GM knowledge and split-party chat are excluded from shared background generation. Migration `0030_channel_atmosphere.sql` is additive. [API and native client contract](docs/API.md#channel-atmosphere-backgrounds).
 
 The integration test `tests/integration/atmosphere.test.mjs` exercises opt-in, four-image mock generation, image access, cooldown and privacy against an isolated backend. Database tests cover previous-prompt context, uncertainty, private evidence rejection and fallback to a complete prior set. Frontend tests cover all four theme/orientation combinations. Real image API credentials were not used for this feature's verification; the existing GPT Image adapter is reused.
 
 ### Module import feedback
 
-The web GM workspace acknowledges imports immediately, shows extraction/structuring/knowledge-preparation stages and actual completed-block counts, and displays completion or failure persistently. You can leave the panel and return later. Concurrent submissions of identical content share one task; failed tasks can be retried without re-uploading. Interrupted imports are recoverable after restart. Long single-page text is split without breaking UTF-8 or original page references. Keeper-knowledge failures are shown as warnings instead of silently claiming full success.
+The web GM workspace acknowledges imports immediately, shows extraction/structuring/knowledge-preparation stages and actual completed-block counts, and displays completion or failure persistently. You can leave the panel and return later. Concurrent submissions of identical content share one task; failed tasks can be retried without re-uploading. Interrupted imports are recoverable after restart. Long single-page text is split without breaking UTF-8 or original page references. GM-knowledge failures are shown as warnings instead of silently claiming full success.
 
-General LLM output allowance defaults to 8192 tokens; module graph and Keeper knowledge builds use 32768 tokens with a five-minute call timeout. See [operations](docs/OPERATIONS.md#import-output-allowance) for deployment overrides and [API details](docs/API.md#module-import-progress-and-duplicate-protection) for mobile integration. The existing synchronous text API remains compatible; `async:true` opts into the new immediate response.
+General LLM output allowance defaults to 8192 tokens; module graph and GM knowledge builds use 32768 tokens with a five-minute call timeout. See [operations](docs/OPERATIONS.md#import-output-allowance) for deployment overrides and [API details](docs/API.md#module-import-progress-and-duplicate-protection) for mobile integration. The existing synchronous text API remains compatible; `async:true` opts into the new immediate response.

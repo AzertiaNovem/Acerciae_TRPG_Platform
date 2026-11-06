@@ -29,7 +29,7 @@ test("reminder bubbles: raised from readable chat only, quoted verbatim, opened 
   for (let i = 0; i < 9; i++) await say(gm, priv, `The fire crackles and the rain keeps falling (${i}).`, { kind: "narration" });
   await observe();
   // A GM-only note mentioning the same words must never be quoted.
-  await say(gm, priv, "KEEPER NOTE: the lantern sigil marks members of the Society.", { kind: "narration", visibility: "gm_only" });
+  await say(gm, priv, "GM NOTE: the lantern sigil marks members of the Society.", { kind: "narration", visibility: "gm_only" });
   // Now Ada brings it up again.
   await say(p1, priv, "Wait, that lantern sigil on the badge: does it match the one we saw at the docks?", { character_id: ada.id });
   await observe();
@@ -46,7 +46,7 @@ test("reminder bubbles: raised from readable chat only, quoted verbatim, opened 
   const ctx = await call(p1, "GET", `/api/channels/${ch}/reminders/${r.id}/context?limit=20`);
   assert.ok(ctx.events.some((e) => e.cited && e.quotes.length >= 1), "the quoted line is marked for highlighting");
   assert.ok(!JSON.stringify(ctx).includes("members of the Society"));
-  // Mo's group cannot see or open it; the Keeper's own list holds no player bubbles.
+  // Mo's group cannot see or open it; the GM's own list holds no player bubbles.
   assert.ok(!(await call(p2, "GET", `/api/channels/${ch}/reminders`)).some((x) => x.id === r.id));
   await rejects(call(p2, "GET", `/api/channels/${ch}/reminders/${r.id}/context`), 404);
   assert.ok((await call(gm, "GET", `/api/channels/${ch}/reminders`)).every((x) => x.player_group_id === null));

@@ -161,7 +161,7 @@ export const COC_CARD = Object.freeze({
 });
 // The default profile for the functions below when none is given (tests, older callers): the CoC words and card.
 const DEFAULT = { id: "coc7e", vocab: COC_VOCAB, card: COC_CARD };
-const brief = (profile) => (profile.vocab.gmShort === "KP" ? "KEEPER" : profile.vocab.gmShort);
+const brief = (profile) => profile.vocab.gmShort.toUpperCase();
 
 // One co-player: a fellow investigator who plays alongside the real players.
 // `world` (improvisation mode) is the setting the investigator comes from: their persona and background are written
@@ -198,7 +198,7 @@ async function checkedBuild(llm, card, { profile, rules, language, pointsMode, l
   return fixed;
 }
 
-// A real NPC the Keeper introduces in play; it is written from the GM's brief and the GM context.
+// A real NPC the GM introduces in play; it is written from the GM's brief and the GM context.
 export async function generateNpc(llm, { language, era, rules, name, brief: gmBrief, gmContext, profile = DEFAULT, pointsMode = false, log = () => {} }) {
   const { vocab, card: C } = profile;
   const system = `You are the ${vocab.gm}'s assistant in ${vocab.campaign}. Write the role card of a non-player character the ${vocab.gm} is introducing. Keep it consistent with the ${vocab.gm}'s notes. Write every text field in ${language}. Reply with only one JSON object of this shape: ${C.shape}`;
@@ -225,7 +225,7 @@ export async function putCardWithPoints(api, channelId, characterId, card, { hea
 export async function saveCharacter(api, channelId, generated, { kind, rules, llm, language, pointsMode = false, profile = DEFAULT, level }) {
   // A D&D card was normalised and checked when it was generated; a CoC card is normalised here.
   const card = profile.id === "coc7e" ? normalizeCard(generated.role_card, { rules, kind }) : generated.role_card;
-  // A co-player is a GM-cast PC: a PC the Keeper account owns (the platform makes the creator the owner).
+  // A co-player is a GM-cast PC: a PC the GM account owns (the platform makes the creator the owner).
   const style = s(generated.speaking_style, 300);
   const bio = s(generated.persona ?? generated.brief, 6000);
   const ch = await api.createCharacter(channelId, { name: s(generated.name), kind: kind === "coplayer" ? "pc" : "npc", speaking_style: style, description: bio.slice(0, 500) });
