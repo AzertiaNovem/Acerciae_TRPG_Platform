@@ -330,13 +330,23 @@ $('yaml').addEventListener('keydown', event => {
 });
 
 // ---------- logs
-async function refreshLogs() {
-  if (!selected) return;
-  const data = await api(`/api/channels/${selected}/logs?after=${logSeq}`);
-  if (data.last < logSeq) { logSeq = 0; logLines = []; }       // the host restarted
-  if (!data.lines.length) return;
-  logSeq = data.last; logLines.push(...data.lines); if (logLines.length > 1500) logLines.splice(0, logLines.length - 1500);
-  renderLogs();
+// One request at a time, and only lines newer than the last one shown: polls that overlap (a slow host or proxy, a tab
+// switch during a poll) would otherwise append the same lines again.
+let logLoading = null;
+function refreshLogs() {
+  if (!selected) return Promise.resolve();
+  if (logLoading) return logLoading;
+  const id = selected;
+  logLoading = (async () => {
+    const data = await api(`/api/channels/${id}/logs?after=${logSeq}`);
+    if (id !== selected) return;                                 // another channel was chosen meanwhile
+    if (data.last < logSeq) { logSeq = 0; logLines = []; }       // the host restarted
+    const fresh = data.lines.filter(l => l.seq > logSeq);
+    if (!fresh.length) return;
+    logSeq = Math.max(logSeq, ...fresh.map(l => l.seq)); logLines.push(...fresh); if (logLines.length > 1500) logLines.splice(0, logLines.length - 1500);
+    renderLogs();
+  })().finally(() => { logLoading = null; });
+  return logLoading;
 }
 function renderLogs() {
   const q = $('log-filter').value.trim().toLowerCase(), errorsOnly = $('log-errors').checked, bad = /error|fail|refus|exception|denied|exited|bad_request|timed? ?out|✗/i;
