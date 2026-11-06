@@ -117,7 +117,7 @@ async function setupChannel(cfg, api, target, automatic = false) {
 // before any cards, world publication, WebSocket or turn timers are started.
 async function reviewBeforePlay(api, llm, channel, rules, world, language, review, automatic) {
   async function design(current) {
-    try { return await preparePack(api, llm, channel, rules, world, language, current); }
+    try { return await preparePack(api, llm, channel, rules, world, language, current, (m) => console.log(m)); }
     catch (error) {
       if (error.status !== 409) throw error;
       // A GM can keep the pack or request a retry even while the model is still answering.

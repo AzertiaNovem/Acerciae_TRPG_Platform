@@ -51,7 +51,7 @@ export async function completeJson(llm, { system, user, messages: given, purpose
   } catch (e) {
     messages.push({ role: "assistant", content: reply });
     messages.push({ role: "user", content: `That reply could not be used (${e.message}). Answer again with only the JSON object described above.` });
-    reply = await llm.complete({ system, messages, purpose, phase, requestId, attempt: 2 });
+    reply = await llm.complete({ system, messages, purpose, phase, requestId, attempt: 2, retryReason: e.message });
     return await validate(extractJson(reply));
   }
 }
