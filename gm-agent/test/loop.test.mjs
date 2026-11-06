@@ -229,8 +229,9 @@ test("NPC speech never creates an unknown character, and new_npc reuses an exist
   await playerSays(t, api, "I return to speak with Grimsby.");
   assert.deepEqual(api.created.map((c) => c.name), ["Mrs. Pell"]);
   assert.equal(llm.calls.filter((c) => c.purpose === "npc_card").length, 1);
-  assert.equal(api.posts[0].character_id, "c-butler");
-  assert.equal(api.posts[0].content, "I remember your promise.");
+  assert.equal(api.posts[0].visibility, "gm_only"); assert.match(api.posts[0].content, /^Not posted: Invented Messenger is not in the cast.*introduce them with new_npc/);
+  assert.equal(api.posts[1].character_id, "c-butler");
+  assert.equal(api.posts[1].content, "I remember your promise.");
   assert.ok(!api.posts.some((p) => p.content.includes("needless new contact")));
   assert.equal(t.roster.npcs.filter((c) => c.characterId === "c-butler").length, 1);
 });
@@ -2471,4 +2472,19 @@ test("a PbtA table still runs MC and co-player turns with only public player mov
   assert.match(cp.messages[0].content, /Your available moves and playbook:.*Explore/);
   assert.doesNotMatch(cp.messages[0].content, /PRIVATE-MC-MOVE|SECRET-NPC/);
   assert.equal(api.initiativeReads, 0);
+});
+
+import { directorSystem as _dirSys } from "../src/director.mjs";
+import { plannerSystem as _planSys } from "../src/planner.mjs";
+import { rulesProfile as _rulesProfile } from "../src/rules/index.mjs";
+test("new people: reuse the cast for new plots; a specific person with more than a line who could bond becomes a platform NPC", () => {
+  const director = _dirSys("English", {});
+  for (const text of [director, _planSys("English", { mode: "full" })]) {
+    assert.match(text, /Grow newer plots out of the people already in the story/);
+    assert.match(text, /\(1\) they could build a lasting bond with the player characters or co-players.*\(2\) they have more than one sentence to say; \(3\) they are one specific person, not a voice standing for a crowd or a group/);
+    assert.match(text, /a character created on the platform, never a voice inside narration/);
+    assert.doesNotMatch(text, /Minor one-off service roles can stay unnamed|only when the story needs a distinct role the existing cast cannot credibly fill/);
+  }
+  assert.match(director, /enters with new_npc \(name, a brief for their role card, their first line\) and speaks with npc after that; never put a real NPC's words inside narrate/);
+  assert.match(_dirSys("English", { profile: _rulesProfile("dnd2024") }), /could build a lasting bond with the player characters/);
 });

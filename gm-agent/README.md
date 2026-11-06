@@ -229,11 +229,20 @@ platform without the record (404) is noted once, and the table carries on with i
 The Keeper and planner favour a small recurring NPC cast and relationships that develop over multiple scenes and
 sessions. They consult existing people and bonds before introducing someone new, follow through on promises and
 shared experiences, and let peripheral NPCs stay off-screen. The planner's critique/revision explicitly checks for
-unnecessary newcomers and neglected relationships. This is guidance, not a hard NPC quota: new people remain
-possible when the story or players need a distinct role, and reuse must respect whereabouts, identities and the
-module. Neither role decides player/co-player feelings or treats proposed relationships as already established.
-`npc` only voices an existing cast member; an unknown name is logged and skipped. `new_npc` explicitly creates a
-new character, or reuses the existing character when that name is already in the cast.
+unnecessary newcomers and neglected relationships. Newer plots grow out of the people already in the story: a
+familiar NPC gets the new problem, request, secret or job before someone is invented for it. Reuse must respect
+whereabouts, identities and the module. Neither role decides player/co-player feelings or treats proposed
+relationships as already established.
+
+When the story does need someone new, the Keeper makes them a real NPC, a character on the platform with a role card
+and lines of their own, if they pass all three tests: they **could build a lasting bond** with the player characters
+or co-players; they **have more than one sentence to say**; and they are **one specific person**, not a voice
+standing for a crowd ("someone in the crowd shouts", "the guards mutter"). A real NPC's words are never put inside
+narration or summed up there. Anyone who fails a test (a single remark, a passer-by, a clerk the story will not
+return to) stays unnamed in narration; someone first met there who turns out to matter is made a real NPC then.
+`npc` only voices an existing cast member: an unknown name is not posted (a misspelling must not create a
+character), and a Keeper-only note tells the next round to use `new_npc` if the person passes the tests. `new_npc`
+creates the character, or reuses the existing one when that name is already in the cast.
 
 ## How a turn runs
 

@@ -1189,7 +1189,13 @@ export class Table {
         const who = this.characterByName(a.name);
         if (this.roster.coplayerByName(a.name) || who?.kind === "pc") { this.log(`the Keeper tried to voice ${a.name}, a ${this.roster.isCoplayer(who?.id) || !who ? "co-player" : "player character"}; skipped`); return 0; }
         let npc = this.roster.npcByName(a.name);
-        if (!npc && a.type === "npc") { this.log(`the Keeper named an unknown NPC (${a.name}); skipped instead of creating a character`); return 0; }
+        if (!npc && a.type === "npc") {
+          // Not posted: a misspelled or invented name must not create a character by accident. The note tells the next
+          // round how to bring a new person in.
+          this.log(`the Keeper named an unknown NPC (${a.name}); skipped instead of creating a character`);
+          await this.post(windowId, { content: `Not posted: ${a.name} is not in the cast, and npc only voices someone in it. If this is a new person who passes the three tests for new people, introduce them with new_npc (name, brief, first line); otherwise use a cast member or keep them unnamed in narration.`, kind: "narration", visibility: "gm_only" }, { count: false });
+          return 0;
+        }
         if (!npc) npc = await this.createNpc(a.name, a.brief, ctx.text);
         if (!npc || !a.text) return 0;
         if (this.pbta && a.move_id) {

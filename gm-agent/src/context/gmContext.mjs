@@ -134,7 +134,7 @@ export class GmContext {
       `Co-players (AI ${pcs} that play alongside the players; they act on their own turn, so never speak or decide for them either), with their basic details and background:`,
       ...(coplayers.length ? coplayers.map((c) => renderProfile(c, "", P)) : ["- (none)"]),
       "Real NPCs (you voice them; known cast, not everyone currently active), with gender, age and what is most striking about them:",
-      ...(roster.npcs.length ? roster.npcs.map((c) => { const look = impression(characters.find((x) => x.id === c.characterId)?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}`; }) : ["- (none yet; use new_npc only when a distinct recurring character is needed)"]),
+      ...(roster.npcs.length ? roster.npcs.map((c) => { const look = impression(characters.find((x) => x.id === c.characterId)?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}`; }) : [`- (none yet; a new person who could bond with the ${pcs}, has more than one sentence to say and is one specific person enters with new_npc)`]),
     ].join("\n"));
     // Every window's chapters (the story so far, compacted), windows in a fixed order.
     const chaptered = windows.map((w) => ({ w, chapters: this.memory.gmChapters(w.id) })).filter((x) => x.chapters.length);
