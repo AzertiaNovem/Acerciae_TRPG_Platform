@@ -76,11 +76,11 @@ for format in ('json','txt','html','zip'):
     assert call(studio+'/log/export?format='+format,a,raw=True)
 sealdice=call(studio+'/log/export?format=sealdice&chat_window_id='+window['id'],a)
 assert sealdice['version']==105 and isinstance(sealdice['items'],list)
-# New member-specific context never exposes the Keeper board.
+# New member-specific context never exposes the GM board.
 assert isinstance(call(root+'/reminders',a),list)
 for path in ('kp/board','script-knowledge'):
     try:
-        call(root+'/'+path,a); raise AssertionError('Player can read Keeper material')
+        call(root+'/'+path,a); raise AssertionError('Player can read GM material')
     except urllib.error.HTTPError as e: assert e.code==403
 assert 'next' in call(root+'/kp/board',g)
 space=call(root+'/characters/'+own['id']+'/space',a)
@@ -116,6 +116,6 @@ try:
     call(studio+'/log',a); raise AssertionError('Hidden Studio was readable')
 except urllib.error.HTTPError as e: assert e.code==403
 finally: call(root,g,{'studio_visible':True},'PUT')
-print('PASS: privacy, dice, AI drafts, character card permissions, global scenarios, reminders/KP isolation, campaign exports, player VN, cast/estimate/bundle, Studio switches, audio/progress')
+print('PASS: privacy, dice, AI drafts, character card permissions, global scenarios, reminders/GM isolation, campaign exports, player VN, cast/estimate/bundle, Studio switches, audio/progress')
 print(json.dumps({'server_id':server['id'],'channel_id':channel['id'],'project_id':project['id'],'snapshot_id':snapshot['id'],'presentation_id':presentation['id']},ensure_ascii=False))
 for session in (g,a,b): call('auth/logout',session,{})

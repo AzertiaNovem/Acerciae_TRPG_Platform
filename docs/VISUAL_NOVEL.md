@@ -9,7 +9,7 @@ Neither feature changes canonical text. A script references log events by id. Th
 edit boldly: the script is the story of the session, not a transcript. It may give a line its own wording for the
 visual novel, stored on the presentation (`script_text`) while the log keeps the original:
 
-- the Keeper's narration and action lines are rewritten as fluent prose in the log's language;
+- the GM's narration and action lines are rewritten as fluent prose in the log's language;
 - in-character dialogue is smoothed into literary dialogue (typos, grammar, chat shorthand and broken sentences are
   fixed, each character's voice is kept);
 - short question-and-answer exchanges ("Is the door locked?" / "Yes.") fold into one narration line ("The door is
@@ -32,7 +32,7 @@ hidden with that reason, never deleted):
   edit, resends and corrections of a line, accidental pastes, withdrawn messages;
 - scene markers that only repeat the previous one.
 
-Every other line is placed. When a decision belongs to the players or the Keeper (whether a line is in character,
+Every other line is placed. When a decision belongs to the players or the GM (whether a line is in character,
 whether two names are one person, whether a message was meant, how to read an ambiguous line), the editor does not
 guess: it asks, see [Questions from the editor](#questions-from-the-editor).
 
@@ -74,7 +74,7 @@ The **Make a visual novel** card on the Visual novel tab has four steps.
 
 ![Dubbing cast step](screenshots/vn-wizard-cast.png)
 
-1. **Script.** Choose the **point of view**: everything (Keeper only; the result is Keeper only), lines public to every
+1. **Script.** Choose the **point of view**: everything (GM only; the result is GM only), lines public to every
    player, or one character's point of view (a player's own characters only). It decides who may watch the result and
    which lines anyone may read. Then tick the **chat windows to tell**: every window the point of view can read is
    listed with its number of lines (`GET /vn-scripts/windows`), and the windows you leave out are not told. A window
@@ -84,12 +84,12 @@ The **Make a visual novel** card on the Visual novel tab has four steps.
    worker writes the script and builds a draft presentation.
 2. **Art.** Scenes without an approved background, and portraits the script asks for, are painted by the image AI and
    land in the draft as they finish. Characters in uploaded mode use only the portraits their players uploaded.
-3. **Dubbing cast.** Pick a voice for every speaking character and for the narration (Keeper narration, dice and scene
+3. **Dubbing cast.** Pick a voice for every speaking character and for the narration (GM narration, dice and scene
    titles), or create one from a provider preset. **Apply cast and voice every line** stores the cast on the draft
    (`POST /presentations/{p}/cast`) and starts a TTS job (Qwen TTS, or the mock provider).
 4. **Export.** Preview the draft, open it in the advanced editor, or prepare a download: the zip is packed in the
    background (`POST /presentations/{p}/bundle`), stored for `VN_BUNDLE_TTL_HOURS` (default 24; in the public R2
-   bucket when one is configured, Keeper-only presentations included) and deleted when it expires. It holds `index.html`, `script.json`, every image under `assets/` and every
+   bucket when one is configured, GM-only presentations included) and deleted when it expires. It holds `index.html`, `script.json`, every image under `assets/` and every
    voice line under `audio/`. The page plays offline in any browser: click, space or arrow keys advance; `A` auto-plays
    with the voices, `M` mutes, `F` goes fullscreen, and a menu jumps between scenes.
 
@@ -98,7 +98,7 @@ The **Make a visual novel** card on the Visual novel tab has four steps.
 ### Continuing a visual novel as the story goes on
 
 A finished visual novel can be continued with the lines posted after its last one. In the job list, **Continue the
-story** on the newest job of a presentation (its author or the Keeper) sends `POST /vn-scripts
+story** on the newest job of a presentation (its author or the GM) sends `POST /vn-scripts
 {continue_presentation_id, instructions?, allow_cloud?, generate_art?}`:
 
 1. The campaign log is frozen again in the presentation's own scope (the same point of view). The new lines are those
@@ -109,7 +109,7 @@ story** on the newest job of a presentation (its author or the Keeper) sends `PO
      backgrounds and portrait subtitles by their exact names, and ask only for places and poses that are new.
    - The first part starts with `# Story so far`: the scene the story ended on, its background name and its last
      eight shown lines (only lines the requester may read). They are context and are never scripted again.
-   - The asset list includes the presentation's own backgrounds under their scene names, even Keeper-only generated
+   - The asset list includes the presentation's own backgrounds under their scene names, even GM-only generated
      ones the presentation already shows. Scenes still waiting for a picture are listed by name with their prompt.
 3. The new scenes are appended to the same presentation, which now reads the newer snapshot. Old scenes and lines,
    with their edits and voice lines, are untouched. The first new scene joins the last old one when it plays on the
@@ -129,7 +129,7 @@ its best script for the part. The job then does not stop: the other parts are wr
 with questions open the job's status becomes `waiting`. `GET …/vn-scripts/{j}` lists them under `questions`
 (`[{part_index, first_line, last_line, items, answered, answers}]`) and the Studio shows a question box under the job:
 each question with the lines it is about, its suggested options as buttons, a free-text answer, **Answer and continue**
-and **Skip (use the draft)**. The author or the Keeper answers through `POST …/vn-scripts/{j}/answers` with
+and **Skip (use the draft)**. The author or the GM answers through `POST …/vn-scripts/{j}/answers` with
 `{part_index, answers: {q1: "…"}}` or `{part_index, skip: true}`; questions left unanswered are the editor's own call
 ("no answer; decide yourself"). Parts can be answered in any order; the job runs again once every open part has an
 answer, and only those parts are redone: the finished parts are reused from their checkpoints (a resumed part does not
@@ -185,10 +185,10 @@ continuation), the part number and its lines:
 Part 2 of 3
 # Block (2026-10-27 21:02 – 2026-10-27 22:40)
 ## Window: Main table
-[L1] KP(Narrative)(21:02): Fog rolls over the harbour.
+[L1] GM(Narrative)(21:02): Fog rolls over the harbour.
 [L2] Mo Reyes(21:03): I keep watch on the pier.
 [L3] Mo Reyes(OOC)(21:04): brb, coffee
-[L4] KP(as Old Tom)(21:05): Storm's coming.
+[L4] GM(as Old Tom)(21:05): Storm's coming.
 ## Window: Archive (private)
 [L5] Ada Quill(21:03): I pull the 1923 ledger.
 ```
@@ -226,7 +226,7 @@ The system prompt forbids writing, rewriting, translating, shortening or merging
 - **Portraits.** A speaker is staged with the subtitle given (at most two on stage). For a character in uploaded mode a
   subtitle not in their list falls back to their default art. Portrait requests for uploaded-mode characters are dropped.
 - **Art requests.** New backgrounds and generated-mode portraits become image jobs (`asset_needs`, at most 24 per script).
-  Background jobs attach to their scene; portrait jobs are added to the character space (when the Keeper or the
+  Background jobs attach to their scene; portrait jobs are added to the character space (when the GM or the
   character's actor asked) and show on every placement of that character with that subtitle at once.
 
 `PresentationService::applyScript` writes the result over a fresh presentation. It re-checks each background and BGM
@@ -240,7 +240,7 @@ The system prompt forbids writing, rewriting, translating, shortening or merging
   a pose updates every visual novel that uses it. Migration `0039` converted older placements.
 - **A new image deletes the older one.** Uploading or generating a character's avatar, main portrait or a subtitle pose
   (in the character space, by a script's art request, or a library upload with that character and subtitle by the
-  Keeper or the character's actor) replaces the slot and deletes the previous image of the same character and subtitle
+  GM or the character's actor) replaces the slot and deletes the previous image of the same character and subtitle
   (subtitles compare without case), its database rows and its stored files, locally and in R2. Generation references
   follow to the new image. An image a live publication still shows is kept, marked superseded and hidden from the
   library, until that publication is revoked. A library upload by anyone else is kept and only fills a subtitle the
@@ -262,7 +262,7 @@ The system prompt forbids writing, rewriting, translating, shortening or merging
 ### Who can use the Studio
 
 The server maintainer can turn the Log Studio off for the whole server (Server settings → Features → Log Studio), and the
-Keeper can hide it in one channel (GM workspace → Settings → Log Studio available in this channel). While both are on,
+GM can hide it in one channel (GM workspace → Settings → Log Studio available in this channel). While both are on,
 every member reaches it equally, within what they can read: players see and cancel their own script jobs, edit and
 cast their own drafts, and share the channel's narrator and player-character voices. While either is off, every
 `/studio/*` route answers 403 (`studio_disabled` or `studio_hidden`) and the sidebar hides the item. Chat and media are
@@ -294,7 +294,7 @@ studio from the export step.
 `GET /api/channels/:channel/studio/presentations/:presentation/hybrid` returns a viewer-filtered timeline,
 needed existing backgrounds/poses, main portraits, image hashes and voice configuration. It exports only referenced
 characters and synthesis fields, never provider credentials or voice consent records. Existing atmosphere landscape
-candidates can be selected by the Keeper's hybrid planner without approving them for publication; players still
+candidates can be selected by the GM's hybrid planner without approving them for publication; players still
 receive only assets their existing media permissions allow. Jobs that are still the ownership link for atmosphere
 variants are retained by task cleanup.
 

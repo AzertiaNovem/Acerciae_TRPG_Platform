@@ -131,13 +131,13 @@ test('visual-novel transcript: time blocks, speaker labels, flat answers become 
   // A gap longer than an hour between L4 and L5 opens the second block.
   const blocks = vn.blocks(inp.events); assert.equal(blocks.length, 2); assert.equal(blocks[1][0], 4);
   assert.equal(vn.blocks(inp.events, 10000).length, 1);
-  assert.equal(vn.speakerLabel(inp.events[0]), 'KP(Narrative)'); assert.equal(vn.speakerLabel(inp.events[2]), 'Mo(OOC)');
-  assert.equal(vn.speakerLabel(inp.events[3]), 'KP(as Old Tom)'); assert.equal(vn.speakerLabel(inp.events[1]), 'Mo');
+  assert.equal(vn.speakerLabel(inp.events[0]), 'GM(Narrative)'); assert.equal(vn.speakerLabel(inp.events[2]), 'Mo(OOC)');
+  assert.equal(vn.speakerLabel(inp.events[3]), 'GM(as Old Tom)'); assert.equal(vn.speakerLabel(inp.events[1]), 'Mo');
   const t = vn.transcript(inp, 0, 4, []);
   assert.ok(t.includes('Era: 1920s Arkham'));
   assert.ok(t.includes('C1 "Ada" mode=generated subtitles=[IDLE] prompt="red-haired'));
   assert.ok(t.includes('C2 "Mo" mode=uploaded subtitles=[IDLE] (uploaded: only these subtitles may be used)'));
-  assert.ok(t.includes('## Window: Main table')); assert.ok(t.includes('[L1] KP(Narrative)(22:13): Fog rolls over the harbour.'));
+  assert.ok(t.includes('## Window: Main table')); assert.ok(t.includes('[L1] GM(Narrative)(22:13): Fog rolls over the harbour.'));
   assert.ok(t.includes('[L3] Mo(OOC)(22:14): brb')); assert.ok(!t.includes('[L5]'));
   assert.ok(t.includes('# Block (2023-11-14 22:13 – 2023-11-14 22:15)'));
   // Mock answer: SAY/IDLE portraits, a background to generate, OOC left out.
@@ -398,7 +398,7 @@ test('continueScript: only the lines after the ending, the story so far, reused 
   assert.ok(user.includes("- Ada: Who's there?"));
   assert.ok(user.includes('- "Harbour" (existing)'));
   const lines = user.slice(user.indexOf('# Block'));
-  assert.ok(lines.includes('[L1] KP(Narrative)(22:15): The fog lifts.') && !lines.includes('Fog rolls over') && !lines.includes('[L4]'), 'only the new lines are planned');
+  assert.ok(lines.includes('[L1] GM(Narrative)(22:15): The fog lifts.') && !lines.includes('Fog rolls over') && !lines.includes('[L4]'), 'only the new lines are planned');
   assert.ok(user.indexOf('# Story so far') < user.indexOf('# Assets'));
   assert.ok(user.includes('subtitles=[SAY]'));
   // The old scene is kept and goes on; the new place is a new scene that asks for its picture; Ada's SAY is not redrawn.
@@ -533,6 +533,14 @@ test('composeDraft pauses on questions; resumeDraft replays the turn with the an
   calls.length = 0;
   const flat = await vn.resumeDraft(p, { llm: plain, language: 'en' }, { ...answered, pending: [{ ...answered.pending[0], turn: null }] });
   assert.ok('script' in flat); assert.equal(calls[0].replay, undefined); assert.ok(calls[0].user.startsWith(pend.user + '\n# Answers to your questions'));
+  // A draft saved before the rename names the GM KP(...) in its transcript: it still resumes, with today's GM(...) labels.
+  assert.ok(pend.user.includes('] GM(Narrative)(') && !pend.user.includes('KP('));
+  const oldUser = pend.user.replace(/\] GM\(Narrative\)\(/g, '] KP(Narrative)(');
+  assert.ok(oldUser.includes('[L1] KP(Narrative)('));
+  calls.length = 0; askAgain = false;
+  const legacy = await vn.resumeDraft(p, { llm, language: 'en' }, { ...answered, pending: [{ ...answered.pending[0], user: oldUser }] });
+  assert.ok('script' in legacy); assert.equal(allLines(legacy.script).length, 130);
+  assert.equal(calls[0].user, pend.user, 'the old labels are read as the current GM(...) labels');
   // composeScript itself never waits: the drafts of asking parts are used.
   const whole = await vn.composeScript(p, { llm, language: 'en' });
   assert.equal(allLines(whole).length, 130); assert.ok(whole.notes[0].includes('skipped; the draft was used'));

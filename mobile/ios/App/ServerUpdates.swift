@@ -118,11 +118,11 @@ struct StoryControls: View {
         Section(tr("Story")) {
             Text(tr(model.channel["story_status"].text == "ended" ? "ended" : "ongoing"))
             if model.channel["story_status"].text == "ended" {
-                Text(tr(model.channel["story_reveal_all"].bool ? "Every member can read the whole story in the Log Studio, Keeper-only lines included." : "Every member can read the whole story in the Log Studio. Keeper-only lines stay with you."))
+                Text(tr(model.channel["story_reveal_all"].bool ? "Every member can read the whole story in the Log Studio, GM-only lines included." : "Every member can read the whole story in the Log Studio. GM-only lines stay with you."))
                 Button(tr("Reopen the story")) { Task { await model.run { _ = try await model.get(["channels", model.channelId, "story", "reopen"], body: .object([:])); try await model.refresh() } } }
             } else {
                 Text(tr("When the story ends, the Log Studio opens to every member and the campaign log shows them the whole story: every chat window, whispers and hidden rolls, and the scenario titles.")).font(.caption)
-                Toggle(tr("Also reveal Keeper-only lines"), isOn: $reveal)
+                Toggle(tr("Also reveal GM-only lines"), isOn: $reveal)
                 Button(tr("End the story")) { confirm = true }
             }
         }.disabled(model.busy).confirmationDialog(tr("End the story? Every member of this channel will be able to read the whole story in the Log Studio."), isPresented: $confirm, titleVisibility: .visible) {

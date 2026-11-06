@@ -215,7 +215,7 @@ Json::Value CharacterSpaceService::characterFor(const ChannelAccess& a, const st
     if (c.isNull()) throw notFound("character not found");
     bool owner = c["user_id"].isString() && c["user_id"].asString() == a.userId;
     if (!a.isGm && c["kind"].asString() == "npc") throw notFound("character not found");
-    if (write && !a.isGm && !owner) throw forbidden("only the Keeper or the character's actor may edit this character");
+    if (write && !a.isGm && !owner) throw forbidden("only the GM or the character's actor may edit this character");
     c["editable"] = a.isGm || owner;
     return c;
 }
@@ -315,7 +315,7 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
         }
     }
     if (!dnd && pointsMode(a) && !a.isGm) {
-        // Growth points record improvement the Keeper granted (or .en rolled): a player cannot set them.
+        // Growth points record improvement the GM granted (or .en rolled): a player cannot set them.
         auto before = normalizeRoleCard(c["role_card"]);
         for (auto& k : card["skill_points"].getMemberNames()) {
             const auto& old = before["skill_points"];

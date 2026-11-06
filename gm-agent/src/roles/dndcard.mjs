@@ -244,5 +244,5 @@ export function cardStateDnd(card, attrs = {}) {
 }
 const SKILL_ABILITY = { Acrobatics: "DEX", "Animal Handling": "WIS", Arcana: "INT", Athletics: "STR", Deception: "CHA", History: "INT", Insight: "WIS", Intimidation: "CHA", Investigation: "INT", Medicine: "WIS", Nature: "INT", Perception: "WIS", Performance: "CHA", Persuasion: "CHA", Religion: "INT", "Sleight of Hand": "DEX", Stealth: "DEX", Survival: "WIS" };
 
-// "level 3 Elf Rogue (Criminal)" for the Keeper's cast list; "" for a card without a build.
+// "level 3 Elf Rogue (Criminal)" for the GM's cast list; "" for a card without a build.
 export const castNoteDnd = (card) => (card?.dnd?.class ? `level ${card.dnd.level} ${card.dnd.species} ${card.dnd.class}${card.dnd.background ? ` (${card.dnd.background})` : ""}` : "");

@@ -85,11 +85,11 @@ private fun fieldName(key: String) = mapOf("api_base" to "API base URL", "model"
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(tr("Story"), style = MaterialTheme.typography.titleMedium)
         if (state.channel.text("story_status") == "ended") {
-            Text(tr(if (state.channel.flag("story_reveal_all")) "Every member can read the whole story in the Log Studio, Keeper-only lines included." else "Every member can read the whole story in the Log Studio. Keeper-only lines stay with you."))
+            Text(tr(if (state.channel.flag("story_reveal_all")) "Every member can read the whole story in the Log Studio, GM-only lines included." else "Every member can read the whole story in the Log Studio. GM-only lines stay with you."))
             TextButton(onClick = { model.launch { model.get(listOf("channels", state.channelId, "story", "reopen"), JsonObject(emptyMap())); model.refresh() } }, enabled = !state.busy) { Text(tr("Reopen the story")) }
         } else {
             Text(tr("When the story ends, the Log Studio opens to every member and the campaign log shows them the whole story: every chat window, whispers and hidden rolls, and the scenario titles."))
-            Row { Text(tr("Also reveal Keeper-only lines"), Modifier.weight(1f)); Switch(reveal, { reveal = it }, enabled = !state.busy) }
+            Row { Text(tr("Also reveal GM-only lines"), Modifier.weight(1f)); Switch(reveal, { reveal = it }, enabled = !state.busy) }
             TextButton(onClick = { confirm = true }, enabled = !state.busy) { Text(tr("End the story")) }
         }
     }

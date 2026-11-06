@@ -1,7 +1,7 @@
 {
  "1": {
   "name": "Professione personalizzata",
-  "description": "Non più di 8 abilità professionali. Inserisci nelle caratteristiche professionali a destra il valore della seconda caratteristica professionale (se lasci vuoto si usa Istruzione) e imposta tu il Credito iniziale. Prima di usare una professione personalizzata, consulta il tuo Custode."
+  "description": "Non più di 8 abilità professionali. Inserisci nelle caratteristiche professionali a destra il valore della seconda caratteristica professionale (se lasci vuoto si usa Istruzione) e imposta tu il Credito iniziale. Prima di usare una professione personalizzata, consulta il tuo GM."
  },
  "2": {
   "name": "Contabile",
@@ -157,7 +157,7 @@
  },
  "40": {
   "name": "Deprogrammatore (Moderno)",
-  "description": "Due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Guidare auto, Combattere (Rissa) o Armi da fuoco, Storia, Occultismo, Psicologia, Furtività. ※ Con il permesso del Custode, una di queste può essere sostituita da Ipnosi."
+  "description": "Due abilità interpersonali (Fascino, Raggirare, Intimidire, Persuasione), Guidare auto, Combattere (Rissa) o Armi da fuoco, Storia, Occultismo, Psicologia, Furtività. ※ Con il permesso del GM, una di queste può essere sostituita da Ipnosi."
  },
  "41": {
   "name": "Designer",
@@ -321,7 +321,7 @@
  },
  "81": {
   "name": "Occultista",
-  "description": "Antropologia, Storia, Biblioteca, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Occultismo, Lingua straniera, Scienza (Astronomia), un'altra abilità a scelta come specialità personale o d'epoca. ※ Con il permesso del Custode può includere Miti di Cthulhu."
+  "description": "Antropologia, Storia, Biblioteca, un'abilità interpersonale (Fascino, Raggirare, Intimidire, Persuasione), Occultismo, Lingua straniera, Scienza (Astronomia), un'altra abilità a scelta come specialità personale o d'epoca. ※ Con il permesso del GM può includere Miti di Cthulhu."
  },
  "82": {
   "name": "Viaggiatore",
@@ -653,7 +653,7 @@
  },
  "164": {
   "name": "Ichiko (medium cieca)",
-  "description": "Arte/Mestiere (Recitazione), Ascoltare, Sapere (Shintoismo), Occultismo, Storia, Raggirare o Persuasione, Psicologia, un'altra specialità a scelta. ※ Con il consenso del Custode, l'abilità «Medianità» può sostituire un'abilità a scelta."
+  "description": "Arte/Mestiere (Recitazione), Ascoltare, Sapere (Shintoismo), Occultismo, Storia, Raggirare o Persuasione, Psicologia, un'altra specialità a scelta. ※ Con il consenso del GM, l'abilità «Medianità» può sostituire un'abilità a scelta."
  },
  "165": {
   "name": "Maestro del kotodama / Onmyōji",

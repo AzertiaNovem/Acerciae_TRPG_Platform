@@ -38,7 +38,7 @@ public:
     // campaign, players[{username, display_name, role, avatar_url}], characters[{name, kind, player, role_card,
     // appearance_prompt, bio, speaking_style, avatar_url, portrait_url, poses{subtitle: url}}], windows[],
     // scenarios[], messages[{time, window, scenario, speaker, character, player, role, type, content, dice,
-    // visibility}]}. Only what the viewer may read; NPC cards and appearance only for the Keeper.
+    // visibility}]}. Only what the viewer may read; NPC cards and appearance only for the GM.
     Json::Value nativeExport(const ChannelAccess& a, const std::vector<LogEvent>& events, const std::string& origin);
     void setObjectStore(ObjectStore* store) { store_ = store; }   // public links for media in the public bucket
     // SealDice-compatible log JSON ({version, items[]}) for one chat window.
@@ -69,7 +69,7 @@ public:
 
     // helpers used by other studio services
     Json::Value projectRow(const ChannelAccess& a, const std::string& projectId);
-    // " AND <predicate>" limiting log_events rows (aliased `le`) to what the viewer may read; "" for the Keeper.
+    // " AND <predicate>" limiting log_events rows (aliased `le`) to what the viewer may read; "" for the GM.
     std::string scopeSql(const ChannelAccess& a, const std::string& le);
     // Before the story ends players see "Scenario N" instead of scenario titles and locations.
     void maskScenes(const std::string& channelId, std::vector<LogEvent>& events);

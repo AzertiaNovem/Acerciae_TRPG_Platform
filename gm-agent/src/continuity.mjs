@@ -1,10 +1,10 @@
 // These readers only receive public lines in the relevant play window. In particular,
-// the scene handoff has no access to the Keeper's plan, secrets or parallel scenes.
+// the scene handoff has no access to the GM's plan, secrets or parallel scenes.
 import { completeJson } from "./llm/index.mjs";
 
 export function publicLines(messages) {
   return messages.filter(m => m.visibility === "window" && ["ic", "narration", "roll", "ooc"].includes(m.kind))
-    .slice(-100).map(m => ({ seq: m.seq, speaker: m.character_name || m.author_name || "Keeper", text: m.content, kind: m.kind }));
+    .slice(-100).map(m => ({ seq: m.seq, speaker: m.character_name || m.author_name || "GM", text: m.content, kind: m.kind }));
 }
 
 export async function readDestinations(llm, { lines, actors, destinations, correction }) {

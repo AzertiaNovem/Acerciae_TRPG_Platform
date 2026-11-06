@@ -5,7 +5,7 @@
 // inbox, and its next run (whatever triggered it) reads them, keeps the standing wishes and corrections as table notes,
 // and answers in the window along the way.
 //
-// Who reads what: the Keeper and the planner read every note. A co-player reads only the corrections, those about it or
+// Who reads what: the GM and the planner read every note. A co-player reads only the corrections, those about it or
 // about no one in particular, as out-of-character table rules: a wish is the planner's to weave in, and a co-player
 // told it would play to it. State: `planner.inbox` (lines not yet read), `planner.table` (the notes), `planner.window`.
 
@@ -52,7 +52,7 @@ export function mergeTableNotes(current, list, { nextId = 1, now = Date.now() } 
   return { notes, nextId: id, changed };
 }
 
-// The Keeper's section (part C).
+// The GM's section (part C).
 export function renderTableNotes(notes) {
   if (!notes.length) return "";
   const corr = notes.filter((n) => n.kind === "correction"), wish = notes.filter((n) => n.kind === "wish");

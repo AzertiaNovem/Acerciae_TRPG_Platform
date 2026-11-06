@@ -1,4 +1,4 @@
-// The living world record: Keeper declarations, entity state from play, partitions, review of the Keeper's state.
+// The living world record: GM declarations, entity state from play, partitions, review of the GM's state.
 // Run against a server with the mock LLM (no LLM key): API_BASE=http://localhost:18080 node --test world.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +17,7 @@ function socket(token,ch,stream){return new Promise((resolve,reject)=>{
 });}
 const byName=(world,name)=>world.entities.find(e=>e.name===name);
 
-test('Keeper declarations and play keep a living world record per memory partition',async()=>{
+test('GM declarations and play keep a living world record per memory partition',async()=>{
   const suffix=Date.now().toString(36);
   const [gm,player]=await Promise.all(['keeper','player'].map(name=>request(null,'POST','/api/auth/register',{username:`world_${name}_${suffix}`,display_name:name,password:'password'})));
   const server=await request(gm.token,'POST','/api/servers',{name:'World record '+suffix});
@@ -29,7 +29,7 @@ test('Keeper declarations and play keep a living world record per memory partiti
   const post=(token,content,kind='narration')=>request(token,'POST',root+`/windows/${main}/messages`,{content,kind});
   const [gmCtx,playerCtx]=await Promise.all([socket(gm.token,ch,'context'),socket(player.token,ch,'context')]);
   try{
-    // Play: a witnessed death reaches both the Keeper's record and the player's group.
+    // Play: a witnessed death reaches both the GM's record and the player's group.
     await post(gm.token,'Constable Barnes is dead.');
     await request(gm.token,'POST',root+'/ai/observe-now',{});
     let kp=await request(gm.token,'GET',root+'/world');
@@ -37,7 +37,7 @@ test('Keeper declarations and play keep a living world record per memory partiti
     let mine=await request(player.token,'GET',root+'/world');
     assert.equal(byName(mine,'Constable Barnes').status,'dead');
     assert.notEqual(byName(mine,'Constable Barnes').id,byName(kp,'Constable Barnes').id);
-    await until(()=>gmCtx.messages.some(m=>m.type==='world.updated'&&m.version===kp.version),'Keeper world.updated');
+    await until(()=>gmCtx.messages.some(m=>m.type==='world.updated'&&m.version===kp.version),'GM world.updated');
     await until(()=>playerCtx.messages.some(m=>m.type==='world.updated'&&m.version===mine.version),'group world.updated');
 
     // Validation and authority.
@@ -45,7 +45,7 @@ test('Keeper declarations and play keep a living world record per memory partiti
     await request(gm.token,'POST',root+'/world/declare',{text:'   '},400);
     await request(gm.token,'POST',root+'/world/declare',{text:'x'.repeat(4001)},400);
 
-    // An off-screen secret: authoritative for the Keeper, invisible to the players.
+    // An off-screen secret: authoritative for the GM, invisible to the players.
     const playerSeen=playerCtx.messages.length;
     const secret=await request(gm.token,'POST',root+'/world/declare?observe=true',{text:'Off-screen, the Old Mill burns to the ground.',secret:true});
     assert.ok(secret.event_id&&secret.seq>0);assert.ok(Array.isArray(secret.jobs));
@@ -53,7 +53,7 @@ test('Keeper declarations and play keep a living world record per memory partiti
     const mill=byName(kp,'Old Mill');
     assert.equal(mill.status,'destroyed');assert.equal(mill.state_by,'gm');
     assert.ok(kp.recent_changes.some(c=>c.name==='Old Mill'&&c.actor==='gm'));
-    await until(()=>gmCtx.messages.some(m=>m.type==='world.updated'&&m.version===kp.version),'Keeper world.updated after the declaration');
+    await until(()=>gmCtx.messages.some(m=>m.type==='world.updated'&&m.version===kp.version),'GM world.updated after the declaration');
     const declared=await request(gm.token,'GET',root+`/events/${secret.event_id}`);
     assert.equal(declared.kind,'gm.declared');assert.equal(declared.payload.secret,true);
     const kpFacts=await request(gm.token,'GET',root+'/facts?q=Mill');
@@ -76,7 +76,7 @@ test('Keeper declarations and play keep a living world record per memory partiti
     assert.doesNotMatch(JSON.stringify(await request(player.token,'GET',root+'/facts')),/Old Mill|Mora/);
     assert.doesNotMatch(JSON.stringify(playerCtx.messages.slice(playerSeen)),/Old Mill|Mora|world\.updated/);
 
-    // Play contradicting the Keeper's state goes to review; accepting it makes it the Keeper's.
+    // Play contradicting the GM's state goes to review; accepting it makes it the GM's.
     await post(player.token,'Doctor Mora is dead, I found her in the cellar.','ic');
     await request(gm.token,'POST',root+'/ai/observe-now',{});
     kp=await request(gm.token,'GET',root+'/world');

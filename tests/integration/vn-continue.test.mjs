@@ -47,7 +47,7 @@ test("a visual novel continues after its last line: old scenes stay, the ending 
   const adaVoice = (await call(gm, "POST", root + "/voices", { name: "Ada", character_id: ada.id, voice_type: "preset", voice_id: "mock-cherry" })).id;
   await call(gm, "POST", root + `/presentations/${pid}/cast`, { cast: { narrator, [ada.id]: adaVoice } });
 
-  // Nothing to continue yet; only the draft's author or the Keeper may continue it.
+  // Nothing to continue yet; only the draft's author or the GM may continue it.
   await rejects(call(gm, "POST", root + "/vn-scripts", { continue_presentation_id: pid }), 400);
   await say(gm, "The fog lifts over the water.", { kind: "narration" });
   await say(p1, "Look, the lighthouse!", { character_id: ada.id });

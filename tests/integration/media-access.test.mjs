@@ -11,9 +11,9 @@ async function call(token, method, path, body) {
 }
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 
-test('media bytes: players get NPC art (never marked for keeping), GM-only assets stay with the Keeper, every response varies by Origin', async () => {
+test('media bytes: players get NPC art (never marked for keeping), GM-only assets stay with the GM, every response varies by Origin', async () => {
   const sfx = Math.random().toString(36).slice(2, 8);
-  const gm = await call('', 'POST', '/api/auth/register', { username: `ma_gm_${sfx}`, password: 'password', display_name: 'Keeper' });
+  const gm = await call('', 'POST', '/api/auth/register', { username: `ma_gm_${sfx}`, password: 'password', display_name: 'GM' });
   const pl = await call('', 'POST', '/api/auth/register', { username: `ma_pl_${sfx}`, password: 'password', display_name: 'Player' });
   const srv = await call(gm.token, 'POST', '/api/servers', { name: `Access ${sfx}` });
   const ch = (await call(gm.token, 'POST', `/api/servers/${srv.id}/channels`, { name: 'Vault' })).id;
@@ -36,7 +36,7 @@ test('media bytes: players get NPC art (never marked for keeping), GM-only asset
   assert.equal(r.headers.get('vary'), 'Origin');
   r = await get(secret.id, plToken);
   assert.equal(r.status, 404);
-  // The Keeper gets everything, their own material without the keep mark.
+  // The GM gets everything, their own material without the keep mark.
   for (const id of [pcArt.id, npcArt.id, secret.id]) { r = await get(id, gmToken); assert.equal(r.status, 200); }
   assert.doesNotMatch((await get(secret.id, gmToken)).headers.get('cache-control'), /immutable/);
   // `direct=1` asks for the public bucket's URL instead of a redirect (the web cache then fetches it from the page's own

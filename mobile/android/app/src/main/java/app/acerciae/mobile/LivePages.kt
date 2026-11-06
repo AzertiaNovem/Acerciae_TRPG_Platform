@@ -106,7 +106,7 @@ import java.io.File
         item { Text(state.serverName, style = MaterialTheme.typography.titleLarge) }
         items(listOf("Access", "AI", "Channels")) { item -> TextButton(onClick = { area = item }) { Text(tr(item)) } }
         item { Text(if (maintainer) tr("服务器管理员") else tr("服务器成员")) }
-        item { SettingToggle(tr("Channel atmosphere backgrounds"), atmosphere, !state.busy) { atmosphere = it }; Text(tr("Allow automatic image generation from public Keeper narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display."), style = MaterialTheme.typography.bodySmall) }
+        item { SettingToggle(tr("Channel atmosphere backgrounds"), atmosphere, !state.busy) { atmosphere = it }; Text(tr("Allow automatic image generation from public GM narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display."), style = MaterialTheme.typography.bodySmall) }
         item { SettingToggle(tr("日志制作"), studio, maintainer && !state.busy) { studio = it } }
         item { SettingToggle(tr("骰子"), dice, maintainer && !state.busy) { dice = it } }
         item { SettingToggle(tr("一致性检查"), consistency, maintainer && !state.busy) { consistency = it } }
@@ -161,7 +161,7 @@ import java.io.File
         if(state.gm && state.studioAvailable) item { TextButton(onClick = { voiceSettings = true }) { Text(tr("Voice settings")) } }
         if(state.gm) item { TextButton(onClick = { moduleImports = true }) { Text(tr("Module imports")) } }
         item { Text(state.channel.text("name"), style = MaterialTheme.typography.titleLarge); Text(tr("以下设置仅作用于当前频道")) }
-            item { HorizontalDivider(); Text(tr("守密人设置"), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium) }
+            item { HorizontalDivider(); Text(tr("GM 设置"), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium) }
             item { OutlinedTextField(channelName, { channelName = it }, label = { Text(tr("频道名称")) }) }
             item { OutlinedTextField(channelDescription, { channelDescription = it }, label = { Text(tr("频道介绍")) }) }
             item { OutlinedTextField(era, { era = it }, label = { Text(tr("故事年代")) }) }
@@ -180,7 +180,7 @@ import java.io.File
             item { TextButton(onClick = { history = true }) { Text(tr("Atmosphere background history")) } }
             item { SettingToggle(tr("Players may open the Log Studio before the story ends"), playerAccess, !state.busy) { playerAccess = it } }
             item { Button(onClick = { model.launch {
-                model.get(listOf("channels", state.channelId), buildJsonObject { put("name", channelName.trim()); put("description", channelDescription); put("era", era); put("knowledge_mode", knowledgeMode); put("dice_text_group", diceGroup); put("rule_system",ruleSystem); put("point_buy",pointBuy); put("ai_enabled", ai); put("consistency_enabled", consistency); put("inspiration_enabled", inspiration); put("atmosphere_enabled", atmosphere); put("studio_visible", visible); put("studio_player_access", playerAccess); put("auto_scenarios", autoScenarios) }, "PUT"); model.refreshCatalog(); model.refresh(); model.notice(tr("守密人设置已保存"))
+                model.get(listOf("channels", state.channelId), buildJsonObject { put("name", channelName.trim()); put("description", channelDescription); put("era", era); put("knowledge_mode", knowledgeMode); put("dice_text_group", diceGroup); put("rule_system",ruleSystem); put("point_buy",pointBuy); put("ai_enabled", ai); put("consistency_enabled", consistency); put("inspiration_enabled", inspiration); put("atmosphere_enabled", atmosphere); put("studio_visible", visible); put("studio_player_access", playerAccess); put("auto_scenarios", autoScenarios) }, "PUT"); model.refreshCatalog(); model.refresh(); model.notice(tr("GM 设置已保存"))
             } }, enabled = !state.busy && channelName.isNotBlank() && era.length <= 80) { Text(tr("保存频道设置")) } }
             item { OutlinedTextField(inviteUsername, { inviteUsername = it }, label = { Text(tr("邀请玩家：账号名")) }) }
             item { Text(tr(if (state.serverSettings.flag("is_maintainer") || state.serverSettings.obj("policy").flag("guest_invites")) "You may invite registered users outside this server as channel guests." else "You may invite existing server members to this channel.")) }

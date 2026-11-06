@@ -19,7 +19,7 @@ public:
 
     // Observer hook for one player group batch. Maintains the group's scenario outlines and creates/updates/resolves/defers/reactivates reminders.
     Json::Value afterBatch(const ChannelAccess& view, const Json::Value& batch, const std::string& aiJobId, int& llmCalls);
-    // Keeper observer hook. `knowledge` is the compact script knowledge (id, kind, title, status, citations); Keeper
+    // GM observer hook. `knowledge` is the compact script knowledge (id, kind, title, status, citations); GM
     // reminders may add script_refs that point at it, but every reminder still quotes the chat verbatim.
     Json::Value afterBatchKp(const ChannelAccess& sys, const Json::Value& batch, const std::string& aiJobId, int& llmCalls, const Json::Value& knowledge);
 
@@ -30,7 +30,7 @@ public:
     static Json::Value schema();
     // Deterministic planner used without a model. ctx: {current_log, previous_tail, new_events, existing_titles}
     static Json::Value mockPlan(const Json::Value& ctx);
-    // Keeper planner: mockPlan over the Keeper's view plus script-driven reminders (an unrevealed clue or twist the
+    // GM planner: mockPlan over the GM's view plus script-driven reminders (an unrevealed clue or twist the
     // newest lines touch). ctx adds knowledge: [{id, kind, title, status, citations}].
     static Json::Value mockPlanKp(const Json::Value& ctx);
     static Json::Value mockChanges(const Json::Value& ctx);

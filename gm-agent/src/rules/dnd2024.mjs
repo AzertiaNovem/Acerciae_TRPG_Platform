@@ -1,5 +1,5 @@
-// D&D 2024 (System Reference Document 5.2), the platform's second rule system. The platform names the GM "Dungeon
-// Master" and the game "a fifth-edition fantasy roleplaying game"; the dice are D20 Tests (.rc), initiative (.ri,
+// D&D 2024 (System Reference Document 5.2), the platform's second rule system. The game is "a fifth-edition fantasy
+// roleplaying game" (the GM is "GM", as in every system); the dice are D20 Tests (.rc), initiative (.ri,
 // .init), death saves (.ds) and spell slots (.ss); the role card carries a build in role_card.dnd (dndcard.mjs).
 // An improvised campaign is a fifth-edition game whose genre and tone follow the world setting.
 import { DND_VOCAB } from "./vocab.mjs";
@@ -56,20 +56,20 @@ const CARD = Object.freeze({
 export const DND2024 = Object.freeze({
   id: "dnd2024",
   vocab: DND_VOCAB,
-  framing: (improv) => `the Dungeon Master (Game Master) of a fifth-edition fantasy campaign (D&D 2024 rules, SRD 5.2)${improv ? ", whose genre and tone follow the campaign's world setting, not necessarily fantasy," : ""}`,
+  framing: (improv) => `the GM (Game master) of a fifth-edition fantasy campaign (D&D 2024 rules, SRD 5.2)${improv ? ", whose genre and tone follow the campaign's world setting, not necessarily fantasy," : ""}`,
   coplayerGame: (improv) => `a fifth-edition fantasy game (D&D 2024 rules)${improv ? " whose genre and tone follow its world setting," : ""}`,
   fetchRules: (api) => api.dndRules(),
   // Co-players roll D20 Tests, initiative, death saves and spell slots against their own sheet; never the initiative
   // order (.init), sheet edits (.st) or hidden rolls.
   roll: /^\.(ra|rc|ri|ds|ss|r)(\s|$)/i,
-  // The DM's own dice: monsters' initiative, the order, and plain rolls (it has no character, so no .rc).
+  // The GM's own dice: monsters' initiative, the order, and plain rolls (it has no character, so no .rc).
   gmDice: /^\.(r|rh|ri|rih|init)(\s|$)/i,
   dice: {
     requestRoll: ".rc <skill | ABILITY save | attack +N> [dc N | ac N]",
     gmExamples: 'a dice command the platform rolls (".rc Stealth dc 15", ".rc WIS save dc 13", ".rc attack +5 ac 14": an attack takes the character\'s typed bonus, from its sheet in the cast; "adv" or "dis" for advantage or disadvantage)',
     coplayerHelp: '".rc Stealth dc 15" for a check, ".rc WIS save dc 13" for a save, ".rc attack +5 ac 14" for an attack with your own bonus typed, ".ri" for initiative, ".ds" for a death save, ".ss 1" to spend a spell slot, ".r 1d8+3" for damage',
     coplayerShape: ".rc <skill> dc N",
-    gmHelp: "- Your dice action runs a command as the Dungeon Master: \".ri +2 Goblin\" (a monster's initiative), \".init next\", \".init del <name>\", \".init clr\", \".r 1d8+3\". You have no character sheet, so never \".rc\" for yourself.",
+    gmHelp: "- Your dice action runs a command as the GM: \".ri +2 Goblin\" (a monster's initiative), \".init next\", \".init del <name>\", \".init clr\", \".r 1d8+3\". You have no character sheet, so never \".rc\" for yourself.",
   },
   combatRule: COMBAT_RULE,
   card: CARD,

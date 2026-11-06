@@ -42,7 +42,7 @@ let observerInterval = 5000;
 before(async () => {
   const health = await api('GET', '/api/health');
   assert.equal(health.status, 'ok');
-  for (const [k, display] of [['gm', 'Keeper'], ['pl1', 'Player One'], ['pl2', 'Player Two'], ['pl3', 'Player Three']]) {
+  for (const [k, display] of [['gm', 'GM'], ['pl1', 'Player One'], ['pl2', 'Player Two'], ['pl3', 'Player Three']]) {
     const r = await api('POST', '/api/auth/register', { username: `${k}_${RUN}`, password: 'password', display_name: display });
     U[k] = r.token; ids[`${k}_user`] = r.user.id;
   }
@@ -182,7 +182,7 @@ test('Scenario 4: consistency conflict — claiming an item that was only promis
   const msgs = await api('GET', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, undefined, U.pl1);
   assert.ok(!msgs.some((m) => /unlock the lighthouse door/.test(m.content)));
   // GM-only secrets never leak into a player's check.
-  await api('POST', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, { content: 'KEEPER NOTE: the real key is hidden inside the lighthouse lamp.', kind: 'narration', visibility: 'gm_only' }, U.gm);
+  await api('POST', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, { content: 'GM NOTE: the real key is hidden inside the lighthouse lamp.', kind: 'narration', visibility: 'gm_only' }, U.gm);
   await api('POST', `/api/channels/${ids.channel}/ai/observe-now`, undefined, U.gm);
   const r3 = await api('POST', `/api/channels/${ids.channel}/consistency`, { chat_window_id: ids.main, character_id: ids.c1, draft: 'I search the lighthouse lamp for the real key.' }, U.pl1);
   assert.ok(!JSON.stringify(r3).includes('hidden inside the lighthouse lamp'), 'GM secret must not be revealed or hinted');
@@ -280,7 +280,7 @@ test('Realtime: chat stream delivers messages only to window participants', asyn
   a.ws.close(); c.ws.close();
 });
 
-test('KP records cannot be shared directly; player journals remain independent', async () => {
+test('GM records cannot be shared directly; player journals remain independent', async () => {
   const proposals = await api('GET', `/api/channels/${ids.channel}/proposals?status=needs_gm_review`, undefined, U.gm);
   assert.ok(!proposals.some(p=>p.ops?.[0]?.op==='share_knowledge'));
   const gmFacts = await api('GET', `/api/channels/${ids.channel}/facts`, undefined, U.gm);

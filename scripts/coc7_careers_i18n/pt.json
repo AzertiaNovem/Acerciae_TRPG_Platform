@@ -1,7 +1,7 @@
 {
  "1": {
   "name": "Ocupação Personalizada",
-  "description": "No máximo 8 perícias de ocupação. Nos atributos de ocupação à direita, insira o valor da segunda característica da ocupação (se ficar em branco, será usada Educação) e defina você mesmo o Nível de Crédito inicial. Antes de usar uma ocupação personalizada, consulte o seu Guardião."
+  "description": "No máximo 8 perícias de ocupação. Nos atributos de ocupação à direita, insira o valor da segunda característica da ocupação (se ficar em branco, será usada Educação) e defina você mesmo o Nível de Crédito inicial. Antes de usar uma ocupação personalizada, consulte o seu GM."
  },
  "2": {
   "name": "Contador",
@@ -157,7 +157,7 @@
  },
  "40": {
   "name": "Desprogramador (Moderno)",
-  "description": "Duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Dirigir Automóveis, Lutar (Briga) ou Armas de Fogo, História, Ocultismo, Psicologia, Furtividade. ※ Com permissão do Guardião, Hipnose pode substituir uma delas."
+  "description": "Duas perícias interpessoais (Charme, Lábia, Intimidação ou Persuasão), Dirigir Automóveis, Lutar (Briga) ou Armas de Fogo, História, Ocultismo, Psicologia, Furtividade. ※ Com permissão do GM, Hipnose pode substituir uma delas."
  },
  "41": {
   "name": "Designer",
@@ -321,7 +321,7 @@
  },
  "81": {
   "name": "Ocultista",
-  "description": "Antropologia, História, Usar Bibliotecas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Ocultismo, Outras Línguas, Ciência (Astronomia), outra perícia qualquer como especialidade pessoal ou da época. ※ Com permissão do Guardião, pode incluir Mitos de Cthulhu."
+  "description": "Antropologia, História, Usar Bibliotecas, uma perícia interpessoal (Charme, Lábia, Intimidação ou Persuasão), Ocultismo, Outras Línguas, Ciência (Astronomia), outra perícia qualquer como especialidade pessoal ou da época. ※ Com permissão do GM, pode incluir Mitos de Cthulhu."
  },
  "82": {
   "name": "Viajante",
@@ -653,7 +653,7 @@
  },
  "164": {
   "name": "Ichiko (Médium Cega)",
-  "description": "Arte/Ofício (Atuação), Escutar, Saber (Xintoísmo), Ocultismo, História, Lábia ou Persuasão, Psicologia, outra especialidade qualquer. ※ Com o consentimento do Guardião, a perícia “Médium” pode substituir uma perícia de livre escolha."
+  "description": "Arte/Ofício (Atuação), Escutar, Saber (Xintoísmo), Ocultismo, História, Lábia ou Persuasão, Psicologia, outra especialidade qualquer. ※ Com o consentimento do GM, a perícia “Médium” pode substituir uma perícia de livre escolha."
  },
  "165": {
   "name": "Mestre de Kotodama/Onmyōji",

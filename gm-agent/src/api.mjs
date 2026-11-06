@@ -93,7 +93,7 @@ export class Api {
   initiative(ch, w) { return this.get(`/api/channels/${ch}/windows/${w}/initiative`); }
   initiativeAction(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/initiative`, body); }
 
-  // ---- the Keeper's context and the platform's AI tips (GM only)
+  // ---- the GM's context and the platform's AI tips (GM only)
   scenes(ch) { return this.get(`/api/channels/${ch}/scenes`); }
   advanceScenario(ch, body) { return this.post(`/api/channels/${ch}/scenarios/advance`, body); }
   enterScenario(ch, sceneId) { return this.post(`/api/channels/${ch}/scenarios/enter`, { scene_id: sceneId }); }
@@ -105,9 +105,9 @@ export class Api {
   highlights(ch) { return this.get(`/api/channels/${ch}/highlights`); }
   moduleHints(ch) { return this.get(`/api/channels/${ch}/modules/hints?status=potential`); }
   proposals(ch) { return this.get(`/api/channels/${ch}/proposals?status=needs_gm_review`); }
-  // The platform's living world record (the Keeper's partition): entities' current status, state and whereabouts.
+  // The platform's living world record (the GM's partition): entities' current status, state and whereabouts.
   world(ch) { return this.get(`/api/channels/${ch}/world`); }
-  // A Keeper declaration about the world (often off-screen): recorded by the platform's observer, never shown to
-  // players; `secret` keeps the facts it yields Keeper-only.
+  // A GM declaration about the world (often off-screen): recorded by the platform's observer, never shown to
+  // players; `secret` keeps the facts it yields GM-only.
   declareWorld(ch, body) { return this.post(`/api/channels/${ch}/world/declare`, body); }
 }

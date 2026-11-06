@@ -1,9 +1,9 @@
 // Relationships between characters: who lives with, loves, is related to, works with or is at odds with whom. The
-// Keeper records them in play (the `bond` action), the story planner when it reads them in the profiles or invents
+// GM records them in play (the `bond` action), the story planner when it reads them in the profiles or invents
 // them, and a human operator with `bond`. State key `bonds`; each is {a, b, kind, note, secret, since, by}, with `a`
 // and `b` character ids (the pair is unordered; `note` says which way a one-sided bond goes: "Ada is Ben's mother").
 //
-// Who reads what: the Keeper and the planner read every bond. A co-player reads the bonds it is part of, secret or not,
+// Who reads what: the GM and the planner read every bond. A co-player reads the bonds it is part of, secret or not,
 // and the public bonds between people it knows (its companions, and the NPCs it has met in its own scenes).
 
 const MAX_BONDS = 80;
@@ -42,7 +42,7 @@ export function applyBond(bonds, { a, b, kind, note, secret, end }, { by = "keep
 
 const line = (x, nameOf, { marks = false } = {}) => `- ${nameOf(x.a)} — ${nameOf(x.b)}: ${x.kind}${x.note ? ` (${x.note})` : ""}${marks && x.secret ? " [secret]" : ""}`;
 
-// The Keeper's section (part C), every bond.
+// The GM's section (part C), every bond.
 export function renderBonds(bonds, nameOf) {
   if (!bonds.length) return "";
   return ["## Relationships (who lives with, loves, is related to, works with or is at odds with whom; keep to them, change them with bond. [secret]: the investigators do not know it)", ...bonds.map((x) => line(x, nameOf, { marks: true }))].join("\n");

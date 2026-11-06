@@ -647,29 +647,17 @@
     "Estúdio de registros",
     "Studio dei registri"
   ],
-  "Game master": [
-    "守秘人",
-    "守秘人",
-    "ゲームマスター",
-    "게임 마스터",
-    "Director de juego",
-    "Maître de jeu",
-    "Spielleitung",
-    "Ведущий",
-    "Mestre de jogo",
-    "Game master"
-  ],
   "GM workspace": [
-    "守秘人工作台",
-    "守秘人工作台",
+    "GM 工作台",
+    "GM 工作台",
     "GM ワークスペース",
     "GM 작업 공간",
-    "Espacio del director",
-    "Espace MJ",
-    "SL-Arbeitsbereich",
-    "Панель ведущего",
-    "Área do mestre",
-    "Area del master"
+    "Espacio del GM",
+    "Espace du GM",
+    "GM-Arbeitsbereich",
+    "Панель GM",
+    "Área do GM",
+    "Area del GM"
   ],
   "Invite player": [
     "邀请玩家",
@@ -1056,16 +1044,16 @@
     "Visibile nella finestra"
   ],
   "GM-only note": [
-    "守秘人私密笔记",
-    "守秘人私密筆記",
+    "GM 私密笔记",
+    "GM 私密筆記",
     "GM 専用メモ",
     "GM 전용 메모",
-    "Nota privada del director",
-    "Note privée du MJ",
-    "Private SL-Notiz",
-    "Личная заметка ведущего",
-    "Nota privada do mestre",
-    "Nota privata del master"
+    "Nota privada del GM",
+    "Note privée du GM",
+    "Private GM-Notiz",
+    "Личная заметка GM",
+    "Nota privada do GM",
+    "Nota privata del GM"
   ],
   "Whisper to characters": [
     "对角色私语",
@@ -1488,16 +1476,16 @@
     "Scene selezionate"
   ],
   "GM complete version": [
-    "守秘人完整版",
-    "守秘人完整版",
+    "GM 完整版",
+    "GM 完整版",
     "GM 完全版",
     "GM 전체 버전",
-    "Versión completa del director",
-    "Version complète MJ",
-    "Vollständige SL-Version",
-    "Полная версия ведущего",
-    "Versão completa do mestre",
-    "Versione completa del master"
+    "Versión completa del GM",
+    "Version complète du GM",
+    "Vollständige GM-Version",
+    "Полная версия для GM",
+    "Versão completa do GM",
+    "Versione completa del GM"
   ],
   "PL public version": [
     "玩家公开版",
@@ -2232,16 +2220,16 @@
     "Pubblico"
   ],
   "GM only": [
-    "仅守秘人",
-    "僅守秘人",
+    "仅 GM",
+    "僅 GM",
     "GM のみ",
     "GM 전용",
-    "Solo director",
-    "MJ uniquement",
-    "Nur Spielleitung",
-    "Только ведущий",
-    "Somente mestre",
-    "Solo master"
+    "Solo GM",
+    "GM uniquement",
+    "Nur GM",
+    "Только GM",
+    "Somente GM",
+    "Solo GM"
   ],
   "Channel players": [
     "频道玩家",
@@ -2688,16 +2676,16 @@
     "Tiro segreto"
   ],
   "GM note": [
-    "守秘人笔记",
-    "守秘人筆記",
+    "GM 笔记",
+    "GM 筆記",
     "GM メモ",
     "GM 메모",
-    "Nota del director",
-    "Note du MJ",
-    "SL-Notiz",
-    "Заметка ведущего",
-    "Nota do mestre",
-    "Nota del master"
+    "Nota del GM",
+    "Note du GM",
+    "GM-Notiz",
+    "Заметка GM",
+    "Nota do GM",
+    "Nota del GM"
   ],
   "whisper": [
     "私语",
@@ -3012,16 +3000,16 @@
     "Importa modulo"
   ],
   "GM-only knowledge": [
-    "守秘人私密知识",
-    "守秘人私密知識",
+    "GM 私密知识",
+    "GM 私密知識",
     "GM 専用知識",
     "GM 전용 지식",
-    "Conocimiento privado del director",
-    "Connaissances privées MJ",
-    "Geheimes SL-Wissen",
-    "Знания только для ведущего",
-    "Conhecimento privado do mestre",
-    "Conoscenze private del master"
+    "Conocimiento privado del GM",
+    "Connaissances privées du GM",
+    "Geheimes GM-Wissen",
+    "Знания только для GM",
+    "Conhecimento privado do GM",
+    "Conoscenze private del GM"
   ],
   "Fact–knower mapping": [
     "事实与知情者映射",
@@ -5352,16 +5340,16 @@
     "Invita dalla barra laterale; gestisci i partecipanti con ⚇ accanto alla finestra."
   ],
   "Text groups change how dice replies are worded (Sealdice “custom texts”). Each channel’s GM picks the group their channel uses in the GM workspace → Settings.": [
-    "文案组用于自定义骰点回复。各频道守秘人可在工作台的设置中选择文案组。",
-    "文字組用於自訂擲骰回覆。各頻道守秘人可在工作台設定中選擇文字組。",
+    "文案组用于自定义骰点回复。各频道 GM 可在工作台的设置中选择文案组。",
+    "文字組用於自訂擲骰回覆。各頻道 GM 可在工作台設定中選擇文字組。",
     "ダイスの応答文を変更できます。GM がワークスペースの設定で選びます。",
     "주사위 응답 문구를 바꿉니다. 각 채널 GM이 작업 공간 설정에서 선택합니다.",
-    "Los grupos personalizan respuestas de dados. El director los elige en su espacio → Ajustes.",
-    "Les groupes personnalisent les réponses des dés. Le MJ choisit dans son espace → Paramètres.",
-    "Textgruppen ändern Würfelantworten. Die SL wählt sie im Arbeitsbereich unter Einstellungen.",
-    "Группы меняют ответы кубиков. Ведущий выбирает группу в настройках панели.",
-    "Grupos personalizam respostas dos dados. O mestre escolhe em sua área → Configurações.",
-    "I gruppi personalizzano le risposte dei dadi. Il master sceglie nella sua area → Impostazioni."
+    "Los grupos personalizan respuestas de dados. El GM los elige en su espacio → Ajustes.",
+    "Les groupes personnalisent les réponses des dés. Le GM choisit dans son espace → Paramètres.",
+    "Textgruppen ändern Würfelantworten. Der GM wählt sie im Arbeitsbereich unter Einstellungen.",
+    "Группы меняют ответы кубиков. GM выбирает группу в настройках панели.",
+    "Grupos personalizam respostas dos dados. O GM escolhe em sua área → Configurações.",
+    "I gruppi personalizzano le risposte dei dadi. Il GM sceglie nella sua area → Impostazioni."
   ],
   "Server maintainers add custom text groups in Server settings → Dice texts.": [
     "管理员可在服务器设置 → 骰子文案中添加自定义组。",
@@ -5412,16 +5400,16 @@
     "Le istantanee sono immutabili. Sincronizza di nuovo e crea una nuova versione."
   ],
   "Only events you are allowed to read are pulled (GM: everything, with each event's own visibility kept so later snapshots can be filtered per audience).": [
-    "仅同步你有权查看的事件。守秘人可读取全部事件，每条事件保留原可见范围，供快照按受众过滤。",
-    "僅同步你有權查看的事件。守秘人可讀取全部事件，各事件保留原可見範圍，供快照依受眾篩選。",
+    "仅同步你有权查看的事件。GM 可读取全部事件，每条事件保留原可见范围，供快照按受众过滤。",
+    "僅同步你有權查看的事件。GM 可讀取全部事件，各事件保留原可見範圍，供快照依受眾篩選。",
     "権限のあるイベントだけ取得します。GM は全件取得し、各公開範囲を保持します。",
     "읽을 권한이 있는 이벤트만 가져옵니다. GM은 전부 가져오되 각 공개 범위를 유지합니다.",
-    "Solo se importan eventos accesibles. El director ve todos, conservando su visibilidad para cada audiencia.",
-    "Seuls les événements autorisés sont importés. Le MJ les voit tous, avec leur visibilité d’origine.",
-    "Nur lesbare Ereignisse werden übernommen. Die SL sieht alle; Sichtbarkeit je Zielgruppe bleibt erhalten.",
-    "Загружаются только доступные события. Ведущий видит все с сохранением исходных прав.",
-    "Só eventos autorizados são importados. O mestre vê todos, preservando a visibilidade original.",
-    "Si importano solo eventi accessibili. Il master li vede tutti mantenendo la visibilità originale."
+    "Solo se importan eventos accesibles. El GM ve todos, conservando su visibilidad para cada audiencia.",
+    "Seuls les événements autorisés sont importés. Le GM les voit tous, avec leur visibilité d’origine.",
+    "Nur lesbare Ereignisse werden übernommen. Der GM sieht alle; Sichtbarkeit je Zielgruppe bleibt erhalten.",
+    "Загружаются только доступные события. GM видит все с сохранением исходных прав.",
+    "Só eventos autorizados são importados. O GM vê todos, preservando a visibilidade original.",
+    "Si importano solo eventi accessibili. Il GM li vede tutti mantenendo la visibilità originale."
   ],
   "Choose a snapshot in the library. Preview and download use the same frozen text and visibility scope.": [
     "先在作品库选择快照。预览与下载使用相同的冻结文本和可见范围。",
@@ -5496,16 +5484,16 @@
     "Confermo diritti e consenso. È vietato clonare voci altrui senza autorizzazione."
   ],
   "Candidates remain GM-only until you review identity, style and plot details, then explicitly approve and share them.": [
-    "候选素材仅守秘人可见，审核身份、风格和剧情细节后，须明确批准并分享。",
-    "候選素材僅守秘人可見，審核身分、風格及劇情細節後，須明確核准並分享。",
+    "候选素材仅 GM 可见，审核身份、风格和剧情细节后，须明确批准并分享。",
+    "候選素材僅 GM 可見，審核身分、風格及劇情細節後，須明確核准並分享。",
     "候補は GM 専用。人物・スタイル・物語の詳細を確認し、明示的に承認・共有してください。",
     "후보는 GM 전용입니다. 정체성, 스타일, 줄거리를 검토한 후 승인하고 공유하세요.",
-    "Los candidatos son privados del director hasta revisar identidad, estilo y trama, aprobar y compartir.",
-    "Les propositions restent privées au MJ jusqu’à vérification, approbation et partage explicites.",
-    "Kandidaten bleiben SL-privat, bis Identität, Stil und Handlung geprüft, genehmigt und geteilt sind.",
-    "Варианты видны только ведущему до проверки образа, стиля и сюжета, одобрения и публикации.",
-    "Candidatos são privados do mestre até revisar identidade, estilo e trama, aprovar e compartilhar.",
-    "Le proposte restano private del master fino a revisione di identità, stile e trama, approvazione e condivisione."
+    "Los candidatos son privados del GM hasta revisar identidad, estilo y trama, aprobar y compartir.",
+    "Les propositions restent réservées au GM jusqu’à vérification, approbation et partage explicites.",
+    "Kandidaten bleiben GM-privat, bis Identität, Stil und Handlung geprüft, genehmigt und geteilt sind.",
+    "Варианты видны только GM до проверки образа, стиля и сюжета, одобрения и публикации.",
+    "Candidatos são privados do GM até revisar identidade, estilo e trama, aprovar e compartilhar.",
+    "Le proposte restano private del GM fino a revisione di identità, stile e trama, approvazione e condivisione."
   ],
   "Uses only selected performance lines. Accepting changes delivery instructions; canonical text remains unchanged.": [
     "仅使用选定演出台词。采纳只修改表演指令，原始记录不变。",
@@ -6288,16 +6276,16 @@
     "Colori: chiave parlante e #RRGGBB. Illustrazioni: chiave scena e ID immagine approvata."
   ],
   "Contradictions with confirmed records, edits to GM-authored entries and knowledge-sharing suggestions wait here instead of being applied silently.": [
-    "与已确认记录冲突的修改、守秘人条目编辑和知识共享建议会在此等待审核，不会自动应用。",
-    "與已確認紀錄衝突的修改、守秘人條目編輯及知識共享建議會在此等待審核，不會自動套用。",
+    "与已确认记录冲突的修改、GM 条目编辑和知识共享建议会在此等待审核，不会自动应用。",
+    "與已確認紀錄衝突的修改、GM 條目編輯及知識共享建議會在此等待審核，不會自動套用。",
     "確定記録との矛盾、GM 項目の編集、知識共有は自動適用せずここで確認を待ちます。",
     "확정 기록과의 충돌, GM 항목 편집, 지식 공유 제안은 자동 적용하지 않고 검토를 기다립니다.",
-    "Conflictos con hechos confirmados, cambios del director y propuestas de compartir esperan revisión aquí.",
-    "Conflits avec les faits confirmés, modifications MJ et partages attendent validation ici.",
-    "Widersprüche zu bestätigten Fakten, SL-Änderungen und Wissensfreigaben warten hier auf Prüfung.",
-    "Противоречия подтверждённым записям, правки ведущего и обмен знаниями ожидают проверки.",
-    "Conflitos com fatos confirmados, edições do mestre e compartilhamentos aguardam revisão aqui.",
-    "Conflitti con fatti confermati, modifiche del master e condivisioni attendono revisione qui."
+    "Conflictos con hechos confirmados, cambios del GM y propuestas de compartir esperan revisión aquí.",
+    "Conflits avec les faits confirmés, modifications du GM et partages attendent validation ici.",
+    "Widersprüche zu bestätigten Fakten, GM-Änderungen und Wissensfreigaben warten hier auf Prüfung.",
+    "Противоречия подтверждённым записям, правки GM и обмен знаниями ожидают проверки.",
+    "Conflitos com fatos confirmados, edições do GM e compartilhamentos aguardam revisão aqui.",
+    "Conflitti con fatti confermati, modifiche del GM e condivisioni attendono revisione qui."
   ],
   "Facts no player character knows. Share them from the Knowledge tab when the fiction reveals them.": [
     "这些事实尚无玩家角色知晓。剧情揭示后，可从知识页共享。",
@@ -6372,16 +6360,16 @@
     "Un investigatore può usare più nomi. Associa ogni parlante o escludilo, ad esempio messaggi del bot."
   ],
   "Upload a PDF (text is extracted per page, then structured into a conditional knowledge graph with page citations) or paste text. Module content stays in its own GM-only layer, separate from what actually happens in play.": [
-    "上传 PDF 或粘贴文字。PDF 按页提取并构建带页码引用的条件知识图谱。模组内容保留在守秘人私密层，与实际剧情分离。",
-    "上傳 PDF 或貼上文字。PDF 依頁擷取並建立含頁碼引用的條件知識圖譜。模組內容保留於守秘人私密層，與實際劇情分離。",
+    "上传 PDF 或粘贴文字。PDF 按页提取并构建带页码引用的条件知识图谱。模组内容保留在GM 私密层，与实际剧情分离。",
+    "上傳 PDF 或貼上文字。PDF 依頁擷取並建立含頁碼引用的條件知識圖譜。模組內容保留於GM 私密層，與實際劇情分離。",
     "PDF をアップロードまたは文章を貼り付け。ページごとに抽出し、出典付き条件知識グラフを構築。シナリオは実際のプレイと別の GM 専用層に保持します。",
     "PDF를 업로드하거나 텍스트를 붙이세요. 페이지별 추출 후 출처가 있는 조건부 지식 그래프를 만듭니다. 시나리오는 실제 진행과 분리된 GM 전용 계층에 저장합니다.",
-    "Sube PDF o pega texto. Se extrae por página a un grafo condicional con citas. El módulo permanece privado del director, separado de lo ocurrido.",
-    "Téléversez un PDF ou collez du texte. Extraction par page en graphe conditionnel avec références. Le module reste privé au MJ, distinct des faits joués.",
-    "PDF hochladen oder Text einfügen. Seitenweise Extraktion in einen bedingten Wissensgraphen mit Quellen. Modul bleibt SL-privat und getrennt vom Spielgeschehen.",
-    "Загрузите PDF или вставьте текст. Постраничное извлечение строит условный граф с источниками. Модуль остаётся в закрытом слое ведущего отдельно от событий игры.",
-    "Envie PDF ou cole texto. Extração por página cria grafo condicional com fontes. O módulo fica privado do mestre, separado dos eventos jogados.",
-    "Carica PDF o incolla testo. L’estrazione per pagina crea un grafo condizionale con fonti. Il modulo resta privato del master, distinto dagli eventi giocati."
+    "Sube PDF o pega texto. Se extrae por página a un grafo condicional con citas. El módulo permanece privado del GM, separado de lo ocurrido.",
+    "Téléversez un PDF ou collez du texte. Extraction par page en graphe conditionnel avec références. Le module reste réservé au GM, distinct des faits joués.",
+    "PDF hochladen oder Text einfügen. Seitenweise Extraktion in einen bedingten Wissensgraphen mit Quellen. Modul bleibt GM-privat und getrennt vom Spielgeschehen.",
+    "Загрузите PDF или вставьте текст. Постраничное извлечение строит условный граф с источниками. Модуль остаётся в закрытом слое GM отдельно от событий игры.",
+    "Envie PDF ou cole texto. Extração por página cria grafo condicional com fontes. O módulo fica privado do GM, separado dos eventos jogados.",
+    "Carica PDF o incolla testo. L’estrazione per pagina crea un grafo condizionale con fonti. Il modulo resta privato del GM, distinto dagli eventi giocati."
   ],
   "Keys: space/→ next · ← previous · a auto-play · s skip TTS · l replay line · c standees · h hide UI · r raw log · f fullscreen": [
     "快捷键：空格/→ 下一条 · ← 上一条 · a 自动播放 · s 跳过配音 · l 重播 · c 立绘 · h 隐藏界面 · r 原文 · f 全屏",
@@ -6468,40 +6456,40 @@
     "Es.: sussurrata, esitante, fredda"
   ],
   "— as GM —": [
-    "— 以守秘人身份 —",
-    "— 以守秘人身分 —",
+    "— 以 GM 身份 —",
+    "— 以 GM 身分 —",
     "— GM として —",
     "— GM으로 —",
-    "— como director —",
-    "— en tant que MJ —",
-    "— als Spielleitung —",
-    "— от лица ведущего —",
-    "— como mestre —",
-    "— come master —"
+    "— como GM —",
+    "— en tant que GM —",
+    "— als GM —",
+    "— от лица GM —",
+    "— como GM —",
+    "— come GM —"
   ],
   "as GM": [
-    "以守秘人身份",
-    "以守秘人身分",
+    "以 GM 身份",
+    "以 GM 身分",
     "GM として",
     "GM으로",
-    "como director",
-    "en tant que MJ",
-    "als Spielleitung",
-    "от лица ведущего",
-    "como mestre",
-    "come master"
+    "como GM",
+    "en tant que GM",
+    "als GM",
+    "от лица GM",
+    "como GM",
+    "come GM"
   ],
   "Players and GMs can check a draft against what their character knows.": [
-    "玩家和守秘人可根据角色已知信息检查草稿。",
-    "玩家及守秘人可依角色已知資訊檢查草稿。",
+    "玩家和 GM 可根据角色已知信息检查草稿。",
+    "玩家及 GM 可依角色已知資訊檢查草稿。",
     "PL と GM がキャラクター知識で下書きを確認します。",
     "플레이어와 GM이 캐릭터 지식으로 초안을 검사합니다.",
-    "Jugadores y director comprueban borradores según el conocimiento del personaje.",
-    "Joueurs et MJ vérifient selon les connaissances du personnage.",
-    "Spieler und SL prüfen Entwürfe anhand des Charakterwissens.",
-    "Игроки и ведущий проверяют черновик по знаниям персонажа.",
-    "Jogadores e mestre verificam pelo conhecimento do personagem.",
-    "Giocatori e master verificano le bozze sulle conoscenze del personaggio."
+    "Jugadores y GM comprueban borradores según el conocimiento del personaje.",
+    "Joueurs et GM vérifient selon les connaissances du personnage.",
+    "Spieler und GM prüfen Entwürfe anhand des Charakterwissens.",
+    "Игроки и GM проверяют черновик по знаниям персонажа.",
+    "Jogadores e GM verificam pelo conhecimento do personagem.",
+    "Giocatori e GM verificano le bozze sulle conoscenze del personaggio."
   ],
   "Sealdice-style commands in chat: .r .ra .sc .st .en, with the gray attribute hint while typing.": [
     "聊天支持海豹风格命令 .r .ra .sc .st .en，输入时显示灰色属性提示。",
@@ -8465,11 +8453,11 @@
     "すべてのチャットウィンドウ（結果は GM のみ）",
     "모든 채팅 창 (결과는 GM 전용)",
     "Todas las ventanas de chat (resultado solo para el GM)",
-    "Toutes les fenêtres de chat (résultat réservé au MJ)",
-    "Alle Chatfenster (Ergebnis nur für SL)",
-    "Все окна чата (результат только для ведущего)",
-    "Todas as janelas de chat (resultado só para o mestre)",
-    "Tutte le finestre di chat (risultato solo per il master)"
+    "Toutes les fenêtres de chat (résultat réservé au GM)",
+    "Alle Chatfenster (Ergebnis nur für den GM)",
+    "Все окна чата (результат только для GM)",
+    "Todas as janelas de chat (resultado só para o GM)",
+    "Tutte le finestre di chat (risultato solo per il GM)"
   ],
   "Player-visible lines only": [
     "仅玩家可见的台词",
@@ -8525,11 +8513,11 @@
     "非公開ウィンドウや GM 専用の台詞を含むため、下書きは GM のみが見られます。プレイヤー向けにするには、プレイヤーに見える台詞のみを選んでください。",
     "비공개 창과 GM 전용 대사가 포함되므로 초안은 GM만 볼 수 있습니다. 플레이어가 볼 수 있게 하려면 플레이어에게 보이는 대사만 선택하세요.",
     "Incluye ventanas privadas y líneas solo para el GM, así que el borrador solo lo ven los GM. Elige líneas visibles para los jugadores si quieres algo que puedan ver.",
-    "Inclut les fenêtres privées et les répliques réservées au MJ : le brouillon n’est visible que par les MJ. Choisissez les répliques visibles par les joueurs pour qu’ils puissent le regarder.",
-    "Enthält private Fenster und reine SL-Zeilen, daher sehen den Entwurf nur SL. Wähle für Spieler sichtbare Zeilen, damit Spieler ihn ansehen können.",
-    "Включает приватные окна и реплики только для ведущего, поэтому черновик видят только ведущие. Выберите реплики, видимые игрокам, чтобы игроки могли его посмотреть.",
-    "Inclui janelas privadas e falas só do mestre, então o rascunho é visível apenas para mestres. Escolha falas visíveis aos jogadores para criar algo que eles possam assistir.",
-    "Include finestre private e battute riservate al master, quindi la bozza è visibile solo ai master. Scegli le battute visibili ai giocatori per creare qualcosa che possano guardare."
+    "Inclut les fenêtres privées et les répliques réservées au GM : le brouillon n’est visible que par les GM. Choisissez les répliques visibles par les joueurs pour qu’ils puissent le regarder.",
+    "Enthält private Fenster und reine GM-Zeilen, daher ist der Entwurf nur für GM sichtbar. Wähle für Spieler sichtbare Zeilen, damit Spieler ihn ansehen können.",
+    "Включает приватные окна и реплики только для GM, поэтому черновик видят только GM. Выберите реплики, видимые игрокам, чтобы игроки могли его посмотреть.",
+    "Inclui janelas privadas e falas só do GM, então o rascunho é visível apenas para os GM. Escolha falas visíveis aos jogadores para criar algo que eles possam assistir.",
+    "Include finestre private e battute riservate al GM, quindi la bozza è visibile solo ai GM. Scegli le battute visibili ai giocatori per creare qualcosa che possano guardare."
   ],
   "Send these lines to the configured model": [
     "将这些台词发送给已配置的模型",
@@ -8855,29 +8843,29 @@
     "Os membros compartilham chats acessíveis e um diário de IA independente. Mover um jogador reconstrói os dois grupos pelo chat.",
     "I membri condividono le chat accessibili e un diario IA indipendente. Spostare un giocatore ricostruisce entrambi i gruppi dalla chat."
   ],
-  "KP memory is never copied into a player group. Reveal information through chat.": [
-    "KP 知识不会直接复制给玩家组。请通过聊天向玩家揭示信息。",
-    "KP 知識不會直接複製給玩家群組。請透過聊天向玩家揭示資訊。",
-    "KPの記憶はプレイヤーグループにコピーされません。情報はチャットで伝えてください。",
-    "KP 지식은 플레이어 그룹에 복사되지 않습니다. 채팅으로 정보를 공개하세요.",
-    "El conocimiento del KP nunca se copia a los jugadores. Revela la información mediante el chat.",
-    "Les connaissances du KP ne sont jamais copiées aux joueurs. Révélez les informations dans le chat.",
-    "KP-Wissen wird nie in Spielergruppen kopiert. Informationen werden im Chat enthüllt.",
-    "Знания ведущего не копируются игрокам. Раскрывайте информацию в чате.",
-    "O conhecimento do KP nunca é copiado aos jogadores. Revele informações pelo chat.",
-    "Le conoscenze del KP non vengono copiate ai giocatori. Rivela le informazioni in chat."
+  "GM memory is never copied into a player group. Reveal information through chat.": [
+    "GM 知识不会直接复制给玩家组。请通过聊天向玩家揭示信息。",
+    "GM 知識不會直接複製給玩家群組。請透過聊天向玩家揭示資訊。",
+    "GM の記憶はプレイヤーグループにコピーされません。情報はチャットで伝えてください。",
+    "GM 지식은 플레이어 그룹에 복사되지 않습니다. 채팅으로 정보를 공개하세요.",
+    "El conocimiento del GM nunca se copia a los jugadores. Revela la información mediante el chat.",
+    "Les connaissances du GM ne sont jamais copiées aux joueurs. Révélez les informations dans le chat.",
+    "GM-Wissen wird nie in Spielergruppen kopiert. Informationen werden im Chat enthüllt.",
+    "Знания GM не копируются игрокам. Раскрывайте информацию в чате.",
+    "O conhecimento do GM nunca é copiado aos jogadores. Revele informações pelo chat.",
+    "Le conoscenze del GM non vengono copiate ai giocatori. Rivela le informazioni in chat."
   ],
-  "KP memory is private. Each player group has a separate journal based only on chat.": [
-    "KP 知识仅供 KP 查阅。每个玩家组都有独立汇编，内容只来自聊天记录。",
-    "KP 知識僅供 KP 查閱。每個玩家群組都有獨立彙編，內容只來自聊天記錄。",
-    "KPの記憶は非公開です。各グループの記録はチャットのみを基に作成されます。",
-    "KP 지식은 비공개입니다. 각 그룹의 독립 기록은 채팅만을 기반으로 합니다.",
-    "El conocimiento del KP es privado. Cada grupo tiene un diario independiente basado solo en el chat.",
-    "Les connaissances du KP sont privées. Chaque groupe a un journal distinct fondé uniquement sur le chat.",
-    "KP-Wissen ist privat. Jede Gruppe hat ein eigenes Journal ausschließlich aus dem Chat.",
-    "Знания ведущего приватны. У каждой группы свой журнал, основанный только на чате.",
-    "O conhecimento do KP é privado. Cada grupo tem um diário separado baseado apenas no chat.",
-    "Le conoscenze del KP sono private. Ogni gruppo ha un diario separato basato solo sulla chat."
+  "GM memory is private. Each player group has a separate journal based only on chat.": [
+    "GM 知识仅供 GM 查阅。每个玩家组都有独立汇编，内容只来自聊天记录。",
+    "GM 知識僅供 GM 查閱。每個玩家群組都有獨立彙編，內容只來自聊天記錄。",
+    "GM の記憶は非公開です。各グループの記録はチャットのみを基に作成されます。",
+    "GM 지식은 비공개입니다. 각 그룹의 독립 기록은 채팅만을 기반으로 합니다.",
+    "El conocimiento del GM es privado. Cada grupo tiene un diario independiente basado solo en el chat.",
+    "Les connaissances du GM sont privées. Chaque groupe a un journal distinct fondé uniquement sur le chat.",
+    "GM-Wissen ist privat. Jede Gruppe hat ein eigenes Journal ausschließlich aus dem Chat.",
+    "Знания GM приватны. У каждой группы свой журнал, основанный только на чате.",
+    "O conhecimento do GM é privado. Cada grupo tem um diário separado baseado apenas no chat.",
+    "Le conoscenze del GM sono private. Ogni gruppo ha un diario separato basato solo sulla chat."
   ],
   "All statuses": [
     "全部状态",
@@ -8891,17 +8879,17 @@
     "Todos os estados",
     "Tutti gli stati"
   ],
-  "Contradictions and edits to KP records wait here for review.": [
-    "与 KP 记录矛盾或修改记录的建议在此等待审核。",
-    "與 KP 記錄矛盾或修改記錄的建議在此等待審核。",
-    "KPの記録に対する矛盾や編集はここで確認を待ちます。",
-    "KP 기록의 모순과 수정 제안은 여기에서 검토를 기다립니다.",
-    "Las contradicciones y cambios en los registros del KP esperan revisión aquí.",
-    "Les contradictions et modifications des notes du KP attendent ici leur validation.",
-    "Widersprüche und Änderungen an KP-Aufzeichnungen warten hier auf Prüfung.",
-    "Противоречия и изменения записей ведущего ожидают проверки здесь.",
-    "Contradições e edições nos registros do KP aguardam revisão aqui.",
-    "Contraddizioni e modifiche alle note del KP attendono la revisione qui."
+  "Contradictions and edits to GM records wait here for review.": [
+    "与 GM 记录矛盾或修改记录的建议在此等待审核。",
+    "與 GM 記錄矛盾或修改記錄的建議在此等待審核。",
+    "GM の記録に対する矛盾や編集はここで確認を待ちます。",
+    "GM 기록의 모순과 수정 제안은 여기에서 검토를 기다립니다.",
+    "Las contradicciones y cambios en los registros del GM esperan revisión aquí.",
+    "Les contradictions et modifications des notes du GM attendent ici leur validation.",
+    "Widersprüche und Änderungen an GM-Aufzeichnungen warten hier auf Prüfung.",
+    "Противоречия и изменения записей GM ожидают проверки здесь.",
+    "Contradições e edições nos registros do GM aguardam revisão aqui.",
+    "Contraddizioni e modifiche alle note del GM attendono la revisione qui."
   ],
   "Quote as reference": [
     "引用这条消息",
@@ -9132,16 +9120,16 @@
     "Deduzione dell’IA"
   ],
   "gm_secret": [
-    "KP 秘密",
-    "KP 秘密",
-    "KPの秘密",
-    "KP 비밀",
-    "Secreto del KP",
-    "Secret du KP",
-    "KP-Geheimnis",
-    "Секрет ведущего",
-    "Segredo do KP",
-    "Segreto del KP"
+    "GM 秘密",
+    "GM 秘密",
+    "GM の秘密",
+    "GM 비밀",
+    "Secreto del GM",
+    "Secret du GM",
+    "GM-Geheimnis",
+    "Секрет GM",
+    "Segredo do GM",
+    "Segreto del GM"
   ],
   "pending_review": [
     "待审核",
@@ -9359,17 +9347,17 @@
     "Detectar novas etapas automaticamente",
     "Rileva automaticamente le nuove fasi"
   ],
-  "The AI watches each chat window. When the Keeper's narration moves the story to a new place or time, it opens the next scenario from that line and summarizes the one that closed. Summaries you edit are never overwritten.": [
-    "AI 会观察每个聊天窗口。当守秘人的叙述把故事带到新的地点或时间时，它会从那一行开始开启下一阶段，并总结刚结束的阶段。您编辑过的总结不会被覆盖。",
-    "AI 會觀察每個聊天視窗。當守秘人的敘述把故事帶到新的地點或時間時，它會從那一行開始開啟下一階段，並總結剛結束的階段。您編輯過的總結不會被覆蓋。",
-    "AI は各チャットウィンドウを見守ります。キーパーの描写が物語を新しい場所や時間へ進めると、その行から次のシナリオを開き、終わったシナリオを要約します。あなたが編集した要約は上書きされません。",
-    "AI가 각 채팅 창을 지켜봅니다. 키퍼의 서술이 이야기를 새로운 장소나 시간으로 옮기면 그 줄부터 다음 시나리오를 열고 끝난 시나리오를 요약합니다. 직접 편집한 요약은 덮어쓰지 않습니다.",
-    "La IA observa cada ventana de chat. Cuando la narración del Guardián lleva la historia a un nuevo lugar o momento, abre el siguiente escenario desde esa línea y resume el que se cerró. Los resúmenes que edites nunca se sobrescriben.",
-    "L’IA observe chaque fenêtre de chat. Quand la narration du Gardien déplace l’histoire vers un nouveau lieu ou moment, elle ouvre le scénario suivant à partir de cette ligne et résume celui qui s’achève. Les résumés que vous modifiez ne sont jamais écrasés.",
-    "Die KI beobachtet jedes Chatfenster. Wenn die Erzählung des Spielleiters die Geschichte an einen neuen Ort oder in eine neue Zeit führt, öffnet sie ab dieser Zeile das nächste Szenario und fasst das abgeschlossene zusammen. Von dir bearbeitete Zusammenfassungen werden nie überschrieben.",
-    "ИИ следит за каждым окном чата. Когда повествование ведущего переносит историю в новое место или время, он открывает следующий сценарий с этой строки и резюмирует завершившийся. Отредактированные вами резюме никогда не перезаписываются.",
-    "A IA observa cada janela de chat. Quando a narração do Guardião leva a história a um novo lugar ou momento, ela abre o próximo cenário a partir daquela linha e resume o que se encerrou. Resumos que você editar nunca são sobrescritos.",
-    "L'IA osserva ogni finestra di chat. Quando la narrazione del Custode porta la storia in un nuovo luogo o momento, apre lo scenario successivo da quella riga e riassume quello concluso. I riassunti che modifichi non vengono mai sovrascritti."
+  "The AI watches each chat window. When the GM's narration moves the story to a new place or time, it opens the next scenario from that line and summarizes the one that closed. Summaries you edit are never overwritten.": [
+    "AI 会观察每个聊天窗口。当 GM 的叙述把故事带到新的地点或时间时，它会从那一行开始开启下一阶段，并总结刚结束的阶段。您编辑过的总结不会被覆盖。",
+    "AI 會觀察每個聊天視窗。當 GM 的敘述把故事帶到新的地點或時間時，它會從那一行開始開啟下一階段，並總結剛結束的階段。您編輯過的總結不會被覆蓋。",
+    "AI は各チャットウィンドウを見守ります。GM の描写が物語を新しい場所や時間へ進めると、その行から次のシナリオを開き、終わったシナリオを要約します。あなたが編集した要約は上書きされません。",
+    "AI가 각 채팅 창을 지켜봅니다. GM의 서술이 이야기를 새로운 장소나 시간으로 옮기면 그 줄부터 다음 시나리오를 열고 끝난 시나리오를 요약합니다. 직접 편집한 요약은 덮어쓰지 않습니다.",
+    "La IA observa cada ventana de chat. Cuando la narración del GM lleva la historia a un nuevo lugar o momento, abre el siguiente escenario desde esa línea y resume el que se cerró. Los resúmenes que edites nunca se sobrescriben.",
+    "L’IA observe chaque fenêtre de chat. Quand la narration du GM déplace l’histoire vers un nouveau lieu ou moment, elle ouvre le scénario suivant à partir de cette ligne et résume celui qui s’achève. Les résumés que vous modifiez ne sont jamais écrasés.",
+    "Die KI beobachtet jedes Chatfenster. Wenn die Erzählung des GM die Geschichte an einen neuen Ort oder in eine neue Zeit führt, öffnet sie ab dieser Zeile das nächste Szenario und fasst das abgeschlossene zusammen. Von dir bearbeitete Zusammenfassungen werden nie überschrieben.",
+    "ИИ следит за каждым окном чата. Когда повествование GM переносит историю в новое место или время, он открывает следующий сценарий с этой строки и резюмирует завершившийся. Отредактированные вами резюме никогда не перезаписываются.",
+    "A IA observa cada janela de chat. Quando a narração do GM leva a história a um novo lugar ou momento, ela abre o próximo cenário a partir daquela linha e resume o que se encerrou. Resumos que você editar nunca são sobrescritos.",
+    "L'IA osserva ogni finestra di chat. Quando la narrazione del GM porta la storia in un nuovo luogo o momento, apre lo scenario successivo da quella riga e riassume quello concluso. I riassunti che modifichi non vengono mai sovrascritti."
   ],
   "New scenario": [
     "新阶段",
@@ -9551,18 +9539,6 @@
     "talvez você tenha esquecido",
     "forse l'hai dimenticato"
   ],
-  "Keeper": [
-    "守秘人",
-    "守秘人",
-    "キーパー",
-    "키퍼",
-    "Guardián",
-    "Gardien",
-    "Spielleiter",
-    "Ведущий",
-    "Guardião",
-    "Custode"
-  ],
   "The highlighted passages are quoted verbatim from the chat; the note above is the AI reminder about them.": [
     "高亮的段落是聊天记录的原文引用；上方的说明是 AI 对它们的提醒。",
     "高亮的段落是聊天紀錄的原文引用；上方的說明是 AI 對它們的提醒。",
@@ -9671,17 +9647,17 @@
     "O que o roteiro planeja a seguir",
     "Cosa prevede il copione dopo"
   ],
-  "Keeper's notes": [
-    "守秘人备忘",
-    "守秘人備忘",
-    "キーパーのメモ",
-    "키퍼의 메모",
-    "Notas del Guardián",
-    "Notes du Gardien",
-    "Notizen des Spielleiters",
-    "Заметки Хранителя",
-    "Notas do Guardião",
-    "Note del Custode"
+  "GM's notes": [
+    "GM 备忘",
+    "GM 備忘",
+    "GM のメモ",
+    "GM의 메모",
+    "Notas del GM",
+    "Notes du GM",
+    "Notizen des GM",
+    "Заметки GM",
+    "Notas do GM",
+    "Note del GM"
   ],
   "Open the script knowledge in the GM workspace": [
     "在 GM 工作区打开剧本知识",
@@ -9689,11 +9665,11 @@
     "GM ワークスペースでシナリオ知識を開く",
     "GM 작업 공간에서 대본 지식 열기",
     "Abrir el conocimiento del guion en el espacio del GM",
-    "Ouvrir la connaissance du scénario dans l’espace MJ",
-    "Skriptwissen im SL-Arbeitsbereich öffnen",
-    "Открыть знания о сценарии в рабочей области ведущего",
-    "Abrir o conhecimento do roteiro no espaço do mestre",
-    "Apri la conoscenza del copione nello spazio del master"
+    "Ouvrir la connaissance du scénario dans l’espace du GM",
+    "Skriptwissen im GM-Arbeitsbereich öffnen",
+    "Открыть знания о сценарии в рабочей области GM",
+    "Abrir o conhecimento do roteiro no espaço do GM",
+    "Apri la conoscenza del copione nello spazio del GM"
   ],
   "Script ↗": [
     "剧本 ↗",
@@ -9713,11 +9689,11 @@
     "モジュールが未インポートです。GM ワークスペースでシナリオを取り込むと次の予定が表示されます。",
     "아직 모듈이 없습니다. GM 작업 공간에서 대본을 가져오면 다음 계획이 표시됩니다.",
     "Aún no hay módulo. Importa el guion en el espacio del GM para ver qué planea a continuación.",
-    "Aucun module importé. Importez le scénario dans l’espace MJ pour voir la suite prévue.",
-    "Noch kein Modul importiert. Importiere das Skript im SL-Arbeitsbereich, um den nächsten Schritt zu sehen.",
-    "Модуль ещё не импортирован. Импортируйте сценарий в рабочей области ведущего.",
-    "Nenhum módulo importado. Importe o roteiro no espaço do mestre para ver o próximo passo.",
-    "Nessun modulo importato. Importa il copione nello spazio del master per vedere il prossimo passo."
+    "Aucun module importé. Importez le scénario dans l’espace du GM pour voir la suite prévue.",
+    "Noch kein Modul importiert. Importiere das Skript im GM-Arbeitsbereich, um den nächsten Schritt zu sehen.",
+    "Модуль ещё не импортирован. Импортируйте сценарий в рабочей области GM.",
+    "Nenhum módulo importado. Importe o roteiro no espaço do GM para ver o próximo passo.",
+    "Nessun modulo importato. Importa il copione nello spazio del GM per vedere il prossimo passo."
   ],
   "Now": [
     "当前",
@@ -9743,17 +9719,17 @@
     "Nenhuma etapa do roteiro alcançada",
     "Nessuna fase del copione raggiunta"
   ],
-  "What the Keeper does there": [
-    "守秘人在此的处理",
-    "守秘人在此的處理",
-    "キーパーがここで行うこと",
-    "키퍼가 여기서 할 일",
-    "Qué hace el Guardián ahí",
-    "Ce que fait le Gardien ici",
-    "Was der Spielleiter hier tut",
-    "Что здесь делает Хранитель",
-    "O que o Guardião faz aqui",
-    "Cosa fa il Custode qui"
+  "What the GM does there": [
+    "GM 在此的处理",
+    "GM 在此的處理",
+    "GM がここで行うこと",
+    "GM이 여기서 할 일",
+    "Qué hace el GM ahí",
+    "Ce que fait le GM ici",
+    "Was der GM hier tut",
+    "Что здесь делает GM",
+    "O que o GM faz aqui",
+    "Cosa fa il GM qui"
   ],
   "Needs first": [
     "前置条件",
@@ -9946,18 +9922,6 @@
     "Знания о сценарии",
     "Conhecimento do roteiro",
     "Conoscenza del copione"
-  ],
-  "Keeper only": [
-    "仅守秘人",
-    "僅守秘人",
-    "キーパー専用",
-    "키퍼 전용",
-    "Solo Guardián",
-    "Gardien seulement",
-    "Nur Spielleiter",
-    "Только Хранитель",
-    "Somente Guardião",
-    "Solo Custode"
   ],
   "Rebuilding…": [
     "重建中…",
@@ -11207,17 +11171,17 @@
     "O PDF é composto a partir de todo o registro da campanha como está agora; o texto fica congelado nesse momento.",
     "Il PDF è impaginato dall’intero registro della campagna com’è ora; il testo viene congelato in quel momento."
   ],
-  "Everything (Keeper's copy)": [
-    "全部内容（守秘人版）",
-    "全部內容（守秘人版）",
-    "すべて（キーパー版）",
-    "전체(키퍼용)",
-    "Todo (copia del Guardián)",
-    "Tout (exemplaire du Gardien)",
-    "Alles (Spielleiter-Ausgabe)",
-    "Всё (экземпляр Хранителя)",
-    "Tudo (cópia do Guardião)",
-    "Tutto (copia del Custode)"
+  "Everything (GM's copy)": [
+    "全部内容（GM 版）",
+    "全部內容（GM 版）",
+    "すべて（GM 版）",
+    "전체(GM용)",
+    "Todo (copia del GM)",
+    "Tout (exemplaire du GM)",
+    "Alles (GM-Ausgabe)",
+    "Всё (экземпляр GM)",
+    "Tudo (cópia do GM)",
+    "Tutto (copia del GM)"
   ],
   "Only confirmed or resolved entries visible to the chosen audience are included, with source references.": [
     "仅包含所选受众可见的已确认或已解决条目，并附来源引用。",
@@ -11279,17 +11243,17 @@
     "Exportar",
     "Esporta"
   ],
-  "The campaign log, exports, PDF publication and visual novels. Keepers can still hide it per channel; when open, every member reaches it equally.": [
-    "战役日志、导出、PDF 出版与视觉小说。守秘人仍可在各频道隐藏它；开启时所有成员均可平等使用。",
-    "戰役日誌、匯出、PDF 出版與視覺小說。守秘人仍可在各頻道隱藏它；開啟時所有成員皆可平等使用。",
-    "キャンペーンログ、書き出し、PDF 出版、ビジュアルノベル。キーパーはチャンネルごとに非表示にできます。有効な場合、全メンバーが同じように利用できます。",
-    "캠페인 로그, 내보내기, PDF 출판, 비주얼 노벨. 키퍼는 채널별로 숨길 수 있으며, 열려 있으면 모든 멤버가 동등하게 이용합니다.",
-    "El registro de campaña, las exportaciones, la publicación en PDF y las novelas visuales. El Guardián puede ocultarlo por canal; si está abierto, todos los miembros acceden por igual.",
-    "Le journal de campagne, les exports, la publication PDF et les romans visuels. Le Gardien peut le masquer par canal ; ouvert, tous les membres y accèdent également.",
-    "Kampagnenprotokoll, Exporte, PDF-Veröffentlichung und Visual Novels. Der Keeper kann es pro Kanal ausblenden; wenn offen, haben alle Mitglieder gleichen Zugang.",
-    "Журнал кампании, экспорт, публикация PDF и визуальные новеллы. Хранитель может скрыть его в отдельном канале; когда он открыт, все участники пользуются им на равных.",
-    "O registro da campanha, exportações, publicação em PDF e romances visuais. O Guardião ainda pode ocultá-lo por canal; quando aberto, todos os membros acessam igualmente.",
-    "Il registro della campagna, le esportazioni, la pubblicazione in PDF e le visual novel. Il Custode può nasconderlo per canale; se aperto, tutti i membri vi accedono allo stesso modo."
+  "The campaign log, exports, PDF publication and visual novels. GMs can still hide it per channel; when open, every member reaches it equally.": [
+    "战役日志、导出、PDF 出版与视觉小说。GM 仍可在各频道隐藏它；开启时所有成员均可平等使用。",
+    "戰役日誌、匯出、PDF 出版與視覺小說。GM 仍可在各頻道隱藏它；開啟時所有成員皆可平等使用。",
+    "キャンペーンログ、書き出し、PDF 出版、ビジュアルノベル。GM はチャンネルごとに非表示にできます。有効な場合、全メンバーが同じように利用できます。",
+    "캠페인 로그, 내보내기, PDF 출판, 비주얼 노벨. GM은 채널별로 숨길 수 있으며, 열려 있으면 모든 멤버가 동등하게 이용합니다.",
+    "El registro de campaña, las exportaciones, la publicación en PDF y las novelas visuales. El GM puede ocultarlo por canal; si está abierto, todos los miembros acceden por igual.",
+    "Le journal de campagne, les exports, la publication PDF et les romans visuels. Le GM peut le masquer par canal ; ouvert, tous les membres y accèdent également.",
+    "Kampagnenprotokoll, Exporte, PDF-Veröffentlichung und Visual Novels. Der GM kann es pro Kanal ausblenden; wenn offen, haben alle Mitglieder gleichen Zugang.",
+    "Журнал кампании, экспорт, публикация PDF и визуальные новеллы. GM может скрыть его в отдельном канале; когда он открыт, все участники пользуются им на равных.",
+    "O registro da campanha, exportações, publicação em PDF e romances visuais. O GM ainda pode ocultá-lo por canal; quando aberto, todos os membros acessam igualmente.",
+    "Il registro della campagna, le esportazioni, la pubblicazione in PDF e le visual novel. Il GM può nasconderlo per canale; se aperto, tutti i membri vi accedono allo stesso modo."
   ],
   "e.g. 1920s New England": [
     "例如：1920 年代的新英格兰",
@@ -11351,17 +11315,17 @@
     "Quando ativado, cada membro pode ler o registro da campanha no seu próprio escopo, exportá-lo e criar PDFs ou romances visuais.",
     "Se attivo, ogni membro può leggere il registro della campagna nel proprio ambito, esportarlo e crearne PDF o visual novel."
   ],
-  "The Keeper has hidden the Log Studio in this channel.": [
-    "守秘人已在此频道隐藏日志工作室。",
-    "守秘人已在此頻道隱藏日誌工作室。",
-    "キーパーがこのチャンネルのログスタジオを非表示にしています。",
-    "키퍼가 이 채널에서 로그 스튜디오를 숨겼습니다.",
-    "El Guardián ha ocultado el Estudio de registros en este canal.",
-    "Le Gardien a masqué le Studio de journal dans ce canal.",
-    "Der Keeper hat das Log-Studio in diesem Kanal ausgeblendet.",
-    "Хранитель скрыл Студию журнала в этом канале.",
-    "O Guardião ocultou o Estúdio de registros neste canal.",
-    "Il Custode ha nascosto lo Studio del registro in questo canale."
+  "The GM has hidden the Log Studio in this channel.": [
+    "GM 已在此频道隐藏日志工作室。",
+    "GM 已在此頻道隱藏日誌工作室。",
+    "GM がこのチャンネルのログスタジオを非表示にしています。",
+    "GM이 이 채널에서 로그 스튜디오를 숨겼습니다.",
+    "El GM ha ocultado el Estudio de registros en este canal.",
+    "Le GM a masqué le Studio de journal dans ce canal.",
+    "Der GM hat das Log-Studio in diesem Kanal ausgeblendet.",
+    "GM скрыл Студию журнала в этом канале.",
+    "O GM ocultou o Estúdio de registros neste canal.",
+    "Il GM ha nascosto lo Studio del registro in questo canale."
   ],
   "Drafts": [
     "草稿",
@@ -11429,9 +11393,9 @@
     "すべて（非公開ウィンドウを含む・結果は GM のみ）",
     "전부, 비공개 창 포함 (결과는 GM 전용)",
     "Todo, incluidas ventanas privadas (resultado solo para el GM)",
-    "Tout, fenêtres privées comprises (résultat réservé au MJ)",
-    "Alles, auch private Fenster (Ergebnis nur für den SL)",
-    "Всё, включая личные окна (результат только для ГМ)",
+    "Tout, fenêtres privées comprises (résultat réservé au GM)",
+    "Alles, auch private Fenster (Ergebnis nur für den GM)",
+    "Всё, включая личные окна (результат только для GM)",
     "Tudo, incluindo janelas privadas (resultado só para o GM)",
     "Tutto, finestre private comprese (risultato solo per il GM)"
   ],
@@ -11579,17 +11543,17 @@
     "Próximo: elenco de vozes",
     "Avanti: cast di doppiaggio"
   ],
-  "Choose a voice for every character and for the narration (Keeper narration, dice and scene titles). Pick an existing voice or a preset to create one.": [
-    "为每个角色和旁白（守秘人叙述、骰子与场景标题）选择声音。可选用现有声音，或从预设创建一个。",
-    "為每個角色和旁白（守秘人敘述、骰子與場景標題）選擇聲音。可選用現有聲音，或從預設建立一個。",
-    "各キャラクターとナレーション（キーパーの語り、ダイス、シーン題）の声を選びます。既存の声を選ぶか、プリセットから作成してください。",
-    "각 캐릭터와 내레이션(키퍼 서술, 주사위, 장면 제목)의 목소리를 고르세요. 기존 목소리를 고르거나 프리셋으로 새로 만드세요.",
-    "Elige una voz para cada personaje y para la narración (narración del Guardián, dados y títulos de escena). Usa una voz existente o crea una a partir de un preajuste.",
-    "Choisissez une voix pour chaque personnage et pour la narration (narration du Gardien, dés et titres de scène). Prenez une voix existante ou créez-en une à partir d’un préréglage.",
-    "Wähle eine Stimme für jede Figur und für die Erzählung (Keeper-Erzählung, Würfel und Szenentitel). Nimm eine vorhandene Stimme oder lege eine aus einer Vorlage an.",
-    "Выберите голос для каждого персонажа и для повествования (рассказ Хранителя, броски и названия сцен). Возьмите готовый голос или создайте его из пресета.",
-    "Escolha uma voz para cada personagem e para a narração (narração do Guardião, dados e títulos de cena). Use uma voz existente ou crie uma a partir de um modelo.",
-    "Scegli una voce per ogni personaggio e per la narrazione (narrazione del Custode, dadi e titoli di scena). Usa una voce esistente o creane una da un preset."
+  "Choose a voice for every character and for the narration (GM narration, dice and scene titles). Pick an existing voice or a preset to create one.": [
+    "为每个角色和旁白（GM 叙述、骰子与场景标题）选择声音。可选用现有声音，或从预设创建一个。",
+    "為每個角色和旁白（GM 敘述、骰子與場景標題）選擇聲音。可選用現有聲音，或從預設建立一個。",
+    "各キャラクターとナレーション（GM の語り、ダイス、シーン題）の声を選びます。既存の声を選ぶか、プリセットから作成してください。",
+    "각 캐릭터와 내레이션(GM 서술, 주사위, 장면 제목)의 목소리를 고르세요. 기존 목소리를 고르거나 프리셋으로 새로 만드세요.",
+    "Elige una voz para cada personaje y para la narración (narración del GM, dados y títulos de escena). Usa una voz existente o crea una a partir de un preajuste.",
+    "Choisissez une voix pour chaque personnage et pour la narration (narration du GM, dés et titres de scène). Prenez une voix existante ou créez-en une à partir d’un préréglage.",
+    "Wähle eine Stimme für jede Figur und für die Erzählung (GM-Erzählung, Würfel und Szenentitel). Nimm eine vorhandene Stimme oder lege eine aus einer Vorlage an.",
+    "Выберите голос для каждого персонажа и для повествования (рассказ GM, броски и названия сцен). Возьмите готовый голос или создайте его из пресета.",
+    "Escolha uma voz para cada personagem e para a narração (narração do GM, dados e títulos de cena). Use uma voz existente ou crie uma a partir de um modelo.",
+    "Scegli una voce per ogni personaggio e per la narrazione (narrazione del GM, dadi e titoli di scena). Usa una voce esistente o creane una da un preset."
   ],
   "— no voice —": [
     "— 无声音 —",
@@ -11675,17 +11639,17 @@
     "Próximo: exportar",
     "Avanti: esporta"
   ],
-  "Only the author of this draft or the Keeper can change its cast.": [
-    "只有此草稿的作者或守秘人可以修改其配音阵容。",
-    "只有此草稿的作者或守秘人可以修改其配音陣容。",
-    "このドラフトの作者かキーパーだけがキャストを変更できます。",
-    "이 초안의 작성자나 키퍼만 캐스트를 바꿀 수 있습니다.",
-    "Solo el autor de este borrador o el Guardián pueden cambiar su reparto.",
-    "Seul l’auteur de ce brouillon ou le Gardien peut changer sa distribution.",
-    "Nur der Autor dieses Entwurfs oder der Keeper kann die Besetzung ändern.",
-    "Изменить состав может только автор черновика или Хранитель.",
-    "Só o autor deste rascunho ou o Guardião podem mudar o elenco.",
-    "Solo l’autore di questa bozza o il Custode possono cambiarne il cast."
+  "Only the author of this draft or the GM can change its cast.": [
+    "只有此草稿的作者或 GM 可以修改其配音阵容。",
+    "只有此草稿的作者或 GM 可以修改其配音陣容。",
+    "このドラフトの作者か GM だけがキャストを変更できます。",
+    "이 초안의 작성자나 GM만 캐스트를 바꿀 수 있습니다.",
+    "Solo el autor de este borrador o el GM pueden cambiar su reparto.",
+    "Seul l’auteur de ce brouillon ou le GM peut changer sa distribution.",
+    "Nur der Autor dieses Entwurfs oder der GM kann die Besetzung ändern.",
+    "Изменить состав может только автор черновика или GM.",
+    "Só o autor deste rascunho ou o GM podem mudar o elenco.",
+    "Solo l’autore di questa bozza o il GM possono cambiarne il cast."
   ],
   "{n} voiced": [
     "{n} 句已配音",
@@ -12059,17 +12023,17 @@
     "Não está na lista; os pontos de profissão ficam bloqueados até escolher uma profissão da lista.",
     "Non è nell’elenco; i punti professione restano bloccati finché non si sceglie una professione elencata."
   ],
-  "set with your Keeper": [
-    "与守秘人商定",
-    "與守秘人商定",
-    "キーパーと決める",
-    "키퍼와 정하세요",
-    "acordar con el Guardián",
-    "à fixer avec le Gardien",
-    "mit dem Keeper festlegen",
-    "согласуйте с Хранителем",
-    "defina com o Guardião",
-    "da concordare con il Custode"
+  "set with your GM": [
+    "与 GM 商定",
+    "與 GM 商定",
+    "GM と決める",
+    "GM과 정하세요",
+    "acordar con el GM",
+    "à fixer avec le GM",
+    "mit dem GM festlegen",
+    "согласуйте с GM",
+    "defina com o GM",
+    "da concordare con il GM"
   ],
   "Career points": [
     "职业点",
@@ -12689,9 +12653,9 @@
     "チャンネルの GM がゲストを招待できる",
     "채널 GM이 게스트를 초대할 수 있음",
     "Los GM de canal pueden invitar a invitados",
-    "Les MJ des salons peuvent inviter des invités",
-    "Kanal-SL dürfen Gäste einladen",
-    "Ведущие каналов могут приглашать гостей",
+    "Les GM des salons peuvent inviter des invités",
+    "Kanal-GM dürfen Gäste einladen",
+    "GM каналов могут приглашать гостей",
     "GMs de canal podem convidar convidados",
     "I GM dei canali possono invitare ospiti"
   ],
@@ -12701,9 +12665,9 @@
     "GM がサーバー外の人を招待できます。ゲストは招待されたチャンネルだけが見え、最後のチャンネルを離れるとサーバーからも外れます。",
     "GM이 서버 밖의 사람을 초대할 수 있습니다. 게스트는 초대받은 채널만 보며, 마지막 채널을 떠나면 서버에서도 나갑니다.",
     "Un GM puede invitar a personas de fuera del servidor. Los invitados solo ven los canales a los que fueron invitados y salen del servidor con su último canal.",
-    "Un MJ peut inviter des personnes extérieures au serveur. Les invités ne voient que les salons où ils ont été invités et quittent le serveur avec leur dernier salon.",
-    "Ein SL kann Personen von außerhalb des Servers einladen. Gäste sehen nur die Kanäle, zu denen sie eingeladen wurden, und verlassen den Server mit ihrem letzten Kanal.",
-    "Ведущий может пригласить людей извне сервера. Гости видят только каналы, куда их пригласили, и покидают сервер вместе с последним каналом.",
+    "Un GM peut inviter des personnes extérieures au serveur. Les invités ne voient que les salons où ils ont été invités et quittent le serveur avec leur dernier salon.",
+    "Ein GM kann Personen von außerhalb des Servers einladen. Gäste sehen nur die Kanäle, zu denen sie eingeladen wurden, und verlassen den Server mit ihrem letzten Kanal.",
+    "GM может пригласить людей извне сервера. Гости видят только каналы, куда их пригласили, и покидают сервер вместе с последним каналом.",
     "Um GM pode convidar pessoas de fora do servidor. Convidados veem só os canais para os quais foram convidados e saem do servidor com o último canal.",
     "Un GM può invitare persone esterne al server. Gli ospiti vedono solo i canali a cui sono stati invitati e lasciano il server con l’ultimo canale."
   ],
@@ -13097,9 +13061,9 @@
     "観戦者としてこのチャンネルのメインチャットを読んでいます。テーブル全員に見える発言だけが表示されます。参加するには GM に招待を頼んでください。",
     "관전자로서 이 채널의 메인 채팅을 읽고 있습니다. 테이블 모두에게 보이는 내용만 표시됩니다. 참여하려면 GM에게 초대를 요청하세요.",
     "Lees el chat principal de este canal como espectador. Solo se muestran las líneas que ve toda la mesa; pide a su GM que te invite para participar.",
-    "Vous lisez le chat principal de ce salon en spectateur. Seules les lignes visibles par toute la table s’affichent ; demandez au MJ de vous inviter pour participer.",
-    "Du liest den Hauptchat dieses Kanals als Zuschauer. Nur Zeilen, die der ganze Tisch sieht, werden gezeigt; bitte den SL um eine Einladung, um mitzuspielen.",
-    "Вы читаете главный чат этого канала как зритель. Показаны только реплики, видимые всему столу; попросите ведущего пригласить вас, чтобы участвовать.",
+    "Vous lisez le chat principal de ce salon en spectateur. Seules les lignes visibles par toute la table s’affichent ; demandez au GM de vous inviter pour participer.",
+    "Du liest den Hauptchat dieses Kanals als Zuschauer. Nur Zeilen, die der ganze Tisch sieht, werden gezeigt; bitte den GM um eine Einladung, um mitzuspielen.",
+    "Вы читаете главный чат этого канала как зритель. Показаны только реплики, видимые всему столу; попросите GM пригласить вас, чтобы участвовать.",
     "Você está lendo o chat principal deste canal como espectador. Só aparecem linhas que toda a mesa vê; peça ao GM um convite para participar.",
     "Stai leggendo la chat principale di questo canale come spettatore. Sono mostrate solo le righe viste da tutto il tavolo; chiedi al GM un invito per partecipare."
   ],
@@ -13247,29 +13211,29 @@
     "em andamento",
     "in corso"
   ],
-  "Every member can read the whole story in the Log Studio, Keeper-only lines included.": [
-    "所有成员都可以在 Log Studio 中阅读完整故事，包括仅 KP 可见的内容。",
-    "所有成員都可以在 Log Studio 中閱讀完整故事，包括僅 KP 可見的內容。",
-    "全メンバーが Log Studio で物語全体を読めます。KP 専用の発言も含みます。",
-    "모든 멤버가 Log Studio에서 KP 전용 내용까지 포함한 전체 이야기를 읽을 수 있습니다.",
-    "Todos los miembros pueden leer la historia completa en Log Studio, incluidas las líneas solo para el Guardián.",
-    "Tous les membres peuvent lire toute l’histoire dans le Log Studio, y compris les lignes réservées au Gardien.",
-    "Alle Mitglieder können die ganze Geschichte im Log Studio lesen, auch die Zeilen nur für den Spielleiter.",
-    "Все участники могут прочитать всю историю в Log Studio, включая реплики только для Хранителя.",
-    "Todos os membros podem ler a história inteira no Log Studio, incluindo as linhas só do Guardião.",
-    "Tutti i membri possono leggere l’intera storia nel Log Studio, comprese le righe riservate al Custode."
+  "Every member can read the whole story in the Log Studio, GM-only lines included.": [
+    "所有成员都可以在 Log Studio 中阅读完整故事，包括仅 GM 可见的内容。",
+    "所有成員都可以在 Log Studio 中閱讀完整故事，包括僅 GM 可見的內容。",
+    "全メンバーが Log Studio で物語全体を読めます。GM 専用の発言も含みます。",
+    "모든 멤버가 Log Studio에서 GM 전용 내용까지 포함한 전체 이야기를 읽을 수 있습니다.",
+    "Todos los miembros pueden leer la historia completa en Log Studio, incluidas las líneas solo para el GM.",
+    "Tous les membres peuvent lire toute l’histoire dans le Log Studio, y compris les lignes réservées au GM.",
+    "Alle Mitglieder können die ganze Geschichte im Log Studio lesen, auch die Zeilen nur für den GM.",
+    "Все участники могут прочитать всю историю в Log Studio, включая реплики только для GM.",
+    "Todos os membros podem ler a história inteira no Log Studio, incluindo as linhas só do GM.",
+    "Tutti i membri possono leggere l’intera storia nel Log Studio, comprese le righe riservate al GM."
   ],
-  "Every member can read the whole story in the Log Studio. Keeper-only lines stay with you.": [
-    "所有成员都可以在 Log Studio 中阅读完整故事。仅 KP 可见的内容仍只有你能看到。",
-    "所有成員都可以在 Log Studio 中閱讀完整故事。僅 KP 可見的內容仍只有你能看到。",
-    "全メンバーが Log Studio で物語全体を読めます。KP 専用の発言はあなただけのままです。",
-    "모든 멤버가 Log Studio에서 전체 이야기를 읽을 수 있습니다. KP 전용 내용은 계속 당신만 봅니다.",
-    "Todos los miembros pueden leer la historia completa en Log Studio. Las líneas solo para el Guardián siguen siendo tuyas.",
-    "Tous les membres peuvent lire toute l’histoire dans le Log Studio. Les lignes réservées au Gardien restent les vôtres.",
-    "Alle Mitglieder können die ganze Geschichte im Log Studio lesen. Zeilen nur für den Spielleiter bleiben bei dir.",
-    "Все участники могут прочитать всю историю в Log Studio. Реплики только для Хранителя остаются у вас.",
-    "Todos os membros podem ler a história inteira no Log Studio. As linhas só do Guardião continuam com você.",
-    "Tutti i membri possono leggere l’intera storia nel Log Studio. Le righe riservate al Custode restano tue."
+  "Every member can read the whole story in the Log Studio. GM-only lines stay with you.": [
+    "所有成员都可以在 Log Studio 中阅读完整故事。仅 GM 可见的内容仍只有你能看到。",
+    "所有成員都可以在 Log Studio 中閱讀完整故事。僅 GM 可見的內容仍只有你能看到。",
+    "全メンバーが Log Studio で物語全体を読めます。GM 専用の発言はあなただけのままです。",
+    "모든 멤버가 Log Studio에서 전체 이야기를 읽을 수 있습니다. GM 전용 내용은 계속 당신만 봅니다.",
+    "Todos los miembros pueden leer la historia completa en Log Studio. Las líneas solo para el GM siguen siendo tuyas.",
+    "Tous les membres peuvent lire toute l’histoire dans le Log Studio. Les lignes réservées au GM restent les vôtres.",
+    "Alle Mitglieder können die ganze Geschichte im Log Studio lesen. Zeilen nur für den GM bleiben bei dir.",
+    "Все участники могут прочитать всю историю в Log Studio. Реплики только для GM остаются у вас.",
+    "Todos os membros podem ler a história inteira no Log Studio. As linhas só do GM continuam com você.",
+    "Tutti i membri possono leggere l’intera storia nel Log Studio. Le righe riservate al GM restano tue."
   ],
   "Reopen the story": [
     "重新开启故事",
@@ -13295,17 +13259,17 @@
     "Quando a história termina, o Log Studio abre para todos os membros e o registro da campanha mostra a história inteira: todas as janelas, sussurros e rolagens ocultas, e os títulos de cenário.",
     "Quando la storia finisce, il Log Studio si apre a tutti i membri e il registro della campagna mostra l’intera storia: ogni finestra, sussurri e tiri nascosti, e i titoli degli scenari."
   ],
-  "Also reveal Keeper-only lines": [
-    "同时公开仅 KP 可见的内容",
-    "同時公開僅 KP 可見的內容",
-    "KP 専用の発言も公開する",
-    "KP 전용 내용도 공개",
-    "Revelar también las líneas solo para el Guardián",
-    "Révéler aussi les lignes réservées au Gardien",
-    "Auch Zeilen nur für den Spielleiter offenlegen",
-    "Также раскрыть реплики только для Хранителя",
-    "Revelar também as linhas só do Guardião",
-    "Rivela anche le righe riservate al Custode"
+  "Also reveal GM-only lines": [
+    "同时公开仅 GM 可见的内容",
+    "同時公開僅 GM 可見的內容",
+    "GM 専用の発言も公開する",
+    "GM 전용 내용도 공개",
+    "Revelar también las líneas solo para el GM",
+    "Révéler aussi les lignes réservées au GM",
+    "Auch Zeilen nur für den GM offenlegen",
+    "Также раскрыть реплики только для GM",
+    "Revelar também as linhas só do GM",
+    "Rivela anche le righe riservate al GM"
   ],
   "End the story": [
     "结束故事",
@@ -13319,17 +13283,17 @@
     "Encerrar a história",
     "Concludi la storia"
   ],
-  "The Keeper opens the Log Studio to players when the story ends.": [
-    "KP 将在故事结束时向玩家开放 Log Studio。",
-    "KP 將在故事結束時向玩家開放 Log Studio。",
-    "KP は物語の終了時にプレイヤーへ Log Studio を開放します。",
-    "KP가 이야기가 끝나면 플레이어에게 Log Studio를 엽니다.",
-    "El Guardián abre Log Studio a los jugadores cuando termina la historia.",
-    "Le Gardien ouvre le Log Studio aux joueurs à la fin de l’histoire.",
-    "Der Spielleiter öffnet das Log Studio für Spieler, wenn die Geschichte endet.",
-    "Хранитель откроет Log Studio игрокам, когда история закончится.",
-    "O Guardião abre o Log Studio para os jogadores quando a história termina.",
-    "Il Custode apre il Log Studio ai giocatori quando la storia finisce."
+  "The GM opens the Log Studio to players when the story ends.": [
+    "GM 将在故事结束时向玩家开放 Log Studio。",
+    "GM 將在故事結束時向玩家開放 Log Studio。",
+    "GM は物語の終了時にプレイヤーへ Log Studio を開放します。",
+    "GM이 이야기가 끝나면 플레이어에게 Log Studio를 엽니다.",
+    "El GM abre Log Studio a los jugadores cuando termina la historia.",
+    "Le GM ouvre le Log Studio aux joueurs à la fin de l’histoire.",
+    "Der GM öffnet das Log Studio für Spieler, wenn die Geschichte endet.",
+    "GM откроет Log Studio игрокам, когда история закончится.",
+    "O GM abre o Log Studio para os jogadores quando a história termina.",
+    "Il GM apre il Log Studio ai giocatori quando la storia finisce."
   ],
   "The story has ended": [
     "故事已结束",
@@ -13517,9 +13481,9 @@
     "GM",
     "GM",
     "GM",
-    "MJ",
-    "SL",
-    "ведущий",
+    "GM",
+    "GM",
+    "GM",
     "GM",
     "GM"
   ],
@@ -13775,17 +13739,17 @@
     "Pontos de evolução de {skill}",
     "Punti di crescita di {skill}"
   ],
-  "Growth comes from improvement checks; the Keeper records it.": [
-    "成长来自成长检定，由 KP 记录。",
-    "成長來自成長檢定，由 KP 記錄。",
-    "成長は成長判定によるもので、KP が記録します。",
-    "성장은 성장 판정에서 나오며 KP가 기록합니다.",
-    "La mejora viene de las tiradas de mejora; la registra el Guardián.",
-    "La progression vient des jets d’expérience ; le Gardien l’enregistre.",
-    "Steigerung kommt aus Steigerungswürfen; der Spielleiter trägt sie ein.",
-    "Рост даёт проверка развития; его записывает Хранитель.",
-    "A evolução vem dos testes de evolução; o Guardião a registra.",
-    "La crescita deriva dai tiri di miglioramento; la registra il Custode."
+  "Growth comes from improvement checks; the GM records it.": [
+    "成长来自成长检定，由 GM 记录。",
+    "成長來自成長檢定，由 GM 記錄。",
+    "成長は成長判定によるもので、GM が記録します。",
+    "성장은 성장 판정에서 나오며 GM이 기록합니다.",
+    "La mejora viene de las tiradas de mejora; la registra el GM.",
+    "La progression vient des jets d’expérience ; le GM l’enregistre.",
+    "Steigerung kommt aus Steigerungswürfen; der GM trägt sie ein.",
+    "Рост даёт проверка развития; его записывает GM.",
+    "A evolução vem dos testes de evolução; o GM a registra.",
+    "La crescita deriva dai tiri di miglioramento; la registra il GM."
   ],
   "Enter a new scenario?": [
     "进入新的阶段？",
@@ -14111,15 +14075,15 @@
     "Requer ativação no servidor. Segue o tema claro/escuro e a orientação do dispositivo, com transparência.",
     "Richiede l’attivazione sul server. Segue il tema chiaro/scuro e l’orientamento del dispositivo, con trasparenza."
   ],
-  "Allow automatic image generation from public Keeper narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display.": [
-    "允许根据 KP 公开叙述自动生成横版日夜、竖版日夜四张图。使用服务器图像接口及预算；每位用户还需自行开启显示。",
-    "允許依 KP 公開敘述自動生成橫版日夜、直版日夜四張圖。使用伺服器圖像介面及預算；每位使用者還需自行開啟顯示。",
-    "公開されたキーパーの描写から横・縦それぞれ昼夜の4枚を自動生成します。サーバーの画像プロバイダーと予算を使用。各ユーザーも表示を有効にしてください。",
-    "공개 KP 묘사로 가로 낮/밤과 세로 낮/밤 이미지 4장을 자동 생성합니다. 서버 이미지 제공자와 예산을 사용하며 각 사용자도 표시를 활성화해야 합니다.",
+  "Allow automatic image generation from public GM narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display.": [
+    "允许根据 GM 公开叙述自动生成横版日夜、竖版日夜四张图。使用服务器图像接口及预算；每位用户还需自行开启显示。",
+    "允許依 GM 公開敘述自動生成橫版日夜、直版日夜四張圖。使用伺服器圖像介面及預算；每位使用者還需自行開啟顯示。",
+    "公開された GM の描写から横・縦それぞれ昼夜の4枚を自動生成します。サーバーの画像プロバイダーと予算を使用。各ユーザーも表示を有効にしてください。",
+    "공개 GM 묘사로 가로 낮/밤과 세로 낮/밤 이미지 4장을 자동 생성합니다. 서버 이미지 제공자와 예산을 사용하며 각 사용자도 표시를 활성화해야 합니다.",
     "Genera cuatro imágenes desde la narración pública: día/noche horizontal y vertical. Usa el proveedor y presupuesto del servidor; cada usuario activa su visualización.",
     "Génère quatre images depuis la narration publique : jour/nuit en paysage et portrait. Utilise le fournisseur et le budget du serveur ; chaque personne active aussi l’affichage.",
-    "Erzeugt vier Bilder aus öffentlichen Spielleiterbeschreibungen: Tag/Nacht im Quer- und Hochformat. Nutzt Anbieter und Budget des Servers; jeder Nutzer aktiviert die Anzeige selbst.",
-    "Создаёт четыре изображения по публичному описанию ведущего: день/ночь в горизонтальном и вертикальном формате. Использует провайдера и бюджет сервера; каждый пользователь включает показ сам.",
+    "Erzeugt vier Bilder aus öffentlichen GM-Beschreibungen: Tag/Nacht im Quer- und Hochformat. Nutzt Anbieter und Budget des Servers; jeder Nutzer aktiviert die Anzeige selbst.",
+    "Создаёт четыре изображения по публичному описанию GM: день/ночь в горизонтальном и вертикальном формате. Использует провайдера и бюджет сервера; каждый пользователь включает показ сам.",
     "Gera quatro imagens pela narração pública: dia/noite na horizontal e vertical. Usa o provedor e orçamento do servidor; cada pessoa também deve ativar a exibição.",
     "Genera quattro immagini dalla narrazione pubblica: giorno/notte in orizzontale e verticale. Usa il fornitore e il budget del server; ogni utente deve attivare la visualizzazione."
   ],
@@ -14315,17 +14279,17 @@
     "Estruturando: {done}/{total} seções",
     "Strutturazione: {done}/{total} sezioni"
   ],
-  "Preparing Keeper knowledge…": [
-    "正在整理 KP 知识…",
-    "正在整理 KP 知識…",
-    "キーパー用の知識を整理中…",
-    "KP 지식 정리 중…",
-    "Preparando conocimientos del Guardián…",
-    "Préparation des connaissances du Gardien…",
-    "Spielleiterwissen wird aufbereitet…",
-    "Подготовка знаний Хранителя…",
-    "Preparando conhecimento do Guardião…",
-    "Preparazione delle conoscenze del Custode…"
+  "Preparing GM knowledge…": [
+    "正在整理 GM 知识…",
+    "正在整理 GM 知識…",
+    "GM 用の知識を整理中…",
+    "GM 지식 정리 중…",
+    "Preparando conocimientos del GM…",
+    "Préparation des connaissances du GM…",
+    "GM-Wissen wird aufbereitet…",
+    "Подготовка знаний GM…",
+    "Preparando conhecimento do GM…",
+    "Preparazione delle conoscenze del GM…"
   ],
   "Progress temporarily unavailable; importing may still be running.": [
     "暂时无法读取进度，导入任务可能仍在运行。",
@@ -14363,17 +14327,17 @@
     "Tentar novamente a importação salva",
     "Riprova l’importazione salvata"
   ],
-  "Keeper knowledge could not be completed. Rebuild it in Script Knowledge.": [
-    "KP 知识未能整理完成，请在剧本知识面板重新构建。",
-    "KP 知識未能整理完成，請在劇本知識面板重新建構。",
-    "キーパー用の知識を完成できませんでした。シナリオ知識画面で再構築してください。",
-    "KP 지식을 완성하지 못했습니다. 시나리오 지식 패널에서 다시 구축하세요.",
-    "No se completaron los conocimientos del Guardián. Reconstrúyelos en Conocimiento del guion.",
-    "Les connaissances du Gardien sont incomplètes. Reconstruisez-les dans Connaissances du scénario.",
-    "Spielleiterwissen unvollständig. Im Bereich Skriptwissen neu aufbauen.",
-    "Знания Хранителя не завершены. Пересоберите их в разделе знаний сценария.",
-    "O conhecimento do Guardião não foi concluído. Reconstrua em Conhecimento do roteiro.",
-    "Le conoscenze del Custode sono incomplete. Ricostruiscile in Conoscenze dello scenario."
+  "GM knowledge could not be completed. Rebuild it in Script Knowledge.": [
+    "GM 知识未能整理完成，请在剧本知识面板重新构建。",
+    "GM 知識未能整理完成，請在劇本知識面板重新建構。",
+    "GM 用の知識を完成できませんでした。シナリオ知識画面で再構築してください。",
+    "GM 지식을 완성하지 못했습니다. 시나리오 지식 패널에서 다시 구축하세요.",
+    "No se completaron los conocimientos del GM. Reconstrúyelos en Conocimiento del guion.",
+    "Les connaissances du GM sont incomplètes. Reconstruisez-les dans Connaissances du scénario.",
+    "GM-Wissen unvollständig. Im Bereich Skriptwissen neu aufbauen.",
+    "Знания GM не завершены. Пересоберите их в разделе знаний сценария.",
+    "O conhecimento do GM não foi concluído. Reconstrua em Conhecimento do roteiro.",
+    "Le conoscenze del GM sono incomplete. Ricostruiscile in Conoscenze dello scenario."
   ],
   "Importing…": [
     "导入中…",
@@ -16163,17 +16127,17 @@
     "Conversa fora do personagem",
     "Chiacchiere fuori personaggio"
   ],
-  "Secret lines (Keeper-only and observers)": [
-    "秘密内容（仅守秘人可见及旁观者）",
-    "秘密內容（僅守秘人可見及旁觀者）",
-    "秘密の発言（キーパー専用と観戦者）",
-    "비밀 내용 (키퍼 전용 및 관전자)",
-    "Líneas secretas (solo para el Guardián y observadores)",
-    "Lignes secrètes (réservées au Gardien et observateurs)",
-    "Geheime Zeilen (nur Spielleiter und Beobachter)",
-    "Секретные реплики (только для ведущего и наблюдателей)",
-    "Falas secretas (só do Guardião e observadores)",
-    "Righe segrete (riservate al Custode e osservatori)"
+  "Secret lines (GM-only and observers)": [
+    "秘密内容（仅 GM 可见及旁观者）",
+    "秘密內容（僅 GM 可見及旁觀者）",
+    "秘密の発言（GM 専用と観戦者）",
+    "비밀 내용 (GM 전용 및 관전자)",
+    "Líneas secretas (solo para el GM y observadores)",
+    "Lignes secrètes (réservées au GM et observateurs)",
+    "Geheime Zeilen (nur GM und Beobachter)",
+    "Секретные реплики (только для GM и наблюдателей)",
+    "Falas secretas (só do GM e observadores)",
+    "Righe segrete (riservate al GM e osservatori)"
   ],
   "Styled HTML": [
     "染色 HTML",
@@ -19696,11 +19660,11 @@
     "GM 參考動作",
     "GM の参考ムーブ",
     "GM 참고 행동",
-    "Movimientos del DJ",
-    "Mouvements du MJ",
-    "Spielleitungszüge",
-    "Ходы ведущего",
-    "Movimentos do mestre",
+    "Movimientos del GM",
+    "Mouvements du GM",
+    "GM-Züge",
+    "Ходы GM",
+    "Movimentos do GM",
     "Mosse del GM"
   ],
   "Player moves": [
@@ -20231,17 +20195,17 @@
     "Regras trocadas para {to}: {n} fichas a refazer",
     "Regole passate a {to}: {n} schede da rifare"
   ],
-  "Decides the dice commands, the character sheet and how the AI names the game and the GM. When you switch, every character keeps its story; the numbers of the old rules are kept read-only on the card and the players are asked to rebuild them.": [
-    "决定骰子指令、角色卡样式，以及 AI 如何称呼游戏和主持人。切换规则时，每个角色都会保留故事部分；旧规则的数值以只读方式保留在角色卡上，并会请玩家重建数值。",
-    "決定骰子指令、角色卡樣式，以及 AI 如何稱呼遊戲和主持人。切換規則時，每個角色都會保留故事部分；舊規則的數值以唯讀方式保留在角色卡上，並會請玩家重建數值。",
-    "ダイスコマンド、キャラクターシート、AI によるゲームと GM の呼び方を決めます。切り替えても各キャラクターの物語の部分は残り、以前のルールの数値はカードに読み取り専用で残って、プレイヤーには数値の作り直しを依頼します。",
-    "주사위 명령, 캐릭터 시트, AI가 게임과 GM을 부르는 방식을 정합니다. 규칙을 바꾸면 모든 캐릭터는 이야기 부분을 유지하고, 이전 규칙의 수치는 카드에 읽기 전용으로 남으며 플레이어에게 수치를 다시 만들도록 요청합니다.",
-    "Decide los comandos de dados, la hoja de personaje y cómo llama la IA al juego y al DJ. Al cambiar, cada personaje conserva su historia; los números de las reglas anteriores quedan de solo lectura en la ficha y se pide a los jugadores que los rehagan.",
-    "Détermine les commandes de dés, la fiche de personnage et la façon dont l'IA nomme le jeu et le MJ. Au changement, chaque personnage garde son récit ; les valeurs des anciennes règles restent en lecture seule sur la fiche et les joueurs sont invités à les refaire.",
-    "Bestimmt die Würfelbefehle, den Charakterbogen und wie die KI das Spiel und die Spielleitung nennt. Beim Umstellen behält jede Figur ihre Geschichte; die Werte der alten Regeln bleiben schreibgeschützt auf dem Bogen, und die Spieler werden gebeten, sie neu aufzubauen.",
-    "Определяет команды кубов, лист персонажа и то, как ИИ называет игру и ведущего. При смене каждый персонаж сохраняет сюжетную часть; числа прежних правил остаются на листе только для чтения, а игроков просят их пересобрать.",
-    "Define os comandos de dados, a ficha de personagem e como a IA chama o jogo e o mestre. Ao trocar, cada personagem mantém sua história; os números das regras antigas ficam somente leitura na ficha e os jogadores são chamados a refazê-los.",
-    "Decide i comandi dei dadi, la scheda del personaggio e come l'IA chiama il gioco e il master. Al cambio, ogni personaggio conserva la sua storia; i valori delle vecchie regole restano in sola lettura sulla scheda e ai giocatori viene chiesto di rifarli."
+  "Decides the dice commands, the character sheet and how the AI names the game. When you switch, every character keeps its story; the numbers of the old rules are kept read-only on the card and the players are asked to rebuild them.": [
+    "决定骰子指令、角色卡样式，以及 AI 如何称呼游戏。切换规则时，每个角色都会保留故事部分；旧规则的数值以只读方式保留在角色卡上，并会请玩家重建数值。",
+    "決定骰子指令、角色卡樣式，以及 AI 如何稱呼遊戲。切換規則時，每個角色都會保留故事部分；舊規則的數值以唯讀方式保留在角色卡上，並會請玩家重建數值。",
+    "ダイスコマンド、キャラクターシート、AI によるゲームの呼び方を決めます。切り替えても各キャラクターの物語の部分は残り、以前のルールの数値はカードに読み取り専用で残って、プレイヤーには数値の作り直しを依頼します。",
+    "주사위 명령, 캐릭터 시트, AI가 게임을 부르는 방식을 정합니다. 규칙을 바꾸면 모든 캐릭터는 이야기 부분을 유지하고, 이전 규칙의 수치는 카드에 읽기 전용으로 남으며 플레이어에게 수치를 다시 만들도록 요청합니다.",
+    "Decide los comandos de dados, la hoja de personaje y cómo llama la IA al juego. Al cambiar, cada personaje conserva su historia; los números de las reglas anteriores quedan de solo lectura en la ficha y se pide a los jugadores que los rehagan.",
+    "Détermine les commandes de dés, la fiche de personnage et la façon dont l'IA nomme le jeu. Au changement, chaque personnage garde son récit ; les valeurs des anciennes règles restent en lecture seule sur la fiche et les joueurs sont invités à les refaire.",
+    "Bestimmt die Würfelbefehle, den Charakterbogen und wie die KI das Spiel nennt. Beim Umstellen behält jede Figur ihre Geschichte; die Werte der alten Regeln bleiben schreibgeschützt auf dem Bogen, und die Spieler werden gebeten, sie neu aufzubauen.",
+    "Определяет команды кубов, лист персонажа и то, как ИИ называет игру. При смене каждый персонаж сохраняет сюжетную часть; числа прежних правил остаются на листе только для чтения, а игроков просят их пересобрать.",
+    "Define os comandos de dados, a ficha de personagem e como a IA chama o jogo. Ao trocar, cada personagem mantém sua história; os números das regras antigas ficam somente leitura na ficha e os jogadores são chamados a refazê-los.",
+    "Decide i comandi dei dadi, la scheda del personaggio e come l'IA chiama il gioco. Al cambio, ogni personaggio conserva la sua storia; i valori delle vecchie regole restano in sola lettura sulla scheda e ai giocatori viene chiesto di rifarli."
   ],
   "Choose a playbook and save to finish the rebuild.": [
     "选择手册并保存即可完成重建。",

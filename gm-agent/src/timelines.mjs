@@ -79,7 +79,7 @@ export class Timelines {
     if (id === null) return this.log.some((e) => e.id === characterId) ? this.main() : this.of(characterId);
     return this.get(id) ?? this.main();
   }
-  // A line belongs to its speaker's timeline at that moment; Keeper and NPC lines to their window's timeline.
+  // A line belongs to its speaker's timeline at that moment; GM and NPC lines to their window's timeline.
   ofLine(message) {
     if (message.character_id && this.known(message.character_id)) return this.timelineAt(message.character_id, message.seq ?? Infinity);
     return this.ofWindow(message.chat_window_id) ?? this.main();

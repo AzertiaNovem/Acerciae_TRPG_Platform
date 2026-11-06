@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import type { KpBoard } from '../types';
 import { sessionEpoch, isStale } from './session';
 
-// The Keeper's pinned board: what the script plans next, and the Keeper's notes. Keeper only.
+// The GM's pinned board: what the script plans next, and the GM's notes. GM only.
 interface KpState {
   board: KpBoard | null;
   openSlot: 'next' | 'notes' | null;

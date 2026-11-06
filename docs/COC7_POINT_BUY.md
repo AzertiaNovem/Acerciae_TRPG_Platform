@@ -18,17 +18,17 @@ instead, see [DND_2024.md](DND_2024.md)):
 - A career that names a specialisation opens only that one: a doctor's "Science (Biology)" takes career points, their
   "Science (Chemistry)" does not; "any" entries (☆ 任意) open the whole family. Keys are read by their last
   parenthesis, so "Language (Other) (Latin)" belongs to Language (Other). Specialty slots keep their positions.
-- Growth points record improvement (the Keeper's entry, or `.en` in chat): only the Keeper can change them; a player's
+- Growth points record improvement (the GM's entry, or `.en` in chat): only the GM can change them; a player's
   save keeps the stored values.
 - Some specialisations have their own base: Firearms (Rifle/Shotgun, 来复) 25, (SMG, 冲锋枪) 15, Bow 15, heavy
   weapons, machine guns and flamethrowers 10.
 - When a card spells one skill twice ("侦查" and "Spot Hidden"), the dice get the higher value.
 - The player can only choose a career from the built-in list. Custom career (自定义职业) is in the list: eight skills of
-  the player's choice, credit rating agreed with the Keeper.
+  the player's choice, credit rating agreed with the GM.
 
 The server recomputes the totals on every save and refuses a card that breaks a limit (`400 points_rule` naming the
 rule). The character space shows live counters, the ★ column of skills that may take career points, and the last
-report's violations and warnings. The Keeper is held to the same rules in this mode; with the option off, the card
+report's violations and warnings. The GM is held to the same rules in this mode; with the option off, the card
 takes skill totals directly as before and the stored career / point fields are kept but not enforced.
 
 ## The career list
@@ -37,7 +37,7 @@ takes skill totals directly as before and the stored career / point fields are k
 sheet workbook (*COC7 CY23 Plus*, sheets 职业列表 and 本职技能): 230 careers with credit-rating range, points formula,
 fixed career skills, choice groups (☆ / ⊙ one of two, ☯ N social skills, ※ pick N) and the number of free specialties.
 Careers 116–230 come from the Investigator's Companion, Japanese sourcebooks and 2010/2015 variants; the sheet marks them
-"ask your Keeper first", and the description sentence shown under the career carries any such note. Skill names are
+"ask your GM first", and the description sentence shown under the career carries any such note. Skill names are
 canonicalised with the dice alias table at startup (`会计` → `Accounting`, `格斗` → the Fighting family), so the same
 names serve the card, `.ra` in chat and the visual novel.
 

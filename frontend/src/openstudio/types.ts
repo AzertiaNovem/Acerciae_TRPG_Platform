@@ -107,7 +107,7 @@ export interface VnScene { key: string; title: string; summary: string; backgrou
 export interface VnAssetNeed { kind: 'background' | 'standee'; brief: string; scene_key?: string; character?: string; subtitle?: string; name?: string }
 export interface VnScript { scenes: VnScene[]; asset_needs: VnAssetNeed[]; notes: string[]; provider: string; stats: { scenes: number; shown: number; hidden: number } }
 
-// A script part whose editor asked the players or the Keeper something: the question box the user answers.
+// A script part whose editor asked the players or the GM something: the question box the user answers.
 export interface VnQuestion { id: string; question: string; refs: string[]; options: string[] }
 export interface VnPendingPart {
   index: number;                  // the part in VnDraft.parts

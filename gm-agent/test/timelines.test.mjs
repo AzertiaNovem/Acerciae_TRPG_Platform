@@ -26,13 +26,13 @@ test("split, update and merge", () => {
   assert.equal(tl.active().length, 1);
 });
 
-test("a line belongs to its speaker's timeline at that moment; Keeper and NPC lines to their window's", () => {
+test("a line belongs to its speaker's timeline at that moment; GM and NPC lines to their window's", () => {
   const tl = make();
   const side = tl.split({ name: "The docks", members: ["cp1"], windowId: "w-side", fromSeq: 10 });
   assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: "cp1", seq: 5 }).id, MAIN, "before the split, cp1 spoke from the main story");
   assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: "cp1", seq: 12 }).id, side.id, "a side traveller relating events in the Main Chat speaks from its timeline");
   assert.equal(tl.ofLine({ chat_window_id: "w-side", character_id: "pc1", seq: 12 }).id, MAIN, "a visitor writing in the side window still speaks from where it is");
-  assert.equal(tl.ofLine({ chat_window_id: "w-side", character_id: null, seq: 12 }).id, side.id, "Keeper narration takes the window's timeline");
+  assert.equal(tl.ofLine({ chat_window_id: "w-side", character_id: null, seq: 12 }).id, side.id, "GM narration takes the window's timeline");
   assert.equal(tl.ofLine({ chat_window_id: "w-main", character_id: null, seq: 12 }).id, MAIN);
   tl.merge(side.id, MAIN, 20);
   assert.equal(tl.ofLine({ chat_window_id: "w-side", character_id: "cp1", seq: 15 }).id, side.id, "old side lines keep their (merged) timeline");

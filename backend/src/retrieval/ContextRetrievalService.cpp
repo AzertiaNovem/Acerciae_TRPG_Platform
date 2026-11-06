@@ -85,7 +85,7 @@ Json::Value ContextRetrievalService::knowledgePreludeJson(const ChannelAccess& a
     k["index"] = Json::Value(Json::arrayValue);
     if (a.isGm) {
         for (auto& s : db_.queryJson("SELECT id, sequence, title, location, narrative_time, summary, key_points FROM scenes WHERE channel_id=$1 AND summary<>'' ORDER BY sequence", {a.channelId})) k["index"].append(s);
-        // The script comes first for the Keeper: what the module says, with each stage's status in play.
+        // The script comes first for the GM: what the module says, with each stage's status in play.
         Json::Value script(Json::objectValue);
         for (const char* kind : {"flow", "relationship", "clue", "foreshadowing", "background"}) script[kind] = Json::Value(Json::arrayValue);
         for (auto& e : db_.queryJson("SELECT id, kind, title, left(body, 240) AS body, status, position, data FROM script_knowledge WHERE channel_id=$1 ORDER BY array_position(ARRAY['flow','relationship','clue','foreshadowing','background'], kind), position, created_at LIMIT 160", {a.channelId})) {
@@ -348,7 +348,7 @@ std::vector<LlmToolSpec> ContextRetrievalService::toolSpecs(bool gm) {
         tool("get_shard", "Fetch a memory shard by id (scene/<id>, entity/<id>, clue/<id>, relationship/<id>, thread/<id>, timeline/<id>, module/<id>, knowledge/<character id>).", {{"shard_id", "shard id"}}, {"shard_id"}),
     };
     if (gm) v.push_back(tool("get_module_excerpt", "GM-only: search the imported module's nodes and pages.", {{"query", "keywords"}, {"node_id", "module node id"}}));
-    if (gm) v.push_back(tool("get_script_knowledge", "GM-only: the Keeper's script knowledge built from the module: flow (stages in order with status), relationship, clue, foreshadowing, background.", {{"kind", "flow|relationship|clue|foreshadowing|background"}, {"query", "keywords"}, {"limit", "max entries"}}));
+    if (gm) v.push_back(tool("get_script_knowledge", "GM-only: the GM's script knowledge built from the module: flow (stages in order with status), relationship, clue, foreshadowing, background.", {{"kind", "flow|relationship|clue|foreshadowing|background"}, {"query", "keywords"}, {"limit", "max entries"}}));
     return v;
 }
 

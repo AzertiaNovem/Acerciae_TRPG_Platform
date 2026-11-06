@@ -5,7 +5,7 @@ const base=process.env.API_BASE||'http://127.0.0.1:18087';
 async function call(token,method,path,body){const r=await fetch(base+path,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(5000)});const data=await r.json();if(!r.ok)throw Object.assign(Error(JSON.stringify(data)),{status:r.status});return data;}
 async function until(fn){for(let n=0;n<100;n++){const value=await fn();if(value)return value;await new Promise(r=>setTimeout(r,100));}throw Error('timed out');}
 const userText=b=>{const m=(b.input??b.messages).find(m=>m.role==='user').content;return typeof m==='string'?m:m.map(x=>x.text||'').join('');};
-test('streaming KP builds run off network threads, deduplicate, report progress, preserve old knowledge on stream errors',async(t)=>{
+test('streaming GM knowledge builds run off network threads, deduplicate, report progress, preserve old knowledge on stream errors',async(t)=>{
  let release,hold=true,holdAll=false,broken=false,timeoutNodes=0;const releases=[];const calls=[];
  const fixture=http.createServer(async(req,res)=>{
   let raw='';for await(const b of req)raw+=b;const body=JSON.parse(raw);assert.equal(body.stream,true);

@@ -12,7 +12,7 @@ In the autumn of 1925 the fishing town of Blackwater Cove, Massachusetts, is tro
 lights seen on the water at night and by the disappearance of the lighthouse keeper,
 Elias Thorne. The investigators are hired by his sister, Mrs. Agnes Hale.
 
-Keeper's Information
+GM's Information
 Elias Thorne discovered a drowned idol in the shoals and brought it to the lighthouse.
 The Sheriff, Amos Dunmore, is a member of the Lantern Society and will mislead the
 investigators while appearing helpful.""",
