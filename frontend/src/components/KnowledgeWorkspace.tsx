@@ -37,7 +37,7 @@ export function PlayerGroups() {
     <p className="small muted">{t('Group members share their readable chat and an independent AI journal. Moving a player rebuilds both groups from chat.')}</p>
     <div className="row"><input aria-label={t('Group name')} placeholder={t('Group name')} value={name} maxLength={100} onChange={e=>setName(e.target.value)} /><button onClick={create} disabled={busy || !name.trim()}>{t('Create group')}</button></div>
     {members.filter(m=>m.role==='player').map(m=><label className="pick-row" key={m.id}><span className="grow">{m.display_name}</span><select aria-label={`${t('Player group')}: ${m.display_name}`} disabled={busy} value={groups.find(g=>g.members.some(p=>p.user_id===m.id))?.id ?? ''} onChange={e=>move(m.id,e.target.value)}><option value="" disabled>{t('Loading…')}</option>{groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>)}
-    <p className="tiny muted">{t('KP memory is never copied into a player group. Reveal information through chat.')}</p>
+    <p className="tiny muted">{t('GM memory is never copied into a player group. Reveal information through chat.')}</p>
   </section>;
 }
 
@@ -71,7 +71,7 @@ export default function KnowledgeWorkspace() {
   const entries=(doc?.entries??[]).filter(e=>(!status || e.status===status) && (!query || `${e.summary} ${e.content_md} ${e.scene_title??''} ${e.section}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())));
   const sections=[...new Set(entries.map(e=>e.section||e.status))];
   return <div className="knowledge-workspace">
-    <p className="muted small">{t('KP memory is private. Each player group has a separate journal based only on chat.')}</p>
+    <p className="muted small">{t('GM memory is private. Each player group has a separate journal based only on chat.')}</p>
     <div className="knowledge-categories" role="tablist" aria-label={t('Knowledge')}>
       {docs.map(d=><button role="tab" aria-selected={selected===d.id} key={d.id} className={`card ${selected===d.id?'selected':''}`} onClick={()=>{setSelected(d.id);setHistory(false);}}><strong>{t(d.title)}</strong><span className="pill gm">{d.entry_count}</span><span className="tiny muted">{d.preview||t('Nothing recorded yet')}</span></button>)}
     </div>

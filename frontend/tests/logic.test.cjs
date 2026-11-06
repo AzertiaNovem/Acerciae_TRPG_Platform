@@ -12,7 +12,7 @@ function load(rel) {
   return mod.exports;
 }
 
-test('Log Studio access mirrors the server: maintainer switch, Keeper switches before the end, open to all after it', () => {
+test('Log Studio access mirrors the server: maintainer switch, GM switches before the end, open to all after it', () => {
   const { studioAccess } = load('components/studio/access.ts');
   const on = { features: { log_studio: true } }, off = { features: { log_studio: false } };
   const ch = (o) => ({ my_role: 'player', studio_visible: true, studio_player_access: true, story_status: 'ongoing', ...o });

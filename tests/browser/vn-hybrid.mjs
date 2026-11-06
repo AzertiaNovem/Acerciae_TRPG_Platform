@@ -50,7 +50,7 @@ try {
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }) });
   });
   const scene = { id: 's1', title: 'Harbour', canonical_scene_key: 'harbour', background: 'bg@1', background_brief: 'harbour', environment: {} };
-  const event = { id: 'e1', scene_id: 's1', hidden: false, display_kind: 'narration', content: 'original', display_text: 'Server-edited story', speaker_character_id: null, speaker_display_name: 'Keeper', speaker_role: 'gm', style_instruction: '', effect: 'none', voice_profile_id: null, dice: null, stage: [] };
+  const event = { id: 'e1', scene_id: 's1', hidden: false, display_kind: 'narration', content: 'original', display_text: 'Server-edited story', speaker_character_id: null, speaker_display_name: 'GM', speaker_role: 'gm', style_instruction: '', effect: 'none', voice_profile_id: null, dice: null, stage: [] };
   const job = { id: 'j1', status: 'completed', title: 'Hybrid story', created_at: '2026-11-05T00:00:00Z', presentation_id: 'p1', params: { media_mode: 'hybrid' } };
   const manifest = { format: 'acerciae-hybrid-vn-1', era: '1920',
     assets: ['portrait', 'bg'].map(id => ({ key: id + '@1', id, version: 1, mime: 'image/svg+xml', hash })),

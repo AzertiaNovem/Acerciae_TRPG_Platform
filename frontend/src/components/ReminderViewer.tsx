@@ -58,7 +58,7 @@ export default function ReminderViewer({ id, onClose }: { id: string; onClose: (
         {!error && events.length === 0 && <div className="muted small">{tr('Loading…')}</div>}
         {events.map((e) => (
           <div key={e.event_id} className={`log-line ${e.cited ? 'cited' : ''}`}>
-            <div className="row tiny muted" style={{ flexWrap: 'wrap' }}><b>{e.character_name ?? e.author_name ?? (e.actor_role === 'gm' ? tr('Keeper') : '')}</b><span>{new Date(e.created_at).toLocaleString(currentLocale())}</span>{e.window_name && <span>· {e.window_name}</span>}<span className="grow" />
+            <div className="row tiny muted" style={{ flexWrap: 'wrap' }}><b>{e.character_name ?? e.author_name ?? (e.actor_role === 'gm' ? tr("GM") : '')}</b><span>{new Date(e.created_at).toLocaleString(currentLocale())}</span>{e.window_name && <span>· {e.window_name}</span>}<span className="grow" />
               {e.message_id && <button className="ghost small" onClick={() => openMessage(e)}>{tr('jump to message ↗')}</button>}
               {e.message_id && <button className="ghost small" onClick={() => openMessage(e, true)}>{tr('Quote as reference')}</button>}</div>
             <div className="small" style={{ whiteSpace: 'pre-wrap' }}><Quoted text={e.content} quotes={e.quotes} /></div>

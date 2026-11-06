@@ -20,7 +20,7 @@ test('spokenLine names a new speaker once, reads narration bare, dice by result,
   const ada = msg({ character_name: 'Ada', content: 'Who is there?' });
   assert.deepEqual(spokenLine(ada, null), { text: 'Ada: Who is there?', speaker: 'Ada' });
   assert.deepEqual(spokenLine(ada, 'Ada'), { text: 'Who is there?', speaker: 'Ada' });
-  assert.equal(spokenLine(msg({ kind: 'narration', author_role: 'gm', author_name: 'Keeper', content: 'Rain falls.' }), 'Ada').text, 'Rain falls.');
+  assert.equal(spokenLine(msg({ kind: 'narration', author_role: 'gm', author_name: 'GM', content: 'Rain falls.' }), 'Ada').text, 'Rain falls.');
   assert.equal(spokenLine(msg({ kind: 'ooc', character_name: 'Ada', content: 'brb' }), 'Ada').text, 'Ann: brb');   // out of character: the player
   assert.equal(spokenLine(msg({ kind: 'roll', content: '.r 1d100', dice: { type: 'roll', command: 'r', text: 'Ann rolls 1d100 = 42' } }), 'Ann').text, 'Ann rolls 1d100 = 42');
   assert.equal(spokenLine(msg({ kind: 'system', content: 'Ann joined' }), null), null);

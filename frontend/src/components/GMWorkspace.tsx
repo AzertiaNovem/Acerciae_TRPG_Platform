@@ -42,7 +42,7 @@ function Overview() {
         </div>
         <div className="card">
           <h3>{tr("Pending AI proposals ")}<span className="pill">{ws.pending_proposals.length}</span></h3>
-          <div className="tiny muted">{tr("Contradictions and edits to KP records wait here for review.")}</div>
+          <div className="tiny muted">{tr("Contradictions and edits to GM records wait here for review.")}</div>
           {ws.pending_proposals.length === 0 && <div className="muted small" style={{ marginTop: 6 }}>{tr("Nothing pending.")}</div>}
           {(ws.pending_proposals as Proposal[]).map((p) => (
             <div key={p.id} className="node">
@@ -74,7 +74,7 @@ function Overview() {
       </div>
       <div className="card">
         <h3>{tr("GM-only knowledge ")}<span className="pill gm">{ws.gm_secrets.length}</span></h3>
-        <div className="tiny muted">{tr("KP memory is never copied into a player group. Reveal information through chat.")}</div>
+        <div className="tiny muted">{tr("GM memory is never copied into a player group. Reveal information through chat.")}</div>
         {ws.gm_secrets.slice(0, 20).map((f: any) => <div key={f.id} className="small" style={{ marginTop: 4 }}><span className="pill">{f.kind}</span> <span className={`status-${f.status}`}>{tr(f.status)}</span> · {f.summary}</div>)}
       </div>
     </div>
@@ -94,7 +94,7 @@ function ChannelSettings() {
   const [dirty, setDirty] = useState(false);
   const setForm = (f: typeof blank) => { setFormState(f); setDirty(true); };
   const [revealKeeper, setRevealKeeper] = useState(false);
-  // Refill from the channel when it changes — but never over edits the Keeper has not saved yet.
+  // Refill from the channel when it changes — but never over edits the GM has not saved yet.
   const loadedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!channel || (dirty && loadedFor.current === channel.id)) return;
@@ -148,7 +148,7 @@ function ChannelSettings() {
             <option value="dnd2024">{tr("D&D 2024 (SRD 5.2)")}</option>
           </select>
         </label>
-        <div className="tiny muted">{tr("Decides the dice commands, the character sheet and how the AI names the game and the GM. When you switch, every character keeps its story; the numbers of the old rules are kept read-only on the card and the players are asked to rebuild them.")}</div>
+        <div className="tiny muted">{tr("Decides the dice commands, the character sheet and how the AI names the game. When you switch, every character keeps its story; the numbers of the old rules are kept read-only on the card and the players are asked to rebuild them.")}</div>
         {channel?.rule_system==='pbta' && channelId && <PbtaPackEditor key={channelId} channel={channelId}/>}
         {form.rule_system!=='pbta' && <><label className="row small"><input type="checkbox" checked={form.point_buy} onChange={(e) => setForm({ ...form, point_buy: e.target.checked })} />{tr("Point buy for role cards")}</label>
         <div className="tiny muted">{form.rule_system === 'dnd2024' ? tr("Ability scores by point buy (27 points) or the standard array, background increases, and skills from the class, background and species.") : tr("Role cards spend occupation points (from a career in the built-in list) and personal interest points (INT×2).")}</div>
@@ -178,11 +178,11 @@ function ChannelSettings() {
       <div className="card col">
         <h3>{tr("Story")} <span className={`pill ${ended ? 'ok' : ''}`}>{ended ? tr("ended") : tr("ongoing")}</span></h3>
         {ended ? (<>
-          <div className="small">{channel.story_reveal_all ? tr("Every member can read the whole story in the Log Studio, Keeper-only lines included.") : tr("Every member can read the whole story in the Log Studio. Keeper-only lines stay with you.")}</div>
+          <div className="small">{channel.story_reveal_all ? tr("Every member can read the whole story in the Log Studio, GM-only lines included.") : tr("Every member can read the whole story in the Log Studio. GM-only lines stay with you.")}</div>
           <div className="row"><span className="grow" /><button onClick={reopenStory}>{tr("Reopen the story")}</button></div>
         </>) : (<>
           <div className="tiny muted">{tr("When the story ends, the Log Studio opens to every member and the campaign log shows them the whole story: every chat window, whispers and hidden rolls, and the scenario titles.")}</div>
-          <label className="row small"><input type="checkbox" checked={revealKeeper} onChange={(e) => setRevealKeeper(e.target.checked)} />{tr("Also reveal Keeper-only lines")}</label>
+          <label className="row small"><input type="checkbox" checked={revealKeeper} onChange={(e) => setRevealKeeper(e.target.checked)} />{tr("Also reveal GM-only lines")}</label>
           <div className="row"><span className="grow" /><button className="primary" onClick={endStory}>{tr("End the story")}</button></div>
         </>)}
       </div>

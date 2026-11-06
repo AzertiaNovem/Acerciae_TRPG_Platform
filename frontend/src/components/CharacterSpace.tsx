@@ -76,7 +76,7 @@ function cocNumbers({ card, editable, pointsOn, rules, report, isKeeper, setCard
 }
 
 // The character space: avatar, main portrait, basic information, the COC7-styled role card, background and items.
-// The Keeper and the character's actor edit; everyone else reads. Images come from uploads or from image AI.
+// The GM and the character's actor edit; everyone else reads. Images come from uploads or from image AI.
 export default function CharacterSpace({ characterId }: { characterId: string }) {
   const { channelId, characters, openCharacter, channel } = useNav();
   const toast = useUi((s) => s.toast);

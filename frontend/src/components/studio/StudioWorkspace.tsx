@@ -25,7 +25,7 @@ export default function StudioWorkspace() {
   if (!allowed) return (
     <div className="workspace"><div className="content"><div className="card">
       <h3>{tr("Log Studio")}</h3>
-      <div className="muted small">{access === 'disabled' ? tr("The server maintainer has turned the Log Studio off for this server.") : access === 'locked' ? tr("The Keeper opens the Log Studio to players when the story ends.") : tr("The Keeper has hidden the Log Studio in this channel.")}</div>
+      <div className="muted small">{access === 'disabled' ? tr("The server maintainer has turned the Log Studio off for this server.") : access === 'locked' ? tr("The GM opens the Log Studio to players when the story ends.") : tr("The GM has hidden the Log Studio in this channel.")}</div>
       <button style={{ marginTop: 8 }} onClick={() => setStudioOpen(false)}>{tr("← back to chat")}</button>
     </div></div></div>
   );

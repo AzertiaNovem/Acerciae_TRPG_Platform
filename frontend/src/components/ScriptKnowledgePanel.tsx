@@ -11,8 +11,8 @@ import type { ScriptChange, ScriptKind, ScriptKnowledge, ScriptStatus, ScriptBui
 const KINDS: ScriptKind[] = ['flow', 'relationship', 'clue', 'foreshadowing', 'background'];
 const STATUSES: ScriptStatus[] = ['pending', 'active', 'done', 'skipped'];
 
-// The Keeper's script knowledge: what the module says, organised as the flow of the script, relationships, clues,
-// foreshadowing and background. Automatic changes come from play and pass a reviewer; the Keeper's edits are final.
+// The GM's script knowledge: what the module says, organised as the flow of the script, relationships, clues,
+// foreshadowing and background. Automatic changes come from play and pass a reviewer; the GM's edits are final.
 export default function ScriptKnowledgePanel() {
   const channelId = useNav((s) => s.channelId);
   const toast = useUi((s) => s.toast);
@@ -69,7 +69,7 @@ export default function ScriptKnowledgePanel() {
   return (
     <div className="script-panel">
       <div className="card">
-        <div className="row"><h3 style={{ margin: 0 }}>{tr('Script knowledge')}</h3><span className="pill gm">{tr('Keeper only')}</span><span className="grow" /><button className="small" onClick={rebuild} disabled={busy || active}>{busy || active ? tr('Rebuilding…') : tr('Rebuild from module')}</button></div>
+        <div className="row"><h3 style={{ margin: 0 }}>{tr('Script knowledge')}</h3><span className="pill gm">{tr('GM only')}</span><span className="grow" /><button className="small" onClick={rebuild} disabled={busy || active}>{busy || active ? tr('Rebuilding…') : tr('Rebuild from module')}</button></div>
         <div className="tiny muted" style={{ marginTop: 4 }}>{tr('Built from the imported module: the flow of the script, who relates to whom, the clues, what is foreshadowed and the background. The model reads this first whenever it works for you. During play it proposes changes (a stage reached, a clue revealed); a second model reviews every proposal before it is applied. Your edits are final and are never overwritten.')}</div>
         {build && <div role="status" className="small" style={{ marginTop: 8 }}>
           {tr(build.status)} · {tr('Knowledge batches: {done}/{total}', { done: build.completed_batches, total: build.total_batches })}

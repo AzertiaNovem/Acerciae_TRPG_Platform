@@ -110,7 +110,7 @@ export default function ModuleImportPanel() {
   const stage = current?.import_stage || current?.status;
   const stageLabel = stage === 'queued' ? tr('Queued for import') : stage === 'extracting' ? tr('Extracting PDF text…')
     : stage === 'structuring' ? tr('Structuring: {done}/{total} sections', {done: current?.completed_chunks || 0, total: current?.total_chunks || 0})
-    : stage === 'knowledge' ? tr('Preparing Keeper knowledge…') : stage === 'ready' ? tr('Module import complete') : tr('Failed');
+    : stage === 'knowledge' ? tr('Preparing GM knowledge…') : stage === 'ready' ? tr('Module import complete') : tr('Failed');
   const active = !!current && !['ready', 'failed'].includes(current.status);
   const saveNode = async () => { if (!channelId || !editing) return; try { await api.updateNode(channelId, editing.id, { name: editing.name, description: editing.description, node_type: editing.node_type, progress: editing.progress }); setEditing(null); await load(); } catch (e: any) { toast(e.message, 'error'); } };
   const nodes = (current?.nodes ?? []).filter((n) => !filter || n.node_type === filter);
@@ -141,7 +141,7 @@ export default function ModuleImportPanel() {
                   max={current.total_chunks || 1} style={{ width: '100%' }} />
                   <p className="tiny muted">{tr('Processing on the server. You can leave this panel and return later; do not reimport.')}</p></>}
                 {current.status === 'failed' && <button disabled={busy} onClick={retry}>{tr('Retry saved import')}</button>}
-                {current.import_warning && <p role="alert">{tr('Module imported with a warning')} · {tr('Keeper knowledge could not be completed. Rebuild it in Script Knowledge.')} {current.import_warning}</p>}
+                {current.import_warning && <p role="alert">{tr('Module imported with a warning')} · {tr('GM knowledge could not be completed. Rebuild it in Script Knowledge.')} {current.import_warning}</p>}
               </div>
               <div className="row small"><span className={`pill ${current.status === 'ready' ? 'ok' : current.status === 'failed' ? 'danger' : ''}`}>{current.status}</span><span className="muted">{current.page_count}{tr(" pages · ")}{current.nodes?.length ?? 0}{tr(" nodes · ")}{current.edges?.length ?? 0}{tr(" edges · ")}{current.llm_mode}{tr(" LLM")}</span>{current.error && <span style={{ color: 'var(--danger)' }}>{current.error}</span>}</div>
               <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}><button className={`small ${!filter ? 'primary' : ''}`} onClick={() => setFilter('')}>{tr("all")}</button>{TYPES.map((t) => <button key={t} className={`small ${filter === t ? 'primary' : ''}`} onClick={() => setFilter(t)}>{t} ({(current.nodes ?? []).filter((n) => n.node_type === t).length})</button>)}</div>

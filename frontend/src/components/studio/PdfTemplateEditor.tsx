@@ -75,7 +75,7 @@ export default function PdfTemplateEditor() {
       <div className="card">
         <h2>{tr("PDF publication")}</h2>
         <p>{tr("The PDF is typeset from the whole campaign log as it stands now; the text is frozen at that moment.")}</p>
-        {isGm && <label>{tr("Audience")}<select value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}><option value="gm_full">{tr("Everything (Keeper's copy)")}</option><option value="pl_public">{tr("Player-visible lines only")}</option></select></label>}
+        {isGm && <label>{tr("Audience")}<select value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}><option value="gm_full">{tr("Everything (GM's copy)")}</option><option value="pl_public">{tr("Player-visible lines only")}</option></select></label>}
         {error && (
           <p role="alert" className="error">
             {error}

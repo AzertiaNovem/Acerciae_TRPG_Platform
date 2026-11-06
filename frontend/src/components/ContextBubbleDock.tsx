@@ -46,7 +46,7 @@ function ReminderBubble({ r }: { r: Reminder }) {
   );
 }
 
-// The Keeper's two pinned cards: what the script plans next, and the notes.
+// The GM's two pinned cards: what the script plans next, and the notes.
 function PinnedCards() {
   const board = useKp((s) => s.board);
   const pulse = useKp((s) => s.pulse);
@@ -70,7 +70,7 @@ function PinnedCards() {
 }
 
 // Bottom-right dock. Players see reminder bubbles only: their group's knowledge is an index for the AI, never
-// a page for them. The Keeper gets two pinned cards (next per the script, notes), their own reminders and the documents. Collapsible; never
+// a page for them. The GM gets two pinned cards (next per the script, notes), their own reminders and the documents. Collapsible; never
 // covers the send button.
 export default function ContextBubbleDock() {
   const { list, expandedId, dockCollapsed, toggleDock, expand } = useDocuments();

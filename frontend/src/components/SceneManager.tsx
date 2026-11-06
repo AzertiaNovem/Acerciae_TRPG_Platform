@@ -7,9 +7,9 @@ import type { Scene } from '../types';
 import ScenarioConfirm from './ScenarioConfirm';
 
 // Scenarios are the stages of the story and a campaign-wide state: every chat window is in the current one.
-// Only the Keeper opens the next scenario; the previous one closes at that moment, is summarized, and can then
-// only be consulted. The AI watches the narration and suggests a new scenario in the Keeper's dock; it never
-// opens one itself. Summaries the Keeper edits are never overwritten.
+// Only the GM opens the next scenario; the previous one closes at that moment, is summarized, and can then
+// only be consulted. The AI watches the narration and suggests a new scenario in the GM's dock; it never
+// opens one itself. Summaries the GM edits are never overwritten.
 export default function SceneManager() {
   const { channelId, channel, scenes, refreshScenes, refreshWindows } = useNav();
   const toast = useUi((s) => s.toast);

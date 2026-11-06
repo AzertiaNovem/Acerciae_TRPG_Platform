@@ -45,7 +45,7 @@ export function toNativeV2(project: Project, options: { generator?: string; expo
     };
   });
 
-  // Players: every username the project names; the Keeper is whoever wrote a gm line or holds a gm sheet.
+  // Players: every username the project names; the GM is whoever wrote a gm line or holds a gm sheet.
   const players: NativeV2Player[] = [];
   const addPlayer = (username: string, gm: boolean) => {
     if (!username) return;

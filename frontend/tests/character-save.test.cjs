@@ -60,8 +60,8 @@ test('late save acknowledgements preserve newer edits; failed saves keep the dra
 test('after a rule change: the rebuild notice, former cards read-only, only a card of the current rules comes back, the GM may waive', async () => {
   const start = initial(); start.rule_system = 'coc7e'; start.character.card_pending = true; start.character.role_card.characteristics = {};
   start.card_archives = [
-    { id: 'dnd', rule_system: 'dnd2024', numbers: { dnd: { class: 'Rogue' } }, attrs: { DEX: 16 }, reason: 'rule_change', archived_at: '2026-11-04T00:00:00Z', archived_by_name: 'Keeper' },
-    { id: 'coc', rule_system: 'coc7e', numbers: { characteristics: { STR: 65 }, derived: { db: '' }, skills: { 'Spot Hidden': 60 }, wealth: {} }, attrs: { STR: 65 }, reason: 'rule_change', archived_at: '2026-11-03T00:00:00Z', archived_by_name: 'Keeper' }];
+    { id: 'dnd', rule_system: 'dnd2024', numbers: { dnd: { class: 'Rogue' } }, attrs: { DEX: 16 }, reason: 'rule_change', archived_at: '2026-11-04T00:00:00Z', archived_by_name: 'GM' },
+    { id: 'coc', rule_system: 'coc7e', numbers: { characteristics: { STR: 65 }, derived: { db: '' }, skills: { 'Spot Hidden': 60 }, wealth: {} }, attrs: { STR: 65 }, reason: 'rule_change', archived_at: '2026-11-03T00:00:00Z', archived_by_name: 'GM' }];
   const h = harness(start); h.render(); await h.flush();
   let tree = h.render();
   assert.equal(all(tree, (n) => n.props?.['data-testid'] === 'rule-rebuild').length, 1, 'the rebuild notice');

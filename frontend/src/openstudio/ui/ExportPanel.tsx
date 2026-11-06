@@ -43,7 +43,7 @@ export default function ExportPanel({ p, update }: { p: Project; update: (fn: (d
       <div className="card col" style={{ gap: 8 }}>
         <h3 style={{ margin: 0 }}>{tr('What the HTML and PDF show')}</h3>
         <label className="row tiny"><input type="checkbox" checked={ooc} onChange={(e) => setOoc(e.target.checked)} />{tr('Out-of-character chatter')}</label>
-        <label className="row tiny"><input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} />{tr('Secret lines (Keeper-only and observers)')}</label>
+        <label className="row tiny"><input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} />{tr('Secret lines (GM-only and observers)')}</label>
       </div>
       <div className="card col" style={{ gap: 8 }}>
         <h3 style={{ margin: 0 }}>{tr('Styled HTML')}</h3>
