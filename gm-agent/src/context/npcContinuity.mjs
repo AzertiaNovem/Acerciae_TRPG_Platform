@@ -1,4 +1,4 @@
-// Shared, stable guidance for the Keeper and planner; no extra model call or per-turn cast expansion.
+// Shared, stable guidance for the GM and planner; no extra model call or per-turn cast expansion.
 export const NPC_CONTINUITY_RULES = `Recurring cast and long-term relationships:
 - Before introducing a named NPC, consult the existing Cast, Relationships, earlier chapters and The world now. Prefer a familiar NPC whose established role, motives, knowledge and whereabouts plausibly fit the situation; use their existing name. A fresh clue, obstacle or scene does not by itself need a fresh person.
 - Keep a small recurring core in focus. The known cast is not an attendance list: other NPCs can remain off-screen, living their own lives, until there is a meaningful reason to return. Let completed NPC subplots rest without erasing their relationships, killing people off for housekeeping, or replacing them with near-duplicates. Minor one-off service roles can stay unnamed in narration.

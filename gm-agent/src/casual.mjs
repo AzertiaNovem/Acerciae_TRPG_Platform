@@ -8,7 +8,7 @@
 // NPCs (through the GM) and co-players may also text a player first. The GM reads every phone; a co-player knows only
 // the messages it sent or received.
 // Texts with no player character in them (co-player to co-player, co-player to NPC, NPC to co-player) go to the phone
-// log, a window with only the Keeper in it: the recipient answers there, after a delay, through its own model (a
+// log, a window with only the GM in it: the recipient answers there, after a delay, through its own model (a
 // co-player) or the GM (an NPC). An exchange between two AI characters stops after CASUAL_AI_CHAIN messages until a
 // person writes again, and at most CASUAL_AI_TEXTS_PER_HOUR such texts are answered an hour, never while everyone is
 // away. A phone is private only on an isolated channel with one player per group, so the
@@ -16,7 +16,7 @@
 import { completeJson } from "./llm/index.mjs";
 
 export const PHONE_PREFIX = "Phone: ";
-export const PHONE_LOG = "Phone log (Keeper only)";
+export const PHONE_LOG = "Phone log (GM only)";
 export const pairKey = (a, b) => [a, b].sort().join("|");
 const PENDING_KEPT = 200;
 
@@ -27,7 +27,7 @@ export function casualState(s) {
     phones: x.phones && typeof x.phones === "object" ? { ...x.phones } : {},   // player character id → window id
     last: x.last && typeof x.last === "object" ? { ...x.last } : {},           // character id → who it last texted
     pending: Array.isArray(x.pending) ? x.pending.filter((p) => p && p.windowId && p.from && p.text).slice(-PENDING_KEPT) : [],
-    log: typeof x.log === "string" ? x.log : null,                              // the Keeper-only phone log window
+    log: typeof x.log === "string" ? x.log : null,                              // the GM-only phone log window
     chain: x.chain && typeof x.chain === "object" ? { ...x.chain } : {},       // AI pair → texts since a person wrote
     aiTexts: Array.isArray(x.aiTexts) ? x.aiTexts.filter(Number.isFinite).slice(-100) : [],   // answers in the last hour
   };

@@ -1,5 +1,5 @@
-// The Keeper's context, shared by the GM and every real NPC: everything the Keeper account may read, including the
-// platform's AI tips (the pinned board, Keeper reminders, script knowledge, the six documents, highlights, module
+// The GM's context, shared by the GM and every real NPC: everything the GM account may read, including the
+// platform's AI tips (the pinned board, GM reminders, script knowledge, the six documents, highlights, module
 // hints), and every chat line in every window. Co-players never get this (see coplayerContext.mjs).
 import { renderLine } from "./coplayerContext.mjs";
 import { renderProfile } from "./profiles.mjs";
@@ -37,7 +37,7 @@ export class GmContext {
     if (ev.type === "knowledge.reset") this.docCache.clear();
     if (ev.type === "reminder.created" && ev.reminder) this.liveTips.push(`reminder: ${ev.reminder.title} — ${ev.reminder.why ?? ""}`);
     if (ev.type === "highlight.created" && ev.highlight) this.liveTips.push(`highlight: ${ev.highlight.reason ?? ""}`);
-    if (ev.type === "proposal.pending") this.liveTips.push(`a memory proposal waits for the ${this.profile?.vocab.gm ?? "Keeper"}'s review`);
+    if (ev.type === "proposal.pending") this.liveTips.push(`a memory proposal waits for the ${this.profile?.vocab.gm ?? "GM"}'s review`);
     this.liveTips = this.liveTips.slice(-10);
   }
 
@@ -45,7 +45,7 @@ export class GmContext {
     try { return await fn(); } catch (e) { if (e.status !== 403 && e.status !== 404) this.log(`gm context: ${what}: ${e.message}`); return null; }
   }
 
-  // The Keeper documents, each within its share of the budget. The API lists entries oldest first; when a document is
+  // The GM documents, each within its share of the budget. The API lists entries oldest first; when a document is
   // too long the newest entries are kept (a long campaign's latest developments matter most).
   async documents(candidates = []) {
     const list = await this.safe("documents", () => this.api.documents(this.channelId));
@@ -67,7 +67,7 @@ export class GmContext {
       const omitted = [];
       const text = newestFirst(cached.full, d.preview, share, omitted);
       out.push(`### ${d.title || d.doc_type} (v${d.version})\n${text}`);
-      candidates.push(...omitted.map((e) => ({ match: e, text: `[Keeper document: ${d.title || d.doc_type}, v${d.version}] ${e}` })));
+      candidates.push(...omitted.map((e) => ({ match: e, text: `[GM document: ${d.title || d.doc_type}, v${d.version}] ${e}` })));
     }
     return out;
   }
@@ -75,7 +75,7 @@ export class GmContext {
   // Everything the GM model reads for one turn in `windowId`, as parts laid out stable-first (llm/parts.mjs):
   //   A (cached) – campaign, world setting, cast, scenarios, every window's chapters: changes rarely;
   //   B (cached) – this window's older lines since its last chapter, in frozen chunks of CHUNK_LINES;
-  //   C (cached) – hidden truths, timelines, the Keeper board and documents: changes every few turns;
+  //   C (cached) – hidden truths, timelines, the GM board and documents: changes every few turns;
   //   D          – what changes every turn: the scenario's event count, reminders, tips, windows, the newest lines.
   // `sceneOf(windowId)` gives the active timeline played in a window (the main timeline for the Main Chat), or null.
   // `improv` (improv.mjs): in improvisation mode the module's script knowledge and hints are left out, and the world
@@ -88,7 +88,7 @@ export class GmContext {
     const ch = this.channelId;
     const candidates = [];
     const P = this.profile;
-    const gm = P?.vocab.gm ?? "Keeper", pcs = P?.vocab.pcs ?? "investigators";
+    const gm = P?.vocab.gm ?? "GM", pcs = P?.vocab.pcs ?? "investigators";
     const module = !improv?.on;
     await this.history.sync(windowId);
     const [channel, scenes, board, reminders, script, highlights, hints, proposals, docs, world] = await Promise.all([
@@ -203,7 +203,7 @@ export class GmContext {
       d.push([`## Initiative in "${win?.name ?? "this window"}" (round ${initiative.round || 1}; use dice ".init next" after each turn)`,
         ...initiative.entries.map((e, i) => `- ${e.name} ${e.total}${i === turn ? " ← now" : ""}${e.character_id ? "" : " (yours)"}`)].join("\n"));
     }
-    // Windows whose scene is over are left out, except the last few merged threads: the Keeper needs what just
+    // Windows whose scene is over are left out, except the last few merged threads: the GM needs what just
     // happened there when the party reunites (their chapters stay in A in any case).
     const included = new Set([...frozen, ...tail].map((m) => m.seq));
     const recentMerged = new Set((timelines?.list ?? []).filter((t) => t.status !== "active" && t.windowId).slice(-3).map((t) => t.windowId));

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// acerciae-gm: an AI Game Master for an Acerciae channel.
+// acerciae-gm: an AI GM (Game master) for an Acerciae channel.
 //   setup   sign in, create or attach to a channel the account is GM of, and create the co-players (role cards by the LLM)
 //   run     play: the GM and real NPCs answer the table, then the co-players act; side timelines and quiet windows
 //           move on their own clock
@@ -29,7 +29,7 @@ import { StateConflict, acquireLock, appendInbox, drainInbox, inboxPath, loadSta
 import { Table, languageName } from "./loop.mjs";
 import { Timelines } from "./timelines.mjs";
 import { RULE_SYSTEMS, rulesProfile, ruleSystemOf } from "./rules/index.mjs";
-import { calendarPace, describeCalendar, renderCalendar } from "./calendar.mjs";
+import { calendarPace, changedBy, describeCalendar, renderCalendar } from "./calendar.mjs";
 import { Guard } from "./whereabouts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -163,7 +163,7 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     const windows = await api.windows(channel.id);
     const seats = seatWindows(cfg, windows);
     delete state.version;
-    // Co-players are GM-cast PCs (owned by this account): any the Keeper already made are adopted, and only the
+    // Co-players are GM-cast PCs (owned by this account): any the GM already made are adopted, and only the
     // missing ones are generated.
     const me = api.user ?? (await api.me());
     const known = new Set((state.coplayers ?? []).map((c) => c.characterId));
@@ -355,7 +355,7 @@ async function manual(cfg, cmd, describe) {
 }
 
 // What `--improv`, `--world` and `--secrets` change in the improvisation settings (null: nothing given). The texts
-// are read from the Keeper's own files.
+// are read from the GM's own files.
 function improvChange(cfg, current) {
   if (cfg.improv === undefined && !cfg.worldFile && !cfg.secretsFile) return null;
   const on = cfg.improv ?? true;
@@ -401,9 +401,9 @@ async function status(cfg) {
   const wname = (id) => windows.find((w) => w.id === id)?.name ?? id;
   const cname = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   const holder = lockHolder(cfg.stateDir, channel.id);
-  console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; rules: ${{ coc7e: "Call of Cthulhu 7e", dnd2024: "D&D 2024 (SRD 5.2): Dungeon Master, D20 Tests, initiative", pbta: "Powered by the Apocalypse" }[table.profile.id]}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
+  console.log(`channel ${channel.name} (${channel.id}), GM: ${channel.my_role === "gm" ? "yes" : "NO"}; rules: ${{ coc7e: "Call of Cthulhu 7e", dnd2024: "D&D 2024 (SRD 5.2): D20 Tests, initiative", pbta: "Powered by the Apocalypse" }[table.profile.id]}; ${holder ? `kept by run (pid ${holder})` : "no run process"}`);
   if (table.splitWarning) console.log(`warning: ${table.splitWarning}`);
-  console.log("GM and real NPCs share the Keeper's context: all chat, the Keeper board, reminders, script knowledge, documents, highlights.");
+  console.log("GM and real NPCs share the GM's context: all chat, the GM board, reminders, script knowledge, documents, highlights.");
   console.log(`real NPCs: ${roster.npcs.map((n) => n.name).join(", ") || "(none)"}`);
   console.log("co-players see only the chat lines their character witnessed, during their seats:");
   for (const c of roster.coplayers) console.log(`  ${c.name} — now in ${openWindows(c).map(wname).join(", ") || "(nowhere)"}; ${c.seats.length} seat(s) so far`);
@@ -417,12 +417,12 @@ async function status(cfg) {
   console.log("model usage today by type / phase / model:");
   printUsageSummary(table.store.usageByPurpose(day.getTime()));
   const chapters = table.store.db.prepare("SELECT scope LIKE 'coplayer:%' AS cp, count(*) AS n FROM chapters GROUP BY 1").all();
-  console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} Keeper chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
+  console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} GM chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
   const ca = table.casual;
   console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min); texts between AI characters in ${ca.log ? `"${wname(ca.log)}"` : "the phone log (opened by run)"}, at most ${cfg.casualAiTextsPerHour} answered an hour, ${cfg.casualAiChain} in a row`) : "off (a solemn game: no phones)"}`);
   const pace = table.calendarPaceCfg(), held = calendarPace(table.calendar, { minMinutes: pace.minMinutes, minLines: pace.minLines });
   const paceText = pace.minMinutes || pace.minLines || pace.maxDays ? `; GM pace: the date moves on${pace.maxDays ? ` at most ${pace.maxDays} day(s) at once` : ""}${pace.minMinutes || pace.minLines ? `, ${pace.minMinutes} min and ${pace.minLines} player lines after it last moved (${held.ok ? "may move now" : `waits ${held.wait}`})` : ""}` : "; GM pace: no limit";
-  console.log(`calendar: ${table.calendarOn() ? `${describeCalendar(table.calendar) || "no date yet (the story planner chooses the first one)"}${table.calendar.log.length ? `; last change by ${table.calendar.log.at(-1).by}` : ""}${table.calendar.routine ? `; routine: ${table.calendar.routine.text}` : ""}${paceText}` : "off (a solemn game keeps no date; casual mode has one)"}`);
+  console.log(`calendar: ${table.calendarOn() ? `${describeCalendar(table.calendar) || "no date yet (the story planner chooses the first one)"}${table.calendar.log.length ? `; last change by ${changedBy(table.calendar.log.at(-1).by)}` : ""}${table.calendar.routine ? `; routine: ${table.calendar.routine.text}` : ""}${paceText}` : "off (a solemn game keeps no date; casual mode has one)"}`);
   const nameOf = (id) => table.characters.find((c) => c.id === id)?.name ?? id;
   console.log(`relationships: ${table.bonds.length ? table.bonds.map((b) => `${nameOf(b.a)} — ${nameOf(b.b)}: ${b.kind}${b.secret ? " (secret)" : ""}`).join("; ") : "(none recorded)"}`);
   const pl = table.planner, arc = pl.arc;

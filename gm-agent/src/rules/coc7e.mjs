@@ -1,5 +1,6 @@
 // Call of Cthulhu 7th edition (BRP): the system this client was written for. Everything here is the text and the
-// behaviour the client had before D&D support, so a CoC table is unchanged.
+// behaviour the client had before D&D support, so a CoC table is unchanged (but for the GM's title: "GM", as in every
+// system).
 import { COC_VOCAB } from "./vocab.mjs";
 import { COC_CARD } from "../roles/cardgen.mjs";
 import { COC_TRAITS } from "../context/traits.mjs";
@@ -26,8 +27,8 @@ export const COC7E = Object.freeze({
   // Improvised campaigns are Basic Roleplaying (BRP) games on the Call of Cthulhu 7th edition presets: rules, skills
   // and dice are CoC's, the genre and tone are the world's. A module-led campaign is Call of Cthulhu as such.
   framing: (improv) => (improv
-    ? "the Keeper (Game Master) of a Basic Roleplaying (BRP) campaign that uses the Call of Cthulhu 7th edition presets (characteristics, skills, dice, sanity); its genre and tone follow the campaign's world setting, not necessarily horror,"
-    : "the Keeper (Game Master) of a Call of Cthulhu 7th edition campaign"),
+    ? "the GM (Game master) of a Basic Roleplaying (BRP) campaign that uses the Call of Cthulhu 7th edition presets (characteristics, skills, dice, sanity); its genre and tone follow the campaign's world setting, not necessarily horror,"
+    : "the GM (Game master) of a Call of Cthulhu 7th edition campaign"),
   coplayerGame: (improv) => (improv ? "a Basic Roleplaying (BRP) game using the Call of Cthulhu 7th edition presets, whose genre and tone follow its world setting," : "a Call of Cthulhu 7th edition game"),
   fetchRules: (api) => api.coc7Rules(),
   // Co-players may roll checks and sanity against their own sheet; they never edit sheets (.st / .en) or roll hidden.
