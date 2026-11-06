@@ -5,7 +5,7 @@ import { schema } from './host-schema.mjs';
 const asset = name => fs.readFileSync(new URL(`../web/${name}`, import.meta.url));
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
 const ASSETS = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
-const OPERATIONS = ['config', 'action', 'status', 'logs', 'form', 'validate'];
+const OPERATIONS = ['config', 'action', 'status', 'logs', 'form', 'validate', 'registry', 'remove'];
 export async function startWeb(manager, options) {
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -24,6 +24,15 @@ export async function startWeb(manager, options) {
       if (req.method === 'GET' && url.pathname === '/api/channels') { manager.warm(); return send(200, manager.status()); }
       if (req.method === 'GET' && url.pathname === '/api/host') return send(200, manager.hostInfo());
       if (req.method === 'GET' && url.pathname === '/api/schema') return send(200, schema());
+      if (req.method === 'GET' && url.pathname === '/api/platform') return send(200, await manager.platform());
+      const readJson = async () => {
+        if (!req.headers['content-type']?.startsWith('application/json')) throw Object.assign(Error('Use application/json'), { code: 'HTTP', status: 415 });
+        let text = '', bytes = 0;
+        for await (const chunk of req) { bytes += chunk.length; if (bytes > 262144) throw Object.assign(Error('Request too large'), { code: 'HTTP', status: 413 }); text += chunk; }
+        return JSON.parse(text);
+      };
+      // A new hosting task: attach a kept channel or create one on the platform, then (by default) start it.
+      if (req.method === 'POST' && url.pathname === '/api/channels') return send(200, { ok: true, ...(await manager.create(await readJson())) });
       const match = url.pathname.match(/^\/api\/channels\/([a-zA-Z0-9_-]{1,128})\/([a-z]+)$/);
       if (!match || !OPERATIONS.includes(match[2])) return send(404, { error: 'Not found' });
       const [, id, operation] = match;
@@ -35,10 +44,12 @@ export async function startWeb(manager, options) {
         return send(405, { error: 'Method not allowed' });
       }
       if (req.method !== 'POST' || ['status', 'logs'].includes(operation)) return send(405, { error: 'Method not allowed' });
-      if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'Use application/json' });
-      let text = '', bytes = 0;
-      for await (const chunk of req) { bytes += chunk.length; if (bytes > 262144) { send(413, { error: 'Configuration too large' }); return; } text += chunk; }
-      const body = JSON.parse(text);
+      const body = await readJson();
+      if (operation === 'registry') return send(200, { ok: true, ...(await manager.setRegistry(id, body)) });
+      if (operation === 'remove') {
+        if (body.confirm !== id) throw Error('Confirm with the channel id');
+        return send(200, { ok: true, ...(await manager.remove(id)) });
+      }
       if (operation === 'validate') {
         if (typeof body.yaml !== 'string') throw Error('yaml must be text');
         return send(200, { ok: true, ...manager.validate(id, body.yaml) });
@@ -55,7 +66,7 @@ export async function startWeb(manager, options) {
       }
       await manager.action(id, body.action);
       send(200, { ok: true });
-    } catch (error) { send(error.code === 'STALE_CONFIG' ? 409 : 400, { error: error.message }); }
+    } catch (error) { send(error.code === 'HTTP' ? error.status : error.code === 'STALE_CONFIG' || error.code === 'CONFLICT' ? 409 : 400, { error: error.message }); }
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(options.port, options.host, resolve); });
   return server;

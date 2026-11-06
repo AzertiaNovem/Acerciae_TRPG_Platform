@@ -35,7 +35,7 @@ import { Guard } from "./whereabouts.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-async function signIn(cfg) {
+export async function signIn(cfg) {
   if (!cfg.username || !cfg.password) throw new Error("set GM_USERNAME and GM_PASSWORD (or --username / --password)");
   const api = new Api(cfg.apiBase);
   try {
@@ -51,7 +51,7 @@ async function signIn(cfg) {
 // The channel to keep: --channel (the account must already be GM there). Without it, `setup` lists the channels the
 // account keeps and asks which one (on a terminal), or says how to create one in the web app. Nothing is created on
 // the platform unless `setup --create` asks for a new server and channel.
-async function resolveChannel(api, cfg, { create }) {
+export async function resolveChannel(api, cfg, { create }) {
   if (cfg.channelId) {
     const ch = await api.channel(cfg.channelId);
     if (ch.my_role !== "gm") throw new Error(`${cfg.username} is not the GM of channel ${cfg.channelId}; add it as GM first`);

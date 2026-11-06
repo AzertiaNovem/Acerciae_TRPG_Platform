@@ -60,3 +60,25 @@ export function atomicWrite(file, text) {
   try { fs.writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' }); fs.renameSync(tmp, file); }
   finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
 }
+
+// The shared account and platform address alone, for the host's own platform calls (listing and creating channels).
+export function sharedConfig(host) {
+  const shared = host.data ?? {};
+  const account = { ...(shared.account ?? {}) }; delete account.password;
+  return buildConfig({ api: shared.api_base ?? 'http://localhost:8080', 'state-dir': host.stateDir },
+    { GM_PASSWORD: shared.account?.password ?? process.env.GM_PASSWORD }, { data: { account } });
+}
+
+// The registry (`channels:` in the shared file) edited in place: the file is read again, so hand edits elsewhere and
+// its comments survive, and written atomically (mode 600: it holds credentials). `edit(doc, list)` gets the YAML
+// document and its channels sequence.
+export function editRegistry(host, edit) {
+  const file = fs.realpathSync(host.file);
+  const doc = YAML.parseDocument(fs.readFileSync(file, 'utf8'));
+  if (doc.errors.length || !YAML.isMap(doc.contents)) throw Error('The shared configuration does not parse; fix it by hand first');
+  if (!YAML.isSeq(doc.get('channels', true))) doc.set('channels', doc.createNode([]));
+  const list = doc.get('channels', true);
+  edit(doc, list);
+  atomicWrite(file, String(doc));
+}
+export const registryIndex = (list, id) => list.items.findIndex(item => YAML.isMap(item) && String(item.get('id')) === id);

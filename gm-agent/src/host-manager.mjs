@@ -4,7 +4,9 @@ import crypto from 'node:crypto';
 import readline from 'node:readline';
 import { Worker } from 'node:worker_threads';
 import YAML from 'yaml';
-import { channelConfig, atomicWrite, parseChannel } from './host-config.mjs';
+import { channelConfig, atomicWrite, parseChannel, sharedConfig, editRegistry, registryIndex, validId } from './host-config.mjs';
+import { keptChannels } from './channels.mjs';
+import { RULE_SYSTEMS } from './rules/index.mjs';
 import { applyChanges, formValues } from './host-schema.mjs';
 import { lockPath } from './state.mjs';
 
@@ -29,6 +31,35 @@ export function redact(text, secrets = []) {
     .replace(/([?&](?:token|key|api_key|apikey|access_token|password)=)[^&\s"']+/gi, '$1••••')
     .replace(/("(?:api_key|apiKey|password|token|secret)"\s*:\s*")[^"]{4,}"/gi, '$1••••"')
     .replace(/\b((?:api_key|apikey|password|secret)\s*[:=]\s*)(?!••••)[^\s,;&"']{4,}/gi, '$1••••');
+}
+
+const invalid = message => { throw Object.assign(Error(message), { code: 'INVALID_SETTING' }); };
+const conflict = message => { throw Object.assign(Error(message), { code: 'CONFLICT' }); };
+// A new hosting task from the Web UI: attach a channel the account keeps, or create one on the platform first.
+export function checkTask(spec) {
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) invalid('缺少主持任务');
+  const line = (v, max, label, required) => {
+    const s = String(v ?? '').trim();
+    if (required && !s) invalid(`${label}不能为空`);
+    if (s.length > max || /[\r\n]/.test(s)) invalid(`${label}必须是一行，不超过 ${max} 个字符`);
+    return s;
+  };
+  const source = spec.source === 'new' || spec.source === 'existing' ? spec.source : invalid('来源必须是 existing 或 new');
+  const settings = spec.settings ?? {};
+  if (typeof settings !== 'object' || Array.isArray(settings)) invalid('settings 必须是对象');
+  const out = { source, settings, enabled: spec.enabled !== false, prepareOnStart: spec.prepare_on_start !== false, start: spec.start !== false };
+  if (source === 'existing') {
+    out.channelId = String(spec.channel_id ?? '');
+    if (!validId(out.channelId)) invalid('请选择一个频道');
+  } else {
+    out.channelName = line(spec.channel_name, 100, '频道名称', true);
+    out.serverId = String(spec.server_id ?? '');
+    if (out.serverId && !validId(out.serverId)) invalid('服务器无效');
+    out.serverName = out.serverId ? '' : line(spec.server_name, 100, '新服务器名称', true);
+    out.ruleSystem = RULE_SYSTEMS.includes(spec.rule_system) ? spec.rule_system : invalid(`规则必须是 ${RULE_SYSTEMS.join('、')} 之一`);
+    out.era = line(spec.era, 200, '时代', false);
+  }
+  return out;
 }
 
 export class HostManager {
@@ -96,7 +127,7 @@ export class HostManager {
     worker.on('error', error => { this.states.set(entry.id, 'failed'); this.fail(entry.id, error?.message ?? String(error)); });
     worker.on('message', msg => {
       if (msg === 'locked') record.locked = true;
-      if (msg === 'ready' && !record.stopping) { this.states.set(entry.id, 'running'); rt.readyAt = this.now(); this.note(entry.id, '[host] running'); }
+      if (msg === 'ready' && !record.stopping) { this.states.set(entry.id, 'running'); rt.readyAt = this.now(); this.note(entry.id, '[host] running'); this.snapshot(entry.id).catch(() => {}); }
       if (msg === 'failed') this.states.set(entry.id, 'failed');
       if (msg?.type === 'failed') { this.states.set(entry.id, 'failed'); this.fail(entry.id, msg.error ?? 'failed'); }
       if (msg?.type === 'status') record.replies.get(msg.id)?.(msg);
@@ -172,5 +203,79 @@ export class HostManager {
   save(id, text, revision) { return this.write(id, revision, () => text); }
   // Form edits: only the changed keys, written into the file in place (comments and other keys stay).
   saveForm(id, changes, revision) { return this.write(id, revision, current => applyChanges(current, changes)); }
+  // ---- hosting tasks (the registry in the shared file)
+  async signIn() { const { signIn } = await import('./cli.mjs'); const cfg = sharedConfig(this.host); return { cfg, api: await signIn(cfg) }; }
+  channelDir() { return this.host.channels.length ? path.dirname(this.host.channels[0].config) : path.join(this.host.root, 'channels'); }
+  // The values a new channel file starts from (nothing set).
+  defaults() {
+    const probe = { id: 'new-channel', config: path.join(this.channelDir(), 'new-channel.yml') };
+    return formValues({}, channelConfig(this.host, probe, '{}'));
+  }
+  // What the shared account can host: the channels it is GM of (and whether this host keeps them already), and the
+  // servers a new channel could go to.
+  async platform() {
+    const { cfg, api } = await this.signIn();
+    const [channels, servers] = await Promise.all([keptChannels(api), api.servers().catch(() => [])]);
+    const hosted = new Set(this.host.channels.map(e => e.id));
+    return { account: cfg.username, defaults: this.defaults(),
+      channels: channels.map(c => ({ id: c.id, name: c.name, server: c.server, serverId: c.serverId, knowledge: c.knowledge_mode ?? 'public', rule: c.rule_system ?? 'coc7e', hosted: hosted.has(c.id) })),
+      servers: (servers ?? []).map(s => ({ id: s.id, name: s.name })) };
+  }
+  create(spec) { return this.serial(async () => {
+    if (this.closed) throw Error('Host is shutting down');
+    const task = checkTask(spec);
+    const settings = { ...task.settings };
+    if (task.source === 'new' && task.era) settings['channel.era'] = task.era;
+    const text = applyChanges('', settings), dir = this.channelDir();
+    // The channel file must be valid before anything is created on the platform.
+    channelConfig(this.host, { id: 'new-channel', config: path.join(dir, 'new-channel.yml') }, text);
+    if (task.source === 'existing' && this.host.channels.some(e => e.id === task.channelId)) conflict('这个频道已经在主持中');
+    const { resolveChannel } = await import('./cli.mjs');
+    const { cfg, api } = await this.signIn();
+    const casual = [true, 'true'].includes(settings['modes.casual']);
+    const target = task.source === 'existing'
+      ? await resolveChannel(api, { ...cfg, channelId: task.channelId }, { create: false })
+      : await resolveChannel(api, { ...cfg, channelId: '', create: true, serverId: task.serverId, serverName: task.serverName, channelName: task.channelName, ruleSystem: task.ruleSystem, era: task.era, casual }, { create: true });
+    const id = target.channel.id;
+    if (!validId(id)) throw Error('The platform returned an unusable channel id');
+    if (this.host.channels.some(e => e.id === id)) conflict('这个频道已经在主持中');
+    fs.mkdirSync(dir, { recursive: true });
+    let file = path.join(dir, `${id}.yml`);
+    for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${id}-${n}.yml`);
+    fs.writeFileSync(file, text, { flag: 'wx', mode: 0o600 });
+    const relative = path.relative(this.host.root, file);
+    try {
+      editRegistry(this.host, (doc, list) => list.add(doc.createNode({ id, config: relative, ...(task.enabled ? {} : { enabled: false }), ...(task.prepareOnStart ? {} : { prepare_on_start: false }) })));
+    } catch (error) { fs.unlinkSync(file); throw error; }
+    const entry = { id, config: fs.realpathSync(file), enabled: task.enabled, prepareOnStart: task.prepareOnStart };
+    this.host.channels.push(entry);
+    this.note(id, `[host] hosting task created for ${target.created ? 'a new' : 'an existing'} channel "${target.channel.name}" (${relative})`);
+    if (task.start) { try { await this.start(entry); } catch {} }
+    return { id, name: target.channel.name, rule: target.channel.rule_system ?? 'coc7e', created: Boolean(target.created), invite: target.invite?.code ?? null, config: relative };
+  }); }
+  // Auto-start and prepare-on-start: written to the shared file, applied at the next start.
+  setRegistry(id, patch = {}) { return this.serial(async () => {
+    const entry = this.entry(id);
+    const next = { enabled: typeof patch.enabled === 'boolean' ? patch.enabled : entry.enabled, prepareOnStart: typeof patch.prepare_on_start === 'boolean' ? patch.prepare_on_start : entry.prepareOnStart !== false };
+    editRegistry(this.host, (doc, list) => {
+      const i = registryIndex(list, id);
+      if (i < 0) throw Error('This channel is no longer in the shared configuration; restart the host');
+      const item = list.items[i];
+      for (const [key, value] of [['enabled', next.enabled], ['prepare_on_start', next.prepareOnStart]]) {
+        if (item.has(key) || !value) item.set(key, value);
+      }
+    });
+    entry.enabled = next.enabled; entry.prepareOnStart = next.prepareOnStart;
+    return next;
+  }); }
+  // Stops the channel and takes it off the registry; its channel file and state stay, so it can be added back.
+  remove(id) { return this.serial(async () => {
+    const entry = this.entry(id);
+    await this.stop(id);
+    editRegistry(this.host, (doc, list) => { const i = registryIndex(list, id); if (i >= 0) list.items.splice(i, 1); });
+    this.host.channels.splice(this.host.channels.indexOf(entry), 1);
+    this.states.delete(id); this.runtimes.delete(id);
+    return { config: path.relative(this.host.root, entry.config) };
+  }); }
   async close() { this.closed = true; await this.queue; await Promise.all([...this.running.keys()].map(id => this.stop(id))); }
 }

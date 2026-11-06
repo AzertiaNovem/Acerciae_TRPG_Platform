@@ -21,6 +21,7 @@
 <main id="app" class="app">
   <aside class="side">
     <div class="side-head"><h2>主持频道</h2><span id="channel-count" class="muted"></span></div>
+    <button id="new-task" type="button" class="primary new-task" disabled>＋ 新建主持任务</button>
     <div id="channels" class="channels"><p class="muted">连接后显示频道。</p></div>
     <section id="host" class="host-card" hidden></section>
   </aside>
@@ -29,6 +30,45 @@
     <div id="empty" class="empty">
       <h2>选择一个频道</h2>
       <p>各频道在独立的工作线程中运行，共享平台账户与 LLM 连接。在左侧选择频道，查看它的实时状态、修改设置或查看日志。</p>
+    </div>
+
+    <div id="create" hidden>
+      <div class="channel-head">
+        <div class="channel-title"><h2>新建主持任务</h2><p class="muted">让 GM 账户 <span id="create-account" class="mono"></span> 主持一个频道：接入它已是 GM 的频道，或在平台上新建一个。</p></div>
+        <div class="actions"><button id="create-cancel" type="button" class="quiet">取消</button></div>
+      </div>
+      <section class="card step">
+        <h3>1 · 频道</h3>
+        <div class="segmented" role="radiogroup" aria-label="频道来源">
+          <label><input type="radio" name="source" value="existing" checked> 接入已有频道</label>
+          <label><input type="radio" name="source" value="new"> 在平台上新建频道</label>
+        </div>
+        <div id="source-existing">
+          <div class="field"><label for="c-channel"><span>频道</span><code>channel_id</code></label>
+            <div class="control"><select id="c-channel"></select><button id="c-refresh" type="button" class="quiet small">刷新</button></div>
+            <p id="c-channel-help" class="help"></p></div>
+        </div>
+        <div id="source-new" hidden>
+          <div class="field"><label for="c-server"><span>服务器</span></label><div class="control"><select id="c-server"></select></div><p class="help">在已有服务器中新建频道需要该服务器的管理权限。</p></div>
+          <div class="field" id="c-server-name-row"><label for="c-server-name"><span>新服务器名称</span></label><div class="control"><input id="c-server-name" type="text" maxlength="100" placeholder="例如：周四跑团"></div><p class="help">会同时生成一个邀请码，玩家用它加入服务器。</p></div>
+          <div class="field"><label for="c-name"><span>频道名称</span></label><div class="control"><input id="c-name" type="text" maxlength="100" placeholder="例如：印斯茅斯之影"></div><p class="help">频道建成后，GM 账户就是它的 GM。</p></div>
+          <div class="field"><label for="c-rule"><span>规则</span></label><div class="control"><select id="c-rule"><option value="coc7e">克苏鲁的呼唤 7 版（CoC 7e）</option><option value="dnd2024">D&amp;D 2024（SRD 5.2）</option><option value="pbta">PbtA</option></select></div><p id="c-rule-help" class="help">规则系统之后可在平台的 GM 工作区中更改。</p></div>
+          <div class="field"><label for="c-era"><span>时代</span></label><div class="control"><input id="c-era" type="text" maxlength="200" placeholder="例如：1920s"></div><p class="help">生成 AI 队友时参考。</p></div>
+        </div>
+      </section>
+      <section class="card step">
+        <h3>2 · 初始设置</h3>
+        <p class="muted small">写入新的频道配置文件；留空为默认。创建后可在“设置”中修改其余各项。</p>
+        <div id="c-settings"></div>
+      </section>
+      <section class="card step">
+        <h3>3 · 主持</h3>
+        <label class="check"><input id="c-enabled" type="checkbox" checked> 随主机自动启动</label>
+        <label class="check"><input id="c-prepare" type="checkbox" checked> 启动时准备频道（沿用已有 AI 队友并补齐数量）</label>
+        <label class="check"><input id="c-start" type="checkbox" checked> 创建后立即启动</label>
+      </section>
+      <div class="row"><button id="create-submit" type="button" class="primary">创建主持任务</button><span id="create-status" class="muted small"></span></div>
+      <div id="create-result" class="banner ok" hidden></div>
     </div>
 
     <div id="channel" hidden>
@@ -58,6 +98,15 @@
       </div>
 
       <div id="tab-settings" class="tab" role="tabpanel" hidden>
+        <section class="card task">
+          <h3>主持任务</h3>
+          <div class="task-row">
+            <label class="check"><input id="r-enabled" type="checkbox"> 随主机自动启动</label>
+            <label class="check"><input id="r-prepare" type="checkbox"> 启动时准备频道（沿用并补齐 AI 队友）</label>
+            <button id="remove" type="button" class="danger small">移除主持任务</button>
+          </div>
+          <p class="muted small">这两项写入公共配置，下次启动时生效。移除会停止频道并把它从公共配置中删去；频道配置文件与状态会保留，之后可以重新接入。</p>
+        </section>
         <div class="settings-bar">
           <input id="filter" type="search" placeholder="搜索设置（名称或键名）" aria-label="搜索设置">
           <label class="check"><input id="only-set" type="checkbox"> 只看已设置</label>

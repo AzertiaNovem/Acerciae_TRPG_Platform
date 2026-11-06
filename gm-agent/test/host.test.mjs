@@ -257,3 +257,105 @@ test('Web UI: host summary, schema, status, logs, validation and form saves, all
   assert.match(page, /GM 控制台/); assert.ok(!/<script>|style="/.test(page), 'no inline script or style (CSP)');
   assert.equal((await fetch(base + '/app.js')).status, 200);
 });
+
+// A platform with one server where the account is GM of two channels, and room to create more.
+async function fakePlatform(t) {
+  const { createServer } = await import('node:http');
+  const state = { servers: [{ id: 's1', name: 'Thursday' }], channels: { s1: [{ id: 'kept-1', name: 'Kept One', my_role: 'gm', knowledge_mode: 'public', rule_system: 'coc7e' }, { id: 'kept-2', name: 'Kept Two', my_role: 'gm', knowledge_mode: 'isolated', rule_system: 'dnd2024' }, { id: 'other', name: 'Not mine', my_role: 'player' }] }, made: [], logins: 0 };
+  const server = createServer(async (req, res) => {
+    let text = ''; for await (const chunk of req) text += chunk;
+    const body = text ? JSON.parse(text) : {}, url = new URL(req.url, 'http://localhost').pathname;
+    const send = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
+    if (url === '/api/auth/login') { state.logins++; return body.password === 'password-secret' ? send(200, { token: 'session-token', user: { id: 'gm' } }) : send(401, { error: 'bad login' }); }
+    if (req.method === 'GET' && url === '/api/servers') return send(200, state.servers);
+    if (req.method === 'POST' && url === '/api/servers') { const s = { id: `s${state.servers.length + 1}`, name: body.name }; state.servers.push(s); state.channels[s.id] = []; return send(200, s); }
+    let m = url.match(/^\/api\/servers\/(\w+)\/channels$/);
+    if (m && req.method === 'GET') return send(200, state.channels[m[1]] ?? []);
+    if (m && req.method === 'POST') { const c = { id: `new-${state.made.length + 1}`, name: body.name, my_role: 'gm', knowledge_mode: body.knowledge_mode, rule_system: body.rule_system }; state.channels[m[1]].push(c); state.made.push({ server: m[1], ...body }); return send(200, c); }
+    if ((m = url.match(/^\/api\/servers\/(\w+)\/invites$/))) return send(200, { code: 'INVITE42' });
+    if ((m = url.match(/^\/api\/channels\/([\w-]+)$/))) {
+      const c = Object.values(state.channels).flat().find(x => x.id === m[1]);
+      if (!c) return send(404, { error: 'not found' });
+      if (req.method === 'PUT') { Object.assign(c, body); return send(200, c); }
+      return send(200, c);
+    }
+    send(404, { error: url });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
+  return { base: `http://127.0.0.1:${server.address().port}`, state };
+}
+
+test('hosting tasks: attach a kept channel or create one on the platform, toggle start-up, remove; the shared file keeps its secrets and comments', async t => {
+  const host = fixture(t), platform = await fakePlatform(t);
+  fs.writeFileSync(host.file, `# the shared file\napi_base: ${platform.base}\naccount:\n  username: fixture\n  password: password-secret   # keep private\nllm:\n  provider: mock\n  api_key: shared-secret\nwebui:\n  enabled: true\n  token: test-token-longer-than-24-characters\n  port: 0\nchannels:\n  - id: a\n    config: a.yml\n`);
+  const loaded = loadHost(host.file), made = [];
+  const manager = new _M(loaded, { makeWorker: cfg => { const w = new TalkingWorker(cfg); made.push(w); return w; } });
+  t.after(() => manager.close());
+  const view = await manager.platform();
+  assert.equal(view.account, 'fixture');
+  assert.deepEqual(view.channels.map(c => [c.id, c.rule, c.knowledge, c.hosted]), [['kept-1', 'coc7e', 'public', false], ['kept-2', 'dnd2024', 'isolated', false]], 'only channels the account is GM of');
+  assert.deepEqual(view.servers, [{ id: 's1', name: 'Thursday' }]);
+  assert.equal(view.defaults['table.coplayers'].default, 2);
+  // Attach a kept channel, with settings, started at once.
+  const attached = await manager.create({ source: 'existing', channel_id: 'kept-2', settings: { 'table.level': '3', 'table.coplayers': 1 } });
+  assert.deepEqual(attached, { id: 'kept-2', name: 'Kept Two', rule: 'dnd2024', created: false, invite: null, config: 'kept-2.yml' });
+  assert.equal(fs.readFileSync(path.join(loaded.root, 'kept-2.yml'), 'utf8'), 'table:\n  level: 3\n  coplayers: 1\n');
+  assert.equal(made.at(-1).cfg.channelId, 'kept-2'); assert.equal(made.at(-1).cfg.level, 3);
+  await settle(); assert.equal(manager.status().find(c => c.id === 'kept-2').status, 'running');
+  const shared = fs.readFileSync(host.file, 'utf8');
+  assert.match(shared, /^# the shared file\n/); assert.match(shared, /password: password-secret +# keep private/); assert.match(shared, /api_key: shared-secret/);
+  assert.match(shared, /channels:\n  - id: a\n    config: a\.yml\n  - id: kept-2\n    config: kept-2\.yml\n/);
+  assert.equal((fs.statSync(host.file).mode & 0o777).toString(8), '600');
+  await assert.rejects(manager.create({ source: 'existing', channel_id: 'kept-2' }), /已经在主持中/);
+  await assert.rejects(manager.create({ source: 'existing', channel_id: 'other' }), /not the GM/);
+  await assert.rejects(manager.create({ source: 'existing', channel_id: 'kept-1', settings: { 'table.coplayers': 99 } }), /不能大于 8/);
+  assert.equal(platform.state.made.length, 0);
+  // Create a new channel on a new server: casual makes it isolated; the invite code comes back; not started.
+  const created = await manager.create({ source: 'new', server_name: 'Weekend', channel_name: 'The Shadow', rule_system: 'coc7e', era: '1920s', settings: { 'modes.casual': 'true' }, start: false, enabled: false, prepare_on_start: false });
+  assert.deepEqual(created, { id: 'new-1', name: 'The Shadow', rule: 'coc7e', created: true, invite: 'INVITE42', config: 'new-1.yml' });
+  assert.deepEqual(platform.state.made, [{ server: 's2', name: 'The Shadow', knowledge_mode: 'isolated', rule_system: 'coc7e' }]);
+  assert.equal(fs.readFileSync(path.join(loaded.root, 'new-1.yml'), 'utf8'), 'modes:\n  casual: true\nchannel:\n  era: 1920s\n');
+  assert.equal(manager.status().find(c => c.id === 'new-1').status, 'stopped');
+  await assert.rejects(manager.create({ source: 'new', channel_name: '', rule_system: 'coc7e', server_name: 'x' }), /频道名称不能为空/);
+  await assert.rejects(manager.create({ source: 'new', channel_name: 'x', rule_system: 'gurps', server_name: 'x' }), /规则必须是/);
+  // The registry as a fresh host would read it.
+  assert.deepEqual(loadHost(host.file).channels.map(c => [c.id, c.enabled, c.prepareOnStart]), [['a', true, true], ['kept-2', true, true], ['new-1', false, false]]);
+  assert.deepEqual(await manager.setRegistry('new-1', { enabled: true }), { enabled: true, prepareOnStart: false });
+  assert.deepEqual(loadHost(host.file).channels.find(c => c.id === 'new-1'), { id: 'new-1', config: fs.realpathSync(path.join(loaded.root, 'new-1.yml')), enabled: true, prepareOnStart: false });
+  await manager.setRegistry('a', { prepare_on_start: false });
+  assert.match(fs.readFileSync(host.file, 'utf8'), /- id: a\n    config: a\.yml\n    prepare_on_start: false\n/);
+  // Remove: stopped, out of the registry, files kept; it can be attached again.
+  await manager.remove('kept-2');
+  assert.ok(!manager.running.has('kept-2'), 'its worker was stopped');
+  assert.ok(!manager.status().some(c => c.id === 'kept-2')); assert.ok(!loadHost(host.file).channels.some(c => c.id === 'kept-2'));
+  assert.ok(fs.existsSync(path.join(loaded.root, 'kept-2.yml')));
+  assert.equal((await manager.platform()).channels.find(c => c.id === 'kept-2').hosted, false);
+  const again = await manager.create({ source: 'existing', channel_id: 'kept-2', start: false });
+  assert.equal(again.config, 'kept-2-2.yml', 'the kept file is never overwritten');
+  assert.match(fs.readFileSync(host.file, 'utf8'), /password: password-secret +# keep private/);
+});
+
+test('Web UI hosting-task routes: platform listing, create, switches and remove, without secrets', async t => {
+  const host = fixture(t), platform = await fakePlatform(t);
+  const data = JSON.parse(fs.readFileSync(host.file, 'utf8')); data.api_base = platform.base; fs.writeFileSync(host.file, JSON.stringify(data));
+  const loaded = loadHost(host.file), manager = new _M(loaded, { makeWorker: cfg => new TalkingWorker(cfg) });
+  const web = await startWeb(manager, loaded.web);
+  t.after(async () => { await manager.close(); await new Promise(resolve => web.close(resolve)); });
+  const base = `http://127.0.0.1:${web.address().port}`, headers = { Authorization: `Bearer ${loaded.web.token}`, 'Content-Type': 'application/json' };
+  const post = async (p, body) => { const r = await fetch(base + p, { method: 'POST', headers, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+  const listing = await fetch(base + '/api/platform', { headers }); const text = await listing.text();
+  assert.equal(listing.status, 200); for (const secret of ['password-secret', 'shared-secret', 'session-token']) assert.ok(!text.includes(secret), secret);
+  assert.equal((await fetch(base + '/api/platform')).status, 401);
+  assert.equal((await post('/api/channels', { source: 'existing', channel_id: 'kept-1', start: false })).status, 200);
+  assert.equal((await post('/api/channels', { source: 'existing', channel_id: 'kept-1' })).status, 409);
+  assert.equal((await post('/api/channels', { source: 'existing' })).status, 400);
+  assert.equal((await fetch(base + '/api/channels', { method: 'POST', headers: { ...headers, Origin: 'http://evil.example' }, body: '{}' })).status, 403);
+  assert.deepEqual((await post('/api/channels/kept-1/registry', { enabled: false })).body, { ok: true, enabled: false, prepareOnStart: true });
+  assert.equal((await post('/api/channels/kept-1/remove', {})).status, 400, 'removal needs the id as confirmation');
+  assert.equal((await post('/api/channels/kept-1/remove', { confirm: 'kept-1' })).status, 200);
+  assert.equal((await fetch(base + '/api/channels/kept-1/status', { headers })).status, 404);
+  const wrong = JSON.parse(fs.readFileSync(host.file, 'utf8')); wrong.account.password = 'nope'; fs.writeFileSync(host.file, JSON.stringify(wrong));
+  const failing = new _M(loadHost(host.file), { makeWorker: cfg => new TalkingWorker(cfg) });
+  await assert.rejects(failing.platform(), /bad login|401/);
+});

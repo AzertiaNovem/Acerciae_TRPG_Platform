@@ -140,3 +140,17 @@ body:has(.savebar:not([hidden])) .notice { bottom: 76px; }
   .grid { grid-template-columns: 1fr; }
   .savebar { padding: 10px 16px; }
 }
+
+.new-task { width: 100%; }
+.step { margin-bottom: 14px; }
+.step .field:first-of-type { border-top: 0; }
+.segmented { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; margin: 4px 0 10px; flex-wrap: wrap; }
+.segmented label { padding: 7px 14px; cursor: pointer; font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.segmented label:has(input:checked) { background: var(--accent-bg); color: var(--text); }
+.segmented input { accent-color: var(--accent); }
+.step .check { display: flex; margin: 8px 0; }
+.banner.ok { background: #16302a; color: var(--ok); border: 1px solid #2f5b45; }
+.banner.ok strong { color: var(--text); }
+.task { margin-bottom: 14px; }
+.task-row { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.task-row .danger { margin-left: auto; }
