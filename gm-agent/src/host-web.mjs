@@ -6,6 +6,19 @@ const asset = name => fs.readFileSync(new URL(`../web/${name}`, import.meta.url)
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
 const ASSETS = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
 const OPERATIONS = ['config', 'action', 'status', 'logs', 'form', 'validate', 'registry', 'remove'];
+const originOf = value => { try { return new URL(value).origin; } catch { return null; } };
+// Browsers send Origin on every POST. It must be this UI's own address: the Host the request arrived with, the host a
+// reverse proxy forwarded (X-Forwarded-Host; a page on another site cannot set that header without a CORS preflight,
+// which this server never grants), or an address listed in webui.allowed_origins. The bearer token is the real guard;
+// this is a second one.
+export function originAllowed(headers, allowed = []) {
+  if (!headers.origin) return true;
+  const origin = originOf(headers.origin);
+  if (!origin) return false;
+  const hosts = [headers.host, String(headers['x-forwarded-host'] ?? '').split(',')[0].trim()].filter(Boolean);
+  const own = hosts.flatMap(h => [originOf(`http://${h}`), originOf(`https://${h}`)]);
+  return [...own, ...allowed].includes(origin);
+}
 export async function startWeb(manager, options) {
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -20,7 +33,7 @@ export async function startWeb(manager, options) {
       }
       const supplied = digest(req.headers.authorization ?? ''), expected = digest(`Bearer ${options.token}`);
       if (!crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) return send(401, { error: 'Authentication required' });
-      if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) return send(403, { error: 'Origin not allowed' });
+      if (!originAllowed(req.headers, options.allowedOrigins)) return send(403, { error: `Origin not allowed: this page was opened at ${req.headers.origin}, but the request reached the host as ${req.headers.host ?? '(no Host)'}. Behind a reverse proxy, forward the original Host header (nginx: proxy_set_header Host $host;) or add ${req.headers.origin} to webui.allowed_origins in the shared configuration.` });
       if (req.method === 'GET' && url.pathname === '/api/channels') { manager.warm(); return send(200, manager.status()); }
       if (req.method === 'GET' && url.pathname === '/api/host') return send(200, manager.hostInfo());
       if (req.method === 'GET' && url.pathname === '/api/schema') return send(200, schema());

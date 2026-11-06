@@ -359,3 +359,33 @@ test('Web UI hosting-task routes: platform listing, create, switches and remove,
   const failing = new _M(loadHost(host.file), { makeWorker: cfg => new TalkingWorker(cfg) });
   await assert.rejects(failing.platform(), /bad login|401/);
 });
+
+import { originAllowed } from '../src/host-web.mjs';
+test('Web UI origin check: its own address, a reverse proxy that forwards the host, or a listed origin', async t => {
+  const own = { host: '127.0.0.1:8787' };
+  assert.equal(originAllowed({ ...own }), true, 'no Origin (curl, same-origin GET)');
+  assert.equal(originAllowed({ ...own, origin: 'http://127.0.0.1:8787' }), true);
+  assert.equal(originAllowed({ host: 'gm.example.com', origin: 'https://gm.example.com' }), true, 'a proxy that keeps Host');
+  assert.equal(originAllowed({ host: 'gm.example.com:443', origin: 'https://gm.example.com' }), true, 'default port written out');
+  assert.equal(originAllowed({ ...own, origin: 'https://gm.example.com' }), false, 'nginx default: Host rewritten to the upstream');
+  assert.equal(originAllowed({ ...own, origin: 'https://gm.example.com', 'x-forwarded-host': 'gm.example.com' }), true, 'X-Forwarded-Host');
+  assert.equal(originAllowed({ ...own, origin: 'https://gm.example.com', 'x-forwarded-host': 'gm.example.com, inner.local' }), true);
+  assert.equal(originAllowed({ ...own, origin: 'https://gm.example.com' }, ['https://gm.example.com']), true, 'allowed_origins');
+  assert.equal(originAllowed({ ...own, origin: 'https://evil.example' }, ['https://gm.example.com']), false);
+  assert.equal(originAllowed({ ...own, origin: 'null' }), false);
+  // Configuration and the message the UI shows.
+  const host = fixture(t), data = JSON.parse(fs.readFileSync(host.file, 'utf8'));
+  data.webui.allowed_origins = ['https://gm.example.com/console/']; fs.writeFileSync(host.file, JSON.stringify(data));
+  assert.deepEqual(loadHost(host.file).web.allowedOrigins, ['https://gm.example.com']);
+  data.webui.allowed_origins = ['gm.example.com']; fs.writeFileSync(host.file, JSON.stringify(data));
+  assert.throws(() => loadHost(host.file), /not an http\(s\) URL/);
+  data.webui.allowed_origins = ['https://gm.example.com']; fs.writeFileSync(host.file, JSON.stringify(data));
+  const loaded = loadHost(host.file), manager = new _M(loaded, { makeWorker: cfg => new TalkingWorker(cfg) });
+  const web = await startWeb(manager, loaded.web);
+  t.after(async () => { await manager.close(); await new Promise(resolve => web.close(resolve)); });
+  const post = origin => fetch(`http://127.0.0.1:${web.address().port}/api/channels/a/validate`, { method: 'POST', headers: { Authorization: `Bearer ${loaded.web.token}`, 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ yaml: '{}' }) });
+  assert.equal((await post('https://gm.example.com')).status, 200);
+  const refused = await post('https://evil.example');
+  assert.equal(refused.status, 403);
+  assert.match((await refused.json()).error, /opened at https:\/\/evil\.example, but the request reached the host as 127\.0\.0\.1:\d+.*proxy_set_header Host \$host.*webui\.allowed_origins/);
+});

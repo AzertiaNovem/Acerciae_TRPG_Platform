@@ -40,7 +40,13 @@ export function loadHost(file) {
   const host = web.host ?? '127.0.0.1', port = web.port ?? 8787;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw Error('Invalid Web UI port');
   if (web.enabled && (!web.token || String(web.token).length < 24)) throw Error('Web UI requires a token of at least 24 characters');
-  return { file, root, data, channels, stateDir: path.resolve(root, data.state_dir ?? '.state'), web: { enabled: web.enabled === true, host, port, token: String(web.token ?? '') } };
+  // Addresses the UI is opened at besides its own listener (a reverse proxy's public URL, a tunnel).
+  if (web.allowed_origins !== undefined && !Array.isArray(web.allowed_origins)) throw Error('webui.allowed_origins must be a list of URLs');
+  const allowedOrigins = (web.allowed_origins ?? []).map(value => {
+    try { const u = new URL(String(value)); if (!['http:', 'https:'].includes(u.protocol)) throw Error(); return u.origin; }
+    catch { throw Error(`webui.allowed_origins: "${value}" is not an http(s) URL such as https://gm.example.com`); }
+  });
+  return { file, root, data, channels, stateDir: path.resolve(root, data.state_dir ?? '.state'), web: { enabled: web.enabled === true, host, port, token: String(web.token ?? ''), allowedOrigins } };
 }
 export function channelConfig(host, entry, text = fs.readFileSync(entry.config, 'utf8')) {
   const local = parseChannel(text), shared = host.data;

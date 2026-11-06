@@ -19,6 +19,8 @@ webui:
   host: 127.0.0.1
   port: 8787
   token: ""                  # required when enabled; at least 24 characters
+  # allowed_origins:         # where else the UI is opened (a reverse proxy or tunnel URL)
+  #   - https://gm.example.com
 channels:
   - id: YOUR_COC_CHANNEL_ID
     config: channels/coc.yml
