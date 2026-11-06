@@ -195,7 +195,7 @@ private struct KeeperHintBody: View {
                 Text(tr("Now") + ": " + next["current"]["title"].text)
                 Text(tr("Next") + ": " + next["next"]["title"].text).font(.headline)
                 Text(next["next"]["data"]["location"].text); Text(next["next"]["body"].text)
-                strings("What the Keeper does there", next["next"]["data"]["keeper_actions"])
+                strings("What the GM does there", next["next"]["data"]["keeper_actions"])
                 strings("Needs first", next["next"]["data"]["prerequisites"])
                 strings("Twists planted here", next["next"]["data"]["twists"])
                 Text((next["next"]["citation"]["page"].int > 0 ? tr("Page") + " \(next["next"]["citation"]["page"].int) · " : "") + next["next"]["citation"]["excerpt"].text).font(.caption)
@@ -203,7 +203,7 @@ private struct KeeperHintBody: View {
                 Text("\(next["stages_done"].int)/\(next["stages_total"].int) " + tr("stages done")).font(.caption)
             }
         } else {
-            Text(tr("Keeper's notes")).font(.headline)
+            Text(tr("GM's notes")).font(.headline)
             rows("Open threads", notes["open_threads"]); rows("Timeline", notes["timeline"]); rows("Script stages played", notes["stages_done"]); rows("Latest reviewed changes", notes["recent_changes"])
         }
     }

@@ -1,7 +1,7 @@
 {
  "1": {
   "name": "Custom Occupation",
-  "description": "No more than 8 occupation skills. Enter the value of the second occupation characteristic in the occupation attributes on the right (if left blank, EDU is used) and set the starting Credit Rating yourself. Consult your Keeper before using a custom occupation."
+  "description": "No more than 8 occupation skills. Enter the value of the second occupation characteristic in the occupation attributes on the right (if left blank, EDU is used) and set the starting Credit Rating yourself. Consult your GM before using a custom occupation."
  },
  "2": {
   "name": "Accountant",
@@ -157,7 +157,7 @@
  },
  "40": {
   "name": "Deprogrammer (Modern)",
-  "description": "two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Drive Auto, Fighting (Brawl) or Firearms, History, Occult, Psychology, Stealth. ※ With the Keeper's permission, Hypnosis may replace one of these."
+  "description": "two interpersonal skills (Charm, Fast Talk, Intimidate, Persuade), Drive Auto, Fighting (Brawl) or Firearms, History, Occult, Psychology, Stealth. ※ With the GM's permission, Hypnosis may replace one of these."
  },
  "41": {
   "name": "Designer",
@@ -321,7 +321,7 @@
  },
  "81": {
   "name": "Occultist",
-  "description": "Anthropology, History, Library Use, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Occult, Language (Other), Science (Astronomy), any one other skill as a personal or era specialty. ※ With the Keeper's permission, this may include Cthulhu Mythos."
+  "description": "Anthropology, History, Library Use, one interpersonal skill (Charm, Fast Talk, Intimidate, Persuade), Occult, Language (Other), Science (Astronomy), any one other skill as a personal or era specialty. ※ With the GM's permission, this may include Cthulhu Mythos."
  },
  "82": {
   "name": "Outdoorsman",
@@ -653,7 +653,7 @@
  },
  "164": {
   "name": "Ichiko (Blind Medium)",
-  "description": "Art/Craft (Acting), Listen, Lore (Shinto), Occult, History, Fast Talk or Persuade, Psychology, any one specialty. ※ With the Keeper's consent, the Medium skill may replace one skill of your choice."
+  "description": "Art/Craft (Acting), Listen, Lore (Shinto), Occult, History, Fast Talk or Persuade, Psychology, any one specialty. ※ With the GM's consent, the Medium skill may replace one skill of your choice."
  },
  "165": {
   "name": "Kotodama Master/Onmyōji",

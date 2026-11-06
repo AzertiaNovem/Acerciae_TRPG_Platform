@@ -48,7 +48,7 @@ there under keys starting with `pub/`:
 | user avatars | voice-enrollment samples (never stored) |
 
 Browsers still ask the backend: `/api/channels/{id}/media/{asset}`, `/studio/tts/audio/{id}` and `/api/users/{id}/avatar`
-check membership, Keeper-only visibility and approval exactly as before, then answer with a `302` to the public URL
+check membership, GM-only visibility and approval exactly as before, then answer with a `302` to the public URL
 instead of streaming the bytes. The redirect is a few hundred bytes; the picture or clip itself comes from Cloudflare,
 which may cache it for a year (`Cache-Control: public, max-age=31536000, immutable`; every version has a new key).
 Keys contain random UUIDs and an R2 bucket is never listable, but a URL, once handed out, works for whoever has it:
@@ -74,7 +74,7 @@ its file token, so a renewed token never reloads anything either. Keys are scope
 
 **What is kept.** Only responses the server marks `immutable`: a named version (`?v=`) of something a player may see, an
 atmosphere image, a player's voice clip. The current version of an asset and GM-private material (GM-only assets,
-NPC art, the Keeper's voice clips) are never marked and never written to disk; they revalidate by ETag (304) instead.
+NPC art, the GM's voice clips) are never marked and never written to disk; they revalidate by ETag (304) instead.
 Media in the public bucket is kept too, fetched straight from the bucket. The cache asks the API with `?direct=1`
 (avatars, media assets, voice clips): instead of the redirect, the API answers `{url, keep}` as
 `application/vnd.acerciae.direct+json`, and the client fetches `url` itself. Following the redirect would not work: a

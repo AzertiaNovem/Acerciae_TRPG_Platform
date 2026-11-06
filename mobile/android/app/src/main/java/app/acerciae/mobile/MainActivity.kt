@@ -230,7 +230,7 @@ class MainActivity : ComponentActivity() {
             item { SidebarRow(tr("主聊天"), page == 0) { select(0) } }
             item { Text("黑水湾的提灯", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             item { TextButton(onClick = { charactersExpanded = !charactersExpanded }, contentPadding = PaddingValues(0.dp)) { Text(tr("Characters") + if (charactersExpanded) " −" else " +") } }
-            if (charactersExpanded) items(listOf("哈维 · 我", "托马斯", tr("守秘人"))) { name -> SidebarRow(name) { showDetail(name) } }
+            if (charactersExpanded) items(listOf("哈维 · 我", "托马斯", "GM")) { name -> SidebarRow(name) { showDetail(name) } }
             item { TextButton(onClick = { stagesExpanded = !stagesExpanded }, contentPadding = PaddingValues(0.dp)) { Text(tr("Scenarios") + if (stagesExpanded) " −" else " +") } }
             if (stagesExpanded) items(listOf("警署初访", "分头调查", "寄宿屋 · 当前")) { stage -> SidebarRow(stage) { showDetail(stage) } }
             }
@@ -256,7 +256,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     tr("服务器") -> "Arkham Table\n当前战役：黑水湾的提灯\n\n当前为本地演示。服务器切换、管理员设置和功能开关将在联网后接入，频道 GM 与服务器管理员权限分别处理。"
     "哈维 · 我" -> "当前演示角色 · 古物学教授\n由 Alice 操作。正式角色卡与属性编辑将在联网后接入。"
     "托马斯" -> "示例角色 · 退役水手\n由 Carol 操作，昨夜独自调查了码头。"
-    tr("守秘人") -> "频道 GM\n负责场景叙述与裁定；频道 GM 身份不等于服务器管理员。"
+    "GM" -> "频道 GM\n负责场景叙述与裁定；频道 GM 身份不等于服务器管理员。"
     "警署初访" -> "第一幕 · 历史阶段\n调查员在警长桌上发现提灯徽章，警长答应送来灯塔钥匙。\n\n此处仅浏览阶段摘要，不改变当前游戏阶段。"
     "分头调查" -> "第二幕 · 历史阶段\n调查员分头前往报社与码头。正式内容将按各自知识权限加载。"
     else -> campaign?.documents?.find { it.docType == "current_scene" }?.preview ?: "第三幕 · 调查员重聚"
@@ -397,7 +397,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
                     }
                 }
                 Box {
-                    TextButton(onClick = { rolesOpen = true }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (state.characterId.isEmpty()) if (state.gm) tr("Keeper") else tr("Me") else state.role) }
+                    TextButton(onClick = { rolesOpen = true }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (state.characterId.isEmpty()) if (state.gm) "GM" else tr("Me") else state.role) }
                     DropdownMenu(expanded = rolesOpen, onDismissRequest = { rolesOpen = false }) {
                         if (state.online) {
                             state.playable.forEach { role -> DropdownMenuItem(text = { Text(role.name) }, onClick = { model.chooseRole(role.id); rolesOpen = false }) }

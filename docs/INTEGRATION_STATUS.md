@@ -1,10 +1,10 @@
 # Integration status — 27 October 2026 (evening)
 
-`main` now carries the scenario system, reminder bubbles with the players' hidden knowledge index, and the Keeper's
+`main` now carries the scenario system, reminder bubbles with the players' hidden knowledge index, and the GM's
 script knowledge with reviewed automatic changes and the pinned board (commits `38a16d0`, `4121375`, `ea22991`, this
 one). Migrations 0016–0018 are additive. Verified on this build: 312 unit checks, 487 database checks, and the HTTP
 suites `scenarios` (10), `reminders`, `script-knowledge`, `knowledge-groups`, `vnscript`, `profile` all pass; the
-frontend typechecks and its catalog test passes; browser checks of the Keeper board, the Script tab and the reminder
+frontend typechecks and its catalog test passes; browser checks of the GM board, the Script tab and the reminder
 viewer are in `screenshots/kp-board.png`, `script-knowledge.png`, `keeper-reminder.png`, `reminder-viewer.png`,
 `scenarios.png`.
 
@@ -14,9 +14,9 @@ Client contracts added (all documented in [API.md](API.md)):
   `POST /scenes/{id}/summarize`, `PUT /scenario-settings`; `scene.changed` fires on automatic advances.
 * Reminders: `GET /reminders`, `POST /reminders/{id}/dismiss`, `GET /reminders/{id}/context`; `reminder.created` on
   `/ws/context`. Players' docks show reminders only; their journals are no longer a page for them.
-* Keeper only: `GET/PUT /script-knowledge`, `POST /script-knowledge/rebuild`, `GET /script-knowledge/changes`,
+* GM only: `GET/PUT /script-knowledge`, `POST /script-knowledge/rebuild`, `GET /script-knowledge/changes`,
   `GET /kp/board`; `kp.board` and `script.changed` on `/ws/context`. A native client renders the two pinned cards
-  from `kp.board` and treats 403 as "not the Keeper".
+  from `kp.board` and treats 403 as "not the GM".
 
 Earlier status follows.
 
@@ -34,8 +34,8 @@ The seeded Studio accounts are `keeper`, `alice`, `bob`, and `carol`, with devel
 
 Personal settings are now available on the Studio backend through `PUT /api/auth/me`: username, display name, avatar and one of the same eleven interface languages as server settings. Login/me responses carry these preferences; message payloads add `author_avatar_version`. See [USER_SETTINGS.md](USER_SETTINGS.md). This additive change does not restart the mobile backend on 18082.
 
-The Studio backend now has independent KP/player-group memory (migrations 0013–0015). Existing shared facts become
-KP-only; players receive new journals derived exclusively from readable chat. Native clients should use `player-groups`,
+The Studio backend now has independent GM/player-group memory (migrations 0013–0015). Existing shared facts become
+GM-only; players receive new journals derived exclusively from readable chat. Native clients should use `player-groups`,
 show the current group, and discard memory/chat caches when `knowledge.reset` arrives or the group version changes.
 Message posting accepts up to five `reference_ids`; fetch originals separately under the current user's token. A reference
 never grants access. Existing 18082 remains on its running version until its owner chooses to rebuild and migrate.

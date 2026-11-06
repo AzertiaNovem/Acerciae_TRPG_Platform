@@ -23,7 +23,7 @@ class AssetDiskCacheTest {
             val again = BackendClient(BackendAddress(server.url("/").toString(), true), assets = AssetDiskCache(dir))
             assertEquals("PIXELS", String(again.bytes(avatar, "t2", mapOf("v" to "2"))))
             assertEquals(1, server.requestCount)
-            // Not marked immutable (the Keeper's copy of GM-private material, the current version): never written.
+            // Not marked immutable (the GM's copy of GM-private material, the current version): never written.
             val secret = listOf("channels", "c", "media", "gm")
             assertEquals("SECRET", String(client.bytes(secret, "t", mapOf("v" to "1"))))
             assertEquals("SECRET", String(client.bytes(secret, "t", mapOf("v" to "1"))))

@@ -22,10 +22,12 @@ anomalies=[]
 # The matrix columns mirror the list rows in order; names repeat (艺术家 #13 and #208), so match by position and
 # only use the name to confirm the alignment.
 listrows=[]
+# The workbook calls the game master 守秘人 or KP; the platform says GM in every rule system.
+def gm_words(s): return re.sub(r'(?<![A-Za-z])KP(?![A-Za-z])', 'GM', s.replace('守秘人', 'GM'))
 for r in range(3, lst.max_row+1):
     b=lst.cell(r,2).value
     if not b: continue
-    listrows.append({'name':str(b).strip(),'n':lst.cell(r,1).value,'cr':str(lst.cell(r,4).value or '').strip(),'attr':str(lst.cell(r,5).value or '').strip(),'desc':str(lst.cell(r,7).value or '').strip().replace('\n',' ')})
+    listrows.append({'name':str(b).strip(),'n':lst.cell(r,1).value,'cr':str(lst.cell(r,4).value or '').strip(),'attr':str(lst.cell(r,5).value or '').strip(),'desc':gm_words(str(lst.cell(r,7).value or '').strip().replace('\n',' '))})
 alias={'事务所侦探':'事务所侦探、保安','非熟练工人':'工人-非熟练工人','司法家':'司法科学家','赛车手/赛艇手':'赛车手/ 赛艇手'}
 assert len(listrows)==len(cols), (len(listrows), len(cols))
 for (c,cname),info in zip(cols,listrows):

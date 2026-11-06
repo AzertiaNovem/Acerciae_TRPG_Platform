@@ -69,7 +69,7 @@ final class SessionAndCreationTests: XCTestCase {
         let windows = try await api.windows(token: alice.token, channel: c["id"].text)
         XCTAssertEqual(windows.first?.kind, "main")
         _ = try await api.resource(path + ["members"], token: alice.token, body: .object(["username": .string("bob"), "role": .string("player")]))
-        let npc = try await api.resource(path + ["characters"], token: alice.token, body: .object(["name": .string("Keeper NPC"), "kind": .string("npc")]))
+        let npc = try await api.resource(path + ["characters"], token: alice.token, body: .object(["name": .string("GM NPC"), "kind": .string("npc")]))
         let pc = try await api.resource(path + ["characters"], token: bob.token, body: .object(["name": .string("Mobile investigator"), "kind": .string("pc")]))
         XCTAssertEqual(pc["user_id"].text, bob.user.id)
         let card: JSONValue = .object(["career": .object(["name": .string("会计师"), "choices": .array([]), "specialties": .array([.string("Science")])]), "characteristics": .object(["EDU": .number(60), "INT": .number(60)]), "skill_points": .object([:])])
@@ -77,14 +77,14 @@ final class SessionAndCreationTests: XCTestCase {
             "name": .string("Edited investigator"), "bio": .string("A mobile-created character"), "speaking_style": .string("Quiet"), "role_card": card]), method: "PUT")
         XCTAssertEqual(edited["character"]["name"].text, "Edited investigator")
         XCTAssertEqual(edited["character"]["speaking_style"].text, "Quiet")
-        let settings: JSONValue = .object(["name": .string("Mobile keeper settings"), "description": .string("Updated"), "era": .string("1920s"), "knowledge_mode": .string("public"), "dice_text_group": .string("builtin:zh"), "ai_enabled": .bool(false), "auto_scenarios": .bool(false), "studio_visible": .bool(false)])
+        let settings: JSONValue = .object(["name": .string("Mobile GM settings"), "description": .string("Updated"), "era": .string("1920s"), "knowledge_mode": .string("public"), "dice_text_group": .string("builtin:zh"), "ai_enabled": .bool(false), "auto_scenarios": .bool(false), "studio_visible": .bool(false)])
         let updated = try await api.resource(path, token: alice.token, body: settings, method: "PUT")
         XCTAssertEqual(updated["era"].text, "1920s")
         XCTAssertEqual(updated["knowledge_mode"].text, "public")
         XCTAssertFalse(updated["studio_visible"].bool)
         do {
             _ = try await api.resource(path, token: bob.token, body: settings, method: "PUT")
-            XCTFail("A player must not change keeper settings")
+            XCTFail("A player must not change GM settings")
         } catch ClientError.http(let status) { XCTAssertEqual(status, 403) }
         do {
             _ = try await api.resource(path + ["characters"], token: bob.token, body: .object(["name": .string("Forbidden NPC"), "kind": .string("npc")]))
