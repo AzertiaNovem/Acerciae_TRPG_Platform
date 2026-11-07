@@ -417,7 +417,7 @@ private struct ChatReferenceView: View {
     private var message: Message? {
         unavailable ? nil : original ?? model.campaign?.messages.first { $0.id == messageId }
     }
-    private var recalled: Bool { model.campaign?.messages.first { $0.id == messageId }?.recalled == true }
+    private var recalled: Bool { model.recalledMessages[messageId] != nil || model.campaign?.messages.first { $0.id == messageId }?.recalled == true }
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             if recalled {

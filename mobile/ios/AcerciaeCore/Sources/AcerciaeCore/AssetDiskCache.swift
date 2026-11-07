@@ -107,6 +107,17 @@ public final class AssetDiskCache: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         revision += 1; memory.removeObject(forKey: Self.hex(key) as NSString); try? files.removeItem(at: file(key))
     }
+    /// Page-cache only: forget copies mentioning a withdrawn message, including paginated/forked chat pages.
+    /// Run off the UI thread. Advancing the generation also rejects responses fetched before the recall.
+    public func removeMessage(_ id: String) {
+        guard !id.isEmpty else { return }
+        lock.lock(); defer { lock.unlock() }
+        revision += 1; memory.removeAllObjects(); migrate()
+        let needle = Data(id.utf8)
+        for url in (try? files.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] {
+            if let data = try? Data(contentsOf: url), data.range(of: needle) != nil { try? files.removeItem(at: url) }
+        }
+    }
     /// Drops what expired, then the least recently used beyond the cap. Also runs on `sweep()` at app start.
     private func trim() {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]

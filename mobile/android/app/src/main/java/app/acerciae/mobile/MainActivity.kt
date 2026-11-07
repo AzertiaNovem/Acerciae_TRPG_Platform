@@ -357,7 +357,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     var original by remember { mutableStateOf<Message?>(null) }
     var unavailable by remember { mutableStateOf(false) }
     val message = if (unavailable) null else original ?: state.campaign?.messages?.find { it.id == messageId }
-    val recalled = state.campaign?.messages?.find { it.id == messageId }?.recalled == true
+    val recalled = state.recalledMessages.containsKey(messageId) || state.campaign?.messages?.find { it.id == messageId }?.recalled == true
     LaunchedEffect(messageId) {
         try {
             val value = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Message>(
