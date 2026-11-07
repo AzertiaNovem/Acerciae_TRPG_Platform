@@ -109,7 +109,12 @@ characters; the GM: NPCs too), describe the pose, action, place and light, and c
   plain front view, while keeping every character recognisable. No text or watermarks. The channel's default style
   profile applies, as for character art.
 - **References**: each chosen character's main portrait (else avatar), when approved and PNG, JPEG or WebP, is frozen
-  as an identity reference (20 MB in all); a character without one is drawn from the description.
+  as an identity reference (20 MB in all); a character without one is drawn from the description. The image files
+  carry no names, so the model learns which is whom from the text, said three times with the same numbering: each
+  character line of the prompt ("(identity reference image 1 attached)"), the identity instruction ("Reference image
+  1 is Ada. Mo has no reference image: follow the description. … never swap or blend two characters";
+  `illustrationIdentity`), and each entry of the request's `characters` (`reference_image: 1` or `"none"`). Image
+  models can still mix up look-alike characters; distinctive appearance descriptions help most.
 - **Limits**: the server's image provider, budget and concurrency apply (`asset_generation_jobs.kind =
   'illustration'`); one illustration in flight per person and channel, 20 an hour. Like character art, it does not
   need the Log Studio's cloud switch; the requester confirms that the description and portraits go to the image

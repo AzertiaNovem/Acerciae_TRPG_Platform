@@ -48,6 +48,18 @@ std::string illustrationPrompt(const std::string& scene, const std::vector<Illus
     return p;
 }
 
+std::string illustrationIdentity(const std::vector<IllustrationCharacter>& characters) {
+    std::string mapping;
+    int ref = 0;
+    for (const auto& c : characters)
+        mapping += c.hasReference ? "Reference image " + std::to_string(++ref) + " is " + c.name + ". "
+                                  : c.name + " has no reference image: follow the description. ";
+    if (!ref) return "";
+    return "The attached images are identity references, in attachment order. " + mapping +
+           "Keep each character's face, hairstyle, clothing and build as in their own reference, and never swap or blend two "
+           "characters; pose, expression, framing and viewpoint are free.";
+}
+
 Json::Value IllustrationService::request(const ChannelAccess& a, const std::string& windowId, const Json::Value& body) {
     if (!Visibility::isUuid(windowId)) throw notFound("window not found");
     auth_.requireWindowMember(a, windowId);
@@ -102,6 +114,8 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
             } catch (const ApiError&) { continue; }   // a portrait this requester may not open is simply not sent
         }
         Json::Value who; who["name"] = c["name"]; who["description"] = c["appearance_prompt"];
+        // The same numbering as the prompt's character lines and the identity instruction.
+        if (ic.hasReference) who["reference_image"] = (int)refs.size(); else who["reference_image"] = "none";
         request["characters"].append(who);
         characterIds.append(id);
         cast.push_back(ic);
@@ -111,8 +125,7 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
     request["size"] = size;
     if (refs.size()) {
         request["reference_images"] = refs;
-        request["identity_instruction"] = "The attached images are identity references, one per character with a reference, in the order the characters are listed. "
-                                          "Keep each character's face, hairstyle, clothing and build; pose, expression, framing and viewpoint are free.";
+        request["identity_instruction"] = illustrationIdentity(cast);
     }
     Json::Value attach;
     attach["window_id"] = windowId;
