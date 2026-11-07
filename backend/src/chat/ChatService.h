@@ -40,7 +40,7 @@ public:
     Json::Value allChannels(const Principal& p, const std::string& serverId);
     Json::Value getChannel(const ChannelAccess& a);
     Json::Value updateChannel(const ChannelAccess& a, const Json::Value& body);
-    void requireChannelAi(const ChannelAccess& a, const std::string& column);   // consistency_enabled | inspiration_enabled
+    void requireChannelAi(const ChannelAccess& a, const std::string& column);   // consistency_enabled | inspiration_enabled | illustrations_enabled
     // A system tip in a window (kind system, visible to the window, logged as a message.posted event); returns the message row.
     Json::Value postSystemMessage(pqxx::work& w, const std::string& channelId, const std::string& windowId, const std::string& authorId, const std::string& content);
     // The GM ends the story: every member can then read the whole story in the campaign log, GM-only lines

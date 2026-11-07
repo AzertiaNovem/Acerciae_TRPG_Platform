@@ -24,10 +24,12 @@ export function normalizeIllustration(x) {
   return { text, who: [...new Set(names(x?.who))].slice(0, MAX_CHARACTERS), orientation };
 }
 
-// What a request's failure means: the platform cannot draw at all here (no provider, no route yet), the account is
-// busy with a picture still being drawn, or it is over the hourly cap.
+// What a request's failure means: the server's maintainers or the GM turned illustrations off (they may turn them back
+// on), the platform cannot draw at all here (no provider, no route yet), the account is busy with a picture still
+// being drawn, or it is over the hourly cap.
 export function illustrationFailure(e) {
   const message = String(e?.message ?? e);
+  if (e?.status === 403 && e?.code === "feature_disabled") return "disabled";
   if (e?.status === 404 || /disabled or not configured|not configured/i.test(message)) return "unavailable";
   if (e?.status === 409 && /still being drawn/i.test(message)) return "busy";
   if (e?.status === 429) return "rate_limited";

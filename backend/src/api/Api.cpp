@@ -437,7 +437,12 @@ void registerRoutes() {
     });
     route2("/api/channels/{1}/windows/{2}/messages", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->postMessage(access(p, a[0]), a[1], body(req)); });
     // Illustrations: drawn on request and posted in the window as the requester's out-of-character line.
-    route2("/api/channels/{1}/windows/{2}/illustrations", {Post}, [&](auto& req, auto& p, auto& a) { return S.illustrations->request(access(p, a[0]), a[1], body(req)); });
+    // Drawing is optional: the server's maintainers switch it for the server, the GM for the channel (403
+    // feature_disabled). The job list, cancelling and the pictures already posted stay available either way.
+    route2("/api/channels/{1}/windows/{2}/illustrations", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "illustrations"); S.chat->requireChannelAi(ac, "illustrations_enabled");
+        return S.illustrations->request(ac, a[1], body(req));
+    });
     route1("/api/channels/{1}/illustrations", {Get}, [&](auto&, auto& p, auto& a) { return S.illustrations->jobs(access(p, a[0])); });
     route2("/api/channels/{1}/illustrations/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.illustrations->cancel(access(p, a[0]), a[1]); });
     // A line's picture, for <img>: only to those who may read the line (?token= since image tags cannot set headers).

@@ -35,6 +35,20 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   await rejects(draw(p1, main, { prompt: "Ada on the pier", character_ids: [ada.id] }), 400);
   await call(gm, "PUT", `/api/servers/${server.id}/settings`, { image: { provider: "mock" } });
 
+  // Optional at both levels and on until switched off: the server's maintainers switch it for the server, the GM for
+  // the channel under it. Off refuses everyone, the GM included.
+  assert.equal((await call(p1, "GET", `/api/servers/${server.id}/settings`)).features.illustrations, true);
+  assert.equal((await call(p1, "GET", `/api/channels/${ch}`)).illustrations_enabled, true);
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { illustrations: false } });
+  assert.equal((await rejects(draw(p1, main, { prompt: "Ada on the pier" }), 403)).body.error, "feature_disabled");
+  await rejects(draw(gm, main, { prompt: "Ada on the pier" }), 403);
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { illustrations: true } });
+  await rejects(call(p1, "PUT", `/api/channels/${ch}`, { illustrations_enabled: false }), 403);   // the GM's switch
+  assert.equal((await call(gm, "PUT", `/api/channels/${ch}`, { illustrations_enabled: false })).illustrations_enabled, false);
+  assert.equal((await rejects(draw(p1, main, { prompt: "Ada on the pier" }), 403)).body.error, "feature_disabled");
+  await rejects(draw(gm, main, { prompt: "Ada on the pier" }), 403);
+  await call(gm, "PUT", `/api/channels/${ch}`, { illustrations_enabled: true });
+
   // Bad requests.
   await rejects(draw(p1, main, { prompt: "  ", character_ids: [] }), 400);
   await rejects(draw(p1, main, { prompt: "x".repeat(1501) }), 400);
@@ -87,4 +101,11 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   // A line without a picture has none to serve.
   const plain = await call(p1, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content: "No picture here.", character_id: ada.id });
   assert.equal((await picture(p1, ch, plain.id)).status, 404);
+
+  // Switched off afterwards: no new drawing, but the pictures already posted stay, and so does the job list.
+  await call(gm, "PUT", `/api/channels/${ch}`, { illustrations_enabled: false });
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { illustrations: false } });
+  await rejects(draw(p1, main, { prompt: "One more" }), 403);
+  assert.equal((await picture(p2, ch, line.id)).status, 200, "a posted picture stays");
+  assert.ok((await call(p1, "GET", `/api/channels/${ch}/illustrations`)).some((x) => x.id === job.id));
 });
