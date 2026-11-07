@@ -6,6 +6,8 @@ import { MockLlm } from "./mock.mjs";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { textOf } from "./parts.mjs";
+import { completionAttempts } from './retry.mjs';
+import { JsonFieldError, applyFieldRepairs, repairInstruction } from './json-repair.mjs';
 
 export function createLlm(cfg) {
   let llm;
@@ -39,19 +41,35 @@ export function extractJson(text) {
   return JSON.parse(s.slice(start, end + 1));
 }
 
-// Asks for a JSON object; one repair round when the reply does not parse or fails validation. `user` is a string or a
+// Asks for a JSON object; bounded transport retries and validation repairs. `user` is a string or a
 // list of parts (parts.mjs), or `messages` a prepared conversation (the story planner's draft → critique → revise);
 // the repair round appends to it, so the original prompt stays a cached prefix.
-export async function completeJson(llm, { system, user, messages: given, purpose, phase = "" }, validate = (x) => x) {
+export async function completeJson(llm, { system, user, messages: given, purpose, phase = "", maxRepairs = 1, signal, retryDelay }, validate = (x) => x) {
   const messages = given ? given.map((m) => ({ ...m })) : [{ role: "user", content: user }];
   const requestId = crypto.randomUUID();
-  let reply = await llm.complete({ system, messages, purpose, phase, requestId, attempt: 1 });
-  try {
-    return await validate(extractJson(reply));
-  } catch (e) {
-    messages.push({ role: "assistant", content: reply });
-    messages.push({ role: "user", content: `That reply could not be used (${e.message}). Answer again with only the JSON object described above.` });
-    reply = await llm.complete({ system, messages, purpose, phase, requestId, attempt: 2, retryReason: e.message });
-    return await validate(extractJson(reply));
+  signal ??= llm.signalOf?.();
+  const complete = completionAttempts(llm, requestId, { signal, retryDelay });
+  let value, fieldError = null, patchError = '', retryReason;
+  for (let round = 0; ; round++) {
+    const reply = await complete({ system, messages, purpose, phase, retryReason,
+      ...(fieldError ? { repairPaths: fieldError.paths } : {}) });
+    try {
+      value = fieldError ? applyFieldRepairs(value, extractJson(reply), fieldError.paths) : extractJson(reply);
+      fieldError = null; patchError = '';
+      const validated = await validate(value);
+      signal?.throwIfAborted();
+      return validated;
+    } catch (error) {
+      // Access changes, stale drafts and service errors cannot be fixed by asking the model to change the data.
+      signal?.throwIfAborted();
+      if (error?.status || error?.validationService) throw error;
+      if (round >= maxRepairs) throw error;
+      if (error instanceof JsonFieldError) fieldError = error;
+      else if (fieldError) patchError = `The last repair was rejected: ${error.message}. `;
+      messages.push({ role: 'assistant', content: reply });
+      messages.push({ role: 'user', content: fieldError ? patchError + repairInstruction(fieldError)
+        : `That reply could not be used (${error.message}). Answer again with only the JSON object described above.` });
+      retryReason = error.message;
+    }
   }
 }

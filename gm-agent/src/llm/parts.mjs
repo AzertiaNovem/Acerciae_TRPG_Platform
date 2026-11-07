@@ -14,6 +14,7 @@ export function metered(llm, { sink = () => {}, channelId = "", provider = "", m
     return keys.get(purpose);
   };
   const wrapped = Object.create(llm);
+  if (signalOf) wrapped.signalOf = signalOf;
   wrapped.complete = async (req) => {
     const signal = signalOf?.() ?? req.signal;
     signal?.throwIfAborted();

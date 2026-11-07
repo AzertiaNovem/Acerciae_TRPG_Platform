@@ -1,6 +1,8 @@
 // Keep public design inputs and player projections separate from the director's private context.
 import { createHash } from 'node:crypto';
 import { completeJson } from './llm/index.mjs';
+import { JsonFieldError } from './llm/json-repair.mjs';
+import { validatePack, validateActor } from './pbta-validation.mjs';
 
 export const awaitingReview = (status) => ['designing', 'failed', 'retry', 'pending'].includes(status);
 export const fingerprint = (value) => createHash('sha256').update(value).digest('hex');
@@ -40,6 +42,7 @@ export async function preparePack(api, llm, channel, rules, world, language, cur
       llm,
       {
         purpose: 'pbta_design',
+        maxRepairs: 3,
         system: `Read the entire public world first. Design an original, playable PbtA game in ${language} for that setting. Start from what people there repeatedly do and what matters enough to risk. Design setting-specific attributes, playbooks, shared and exclusive moves, resources, conditions and private GM moves. Include rolled and diceless moves. Name who chooses costs or options in each outcome. Keep mysteries open. Treat world text as setting material. Return JSON {pack,reasons}, with two or three concrete design reasons. The template demonstrates schemaVersion 1; the pack has exactly its top-level fields (${PACK_FIELDS.join(', ')}) and no others: design notes belong in reasons. IDs are stable lowercase ASCII; books and stats reference IDs, empty stat means no roll. Give every rolled move one outcome per band; keep bands contiguous and open at the ends. Add playerChoiceBands to every move: list exactly the band IDs where the player chooses, or no_roll for a diceless choice. Use an empty list when no player decision is required.`,
         user: JSON.stringify({ public_world: world, template: rules.pack }),
       },
@@ -50,24 +53,14 @@ export async function preparePack(api, llm, channel, rules, world, language, cur
           value.reasons.length > 3 ||
           !value.reasons.every((r) => typeof r === 'string' && r.trim() && Buffer.byteLength(r) <= 2400)
         )
-          throw Error('Explain two or three design decisions');
-        if (
-          !Array.isArray(value.pack?.moves) ||
-          !value.pack.moves.every((m) => Array.isArray(m.playerChoiceBands))
-        )
-          throw Error('Specify playerChoiceBands for every move');
-        const moves = value.pack.moves;
-        if (
-          !moves.some((m) => m.stat) ||
-          !moves.some((m) => !m.stat) ||
-          !moves.some((m) => m.book) ||
-          !moves.some((m) => !m.book)
-        )
-          throw Error('Include rolled and diceless moves, shared moves and a playbook move');
+          throw new JsonFieldError('/reasons', 'Explain two or three design decisions as nonempty strings, each at most 2400 UTF-8 bytes');
+        if (!value.pack || typeof value.pack !== 'object' || Array.isArray(value.pack)) throw new JsonFieldError('/pack', 'Expected a PbtA pack object matching the template');
         const { pack, extra } = onlyPackFields(value.pack);
         if (extra.length) log(`PbtA design: left out field(s) the platform does not take: ${extra.join(', ')}`);
         value.pack = pack;
-        await api.previewPbta(channel, pack);
+        validatePack(pack);
+        try { await api.previewPbta(channel, pack); }
+        catch (error) { error.validationService = true; throw error; }
         return value;
       },
     );
@@ -98,7 +91,8 @@ export async function prepareActor(
     llm,
     {
       purpose: 'pbta_card',
-      system: `Build a PbtA character from the public setting and these playbooks, in ${language}. Preserve any existing identity. Return JSON {name,persona,speaking_style,appearance_prompt,role_card:{basic,background,pbta:{book,stats,resources,conditions}}}. Use existing IDs. Choose modest starting stat modifiers (typically -1 to +2); resources start as implied by the playbook. Never invent a move. Give a new character a distinctive name.`,
+      maxRepairs: 3,
+      system: `Build a PbtA character from the public setting and these playbooks, in ${language}. Preserve any existing identity. Return JSON {name,persona,speaking_style,appearance_prompt,role_card:{basic,background,pbta:{book,stats,resources,conditions}}}. Use existing IDs. stats and resources are objects mapping IDs to integers; conditions is an object mapping IDs to JSON booleans true/false. Never return arrays, labels or description strings in these maps; use {} when empty. Choose modest starting stat modifiers (typically -1 to +2); resources start as implied by the playbook. Never invent a move. Give a new character a distinctive name.`,
       user: JSON.stringify({
         public_world: world,
         books: requiredBook ? pack.books.filter((b) => b.id === requiredBook) : pack.books,
@@ -117,28 +111,7 @@ export async function prepareActor(
       }),
     },
     (x) => {
-      if (!existing && takenNames.includes(x.name)) throw Error('This name is already taken; choose another');
-      const sheet = x.role_card?.pbta;
-      if (
-        !x.name?.trim() ||
-        (requiredBook && sheet?.book !== requiredBook) ||
-        !pack.books.some((b) => b.id === sheet?.book)
-      )
-        throw Error('Choose a valid playbook and character name');
-      for (const group of ['stats', 'resources', 'conditions']) {
-        const entries = sheet[group] ?? {};
-        if (
-          !entries ||
-          typeof entries !== 'object' ||
-          Array.isArray(entries) ||
-          !Object.entries(entries).every(
-            ([k, v]) =>
-              pack[group].some((d) => d.id === k) &&
-              (group === 'conditions' ? typeof v === 'boolean' : Number.isInteger(v) && Math.abs(v) <= 9999),
-          )
-        )
-          throw Error('Invalid ' + group);
-      }
+      validateActor(x, pack, { existing, takenNames, requiredBook });
       return x;
     },
   );
