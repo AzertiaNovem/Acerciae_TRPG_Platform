@@ -32,9 +32,18 @@ The shared file contains the platform address, account, state directory, LLM pro
 
 At startup the host prepares each enabled channel independently, adopts existing co-players, creates any missing requested co-players and applies explicit world/casual settings. PbtA waits for its rule review without delaying other channels. A failed worker stays failed until explicitly started or restarted; it does not terminate its peers or repeatedly retry a broken configuration. `enabled: false` prevents automatic startup but still lists the channel in the UI. A second host using the same state directory is refused. For an established CoC/D&D table being migrated, set `prepare_on_start: false` on its shared channel entry to attach without generating or completing cards or reapplying setup modes; existing state remains authoritative. PbtA still performs its required review checks.
 
-Set `webui.enabled: true` in the shared file and supply a random `webui.token` of at least 24 characters (for example `openssl rand -hex 24`). The UI defaults to `http://127.0.0.1:8787`. Enter the token in its login field; it stays in page memory and is never put into the URL. The UI lists channel status, starts/stops/restarts individual channels and edits their YAML. Save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active. Stopped channels stay stopped. Unsaved edits are not replaced by status refreshes. Shared credentials are never returned to the browser. To change shared connections, the channel registry or the UI listener, edit the shared file and restart the host. Changes made directly to channel files take effect on the next channel restart.
+Set `webui.enabled: true` in the shared file and supply a random `webui.token` of at least 24 characters (for example `openssl rand -hex 24`). The UI defaults to `http://127.0.0.1:8787`. Enter the token in its login field; it stays in page memory and is never put into the URL. The UI lists the channels with their state, name, rule system, today's token use and any failure, and starts/stops/restarts each one. A selected channel has four tabs:
 
-The UI grants administrative control of the configured channels, including world-file paths; give the token only to trusted operators. Keep the default loopback listener or place a deliberately exposed listener behind an HTTPS reverse proxy. The server checks bearer authentication and rejects cross-origin API requests.
+- **Overview** — the live table, read from its worker every few seconds: how long it has run and how often it started, the last error (why a start failed, or how the worker exited), the WebSocket streams, the GM role and knowledge mode, activity (turns, queued turns, the last player line, paused or away), today's and the week's model use against the daily budget with a breakdown by purpose, player characters, co-players and their windows, NPCs, timelines with their windows and members, the story planner (plan version, beat, planner window notes, the session in progress), calendar, casual and improvisation modes, and relationships. A stopped channel shows its last snapshot, marked as such.
+- **Settings** — every channel key as a form, grouped and searchable, each with its help, the value in effect and its default. Only the keys you change are written; the file keeps its comments and other keys. "Default" removes a key. Values are checked against their ranges before anything is saved.
+- **YAML** — the file itself, with a validate button that checks it without saving.
+- **Logs** — the worker's last 600 log lines, filterable, with errors highlighted. Known passwords, keys and the UI token, and anything shaped like a credential (bearer tokens, JWTs, `sk-` keys, `token=` parameters), are masked before a line is kept.
+
+A save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active.
+
+**New hosting tasks.** "＋ 新建主持任务" adds a channel to the running host, without a restart. Either pick a channel the shared account is already GM of (listed from the platform; channels this host keeps are marked), or create one on the platform the way `setup --create` does: on an existing server or a new one (which also returns an invite code for the players), with its name, rule system and era; casual mode makes it an isolated channel so phones stay private. The form takes the first settings (language, co-players, D&D level, casual mode, scene forks, autonomy, planner) and whether the channel starts with the host, is prepared on start, and starts now. The host writes `channels/<channel id>.yml` next to the other channel files and adds the entry to the shared file's `channels:` list, in place: comments and credentials stay, and the file is written atomically with mode 600. Each channel's Settings tab also switches auto-start and prepare-on-start (written to the shared file, used at the next start) and removes the task: the channel stops and leaves the list, while its channel file, state and the platform channel stay, so it can be attached again (a new file is written; the old one is never overwritten). A host can start with an empty `channels: []` and get every channel from the UI. Stopped channels stay stopped. Unsaved edits are not replaced by status refreshes. Shared credentials are never returned to the browser. To change shared connections or the UI listener, edit the shared file and restart the host; the channel list can also be changed from the UI. Changes made directly to channel files take effect on the next channel restart.
+
+The UI grants administrative control of the configured channels, including world-file paths; give the token only to trusted operators. Keep the default loopback listener or place a deliberately exposed listener behind an HTTPS reverse proxy. The server checks bearer authentication and rejects cross-origin API requests: a browser's `Origin` must be the address the UI was opened at. Behind a reverse proxy or tunnel that rewrites the `Host` header (nginx does by default), every save fails with "Origin not allowed" until the proxy forwards the original host (nginx: `proxy_set_header Host $http_host;`, which keeps a non-default port such as `:15505`; or `X-Forwarded-Host`) or the public address, port included, is listed under `webui.allowed_origins` (for example `https://gm.example.com:15505`). The shared file is read when the host starts: restart it after changing `allowed_origins`.
 
 On shutdown or configuration restart, workers stop accepting events, cancel generation and drain active work before releasing their locks. A worker that cannot stop within 15 seconds is terminated and its owned lock is released after thread exit. Configuration restarts preserve the session and do not run an end-of-session story review; the existing standalone `run` signal behavior still runs that review. In-flight network calls at forced termination may already have reached the platform, so inspect the last posted lines before resuming a timed-out channel.
 
@@ -221,11 +230,20 @@ platform without the record (404) is noted once, and the table carries on with i
 The GM and planner favour a small recurring NPC cast and relationships that develop over multiple scenes and
 sessions. They consult existing people and bonds before introducing someone new, follow through on promises and
 shared experiences, and let peripheral NPCs stay off-screen. The planner's critique/revision explicitly checks for
-unnecessary newcomers and neglected relationships. This is guidance, not a hard NPC quota: new people remain
-possible when the story or players need a distinct role, and reuse must respect whereabouts, identities and the
-module. Neither role decides player/co-player feelings or treats proposed relationships as already established.
-`npc` only voices an existing cast member; an unknown name is logged and skipped. `new_npc` explicitly creates a
-new character, or reuses the existing character when that name is already in the cast.
+unnecessary newcomers and neglected relationships. Newer plots grow out of the people already in the story: a
+familiar NPC gets the new problem, request, secret or job before someone is invented for it. Reuse must respect
+whereabouts, identities and the module. Neither role decides player/co-player feelings or treats proposed
+relationships as already established.
+
+When the story does need someone new, the GM makes them a real NPC, a character on the platform with a role card
+and lines of their own, if they pass all three tests: they **could build a lasting bond** with the player characters
+or co-players; they **have more than one sentence to say**; and they are **one specific person**, not a voice
+standing for a crowd ("someone in the crowd shouts", "the guards mutter"). A real NPC's words are never put inside
+narration or summed up there. Anyone who fails a test (a single remark, a passer-by, a clerk the story will not
+return to) stays unnamed in narration; someone first met there who turns out to matter is made a real NPC then.
+`npc` only voices an existing cast member: an unknown name is not posted (a misspelling must not create a
+character), and a GM-only note tells the next round to use `new_npc` if the person passes the tests. `new_npc`
+creates the character, or reuses the existing one when that name is already in the cast.
 
 ## How a turn runs
 
@@ -261,6 +279,32 @@ new character, or reuses the existing character when that name is already in the
 5. At most `pacing.max_actions_per_turn` lines are posted per turn. Lines the client posted never start a turn by themselves.
 
 The client never decides memory proposals; those stay with the human GM in the web app.
+
+## Recalled lines
+
+On the platform the author of a line may recall it for two minutes after sending it (not a roll, a system line or a
+PbtA move's record). The line becomes a tombstone everywhere, and the client takes it out of every context: no
+prompt of the GM, an NPC or a co-player quotes it again. What happens to the table's answer depends on how recent it
+still is:
+
+- **Ten or more lines since** in its window: only the line goes. What the table said and did after it stays.
+- **Fewer than ten lines since**: the table rolls back as if the line had never been sent (`src/rollback.mjs`).
+  - Every turn that answered it, or that ran after it in that window, is undone, together with the turns those
+    started (a follow-up, the opening of a scene a move created). A turn still running is stopped; one not started
+    yet is cancelled.
+  - The client recalls every line those turns posted, in any window, and its own later lines in that window:
+    narration, NPC and co-player lines, whispers, notes, and the copy of a recalled text in another player's phone.
+  - It restores what they changed in its own state: where everyone is (timelines, co-player seats, the move guard,
+    and window access with scene forks), the date, relationships, hidden truths, and phone texts still on their way.
+    A part that a later, unrelated turn changed again is left as it is.
+  - What the platform already holds stays: a roll's result, a scenario change, a world change, a new NPC (who stays
+    in the cast). A GM-only note in the window says what was taken back and what stays.
+  - Other players' lines after the recalled one stay, and the GM answers them again in a new turn.
+- A line recalled before its turn started is simply not answered; one sent right after it is answered once.
+- A wish or correction recalled in the planner window leaves the planner's inbox.
+
+Each turn keeps a checkpoint for this in memory for five minutes, so a restart forgets them. Lines the GM account
+recalls itself never start a rollback.
 
 ## Timelines and autonomy
 

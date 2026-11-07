@@ -20854,5 +20854,101 @@
     "Voice ID (empty = silent)",
     "Voice ID (empty = silent)",
     "Voice ID (empty = silent)"
+  ],
+  "Recall": [
+    "撤回",
+    "收回",
+    "送信取消",
+    "전송 취소",
+    "Retirar",
+    "Retirer",
+    "Zurückziehen",
+    "Отозвать",
+    "Retirar",
+    "Ritira"
+  ],
+  "Take this message back from everyone in this chat": [
+    "从此聊天中所有人那里撤回这条消息",
+    "從此聊天中所有人那裡收回這則訊息",
+    "このチャットの全員からこのメッセージを取り消します",
+    "이 채팅의 모든 사람에게서 이 메시지를 회수합니다",
+    "Retirar este mensaje para todos en este chat",
+    "Retirer ce message pour tout le monde dans ce chat",
+    "Diese Nachricht für alle in diesem Chat zurückziehen",
+    "Отозвать это сообщение у всех в этом чате",
+    "Retirar esta mensagem para todos neste chat",
+    "Ritira questo messaggio per tutti in questa chat"
+  ],
+  "You recalled a message": [
+    "你撤回了一条消息",
+    "你收回了一則訊息",
+    "メッセージの送信を取り消しました",
+    "메시지 전송을 취소했습니다",
+    "Retiraste un mensaje",
+    "Vous avez retiré un message",
+    "Du hast eine Nachricht zurückgezogen",
+    "Вы отозвали сообщение",
+    "Você retirou uma mensagem",
+    "Hai ritirato un messaggio"
+  ],
+  "{name} recalled a message": [
+    "{name} 撤回了一条消息",
+    "{name} 收回了一則訊息",
+    "{name}がメッセージの送信を取り消しました",
+    "{name}님이 메시지 전송을 취소했습니다",
+    "{name} retiró un mensaje",
+    "{name} a retiré un message",
+    "{name} hat eine Nachricht zurückgezogen",
+    "{name} отозвал(а) сообщение",
+    "{name} retirou uma mensagem",
+    "{name} ha ritirato un messaggio"
+  ],
+  "Re-edit": [
+    "重新编辑",
+    "重新編輯",
+    "再編集",
+    "다시 편집",
+    "Volver a editar",
+    "Modifier à nouveau",
+    "Erneut bearbeiten",
+    "Изменить снова",
+    "Editar novamente",
+    "Modifica di nuovo"
+  ],
+  "This message was recalled.": [
+    "这条消息已被撤回。",
+    "這則訊息已被收回。",
+    "このメッセージは取り消されました。",
+    "이 메시지는 전송이 취소되었습니다.",
+    "Este mensaje fue retirado.",
+    "Ce message a été retiré.",
+    "Diese Nachricht wurde zurückgezogen.",
+    "Это сообщение было отозвано.",
+    "Esta mensagem foi retirada.",
+    "Questo messaggio è stato ritirato."
+  ],
+  "Messages can only be recalled within 2 minutes of sending.": [
+    "消息只能在发送后 2 分钟内撤回。",
+    "訊息只能在傳送後 2 分鐘內收回。",
+    "メッセージは送信後 2 分以内にのみ取り消せます。",
+    "메시지는 보낸 후 2분 이내에만 전송을 취소할 수 있습니다.",
+    "Los mensajes solo se pueden retirar en los 2 minutos siguientes a su envío.",
+    "Un message ne peut être retiré que dans les 2 minutes qui suivent son envoi.",
+    "Nachrichten können nur innerhalb von 2 Minuten nach dem Senden zurückgezogen werden.",
+    "Сообщение можно отозвать только в течение 2 минут после отправки.",
+    "As mensagens só podem ser retiradas até 2 minutos após o envio.",
+    "I messaggi possono essere ritirati solo entro 2 minuti dall'invio."
+  ],
+  "This message can't be recalled.": [
+    "这条消息无法撤回。",
+    "這則訊息無法收回。",
+    "このメッセージは取り消せません。",
+    "이 메시지는 전송을 취소할 수 없습니다.",
+    "Este mensaje no se puede retirar.",
+    "Ce message ne peut pas être retiré.",
+    "Diese Nachricht kann nicht zurückgezogen werden.",
+    "Это сообщение нельзя отозвать.",
+    "Esta mensagem não pode ser retirada.",
+    "Questo messaggio non può essere ritirato."
   ]
 }

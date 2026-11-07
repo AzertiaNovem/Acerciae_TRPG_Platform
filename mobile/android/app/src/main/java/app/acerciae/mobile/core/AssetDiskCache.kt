@@ -45,6 +45,14 @@ class AssetDiskCache(private val dir: File, private val capBytes: Long = 512L * 
 
     @Synchronized fun clear() { revision++; latest.clear(); dir.deleteRecursively(); legacyDir?.deleteRecursively() }
     @Synchronized fun remove(key: String) { revision++; file(key).delete() }
+    /** Page-cache only; run off the UI thread. Invalidates pre-recall writes and drops all pages mentioning the ID. */
+    @Synchronized fun removeMessage(id: String) {
+        if (id.isEmpty()) return
+        revision++; migrate()
+        dir.listFiles()?.filter { it.isFile }?.forEach { f ->
+            if (runCatching { f.readText().contains(id) }.getOrDefault(false)) f.delete()
+        }
+    }
     private fun migrate() { if (!dir.exists() && legacyDir?.isDirectory == true) { dir.parentFile?.mkdirs(); legacyDir.renameTo(dir) } }
 
     private fun expired(f: File) = clock() - f.lastModified() > maxAgeMs

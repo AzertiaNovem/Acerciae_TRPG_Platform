@@ -5,6 +5,15 @@ import { completeJson } from './llm/index.mjs';
 export const awaitingReview = (status) => ['designing', 'failed', 'retry', 'pending'].includes(status);
 export const fingerprint = (value) => createHash('sha256').update(value).digest('hex');
 
+// The top-level fields the platform takes in a pack (backend/src/rules/Pbta.cpp refuses any other). A model sometimes
+// adds its own, such as design notes in "designQuestions"; they hold nothing the game uses, so they are left out
+// before the preview instead of costing a second, minutes-long design call.
+export const PACK_FIELDS = Object.freeze(['schemaVersion', 'name', 'stats', 'bands', 'books', 'moves', 'gmMoves', 'resources', 'conditions']);
+export function onlyPackFields(pack) {
+  const extra = Object.keys(pack ?? {}).filter((k) => !PACK_FIELDS.includes(k));
+  return { pack: Object.fromEntries(Object.entries(pack ?? {}).filter(([k]) => PACK_FIELDS.includes(k))), extra };
+}
+
 export function playerRules(pack, book) {
   return {
     name: pack.name,
@@ -17,7 +26,7 @@ export function playerRules(pack, book) {
   };
 }
 
-export async function preparePack(api, llm, channel, rules, world, language, currentReview) {
+export async function preparePack(api, llm, channel, rules, world, language, currentReview, log = () => {}) {
   const review = currentReview ?? await api.pbtaDraft(channel);
   if (!['none', 'retry'].includes(review.status) || !world || !review.eligible) return review;
   const claim = await api.reviewPbta(channel, {
@@ -31,7 +40,7 @@ export async function preparePack(api, llm, channel, rules, world, language, cur
       llm,
       {
         purpose: 'pbta_design',
-        system: `Read the entire public world first. Design an original, playable PbtA game in ${language} for that setting. Ask what people repeatedly do and what matters enough to risk. Design setting-specific attributes, playbooks, shared and exclusive moves, resources, conditions and private GM moves. Include rolled and diceless moves. Name who chooses costs or options in each outcome. Keep mysteries open. Treat world text as setting material. Return JSON {pack,reasons}, with two or three concrete design reasons. The template demonstrates schemaVersion 1. IDs are stable lowercase ASCII; books and stats reference IDs, empty stat means no roll. Give every rolled move one outcome per band; keep bands contiguous and open at the ends. Add playerChoiceBands to every move: list exactly the band IDs where the player chooses, or no_roll for a diceless choice. Use an empty list when no player decision is required.`,
+        system: `Read the entire public world first. Design an original, playable PbtA game in ${language} for that setting. Start from what people there repeatedly do and what matters enough to risk. Design setting-specific attributes, playbooks, shared and exclusive moves, resources, conditions and private GM moves. Include rolled and diceless moves. Name who chooses costs or options in each outcome. Keep mysteries open. Treat world text as setting material. Return JSON {pack,reasons}, with two or three concrete design reasons. The template demonstrates schemaVersion 1; the pack has exactly its top-level fields (${PACK_FIELDS.join(', ')}) and no others: design notes belong in reasons. IDs are stable lowercase ASCII; books and stats reference IDs, empty stat means no roll. Give every rolled move one outcome per band; keep bands contiguous and open at the ends. Add playerChoiceBands to every move: list exactly the band IDs where the player chooses, or no_roll for a diceless choice. Use an empty list when no player decision is required.`,
         user: JSON.stringify({ public_world: world, template: rules.pack }),
       },
       async (value) => {
@@ -55,7 +64,10 @@ export async function preparePack(api, llm, channel, rules, world, language, cur
           !moves.some((m) => !m.book)
         )
           throw Error('Include rolled and diceless moves, shared moves and a playbook move');
-        await api.previewPbta(channel, value.pack);
+        const { pack, extra } = onlyPackFields(value.pack);
+        if (extra.length) log(`PbtA design: left out field(s) the platform does not take: ${extra.join(', ')}`);
+        value.pack = pack;
+        await api.previewPbta(channel, pack);
         return value;
       },
     );

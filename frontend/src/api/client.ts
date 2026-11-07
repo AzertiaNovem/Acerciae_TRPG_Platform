@@ -173,6 +173,8 @@ export const api = {
   messages: (ch: string, w: string, beforeSeq?: number, limit = 80) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ before_seq: beforeSeq, limit })}`),
   postMessage: (ch: string, w: string, body: { content: string; kind?: string; character_id?: string; visibility?: string; whisper_to?: string[]; reference_ids?: string[] }) => post<T.Message>(`/api/channels/${ch}/windows/${w}/messages`, body),
   message: (ch: string, id: string) => get<T.Message>(`/api/channels/${ch}/messages/${id}`),
+  // The author takes a line back: its tombstone, and the original text to edit and send again.
+  recallMessage: (ch: string, id: string) => post<{ message: T.Message; content: string }>(`/api/channels/${ch}/messages/${id}/recall`),
   enterScenario: (ch: string, scene_id: string) => post<{ scene: T.Scene; previous: T.Scene | null; windows: T.ChatWindow[] }>(`/api/channels/${ch}/scenarios/enter`, { scene_id }),
   scenes: (ch: string) => get<T.Scene[]>(`/api/channels/${ch}/scenes`),
   createScene: (ch: string, body: Partial<T.Scene> & { title: string }) => post<T.Scene>(`/api/channels/${ch}/scenes`, body),

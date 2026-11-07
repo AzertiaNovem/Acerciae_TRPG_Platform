@@ -20,8 +20,10 @@ export default function SpectatorView({ channelId }: { channelId: string }) {
     setView(null); setError(''); setMore(true); stick.current = true;
     api.spectate(channelId).then((v) => { if (active) { setView(v); setMore(v.messages.length >= 80); } }).catch((e) => active && setError(e.message));
     const off = chatSocket.on((m) => {
-      if (m.type !== 'spectate.message' || m.channel_id !== channelId) return;
-      setView((v) => (v && !v.messages.some((x) => x.id === m.message.id) ? { ...v, messages: [...v.messages, m.message as Message] } : v));
+      if (m.channel_id !== channelId) return;
+      if (m.type === 'spectate.message') setView((v) => (v && !v.messages.some((x) => x.id === m.message.id) ? { ...v, messages: [...v.messages, m.message as Message] } : v));
+      // A line its author took back: its tombstone takes its place.
+      if (m.type === 'spectate.recalled') setView((v) => (v ? { ...v, messages: v.messages.map((x) => (x.id === m.message.id ? m.message as Message : x)) } : v));
     });
     return () => { active = false; off(); };
   }, [channelId]);

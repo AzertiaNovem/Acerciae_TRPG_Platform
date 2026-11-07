@@ -3,6 +3,45 @@ import AcerciaeCore
 @testable import Acerciae
 
 @MainActor final class RefreshTests: XCTestCase {
+    func testRecallCannotBeUndoneByAnOlderRefreshAndCleansReferencesAndDiskPages() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = try model(cache: directory)
+        try await model.refresh(metadata: false)
+        let original = try XCTUnwrap(model.campaign?.messages.first)
+        model.references = [original]
+        model.chatNotices = [ChatNotice(id: "other", title: "Other", messages: [original])]
+        RefreshProtocol.delay = 0.12
+        let refresh = Task { try await model.refresh(metadata: false) }
+        let deadline = Date().addingTimeInterval(3)
+        while RefreshProtocol.paths.filter({ $0.contains("/messages?") }).count < 2 && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(RefreshProtocol.paths.filter({ $0.contains("/messages?") }).count, 2)
+        let event = try XCTUnwrap(RealtimeEvent.parse(#"{"type":"message.recalled","channel_id":"channel","message":{"id":"message","content":"","author_name":"Test","kind":"ooc","seq":1,"recalled_at":"2026-11-07T00:00:00Z"}}"#))
+        model.onPush(event)
+        XCTAssertTrue(model.campaign?.messages.first?.recalled == true)
+        XCTAssertTrue(model.references.isEmpty); XCTAssertTrue(model.chatNotices.isEmpty)
+        try await refresh.value
+        XCTAssertTrue(model.campaign?.messages.first?.recalled == true, "A request sent before recall cannot restore the original")
+        XCTAssertEqual(model.campaign?.messages.first?.content, "")
+        let cache = AssetDiskCache(directory: directory)
+        let key = "https://refresh.test/api/channels/channel/windows/window/messages?limit=50"
+        XCTAssertNil(cache.get(key), "Restarting offline must not restore the old text")
+        model.foreground = false
+    }
+
+    func testRefreshWithoutPushAlsoRemovesRecalledDraftReferences() async throws {
+        let model = try model()
+        try await model.refresh(metadata: false)
+        model.references = try XCTUnwrap(model.campaign).messages
+        RefreshProtocol.set("messages", status: 200, body: #"[{"id":"message","content":"","kind":"ooc","seq":1,"author_name":"Test","recalled_at":"2026-11-07T00:00:00Z"}]"#)
+        try await model.refresh(metadata: false)
+        XCTAssertTrue(model.references.isEmpty)
+        XCTAssertTrue(model.campaign?.messages.first?.recalled == true)
+        model.foreground = false
+    }
+
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T { try APIJSON.decoder().decode(type,from:Data(json.utf8)) }
     private func model(cache: URL? = nil, assets: URL? = nil) throws -> AppModel {
         let config=URLSessionConfiguration.ephemeral; config.protocolClasses=[RefreshProtocol.self]

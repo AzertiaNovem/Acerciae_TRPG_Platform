@@ -8,7 +8,7 @@
 
 消息作者用 `author_id` 与当前会话用户比较。发言角色只允许本人角色或 GM 操作的 NPC；无角色时玩家发 OOC、GM 发旁白。骰子预览 400ms 防抖，无任何投骰；正式发送走消息接口，保留整个 `dice`，显示 `dice.text`，`hidden_notice` 没有结果时回退公告文字。暗骰和其他小队数据只从服务端过滤后的响应读取。
 
-应用前台每 4 秒自动刷新，回前台立即刷新，后台不轮询。现阶段使用 REST，WebSocket URL 构建器仍是预留能力。通过上下文版本阻止旧消息请求写回新窗口；切换服务器／频道会立即清空旧数据，草稿按窗口保存在内存，退出全部清除。权限角色、所属角色、player_group_id／player_group_version、知识模式或窗口成员变化时丢弃旧消息缓存并重新取当前可见结果；401 退出，前台轮询遇到 403／404 清理频道内容。手动分页不会触发聊天自动滚到底部。
+应用前台通过聊天 WebSocket 接收推送（见下方 2026-11-07 一节），推送断开时每 4 秒自动刷新；回前台立即刷新，后台不轮询也不保持连接。通过上下文版本阻止旧消息请求写回新窗口；切换服务器／频道会立即清空旧数据，草稿按窗口保存在内存，退出全部清除。权限角色、所属角色、player_group_id／player_group_version、知识模式或窗口成员变化时丢弃旧消息缓存并重新取当前可见结果；401 退出，前台轮询遇到 403／404 清理频道内容。手动分页不会触发聊天自动滚到底部。
 
 ## 媒体缓存按内容哈希
 
@@ -37,7 +37,7 @@
 
 聊天是主界面，左侧抽屉为屏宽 64%、最大 320 点，支持菜单、边缘拖动及遮罩关闭。角色、阶段、服务器选项、回放和设置都位于抽屉，输入框保留身份／一致性／灵感／发送；考据和提示保持右上角。
 
-待后续完成：WebSocket 推送与重连；Keychain／Keystore 会话恢复；服务器与频道创建、成员管理、供应商配置；完整 GM 工作区；演出时间轴编辑、物品编辑、PDF 定制／生成与发布；完整媒体焦点、中断、后台与字幕处理；Android 真机、大字体、平板和横屏验收。旧 MediaPorts 为未来制作能力预留，不表示已提供这些功能。
+待后续完成：上下文流（文档、高亮、提示）的 WebSocket 推送；Keychain／Keystore 会话恢复；服务器与频道创建、成员管理、供应商配置；完整 GM 工作区；演出时间轴编辑、物品编辑、PDF 定制／生成与发布；完整媒体焦点、中断、后台与字幕处理；Android 真机、大字体、平板和横屏验收。旧 MediaPorts 为未来制作能力预留，不表示已提供这些功能。
 
 当前共同工作边界：本聊天仅改 `mobile/`。后端 agent 已提供合并后的 API 与 Log Studio，移动端独立使用 18082 / acerciae_mobile_demo 验证；不修改其后端、网页或 18081 联调服务。运行方法与测试结果见 `mobile/README.md`。
 
@@ -105,3 +105,16 @@ Initial channel selection now depends only on channel/window access and messages
 Read-only requests have at most three attempts for selected transient transport errors and 408/502/503/504/520/522/523/524. Mutations/uploads are not replayed. Android cancels the underlying OkHttp call with its coroutine and disables implicit transport retries; iOS uses waitsForConnectivity. Poll failures back off to 30 seconds. Redirects and invalid certificates remain rejected. HTTP error bodies must contain the API's JSON error field before driving authentication/permission handling; edge HTML/text denials are separate gateway errors. Decoder failures are reported as incompatible data rather than network loss.
 
 Run `xcodebuild ... -scheme Acerciae test` for the new AppModel fault-injection target. Core production health probing is opt-in via `ACERCIAE_HEALTH_PROBE=1`; it uses only unauthenticated GET `/api/health`. Validation on November 2: 34 Core tests (including loopback integration and six production health reads), 5 AppModel tests, 33 Android tests, lint and native builds passed. Production account data and Cloudflare settings were not changed by the diagnostic probes.
+
+## 2026-11-07 — 聊天 WebSocket 推送与消息撤回
+
+**推送。** 两端 `ChatSocket`（iOS `AcerciaeCore/ChatSocket.swift`，Android `core/ChatSocket.kt`）只连接聊天流并跟随当前频道：每次连接前 `POST /auth/file-token` 取短期文件令牌放进 `/ws/chat?token=`（会话令牌不进入 URL），连接后发送 `{"type":"subscribe","channel_id"}`，收到 `subscribed` 即为在线；每 25 秒心跳，断开后按 1、2、4、8、15 秒重连并重新取令牌，重连后的每次订阅都会触发一次补齐刷新。推送只负责唤醒：`message.posted`、`window.changed` 等事件让前台循环在 0.25 秒内执行一次原有的刷新流程（权限检查、横幅、朗读、已读都不变）；角色、阶段、服务器设置事件同时触发元数据更新，频道／服务器删除触发目录刷新。推送在线时定时刷新放宽到每 30 秒，离线回到每 4 秒。设置页连接状态显示「已连接 · 实时推送」。上下文流尚未接入，文档和提示仍按约 30 秒刷新。
+
+**撤回。** 作者可在发送后 2 分钟内撤回自己的 ic／ooc／旁白（`POST /channels/{c}/messages/{m}/recall`）；骰子、系统消息与 PbtA 行动记录不能撤回，服务端最终判定（409 `recall_expired`／`not_recallable`）。被撤回的消息保留为墓碑：同一 id、窗口与 seq，正文、骰子与引用清空，带 `recalled_at`；每条消息带 `recall_seconds_left`（不可撤回时为 null）。两端按首次收到时的剩余秒数在本机计时（之后的副本只能缩短不能延长），长按自己的可撤回消息出现「撤回」（iOS 菜单同时提供「复制」，替代此时被占用的文字选择）。`message.recalled` 推送携带墓碑，立即替换聊天中的原消息、移除待发引用与横幅中的该条；没有推送时，常规刷新返回的墓碑同样按 id 替换。气泡位置显示「某某撤回了一条消息」，作者本次会话可「重新编辑」把原文放回输入框。被撤回消息不会进入朗读与横幅，引用卡片显示「这条消息已被撤回」，服务端的未读数、搜索、日志和 AI 记忆均已排除它。
+
+**测试。** 共享 fixture `contracts/fixtures/realtime-events.json` 为真实服务端发出的帧（hello、subscribed、消息、撤回墓碑、窗口变更），两端都解码它。Android 核心测试另用 MockWebServer 的真实 WebSocket 验证文件令牌、订阅、事件、断线重连换新令牌、补齐刷新和切换频道；本次在无 Android SDK 的环境中以纯 JVM 运行 `core` 包测试（51 项通过），`AppViewModel`、Compose 界面和 iOS 代码未能在此编译，需在 Xcode 与 Android Studio 中按下方 README 的命令验证。
+
+本机验收补充：iOS 签名构建、普通 iPhone 模拟器的 AppModel 测试，以及 Android 完整构建、单元测试和 lint 已执行。撤回与刷新并发的回归覆盖旧 GET 返回、待发引用、横幅及离线重启缓存：已知墓碑优先于旧响应，后台删除包含该消息 ID 的页面缓存并阻止之前的请求回写，其他页面与美术缓存保留；常规刷新收到墓碑时同样清理引用。引用原文不在当前窗口时也按已知墓碑隐藏。首次订阅成功立即补拉一次，覆盖首次历史加载与订阅之间的空隙。
+
+Swift 的真实 WebSocket 测试可先运行 `node mobile/scripts/socket-test-server.mjs`（依赖 `tests/integration` 的 npm 包），再运行 `ACERCIAE_SOCKET_TEST_BASE=http://127.0.0.1:18090 swift test --package-path mobile/ios/AcerciaeCore --filter RealtimeTests`。测试只访问本地隔离服务，验证 URLSession 的文件令牌、订阅、真实断线重连、补拉回调与频道切换。浏览器双实例验收使用 `WEB_BASE=<本地 Vite 地址> CHROME_CHANNEL=chrome npm --prefix tests/browser run test:recall`，Vite 通过 `ACERCIAE_API_TARGET` 指向专用测试后端，验证另一客户端实时收到撤回、引用/草稿清理、重新编辑、重载和重连补拉。
+

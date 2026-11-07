@@ -35,7 +35,7 @@ import { Guard } from "./whereabouts.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-async function signIn(cfg) {
+export async function signIn(cfg) {
   if (!cfg.username || !cfg.password) throw new Error("set GM_USERNAME and GM_PASSWORD (or --username / --password)");
   const api = new Api(cfg.apiBase);
   try {
@@ -51,7 +51,7 @@ async function signIn(cfg) {
 // The channel to keep: --channel (the account must already be GM there). Without it, `setup` lists the channels the
 // account keeps and asks which one (on a terminal), or says how to create one in the web app. Nothing is created on
 // the platform unless `setup --create` asks for a new server and channel.
-async function resolveChannel(api, cfg, { create }) {
+export async function resolveChannel(api, cfg, { create }) {
   if (cfg.channelId) {
     const ch = await api.channel(cfg.channelId);
     if (ch.my_role !== "gm") throw new Error(`${cfg.username} is not the GM of channel ${cfg.channelId}; add it as GM first`);
@@ -117,7 +117,7 @@ async function setupChannel(cfg, api, target, automatic = false) {
 // before any cards, world publication, WebSocket or turn timers are started.
 async function reviewBeforePlay(api, llm, channel, rules, world, language, review, automatic) {
   async function design(current) {
-    try { return await preparePack(api, llm, channel, rules, world, language, current); }
+    try { return await preparePack(api, llm, channel, rules, world, language, current, (m) => console.log(m)); }
     catch (error) {
       if (error.status !== 409) throw error;
       // A GM can keep the pack or request a retry even while the model is still answering.
@@ -322,7 +322,7 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
     finish();
   };
   const finish = () => { table.store.close(); release(); process.exit(0); };
-  if (managed) return { stop: async () => {
+  if (managed) return { table, channel, realtime: rt, cfg, stop: async () => {
     table.stopTicker(); fs.unwatchFile(inbox); rt.stop();
     for (const pending of table.timers.values()) clearTimeout(pending.timer);
     table.generation.pause();

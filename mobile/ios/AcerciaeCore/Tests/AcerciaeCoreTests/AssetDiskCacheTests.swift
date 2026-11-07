@@ -2,6 +2,19 @@ import XCTest
 @testable import AcerciaeCore
 
 final class AssetDiskCacheTests: XCTestCase {
+    func testRecallDropsPaginatedCopiesAndRejectsInFlightWritesButKeepsOtherCache() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cache = AssetDiskCache(directory: dir)
+        for key in ["recent", "history", "fork"] { cache.put(key, Data(#"[{"id":"withdrawn","content":"Old text"}]"#.utf8)) }
+        cache.put("catalog", Data(#"[{"id":"server"}]"#.utf8))
+        let generation = cache.generation
+        cache.removeMessage("withdrawn")
+        cache.put("late", Data("Old text".utf8), generation: generation)
+        let restarted = AssetDiskCache(directory: dir)
+        for key in ["recent", "history", "fork", "late"] { XCTAssertNil(restarted.get(key)) }
+        XCTAssertNotNil(restarted.get("catalog"))
+    }
     func testKeepsFilesAndDropsTheLeastRecentlyUsed() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let cache = AssetDiskCache(directory: dir, capBytes: 10)

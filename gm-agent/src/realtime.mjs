@@ -14,6 +14,7 @@ export class Realtime extends EventEmitter {
     this.sockets = new Map();
     this.closed = false;
     this.reconnectTimers = new Set();
+    this.connected = new Set();     // streams subscribed right now (for status)
   }
 
   start() { for (const s of this.streams) this.open(s, 0); }
@@ -24,6 +25,7 @@ export class Realtime extends EventEmitter {
     this.reconnectTimers.clear();
     for (const { ws, ping } of this.sockets.values()) { clearInterval(ping); ws.terminate(); }
     this.sockets.clear();
+    this.connected.clear();
   }
 
   open(stream, attempt) {
@@ -43,6 +45,7 @@ export class Realtime extends EventEmitter {
       if (m.type === "hello") { ws.send(JSON.stringify({ type: "subscribe", channel_id: this.channelId })); return; }
       if (m.type === "subscribed") {
         this.log(`subscribed to ${stream}`);
+        this.connected.add(stream);
         this.emit("subscribed", stream, attempt > 0);
         if (attempt > 0) this.emit("reconnected", stream);
         attempt = 0;
@@ -54,6 +57,7 @@ export class Realtime extends EventEmitter {
     });
     ws.on("close", () => {
       clearInterval(entry.ping);
+      this.connected.delete(stream);
       if (this.closed) return;
       const delay = Math.min(30000, 1000 * 2 ** Math.min(attempt, 5));
       this.log(`${stream} socket closed; reconnecting in ${delay} ms`);

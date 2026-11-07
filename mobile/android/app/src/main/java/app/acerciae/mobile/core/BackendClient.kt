@@ -37,7 +37,7 @@ class BackendAddress(value: String, allowLocalHttp: Boolean) {
 enum class RealtimeStream(val path: String) { CHAT("chat"), CONTEXT("context") }
 class PointRuleException(message: String) : IllegalArgumentException("购点校验未通过：" + message.take(2000))
 class InvalidBackendResponse : IOException("服务返回的数据格式不兼容，请更新客户端或联系管理员")
-class BackendException(val status: Int, val apiResponse: Boolean = true) : IOException(if (!apiResponse) "服务入口暂时不可用（HTTP $status），请稍后重试" else when (status) {
+class BackendException(val status: Int, val apiResponse: Boolean = true, /** The API's error code, e.g. `recall_expired`. */ val code: String = "") : IOException(if (!apiResponse) "服务入口暂时不可用（HTTP $status），请稍后重试" else when (status) {
     401 -> "登录已过期，请重新登录"
     403 -> "当前账号没有权限，或管理员已关闭此功能"
     404 -> "内容不可用，或服务版本尚未提供此功能"
@@ -137,7 +137,7 @@ class BackendClient(
                         if(!it.isSuccessful) {
                             val error=runCatching { json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject }.getOrNull()
                             if(it.code==400 && error?.text("error")=="points_rule") throw PointRuleException(error.text("message"))
-                            throw BackendException(it.code,!error?.text("error").isNullOrEmpty())
+                            throw BackendException(it.code,!error?.text("error").isNullOrEmpty(),error?.text("error").orEmpty())
                         }
                         Fetched(bytes, it.header("Cache-Control"))
                     }
@@ -160,4 +160,9 @@ class BackendClient(
     suspend fun documents(token: String, channel: String): List<DocumentSummary> = request(listOf("channels", channel, "documents"), token)
     suspend fun document(token: String, channel: String, document: String): DocumentDetail = request(listOf("channels", channel, "documents", document), token)
     suspend fun highlights(token: String, channel: String): List<Highlight> = request(listOf("channels", channel, "highlights"), token)
+    /** A short-lived token for a URL that cannot carry headers (the WebSocket); the session token never goes into one. */
+    suspend fun fileToken(token: String): String = resource(listOf("auth", "file-token"), token, JsonObject(emptyMap())).text("token")
+    /** Takes back one of the caller's own lines: its tombstone, and the text to edit and send again. */
+    suspend fun recall(token: String, channel: String, message: String): Recalled = request(listOf("channels", channel, "messages", message, "recall"), token, body = "{}")
 }
+@kotlinx.serialization.Serializable data class Recalled(val message: Message, val content: String = "")

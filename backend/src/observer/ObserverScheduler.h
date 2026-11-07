@@ -52,6 +52,8 @@ private:
     // (dead-lettered) so a batch that always fails is not paid for forever. Returns true when it was skipped.
     bool recordFailure(const std::string& channelId, const std::string& kind, const std::string& key, int64_t skipTo, const std::string& jobId, const std::string& error);
     bool backingOff(const std::string& channelId, const std::string& kind, const std::string& key);
+    // Lines of a finished batch recalled while the model had them: what this batch made of them is forgotten.
+    void forgetRecalled(const std::string& channelId, const std::vector<std::string>& batchEventIds);
     static constexpr int kMaxAttempts = 5;
     Json::Value buildGroupContext(const ChannelAccess& sys, const std::string& channelId, const std::string& windowId, const std::string& sceneId, const Json::Value& batch, std::vector<std::string>& terms);
     Json::Value worldContext(const std::string& channelId, const std::string& groupId);

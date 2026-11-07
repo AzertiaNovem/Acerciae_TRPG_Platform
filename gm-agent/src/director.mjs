@@ -58,7 +58,7 @@ ${COMMON_RULES}
 ${pbta ? PBTA_PLAY : DICE_RULE(profile)}
 ${AWAY_RULE}
 ${NPC_CONTINUITY_RULES}
-- Use npc for an existing named NPC; only new_npc creates a character. Check the cast before choosing new_npc.
+- Voicing people: npc speaks for someone in the cast; only new_npc creates a character. Check the cast first: if someone there fits the part, they take it. A new person who passes the three tests for new people enters with new_npc (name, a brief for their role card, their first line) and speaks with npc after that; never put a real NPC's words inside narrate, and never sum up their conversation in narration. If someone first met in narration turns out to pass the tests (they keep talking, or a player seeks them out), make them a real NPC with new_npc then, consistent with what narration already said about them.
 ${WORLD_RULE}
 ${calendar ? `${TIME_RULE(planner)}
 ` : ""}${PEOPLE_RULE}

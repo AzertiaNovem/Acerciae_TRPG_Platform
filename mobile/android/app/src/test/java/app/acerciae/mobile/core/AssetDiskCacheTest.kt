@@ -8,6 +8,20 @@ import org.junit.Test
 import java.nio.file.Files
 
 class AssetDiskCacheTest {
+    @Test fun recallDropsPaginatedCopiesAndRejectsInFlightWritesButKeepsOtherCache() {
+        val dir = java.nio.file.Files.createTempDirectory("recall-cache").toFile()
+        try {
+            val cache = AssetDiskCache(dir)
+            listOf("recent", "history", "fork").forEach { cache.put(it, """[{"id":"withdrawn","content":"Old text"}]""".toByteArray()) }
+            cache.put("catalog", """[{"id":"server"}]""".toByteArray())
+            val generation = cache.generation()
+            cache.removeMessage("withdrawn")
+            cache.put("late", "Old text".toByteArray(), generation)
+            val restarted = AssetDiskCache(dir)
+            listOf("recent", "history", "fork", "late").forEach { assertNull(restarted.get(it)) }
+            assertNotNull(restarted.get("catalog"))
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun keepsOnlyImmutableResponsesAndServesThemWithoutTheNetwork() = runBlocking {
         val dir = Files.createTempDirectory("assets").toFile()
         MockWebServer().use { server ->

@@ -48,7 +48,7 @@ public enum RealtimeStream: String, Sendable { case chat, context }
 
 // The app owns secure session persistence. Never log authorization headers.
 public struct BackendClient: Sendable {
-    private let address: BackendAddress
+    public let address: BackendAddress
     private let session: URLSession
     /// Downloaded media kept on disk for the signed-in account (see `AssetDiskCache`); nil keeps nothing.
     public let assets: AssetDiskCache?
@@ -192,7 +192,14 @@ public struct BackendClient: Sendable {
     public func messages(token: String, channel: String, window: String) async throws -> [Message] { try await request(["channels", channel, "windows", window, "messages"], token: token) }
     public func documents(token: String, channel: String) async throws -> [DocumentSummary] { try await request(["channels", channel, "documents"], token: token) }
     public func highlights(token: String, channel: String) async throws -> [Highlight] { try await request(["channels", channel, "highlights"], token: token) }
+    /// A short-lived token for a URL that cannot carry headers (the WebSocket); the session token never goes into one.
+    public func fileToken(token: String) async throws -> String { try await resource(["auth", "file-token"], token: token, body: .object([:]))["token"].text }
+    /// Takes back one of the caller's own lines: its tombstone, and the text to edit and send again.
+    public func recall(token: String, channel: String, message: String) async throws -> Recalled {
+        try await request(["channels", channel, "messages", message, "recall"], token: token, body: Data("{}".utf8))
+    }
 }
+public struct Recalled: Decodable, Sendable { public let message: Message; public let content: String }
 private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
