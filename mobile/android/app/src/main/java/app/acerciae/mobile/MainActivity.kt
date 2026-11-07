@@ -343,6 +343,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
                         key(state.user?.id, state.scopeKey, state.windowId, id) { ChatReference(id, state, model) }
                     }
                     if (message.dice != null) DiceResult(message)
+                    else if (message.hasIllustration) ChatIllustration(message, state, model)
                     else Text(message.displayText, style = MaterialTheme.typography.bodyLarge)
                 }
             }

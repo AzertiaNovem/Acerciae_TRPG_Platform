@@ -18,6 +18,8 @@ import kotlinx.serialization.json.*
     @SerialName("character_name") val characterName: String? = null,
     val kind: String,
     val seq: Long,
+    @SerialName("channel_id") val channelId: String? = null,
+    @SerialName("media_asset_id") val mediaAssetId: String? = null,
     val visibility: String = "window",
     @SerialName("author_id") val authorId: String? = null,
     val dice: JsonObject? = null,
@@ -65,6 +67,8 @@ import kotlinx.serialization.json.*
 
 val Message.displayText: String get() = if (recalledAt != null) "" else dice?.get("text")?.jsonPrimitive?.contentOrNull ?: if (diceTone == DiceTone.NOTICE) "" else content
 val Message.recalled: Boolean get() = recalledAt != null
+val Message.hasIllustration: Boolean get() = !recalled && !mediaAssetId.isNullOrEmpty()
+val Message.illustrationCaption: String get() = ChatIllustrations.caption(content)
 fun JsonObject.text(key: String): String = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 fun JsonObject.flag(key: String): Boolean = (get(key) as? JsonPrimitive)?.booleanOrNull ?: false
 fun JsonObject.number(key: String): Int = (get(key) as? JsonPrimitive)?.intOrNull ?: 0
