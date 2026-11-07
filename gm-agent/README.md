@@ -269,6 +269,8 @@ creates the character, or reuses the existing one when that name is already in t
    | `truth` | improvisation mode: a hidden fact the GM just decided, kept for later turns and declared as a secret |
    | `text` | casual mode: a real NPC texts a player character's phone |
    | `planner_note` | a word for the story planner: what the players did that changed the plan, or that the beat is done |
+   | `event_done` | a small event has just ended: its most striking moment is drawn in that window after the turn (see Illustrations) |
+   | `illustrate` | a breathtaking moment in the middle of an event, drawn at once (see Illustrations) |
    | `date` | casual mode: moves the story's calendar on (`advance_days`, the time of day) or to a later YYYY-MM-DD date; never backwards, and the date only at the GM's pace (`calendar.*`) |
    | `bond` | records, changes or ends a relationship between two characters (`secret`: the investigators do not know it) |
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
@@ -322,18 +324,32 @@ recalls itself never start a rollback.
 The platform can draw a moment of the story with the server's image provider: a description, up to four characters
 whose portraits guide the picture, and a frame (landscape, portrait or square). The picture is posted in the window
 as the GM's out-of-character line ("🖼️ " and the description), a little after it was asked for; it never starts a
-turn. The table uses it three ways (`src/illustrations.mjs`, `src/plotArt.mjs`):
+turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`):
 
-- **Evocative moments.** When a moment is truly evocative and beautiful (a breathtaking place revealed, a charged
-  meeting, a striking image the players will remember), the GM may have it drawn with `illustrate`, in any scene:
-  one frozen moment for a painter, with who is in it, the place, the light and the mood, and no words. The GM is told
-  to use it rarely, and the table allows at most `illustrations.max_per_hour` (3) such pictures an hour.
+- **The end of every small event.** The story moves in small events: a conversation that reaches its point, a search
+  that turns something up, a fight or a chase, an arrival somewhere new, a ritual, a farewell. When the GM's lines
+  bring one to its end, it adds `event_done` with the event's name. After the turn, a model call
+  (`event_illustration`) reads the public lines of that event in its window (since the previous event there, the
+  scenario's start or the scene's start; at most its last 120 lines) and chooses its most striking moment, the
+  characters in it and the frame; the picture is posted in that window. No picture when no human player is in the
+  scene, when the event has fewer than four lines, or when the hour's in-play pictures are spent. A recall that rolls
+  back the turn that ended the event drops or cancels its picture.
+- **Evocative moments.** For a breathtaking moment in the middle of an event (a place revealed, a charged meeting),
+  the GM may have it drawn at once with `illustrate`: one frozen moment for a painter, with who is in it, the place,
+  the light and the mood, and no words. The GM is told to use it rarely. Event pictures and these together are capped
+  at `illustrations.max_per_hour` (6) an hour.
 - **Every scenario change.** When the story enters its next scenario, the table always draws the most brilliant,
   beautiful, artistic moment of the scenario that just ended, once for each timeline a human player was in
   (co-player-only threads are skipped). A model call reads that timeline's window, the lines of the ending scenario
   that its readers saw (no whispers, GM-only notes or other windows), and chooses the moment, the characters in it
   and the frame. All of these pictures are posted in the Main Chat, one after another: the platform draws one
   picture at a time per account, so each waits for the previous one.
+
+  **No moment twice.** Every choice of a moment, for an event or a scenario, is given the descriptions of the pictures
+  the scenario already has (the pictures posted since it began, in any window, and those chosen but not drawn yet)
+  and told to choose a different one. The choices are made one at a time, in the order the events ended, so a
+  scenario picture asked for in the same turn as an event's end knows that event's picture. An event that ends in the
+  same turn as a scenario change counts as ending before it.
 - **On a player's request.** A player writes `/画` (or `/插画`, `/draw`, `/illustrate`) and the moment they want in
   the planner window: `/画 我们黄昏时抵达灯塔的那一刻`, `/draw the duel on the bridge, as an ink sketch`. The request
   never reaches the story planner, and the GM does not read it either. The table answers at once ("🎨 Looking for that
@@ -356,7 +372,7 @@ turn. The table uses it three ways (`src/illustrations.mjs`, `src/plotArt.mjs`):
 A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
 is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
 illustrations stay off for the rest of the run. `illustrations.allow_cloud` confirms that the descriptions and
-portraits may go to a cloud image service; `illustrations.enabled: false` turns all three uses off.
+portraits may go to a cloud image service; `illustrations.enabled: false` turns all four uses off.
 
 ## Timelines and autonomy
 
@@ -937,7 +953,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
 | `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
 | `illustrations.enabled` | `--illustrations` | `true` | evocative moments and the scenario-change pictures (see Illustrations) |
-| `illustrations.max_per_hour` | `--illustrations-per-hour` | `3` | pictures the GM may ask for in play each hour (0: none in play; scenario pictures are not counted) |
+| `illustrations.max_per_hour` | `--illustrations-per-hour` | `6` | pictures in play each hour: the ends of small events and the GM's `illustrate` together (0: none in play; scenario and requested pictures are not counted) |
 | `illustrations.allow_cloud` | `--illustrations-allow-cloud` | `true` | descriptions and portraits may go to a cloud image service |
 | `illustrations.requests_per_hour` | `--illustrations-requests-per-hour` | `4` | pictures of past plots each player may ask for with `/画` in the planner window each hour (0: the command is off) |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |

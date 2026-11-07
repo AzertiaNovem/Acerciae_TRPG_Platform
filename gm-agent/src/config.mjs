@@ -235,12 +235,12 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     calendarMinMinutes: Math.max(0, int(pick("calendar-min-minutes", 30), 30)),
     calendarMinLines: Math.max(0, int(pick("calendar-min-lines", 30), 30)),
     calendarMaxDays: Math.max(0, int(pick("calendar-max-days", 2), 2)),
-    // Illustrations (illustrations.mjs): the GM may have an evocative moment drawn (at most max_per_hour), and every
-    // scenario change draws the best moment of each timeline a player was in. The server's image provider draws them;
+    // Illustrations (illustrations.mjs): the end of every small event and the GM's evocative moments are drawn in play
+    // (at most max_per_hour together), and every scenario change draws the best moment of each timeline a player was in. The server's image provider draws them;
     // allow_cloud confirms that descriptions and portraits may go to a cloud image service.
     illustrations: {
       enabled: bool(pick("illustrations"), true),
-      maxPerHour: Math.max(0, Math.min(20, int(pick("illustrations-per-hour", 3), 3))),
+      maxPerHour: Math.max(0, Math.min(20, int(pick("illustrations-per-hour", 6), 6))),
       allowCloud: bool(pick("illustrations-allow-cloud"), true),
       // Pictures of past plots each player may ask for in the planner window an hour ("/画 …"; plotArt.mjs); 0: none.
       requestsPerHour: Math.max(0, Math.min(20, int(pick("illustrations-requests-per-hour", 4), 4))),

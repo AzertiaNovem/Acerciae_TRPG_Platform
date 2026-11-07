@@ -42,6 +42,7 @@ export class MockLlm {
       case "scene_handoff": return JSON.stringify(this.handoff(JSON.parse(messages[0].content)));
       case "coplayer_build": return JSON.stringify({ dnd: this.dndBuild() });
       case "scenario_illustration": return JSON.stringify(this.scenarioMoment(user));
+      case "event_illustration": return JSON.stringify({ ...this.scenarioMoment(user), moment: this.scenarioMoment(user).moment.replace("[mock moment]", "[mock event]") });
       case "plot_search": return JSON.stringify(this.plotSearch(user));
       case "plot_illustration": return JSON.stringify(this.plotMoment(user));
       case "director": return JSON.stringify(this.director(user));
@@ -188,6 +189,8 @@ export class MockLlm {
       const going = text.match(/\bI (?:go|head|walk|drive|run) to (?:the )?([^.,!?]+)/i);
       if (/\bI (?:go|head|walk) back\b|\bback to the others\b/i.test(text)) whereabouts.push({ who: [speaker], thread: "T0" });
       else if (going) whereabouts.push({ who: [speaker], thread: "new", place: going[1].trim(), own_scene: true, span: /\bcity|train|abroad\b/i.test(text) ? "long" : "short", opening: `[mock GM] ${going[1].trim()}: fog, and a single lamp.` });
+      // "That settles it": a small event ends (its picture is drawn when pictures are on).
+      if (/\bthat settles it\b/i.test(text)) actions.push({ type: "event_done", text: `[mock] what ${speaker} settled` });
       if (/\bnext morning\b/i.test(text)) actions.push({ type: "advance_scenario", title: "The next morning", location: "", narrative_time: "next morning", reason: "a night passes" });
     }
     return { actions, coplayers_may_act: true, ...(whereabouts.length ? { whereabouts } : {}) };

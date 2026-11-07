@@ -103,7 +103,7 @@ ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for yo
 export function validateDirector(x, { auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
   if (!x || typeof x !== "object" || !Array.isArray(x.actions)) throw new Error("actions must be an array");
   const allowed = [...(!pbta && profile.gmDice ? ["dice"] : []), ...(pbta ? ["move","ask","mark"] : []), ...BASE_ACTIONS.filter(t => (calendar || t !== "date") && (!pbta || t !== "request_roll")), ...(auto ? [] : LEGACY_ACTIONS), ...(improv ? ["truth"] : []), ...(casual ? ["text"] : []), ...(planner ? ["planner_note"] : [])];
-  if (illustrate) allowed.push("illustrate");
+  if (illustrate) allowed.push("illustrate", "event_done");
   const actions = x.actions
     .filter((a) => a && allowed.includes(a.type))
     .map((a) => (a.type === "illustrate" ? { ...a, ...normalizeIllustration(a) } : a))

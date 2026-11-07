@@ -2664,7 +2664,7 @@ test("the GM may have an evocative moment drawn: with the characters' portraits,
   const { t, api } = await table({ llm, forks: false, cfg: illustrateCfg({ maxPerHour: 1 }) });
   await playerSays(t, api, "I walk to the end of the pier."); await settle(t);
   const system = llm.calls.find((c) => c.purpose === "director").system;
-  assert.match(system, /- Illustrations: when a moment is truly evocative and beautiful/); assert.match(system, /"type": "illustrate"/);
+  assert.match(system, /- Pictures: the story moves in small events/); assert.match(system, /for a breathtaking moment in the middle of an event[^\n]*illustrate/); assert.match(system, /"type": "illustrate"/); assert.match(system, /"type": "event_done"/);
   assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt, j.character_ids, j.orientation, j.allow_cloud]),
     [["w-main", "Harriet at the end of the pier, lantern raised, fog lit gold", ["c-harriet", "c-butler"], "portrait", true]], "unknown names are left out");
   assert.ok(api.lines.some((m) => m.kind === "ooc" && m.content.startsWith("🖼️ Harriet at the end") && m.media_asset_id), "posted by the platform as the GM's picture");
@@ -2722,6 +2722,65 @@ test("a recall that rolls back a turn cancels the picture it asked for", async (
   assert.equal(api.illustrations_[0].status, "pending");
   await recallLine(t, api, said); await settle(t);
   assert.equal(api.illustrations_[0].status, "cancelled");
+});
+
+test("the end of each small event is drawn where it was played, from its own lines; the next scenario's picture knows what is drawn", async () => {
+  const llm = new MockLlm();
+  const answer = { "I lower my blade.": [{ type: "narrate", text: "The duel on the pier is over; the stranger yields." }, { type: "event_done", text: "the duel on the pier" }],
+    // The scenario change listed first: the event still ends before it.
+    "We count the coins.": [{ type: "narrate", text: "The coins glint in the lamplight." }, { type: "advance_scenario", title: "Dawn" }, { type: "event_done", text: "counting the loot" }] };
+  llm.director = (user) => {
+    const said = user.match(/^NEWEST LINE: Alice Hale: (.*)$/m)?.[1];
+    return { actions: answer[said] ?? (said ? [{ type: "narrate", text: `The night answers: ${said}` }] : []), coplayers_may_act: false };
+  };
+  const { t, api } = await table({ llm, forks: false, cfg: { ...illustrateCfg(), scenarioMinMinutes: 0, scenarioMinLines: 0 } });
+  const events = () => llm.calls.filter((c) => c.purpose === "event_illustration").map((c) => c.messages[0].content);
+  for (const line of ["I draw my sword on the pier.", "I parry the stranger's blow.", "I lower my blade."]) { await playerSays(t, api, line); await settle(t); }
+  await t.illustrating;
+  assert.equal(events().length, 1);
+  assert.match(events()[0], /^THE EVENT THAT JUST ENDED: the duel on the pier/);
+  assert.ok(events()[0].includes("I draw my sword on the pier.") && events()[0].includes("The duel on the pier is over"), "the event's lines, up to its end");
+  assert.ok(!events()[0].includes("ALREADY DRAWN"), "nothing drawn yet");
+  assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt]), [["w-main", "[mock event] The duel on the pier is over; the stranger yields."]], "posted where it was played");
+  for (const line of ["We open the chest.", "We weigh the gold.", "We count the coins."]) { await playerSays(t, api, line); await settle(t); }
+  await t.illustrating;
+  assert.equal(events().length, 2);
+  assert.ok(events()[1].includes("We open the chest.") && !events()[1].includes("I parry the stranger's blow."), "the next event begins after the last one");
+  assert.ok(!events()[1].includes("Dawn"), "and ends before the scenario change");
+  assert.match(events()[1], /ALREADY DRAWN IN THIS SCENARIO[^\n]*\n- \[mock event\] The duel on the pier is over/, "it knows what the scenario already has");
+  const scenario = llm.calls.filter((c) => c.purpose === "scenario_illustration").map((c) => c.messages[0].content);
+  assert.equal(scenario.length, 1);
+  assert.match(scenario[0], /ALREADY DRAWN IN THIS SCENARIO[^\n]*\n- \[mock event\] The duel on the pier is over[^\n]*\n- \[mock event\] The coins glint in the lamplight\./, "the scenario picture knows both, the newest one too");
+  assert.deepEqual(llm.calls.map((c) => c.purpose).filter((x) => x.endsWith("_illustration")), ["event_illustration", "event_illustration", "scenario_illustration"], "chosen one at a time, in order");
+  assert.deepEqual(api.illustrations_.map((j) => j.status), ["completed", "completed", "completed"]);
+});
+
+test("an event's picture: none for a short event, none past the hourly cap, and a rolled-back turn's picture is not drawn", async () => {
+  const llm = new MockLlm();
+  llm.director = (user) => {
+    const said = user.match(/^NEWEST LINE: Alice Hale: (.*)$/m)?.[1] ?? "";
+    return { actions: said ? [{ type: "narrate", text: `So it goes: ${said}` }, ...(/done/.test(said) ? [{ type: "event_done", text: said }] : [])] : [], coplayers_may_act: false };
+  };
+  const { t, api } = await table({ llm, forks: false, cfg: illustrateCfg({ maxPerHour: 1 }) });
+  for (const l of ["We meet the captain.", "We bargain."]) { await playerSays(t, api, l); await settle(t); }
+  await playerSays(t, api, "First event done."); await settle(t); await t.illustrating;
+  assert.equal(api.illustrations_?.length ?? 0, 1, "the first event is drawn");
+  await playerSays(t, api, "A short one, done."); await settle(t); await t.illustrating;
+  assert.equal(api.illustrations_.length, 1, "two lines are too short for a picture");
+  for (const l of ["We walk on.", "We talk.", "We arrive."]) { await playerSays(t, api, l); await settle(t); }
+  await playerSays(t, api, "Second event done."); await settle(t); await t.illustrating;
+  assert.equal(api.illustrations_.length, 1, "the hourly cap holds");
+  // A recall rolls back the turn that ended an event: its picture is not asked for.
+  const later = await table({ llm, forks: false, cfg: illustrateCfg() });
+  for (const l of ["We walk on.", "We talk.", "We arrive."]) { await playerSays(later.t, later.api, l); await settle(later.t); }
+  let open;
+  const gate = new Promise((r) => (open = r)), complete = llm.complete.bind(llm);
+  llm.complete = async (req) => { if (req.purpose === "event_illustration") await gate; return complete(req); };
+  const said = lineSaid(later.api, "The meeting is done.");
+  await sayLine(later.t, said); await settle(later.t);
+  await recallLine(later.t, later.api, said); await settle(later.t);
+  open(); await later.t.illustrating;
+  assert.equal(later.api.illustrations_?.length ?? 0, 0, "the rolled-back event's picture is never drawn");
 });
 
 // ---- pictures of past plots, asked for in the planner window
