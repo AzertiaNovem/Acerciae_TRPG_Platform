@@ -28,6 +28,10 @@ import kotlinx.serialization.json.*
     @SerialName("character_avatar_hash") val characterAvatarHash: String? = null,
     @SerialName("author_avatar_hash") val authorAvatarHash: String? = null,
     @SerialName("reference_ids") val referenceIds: List<String>? = null,
+    /** Recalled by its author: a tombstone (no text, dice or references) kept in the line's place. */
+    @SerialName("recalled_at") val recalledAt: String? = null,
+    /** Seconds left, when the message arrived, for its author to recall it; null when it cannot be recalled. */
+    @SerialName("recall_seconds_left") val recallSecondsLeft: Int? = null,
 )
 @Serializable data class DocumentSummary(
     val id: String,
@@ -59,7 +63,8 @@ import kotlinx.serialization.json.*
 )
 @Serializable data class ReplayFrame(val id: String, val speaker: String, val text: String, val atmosphere: String)
 
-val Message.displayText: String get() = dice?.get("text")?.jsonPrimitive?.contentOrNull ?: if (diceTone == DiceTone.NOTICE) "" else content
+val Message.displayText: String get() = if (recalledAt != null) "" else dice?.get("text")?.jsonPrimitive?.contentOrNull ?: if (diceTone == DiceTone.NOTICE) "" else content
+val Message.recalled: Boolean get() = recalledAt != null
 fun JsonObject.text(key: String): String = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 fun JsonObject.flag(key: String): Boolean = (get(key) as? JsonPrimitive)?.booleanOrNull ?: false
 fun JsonObject.number(key: String): Int = (get(key) as? JsonPrimitive)?.intOrNull ?: 0

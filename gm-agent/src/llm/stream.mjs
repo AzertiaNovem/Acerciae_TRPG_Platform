@@ -3,9 +3,9 @@ export async function withResponseTimeout(ms, parent, streaming, run) {
   const idle = new AbortController();
   const signal = parent ? AbortSignal.any([parent, idle.signal]) : idle.signal;
   signal.throwIfAborted();
-  const timer = setTimeout(() => idle.abort(new Error(streaming
+  const timer = setTimeout(() => idle.abort(Object.assign(new Error(streaming
     ? `LLM sent no data for ${ms / 1000}s. Check the provider or llm.timeout_ms in gm-agent.yml.`
-    : `LLM request exceeded the client timeout (${ms / 1000}s). Check the provider or llm.timeout_ms in gm-agent.yml.`)), ms);
+    : `LLM request exceeded the client timeout (${ms / 1000}s). Check the provider or llm.timeout_ms in gm-agent.yml.`), { code: streaming ? 'LLM_IDLE_TIMEOUT' : 'LLM_TIMEOUT' })), ms);
   timer.unref();
   try {
     const result = await run(signal, () => { if (streaming) timer.refresh(); });
@@ -48,9 +48,11 @@ export async function* streamEvents(body, activity) {
         .map(line => line.slice(5).trimStart()).join("\n");
       if (!data || data === "[DONE]") continue;
       const event = JSON.parse(data);
-      if (event.type === "error") throw new Error(`LLM stream: ${event.message ?? event.error?.message ?? "provider error"}`);
+      if (event.type === "error") throw Object.assign(new Error(`LLM stream: ${event.message ?? event.error?.message ?? "provider error"}`), {
+        code: event.error?.code ?? event.error?.type ?? event.code,
+      });
       yield event;
     }
   }
-  throw new Error("LLM stream ended before completion; retry the request.");
+  throw Object.assign(new Error("LLM stream ended before completion; retry the request."), { code: 'LLM_STREAM_INTERRUPTED' });
 }

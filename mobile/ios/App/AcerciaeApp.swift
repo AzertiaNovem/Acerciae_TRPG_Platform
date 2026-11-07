@@ -17,7 +17,83 @@ import AcerciaeCore
     @Published var initiative: JSONValue = .null
     @Published var bannersEnabled = UserDefaults.standard.object(forKey: "chatBanners") as? Bool ?? true
     @Published var readAloud = UserDefaults.standard.bool(forKey: "readAloud")
-    var foreground = false { didSet { if !foreground { stopArtworkPrefetch(); metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID(); metadataUpdated = .distantPast } } }
+    var foreground = false { didSet { if !foreground { stopArtworkPrefetch(); metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID(); metadataUpdated = .distantPast; stopRealtime() } } }
+    // ---- live updates. The chat stream (AcerciaeCore/ChatSocket.swift) follows the channel on screen. A push wakes the
+    // poll loop (RootView), which refreshes as it always has; a recall is applied at once. While the stream is live,
+    // polling every 30 s is only a safety net; when it is down the loop polls every 4 s as before.
+    var pushPending = false
+    private(set) var pushConnected = false
+    private var socket: ChatSocket?
+    private var socketToken: String?
+    func followRealtime() {
+        guard online, foreground, !channelId.isEmpty, let client, let token = session?.token else { stopRealtime(); return }
+        if token != socketToken { stopRealtime() }
+        let stream: ChatSocket
+        if let socket { stream = socket } else {
+            stream = ChatSocket(address: client.address, fileToken: { try await client.fileToken(token: token) }, handlers: ChatSocket.Handlers(
+                event: { [weak self] event in self?.onPush(event) },
+                live: { [weak self] live in
+                    self?.pushConnected = live
+                    if live { self?.pushPending = true }
+                    if self?.online == true { self?.connection = live ? "已连接 · 实时推送" : "已连接 · 自动刷新" }
+                },
+                resync: { [weak self] in self?.pushPending = true }))
+            socket = stream; socketToken = token
+        }
+        stream.follow(channelId)
+    }
+    func stopRealtime() { socket?.close(); socket = nil; socketToken = nil; pushConnected = false }
+    func onPush(_ e: RealtimeEvent) {
+        guard e.channelId.isEmpty || e.channelId == channelId else { return }
+        switch e.type {
+        case "message.recalled": if let tombstone = e.message { applyRecall(tombstone) }
+        case "character.updated", "scene.changed", "server.settings": metadataUpdated = .distantPast
+        case "channel.deleted", "server.deleted": catalogUpdated = .distantPast
+        default: break
+        }
+        pushPending = true
+    }
+    // ---- recall: the author takes a line back within two minutes (docs/API.md). The tombstone replaces the line here,
+    // in quoted references and in banners; the author keeps the text for "Re-edit".
+    private var recallDeadlines = RecallDeadlines()
+    @Published var recallDrafts: [String: String] = [:]
+    @Published private(set) var recalledMessages: [String: Message] = [:]
+    func canRecall(_ m: Message) -> Bool { m.authorId != nil && m.authorId == session?.user.id && recallDeadlines.open(m) }
+    private func applyRecall(_ tombstone: Message) {
+        guard tombstone.recalled else { return }
+        if recalledMessages[tombstone.id] == nil {
+            recalledMessages[tombstone.id] = tombstone
+            metadataUpdated = .distantPast
+            if let cache = client?.reads {
+                Task.detached(priority: .utility) { cache.removeMessage(tombstone.id) }
+            }
+        }
+        speech.stopSpeaking(at: .immediate)
+        if let messages = campaign?.messages { campaign?.messages = messages.withRecall(tombstone) }
+        references.removeAll { $0.id == tombstone.id }
+        chatNotices = chatNotices.compactMap { n in
+            let rest = n.messages.filter { $0.id != tombstone.id }
+            return rest.isEmpty ? nil : ChatNotice(id: n.id, title: n.title, messages: rest)
+        }
+    }
+    func recall(_ m: Message) async {
+        await run {
+            let stamp = self.epoch
+            guard let client = self.client, let token = self.session?.token else { return }
+            do {
+                let done = try await client.recall(token: token, channel: self.channelId, message: m.id)
+                guard stamp == self.epoch else { return }
+                self.applyRecall(done.message)
+                if !done.content.isEmpty { self.recallDrafts[m.id] = done.content }
+            } catch ClientError.http(409) {
+                self.notice = tr(self.recallDeadlines.expired(m) ? "Messages can only be recalled within 2 minutes of sending." : "This message can't be recalled.")
+            }
+        }
+    }
+    func reedit(_ id: String) {
+        guard let text = recallDrafts.removeValue(forKey: id) else { return }
+        draft = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : draft + "\n" + text
+    }
     var chatVisible = false
     let speech = AVSpeechSynthesizer()
     private var readSeq: [String: Int64] = [:]
@@ -109,7 +185,7 @@ import AcerciaeCore
             let auth: Session
             if registering { auth = try await api.register(username: username, password: password, displayName: displayName) }
             else { auth = try await api.login(username: username, password: password) }
-            epoch = UUID(); client = api.withAssets(assets(for: auth.user), reads: reads(for: auth.user)); session = auth; draft = ""; drafts = [:]
+            epoch = UUID(); recalledMessages = [:]; client = api.withAssets(assets(for: auth.user), reads: reads(for: auth.user)); session = auth; draft = ""; drafts = [:]
             if let code = auth.user.uiLanguage { MobileLocale.shared.set(code) }
             do { try sessionStore.save(SavedLogin(endpoint: endpoint, session: auth)); accountUsers = try sessionStore.roster().accounts.map { $0.session.user } }
             catch { notice = tr("登录成功，但设备未能安全保存登录状态") }
@@ -156,6 +232,7 @@ import AcerciaeCore
         retired = true
         epoch = UUID()
         navigationTask?.cancel()
+        stopRealtime()
         foreground = false
         speech.stopSpeaking(at: .immediate)
         client = nil
@@ -171,10 +248,11 @@ import AcerciaeCore
         catch { notice = tr("设备未能清除登录记录，请保持联网完成退出"); return }
         accountUsers.removeAll { $0.id == id }
         Self.parkedDrafts.removeValue(forKey: id)
+        stopRealtime()
         catalogUpdated = .distantPast
         epoch = UUID(); session = nil; client = nil; servers = []; channels = []; serverId = ""; serverSettings = .null
         api?.assets?.invalidate(); api?.reads?.invalidate(); navigationTask?.cancel(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects()
-        clearChannel(); drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
+        clearChannel(); recalledMessages = [:]; drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
         retired = true
         onAccountChanged()
@@ -183,7 +261,7 @@ import AcerciaeCore
         stopArtworkPrefetch(reset: true)
         metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID()
         metadataUpdated = .distantPast; failedPolls = 0; nextPoll = .distantPast
-        chatNotices = []; initiative = .null; readSeq = [:]; speech.stopSpeaking(at:.immediate)
+        chatNotices = []; initiative = .null; readSeq = [:]; speech.stopSpeaking(at:.immediate); recallDeadlines.clear(); recallDrafts = [:]
         channelId = ""; windowId = ""; characterId = ""; channel = .null; speechMode = "ooc"; references = []; jumpMessageId = nil
         windows = []; characters = []; scenes = []; reminders = []; campaign = nil; hasOlder = false; diceHint = ""; result = nil
     }
@@ -286,7 +364,10 @@ import AcerciaeCore
         let values = await (messages,docs,hints)
         guard stamp == epoch, !Task.isCancelled, let messages = values.0 else { return }
         let payload: JSONValue = .object(["title":.string(channel["name"].text),"scene":.string(windows.first { $0.id == id }?["scene_title"].text ?? ""),"messages":messages,"documents":gm ? values.1 ?? .array([]) : .array([]),"highlights":gm ? values.2 ?? .array([]) : .array([]),"replay":.array([])])
-        if let data = try? JSONEncoder().encode(payload), let view = try? DemoCampaign.decode(data) { campaign = view; hasOlder = view.messages.count == 50 }
+        if let data = try? JSONEncoder().encode(payload), var view = try? DemoCampaign.decode(data) {
+            view.messages = view.messages.map { recalledMessages[$0.id] ?? $0 }
+            campaign = view; hasOlder = view.messages.count == 50
+        }
     }
     private func purgeCachedAccess() { stopArtworkPrefetch(reset: true); cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects() }
     private func permissionsDiffer(_ old: JSONValue, _ oldWindows: [Resource], _ fresh: JSONValue, _ freshWindows: [Resource]) -> Bool {
@@ -363,8 +444,11 @@ import AcerciaeCore
             if channel["my_role"] != info["my_role"] { speechMode = isGM ? "narration" : "ic" }
         }
         channel = info; windows = wins
-        let messages: [Message] = try await typed(["channels",c,"windows",w,"messages"],query:["limit":"50"])
+        var messages: [Message] = try await typed(["channels",c,"windows",w,"messages"],query:["limit":"50"])
         guard stamp == epoch else { return }
+        for message in messages where message.recalled { applyRecall(message) }
+        messages = messages.map { recalledMessages[$0.id] ?? $0 }
+        recallDeadlines.note(messages)
         var all = merge && !permissionsChanged ? campaign?.messages ?? [] : []
         for message in messages { all.removeAll { $0.id == message.id }; all.append(message) }
         all.sort { $0.seq < $1.seq }
@@ -373,7 +457,7 @@ import AcerciaeCore
         view.messages = all; view.documents = isGM ? campaign?.documents ?? [] : []; view.highlights = isGM ? campaign?.highlights ?? [] : []
         campaign = view; channel = info; windows = wins
         if !merge || permissionsChanged { hasOlder = messages.count == 50 }
-        connection = "已连接 · 自动刷新"
+        connection = pushConnected ? "已连接 · 实时推送" : "已连接 · 自动刷新"
         // Publish the authorized chat before optional metadata; one failed hint request must not discard messages.
         if metadata || permissionsChanged || (metadataTask == nil && Date().timeIntervalSince(metadataUpdated) >= 30) {
             metadataUpdated = Date()
@@ -447,9 +531,10 @@ import AcerciaeCore
                 let old = previous.first { $0.id == win.id }?["last_seq"].int ?? 0
                 let rows: [Message] = try await typed(["channels",c,"windows",win.id,"messages"],query:["limit":"24"])
                 guard !Task.isCancelled, foreground, stamp == epoch else { return }
-                let incoming = rows.filter { $0.seq > old && $0.authorId != user }
+                let incoming = rows.filter { $0.seq > old && $0.authorId != user && !$0.recalled && recalledMessages[$0.id] == nil }
+                let recalled = Set(rows.filter(\.recalled).map(\.id))   // a banner never keeps a line taken back
                 if !incoming.isEmpty {
-                    let prior = chatNotices.first { $0.id == win.id }?.messages ?? []
+                    let prior = (chatNotices.first { $0.id == win.id }?.messages ?? []).filter { !recalled.contains($0.id) }
                     dismissNotice(win.id); let merged = Dictionary((incoming + prior).map { ($0.id,$0) },uniquingKeysWith: { a,_ in a }).values.sorted { $0.seq > $1.seq }
                     chatNotices.insert(ChatNotice(id:win.id,title:win.name,messages:Array(merged.prefix(24))),at:0); chatNotices = Array(chatNotices.prefix(4))
                 }
@@ -459,7 +544,7 @@ import AcerciaeCore
         if channel["rule_system"].text == "dnd2024" { let value = try await get(["channels",c,"windows",w,"initiative"]); guard stamp == epoch else { return }; initiative = value }
         guard !Task.isCancelled, foreground, chatVisible, stamp == epoch else { return }
         if allowSpeech && readAloud, let previousMessages, let newest = previousMessages.map(\.seq).max() {
-            let fresh = (campaign?.messages ?? []).filter { $0.seq > newest && $0.authorId != user && $0.kind != "system" }
+            let fresh = (campaign?.messages ?? []).filter { $0.seq > newest && $0.authorId != user && $0.kind != "system" && !$0.recalled }
             for message in fresh.suffix(5) { let utterance = AVSpeechUtterance(string:String(message.displayText.prefix(1500))); utterance.voice = AVSpeechSynthesisVoice(language:serverSettings["language"].text); speech.speak(utterance) }
         }
         if let seq = campaign?.messages.map(\.seq).max(), seq > (readSeq[w] ?? -1), windows.first(where: { $0.id == w })?["unread"] != .null {
@@ -469,6 +554,7 @@ import AcerciaeCore
     func poll(forceCatalog: Bool = false) async {
         guard online, !busy, !polling, forceCatalog || Date() >= nextPoll else { return }
         polling = true; defer { polling = false }
+        pushPending = false   // a push arriving from here on wakes the loop again
         await restoreCachedCatalog()
         let token = session?.token
         let previousScope = scopeKey; let previous = windows; let previousMessages = campaign?.messages; let stamp = epoch
@@ -494,8 +580,9 @@ import AcerciaeCore
             let stamp = self.epoch
             let rows: [Message] = try await self.typed(["channels", self.channelId, "windows", self.windowId, "messages"], query: ["limit": "50", "before_seq": String(seq)])
             guard stamp == self.epoch else { return }
+            for message in rows where message.recalled { self.applyRecall(message) }
             let existing = Set(self.campaign?.messages.map(\.id) ?? [])
-            self.campaign?.messages.insert(contentsOf: rows.filter { !existing.contains($0.id) }, at: 0)
+            self.campaign?.messages.insert(contentsOf: rows.filter { !existing.contains($0.id) }.map { self.recalledMessages[$0.id] ?? $0 }, at: 0)
             self.hasOlder = rows.count == 50
         }
     }
@@ -503,6 +590,7 @@ import AcerciaeCore
         let stamp = epoch; let sourceChannel = channelId; let sourceToken = session?.token
         let message: Message = try await typed(["channels", channelId, "messages", event["message_id"].text])
         guard stamp == epoch else { return }
+        guard !message.recalled, recalledMessages[message.id] == nil else { return }
         if quote {
             if !references.contains(where: { $0.id == message.id }) {
                 guard references.count < 5 else { notice = tr("At most five chat references"); return }

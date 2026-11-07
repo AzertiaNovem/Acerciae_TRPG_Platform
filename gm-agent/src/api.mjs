@@ -27,8 +27,8 @@ export class Api {
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (res.status === 401 && retryAuth && this.credentials) {
-      // The session ended (logout elsewhere, secret rotated): sign in again once.
-      await this.login(this.credentials.username, this.credentials.password);
+      // The session ended (expired, logout elsewhere, secret rotated): sign in again once.
+      await this.relogin();
       return this.call(method, path, body, { retryAuth: false });
     }
     if (!res.ok) throw new ApiError(method, path, res.status, data);
@@ -44,6 +44,12 @@ export class Api {
     const r = await this.call("POST", "/api/auth/login", { username, password }, { retryAuth: false });
     this.token = r.token; this.user = r.user; this.credentials = { username, password };
     return r.user;
+  }
+  // A new session with the same credentials. Concurrent callers (REST calls, both sockets) share one sign-in.
+  relogin() {
+    if (!this.credentials) return Promise.reject(new Error("not signed in"));
+    this.signingIn ??= this.login(this.credentials.username, this.credentials.password).finally(() => { this.signingIn = null; });
+    return this.signingIn;
   }
   async register(username, password, displayName) {
     const r = await this.call("POST", "/api/auth/register", { username, password, display_name: displayName }, { retryAuth: false });
@@ -89,6 +95,8 @@ export class Api {
   addWindowMember(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/members`, body); }
   messages(ch, w, limit = 60, beforeSeq = 0) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}&include_history=false${beforeSeq > 0 ? `&before_seq=${beforeSeq}` : ""}`); }
   postMessage(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/messages`, body); }
+  // The author takes a line back (two minutes; not rolls): {message: the tombstone, content: the text it had}.
+  recallMessage(ch, id) { return this.post(`/api/channels/${ch}/messages/${id}/recall`, {}); }
   // A window's Initiative order (D&D channels): {round, turn, entries[{id, name, total, character_id, created_by}]}.
   initiative(ch, w) { return this.get(`/api/channels/${ch}/windows/${w}/initiative`); }
   initiativeAction(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/initiative`, body); }

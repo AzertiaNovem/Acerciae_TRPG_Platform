@@ -97,9 +97,10 @@ export class Store {
     if (!rows?.length) return;
     this.tx(() => { for (const m of rows) if (Number.isFinite(m?.seq) && m.chat_window_id) this.q.putLine.run(m.seq, String(m.id ?? ""), m.chat_window_id, JSON.stringify(m)); });
   }
-  // Lines of a window with fromSeq < seq <= toSeq, oldest first.
+  // Lines of a window with fromSeq < seq <= toSeq, oldest first. A recalled line is kept as its tombstone (so a sync
+  // never brings the text back) but is never returned: it was not said.
   lines(windowId, { after = 0, upTo = Number.MAX_SAFE_INTEGER } = {}) {
-    return this.q.lines.all(windowId, after, upTo).map((r) => JSON.parse(r.json));
+    return this.q.lines.all(windowId, after, upTo).map((r) => JSON.parse(r.json)).filter((m) => !m.recalled_at);
   }
   firstSeq(windowId) { return this.q.firstSeq.get(windowId)?.s ?? null; }
   lastSeq(windowId) { return this.q.lastSeq.get(windowId)?.s ?? null; }
@@ -148,6 +149,8 @@ export class Store {
 
   // ---- phone (casual mode)
   addPhone({ seq = 0, windowId, from, to, text, at = Date.now() }) { this.q.addPhone.run(seq | 0, windowId, from, to, String(text), at); }
+  // A text its sender recalled.
+  removePhone(seq) { if (seq) this.db.prepare("DELETE FROM phone WHERE seq = ?").run(seq | 0); }
   // Messages between two characters, oldest first (the newest `limit`).
   thread(a, b, limit = 40) { return this.q.thread.all(a, b, b, a, limit).map((r) => ({ ...r })).reverse(); }
   // Every message to or from one character, oldest first (the newest `limit`).

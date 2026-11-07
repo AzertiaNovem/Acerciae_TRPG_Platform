@@ -68,9 +68,13 @@ node src/cli.mjs run --channel <CHANNEL_ID>
 
 The first setup prints the channel ID and exits before creating the cast. Edit the proposed moves, save a draft to return later, then choose **Activate draft** or **Keep current rules**. Retry design in the workspace and rerun setup if the local agent was interrupted. Use the same state directory when repeating `--create`. With the channel ID you can always resume using `setup --channel <CHANNEL_ID>`. An attached PbtA table with play history or a custom pack uses its existing rules. Without a public world, a new PbtA table starts with the platform starter. Only the public world file is sent to the rules designer.
 
-**Playbooks for everyone.** Every character takes a different playbook. The designer is told the table's size: the requested co-players and the human players who are channel members so far. It designs at least two playbooks more than the co-players, and at least one for each of those characters plus a spare. A draft with no playbook left over for a human player is sent back once. Each co-player is offered only playbooks nobody holds yet, so the spares stay free for the human players. Top-level fields the platform does not take are left out of a draft before it is checked.
+PbtA designs and role cards get up to three validation-repair rounds. Validation names the exact JSON fields and expected types/IDs; the model returns replacements only for those fields, which are merged into the last parsed draft and validated again. Valid names, biographies, playbooks and unrelated moves stay unchanged. Independent errors in several moves, or in both resource and condition maps, can be repaired together. A reply that edits other fields is rejected. If the reply is not parseable JSON at all, a full JSON correction is still needed. The platform preview remains authoritative, and rules still require GM review before activation.
 
-**Co-player cards.** A card that names a playbook, stat, resource or condition by its name instead of its ID, gives a number as text ("+1"), or lists the marked conditions is fitted to the pack; entries the pack does not define are left out. When a co-player's card still cannot be built after a second try, setup goes on without it and logs why; the next start tries that co-player again. One bad card no longer stops the host.
+Structured JSON model calls automatically retry interrupted streams, transient connection errors, idle timeouts and selected temporary HTTP failures at most twice, waiting 2 then 4 seconds. This retry budget is shared across the initial response and all its repairs; it does not restart for each field. Each inference attempt has its own usage record under the original request ID, including failures with unknown usage. A disconnected stream is never accepted as a completed answer. Cancellation interrupts backoff; authentication failures, refusals, output truncation and platform validation/access/conflict errors do not trigger transport retries. These retries repeat model inference only, never character creation, chat messages or other platform writes. Exhausted recovery leaves the existing visible failure/review flow in place.
+
+**Playbooks for everyone.** Every character takes a different playbook. The designer is told the table's size: the requested co-players and the human players who are channel members so far. It designs at least two playbooks more than the co-players, and at least one for each of those characters plus a spare. A draft with no playbook left over for a human player is sent back for repair. Each co-player is offered only playbooks nobody holds yet, so the spares stay free for the human players. Top-level fields the platform does not take are left out of a draft before it is checked.
+
+**Co-player cards.** A card that names a playbook, stat, resource or condition by its name instead of its ID, gives a number as text ("+1"), or lists the marked conditions is fitted to the pack; entries the pack does not define are left out. When a co-player's card still cannot be built after its repair rounds and one fresh try, setup goes on without it and logs why; the next start tries that co-player again. One bad card no longer stops the host.
 
 The GM can invoke a triggered move for the speaking player, with a reference to their declaration. The platform rolls or returns the diceless instructions. For a player choice the GM asks in the same window and waits for their answer. Required choices may be marked for each outcome in the rule editor. When the cost is known the GM records the old and new resource or condition values on the card and cites the ruling in chat. Conflicting edits require manual reconciliation. Keep private sessions in their own window. Co-players see their own playbook and witnessed chat. GM reference moves stay in the GM context.
 
@@ -283,6 +287,32 @@ creates the character, or reuses the existing one when that name is already in t
 5. At most `pacing.max_actions_per_turn` lines are posted per turn. Lines the client posted never start a turn by themselves.
 
 The client never decides memory proposals; those stay with the human GM in the web app.
+
+## Recalled lines
+
+On the platform the author of a line may recall it for two minutes after sending it (not a roll, a system line or a
+PbtA move's record). The line becomes a tombstone everywhere, and the client takes it out of every context: no
+prompt of the GM, an NPC or a co-player quotes it again. What happens to the table's answer depends on how recent it
+still is:
+
+- **Ten or more lines since** in its window: only the line goes. What the table said and did after it stays.
+- **Fewer than ten lines since**: the table rolls back as if the line had never been sent (`src/rollback.mjs`).
+  - Every turn that answered it, or that ran after it in that window, is undone, together with the turns those
+    started (a follow-up, the opening of a scene a move created). A turn still running is stopped; one not started
+    yet is cancelled.
+  - The client recalls every line those turns posted, in any window, and its own later lines in that window:
+    narration, NPC and co-player lines, whispers, notes, and the copy of a recalled text in another player's phone.
+  - It restores what they changed in its own state: where everyone is (timelines, co-player seats, the move guard,
+    and window access with scene forks), the date, relationships, hidden truths, and phone texts still on their way.
+    A part that a later, unrelated turn changed again is left as it is.
+  - What the platform already holds stays: a roll's result, a scenario change, a world change, a new NPC (who stays
+    in the cast). A GM-only note in the window says what was taken back and what stays.
+  - Other players' lines after the recalled one stay, and the GM answers them again in a new turn.
+- A line recalled before its turn started is simply not answered; one sent right after it is answered once.
+- A wish or correction recalled in the planner window leaves the planner's inbox.
+
+Each turn keeps a checkpoint for this in memory for five minutes, so a restart forgets them. Lines the GM account
+recalls itself never start a rollback.
 
 ## Timelines and autonomy
 
@@ -904,6 +934,15 @@ The tests need no backend and no model. They cover:
 - D&D 2024: the rules profile, the build maths and the local point-buy check, generation, repair and completion of
   D&D cards, the GM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
   keeps a CoC table's prompts byte for byte.
+
+## Sessions
+
+The platform's sessions end (`AUTH_TOKEN_TTL_HOURS`, 168 by default, or when an admin revokes them), and it checks a
+WebSocket's session only when the socket connects. The client signs in again on its own: a REST call refused with 401
+signs in once and retries, and a socket refused as unauthorized after a reconnect (a backend restart, a network blip)
+signs in again and reconnects at once with the new session. Both sockets and the REST client share one sign-in. If no
+session can be had (a suspended account, a changed password), the sockets keep retrying with backoff and the log says
+why; the control page shows the chat and context streams as disconnected.
 
 ## Known limitations
 

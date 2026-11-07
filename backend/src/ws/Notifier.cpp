@@ -29,7 +29,9 @@ static WsGateway::UserFilter setFilter(std::set<std::string> allowed) {
     return [allowed = std::move(allowed)](const std::string& u) { return allowed.count(u) > 0; };
 }
 
-void Notifier::messagePosted(const Json::Value& m) {
+void Notifier::messagePosted(const Json::Value& m) { deliverMessage(m, "message.posted", "spectate.message"); }
+void Notifier::messageRecalled(const Json::Value& m) { deliverMessage(m, "message.recalled", "spectate.recalled"); }
+void Notifier::deliverMessage(const Json::Value& m, const char* type, const char* spectateType) {
     auto channelId = m["channel_id"].asString();
     auto windowId = m["chat_window_id"].asString();
     auto vis = m["visibility"].asString();
@@ -38,7 +40,7 @@ void Notifier::messagePosted(const Json::Value& m) {
     // Use the same period-aware group view as HTTP. Direct window membership/whisper ownership
     // must not bypass a pause and leak a message through the socket before the next fetch.
     for(const auto& r : db_.queryJson("SELECT DISTINCT pm.user_id FROM player_group_members pm JOIN player_group_readable_messages ge ON ge.group_id=pm.group_id WHERE ge.message_id=$1",{m["id"].asString()})) allowed.insert(r["user_id"].asString());
-    Json::Value msg; msg["type"] = "message.posted"; msg["channel_id"] = channelId; msg["message"] = m;
+    Json::Value msg; msg["type"] = type; msg["channel_id"] = channelId; msg["message"] = m;
     WsGateway::instance().broadcast("chat", channelId, msg, setFilter(std::move(allowed)));
     // Spectators: public lines of the Main Chat only, to members (not guests) of a server that still allows it.
     auto key = WsGateway::spectateKey(channelId);
@@ -48,7 +50,7 @@ void Notifier::messagePosted(const Json::Value& m) {
         if (!ok.isNull()) {
             std::set<std::string> members;
             for (auto& r : db_.queryJson("SELECT user_id FROM server_members WHERE server_id=$1 AND role<>'guest'", {ok["server_id"].asString()})) members.insert(r["user_id"].asString());
-            Json::Value spec; spec["type"] = "spectate.message"; spec["channel_id"] = channelId; spec["message"] = ChatService::spectatorMessage(m);
+            Json::Value spec; spec["type"] = spectateType; spec["channel_id"] = channelId; spec["message"] = ChatService::spectatorMessage(m);
             WsGateway::instance().broadcast("chat", key, spec, setFilter(std::move(members)));
         }
     }

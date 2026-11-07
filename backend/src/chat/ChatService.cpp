@@ -13,11 +13,26 @@
 #include "../core/Crypto.h"
 #include "../rules/RuleSystem.h"
 #include "../rules/PbtaRuling.h"
+#include "../core/Log.h"
+#include "Recall.h"
 
 namespace acerciae {
 
+// A line is on a PbtA move's record (its intent, roll, question, answer, mark or declaration): recalling it would
+// leave the record pointing at nothing.
+static const std::string ON_MOVE_RECORD =
+    "(EXISTS(SELECT 1 FROM pbta_rulings pr WHERE m.id IN (pr.roll_id, pr.intent_id, pr.question_id)) "
+    "OR EXISTS(SELECT 1 FROM pbta_marks pk WHERE pk.message_id=m.id) "
+    "OR EXISTS(SELECT 1 FROM pbta_declarations pd WHERE m.id IN (pd.anchor_id, pd.message_id)))";
+static const std::string RECALL_WINDOW = "interval '" + std::to_string(ChatService::kRecallSeconds) + " seconds'";
+// Seconds left to recall the line, null when it cannot be (CASE evaluates in order: the move-record lookups run only
+// for recent lines of a recallable kind).
+static const std::string RECALL_SECONDS_LEFT =
+    "CASE WHEN m.recalled_at IS NOT NULL OR m.kind NOT IN ('ic','ooc','narration') OR m.created_at <= now() - " + RECALL_WINDOW + " THEN NULL "
+    "WHEN " + ON_MOVE_RECORD + " THEN NULL "
+    "ELSE greatest(1, ceil(extract(epoch FROM m.created_at + " + RECALL_WINDOW + " - now())))::int END AS recall_seconds_left, ";
 static const std::string MSG_SELECT =
-    "SELECT m.*, c.name AS character_name, CASE WHEN m.kind='ooc' THEN NULL ELSE c.avatar_asset_id END AS character_avatar_asset_id, CASE WHEN m.kind='ooc' THEN NULL ELSE ca.version END AS character_avatar_version, CASE WHEN m.kind='ooc' THEN NULL ELSE ca.content_hash END AS character_avatar_hash, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_version ELSE 0 END AS author_avatar_version, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_hash END AS author_avatar_hash FROM messages m "
+    "SELECT m.*, " + RECALL_SECONDS_LEFT + "c.name AS character_name, CASE WHEN m.kind='ooc' THEN NULL ELSE c.avatar_asset_id END AS character_avatar_asset_id, CASE WHEN m.kind='ooc' THEN NULL ELSE ca.version END AS character_avatar_version, CASE WHEN m.kind='ooc' THEN NULL ELSE ca.content_hash END AS character_avatar_hash, u.display_name AS author_name, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_version ELSE 0 END AS author_avatar_version, CASE WHEN u.avatar_data<>'' OR u.avatar_key IS NOT NULL THEN u.avatar_hash END AS author_avatar_hash FROM messages m "
     "LEFT JOIN characters c ON c.id=m.character_id LEFT JOIN media_assets ca ON ca.id=c.avatar_asset_id LEFT JOIN users u ON u.id=m.author_id ";
 
 // ---- servers ---------------------------------------------------------------------------------
@@ -220,7 +235,7 @@ Json::Value ChatService::allChannels(const Principal& p, const std::string& serv
     if (role != "owner" && role != "admin") throw forbidden("server maintainer required");
     return db_.queryJson(
         "SELECT c.id, c.name, c.description, c.created_at, (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=c.id)::int AS member_count, "
-        "(SELECT count(*) FROM messages m WHERE m.channel_id=c.id)::int AS message_count FROM channels c WHERE c.server_id=$1 ORDER BY c.created_at", {serverId});
+        "(SELECT count(*) FROM messages m WHERE m.channel_id=c.id AND m.recalled_at IS NULL)::int AS message_count FROM channels c WHERE c.server_id=$1 ORDER BY c.created_at", {serverId});
 }
 Json::Value ChatService::createChannel(const Principal& p, const std::string& serverId, const Json::Value& body) {
     auth_.requireServerMember(p.userId, serverId);
@@ -506,8 +521,9 @@ Json::Value ChatService::listWindows(const ChannelAccess& a) {
         "(SELECT json_agg(json_build_object('user_id', wm.user_id, 'character_id', wm.character_id, 'display_name', u.display_name, 'character_name', ch.name, 'visibility_paused', wm.visibility_paused)) "
         " FROM chat_window_members wm JOIN users u ON u.id=wm.user_id LEFT JOIN characters ch ON ch.id=wm.character_id WHERE wm.chat_window_id=w.id) AS members, "
         "(SELECT max(seq) FROM messages m WHERE m.chat_window_id=w.id) AS last_seq, "
-        // Messages this viewer may read, posted by someone else after what they last read (counted up to 100).
-        "(SELECT count(*) FROM (SELECT 1 FROM messages m WHERE m.chat_window_id=w.id AND m.author_id IS DISTINCT FROM $2::uuid "
+        // Messages this viewer may read, posted by someone else after what they last read (counted up to 100). A
+        // recalled line no longer counts.
+        "(SELECT count(*) FROM (SELECT 1 FROM messages m WHERE m.chat_window_id=w.id AND m.author_id IS DISTINCT FROM $2::uuid AND m.recalled_at IS NULL "
         "   AND m.seq > coalesce((SELECT r.last_read_seq FROM chat_window_reads r WHERE r.chat_window_id=w.id AND r.user_id=$2::uuid), 0) "
         "   AND " + Visibility::messageFilter(a) + " LIMIT 100) u) AS unread "
         "FROM chat_windows w LEFT JOIN scenes s ON s.id=w.active_scene_id WHERE w.channel_id=$1";
@@ -677,13 +693,13 @@ Json::Value ChatService::markRead(const ChannelAccess& a, const std::string& win
     Json::Value v; v["last_read_seq"] = row["last_read_seq"]; return v;
 }
 Json::Value ChatService::getMessage(const ChannelAccess& a, const std::string& messageId) {
-    auto m = db_.queryOne(MSG_SELECT + "WHERE m.id=$1 AND m.channel_id=$2 AND " + Visibility::messageFilter(a), {messageId, a.channelId});
+    auto m = db_.queryOne(MSG_SELECT + "WHERE m.id=$1 AND m.channel_id=$2 AND m.recalled_at IS NULL AND " + Visibility::messageFilter(a), {messageId, a.channelId});
     if (m.isNull()) throw notFound("message not found");
     return m;
 }
 Json::Value ChatService::searchMessages(const ChannelAccess& a, const std::string& query, int limit) {
     if (query.empty()) throw badRequest("query required");
-    return db_.queryJson(MSG_SELECT + "WHERE m.channel_id=$1 AND " + Visibility::messageFilter(a) +
+    return db_.queryJson(MSG_SELECT + "WHERE m.channel_id=$1 AND m.recalled_at IS NULL AND " + Visibility::messageFilter(a) +
         " AND (m.search @@ plainto_tsquery('english', $2) OR m.content ILIKE '%' || $2 || '%') ORDER BY m.seq DESC LIMIT " + std::to_string(std::max(1, std::min(limit, 100))),
         {a.channelId, query});
 }
@@ -813,6 +829,41 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     }
     if (!audit.command.isNull()) msg["declared_move"] = audit.command;
     return msg;
+}
+
+Json::Value ChatService::recallMessage(const ChannelAccess& a, const std::string& messageId) {
+    if (!Visibility::isUuid(messageId)) throw notFound("message not found");
+    std::string original;
+    std::vector<std::string> eventIds;
+    bool repeated = false;
+    auto tombstone = db_.tx([&](pqxx::work& w) {
+        auto m = Db::queryOne(w, "SELECT m.author_id, m.kind, m.content, m.recalled_at, m.created_at > now() - " + RECALL_WINDOW + " AS recent, " + ON_MOVE_RECORD + " AS on_record, "
+            "w.archived_at, " + Visibility::messageFilter(a) + " AS readable FROM messages m JOIN chat_windows w ON w.id=m.chat_window_id WHERE m.id=$1 AND m.channel_id=$2 FOR UPDATE OF m",
+            {messageId, a.channelId});
+        if (m.isNull() || !m["readable"].asBool()) throw notFound("message not found");
+        if (json::str(m, "author_id") != a.userId) throw forbidden("Only the author can recall a message");
+        if (!m["recalled_at"].isNull()) { repeated = true; return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {messageId}); }
+        auto kind = json::str(m, "kind");
+        if (kind == "roll") throw ApiError(409, "not_recallable", "Dice rolls cannot be recalled: their results stay on the record");
+        if (kind == "system") throw ApiError(409, "not_recallable", "System lines cannot be recalled");
+        if (m["on_record"].asBool()) throw ApiError(409, "not_recallable", "This line is part of a move's record and cannot be recalled");
+        if (!m["recent"].asBool()) throw ApiError(409, "recall_expired", "Messages can only be recalled within " + std::to_string(kRecallSeconds / 60) + " minutes of sending");
+        if (!m["archived_at"].isNull()) throw conflict("This window is archived. Restore it or fork it to continue.");
+        original = json::str(m, "content");
+        for (const auto& e : Db::queryJson(w, "SELECT id FROM events WHERE message_id=$1", {messageId})) eventIds.push_back(e["id"].asString());
+        // The campaign log keeps its own copy of each line: that goes with it (and with it every snapshot's line).
+        Db::exec(w, "DELETE FROM log_events WHERE source_message_id=$1 OR source_event_id = ANY($2::uuid[])", {messageId, pgArrayLiteral(eventIds)});
+        Db::exec(w, "DELETE FROM events WHERE message_id=$1", {messageId});
+        Db::exec(w, "UPDATE messages SET content='', dice=NULL, reference_ids='{}', recalled_at=now() WHERE id=$1", {messageId});
+        return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {messageId});
+    });
+    if (!repeated) {
+        notifier_.messageRecalled(tombstone);
+        try { recall::forget(db_, docs_, notifier_, a.channelId, eventIds); }
+        catch (const std::exception& e) { ALOG_WARN << "recall " << messageId << ": " << e.what(); }
+    }
+    Json::Value out; out["message"] = tombstone; out["content"] = original;   // empty when it was already recalled
+    return out;
 }
 
 } // namespace acerciae

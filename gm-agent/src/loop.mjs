@@ -19,6 +19,8 @@
 import { GmContext, duration } from "./context/gmContext.mjs";
 import { sceneForks } from "./sceneForks.mjs";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { CHECKPOINT_MS, CHECKPOINTS_KEPT, RECALL_ROLLBACK_LINES, addedPending, checkpointsToUndo, movedBetween, rollbackNote, stable } from "./rollback.mjs";
 import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
 import { Store, billableTokens } from "./store.mjs";
 import { History, Memory, estimateTokens, CHUNK_LINES } from "./memory.mjs";
@@ -105,6 +107,12 @@ export class Table {
     this.memory = new Memory({ store: this.store, llm: this.llm, gmBudget: cfg.gmContextTokens ?? 60000, coplayerBudget: cfg.coplayerContextTokens ?? 24000, log });
     this.gm = new GmContext(api, channelId, { history: this.history, memory: this.memory, budget: cfg.gmContextTokens ?? 60000, recallTokens: cfg.recallTokens ?? 1200, log });
     this.botMessageIds = new Set();
+    // Recall rollback (rollback.mjs): each turn's checkpoint, the turn a post belongs to, and the copies a player's
+    // text left in another player's phone.
+    this.checkpoints = [];
+    this.turnScope = new AsyncLocalStorage();
+    this.phoneCopies = new Map();
+    this.recallEmptied = new Set();
     this.timers = new Map();
     this.queue = Promise.resolve();
     this.pending = 0;          // turns waiting or running
@@ -274,6 +282,8 @@ export class Table {
   windowUsers(windowId) { return (this.windows.find((w) => w.id === windowId)?.members ?? []).filter(m => !m.visibility_paused).map((m) => m.user_id).filter((u) => u && u !== this.me?.id); }
 
   async applyAudience(actions) {
+    const turn = this.turnScope.getStore();
+    if (actions.length && turn?.running) turn.audience.push(...actions.map((a) => ({ ...a })));
     for (const action of actions) {
       const win = this.windows.find(w => w.id === action.windowId);
       const member = win?.members?.find(m => m.user_id === action.userId);
@@ -406,7 +416,169 @@ export class Table {
       this.save();
     }
     if (ev.type === "message.posted") return this.onMessage(ev.message);
+    if (ev.type === "message.recalled") return this.onRecalled(ev.message);
     return undefined;
+  }
+
+  // The author took a line back: its tombstone replaces it in the history, so no prompt quotes it again. A player's
+  // recall that is still recent (fewer than RECALL_ROLLBACK_LINES lines after it in its window) also rolls back what
+  // the table did about it (rollback.mjs); an older one only leaves the context.
+  onRecalled(m) {
+    if (!m || m.channel_id !== this.channelId || !m.recalled_at) return undefined;
+    this.history.add(m);
+    if (!this.isHuman(m)) return undefined;              // this client's own recalls (a rollback), or its account's
+    const windowId = m.chat_window_id;
+    if (this.isPlannerWindow(windowId)) {                // a wish or correction withdrawn before the planner read it
+      const before = this.planner.inbox.length;
+      this.planner.inbox = this.planner.inbox.filter((e) => e.seq !== m.seq);
+      if (this.planner.inbox.length !== before) this.save();
+      return undefined;
+    }
+    // Not answered yet: it leaves the batch waiting for this window's turn.
+    const waiting = this.speakers.get(windowId);
+    if (waiting?.some((l) => l.seq === m.seq)) {
+      const rest = waiting.filter((l) => l.seq !== m.seq);
+      if (rest.length) this.speakers.set(windowId, rest); else { this.speakers.delete(windowId); this.recallEmptied.add(windowId); }
+    }
+    const after = this.history.lines(windowId, { after: m.seq }).length;
+    const undo = checkpointsToUndo(this.checkpoints, m);
+    const copies = this.phoneCopies.get(m.id) ?? [];
+    const phoneWaiting = this.timers.get(windowId)?.mode === "phone";
+    if (after >= RECALL_ROLLBACK_LINES) {
+      this.log(`recall in "${this.windowName(windowId)}": ${after} lines since; the line leaves the context, nothing is rolled back`);
+    } else if (undo.length || copies.length || this.isPhone(windowId) || this.history.lines(windowId, { after: m.seq }).some((l) => !this.isHuman(l))) {
+      // (Without checkpoints, after a restart, the client's later lines are still recalled; its state stays.)
+      for (const cp of undo) if (cp.running) cp.abort.abort(new DOMException("A line it answers was recalled", "AbortError"));
+      if (phoneWaiting) this.cancelTimer(windowId);
+      this.queue = this.queue.then(() => this.rollback(m, undo, copies)).catch((e) => this.log(`rollback failed: ${e.message}`));
+      return this.queue;
+    }
+    // A turn still waiting in that window waits again, so a corrected line sent right after is answered once.
+    return this.timers.has(windowId) ? this.schedule(windowId) : undefined;
+  }
+
+  // A turn waiting for its quiet moment that is no longer wanted.
+  cancelTimer(windowId) {
+    const pending = this.timers.get(windowId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.timers.delete(windowId);
+    this.pending--;
+    for (const resolve of pending.resolvers) resolve();
+  }
+
+  // What a rollback can restore, as JSON (compared to tell whether anything else changed it since).
+  slices() {
+    return {
+      placement: stable({ timelines: this.timelines.toJSON(), seats: Object.fromEntries(this.roster.coplayers.map((c) => [c.characterId, c.seats])) }),
+      calendar: stable({ date: this.calendar.date, time: this.calendar.time, log: this.calendar.log, routine: this.calendar.routine }),
+      bonds: stable(this.bonds),
+      truths: stable(this.improv.truths ?? []),
+      pending: stable(this.casual.pending ?? []),
+    };
+  }
+
+  openCheckpoint(windowId, mode) {
+    const now = this.now();
+    this.checkpoints = this.checkpoints.filter((c) => c.running || now - c.at < CHECKPOINT_MS).slice(-CHECKPOINTS_KEPT);
+    let resolve;
+    const done = new Promise((r) => { resolve = r; });
+    const cp = { windowId, mode, at: now, startSeq: this.lastSeq, batch: [], before: this.slices(), state: { calendar: structuredClone(this.calendar), guard: structuredClone(this.guard.by) },
+      after: null, posted: [], audience: [], kept: [], abort: new AbortController(), running: true, done, resolve };
+    this.checkpoints.push(cp);
+    return cp;
+  }
+  closeCheckpoint(cp) { cp.after = this.slices(); cp.running = false; cp.resolve(); }
+
+  // Rolls back the checkpoints `undo` after a recall of `m`: recalls what they posted (and this client's later lines in
+  // that window, and the copies of a recalled text), restores the state they changed, answers the players' other
+  // lines again, and leaves the GM a note of what stays.
+  async rollback(m, undo, copies = []) {
+    await Promise.all(undo.map((cp) => cp.done));
+    const windowId = m.chat_window_id;
+    // Turns the rolled-back ones scheduled and that have not started yet are not wanted either.
+    for (const [w, pending] of [...this.timers]) if (pending.origin && undo.includes(pending.origin)) this.cancelTimer(w);
+    // This client's lines to take back, newest first: what the turns posted anywhere, and anything later in the window.
+    const ids = new Map();
+    for (const cp of undo) for (const p of cp.posted) ids.set(p.id, p);
+    for (const id of copies) ids.set(id, { id });
+    for (const line of this.history.lines(windowId, { after: m.seq })) if (!this.isHuman(line)) ids.set(line.id, { id: line.id, seq: line.seq, kind: line.kind });
+    const kept = undo.flatMap((cp) => cp.kept);
+    let recalled = 0;
+    for (const p of [...ids.values()].sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))) {
+      if (p.kind === "roll") { kept.push("a roll's result"); continue; }
+      try {
+        const res = await this.api.recallMessage(this.channelId, p.id);
+        if (res?.message) this.history.add(res.message);
+        recalled++;
+      } catch (e) {
+        kept.push(e.code === "recall_expired" ? "a line older than the recall window" : e.code === "not_recallable" ? "a line on the record (a roll or a move)" : `a line the platform would not recall (${e.status ?? e.message})`);
+      }
+    }
+    this.phoneCopies.delete(m.id);
+    if (this.isPhone(windowId)) this.store.removePhone(m.seq);
+    // State, newest turn first; a part something else changed since is left as it is.
+    const restored = new Set();
+    for (const cp of [...undo].reverse()) {
+      if (!cp.after) continue;
+      const now = this.slices();
+      let placed = true;
+      if (cp.after.placement !== cp.before.placement) {
+        placed = now.placement === cp.after.placement;
+        if (placed) {
+          const before = JSON.parse(cp.before.placement), after = JSON.parse(cp.after.placement);
+          this.timelines = new Timelines(before.timelines, { now: this.now });
+          for (const c of this.roster.coplayers) if (before.seats[c.characterId]) c.seats = before.seats[c.characterId];
+          for (const id of movedBetween(before.timelines, after.timelines)) { if (cp.state.guard[id]) this.guard.by[id] = cp.state.guard[id]; else delete this.guard.by[id]; }
+          restored.add("where everyone is");
+        } else kept.push("a move that later turns built on");
+      }
+      if (cp.after.calendar !== cp.before.calendar) {
+        if (now.calendar === cp.after.calendar) { this.calendar = cp.state.calendar; restored.add("the date"); } else kept.push("a date change that later turns built on");
+      }
+      if (cp.after.bonds !== cp.before.bonds) {
+        if (now.bonds === cp.after.bonds) { this.bonds = JSON.parse(cp.before.bonds); restored.add("relationships"); } else kept.push("a relationship that later turns changed again");
+      }
+      if (cp.after.truths !== cp.before.truths) {
+        if (now.truths === cp.after.truths) { this.improv.truths = JSON.parse(cp.before.truths); restored.add("hidden truths"); } else kept.push("a hidden truth that later turns built on");
+      }
+      const added = addedPending(JSON.parse(cp.before.pending), JSON.parse(cp.after.pending)).map((p) => stable(p));
+      if (added.length) { this.casual.pending = this.casual.pending.filter((p) => !added.includes(stable(p))); restored.add("texts on their way"); }
+      if (cp.audience.length && placed) {
+        try { await this.applyAudience([...cp.audience].reverse().map((a) => ({ ...a, paused: !a.paused }))); restored.add("who sees which window"); }
+        catch (e) { kept.push(`window access (${e.message})`); }
+      }
+    }
+    this.checkpoints = this.checkpoints.filter((c) => !undo.includes(c));
+    // A move a stopped turn left half done must not be finished later: it belonged to what was just undone.
+    if (this.journal && undo.some((cp) => cp.windowId === this.journal.windowId)) { this.journal = null; restored.add("a move in progress"); }
+    this.checkInvariants();
+    this.save();
+    const who = m.character_name || m.author_name || "A player";
+    this.log(`recall in "${this.windowName(windowId)}" by ${who}: ${recalled} line(s) taken back, ${undo.length} turn(s) rolled back${restored.size ? `; undid ${[...restored].join(", ")}` : ""}${kept.length ? `; kept ${kept.join("; ")}` : ""}`);
+    if (kept.length || recalled) {
+      await this.post(windowId, { content: rollbackNote({ who, recalled, restored: [...restored], kept: [...new Set(kept)] }), kind: "narration", visibility: "gm_only" }, { count: false, allowPaused: true });
+    }
+    // The players' other lines those turns answered, and any after the recalled one, are answered again.
+    const again = new Map();
+    for (const cp of undo) for (const l of cp.batch) if (l.seq !== m.seq) again.set(l.seq, { ...l, windowId: cp.windowId });
+    for (const line of this.history.lines(windowId, { after: m.seq })) {
+      if (this.isHuman(line) && line.character_id && line.visibility === "window" && this.isPc(line.character_id)) again.set(line.seq, { id: line.character_id, seq: line.seq, content: line.content, windowId });
+    }
+    const live = new Set(this.history.lines(windowId).map((l) => l.seq));
+    const byWindow = new Map();
+    for (const l of again.values()) {
+      if (l.windowId === windowId && !live.has(l.seq)) continue;      // recalled too
+      if (!byWindow.has(l.windowId)) byWindow.set(l.windowId, []);
+      byWindow.get(l.windowId).push({ id: l.id, seq: l.seq, content: l.content });
+    }
+    for (const [w, lines] of byWindow) {
+      const waiting = this.speakers.get(w) ?? [];
+      this.speakers.set(w, [...lines, ...waiting.filter((x) => !lines.some((l) => l.seq === x.seq))].sort((a, b) => a.seq - b.seq));
+      this.recallEmptied.delete(w);
+      this.schedule(w);
+    }
+    return recalled;
   }
 
   isTrigger(m) {
@@ -505,6 +677,7 @@ export class Table {
     if (mode === "human") { pending.mode = "human"; pending.extra = existing?.extra?.arrival ? { arrival: existing.extra.arrival } : {}; }
     else if (!existing || mode === "arrival" || mode === "relay" || mode === "phone") { pending.mode = mode; pending.extra = { ...(existing?.extra ?? {}), ...extra }; }
     if (!existing) this.pending++;
+    pending.origin ??= this.turnScope.getStore() ?? null;   // a turn this one follows from (a recall can cancel it)
     this.timers.set(windowId, pending);
     return new Promise((resolve) => {
       pending.resolvers.push(resolve);
@@ -517,7 +690,18 @@ export class Table {
   }
 
   // ---- one turn
-  async turn(windowId, { kickoff = false, mode = "human", ...extra } = {}) {
+  // Every turn keeps a checkpoint (rollback.mjs): the state it started from, the lines it answers and what it posts, so
+  // a recall can undo it. It runs under its own abort signal, so a recall can stop it midway.
+  async turn(windowId, opts = {}) {
+    const parent = this.turnScope.getStore() ?? null;     // the turn that scheduled this one, if any
+    const cp = this.openCheckpoint(windowId, opts.mode ?? "human");
+    cp.parent = parent;
+    const signal = AbortSignal.any([this.generation.signal, cp.abort.signal]);
+    try { return await this.turnScope.run(cp, () => this.generation.tasks.run(signal, () => this.playTurn(windowId, opts))); }
+    finally { this.closeCheckpoint(cp); }
+  }
+
+  async playTurn(windowId, { kickoff = false, mode = "human", ...extra } = {}) {
     if (this.generation.signal.aborted) return;
     if (this.journal) await this.heal();
     await this.adoptPlan();
@@ -539,6 +723,10 @@ export class Table {
     const takesLines = mode === "human" || mode === "relay";
     const batch = takesLines ? this.speakers.get(windowId) ?? [] : [];
     if (takesLines) this.speakers.delete(windowId);
+    const checkpoint = this.turnScope.getStore();
+    if (checkpoint) checkpoint.batch = batch.map((l) => ({ ...l }));
+    // Its only line was recalled before it was answered: nothing to answer.
+    if (mode === "human" && !kickoff && !batch.length && !extra.arrival && this.recallEmptied.delete(windowId)) return;
     const autonomous = mode === "quiet" || mode === "side" || (mode === "arrival" && Boolean(extra.autonomous));
     let scene = this.scene(windowId);
     const sceneThread = scene;
@@ -673,7 +861,11 @@ export class Table {
         this.generation.signal.throwIfAborted();
         if (budget <= 0) break;
         if (this.pbta && action.type === "move" && !intents.some(m => m.id === action.source_id && m.character_id === action.character_id)) continue;
+        const newNpc = action.type === "new_npc" && !this.roster.npcByName(action.name);
         budget -= await this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope, evidenceThrough });
+        const kept = { advance_scenario: "a scenario change", enter_scenario: "a scenario change", world_change: "a world change" }[action.type]
+          ?? (newNpc && this.roster.npcByName(action.name) ? `a new NPC, ${action.name}, who stays in the cast` : null);
+        if (kept) this.turnScope.getStore()?.kept.push(kept);
         if (this.forks && sceneThread && !this.scene(windowId)) break;
         if (this.pbta && (action.type === "move" || (["npc", "new_npc"].includes(action.type) && action.move_id))) {
           // Discard any consequences the model guessed before it saw the server's dice.
@@ -1757,17 +1949,21 @@ export class Table {
     // A newer message supersedes a reply still on its way from that contact.
     this.casual.pending = this.casual.pending.filter((p) => !(p.from === to && p.to === from));
     this.save();
-    if (this.isPc(to)) return this.relayText(from, to, body);
+    if (this.isPc(to)) return this.relayText(from, to, body, m.id);
     return this.schedule(m.chat_window_id, { mode: "phone", phone: { fromId: from, toId: to } });
   }
 
   // Player to player: the message appears at once in the recipient's phone, as the sender's character.
-  async relayText(from, to, text) {
+  async relayText(from, to, text, source = null) {
     const w = this.casual.phones[to];
     if (!w) { await this.post(this.casual.phones[from], { content: `(${this.nameOf(to)} has no phone yet.)`, kind: "narration" }, { count: false }); return 0; }
     this.casual.last[to] = from;
     this.save();
-    return this.post(w, { content: text, kind: "ic", character_id: from }, { count: false });
+    this.lastPosted = null;
+    const n = await this.post(w, { content: text, kind: "ic", character_id: from }, { count: false });
+    if (source && this.lastPosted) this.phoneCopies.set(source, [this.lastPosted.id]);
+    if (this.phoneCopies.size > 200) this.phoneCopies.delete(this.phoneCopies.keys().next().value);
+    return n;
   }
 
   // An NPC or a co-player reads a text and answers, after a believable delay, or leaves it unanswered.
@@ -2180,6 +2376,9 @@ export class Table {
       const m = await this.api.postMessage(this.channelId, windowId, { visibility: "window", ...body });
       this.botMessageIds.add(m.id);
       if (this.botMessageIds.size > 2000) this.botMessageIds.delete(this.botMessageIds.values().next().value);
+      const turn = this.turnScope.getStore();
+      if (turn?.running) turn.posted.push({ id: m.id, seq: m.seq, kind: m.kind, windowId });
+      this.lastPosted = m;
       this.noteLine(m);
       if (this.cfg.verbose) this.log(`posted ${body.kind}${body.visibility && body.visibility !== "window" ? `/${body.visibility}` : ""} in "${this.windowName(windowId)}": ${body.content.slice(0, 100)}`);
       if (count) await this.sleep(this.cfg.postDelayMs);

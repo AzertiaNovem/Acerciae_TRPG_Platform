@@ -15,6 +15,7 @@
 #include "../core/Text.h"
 #include "../core/Log.h"
 #include "../core/Errors.h"
+#include "../chat/Recall.h"
 #include <chrono>
 
 namespace acerciae {
@@ -101,6 +102,11 @@ int64_t ObserverScheduler::safeSeq(const std::string& channelId) {
 }
 bool ObserverScheduler::backingOff(const std::string& channelId, const std::string& kind, const std::string& key) {
     return !db_.queryOne("SELECT 1 AS ok FROM ai_processing_cursors WHERE channel_id=$1 AND kind=$2 AND group_key=$3 AND retry_after > now()", {channelId, kind, key}).isNull();
+}
+void ObserverScheduler::forgetRecalled(const std::string& channelId, const std::vector<std::string>& batchEventIds) {
+    try {
+        if (auto gone = recall::gone(db_, channelId, batchEventIds); !gone.empty()) recall::forget(db_, docs_, notifier_, channelId, gone);
+    } catch (const std::exception& e) { ALOG_WARN << "observer: forgetting recalled lines failed: " << e.what(); }
 }
 bool ObserverScheduler::recordFailure(const std::string& channelId, const std::string& kind, const std::string& key, int64_t skipTo, const std::string& jobId, const std::string& error) {
     bool skipped = db_.tx([&](pqxx::work& w) {
@@ -212,6 +218,7 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         if(atmosphereHook_) try { atmosphereHook_(channelId,batch); } catch(const std::exception& e) { ALOG_WARN << "atmosphere planning: " << e.what(); }
 
         finish("succeeded", "", summary, toSeq, (int)batch.size(), outcome.llmCalls + stageCalls + scriptCalls, true);
+        { std::vector<std::string> ids; for (const auto& e : batch) ids.push_back(e["event_id"].asString()); forgetRecalled(channelId, ids); }
         groupsProcessed_++;
         summary["status"] = "succeeded";
         notifier_.aiJobFinished(channelId, summary);
