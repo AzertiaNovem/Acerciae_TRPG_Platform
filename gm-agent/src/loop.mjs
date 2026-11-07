@@ -20,7 +20,7 @@ import { GmContext, duration } from "./context/gmContext.mjs";
 import { sceneForks } from "./sceneForks.mjs";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { illustrationFailure, normalizeIllustration, pickScenarioMoment, scenarioLines } from "./illustrations.mjs";
+import { MAX_CHARACTERS, illustrationFailure, normalizeIllustration, pickScenarioMoment, scenarioLines } from "./illustrations.mjs";
 import { artRequest, artText, bestPlace, drawable, isArtLine, locatePlot, pickRequestedMoment } from "./plotArt.mjs";
 import { CHECKPOINT_MS, CHECKPOINTS_KEPT, RECALL_ROLLBACK_LINES, addedPending, checkpointsToUndo, movedBetween, rollbackNote, stable } from "./rollback.mjs";
 import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
@@ -121,6 +121,8 @@ export class Table {
     this.illustrationQueue = [];
     this.illustrationRunning = false;
     this.illustrationOff = null;
+    // The platform's two switches (the server's feature, the GM's channel switch), followed live; both start on.
+    this.illustrationSwitches = { server: true, channel: true };
     // Pictures of past plots asked for in the planner window (plotArt.mjs): the command lines and the table's replies
     // (kept out of every context), the requests handled, and each player's requests in flight and of the last hour.
     this.artLines = new Set();
@@ -163,6 +165,7 @@ export class Table {
       ? "this channel's knowledge mode is public, so every player can read every split scene's window"
       : this.sharedGroups.length ? `players who share a player group (${this.sharedGroups.join(", ")}) can read each other's split scene windows` : null;
     const settings = await this.api.serverSettings(this.channel.server_id).catch(() => null);
+    this.illustrationSwitches = { server: settings?.features?.illustrations !== false, channel: this.channel.illustrations_enabled !== false };
     this.language = languageName(this.cfg.language || settings?.language || "en");
     this.memory.language = this.language;
     this.profile = rulesProfile(ruleSystemOf(this.channel));
@@ -241,6 +244,7 @@ export class Table {
     if (gen < this.appliedGen) return;
     this.appliedGen = gen;
     this.pbta = pbta;
+    this.illustrationSwitches.channel = channel.illustrations_enabled !== false;
     // A player character first seen after start-up: a new player at the table (see welcomeNewcomers).
     const fresh = this.ready && this.characters ? characters.filter((c) => !this.characters.some((x) => x.id === c.id)) : [];
     this.characters = characters;
@@ -423,6 +427,8 @@ export class Table {
     if (ev.stream === "context") { this.gm.onContextEvent(ev); return undefined; }
     if (ev.type === "character.updated" && ev.character) this.cards.delete(ev.character.id);
     if (ev.type === "window.changed") { this.memberCache = null; this.refresh().catch((e) => this.log(`refresh: ${e.message}`)); }
+    if (ev.type === "server.settings" && ev.settings?.features) this.illustrationSwitches.server = ev.settings.features.illustrations !== false;
+    if (ev.type === "channel.updated") this.readIllustrationSwitches({ server: false }).catch(() => undefined);
     if (ev.type === "initiative.changed") this.initiative.delete(ev.chat_window_id ?? "*");
     if (ev.type === "scene.changed" && ev.scene?.status === "active" && ev.scene.id !== this.scenario?.id) {
       // A plan made before the platform opened its first scenario is not stale because of it: no replan for that.
@@ -1582,11 +1588,18 @@ export class Table {
   }
 
   // ---- illustrations (illustrations.mjs)
-  illustrationsOn() { return this.cfg.illustrations?.enabled !== false && !this.illustrationOff; }
+  illustrationsOn() { return this.cfg.illustrations?.enabled !== false && !this.illustrationOff && this.illustrationsAllowed(); }
+  // Whether the platform's switches allow drawing here: the server's maintainers and the GM can each turn it off.
+  illustrationsAllowed() { return this.illustrationSwitches.server && this.illustrationSwitches.channel; }
+  async readIllustrationSwitches({ server = true } = {}) {
+    const channel = await this.api.channel(this.channelId);
+    this.illustrationSwitches.channel = channel.illustrations_enabled !== false;
+    if (server) { const s = await this.api.serverSettings(channel.server_id ?? this.channel.server_id); this.illustrationSwitches.server = s?.features?.illustrations !== false; }
+  }
 
-  // One request to the platform. Returns {job} or {failure: "unavailable" | "busy" | "rate_limited" | "error"}.
+  // One request to the platform. Returns {job} or {failure: "disabled" | "unavailable" | "busy" | "rate_limited" | "error"}.
   async requestIllustration(windowId, { text, who, orientation }) {
-    const ids = [...new Set(who.map((n) => this.characterByName(n)?.id).filter(Boolean))].slice(0, 4);
+    const ids = [...new Set(who.map((n) => this.characterByName(n)?.id).filter(Boolean))].slice(0, MAX_CHARACTERS);
     try {
       const job = await this.api.illustrate(this.channelId, windowId, { prompt: text, character_ids: ids, orientation, allow_cloud: this.cfg.illustrations?.allowCloud !== false, request_id: randomUUID() });
       this.log(`illustration requested in "${this.windowName(windowId)}"${ids.length ? ` with ${ids.map((id) => this.nameOf(id)).join(", ")}` : ""}: ${text.slice(0, 100)}`);
@@ -1594,6 +1607,11 @@ export class Table {
     } catch (e) {
       const failure = illustrationFailure(e);
       if (failure === "unavailable") { this.illustrationOff = e.message; this.log(`illustrations are off: the platform cannot draw here (${e.message})`); }
+      else if (failure === "disabled") {
+        // Turned off on the platform since the table last looked: learn which switch, so it is followed from now on.
+        await this.readIllustrationSwitches().catch(() => { this.illustrationSwitches.channel = false; });
+        this.log(`illustrations are turned off by the server's maintainers or the GM (${e.message})`);
+      }
       else this.log(`illustration not requested (${failure}): ${e.message}`);
       return { failure };
     }
@@ -1665,7 +1683,7 @@ export class Table {
       }
     } finally { this.illustrationRunning = false; }
     // Pictures can no longer be drawn: a player still waiting is told so.
-    for (const item of this.illustrationQueue.filter((x) => x.done)) { this.illustrationQueue.splice(this.illustrationQueue.indexOf(item), 1); item.done({ failure: "unavailable" }); }
+    for (const item of this.illustrationQueue.filter((x) => x.done)) { this.illustrationQueue.splice(this.illustrationQueue.indexOf(item), 1); item.done({ failure: this.illustrationsAllowed() ? "unavailable" : "disabled" }); }
   }
 
   // Until the platform has drawn (or failed) a picture, at most ten minutes, looking every `every` ms (a player waiting
@@ -1703,7 +1721,7 @@ export class Table {
     const say = (key, vars) => this.post(m.chat_window_id, { kind: "ooc", content: artText(this.language, key, vars) }, { count: false, allowPaused: true });
     if (!request) return say("usage");
     const cap = this.cfg.illustrations?.requestsPerHour ?? 4;
-    if (this.cfg.illustrations?.enabled === false || cap <= 0) return say("off");
+    if (this.cfg.illustrations?.enabled === false || cap <= 0 || !this.illustrationsAllowed()) return say("off");
     if (!this.illustrationsOn()) return say("unavailable");
     if (this.artBusy.has(user)) return say("busy");
     const now = this.now(), times = (this.artTimes.get(user) ?? []).filter((t) => now - t < HOUR);
@@ -1761,7 +1779,7 @@ export class Table {
       this.drainIllustrations().catch((e) => this.log(`pictures: ${e.message}`));
     });
     if (outcome.job) return null;
-    return { unavailable: "unavailable", rate_limited: "rateLimited" }[outcome.failure] ?? "failed";
+    return { unavailable: "unavailable", disabled: "off", rate_limited: "rateLimited" }[outcome.failure] ?? "failed";
   }
 
   // Lines containing any of `terms` in the windows `ids`, from the local copy and the platform's search of the whole

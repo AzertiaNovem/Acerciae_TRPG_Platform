@@ -24,7 +24,7 @@ public:
     Json::Value get(const Principal& p, const std::string& serverId);
     Json::Value update(const Principal& p, const std::string& serverId, const Json::Value& body);
 
-    // Features: "consistency" | "dice" | "inspiration".
+    // Features: "consistency" | "dice" | "inspiration" | "log_studio" | "atmosphere" | "illustrations".
     bool featureEnabled(const std::string& serverId, const std::string& feature);
     void requireFeature(const std::string& serverId, const std::string& feature);   // 403 feature_disabled
     std::string language(const std::string& serverId);   // the server language ("en" before settings exist)

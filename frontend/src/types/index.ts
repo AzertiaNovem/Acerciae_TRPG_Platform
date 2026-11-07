@@ -44,7 +44,7 @@ export interface Channel {
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean; studio_player_access?: boolean;
   story_status?: 'ongoing' | 'ended'; story_ended_at?: string | null; story_reveal_all?: boolean;
-  ai_enabled: boolean; consistency_enabled?: boolean; inspiration_enabled?: boolean; atmosphere_enabled?: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
+  ai_enabled: boolean; consistency_enabled?: boolean; inspiration_enabled?: boolean; atmosphere_enabled?: boolean; illustrations_enabled?: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }
 export interface WindowMember { user_id: string; character_id: string | null; display_name: string; character_name: string | null; visibility_paused?: boolean }
@@ -207,7 +207,7 @@ export interface TtsJob { id: string; presentation_id: string | null; kind: stri
 export interface UserLite { id: string; username: string; display_name: string }
 export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member' | 'guest'; joined_at: string }
 export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
-export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'atmosphere';
+export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'atmosphere' | 'illustrations';
 export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; cached_tokens_used?: number; images_used: number; running: number }
 export interface ServerSettings {
   server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;

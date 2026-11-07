@@ -20,6 +20,10 @@ std::string illustrationPrompt(const std::string& scene, const std::vector<Illus
 // Which attached image is whom, by name ("Reference image 1 is Ada. Mo has no reference image: …"). The image files
 // carry no names; the model sees them in attachment order. "" when no character has a reference.
 std::string illustrationIdentity(const std::vector<IllustrationCharacter>& characters);
+// The name a saved picture gets: "illustration-2026-11-07-Ada-and-Mo-whisper-on-the-pier.png" from the line's text
+// (without its "🖼️ " mark, at most 40 characters, any script kept, characters no file system takes replaced) and
+// date; the extension follows the picture's type.
+std::string illustrationFileName(const std::string& content, const std::string& createdAt, const std::string& mime);
 
 class IllustrationService {
 public:
@@ -33,7 +37,8 @@ public:
     // The worker's hook: the finished picture is posted as the requester's line in the window.
     void posted(const Json::Value& job, const Json::Value& asset);
     // The picture of a line, for someone who may read the line. Returns false when there is none.
-    bool image(const ChannelAccess& a, const std::string& messageId, std::string& bytes, std::string& mime, std::string* redirectUrl);
+    // `fileName`, when given, receives the name a saved copy should have (illustrationFileName).
+    bool image(const ChannelAccess& a, const std::string& messageId, std::string& bytes, std::string& mime, std::string* redirectUrl, std::string* fileName = nullptr);
 private:
     Db& db_; AuthService& auth_; ChatService& chat_; logstudio::CreativeService& creative_; logstudio::MediaService& media_;
 };

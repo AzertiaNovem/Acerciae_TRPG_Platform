@@ -260,7 +260,8 @@ Json::Value ChatService::createChannel(const Principal& p, const std::string& se
     });
     return ch;
 }
-// The GM's per-channel AI switches (consistency_enabled, inspiration_enabled, …): 403 feature_disabled when off.
+// The GM's per-channel AI switches (consistency_enabled, inspiration_enabled, illustrations_enabled, …): 403
+// feature_disabled when off.
 void ChatService::requireChannelAi(const ChannelAccess& a, const std::string& column) {
     auto r = db_.queryOne("SELECT " + column + " AS on FROM channels WHERE id=$1", {a.channelId});
     if (r.isNull() || !r["on"].asBool()) throw ApiError(403, "feature_disabled", "The GM turned this off for this channel");
@@ -309,9 +310,9 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
         message = postSystemMessage(w, a.channelId, main["id"].asString(), a.userId, content);
     });
     db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
-             "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
+             "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13, illustrations_enabled=$14 WHERE id=$1",
         {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
-         flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled")});
+         flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled"), flag("illustrations_enabled")});
     notifier_.channelUpdated(a.channelId);
     if (!message.isNull()) notifier_.messagePosted(message);
     auto out = getChannel(a);

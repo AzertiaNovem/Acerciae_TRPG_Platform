@@ -35,6 +35,20 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   await rejects(draw(p1, main, { prompt: "Ada on the pier", character_ids: [ada.id] }), 400);
   await call(gm, "PUT", `/api/servers/${server.id}/settings`, { image: { provider: "mock" } });
 
+  // Optional at both levels and on until switched off: the server's maintainers switch it for the server, the GM for
+  // the channel under it. Off refuses everyone, the GM included.
+  assert.equal((await call(p1, "GET", `/api/servers/${server.id}/settings`)).features.illustrations, true);
+  assert.equal((await call(p1, "GET", `/api/channels/${ch}`)).illustrations_enabled, true);
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { illustrations: false } });
+  assert.equal((await rejects(draw(p1, main, { prompt: "Ada on the pier" }), 403)).body.error, "feature_disabled");
+  await rejects(draw(gm, main, { prompt: "Ada on the pier" }), 403);
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { illustrations: true } });
+  await rejects(call(p1, "PUT", `/api/channels/${ch}`, { illustrations_enabled: false }), 403);   // the GM's switch
+  assert.equal((await call(gm, "PUT", `/api/channels/${ch}`, { illustrations_enabled: false })).illustrations_enabled, false);
+  assert.equal((await rejects(draw(p1, main, { prompt: "Ada on the pier" }), 403)).body.error, "feature_disabled");
+  await rejects(draw(gm, main, { prompt: "Ada on the pier" }), 403);
+  await call(gm, "PUT", `/api/channels/${ch}`, { illustrations_enabled: true });
+
   // Bad requests.
   await rejects(draw(p1, main, { prompt: "  ", character_ids: [] }), 400);
   await rejects(draw(p1, main, { prompt: "x".repeat(1501) }), 400);
@@ -57,6 +71,12 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   assert.equal(img.status, 200); assert.match(img.headers.get("content-type"), /^image\//);
   assert.equal((await picture(p1, ch, line.id)).status, 200);
   assert.equal((await fetch(`${base}/api/channels/${ch}/messages/${line.id}/image`)).status, 401, "a file token is needed");
+  // Saved as a file: the bytes with a readable name, never a redirect.
+  const saved = await fetch(`${base}/api/channels/${ch}/messages/${line.id}/image?download=1&token=${encodeURIComponent(await fileToken(p2))}`, { redirect: "manual" });
+  assert.equal(saved.status, 200); assert.match(saved.headers.get("content-type"), /^image\//);
+  const disposition = saved.headers.get("content-disposition") ?? "";
+  assert.match(disposition, /^attachment; filename="illustration-\d{4}-\d{2}-\d{2}-Ada-and-Mo-whisper-on-the-rainy-pier-at\.png"; filename\*=UTF-8''illustration-/);
+  assert.ok((await saved.arrayBuffer()).byteLength > 0);
   // The picture is the line's, not the media library's: players do not find it there.
   const library = await call(p2, "GET", `/api/channels/${ch}/media`);
   assert.ok(!(library.assets ?? library).some((a) => a.id === line.media_asset_id));
@@ -69,6 +89,7 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   assert.equal((await picture(p1, ch, posted.message_id)).status, 200);
   assert.equal((await picture(gm, ch, posted.message_id)).status, 200);
   assert.equal((await picture(p2, ch, posted.message_id)).status, 404, "Mo's player may not read that line, so not its picture");
+  assert.equal((await fetch(`${base}/api/channels/${ch}/messages/${posted.message_id}/image?download=1&token=${encodeURIComponent(await fileToken(p2))}`)).status, 404, "nor save it");
 
   // The GM may picture an NPC; the job list is each requester's own.
   const tom = await draw(gm, main, { prompt: "Old Tom polishes a glass, seen from behind the bar", character_ids: [npc.id] });
@@ -80,4 +101,11 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   // A line without a picture has none to serve.
   const plain = await call(p1, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content: "No picture here.", character_id: ada.id });
   assert.equal((await picture(p1, ch, plain.id)).status, 404);
+
+  // Switched off afterwards: no new drawing, but the pictures already posted stay, and so does the job list.
+  await call(gm, "PUT", `/api/channels/${ch}`, { illustrations_enabled: false });
+  await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { illustrations: false } });
+  await rejects(draw(p1, main, { prompt: "One more" }), 403);
+  assert.equal((await picture(p2, ch, line.id)).status, 200, "a posted picture stays");
+  assert.ok((await call(p1, "GET", `/api/channels/${ch}/illustrations`)).some((x) => x.id === job.id));
 });

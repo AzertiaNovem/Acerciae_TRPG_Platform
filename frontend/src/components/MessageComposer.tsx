@@ -97,7 +97,7 @@ export default function MessageComposer() {
         <span className="spacer" />
         {features?.consistency !== false && channel?.consistency_enabled !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
         {features?.inspiration !== false && channel?.inspiration_enabled !== false && <InspirationButton characterId={activeCharacter} />}
-        {serverSettings?.images_enabled && canPost && <IllustrateButton />}
+        {serverSettings?.images_enabled && features?.illustrations !== false && channel?.illustrations_enabled !== false && canPost && <IllustrateButton />}
         <button className="primary" onClick={send} disabled={!canPost || !text.trim() || sending}>{tr("Send")}</button>
       </div>
     </div>

@@ -355,7 +355,9 @@ turn. The table uses it three ways (`src/illustrations.mjs`, `src/plotArt.mjs`):
 
 A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
 is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
-illustrations stay off for the rest of the run. `illustrations.allow_cloud` confirms that the descriptions and
+illustrations stay off for the rest of the run. The platform's switches are followed live instead: while the server's
+maintainers or the GM have illustrations off, the GM is not offered the action, no scenario picture is drawn, and a
+player's `/draw` is answered "turned off for this table"; turned back on, all three resume. `illustrations.allow_cloud` confirms that the descriptions and
 portraits may go to a cloud image service; `illustrations.enabled: false` turns all three uses off.
 
 ## Timelines and autonomy

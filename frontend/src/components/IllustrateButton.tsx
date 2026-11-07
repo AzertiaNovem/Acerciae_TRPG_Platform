@@ -43,7 +43,7 @@ export default function IllustrateButton() {
   return (
     <>
       <button className="ai-btn" onClick={() => setOpen(true)} title={tr('Draw a picture of this moment and post it here')}>
-        {busy ? tr('🖼 Drawing…') : tr('🖼 Illustrate')}
+        {busy ? tr('Drawing…') : tr('Illustrate')}
       </button>
       {open && channelId && windowId && (
         <IllustrateDialog channelId={channelId} windowId={windowId} characters={characters} jobs={jobs} busy={!!busy}

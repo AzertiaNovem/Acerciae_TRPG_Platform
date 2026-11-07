@@ -1,6 +1,11 @@
 package app.acerciae.mobile
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.foundation.Image
@@ -17,6 +22,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -36,6 +42,12 @@ internal object ChatIllustrationImages {
     @Synchronized fun clear() { revision++; removed.clear(); images.evictAll() }
 }
 
+/** "Save as" through the system's file picker (no storage permission), typed after the picture's own format. */
+private class CreateImageDocument : ActivityResultContracts.CreateDocument("image/png") {
+    override fun createIntent(context: Context, input: String): Intent = super.createIntent(context, input)
+        .setType(when { input.endsWith(".jpg") -> "image/jpeg"; input.endsWith(".webp") -> "image/webp"; else -> "image/png" })
+}
+
 @Composable fun ChatIllustration(message: Message, state: AppState, model: AppViewModel) {
     val channel = message.channelId ?: state.channelId
     val imageKey = ChatIllustrations.key(state.endpoint, state.user?.id.orEmpty(), channel, message.id)
@@ -45,6 +57,26 @@ internal object ChatIllustrationImages {
     var failed by remember(requestKey) { mutableStateOf(false) }
     var expanded by remember(requestKey) { mutableStateOf(false) }
     var attempt by remember(requestKey) { mutableIntStateOf(0) }
+    // Saving: the original bytes (from the disk cache) go where the user picks, named like the server's downloads.
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pending by remember { mutableStateOf<ByteArray?>(null) }
+    val save = rememberLauncherForActivityResult(CreateImageDocument()) { uri ->
+        val bytes = pending; pending = null
+        if (uri != null && bytes != null) scope.launch {
+            val written = try { withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } != null } }
+                catch (e: CancellationException) { throw e } catch (_: Exception) { false }
+            Toast.makeText(context, if (written) tr("Saved") else tr("无法写入文件"), Toast.LENGTH_SHORT).show()
+        }
+    }
+    fun download() { scope.launch {
+        try {
+            val bytes = model.bytes(ChatIllustrations.path(channel, message.id))
+            pending = bytes
+            save.launch(ChatIllustrations.fileName(message.content, bytes))
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { Toast.makeText(context, tr("The picture could not be loaded."), Toast.LENGTH_SHORT).show() }
+    } }
     LaunchedEffect(requestKey, attempt) {
         bitmap = null; failed = false
         if (unavailable) return@LaunchedEffect
@@ -91,7 +123,10 @@ internal object ChatIllustrationImages {
             Dialog(onDismissRequest = { expanded = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Surface(Modifier.fillMaxSize()) {
                     Column {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { TextButton(onClick = { expanded = false }) { Text(tr("Close")) } }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { download() }) { Text(tr("Save")) }
+                            TextButton(onClick = { expanded = false }) { Text(tr("Close")) }
+                        }
                         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
                             var scale by remember { mutableFloatStateOf(1f) }
                             var offset by remember { mutableStateOf(Offset.Zero) }

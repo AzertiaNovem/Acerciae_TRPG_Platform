@@ -19,7 +19,8 @@ const std::vector<std::string>& ServerSettingsService::languages() {
 }
 
 // Point buy is not here: it is a channel option the GM turns on (channels.point_buy), next to the rule system.
-static const char* FEATURES[] = {"consistency", "dice", "inspiration", "log_studio", "atmosphere"};
+static const char* FEATURES[] = {"consistency", "dice", "inspiration", "log_studio", "atmosphere", "illustrations"};
+static constexpr int kFeatureCount = sizeof(FEATURES) / sizeof(FEATURES[0]);
 
 static std::string keyHint(const std::string& key) {
     return key.size() > 8 ? "…" + key.substr(key.size() - 4) : "set";
@@ -163,8 +164,8 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     bool guestInvites = json::toBool(sp, "guest_invites", cur["guest_invites"].asBool());
     bool spectators = json::toBool(sp, "main_chat_spectators", cur["main_chat_spectators"].asBool());
 
-    bool feat[5];
-    for (int i = 0; i < 5; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
+    bool feat[kFeatureCount];
+    for (int i = 0; i < kFeatureCount; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
 
     db_.tx([&](pqxx::work& w) {
         Db::exec(w, "UPDATE servers SET name=$2 WHERE id=$1", {serverId, name});
@@ -178,7 +179,7 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
                   (int64_t)tokenBudget, (int64_t)imageBudget, period, (int64_t)maxConcurrent});
         Db::exec(w, "UPDATE server_settings SET join_policy=$2, channel_creation=$3, guest_invites=$4, main_chat_spectators=$5 WHERE server_id=$1",
                  {serverId, joinPolicy, channelCreation, guestInvites, spectators});
-        Db::exec(w, "UPDATE server_settings SET feature_atmosphere=$2 WHERE server_id=$1", {serverId,feat[4]});
+        Db::exec(w, "UPDATE server_settings SET feature_atmosphere=$2, feature_illustrations=$3 WHERE server_id=$1", {serverId, feat[4], feat[5]});
         if (resetUsage) Db::exec(w, "UPDATE server_settings SET ai_usage_reset_at=now() WHERE server_id=$1", {serverId});
     });
     auto fresh = row(serverId);

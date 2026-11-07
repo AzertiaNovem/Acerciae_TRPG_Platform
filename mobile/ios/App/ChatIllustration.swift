@@ -73,17 +73,35 @@ private struct IllustrationPreview: View {
     let scope: String
     let account: String
     @Environment(\.dismiss) private var dismiss
+    // The original bytes as a named file for the share sheet ("Save Image", "Save to Files", AirDrop…).
+    @State private var file: URL?
     private var available: Bool { model.recalledMessages[message.id] == nil && model.scopeKey == scope && model.session?.user.id == account }
     var body: some View {
         Group {
             if available {
                 VStack(spacing: 0) {
-                    HStack { Spacer(); Button(tr("Close")) { dismiss() }.padding() }
+                    HStack {
+                        if let file {
+                            ShareLink(item: file) { Label(tr("Save"), systemImage: "square.and.arrow.down") }.padding()
+                        }
+                        Spacer(); Button(tr("Close")) { dismiss() }.padding()
+                    }
                     ZoomableIllustration(image: image, caption: message.illustrationCaption)
                 }
             }
         }.background(Color(uiColor: .systemBackground)).foregroundStyle(.primary)
             .onChange(of: available) { _, allowed in if !allowed { dismiss() } }
+            .task { file = await savedCopy() }
+            .onDisappear { if let file { try? FileManager.default.removeItem(at: file) } }
+    }
+    /// Writes the picture (from the disk cache) under its download name in a temporary folder.
+    private func savedCopy() async -> URL? {
+        let channel = message.channelId ?? model.channelId
+        guard let data = try? await model.bytes(ChatIllustrations.path(channel: channel, message: message.id)) else { return nil }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("illustrations", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(ChatIllustrations.fileName(message.content, data: data))
+        do { try data.write(to: url, options: .atomic); return url } catch { return nil }
     }
 }
 

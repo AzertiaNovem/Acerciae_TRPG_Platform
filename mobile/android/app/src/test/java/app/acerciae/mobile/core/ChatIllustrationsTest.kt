@@ -25,6 +25,16 @@ class ChatIllustrationsTest {
         assertEquals("A room", ChatIllustrations.caption("🖼️\nA room"))
         assertEquals("Text 🖼️ stays", ChatIllustrations.caption("Text 🖼️ stays"))
     }
+    @Test fun savedCopiesAreNamedLikeTheServersDownloads() {
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())
+        val webp = "RIFF\u0000\u0000\u0000\u0000WEBPVP8 ".toByteArray(Charsets.US_ASCII)
+        assertEquals("illustration-Ada-and-Mo-whisper-on-the-pier-dusk.png", ChatIllustrations.fileName("🖼️ Ada and Mo whisper on the pier: dusk!", png))
+        assertEquals("illustration-艾达-莫.jpg", ChatIllustrations.fileName("🖼️ 艾达/莫", jpeg))
+        assertEquals("illustration.webp", ChatIllustrations.fileName("🖼️ ", webp))
+        assertEquals("illustration-".length + 40 + 4, ChatIllustrations.fileName("x".repeat(100), png).length)
+        assertEquals("image/jpeg", ChatIllustrations.mime(jpeg)); assertEquals("image/webp", ChatIllustrations.mime(webp)); assertEquals("image/png", ChatIllustrations.mime(png))
+    }
     @Test fun authenticatedMessageEndpointPersistsAndSeparatesAccounts() = runBlocking {
         val root = Files.createTempDirectory("chat-images").toFile(); val server = MockWebServer(); server.start()
         try {
