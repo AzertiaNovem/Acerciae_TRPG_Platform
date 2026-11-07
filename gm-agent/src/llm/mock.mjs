@@ -41,6 +41,7 @@ export class MockLlm {
       case "scene_presence": return JSON.stringify(this.presence(JSON.parse(messages[0].content)));
       case "scene_handoff": return JSON.stringify(this.handoff(JSON.parse(messages[0].content)));
       case "coplayer_build": return JSON.stringify({ dnd: this.dndBuild() });
+      case "scenario_illustration": return JSON.stringify(this.scenarioMoment(user));
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
       case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
@@ -48,6 +49,13 @@ export class MockLlm {
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }
+  }
+
+  // The best moment of a scenario: its last line of play, with the first character of the cast in it.
+  scenarioMoment(user) {
+    const play = (user.split("PLAY (oldest first):\n")[1] ?? "").trim().split("\n");
+    const cast = (user.match(/^CAST: (.*)$/m)?.[1] ?? "").split(", ").filter((n) => n && n !== "(none named)");
+    return { moment: `[mock moment] ${(play.at(-1) ?? "").replace(/^[^:]*: /, "").slice(0, 200)}`, who: cast.slice(0, 1), orientation: "landscape", why: "[mock] the last line" };
   }
 
   // A legal D&D 2024 build (27 points): a level-1 Elf Rogue with the Criminal background.

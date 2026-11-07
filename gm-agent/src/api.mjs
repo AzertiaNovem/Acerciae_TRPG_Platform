@@ -97,6 +97,10 @@ export class Api {
   postMessage(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/messages`, body); }
   // The author takes a line back (two minutes; not rolls): {message: the tombstone, content: the text it had}.
   recallMessage(ch, id) { return this.post(`/api/channels/${ch}/messages/${id}/recall`, {}); }
+  // Illustrations: drawn by the server's image provider, posted in the window as this account's ooc line when ready.
+  illustrate(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/illustrations`, body); }
+  illustrations(ch) { return this.get(`/api/channels/${ch}/illustrations`); }
+  cancelIllustration(ch, id) { return this.post(`/api/channels/${ch}/illustrations/${id}/cancel`, {}); }
   // A window's Initiative order (D&D channels): {round, turn, entries[{id, name, total, character_id, created_by}]}.
   initiative(ch, w) { return this.get(`/api/channels/${ch}/windows/${w}/initiative`); }
   initiativeAction(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/initiative`, body); }

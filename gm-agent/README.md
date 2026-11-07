@@ -314,6 +314,29 @@ still is:
 Each turn keeps a checkpoint for this in memory for five minutes, so a restart forgets them. Lines the GM account
 recalls itself never start a rollback.
 
+## Illustrations
+
+The platform can draw a moment of the story with the server's image provider: a description, up to four characters
+whose portraits guide the picture, and a frame (landscape, portrait or square). The picture is posted in the window
+as the GM's out-of-character line ("🖼️ " and the description), a little after it was asked for; it never starts a
+turn. The table uses it two ways (`src/illustrations.mjs`):
+
+- **Evocative moments.** When a moment is truly evocative and beautiful (a breathtaking place revealed, a charged
+  meeting, a striking image the players will remember), the GM may have it drawn with `illustrate`, in any scene:
+  one frozen moment for a painter, with who is in it, the place, the light and the mood, and no words. The GM is told
+  to use it rarely, and the table allows at most `illustrations.max_per_hour` (3) such pictures an hour.
+- **Every scenario change.** When the story enters its next scenario, the table always draws the most brilliant,
+  beautiful, artistic moment of the scenario that just ended, once for each timeline a human player was in
+  (co-player-only threads are skipped). A model call reads that timeline's window, the lines of the ending scenario
+  that its readers saw (no whispers, GM-only notes or other windows), and chooses the moment, the characters in it
+  and the frame. All of these pictures are posted in the Main Chat, one after another: the platform draws one
+  picture at a time per account, so each waits for the previous one.
+
+A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
+is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
+illustrations stay off for the rest of the run. `illustrations.allow_cloud` confirms that the descriptions and
+portraits may go to a cloud image service; `illustrations.enabled: false` turns both uses off.
+
 ## Timelines and autonomy
 
 The table does not always wait for a human, and it does not keep everyone in one room.
@@ -889,6 +912,9 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `scenarios.auto` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the primary story window only) |
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
 | `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
+| `illustrations.enabled` | `--illustrations` | `true` | evocative moments and the scenario-change pictures (see Illustrations) |
+| `illustrations.max_per_hour` | `--illustrations-per-hour` | `3` | pictures the GM may ask for in play each hour (0: none in play; scenario pictures are not counted) |
+| `illustrations.allow_cloud` | `--illustrations-allow-cloud` | `true` | descriptions and portraits may go to a cloud image service |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
 | `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the GM's secrets, read by `setup` and `world` (relative to the file) |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
