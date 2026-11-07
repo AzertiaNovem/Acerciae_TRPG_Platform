@@ -14,8 +14,9 @@
     <label for="token">访问令牌</label>
     <input id="token" type="password" autocomplete="off" required placeholder="公共配置中的 webui.token">
     <button>连接</button>
+    <span class="muted small">登录保留 90 天，使用时自动续期</span>
   </form>
-  <div id="session" class="session" hidden><span class="dot ok"></span><span>已连接</span><button id="logout" type="button" class="quiet">断开</button></div>
+  <div id="session" class="session" hidden><span class="dot ok"></span><span>已连接</span><button id="logout" type="button" class="quiet">退出登录</button></div>
 </header>
 
 <main id="app" class="app">
@@ -81,6 +82,7 @@
           <button data-action="start">启动</button>
           <button data-action="restart">重启</button>
           <button data-action="stop" class="danger">停止</button>
+          <button id="remove" type="button" class="danger">删除主持任务</button>
         </div>
       </div>
       <div id="error-banner" class="banner error" hidden></div>
@@ -103,9 +105,8 @@
           <div class="task-row">
             <label class="check"><input id="r-enabled" type="checkbox"> 随主机自动启动</label>
             <label class="check"><input id="r-prepare" type="checkbox"> 启动时准备频道（沿用并补齐 AI 队友）</label>
-            <button id="remove" type="button" class="danger small">移除主持任务</button>
           </div>
-          <p class="muted small">这两项写入公共配置，下次启动时生效。移除会停止频道并把它从公共配置中删去；频道配置文件与状态会保留，之后可以重新接入。</p>
+          <p class="muted small">这两项写入公共配置，下次启动时生效。顶部“删除主持任务”会停止主持并移出任务列表；平台频道、本地配置与状态保留，之后可以重新接入。</p>
         </section>
         <div class="settings-bar">
           <input id="filter" type="search" placeholder="搜索设置（名称或键名）" aria-label="搜索设置">

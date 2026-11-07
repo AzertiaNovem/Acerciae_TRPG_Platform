@@ -1,8 +1,10 @@
 // GM 控制台: channel status, settings form, YAML editor and logs for the multi-channel host.
-// The token stays in page memory only. All content is set with textContent (no HTML from the server).
+// Only login sends the access token. An HttpOnly session cookie restores the UI across visits.
+// All content is set with textContent (no HTML from the server).
 'use strict';
-let token = '', selected = '', tab = 'overview', busy = false;
+let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
+let channelRequest = 0;
 const dirty = new Map();            // field key → new value ('' = back to default)
 let logSeq = 0, logLines = [];
 const $ = id => document.getElementById(id);
@@ -21,10 +23,14 @@ function h(tag, attrs = {}, ...children) {
   return el;
 }
 const notice = (text, kind = '') => { const n = $('notice'); n.textContent = text; n.className = `notice ${kind}`; };
-async function api(url, body) {
-  const response = await fetch(url, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+async function api(url, body, options = {}) {
+  const epoch = connection;
+  const response = await fetch(url, { method: options.method ?? (body ? 'POST' : 'GET'), credentials: 'same-origin',
+    headers: { ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
   let data = null; try { data = await response.json(); } catch {}
-  if (!response.ok) throw Object.assign(Error(data?.error ?? `HTTP ${response.status}`), { status: response.status });
+  if (epoch !== connection) throw Error('连接已切换，请重新操作。');
+  if (response.status === 401) disconnect();
+  if (!response.ok) throw Object.assign(Error(response.status === 401 ? '登录已失效，请重新连接。' : data?.error ?? `HTTP ${response.status}`), { status: response.status });
   return data;
 }
 const num = n => (n === null || n === undefined ? '—' : Number(n).toLocaleString('zh-CN'));
@@ -49,32 +55,47 @@ const unsaved = () => dirty.size > 0 || (config && $('yaml').value !== config.ya
 const confirmDiscard = () => !unsaved() || confirm('放弃尚未保存的修改？');
 
 // ---------- login
-$('login').onsubmit = async event => {
-  event.preventDefault(); token = $('token').value.trim();
-  try {
-    schema = await api('/api/schema');
-    await refreshChannels(); await refreshHost();
-    $('login').hidden = true; $('session').hidden = false; $('summary').hidden = false; $('token').value = ''; $('new-task').disabled = false;
-    notice('已连接。请选择频道。');
-  } catch (error) { token = ''; notice(error.status === 401 ? '令牌不正确。' : error.message, 'bad'); }
-};
-$('logout').onclick = () => {
-  if (!confirmDiscard()) return;
-  token = ''; selected = ''; config = null; detail = null; hostInfo = null; dirty.clear();
+async function connect() {
+  schema = await api('/api/schema');
+  await Promise.all([refreshChannels(), refreshHost()]);
+  connected = true;
+  $('login').hidden = true; $('session').hidden = false; $('summary').hidden = false; $('token').value = ''; $('new-task').disabled = false;
+  notice('已连接。请选择频道。');
+}
+function disconnect() {
+  connection++; connected = false; selected = ''; config = null; detail = null; hostInfo = null; schema = null; channels = []; platform = null; dirty.clear();
+  logSeq = 0; logLines = []; $('log').replaceChildren(); $('token').value = ''; $('channel-count').textContent = '';
+  $('yaml').value = ''; $('form').replaceChildren(); $('overview').replaceChildren(); $('host').replaceChildren(); renderSavebar();
   $('login').hidden = false; $('session').hidden = true; $('summary').hidden = true; $('host').hidden = true;
   $('channels').replaceChildren(h('p', { class: 'muted', text: '连接后显示频道。' }));
-  $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false; $('new-task').disabled = true; notice('已断开。');
+  $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false; $('new-task').disabled = true;
+}
+$('login').onsubmit = async event => {
+  event.preventDefault(); if (connecting) return;
+  connecting = true; $('login').querySelector('button').disabled = true;
+  try {
+    await api('/api/session', {}, { token: $('token').value.trim() });
+    $('token').value = ''; await connect();
+  } catch (error) { disconnect(); notice(error.status === 401 ? '令牌不正确。' : error.message, 'bad'); }
+  finally { connecting = false; $('login').querySelector('button').disabled = false; }
+};
+$('logout').onclick = async () => {
+  if (busy || !confirmDiscard()) return;
+  $('logout').disabled = true;
+  try { await api('/api/session', undefined, { method: 'DELETE' }); disconnect(); notice('已退出登录。'); }
+  catch (error) { notice(error.status === 401 ? '登录已失效，请重新连接。' : `退出失败：${error.message}`, 'bad'); }
+  finally { $('logout').disabled = false; }
 };
 
 // ---------- host and channel list
 let hostInfo = null;
 function renderSummary() {
   const count = s => channels.filter(c => c.status === s).length, failed = count('failed');
-  $('summary').replaceChildren(
+  $('summary').replaceChildren(...[
     h('span', { class: 'chip ok', text: `运行 ${count('running')}` }),
     failed ? h('span', { class: 'chip bad', text: `失败 ${failed}` }) : null,
     h('span', { class: 'chip', text: `共 ${channels.length} 个频道` }),
-    hostInfo ? h('span', { class: 'chip', text: `主机已运行 ${span(hostInfo.startedAt)}` }) : null);
+    hostInfo ? h('span', { class: 'chip', text: `主机已运行 ${span(hostInfo.startedAt)}` }) : null].filter(Boolean));
 }
 async function refreshHost() {
   const host = hostInfo = await api('/api/host');
@@ -86,7 +107,9 @@ async function refreshHost() {
   $('host').hidden = false;
 }
 async function refreshChannels() {
-  channels = await api('/api/channels');
+  const request = ++channelRequest, next = await api('/api/channels');
+  if (request !== channelRequest) return;
+  channels = next;
   $('channel-count').textContent = `${channels.length} 个`; renderSummary();
   $('channels').replaceChildren(...channels.map(ch => {
     const [label, kind] = STATES[ch.status] ?? [ch.status, 'off'];
@@ -110,8 +133,9 @@ async function select(id) {
   catch (error) { notice(error.message, 'bad'); }
 }
 async function loadConfig() {
-  try { config = await api(`/api/channels/${selected}/config`); }
-  catch (error) { config = null; $('yaml').value = ''; $('form').replaceChildren(h('p', { class: 'banner error', text: `无法读取配置：${error.message}` })); throw error; }
+  const id = selected;
+  try { const next = await api(`/api/channels/${id}/config`); if (selected !== id) return; config = next; }
+  catch (error) { if (selected !== id) return; config = null; $('yaml').value = ''; $('form').replaceChildren(h('p', { class: 'banner error', text: `无法读取配置：${error.message}` })); throw error; }
   $('yaml').value = config.yaml; $('yaml-result').textContent = '';
   dirty.clear(); renderForm(); renderSavebar();
 }
@@ -128,7 +152,9 @@ function showTab(name) {
 // ---------- status
 async function refreshDetail() {
   if (!selected) return;
-  detail = await api(`/api/channels/${selected}/status`);
+  const id = selected, next = await api(`/api/channels/${id}/status`);
+  if (selected !== id) return;
+  detail = next;
   renderHead(); renderOverview();
 }
 function renderHead() {
@@ -141,6 +167,7 @@ function renderHead() {
   document.querySelector('[data-action=start]').disabled = busy || running || moving;
   document.querySelector('[data-action=stop]').disabled = busy || !running || d.status === 'stopping';
   document.querySelector('[data-action=restart]').disabled = busy || moving;
+  $('remove').disabled = busy || d.status === 'stopping';
   const banner = $('error-banner');
   banner.hidden = !(d.status === 'failed' && d.runtime.lastError);
   banner.textContent = d.runtime.lastError ? `最近的错误：${d.runtime.lastError}` : '';
@@ -236,7 +263,7 @@ async function run(fn) {
   try { await fn(); } catch (error) { notice(error.message, 'bad'); }
   finally { busy = false; setBusy(false); await Promise.allSettled([refreshDetail(), refreshChannels(), refreshHost()]); }
 }
-function setBusy(on) { for (const b of document.querySelectorAll('[data-action], #save-form, #save-yaml, #validate, #reload, #discard')) b.disabled = on; if (!on && detail) renderHead(); }
+function setBusy(on) { for (const b of document.querySelectorAll('[data-action], #remove, #r-enabled, #r-prepare, #logout, #save-form, #save-yaml, #validate, #reload, #discard')) b.disabled = on; if (!on && detail) renderHead(); }
 
 // ---------- settings form
 function display(field, value) {
@@ -361,15 +388,15 @@ $('log-filter').oninput = renderLogs; $('log-errors').onchange = renderLogs;
 $('log-clear').onclick = () => { logLines = []; renderLogs(); };
 
 // ---------- polling
-window.addEventListener('beforeunload', event => { if (token && unsaved()) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (connected && unsaved()) { event.preventDefault(); event.returnValue = ''; } });
 setInterval(() => {
-  if (!token || busy) return;
+  if (!connected || busy) return;
   refreshChannels().catch(error => notice(error.message, 'bad'));
   if (selected && tab === 'overview') refreshDetail().catch(() => {});
-  else if (selected && detail) api(`/api/channels/${selected}/status`).then(d => { detail = d; renderHead(); }).catch(() => {});
+  else if (selected && detail) { const id = selected; api(`/api/channels/${id}/status`).then(d => { if (selected === id) { detail = d; renderHead(); } }).catch(() => {}); }
 }, 4000);
-setInterval(() => { if (token && !busy && selected && tab === 'logs') refreshLogs().catch(() => {}); }, 2500);
-setInterval(() => { if (token && !busy) refreshHost().catch(() => {}); }, 30000);
+setInterval(() => { if (connected && !busy && selected && tab === 'logs') refreshLogs().catch(() => {}); }, 2500);
+setInterval(() => { if (connected && !busy) refreshHost().catch(() => {}); }, 30000);
 
 // ---------- hosting tasks: create, auto-start / prepare switches, remove
 let platform = null;
@@ -477,11 +504,25 @@ for (const [id, key] of [['r-enabled', 'enabled'], ['r-prepare', 'prepare_on_sta
 $('remove').onclick = () => {
   if (busy || !selected) return;
   const name = detail?.live?.channel?.name || selected;
-  if (!confirm(`移除主持任务「${name}」？\n频道会停止并从公共配置中删去。平台上的频道、配置文件与状态都会保留。`)) return;
+  if (!confirm(`删除主持任务「${name}」？\n将先停止正在运行的主持，再从任务列表及公共配置中删除。平台频道、本地配置文件和状态保留，之后可以重新接入。${unsaved() ? '\n尚未保存的修改将被放弃。' : ''}`)) return;
   run(async () => {
-    const removed = await api(`/api/channels/${selected}/remove`, { confirm: selected });
+    const id = selected;
+    notice('正在停止并删除主持任务…');
+    const removed = await api(`/api/channels/${id}/remove`, { confirm: id });
     selected = ''; detail = null; config = null; dirty.clear();
+    logSeq = 0; logLines = []; $('log').replaceChildren();
+    $('yaml').value = ''; $('form').replaceChildren(); $('overview').replaceChildren(); renderSavebar();
     $('channel').hidden = true; $('empty').hidden = false;
-    notice(`已移除。配置文件 ${removed.config} 保留。`, 'ok');
+    notice(`主持任务已删除。平台频道、本地状态及配置文件 ${removed.config} 保留。`, 'ok');
   });
 };
+
+// Cookie authentication is checked before loading any private host data. A network failure leaves
+// the saved cookie intact; a rejected/expired session simply returns to the login form.
+async function restoreSession() {
+  connecting = true; $('login').querySelector('button').disabled = true;
+  try { await api('/api/session'); await connect(); }
+  catch (error) { disconnect(); if (error.status !== 401) notice(`无法恢复连接：${error.message}。请刷新页面重试。`, 'bad'); }
+  finally { connecting = false; $('login').querySelector('button').disabled = false; }
+}
+restoreSession();

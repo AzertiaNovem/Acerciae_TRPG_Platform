@@ -30,7 +30,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .top { display: flex; align-items: center; gap: 18px; padding: 16px 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .brand small { letter-spacing: .22em; color: var(--accent); font-size: 11px; }
 .summary { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
-.login, .session { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.login, .session { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: wrap; }
 .login label { color: var(--muted); font-size: 13px; }
 .login input { width: 260px; max-width: 50vw; }
 .chip { white-space: nowrap; font-size: 12px; padding: 3px 9px; border: 1px solid var(--line-2); border-radius: 999px; color: var(--muted); }
