@@ -171,6 +171,8 @@ export const api = {
   removeWindowMember: (ch: string, w: string, user_id: string) => del(`/api/channels/${ch}/windows/${w}/members/${user_id}`),
   markRead: (ch: string, w: string, seq: number) => post<{ last_read_seq: number }>(`/api/channels/${ch}/windows/${w}/read`, { seq }),
   messages: (ch: string, w: string, beforeSeq?: number, limit = 80) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ before_seq: beforeSeq, limit })}`),
+  // The lines right after `afterSeq` (oldest first): catching up from the last line kept here.
+  messagesAfter: (ch: string, w: string, afterSeq: number, limit = 200) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ after_seq: afterSeq, limit })}`),
   postMessage: (ch: string, w: string, body: { content: string; kind?: string; character_id?: string; visibility?: string; whisper_to?: string[]; reference_ids?: string[] }) => post<T.Message>(`/api/channels/${ch}/windows/${w}/messages`, body),
   illustrate: (ch: string, w: string, body: { prompt: string; character_ids: string[]; orientation: 'landscape' | 'portrait' | 'square'; allow_cloud: boolean; request_id?: string }) =>
     post<{ id: string; status: string; kind: string; reference_count: number }>(`/api/channels/${ch}/windows/${w}/illustrations`, body),

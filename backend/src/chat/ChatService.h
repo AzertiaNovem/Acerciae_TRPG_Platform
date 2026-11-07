@@ -75,7 +75,9 @@ public:
     // Records that the viewer has read a window up to `seq` (never backwards); the window list's `unread` counts after it.
     Json::Value markRead(const ChannelAccess& a, const std::string& windowId, int64_t seq);
     // messages
-    Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq, bool includeHistory = true);
+    // The newest `limit` lines (before `beforeSeq` when given), or with `afterSeq` (0 or more) the first `limit` lines
+    // after it: how a client that keeps the history catches up from the last line it has. Oldest first either way.
+    Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq, bool includeHistory = true, int64_t afterSeq = -1);
     // `mediaAssetId`: the picture the line shows (an illustration posted by the server; never from the request body).
     Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling = {}, const std::string& mediaAssetId = "");
     Json::Value getMessage(const ChannelAccess& a, const std::string& messageId);   // 404 once recalled

@@ -1,5 +1,5 @@
 import { t as tr, currentLocale } from '../i18n';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAuth } from '../store/auth';
 import { api } from '../api/client';
 import { useChat, recallDeadline } from '../store/chat';
@@ -100,9 +100,14 @@ function Illustration({ m, jumped }: { m: Message; jumped: boolean }) {
   );
 }
 
+// Where each window was left in this visit: at its newest line, or up in its history.
+const scrolls = new Map<string, { stick: boolean; top: number }>();
+
 export default function MessageList() {
   const { channelId, windowId, windows } = useNav();
   const messages = useChat((s) => (windowId ? s.byWindow[windowId] : undefined)) ?? [];
+  // The window's first line is here: nothing older to fetch.
+  const complete = useChat((s) => (windowId ? s.spans[windowId]?.complete : false)) ?? false;
   const jumpTo = useChat((s) => s.jumpTo);
   const loadOlder = useChat((s) => s.loadOlder);
   const ref = useRef<HTMLDivElement>(null);
@@ -122,16 +127,29 @@ export default function MessageList() {
       });
     } finally { olderPending.current = false; }
   };
+  // Switching back to a window returns to where it was left.
+  useLayoutEffect(() => {
+    const el = ref.current; if (!el || !windowId) return;
+    const left = scrolls.get(windowId);
+    if (left && !left.stick) { setStick(false); el.scrollTop = left.top; }
+    else { setStick(true); el.scrollTop = el.scrollHeight; }
+  }, [windowId]);
   useEffect(() => { if (stick && ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [messages.length, stick, windowId]);
   useEffect(() => {
     if (!jumpTo) return;
     const el = document.getElementById(`msg-${jumpTo.messageId}`);
     if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('jumped'); setJumped(jumpTo.messageId); setTimeout(() => { el.classList.remove('jumped'); setJumped(null); }, 2500); }
   }, [jumpTo]);
-  const onScroll = () => { const el = ref.current; if (!el) return; setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 40); if (el.scrollTop < 20) void loadPrevious(); };
+  const onScroll = () => {
+    const el = ref.current; if (!el) return;
+    const atNewest = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    setStick(atNewest);
+    if (windowId) scrolls.set(windowId, { stick: atNewest, top: el.scrollTop });
+    if (el.scrollTop < 20 && !complete) void loadPrevious();
+  };
   return (
     <div className="message-list" ref={ref} onScroll={onScroll}>
-      {messages.length > 0 && <button className="ghost small" onClick={loadPrevious}>{tr('Load earlier messages')}</button>}
+      {messages.length > 0 && !complete && <button className="ghost small" onClick={loadPrevious}>{tr('Load earlier messages')}</button>}
       {messages.length === 0 && <div className="muted small">{tr("No messages yet. The chronicler is listening.")}</div>}
       {messages.map((m, i) => <Fragment key={m.id}>
         {(i === 0 || messages[i - 1].chat_window_id !== m.chat_window_id) && (m.chat_window_id !== windowId || i > 0 && messages[i - 1].chat_window_id !== windowId) &&
