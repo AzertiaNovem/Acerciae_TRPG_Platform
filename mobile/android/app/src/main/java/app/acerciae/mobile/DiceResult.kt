@@ -34,7 +34,19 @@ import app.acerciae.mobile.core.*
                 }
                 Column {
                     if (message.dice?.flag("hidden") == true || message.diceTone == DiceTone.NOTICE) Text(tr("暗骰"), style = MaterialTheme.typography.labelSmall, color = tone)
-                    SelectionContainer { Text(message.displayText, fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal, color = if (message.diceTone == DiceTone.NOTICE) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface) }
+                    val dice = message.dice
+                    if(dice!=null && message.hasStructuredPbtaResult) {
+                        Text(dice.text("name"),style=MaterialTheme.typography.titleMedium)
+                        Text(dice.text("trigger"),style=MaterialTheme.typography.bodySmall)
+                        val rolls = (dice["rolls"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+                        if(rolls.isNotEmpty()) {
+                            if(dice.text("stat_name").isNotEmpty()) Text(dice.text("stat_name"),style=MaterialTheme.typography.bodySmall)
+                            Text("2d6 ["+rolls.joinToString(", ")+ "] + ${dice.number("stat_value")} + (${dice.number("modifier")}) = ${dice.number("total")}",fontFamily=FontFamily.Monospace)
+                            Text(dice.obj("band").name,fontWeight=FontWeight.SemiBold)
+                            SelectionContainer { Text(dice.text("outcome")) }
+                        }
+                        if(dice.flag("player_choice")) Text(tr("Player choice"),style=MaterialTheme.typography.bodySmall)
+                    } else SelectionContainer { Text(message.displayText, fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal, color = if (message.diceTone == DiceTone.NOTICE) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface) }
                 }
             }
         }

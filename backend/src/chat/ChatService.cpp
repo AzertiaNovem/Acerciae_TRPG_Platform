@@ -260,7 +260,8 @@ Json::Value ChatService::createChannel(const Principal& p, const std::string& se
     });
     return ch;
 }
-// The GM's per-channel AI switches (consistency_enabled, inspiration_enabled, …): 403 feature_disabled when off.
+// The GM's per-channel AI switches (consistency_enabled, inspiration_enabled, illustrations_enabled, …): 403
+// feature_disabled when off.
 void ChatService::requireChannelAi(const ChannelAccess& a, const std::string& column) {
     auto r = db_.queryOne("SELECT " + column + " AS on FROM channels WHERE id=$1", {a.channelId});
     if (r.isNull() || !r["on"].asBool()) throw ApiError(403, "feature_disabled", "The GM turned this off for this channel");
@@ -309,9 +310,9 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
         message = postSystemMessage(w, a.channelId, main["id"].asString(), a.userId, content);
     });
     db_.exec("UPDATE channels SET name=$2, description=$3, knowledge_mode=$4, ai_enabled=$5, dice_text_group=$6, auto_scenarios=$7, era=$8, studio_visible=$9, studio_player_access=$10, "
-             "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13 WHERE id=$1",
+             "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13, illustrations_enabled=$14 WHERE id=$1",
         {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
-         flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled")});
+         flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled"), flag("illustrations_enabled")});
     notifier_.channelUpdated(a.channelId);
     if (!message.isNull()) notifier_.messagePosted(message);
     auto out = getChannel(a);
@@ -671,7 +672,7 @@ Json::Value ChatService::setWindowVisibility(const ChannelAccess& a, const std::
 }
 
 // ---- messages --------------------------------------------------------------------------------
-Json::Value ChatService::listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq, bool includeHistory) {
+Json::Value ChatService::listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq, bool includeHistory, int64_t afterSeq) {
     auto window=db_.queryOne("SELECT id FROM chat_windows WHERE id=$1 AND channel_id=$2",{windowId,a.channelId});
     if(window.isNull()) throw notFound("chat window not found");
     if(!a.isGm && db_.queryOne("SELECT 1 AS ok FROM chat_window_members wm JOIN player_group_members pm ON pm.user_id=wm.user_id WHERE wm.chat_window_id=$1 AND pm.channel_id=$2 AND pm.group_id=$3::uuid AND "+Visibility::groupGuard(a)+" LIMIT 1",{windowId,a.channelId,a.playerGroupId.empty()?dbNull():DbParam(a.playerGroupId)}).isNull()) throw forbidden("Chat window is outside this player group's views");
@@ -681,8 +682,10 @@ Json::Value ChatService::listMessages(const ChannelAccess& a, const std::string&
         ? "JOIN lineage l ON l.id=m.chat_window_id WHERE (l.cutoff IS NULL OR m.seq<=l.cutoff) AND "
         : "WHERE m.chat_window_id=$1 AND ") + Visibility::messageFilter(a);
     DbParams p{windowId};
-    if (beforeSeq > 0) { sql += " AND m.seq < $2"; p.push_back(beforeSeq); }
-    sql += " ORDER BY m.seq DESC LIMIT " + std::to_string(std::max(1, std::min(limit, 200)));
+    if (beforeSeq > 0) { p.push_back(beforeSeq); sql += " AND m.seq < $" + std::to_string(p.size()); }
+    if (afterSeq >= 0) { p.push_back(afterSeq); sql += " AND m.seq > $" + std::to_string(p.size()); }
+    // The newest page, or (catching up) the page right after `afterSeq`.
+    sql += std::string(afterSeq >= 0 ? " ORDER BY m.seq ASC" : " ORDER BY m.seq DESC") + " LIMIT " + std::to_string(std::max(1, std::min(limit, 200)));
     auto rows = db_.queryJson((includeHistory?WINDOW_HISTORY:"")+"SELECT * FROM (" + sql + ") x ORDER BY seq ASC", p);
     return rows;
 }

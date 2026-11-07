@@ -33,7 +33,7 @@ import java.io.File
     LaunchedEffect(character.id) {
         (model.cached(path.dropLast(1) + "space") as? JsonObject)?.let { space = it; loading = false }
         (model.cached(path) as? JsonObject)?.let { attrs = it }
-        model.load { try { space = model.get(path.dropLast(1) + "space"); attrs = model.get(path) }
+        model.load { try { space = model.get(path.dropLast(1) + "space"); attrs = if(space.text("rule_system")=="pbta") JsonObject(emptyMap()) else model.get(path) }
             catch (e: BackendException) { if (e.apiResponse && e.status in listOf(401,403,404)) { space = JsonObject(emptyMap()); attrs = JsonObject(emptyMap()) }; throw e } }
         loading = false
     }
@@ -58,13 +58,20 @@ import java.io.File
         if (space.obj("character").text("bio").isNotEmpty()) item { Text(space.obj("character").text("bio")) }
         if (space.obj("character").text("speaking_style").isNotEmpty()) item { Text(space.obj("character").text("speaking_style")) }
         item { Button(onClick = { showSpace = true }) { Text(tr("角色卡与外观空间")) } }
+        if(space.text("rule_system")=="pbta") item {
+            val sheet=space.obj("character").obj("role_card").obj("pbta"); val pack=space.obj("pbta_rules").obj("pack")
+            Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                Text(tr("Playbook")+" · "+(pack.rows("books").find{it.id==sheet.text("book")}?.name?:tr("Choose a playbook")))
+                listOf("stats","resources","conditions").forEach{group->pack.rows(group).forEach{entry->if(group!="conditions")Text(entry.name+" · "+sheet.obj(group).number(entry.id))else if(sheet.obj(group).flag(entry.id))Text(entry.name)}}
+            }
+        }
         if (space.rows("subtitles").isNotEmpty()) item { Text(tr("表情立绘"), style = MaterialTheme.typography.titleMedium) }
         items(space.rows("subtitles"), key = { it.id + it.text("subtitle") }) { asset ->
             Text(asset.text("subtitle"))
             TextButton(onClick = { image = asset }, modifier = Modifier.fillMaxWidth()) { AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(260.dp), asset.text("hash")) }
         }
         items(attrs.obj("attrs").keys.sorted()) { key -> Text("$key  ${attrs.obj("attrs")[key]}") }
-        if (attrs.flag("editable") && (space.text("rule_system") == "dnd2024" || !space.obj("points").flag("enabled"))) {
+        if (attrs.flag("editable") && space.text("rule_system") != "pbta" && (space.text("rule_system") == "dnd2024" || !space.obj("points").flag("enabled"))) {
             item { OutlinedTextField(attribute, { attribute = it }, label = { Text(tr("属性或技能名")) }) }
             item { OutlinedTextField(value, { value = it }, label = { Text(tr("数值")) }) }
             item { Button(onClick = { model.launch {
@@ -101,6 +108,8 @@ import java.io.File
     var dice by remember(state.serverId) { mutableStateOf(state.enabled("dice")) }
     var consistency by remember(state.serverId) { mutableStateOf(state.serverSettings.obj("features").flag("consistency")) }
     var inspiration by remember(state.serverId) { mutableStateOf(state.serverSettings.obj("features").flag("inspiration")) }
+    // On unless the server says off (a server without the switch draws for everyone).
+    var illustrations by remember(state.serverId) { mutableStateOf(state.serverSettings.obj("features")["illustrations"] != JsonPrimitive(false)) }
     var language by remember(state.serverId) { mutableStateOf(InterfaceLanguage.supported(state.serverSettings.text("language"))) }
     LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text(state.serverName, style = MaterialTheme.typography.titleLarge) }
@@ -111,10 +120,11 @@ import java.io.File
         item { SettingToggle(tr("骰子"), dice, maintainer && !state.busy) { dice = it } }
         item { SettingToggle(tr("一致性检查"), consistency, maintainer && !state.busy) { consistency = it } }
         item { SettingToggle(tr("灵感草稿"), inspiration, maintainer && !state.busy) { inspiration = it } }
+        item { SettingToggle(tr("Illustrations"), illustrations, maintainer && !state.busy) { illustrations = it }; Text(tr("Members can have a moment of play drawn by this server’s image provider and posted in the chat. Uses the image budget; GMs can still turn it off per channel. Pictures already posted stay."), style = MaterialTheme.typography.bodySmall) }
         if (maintainer) {
             item { Choice(tr("Language"), language, InterfaceLanguage.codes.zip(InterfaceLanguage.names), !state.busy) { language = it } }
             item { Button(onClick = { model.launch {
-                model.get(listOf("servers", state.serverId, "settings"), buildJsonObject { put("language", language); put("features", buildJsonObject { state.serverSettings.obj("features").forEach { (k,v) -> put(k,v) }; put("atmosphere", atmosphere); put("log_studio", studio); put("dice", dice); put("consistency", consistency); put("inspiration", inspiration) }) }, "PUT")
+                model.get(listOf("servers", state.serverId, "settings"), buildJsonObject { put("language", language); put("features", buildJsonObject { state.serverSettings.obj("features").forEach { (k,v) -> put(k,v) }; put("atmosphere", atmosphere); put("log_studio", studio); put("dice", dice); put("consistency", consistency); put("inspiration", inspiration); put("illustrations", illustrations) }) }, "PUT")
                 model.refreshCatalog(); model.notice(tr("服务器设置已保存"))
             } }, enabled = !state.busy) { Text(tr("保存服务器设置")) } }
         }
@@ -122,6 +132,8 @@ import java.io.File
 }
 
 @Composable fun LiveChannelPage(state: AppState, model: AppViewModel) {
+    var pbtaSettings by remember(state.channelId) { mutableStateOf(false) }
+    if(pbtaSettings && state.gm) { PbtaRulesScreen(state,model){pbtaSettings=false};return }
     var voiceSettings by remember { mutableStateOf(false) }
     if (voiceSettings) { VoiceSettings(state, model) { voiceSettings = false }; return }
     var moduleImports by remember { mutableStateOf(false) }
@@ -135,6 +147,7 @@ import java.io.File
     var consistency by remember(state.channelId) { mutableStateOf(state.channel["consistency_enabled"] != JsonPrimitive(false)) }
     var inspiration by remember(state.channelId) { mutableStateOf(state.channel["inspiration_enabled"] != JsonPrimitive(false)) }
     var atmosphere by remember(state.channelId) { mutableStateOf(state.channel["atmosphere_enabled"] != JsonPrimitive(false)) }
+    var illustrations by remember(state.channelId) { mutableStateOf(state.channel["illustrations_enabled"] != JsonPrimitive(false)) }
     var ruleSystem by remember(state.channelId) { mutableStateOf(state.channel.text("rule_system").ifEmpty { "coc7e" }) }; var pointBuy by remember(state.channelId) { mutableStateOf(state.channel.flag("point_buy")) }
     var ai by remember(state.channelId) { mutableStateOf(state.channel.flag("ai_enabled")) }
     var cloud by remember(state.channelId) { mutableStateOf(false) }
@@ -160,6 +173,7 @@ import java.io.File
     LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if(state.gm && state.studioAvailable) item { TextButton(onClick = { voiceSettings = true }) { Text(tr("Voice settings")) } }
         if(state.gm) item { TextButton(onClick = { moduleImports = true }) { Text(tr("Module imports")) } }
+        if(state.gm && state.channel.text("rule_system")=="pbta") item { TextButton(onClick={pbtaSettings=true}){Text(tr("Rule pack"))} }
         item { Text(state.channel.text("name"), style = MaterialTheme.typography.titleLarge); Text(tr("以下设置仅作用于当前频道")) }
             item { HorizontalDivider(); Text(tr("GM 设置"), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium) }
             item { OutlinedTextField(channelName, { channelName = it }, label = { Text(tr("频道名称")) }) }
@@ -173,6 +187,7 @@ import java.io.File
         item { SettingToggle(tr("Consistency check"), consistency, !state.busy && state.serverSettings.obj("features").flag("consistency")) { consistency = it } }
         item { SettingToggle(tr("Inspiration"), inspiration, !state.busy && state.serverSettings.obj("features").flag("inspiration")) { inspiration = it } }
         item { SettingToggle(tr("Channel atmosphere backgrounds"), atmosphere, !state.busy && state.serverSettings.obj("features").flag("atmosphere")) { atmosphere = it } }
+        item { SettingToggle(tr("Illustrations"), illustrations, !state.busy && state.serverSettings.obj("features")["illustrations"] != JsonPrimitive(false)) { illustrations = it } }
             item { SettingToggle(tr("向成员显示日志制作"), visible, !state.busy) { visible = it } }
             item { SettingToggle(tr("根据叙述建议新阶段"), autoScenarios, !state.busy) { autoScenarios = it } }
             item { ScenarioControls(state, model) }
@@ -180,7 +195,7 @@ import java.io.File
             item { TextButton(onClick = { history = true }) { Text(tr("Atmosphere background history")) } }
             item { SettingToggle(tr("Players may open the Log Studio before the story ends"), playerAccess, !state.busy) { playerAccess = it } }
             item { Button(onClick = { model.launch {
-                model.get(listOf("channels", state.channelId), buildJsonObject { put("name", channelName.trim()); put("description", channelDescription); put("era", era); put("knowledge_mode", knowledgeMode); put("dice_text_group", diceGroup); put("rule_system",ruleSystem); put("point_buy",pointBuy); put("ai_enabled", ai); put("consistency_enabled", consistency); put("inspiration_enabled", inspiration); put("atmosphere_enabled", atmosphere); put("studio_visible", visible); put("studio_player_access", playerAccess); put("auto_scenarios", autoScenarios) }, "PUT"); model.refreshCatalog(); model.refresh(); model.notice(tr("GM 设置已保存"))
+                model.get(listOf("channels", state.channelId), buildJsonObject { put("name", channelName.trim()); put("description", channelDescription); put("era", era); put("knowledge_mode", knowledgeMode); put("dice_text_group", diceGroup); put("rule_system",ruleSystem); put("point_buy",pointBuy); put("ai_enabled", ai); put("consistency_enabled", consistency); put("inspiration_enabled", inspiration); put("atmosphere_enabled", atmosphere); put("illustrations_enabled", illustrations); put("studio_visible", visible); put("studio_player_access", playerAccess); put("auto_scenarios", autoScenarios) }, "PUT"); model.refreshCatalog(); model.refresh(); model.notice(tr("GM 设置已保存"))
             } }, enabled = !state.busy && channelName.isNotBlank() && era.length <= 80) { Text(tr("保存频道设置")) } }
             item { OutlinedTextField(inviteUsername, { inviteUsername = it }, label = { Text(tr("邀请玩家：账号名")) }) }
             item { Text(tr(if (state.serverSettings.flag("is_maintainer") || state.serverSettings.obj("policy").flag("guest_invites")) "You may invite registered users outside this server as channel guests." else "You may invite existing server members to this channel.")) }

@@ -1172,6 +1172,15 @@ int main() {
         CHECK(p.find("era 1920s.") != std::string::npos && p.find("Moment in the story: Thursday night.") != std::string::npos);
         CHECK(p.find("Dare to imagine the characters from an unexpected perspective") != std::string::npos);
         CHECK(p.find("No text, captions, speech bubbles") != std::string::npos);
+        // Which image is whom, by name, numbered as attached (characters without one are skipped in the count).
+        auto who = illustrationIdentity({{"Kai", "", false}, {"Ada", "", true}, {"Mo", "", true}});
+        CHECK(who.find("Kai has no reference image: follow the description. Reference image 1 is Ada. Reference image 2 is Mo.") != std::string::npos);
+        CHECK(who.find("never swap or blend") != std::string::npos);
+        CHECK(illustrationIdentity({{"Kai", "", false}}).empty());
+        CHECK(illustrationFileName("\xF0\x9F\x96\xBC\xEF\xB8\x8F Ada and Mo whisper on the pier: dusk!", "2026-11-07T08:32:15Z", "image/png") == "illustration-2026-11-07-Ada-and-Mo-whisper-on-the-pier-dusk.png");
+        CHECK(illustrationFileName("\xF0\x9F\x96\xBC\xEF\xB8\x8F \xE8\x89\xBE\xE8\xBE\xBE/\xE8\x8E\xAB", "2026-11-07 08:32:15+00", "image/jpeg") == "illustration-2026-11-07-\xE8\x89\xBE\xE8\xBE\xBE-\xE8\x8E\xAB.jpg");   // 艾达/莫: any script kept, '/' replaced
+        CHECK(illustrationFileName("", "", "image/webp") == "illustration.webp");
+        CHECK(illustrationFileName(std::string(100, 'x'), "2026-11-07", "image/png").size() == std::string("illustration-2026-11-07-").size() + 40 + 4);   // at most 40 characters of text
         auto bare = illustrationPrompt("A lighthouse in a storm", {}, "", "");
         CHECK(bare.find("Characters in the picture") == std::string::npos && bare.find("Setting:") == std::string::npos);
     });

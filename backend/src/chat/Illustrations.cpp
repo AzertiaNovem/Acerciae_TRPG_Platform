@@ -48,6 +48,41 @@ std::string illustrationPrompt(const std::string& scene, const std::vector<Illus
     return p;
 }
 
+std::string illustrationIdentity(const std::vector<IllustrationCharacter>& characters) {
+    std::string mapping;
+    int ref = 0;
+    for (const auto& c : characters)
+        mapping += c.hasReference ? "Reference image " + std::to_string(++ref) + " is " + c.name + ". "
+                                  : c.name + " has no reference image: follow the description. ";
+    if (!ref) return "";
+    return "The attached images are identity references, in attachment order. " + mapping +
+           "Keep each character's face, hairstyle, clothing and build as in their own reference, and never swap or blend two "
+           "characters; pose, expression, framing and viewpoint are free.";
+}
+
+std::string illustrationFileName(const std::string& content, const std::string& createdAt, const std::string& mime) {
+    std::string text = content;
+    for (const std::string mark : {std::string("\xF0\x9F\x96\xBC\xEF\xB8\x8F"), std::string("\xF0\x9F\x96\xBC")})   // 🖼️ / 🖼
+        if (text.rfind(mark, 0) == 0) { text = text.substr(mark.size()); break; }
+    text = text::trim(text);   // as the apps' caption: the 40 characters are the description's own
+    std::string slug;
+    size_t chars = 0;
+    for (size_t i = 0; i < text.size() && chars < 40; ) {
+        unsigned char c = text[i];
+        size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 1;
+        std::string ch = text.substr(i, len);
+        i += len; ++chars;
+        bool bad = len == 1 && (c < 0x20 || c == 0x7F || std::string(" \t/\\:*?\"<>|.,;!'`#%&{}[]()=+~$@^").find((char)c) != std::string::npos);
+        if (bad) { if (!slug.empty() && slug.back() != '-') slug += '-'; }
+        else slug += ch;
+    }
+    while (!slug.empty() && slug.back() == '-') slug.pop_back();
+    while (!slug.empty() && slug.front() == '-') slug.erase(slug.begin());
+    std::string date = createdAt.size() >= 10 ? createdAt.substr(0, 10) : "";
+    std::string ext = mime == "image/jpeg" ? ".jpg" : mime == "image/webp" ? ".webp" : ".png";
+    return "illustration" + (date.empty() ? "" : "-" + date) + (slug.empty() ? "" : "-" + slug) + ext;
+}
+
 Json::Value IllustrationService::request(const ChannelAccess& a, const std::string& windowId, const Json::Value& body) {
     if (!Visibility::isUuid(windowId)) throw notFound("window not found");
     auth_.requireWindowMember(a, windowId);
@@ -102,6 +137,8 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
             } catch (const ApiError&) { continue; }   // a portrait this requester may not open is simply not sent
         }
         Json::Value who; who["name"] = c["name"]; who["description"] = c["appearance_prompt"];
+        // The same numbering as the prompt's character lines and the identity instruction.
+        if (ic.hasReference) who["reference_image"] = (int)refs.size(); else who["reference_image"] = "none";
         request["characters"].append(who);
         characterIds.append(id);
         cast.push_back(ic);
@@ -111,8 +148,7 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
     request["size"] = size;
     if (refs.size()) {
         request["reference_images"] = refs;
-        request["identity_instruction"] = "The attached images are identity references, one per character with a reference, in the order the characters are listed. "
-                                          "Keep each character's face, hairstyle, clothing and build; pose, expression, framing and viewpoint are free.";
+        request["identity_instruction"] = illustrationIdentity(cast);
     }
     Json::Value attach;
     attach["window_id"] = windowId;
@@ -154,13 +190,15 @@ void IllustrationService::posted(const Json::Value& job, const Json::Value& asse
     db_.exec("UPDATE asset_generation_jobs SET params=jsonb_set(params, '{attach,message_id}', to_jsonb($2::text)) WHERE id=$1", {job["id"].asString(), msg["id"].asString()});
 }
 
-bool IllustrationService::image(const ChannelAccess& a, const std::string& messageId, std::string& bytes, std::string& mime, std::string* redirectUrl) {
+bool IllustrationService::image(const ChannelAccess& a, const std::string& messageId, std::string& bytes, std::string& mime, std::string* redirectUrl, std::string* fileName) {
     if (!Visibility::isUuid(messageId)) return false;
     auto m = chat_.getMessage(a, messageId);   // 404 for a line this reader may not read (or a recalled one)
     auto id = json::str(m, "media_asset_id");
     if (id.empty()) return false;
     ChannelAccess reader = a; reader.isGm = true;   // the picture follows its line, not the media library's scope
     std::string name;
-    return media_.fetch(reader, id, 0, bytes, mime, name, redirectUrl);
+    if (!media_.fetch(reader, id, 0, bytes, mime, name, redirectUrl)) return false;
+    if (fileName) *fileName = illustrationFileName(m["content"].asString(), m["created_at"].asString(), mime);
+    return true;
 }
 } // namespace acerciae

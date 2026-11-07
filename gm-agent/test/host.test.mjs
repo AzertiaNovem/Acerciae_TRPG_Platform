@@ -83,6 +83,37 @@ test('forced worker stop waits for exit and releases only locks acquired by that
   await manager.start(host.channels[0]); await manager.stop('a');
   assert.equal(fs.existsSync(lockPath(host.stateDir, 'a')), false);
 });
+test('Web UI persistent login restores after restart, authorizes task deletion, rejects foreign origins and revokes on logout', async t => {
+  const host = fixture(t), workers = [];
+  const manager = new HostManager(host, { makeWorker: cfg => { const worker = new FakeWorker(cfg); workers.push(worker); return worker; } });
+  await manager.startAll();
+  let web = await startWeb(manager, host.web);
+  t.after(async () => { await manager.close(); await new Promise(resolve => web.close(resolve)); });
+  let base = `http://127.0.0.1:${web.address().port}`;
+  const login = token => fetch(base + '/api/session', { method: 'POST', headers: { Authorization: `Bearer ${token}`, Origin: base } });
+  assert.equal((await login('incorrect')).status, 401);
+  const logged = await login(host.web.token);
+  assert.equal(logged.status, 200); assert.deepEqual(await logged.json(), { ok: true });
+  const cookie = logged.headers.get('set-cookie').split(';')[0];
+  const request = (route, method = 'GET', body, origin = base) => fetch(base + route, { method,
+    headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  assert.equal((await request('/api/channels')).status, 200);
+  assert.equal((await request('/api/session', 'DELETE', null, 'https://foreign.example')).status, 403);
+  assert.equal((await request('/api/channels/a/remove', 'POST', { confirm: 'a' }, 'https://foreign.example')).status, 403);
+  assert.equal(workers[0].stops, 0);
+  assert.equal((await request('/api/channels/a/remove', 'POST', { confirm: 'b' })).status, 400);
+  assert.equal((await request('/api/channels/a/remove', 'POST', { confirm: 'a' })).status, 200);
+  assert.equal(workers[0].stops, 1); assert.equal(workers[1].stops, 0);
+  assert.deepEqual(manager.status().map(c => [c.id, c.status]), [['b', 'running']]);
+  assert.ok(fs.existsSync(path.join(host.root, 'a.yml')));
+  assert.deepEqual(loadHost(host.file).channels.map(c => c.id), ['b']);
+  await new Promise(resolve => web.close(resolve));
+  web = await startWeb(manager, host.web); base = `http://127.0.0.1:${web.address().port}`;
+  assert.equal((await request('/api/session')).status, 200, 'same cookie survives the server restarting');
+  const logout = await request('/api/session', 'DELETE');
+  assert.equal(logout.status, 200); assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
+  assert.equal((await request('/api/host')).status, 401, 'copied credentials no longer work');
+});
 test('a real worker can import the single-channel runtime without executing the CLI', async () => {
   const worker = new Worker(new URL('../src/host-worker.mjs', import.meta.url), { workerData: { username: '', password: '' }, stdout: true, stderr: true });
   const messages = []; worker.on('message', m => messages.push(m));

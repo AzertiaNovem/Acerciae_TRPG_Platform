@@ -11,6 +11,11 @@ import kotlinx.serialization.json.*
 @Serializable data class Server(val id: String, val name: String)
 @Serializable data class Channel(val id: String, val name: String, @SerialName("my_role") val myRole: String = "player")
 @Serializable data class ChatWindow(val id: String, val name: String, val kind: String)
+@Serializable data class ChatHistory(val messages: List<Message>, val hasOlder: Boolean) {
+    companion object {
+        fun merge(existing: List<Message>, incoming: List<Message>, recalled: Map<String, Message>) = (existing + incoming).associateBy { it.id }.values.map { recalled[it.id] ?: it }.sortedBy { it.seq }
+    }
+}
 @Serializable data class Message(
     val id: String,
     val content: String,
@@ -18,6 +23,8 @@ import kotlinx.serialization.json.*
     @SerialName("character_name") val characterName: String? = null,
     val kind: String,
     val seq: Long,
+    @SerialName("channel_id") val channelId: String? = null,
+    @SerialName("media_asset_id") val mediaAssetId: String? = null,
     val visibility: String = "window",
     @SerialName("author_id") val authorId: String? = null,
     val dice: JsonObject? = null,
@@ -65,6 +72,8 @@ import kotlinx.serialization.json.*
 
 val Message.displayText: String get() = if (recalledAt != null) "" else dice?.get("text")?.jsonPrimitive?.contentOrNull ?: if (diceTone == DiceTone.NOTICE) "" else content
 val Message.recalled: Boolean get() = recalledAt != null
+val Message.hasIllustration: Boolean get() = !recalled && !mediaAssetId.isNullOrEmpty()
+val Message.illustrationCaption: String get() = ChatIllustrations.caption(content)
 fun JsonObject.text(key: String): String = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 fun JsonObject.flag(key: String): Boolean = (get(key) as? JsonPrimitive)?.booleanOrNull ?: false
 fun JsonObject.number(key: String): Int = (get(key) as? JsonPrimitive)?.intOrNull ?: 0

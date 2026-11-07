@@ -23,7 +23,7 @@ export function loadHost(file) {
   file = path.resolve(file);
   const data = YAML.parse(fs.readFileSync(file, 'utf8'));
   if (!data || typeof data !== 'object' || !Array.isArray(data.channels)) throw Error('Shared configuration needs a channels list');
-  const root = path.dirname(file), ids = new Set(), files = new Set();
+  const root = fs.realpathSync(path.dirname(file)), ids = new Set(), files = new Set();
   const channels = data.channels.map(entry => {
     if (!validId(entry.id) || ids.has(entry.id)) throw Error('Invalid or duplicate channel id');
     ids.add(entry.id);

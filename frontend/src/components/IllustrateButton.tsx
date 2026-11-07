@@ -8,7 +8,7 @@ import { useEscape } from '../hooks/useEscape';
 import CachedImg from './CachedImg';
 import type { IllustrationJob } from '../types';
 
-const MAX_CHARACTERS = 4, MAX_PROMPT = 1500;
+const MAX_CHARACTERS = 6, MAX_PROMPT = 1500;
 
 // Illustrate a moment: pick characters as visual references (their main portraits), describe the pose, action and
 // place, and the server's image AI draws it. The platform asks it to dare an unexpected viewpoint. The picture is
@@ -43,7 +43,7 @@ export default function IllustrateButton() {
   return (
     <>
       <button className="ai-btn" onClick={() => setOpen(true)} title={tr('Draw a picture of this moment and post it here')}>
-        {busy ? tr('🖼 Drawing…') : tr('🖼 Illustrate')}
+        {busy ? tr('Drawing…') : tr('Illustrate')}
       </button>
       {open && channelId && windowId && (
         <IllustrateDialog channelId={channelId} windowId={windowId} characters={characters} jobs={jobs} busy={!!busy}

@@ -1,31 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const ts = require('typescript');
+const { chatStore, msg: line, tomb } = require('./chat-harness.cjs');
 
-// The chat store with a stand-in api: requests resolve when the test says so.
-function harness() {
-  let epoch = 0;
-  const pending = { messages: [], recall: [] }, toasts = [];
-  const api = {
-    messages: () => new Promise((resolve, reject) => pending.messages.push({ resolve, reject })),
-    recallMessage: (ch, id) => new Promise((resolve, reject) => pending.recall.push({ ch, id, resolve, reject })),
-  };
-  const js = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/store/chat.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;   // as the app is built: an ES5 spread of a Map iterator is empty
-  const mod = { exports: {} };
-  const req = (name) => {
-    if (name === 'zustand') return require('zustand');
-    if (name === '../api/client') return { api };
-    if (name === './ui') return { useUi: { getState: () => ({ toast: (text, kind) => toasts.push({ text, kind }) }) } };
-    if (name === './session') return { sessionEpoch: () => epoch, isStale: (e) => e !== epoch };
-    throw Error(name);
-  };
-  new Function('require', 'module', 'exports', js)(req, mod, mod.exports);
-  return { ...mod.exports, store: mod.exports.useChat, pending, toasts, switchSession: () => ++epoch };
-}
-const msg = (id, seq, extra = {}) => ({ id, seq, channel_id: 'c', chat_window_id: 'w', author_id: 'u', content: `line ${id}`, kind: 'ic', recall_seconds_left: 120, ...extra });
-const tomb = (m) => ({ ...m, content: '', dice: null, reference_ids: [], recalled_at: '2026-11-07T00:00:00Z', recall_seconds_left: null });
+const harness = () => chatStore();
+const msg = (id, seq, extra = {}) => line(id, seq, { recall_seconds_left: 120, ...extra });
 
 test('a tombstone takes the line\'s place in every window showing it, and leaves the composer\'s references', () => {
   const { store } = harness();
@@ -39,12 +17,13 @@ test('a tombstone takes the line\'s place in every window showing it, and leaves
 });
 
 test('a reload that left before the recall cannot bring the line back', async () => {
-  const { store, pending } = harness();
+  const { store, next } = harness();
   const a = msg('a', 1);
   store.setState({ byWindow: { w: [a] } });
-  const load = store.getState().load('c', 'w');
+  const load = store.getState().open('c', 'w', 'player');
+  const request = await next('messages');
   store.getState().applyRecall(tomb(a));
-  pending.messages[0].resolve([a, msg('b', 2)]);   // the copy fetched before the recall
+  request.resolve([a, msg('b', 2)]);   // the copy fetched before the recall
   await load;
   assert.deepEqual(store.getState().byWindow.w.map((m) => [m.id, m.content]), [['a', ''], ['b', 'line b']]);
 });

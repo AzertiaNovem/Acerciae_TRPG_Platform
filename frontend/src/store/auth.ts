@@ -6,11 +6,12 @@ import { bumpEpoch } from './session';
 import { useLocale } from '../i18n';
 import { resetUserStores } from './reset';
 import { scheduleSweep, setAssetScope } from '../lib/assetCache';
+import { clearHistory, setHistoryScope } from '../lib/chatHistory';
 import { apiBase, isDesktop } from '../lib/platform';
 
 // The local asset cache belongs to one account on one server; it stays across sign-out and is emptied when another
 // account signs in on this browser (setAssetScope). Expired entries are swept once per session.
-const scopeAssets = (u: User) => { setAssetScope(`${apiBase()}|${u.id}`, isDesktop); scheduleSweep(); };
+const scopeAssets = (u: User) => { setAssetScope(`${apiBase()}|${u.id}`, isDesktop); setHistoryScope(`${apiBase()}|${u.id}`, isDesktop); scheduleSweep(); };
 
 interface AuthState {
   user: User | null; loading: boolean; error: string | null;
@@ -71,6 +72,7 @@ export const useAuth = create<AuthState>((set) => {
       bumpEpoch();
       closeSockets();
       try { await api.logout(); } catch { /* Local sign-out also works offline. */ }
+      await clearHistory();   // the account's chat history leaves this device with it
       resetUserStores();
       try {
         await forgetActiveCredential();

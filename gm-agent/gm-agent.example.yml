@@ -100,9 +100,10 @@ calendar:                     # casual games: how fast the GM may move the story
   max_days: 2                 # the most days the GM skips at once (the operator's `date` and the final review are not held to it)
 
 illustrations:                # pictures drawn by the server's image provider, posted as the GM's lines
-  enabled: true               # evocative moments in play, and every scenario change's best moments
-  max_per_hour: 3             # pictures the GM may ask for in play each hour (scenario pictures are not counted)
+  enabled: true               # the end of every small event, evocative moments, every scenario change's best moments
+  max_per_hour: 6             # pictures in play each hour: small events' ends and the GM's own (scenario pictures are not counted)
   allow_cloud: true           # descriptions and portraits may go to a cloud image service
+  requests_per_hour: 4        # pictures of past plots each player may ask for with "/画 …" in the planner window (0: off)
 
 modes:                        # set with `setup`, `world`, `casual`; then kept in the state file. Empty = leave as it is.
   improv:                     # true: improvisation mode (no module; your world setting)

@@ -85,6 +85,17 @@ free-form JSONB (`characters.sheet`) so BRP variants need no schema change.
 Multiple instances: schedulers coordinate through PostgreSQL (`ai_jobs` partial unique index as the task lock,
 `ai_processing_cursors` as progress); HTTP is stateless (token lookup). WebSocket fan-out is per instance.
 
+Chat history in the web client (`frontend/src/store/chat.ts`, `lib/chatHistory.ts`): each window's lines are kept for
+the visit and on the device (IndexedDB, per account and server, at most 1,500 lines per window and 150 windows, removed
+on sign-out, discarded unread when the viewer's role or player group changed). Lines pushed on the chat stream are
+shown at once in every window of the subscribed channel, but a push is never taken as proof that nothing was missed:
+only the server's answer to a check counts. A check asks only for the lines after the last one checked (`after_seq`),
+from just before the recent ones kept so recalls reach it; a gap of more than 1,000 lines starts again from the newest
+page. The open window is checked every 30 s while the stream is subscribed (to catch a push lost on a connection that
+stayed up), every 5 s while it is not, and at once when the stream subscribes again; not while the page is hidden.
+Opening a window shows what is kept straight away and checks it only when its last check is that old, so switching
+back and forth sends nothing new. Scrolling up pages back until the window's first line.
+
 ## Data model (PostgreSQL)
 
 Migrations live in `backend/migrations/` and are applied in order at startup.

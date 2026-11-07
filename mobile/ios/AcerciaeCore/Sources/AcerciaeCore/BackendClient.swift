@@ -1,8 +1,8 @@
 import Foundation
 
 public enum ClientError: Error, LocalizedError {
-    case invalidAddress, insecureAddress, http(Int), gateway(Int), invalidResponse, pointsRule(String)
-    public var httpStatus: Int? { if case .http(let code) = self { return code }; return nil }
+    case invalidAddress, insecureAddress, http(Int), gateway(Int), invalidResponse, pointsRule(String), rules(Int, String)
+    public var httpStatus: Int? { if case .http(let code) = self { return code }; if case .rules(let code, _) = self { return code }; return nil }
     public var errorDescription: String? {
         switch self {
         case .invalidAddress: "请输入服务根地址，不要包含账号、/api 或查询参数"
@@ -15,6 +15,7 @@ public enum ClientError: Error, LocalizedError {
         case .gateway(let status): "服务入口暂时不可用（HTTP \(status)），请稍后重试"
         case .invalidResponse: "服务返回的数据格式不兼容，请更新客户端或联系管理员"
         case .pointsRule(let message): "购点校验未通过：" + message
+        case .rules(_, let message): message
         }
     }
 }
@@ -101,13 +102,30 @@ public struct BackendClient: Sendable {
     /// Media bytes; with the picture's content `hash` the disk cache serves them by content (see `AssetDiskCache.key`).
     public func bytes(_ path: [String], token: String, query: [String: String] = [:], hash: String? = nil) async throws -> Data {
         var c = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
-        c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
         let url = c.url!; let key = AssetDiskCache.key(hash: hash, url: url.absoluteString)
         return try await transfers.load(key: key, cache: assets) {
             var r = URLRequest(url: url); r.timeoutInterval = 120
             r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             let (data, response) = try await sendResponse(r)
-            return (data, AssetDiskCache.keepable(response.value(forHTTPHeaderField: "Cache-Control")))
+            return (data, ChatIllustrations.keepable(response.value(forHTTPHeaderField: "Cache-Control"), path: path))
+        }
+    }
+    public func forgetMessageImage(channel: String, message: String) async {
+        let key = cacheKey(ChatIllustrations.path(channel: channel, message: message), [:])
+        if let assets { await Task.detached(priority: .utility) { assets.remove(key) }.value }
+    }
+    // Local-only snapshot, not an API route: keeps all already-loaded pages for the window.
+    public func cachedHistory(channel: String, window: String) async -> ChatHistory? {
+        guard let data = await reads?.read(cacheKey(["channels", channel, "windows", window, "mobile-history"], [:])) else { return nil }
+        return try? APIJSON.decoder().decode(ChatHistory.self, from: data)
+    }
+    @discardableResult public func keepHistory(_ history: ChatHistory, channel: String, window: String) -> Task<Void, Never> {
+        let key = cacheKey(["channels", channel, "windows", window, "mobile-history"], [:])
+        let disk = reads, generation = disk?.generation ?? 0, ticket = disk?.reserve(key)
+        return Task.detached(priority: .utility) {
+            guard let disk, let data = try? JSONEncoder().encode(history) else { return }
+            disk.put(key, data, generation: generation, ticket: ticket)
         }
     }
 
@@ -168,6 +186,8 @@ public struct BackendClient: Sendable {
                     let value = try? APIJSON.decoder().decode(JSONValue.self, from: data)
                     guard let error = value, !error["error"].text.isEmpty else { throw ClientError.gateway(response.statusCode) }
                     if response.statusCode == 400 && error["error"].text == "points_rule" { throw ClientError.pointsRule(String(error["message"].text.prefix(2000))) }
+                    let path = request.url?.path ?? ""
+                    if [400,409].contains(response.statusCode), (path.contains("/pbta") || path.hasSuffix("/card")), !error["message"].text.isEmpty { throw ClientError.rules(response.statusCode, String(error["message"].text.prefix(2000))) }
                     throw ClientError.http(response.statusCode)
                 }
                 return (data, response)

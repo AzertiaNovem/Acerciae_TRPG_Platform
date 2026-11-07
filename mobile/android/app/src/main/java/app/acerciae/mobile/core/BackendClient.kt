@@ -36,6 +36,7 @@ class BackendAddress(value: String, allowLocalHttp: Boolean) {
 
 enum class RealtimeStream(val path: String) { CHAT("chat"), CONTEXT("context") }
 class PointRuleException(message: String) : IllegalArgumentException("购点校验未通过：" + message.take(2000))
+class RuleValidationException(message: String) : IllegalArgumentException(message.take(2000))
 class InvalidBackendResponse : IOException("服务返回的数据格式不兼容，请更新客户端或联系管理员")
 class BackendException(val status: Int, val apiResponse: Boolean = true, /** The API's error code, e.g. `recall_expired`. */ val code: String = "") : IOException(if (!apiResponse) "服务入口暂时不可用（HTTP $status），请稍后重试" else when (status) {
     401 -> "登录已过期，请重新登录"
@@ -87,7 +88,7 @@ class BackendClient(
                 val cache = assets; val generation = cache?.generation()
                 cache?.get(key)?.let { return@async it }
                 val fetched = sendFetched(Request.Builder().url(url).header("Authorization", "Bearer $token").build())
-                if (cache != null && AssetDiskCache.keepable(fetched.cacheControl)) cache.put(key, fetched.bytes, generation)
+                if (cache != null && ChatIllustrations.keepable(fetched.cacheControl, path)) cache.put(key, fetched.bytes, generation)
                 fetched.bytes
             }.also { pending ->
                 transfers[key] = pending
@@ -96,6 +97,20 @@ class BackendClient(
             }
         }
         task.await()
+    }
+    suspend fun forgetMessageImage(channel: String, message: String) = withContext(Dispatchers.IO) {
+        assets?.remove(cacheKey(ChatIllustrations.path(channel, message), emptyMap()))
+    }
+    // Local-only snapshot, not an API route: includes previously loaded older pages.
+    suspend fun cachedHistory(channel: String, window: String): ChatHistory? = withContext(Dispatchers.IO) {
+        reads?.get(cacheKey(listOf("channels", channel, "windows", window, "mobile-history"), emptyMap()))?.let {
+            runCatching { json.decodeFromString<ChatHistory>(it.toString(Charsets.UTF_8)) }.getOrNull()
+        }
+    }
+    fun keepHistory(history: ChatHistory, channel: String, window: String): Job {
+        val key = cacheKey(listOf("channels", channel, "windows", window, "mobile-history"), emptyMap())
+        val disk = reads; val generation = disk?.generation(); val ticket = disk?.reserve(key)
+        return transferScope.launch { disk?.put(key, json.encodeToString(history).toByteArray(), generation, ticket) }
     }
 
     suspend fun uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, bytes: ByteArray, token: String): JsonObject = withContext(Dispatchers.IO) {
@@ -137,6 +152,7 @@ class BackendClient(
                         if(!it.isSuccessful) {
                             val error=runCatching { json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject }.getOrNull()
                             if(it.code==400 && error?.text("error")=="points_rule") throw PointRuleException(error.text("message"))
+                            if(it.code in listOf(400,409) && (request.url.encodedPath.contains("/pbta") || request.url.encodedPath.endsWith("/card")) && !error?.text("message").isNullOrEmpty()) throw RuleValidationException(error!!.text("message"))
                             throw BackendException(it.code,!error?.text("error").isNullOrEmpty(),error?.text("error").orEmpty())
                         }
                         Fetched(bytes, it.header("Cache-Control"))

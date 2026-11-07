@@ -32,16 +32,19 @@ The shared file contains the platform address, account, state directory, LLM pro
 
 At startup the host prepares each enabled channel independently, adopts existing co-players, creates any missing requested co-players and applies explicit world/casual settings. PbtA waits for its rule review without delaying other channels. A failed worker stays failed until explicitly started or restarted; it does not terminate its peers or repeatedly retry a broken configuration. `enabled: false` prevents automatic startup but still lists the channel in the UI. A second host using the same state directory is refused. For an established CoC/D&D table being migrated, set `prepare_on_start: false` on its shared channel entry to attach without generating or completing cards or reapplying setup modes; existing state remains authoritative. PbtA still performs its required review checks.
 
-Set `webui.enabled: true` in the shared file and supply a random `webui.token` of at least 24 characters (for example `openssl rand -hex 24`). The UI defaults to `http://127.0.0.1:8787`. Enter the token in its login field; it stays in page memory and is never put into the URL. The UI lists the channels with their state, name, rule system, today's token use and any failure, and starts/stops/restarts each one. A selected channel has four tabs:
+Set `webui.enabled: true` in the shared file and supply a random `webui.token` of at least 24 characters (for example `openssl rand -hex 24`). The UI defaults to `http://127.0.0.1:8787`. Enter the token once: the browser keeps an HttpOnly, SameSite=Strict session cookie for 90 days, renewed during use. Reloading, reopening the browser and restarting the host restore the login. The access token is sent only at login, never stored in browser localStorage or put into the URL. The host stores only hashes of random session credentials in `state_dir/.web-sessions.json` (mode 600), capped at 100 sessions; routine status polls renew at most once a day. HTTPS logins use Secure cookies, including behind a proxy that forwards `X-Forwarded-Proto` or the page's HTTPS Origin. “退出登录” revokes this browser's session; changing `webui.token` and restarting invalidates all saved sessions. A rejected session returns to the login form; temporary network errors keep the saved login for the next visit. The UI lists the channels with their state, name, rule system, today's token use and any failure, and starts/stops/restarts each one. A selected channel has five tabs:
 
 - **Overview** — the live table, read from its worker every few seconds: how long it has run and how often it started, the last error (why a start failed, or how the worker exited), the WebSocket streams, the GM role and knowledge mode, activity (turns, queued turns, the last player line, paused or away), today's and the week's model use against the daily budget with a breakdown by purpose, player characters, co-players and their windows, NPCs, timelines with their windows and members, the story planner (plan version, beat, planner window notes, the session in progress), calendar, casual and improvisation modes, and relationships. A stopped channel shows its last snapshot, marked as such.
+- **Plan** — the full currently adopted plan: throughline, played events, beat purpose and exit conditions, pacing verdict, threads (stakes, hooks, twists and maturity conditions), upcoming events, review and calendar advice, plus the complete JSON. A pending newer version is labelled as waiting for adoption. This is the GM’s private plan, visible only after Web UI authentication; it is read-only. Unchanged status polls preserve the expanded JSON view.
 - **Settings** — every channel key as a form, grouped and searchable, each with its help, the value in effect and its default. Only the keys you change are written; the file keeps its comments and other keys. "Default" removes a key. Values are checked against their ranges before anything is saved.
 - **YAML** — the file itself, with a validate button that checks it without saving.
 - **Logs** — the worker's last 600 log lines, filterable, with errors highlighted. Known passwords, keys and the UI token, and anything shaped like a credential (bearer tokens, JWTs, `sk-` keys, `token=` parameters), are masked before a line is kept.
 
 A save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active.
 
-**New hosting tasks.** "＋ 新建主持任务" adds a channel to the running host, without a restart. Either pick a channel the shared account is already GM of (listed from the platform; channels this host keeps are marked), or create one on the platform the way `setup --create` does: on an existing server or a new one (which also returns an invite code for the players), with its name, rule system and era; casual mode makes it an isolated channel so phones stay private. The form takes the first settings (language, co-players, D&D level, casual mode, scene forks, autonomy, planner) and whether the channel starts with the host, is prepared on start, and starts now. The host writes `channels/<channel id>.yml` next to the other channel files and adds the entry to the shared file's `channels:` list, in place: comments and credentials stay, and the file is written atomically with mode 600. Each channel's Settings tab also switches auto-start and prepare-on-start (written to the shared file, used at the next start) and removes the task: the channel stops and leaves the list, while its channel file, state and the platform channel stay, so it can be attached again (a new file is written; the old one is never overwritten). A host can start with an empty `channels: []` and get every channel from the UI. Stopped channels stay stopped. Unsaved edits are not replaced by status refreshes. Shared credentials are never returned to the browser. To change shared connections or the UI listener, edit the shared file and restart the host; the channel list can also be changed from the UI. Changes made directly to channel files take effect on the next channel restart.
+**Token charts.** “全部任务用量” compares each hosted channel’s recorded input + output for today; click a task to inspect it. In Overview, stacked bars group calls by purpose (GM/director, planner, co-player turns/cards, memory, etc.) and show ordinary input, cached input reads/writes and output. Switch between today (the host’s local midnight) and the rolling last seven days; expand the table for every phase/provider/model, call count, failures, unreported usage, estimates and average output. Cached tokens are already included in input and are not counted twice. Shares refer to the recorded total, and missing provider usage is shown as unknown rather than free. Budget-equivalent token counts remain separate from the raw chart totals and do not represent a monetary price. Statistics use two indexed grouped queries, shared for 15 seconds, and reuse the same chart while its data is unchanged. No per-call history is downloaded by polling. Stopped workers show their last snapshot; missing or previous-day snapshots are excluded from today’s cross-task comparison and listed as unavailable, never zero.
+
+**New hosting tasks.** "＋ 新建主持任务" adds a channel to the running host, without a restart. Either pick a channel the shared account is already GM of (listed from the platform; channels this host keeps are marked), or create one on the platform the way `setup --create` does: on an existing server or a new one (which also returns an invite code for the players), with its name, rule system and era; casual mode makes it an isolated channel so phones stay private. The form takes the first settings (language, co-players, D&D level, casual mode, scene forks, autonomy, planner) and whether the channel starts with the host, is prepared on start, and starts now. The host writes `channels/<channel id>.yml` next to the other channel files and adds the entry to the shared file's `channels:` list, in place: comments and credentials stay, and the file is written atomically with mode 600. Each channel's Settings tab switches auto-start and prepare-on-start (written to the shared file, used at the next start). “删除主持任务” in the channel header confirms deletion, stops that worker, then removes its registry entry and refreshes the list; other workers keep running. Its channel file, state and platform channel stay, so it can be attached again (a new file is written; the old one is never overwritten). A failed deletion keeps the task visible. A host can start with an empty `channels: []` and get every channel from the UI. Stopped channels stay stopped. Unsaved edits are not replaced by status refreshes. Shared credentials are never returned to the browser. To change shared connections or the UI listener, edit the shared file and restart the host; the channel list can also be changed from the UI. Changes made directly to channel files take effect on the next channel restart.
 
 The UI grants administrative control of the configured channels, including world-file paths; give the token only to trusted operators. Keep the default loopback listener or place a deliberately exposed listener behind an HTTPS reverse proxy. The server checks bearer authentication and rejects cross-origin API requests: a browser's `Origin` must be the address the UI was opened at. Behind a reverse proxy or tunnel that rewrites the `Host` header (nginx does by default), every save fails with "Origin not allowed" until the proxy forwards the original host (nginx: `proxy_set_header Host $http_host;`, which keeps a non-default port such as `:15505`; or `X-Forwarded-Host`) or the public address, port included, is listed under `webui.allowed_origins` (for example `https://gm.example.com:15505`). The shared file is read when the host starts: restart it after changing `allowed_origins`.
 
@@ -266,6 +269,8 @@ creates the character, or reuses the existing one when that name is already in t
    | `truth` | improvisation mode: a hidden fact the GM just decided, kept for later turns and declared as a secret |
    | `text` | casual mode: a real NPC texts a player character's phone |
    | `planner_note` | a word for the story planner: what the players did that changed the plan, or that the beat is done |
+   | `event_done` | a small event has just ended: its most striking moment is drawn in that window after the turn (see Illustrations) |
+   | `illustrate` | a breathtaking moment in the middle of an event, drawn at once (see Illustrations) |
    | `date` | casual mode: moves the story's calendar on (`advance_days`, the time of day) or to a later YYYY-MM-DD date; never backwards, and the date only at the GM's pace (`calendar.*`) |
    | `bond` | records, changes or ends a relationship between two characters (`secret`: the investigators do not know it) |
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
@@ -316,15 +321,23 @@ recalls itself never start a rollback.
 
 ## Illustrations
 
-The platform can draw a moment of the story with the server's image provider: a description, up to four characters
+The platform can draw a moment of the story with the server's image provider: a description, up to six characters
 whose portraits guide the picture, and a frame (landscape, portrait or square). The picture is posted in the window
 as the GM's out-of-character line ("🖼️ " and the description), a little after it was asked for; it never starts a
-turn. The table uses it two ways (`src/illustrations.mjs`):
+turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`):
 
-- **Evocative moments.** When a moment is truly evocative and beautiful (a breathtaking place revealed, a charged
-  meeting, a striking image the players will remember), the GM may have it drawn with `illustrate`, in any scene:
-  one frozen moment for a painter, with who is in it, the place, the light and the mood, and no words. The GM is told
-  to use it rarely, and the table allows at most `illustrations.max_per_hour` (3) such pictures an hour.
+- **The end of every small event.** The story moves in small events: a conversation that reaches its point, a search
+  that turns something up, a fight or a chase, an arrival somewhere new, a ritual, a farewell. When the GM's lines
+  bring one to its end, it adds `event_done` with the event's name. After the turn, a model call
+  (`event_illustration`) reads the public lines of that event in its window (since the previous event there, the
+  scenario's start or the scene's start; at most its last 120 lines) and chooses its most striking moment, the
+  characters in it and the frame; the picture is posted in that window. No picture when no human player is in the
+  scene, when the event has fewer than four lines, or when the hour's in-play pictures are spent. A recall that rolls
+  back the turn that ended the event drops or cancels its picture.
+- **Evocative moments.** For a breathtaking moment in the middle of an event (a place revealed, a charged meeting),
+  the GM may have it drawn at once with `illustrate`: one frozen moment for a painter, with who is in it, the place,
+  the light and the mood, and no words. The GM is told to use it rarely. Event pictures and these together are capped
+  at `illustrations.max_per_hour` (6) an hour.
 - **Every scenario change.** When the story enters its next scenario, the table always draws the most brilliant,
   beautiful, artistic moment of the scenario that just ended, once for each timeline a human player was in
   (co-player-only threads are skipped). A model call reads that timeline's window, the lines of the ending scenario
@@ -332,10 +345,36 @@ turn. The table uses it two ways (`src/illustrations.mjs`):
   and the frame. All of these pictures are posted in the Main Chat, one after another: the platform draws one
   picture at a time per account, so each waits for the previous one.
 
+  **No moment twice.** Every choice of a moment, for an event or a scenario, is given the descriptions of the pictures
+  the scenario already has (the pictures posted since it began, in any window, and those chosen but not drawn yet)
+  and told to choose a different one. The choices are made one at a time, in the order the events ended, so a
+  scenario picture asked for in the same turn as an event's end knows that event's picture. An event that ends in the
+  same turn as a scenario change counts as ending before it.
+- **On a player's request.** A player writes `/画` (or `/插画`, `/draw`, `/illustrate`) and the moment they want in
+  the planner window: `/画 我们黄昏时抵达灯塔的那一刻`, `/draw the duel on the bridge, as an ink sketch`. The request
+  never reaches the story planner, and the GM does not read it either. The table answers at once ("🎨 Looking for that
+  moment…") and finds the stretch of play, however long ago it was:
+  1. a model call (`plot_search`) reads the scenarios and the GM's chapter summaries, says where the moment most
+     likely is and which words its lines will contain;
+  2. those words are looked up in the table's copy of the chat and in the platform's message search, which reaches
+     the whole history; the place where most of them meet wins;
+  3. a second call (`plot_illustration`) reads the lines around that place (fetched from the platform when they are
+     older than the table's copy), picks the moment, and follows the player's wishes about framing and style where
+     the lines allow.
+
+  The picture is drawn into the planner window as soon as the platform can (ahead of any scenario picture still
+  waiting). Only lines the player can read are drawn on: the Main Chat and the windows they are a member of, said
+  for the whole window, never a whisper, a GM-only note or a phone. The planner window is shared, so every player
+  there sees the picture. If the moment cannot be found, the table says so and asks for a detail or two. A player has
+  one request on its way at a time, and at most `illustrations.requests_per_hour` (4) an hour; `/画` with nothing
+  after it explains the command. A request is not play: it works while the table is paused and does not resume it.
+
 A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
 is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
-illustrations stay off for the rest of the run. `illustrations.allow_cloud` confirms that the descriptions and
-portraits may go to a cloud image service; `illustrations.enabled: false` turns both uses off.
+illustrations stay off for the rest of the run. The platform's switches are followed live instead: while the server's
+maintainers or the GM have illustrations off, the GM is not offered the action, no event or scenario picture is drawn, and a
+player's `/draw` is answered "turned off for this table"; turned back on, they resume. `illustrations.allow_cloud` confirms that the descriptions and
+portraits may go to a cloud image service; `illustrations.enabled: false` turns all four uses off.
 
 ## Timelines and autonomy
 
@@ -780,6 +819,9 @@ or a hidden truth. Who reads the notes:
 
 `status` lists the notes. Every player in the channel can read what the others write there.
 
+A line starting with `/画`, `/插画`, `/draw` or `/illustrate` asks for a picture of a past plot instead; it is no wish
+and the planner never reads it (see Illustrations).
+
 Send `/pause` on its own in this window to pause the channel. It cancels current and queued GM, co-player
 and planner generation. Phone messages whose text and delivery time are already saved still arrive. Their delivery
 does not trigger another reply while paused. The next message from any human player in the channel resumes hosting,
@@ -913,8 +955,9 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
 | `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
 | `illustrations.enabled` | `--illustrations` | `true` | evocative moments and the scenario-change pictures (see Illustrations) |
-| `illustrations.max_per_hour` | `--illustrations-per-hour` | `3` | pictures the GM may ask for in play each hour (0: none in play; scenario pictures are not counted) |
+| `illustrations.max_per_hour` | `--illustrations-per-hour` | `6` | pictures in play each hour: the ends of small events and the GM's `illustrate` together (0: none in play; scenario and requested pictures are not counted) |
 | `illustrations.allow_cloud` | `--illustrations-allow-cloud` | `true` | descriptions and portraits may go to a cloud image service |
+| `illustrations.requests_per_hour` | `--illustrations-requests-per-hour` | `4` | pictures of past plots each player may ask for with `/画` in the planner window each hour (0: the command is off) |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
 | `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the GM's secrets, read by `setup` and `world` (relative to the file) |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |

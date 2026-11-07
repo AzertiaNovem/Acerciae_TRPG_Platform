@@ -179,6 +179,7 @@ Json::Value body(const HttpRequestPtr& req) {
     return v;
 }
 int qint(const HttpRequestPtr& req, const char* k, int def) { auto s = req->getParameter(k); if (s.empty()) return def; try { return std::stoi(s); } catch (...) { return def; } }
+int64_t qint64(const HttpRequestPtr& req, const char* k, int64_t def) { auto s = req->getParameter(k); if (s.empty()) return def; try { return std::stoll(s); } catch (...) { return def; } }
 
 void run(const HttpRequestPtr& req, Cb&& cb, const Params& params, const Fn& fn, bool authRequired) {
     try {
@@ -404,7 +405,7 @@ void registerRoutes() {
     route2("/api/channels/{1}/windows/{2}/members", {Post}, [&](auto& req, auto& p, auto& a) { auto b = body(req); return S.chat->addWindowMember(access(p, a[0]), a[1], json::requireStr(b, "user_id"), json::str(b, "character_id")); });
     route3("/api/channels/{1}/windows/{2}/members/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeWindowMember(access(p, a[0]), a[1], a[2]); });
     route3("/api/channels/{1}/windows/{2}/members/{3}/visibility", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->setWindowVisibility(access(p,a[0]),a[1],a[2],body(req)); });
-    route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint(req, "before_seq", 0), req->getParameter("include_history") != "false"); });
+    route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint64(req, "before_seq", 0), req->getParameter("include_history") != "false", qint64(req, "after_seq", -1)); });
     route1("/api/channels/{1}/pbta", {Get}, [&](auto&, auto& p, auto& a) { return pbta::read(*S.db, access(p,a[0])); });
     route1("/api/channels/{1}/pbta/draft", {Get}, [&](auto&, auto& p, auto& a) { return pbta::review(*S.db,access(p,a[0])); });
     route1("/api/channels/{1}/pbta/draft", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::changeReview(*S.db,access(p,a[0]),body(req)); });
@@ -436,18 +437,30 @@ void registerRoutes() {
     });
     route2("/api/channels/{1}/windows/{2}/messages", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->postMessage(access(p, a[0]), a[1], body(req)); });
     // Illustrations: drawn on request and posted in the window as the requester's out-of-character line.
-    route2("/api/channels/{1}/windows/{2}/illustrations", {Post}, [&](auto& req, auto& p, auto& a) { return S.illustrations->request(access(p, a[0]), a[1], body(req)); });
+    // Drawing is optional: the server's maintainers switch it for the server, the GM for the channel (403
+    // feature_disabled). The job list, cancelling and the pictures already posted stay available either way.
+    route2("/api/channels/{1}/windows/{2}/illustrations", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "illustrations"); S.chat->requireChannelAi(ac, "illustrations_enabled");
+        return S.illustrations->request(ac, a[1], body(req));
+    });
     route1("/api/channels/{1}/illustrations", {Get}, [&](auto&, auto& p, auto& a) { return S.illustrations->jobs(access(p, a[0])); });
     route2("/api/channels/{1}/illustrations/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.illustrations->cancel(access(p, a[0]), a[1]); });
     // A line's picture, for <img>: only to those who may read the line (?token= since image tags cannot set headers).
     app().registerHandler("/api/channels/{1}/messages/{2}/image", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string mid) {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
-            auto ac = access(*pr, ch); std::string bytes, mime, direct;
+            auto ac = access(*pr, ch); std::string bytes, mime, direct, name;
             const std::string cc = "private, max-age=86400";   // a line's picture never changes
-            if (!S.illustrations->image(ac, mid, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "no picture")); return; }
+            // ?download=1: the bytes themselves, saved as a file with a readable name (never a bucket redirect, which
+            // would lose the name).
+            const bool download = req->getParameter("download") == "1";
+            if (!S.illustrations->image(ac, mid, bytes, mime, !download && mayRedirect(req) ? &direct : nullptr, &name)) { cb(errResp(404, "not_found", "no picture")); return; }
             if (!direct.empty()) { cb(toBucket(req, direct, true, cc.c_str())); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("X-Content-Type-Options", "nosniff");
+            if (download) {
+                std::string ascii; for (char c : name) ascii += (unsigned char)c < 0x80 && c != '"' ? c : '_';
+                r->addHeader("Content-Disposition", "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + drogon::utils::urlEncodeComponent(name));
+            }
             cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});

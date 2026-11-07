@@ -96,6 +96,8 @@ struct CharacterSpace: View {
     @State private var space: JSONValue = .null
     @State private var card: [String: JSONValue] = [:]
     @State private var baselineCard: JSONValue = .null
+    @State private var pbtaRules: JSONValue = .null
+    @State private var cardRuleSystem = "coc7e"
     @State private var reloadCard = false
     @State private var pointRules: JSONValue = .null
     @State private var rulesError = ""
@@ -110,10 +112,10 @@ struct CharacterSpace: View {
     @State private var cloud = false
     private var base: [String] { ["channels", model.channelId, "characters", character.id] }
     private var pbta: Bool { space["rule_system"].text == "pbta" || model.channel["rule_system"].text == "pbta" }
-    private var editable: Bool { !pbta && space["character"]["editable"].bool && !model.busy }
+    private var editable: Bool { space["character"]["editable"].bool && !model.busy }
     private var pointsOn: Bool { space["points"]["enabled"].bool }
     private var dnd: Bool { space["rule_system"].text == "dnd2024" || model.channel["rule_system"].text == "dnd2024" }
-    private var pointsValid: Bool { dnd || !pointsOn || (pointRules != .null && PointBuy(card: .object(card), rules: pointRules).issues.isEmpty) }
+    private var pointsValid: Bool { pbta ? Pbta.validSheet(card["pbta"] ?? .null, pack: pbtaRules["pack"]) : dnd || !pointsOn || (pointRules != .null && PointBuy(card: .object(card), rules: pointRules).issues.isEmpty) }
     private let groups: [(String, String, [String])] = [
         ("basic", tr("基本信息"), ["player", "occupation", "age", "sex", "residence", "birthplace"]),
         ("characteristics", tr("CoC7 属性"), ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK"]),
@@ -123,7 +125,11 @@ struct CharacterSpace: View {
     var body: some View {
         Form {
             Section(tr("角色资料")) { TextField(tr("姓名"), text: $name); TextField(tr("简介"), text: $bio, axis: .vertical); TextField(tr("说话风格"), text: $speakingStyle, axis: .vertical) }.disabled(!editable)
-            if pbta { Text(tr("PbtA · Edit the playbook in the web or desktop app.")) } else if dnd {
+            if space["character"]["card_pending"].bool { Text(tr("The rules changed: this character's numbers need rebuilding")).font(.caption) }
+            if pbta {
+                if pbtaRules["pack"] != .null { PbtaSheetEditor(model: model, card: $card, rules: pbtaRules, characterId: character.id, editable: editable, dirty: .object(card) != baselineCard || name != space["character"]["name"].text || bio != space["character"]["bio"].text || speakingStyle != space["character"]["speaking_style"].text) }
+                else { Button(tr("Reload rules")) { Task { await model.load { pbtaRules = try await model.get(["channels", model.channelId, "pbta"]) } } } }
+            } else if dnd {
                 if pointRules != .null { DndCardEditor(card: $card, rules: pointRules, editable: editable, gm: model.gm, points: pointsOn, language: model.serverSettings["language"].text) } else { Button(tr("Reload rules")) { Task { await loadRules() } }; Text(rulesError) }
             } else {
             ForEach(groups, id: \.0) { group in
@@ -190,7 +196,7 @@ struct CharacterSpace: View {
             } }
         }.confirmationDialog(tr("Discard draft and reload character card?"), isPresented: $reloadCard) { Button(tr("Reload card"), role: .destructive) { Task { await model.run { apply(try await model.get(base + ["space"])) } } } }
         .navigationTitle(tr("角色空间"))
-            .toolbar { ToolbarItem(placement: .confirmationAction) { if !pbta && space["character"]["editable"].bool { Button(tr("保存")) { Task { await saveCard() } }.disabled(!editable || !pointsValid || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { if space["character"]["editable"].bool { Button(tr("保存")) { Task { await saveCard() } }.disabled(!editable || !pointsValid || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } } }
              .task {
                 if let kept: JSONValue = await model.cached(base + ["space"]) { apply(kept) }
                 let initialCard = card, initialName = name, initialBio = bio, initialStyle = speakingStyle, initialPrompt = prompt, initialMode = mode
@@ -202,14 +208,16 @@ struct CharacterSpace: View {
                     if let e = error as? ClientError, [401,403,404].contains(e.httpStatus ?? 0) { space = .null }
                     model.handle(error)
                 }
-                if pointsOn || dnd { await loadRules() }
+                if !pbta && (pointsOn || dnd) { await loadRules() }
             }
     }
     private func saveCard() async {
         await model.run {
             let latest = try await model.get(base + ["space"])
-            guard latest["character"]["role_card"] == baselineCard else { model.notice = tr("The character card changed on the server. Your draft is preserved. Reload the card before saving."); return }
-            let updated = try await model.get(base + ["card"], body: .object(["name": .string(name), "bio": .string(bio), "speaking_style": .string(speakingStyle), "role_card": .object(card)]), method: "PUT")
+            guard latest["character"]["role_card"] == baselineCard && latest["rule_system"].text == cardRuleSystem && (!pbta || latest["pbta_rules"]["revision"] == pbtaRules["revision"]) else { model.notice = tr("The character card changed on the server. Your draft is preserved. Reload the card before saving."); return }
+            var body: [String: JSONValue] = ["name":.string(name),"bio":.string(bio),"speaking_style":.string(speakingStyle),"role_card":.object(card),"rule_system":.string(cardRuleSystem)]
+            if pbta { body["pack_revision"] = pbtaRules["revision"] }
+            let updated = try await model.get(base + ["card"], body: .object(body), method: "PUT")
             apply(updated); try await model.refresh(); model.notice = tr("角色卡已保存")
         }
     }
@@ -218,7 +226,7 @@ struct CharacterSpace: View {
         do { pointRules = try await model.get([dnd ? "dnd" : "coc7", "rules"]); rulesError = "" }
         catch { rulesError = tr("职业规则暂不可用，请重试；草稿保留") }
     }
-    private func apply(_ value: JSONValue) { space = value; baselineCard = value["character"]["role_card"]; card = value["character"]["role_card"].object; name = value["character"]["name"].text; bio = value["character"]["bio"].text; speakingStyle = value["character"]["speaking_style"].text; mode = value["character"]["asset_mode"].text; prompt = value["character"]["appearance_prompt"].text }
+    private func apply(_ value: JSONValue) { space = value; pbtaRules = value["pbta_rules"]; cardRuleSystem = value["rule_system"].string ?? model.channel["rule_system"].string ?? "coc7e"; baselineCard = value["character"]["role_card"]; card = value["character"]["role_card"].object; name = value["character"]["name"].text; bio = value["character"]["bio"].text; speakingStyle = value["character"]["speaking_style"].text; mode = value["character"]["asset_mode"].text; prompt = value["character"]["appearance_prompt"].text }
     private func binding(_ group: String, _ key: String) -> Binding<String> {
         Binding(get: { let value = card[group]?[key] ?? .null; return value.string ?? (value == .null ? "" : String(value.int)) }, set: { text in
             var section = card[group]?.object ?? [:]

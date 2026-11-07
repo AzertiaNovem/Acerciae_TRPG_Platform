@@ -32,13 +32,15 @@ public struct Session: Codable, Sendable, CustomStringConvertible {
 public struct Server: Decodable, Identifiable, Sendable { public let id: String; public let name: String }
 public struct Channel: Decodable, Identifiable, Sendable { public let id: String; public let name: String; public let myRole: String }
 public struct ChatWindow: Decodable, Identifiable, Sendable { public let id: String; public let name: String; public let kind: String }
-public struct Message: Codable, Identifiable, Sendable {
+public struct Message: Codable, Identifiable, Sendable, Equatable {
     public let id: String
     public let content: String
     public let authorName: String
     public let characterName: String?
     public let kind: String
     public let seq: Int64
+    public var channelId: String? = nil
+    public var mediaAssetId: String? = nil
     public var authorId: String? = nil
     public var characterId: String? = nil
     public var characterAvatarAssetId: String? = nil
@@ -54,6 +56,8 @@ public struct Message: Codable, Identifiable, Sendable {
     /// Seconds left, when the message arrived, for its author to recall it; nil when it cannot be recalled.
     public var recallSecondsLeft: Int? = nil
     public var recalled: Bool { recalledAt != nil }
+    public var hasIllustration: Bool { !recalled && !(mediaAssetId ?? "").isEmpty }
+    public var illustrationCaption: String { ChatIllustrations.caption(content) }
     public var displayText: String { recalled ? "" : dice?["text"].string ?? (diceTone == .notice ? "" : content) }
     public init(id: String, content: String, authorName: String, characterName: String?, kind: String, seq: Int64) {
         self.id = id; self.content = content; self.authorName = authorName
@@ -90,7 +94,21 @@ public struct DemoCampaign: Decodable, Sendable {
     public var documents: [DocumentSummary]
     public var highlights: [Highlight]
     public let replay: [ReplayFrame]
+    public init(title: String, scene: String, messages: [Message], documents: [DocumentSummary] = [], highlights: [Highlight] = [], replay: [ReplayFrame] = []) {
+        self.title = title; self.scene = scene; self.messages = messages; self.documents = documents; self.highlights = highlights; self.replay = replay
+    }
     public static func decode(_ data: Data) throws -> DemoCampaign { try APIJSON.decoder().decode(Self.self, from: data) }
+}
+public struct ChatHistory: Codable, Sendable, Equatable {
+    public var messages: [Message]
+    public var hasOlder: Bool
+    public init(messages: [Message], hasOlder: Bool) { self.messages = messages; self.hasOlder = hasOlder }
+    public static func merge(_ existing: [Message], _ incoming: [Message], recalled: [String: Message]) -> [Message] {
+        var byId: [String: Message] = [:]
+        for message in existing { byId[message.id] = message }
+        for message in incoming { byId[message.id] = message }
+        return byId.values.map { recalled[$0.id] ?? $0 }.sorted { $0.seq < $1.seq }
+    }
 }
 public enum APIJSON {
     public static func decoder() -> JSONDecoder {
@@ -101,6 +119,8 @@ public enum APIJSON {
 /// Lossless extensible payloads for dice and Log Studio. Dictionary keys retain server spelling.
 public enum JSONValue: Codable, Sendable, Equatable {
     case object([String: JSONValue]), array([JSONValue]), string(String), number(Double), bool(Bool), null
+    public var id: String { self["id"].text }
+    public var name: String { self["name"].string ?? self["title"].text }
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }

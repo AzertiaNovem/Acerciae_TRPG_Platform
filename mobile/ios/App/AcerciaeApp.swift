@@ -64,6 +64,9 @@ import AcerciaeCore
         if recalledMessages[tombstone.id] == nil {
             recalledMessages[tombstone.id] = tombstone
             metadataUpdated = .distantPast
+            let imageChannel = tombstone.channelId ?? channelId
+            ArtworkImages.remove(ChatIllustrations.key(server: endpoint, account: session?.user.id ?? "", channel: imageChannel, message: tombstone.id))
+            if let client { Task { await client.forgetMessageImage(channel: imageChannel, message: tombstone.id) } }
             if let cache = client?.reads {
                 Task.detached(priority: .utility) { cache.removeMessage(tombstone.id) }
             }
@@ -185,7 +188,7 @@ import AcerciaeCore
             let auth: Session
             if registering { auth = try await api.register(username: username, password: password, displayName: displayName) }
             else { auth = try await api.login(username: username, password: password) }
-            epoch = UUID(); recalledMessages = [:]; client = api.withAssets(assets(for: auth.user), reads: reads(for: auth.user)); session = auth; draft = ""; drafts = [:]
+            epoch = UUID(); histories = [:]; historyOrder = []; recalledMessages = [:]; client = api.withAssets(assets(for: auth.user), reads: reads(for: auth.user)); session = auth; draft = ""; drafts = [:]
             if let code = auth.user.uiLanguage { MobileLocale.shared.set(code) }
             do { try sessionStore.save(SavedLogin(endpoint: endpoint, session: auth)); accountUsers = try sessionStore.roster().accounts.map { $0.session.user } }
             catch { notice = tr("登录成功，但设备未能安全保存登录状态") }
@@ -237,6 +240,7 @@ import AcerciaeCore
         speech.stopSpeaking(at: .immediate)
         client = nil
         session = nil
+        histories = [:]; historyOrder = []
         AvatarCache.images.removeAllObjects()
         ArtworkImages.clear()
         onAccountChanged()
@@ -252,7 +256,7 @@ import AcerciaeCore
         catalogUpdated = .distantPast
         epoch = UUID(); session = nil; client = nil; servers = []; channels = []; serverId = ""; serverSettings = .null
         api?.assets?.invalidate(); api?.reads?.invalidate(); navigationTask?.cancel(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects()
-        clearChannel(); recalledMessages = [:]; drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
+        clearChannel(); histories = [:]; historyOrder = []; recalledMessages = [:]; drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
         retired = true
         onAccountChanged()
@@ -266,6 +270,8 @@ import AcerciaeCore
         windows = []; characters = []; scenes = []; reminders = []; campaign = nil; hasOlder = false; diceHint = ""; result = nil
     }
     func selectServer(_ id: String) async throws {
+        if id == serverId, !channels.isEmpty, !channelId.isEmpty, campaign != nil { return }
+        rememberHistory()
         if !windowId.isEmpty { drafts[windowId] = draft }
         epoch = UUID(); let stamp = epoch
         serverId = id; clearChannel(); channels = []; serverSettings = .null; draft = ""
@@ -278,6 +284,8 @@ import AcerciaeCore
         else { serverSettings = try await get(["servers",id,"settings"]) }
     }
     func selectChannel(_ id: String) async throws {
+        if id == channelId, !channels.isEmpty, !windowId.isEmpty, campaign != nil { try await refresh(metadata: false); return }
+        rememberHistory()
         if !windowId.isEmpty { drafts[windowId] = draft }
         epoch = UUID(); let stamp = epoch
         clearChannel(); channelId = id; draft = ""
@@ -292,13 +300,15 @@ import AcerciaeCore
         if let first = wins.first(where: { $0.id == windowId }) ?? wins.first { try await selectWindow(first.id) }
     }
     func selectWindow(_ id: String) async throws {
+        if id == windowId, campaign != nil { try await refresh(merge: true, metadata: false); return }
+        rememberHistory()
         if !windowId.isEmpty { drafts[windowId] = draft }
         epoch = UUID(); references = []; jumpMessageId = nil; speechMode = gm ? "narration" : "ic"; windowId = id; draft = drafts[id] ?? ""; campaign = nil; diceHint = ""; result = nil
         let stamp = epoch
         await restoreCachedWindow(id, stamp: stamp)
         try Task.checkCancellation(); guard stamp == epoch else { return }
         await rememberSelection()
-        try await refresh(merge: false,metadata:false)
+        try await refresh(merge: true,metadata:false)
     }
     private var navigationTask: Task<Void, Never>?
     func navigate(_ work: @escaping @MainActor () async throws -> Void) {
@@ -356,20 +366,37 @@ import AcerciaeCore
             await restoreCachedWindow(win.id, stamp: stamp)
         }
     }
+    private var histories: [String: ChatHistory] = [:]
+    private var historyOrder: [String] = []
+    private func rememberHistory() {
+        guard !channelId.isEmpty, !windowId.isEmpty, let view = campaign else { return }
+        let key = channelId + "|" + windowId, snapshot = ChatHistory(messages: view.messages, hasOlder: hasOlder)
+        guard histories[key] != snapshot else { return }
+        histories[key] = snapshot; historyOrder.removeAll { $0 == key }; historyOrder.append(key)
+        if historyOrder.count > 12 { histories.removeValue(forKey: historyOrder.removeFirst()) }
+        client?.keepHistory(snapshot, channel: channelId, window: windowId)
+    }
     private func restoreCachedWindow(_ id: String, stamp: UUID) async {
-        let c = channelId
-        async let messages: JSONValue? = cached(["channels",c,"windows",id,"messages"], query:["limit":"50"])
-        async let docs: JSONValue? = cached(["channels",c,"documents"])
-        async let hints: JSONValue? = cached(["channels",c,"highlights"])
-        let values = await (messages,docs,hints)
-        guard stamp == epoch, !Task.isCancelled, let messages = values.0 else { return }
-        let payload: JSONValue = .object(["title":.string(channel["name"].text),"scene":.string(windows.first { $0.id == id }?["scene_title"].text ?? ""),"messages":messages,"documents":gm ? values.1 ?? .array([]) : .array([]),"highlights":gm ? values.2 ?? .array([]) : .array([]),"replay":.array([])])
-        if let data = try? JSONEncoder().encode(payload), var view = try? DemoCampaign.decode(data) {
-            view.messages = view.messages.map { recalledMessages[$0.id] ?? $0 }
-            campaign = view; hasOlder = view.messages.count == 50
+        let c = channelId, key = channelId + "|" + id
+        var saved = histories[key]
+        if saved == nil { saved = await client?.cachedHistory(channel: c, window: id) }
+        if saved == nil, let rows: [Message] = await cached(["channels",c,"windows",id,"messages"], query:["limit":"50"]) { saved = ChatHistory(messages: rows, hasOlder: rows.count == 50) }
+        guard stamp == epoch, !Task.isCancelled, let saved else { return }
+        let messages = saved.messages.map { recalledMessages[$0.id] ?? $0 }
+        campaign = DemoCampaign(title: channel["name"].text, scene: windows.first { $0.id == id }?["scene_title"].text ?? "", messages: messages)
+        hasOlder = saved.hasOlder; histories[key] = ChatHistory(messages: messages, hasOlder: saved.hasOlder)
+        historyOrder.removeAll { $0 == key }; historyOrder.append(key)
+        if historyOrder.count > 12 { histories.removeValue(forKey: historyOrder.removeFirst()) }
+        // Chat is already visible; auxiliary cached documents cannot delay it.
+        if gm {
+            async let docs: [DocumentSummary]? = cached(["channels",c,"documents"])
+            async let hints: [Highlight]? = cached(["channels",c,"highlights"])
+            let values = await (docs,hints)
+            guard stamp == epoch, !Task.isCancelled else { return }
+            campaign?.documents = values.0 ?? []; campaign?.highlights = values.1 ?? []
         }
     }
-    private func purgeCachedAccess() { stopArtworkPrefetch(reset: true); cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects() }
+    private func purgeCachedAccess() { histories = [:]; historyOrder = []; stopArtworkPrefetch(reset: true); cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects() }
     private func permissionsDiffer(_ old: JSONValue, _ oldWindows: [Resource], _ fresh: JSONValue, _ freshWindows: [Resource]) -> Bool {
         ["player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode"].contains { old[$0] != fresh[$0] }
         || oldWindows.contains { win in freshWindows.first { $0.id == win.id }?["members"] != win["members"] }
@@ -385,6 +412,9 @@ import AcerciaeCore
     func bytes(_ path: [String], query: [String: String] = [:], hash: String? = nil) async throws -> Data {
         guard let client, let session else { throw ClientError.http(401) }
         return try await client.bytes(path, token: session.token, query: query, hash: hash)
+    }
+    func discardMessageImage(channel: String, message: String) async {
+        await client?.forgetMessageImage(channel: channel, message: message)
     }
     func uploadArtwork(_ data: Data, character: String, slot: String, subtitle: String) async throws -> JSONValue {
         guard let client, let session else { throw ClientError.http(401) }
@@ -446,17 +476,33 @@ import AcerciaeCore
         channel = info; windows = wins
         var messages: [Message] = try await typed(["channels",c,"windows",w,"messages"],query:["limit":"50"])
         guard stamp == epoch else { return }
+        let previous = merge && !permissionsChanged ? campaign?.messages ?? [] : []
+        let hadHistory = campaign != nil
+        if let newest = previous.last?.seq, messages.count == 50 {
+            var cursor = messages.map(\.seq).min() ?? newest
+            var count = 50
+            while cursor > newest && count == 50 {
+                let page: [Message] = try await typed(["channels",c,"windows",w,"messages"],query:["limit":"50","before_seq":String(cursor)])
+                guard stamp == epoch else { return }
+                let next = page.map(\.seq).min() ?? cursor
+                guard next < cursor else { break }
+                messages = page + messages; cursor = next; count = page.count
+            }
+        }
         for message in messages where message.recalled { applyRecall(message) }
         messages = messages.map { recalledMessages[$0.id] ?? $0 }
         recallDeadlines.note(messages)
-        var all = merge && !permissionsChanged ? campaign?.messages ?? [] : []
-        for message in messages { all.removeAll { $0.id == message.id }; all.append(message) }
-        all.sort { $0.seq < $1.seq }
+        let incoming = messages, recalled = recalledMessages
+        let merged = await Task.detached(priority: .userInitiated) { ChatHistory.merge(previous, incoming, recalled: recalled) }.value
+        guard stamp == epoch else { return }
+        let all = merged.map { recalledMessages[$0.id] ?? $0 }
         let payload: JSONValue = .object(["title":.string(info["name"].text),"scene":.string(wins.first { $0.id == w }?["scene_title"].text ?? ""),"messages":.array([]),"documents":.array([]),"highlights":.array([]),"replay":.array([])])
         var view = try DemoCampaign.decode(JSONEncoder().encode(payload))
         view.messages = all; view.documents = isGM ? campaign?.documents ?? [] : []; view.highlights = isGM ? campaign?.highlights ?? [] : []
-        campaign = view; channel = info; windows = wins
-        if !merge || permissionsChanged { hasOlder = messages.count == 50 }
+        if campaign?.messages != all || campaign?.title != view.title || campaign?.scene != view.scene { campaign = view }
+        channel = info; windows = wins
+        if !merge || permissionsChanged || !hadHistory { hasOlder = messages.count == 50 }
+        rememberHistory()
         connection = pushConnected ? "已连接 · 实时推送" : "已连接 · 自动刷新"
         // Publish the authorized chat before optional metadata; one failed hint request must not discard messages.
         if metadata || permissionsChanged || (metadataTask == nil && Date().timeIntervalSince(metadataUpdated) >= 30) {
@@ -584,6 +630,7 @@ import AcerciaeCore
             let existing = Set(self.campaign?.messages.map(\.id) ?? [])
             self.campaign?.messages.insert(contentsOf: rows.filter { !existing.contains($0.id) }.map { self.recalledMessages[$0.id] ?? $0 }, at: 0)
             self.hasOlder = rows.count == 50
+            self.rememberHistory()
         }
     }
     func openEvidence(_ event: JSONValue, quote: Bool) async throws {

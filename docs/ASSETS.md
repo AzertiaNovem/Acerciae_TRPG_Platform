@@ -98,9 +98,10 @@ on the same browser it is emptied first. Personal settings show its size with a 
 
 ## Illustrations in chat
 
-**🖼 Illustrate** in the chat composer (shown when the server has an image provider) lets any member who may post in
-the window draw a moment of the story: they pick up to four characters as visual references (players: player
-characters; the GM: NPCs too), describe the pose, action, place and light, and choose landscape, portrait or square.
+**Illustrate** in the chat composer (shown when the server has an image provider and illustrations are on) lets any
+member who may post in the window draw a moment of the story: they pick up to six characters as visual references
+(players: player characters; the GM: NPCs too), describe the pose, action, place and light, and choose landscape,
+portrait or square.
 
 - **The prompt** (`chat/Illustrations.cpp`, `illustrationPrompt`) keeps the requester's description and adds the
   platform's direction: each named character with their appearance description, the channel's era and the current
@@ -109,7 +110,12 @@ characters; the GM: NPCs too), describe the pose, action, place and light, and c
   plain front view, while keeping every character recognisable. No text or watermarks. The channel's default style
   profile applies, as for character art.
 - **References**: each chosen character's main portrait (else avatar), when approved and PNG, JPEG or WebP, is frozen
-  as an identity reference (20 MB in all); a character without one is drawn from the description.
+  as an identity reference (20 MB in all); a character without one is drawn from the description. The image files
+  carry no names, so the model learns which is whom from the text, said three times with the same numbering: each
+  character line of the prompt ("(identity reference image 1 attached)"), the identity instruction ("Reference image
+  1 is Ada. Mo has no reference image: follow the description. … never swap or blend two characters";
+  `illustrationIdentity`), and each entry of the request's `characters` (`reference_image: 1` or `"none"`). Image
+  models can still mix up look-alike characters; distinctive appearance descriptions help most.
 - **Limits**: the server's image provider, budget and concurrency apply (`asset_generation_jobs.kind =
   'illustration'`); one illustration in flight per person and channel, 20 an hour. Like character art, it does not
   need the Log Studio's cloud switch; the requester confirms that the description and portraits go to the image
@@ -120,7 +126,17 @@ characters; the GM: NPCs too), describe the pose, action, place and light, and c
   job keeps `error` "drawn, but not posted". `GET …/messages/{mid}/image` serves the picture only to those who may
   read the line (whispers and private windows stay private; spectators get no picture). The picture's object is AI
   art and lives in the public bucket under an unguessable key, as other generated art does.
-- The mobile apps show the line's text (`🖼️ ` and the description) until they render pictures.
+- **Optional, on by default**: the server's maintainers switch illustrations for the whole server (Server settings →
+  Features → Illustrations, `features.illustrations`), and the GM for their channel under it (GM workspace → AI in this
+  channel → Illustrations, `illustrations_enabled`; greyed out while the server has it off). Off hides the button and
+  the server refuses new drawings with 403 `feature_disabled`, the GM and the GM agent included; pictures already
+  posted stay, as do the job list and cancelling. The mobile apps carry both switches in their server and GM settings.
+- **Saving a picture**: the web app shows **Download** under each picture: a browser downloads it (the server names
+  the file `illustration-<date>-<description>.png`), and the desktop app asks where with its own "Save as". On
+  Android, **Save** in the full-screen picture opens the system's file picker (no storage permission). On iOS it opens
+  the share sheet ("Save Image" to Photos, "Save to Files", AirDrop); the app declares
+  `NSPhotoLibraryAddUsageDescription` for that. Both apps save the original bytes from their disk cache under the
+  same kind of name, without the date.
 
 ## Image references and object inventory
 

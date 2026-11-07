@@ -171,12 +171,16 @@ export const api = {
   removeWindowMember: (ch: string, w: string, user_id: string) => del(`/api/channels/${ch}/windows/${w}/members/${user_id}`),
   markRead: (ch: string, w: string, seq: number) => post<{ last_read_seq: number }>(`/api/channels/${ch}/windows/${w}/read`, { seq }),
   messages: (ch: string, w: string, beforeSeq?: number, limit = 80) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ before_seq: beforeSeq, limit })}`),
+  // The lines right after `afterSeq` (oldest first): catching up from the last line kept here.
+  messagesAfter: (ch: string, w: string, afterSeq: number, limit = 200) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ after_seq: afterSeq, limit })}`),
   postMessage: (ch: string, w: string, body: { content: string; kind?: string; character_id?: string; visibility?: string; whisper_to?: string[]; reference_ids?: string[] }) => post<T.Message>(`/api/channels/${ch}/windows/${w}/messages`, body),
   illustrate: (ch: string, w: string, body: { prompt: string; character_ids: string[]; orientation: 'landscape' | 'portrait' | 'square'; allow_cloud: boolean; request_id?: string }) =>
     post<{ id: string; status: string; kind: string; reference_count: number }>(`/api/channels/${ch}/windows/${w}/illustrations`, body),
   illustrations: (ch: string) => request<T.IllustrationJob[]>('GET', `/api/channels/${ch}/illustrations`),
   cancelIllustration: (ch: string, id: string) => post<{ id: string; status: string }>(`/api/channels/${ch}/illustrations/${id}/cancel`, {}),
   messageImageUrl: (ch: string, messageId: string) => `${apiBase()}/api/channels/${ch}/messages/${messageId}/image?token=${encodeURIComponent(fileToken())}`,
+  // The same picture as a file to save, with a readable name (illustration-<date>-<description>.png).
+  messageImageDownloadUrl: (ch: string, messageId: string) => `${apiBase()}/api/channels/${ch}/messages/${messageId}/image?download=1&token=${encodeURIComponent(fileToken())}`,
   message: (ch: string, id: string) => get<T.Message>(`/api/channels/${ch}/messages/${id}`),
   // The author takes a line back: its tombstone, and the original text to edit and send again.
   recallMessage: (ch: string, id: string) => post<{ message: T.Message; content: string }>(`/api/channels/${ch}/messages/${id}/recall`),

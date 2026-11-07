@@ -14,14 +14,16 @@
     <label for="token">访问令牌</label>
     <input id="token" type="password" autocomplete="off" required placeholder="公共配置中的 webui.token">
     <button>连接</button>
+    <span class="muted small">登录保留 90 天，使用时自动续期</span>
   </form>
-  <div id="session" class="session" hidden><span class="dot ok"></span><span>已连接</span><button id="logout" type="button" class="quiet">断开</button></div>
+  <div id="session" class="session" hidden><span class="dot ok"></span><span>已连接</span><button id="logout" type="button" class="quiet">退出登录</button></div>
 </header>
 
 <main id="app" class="app">
   <aside class="side">
     <div class="side-head"><h2>主持频道</h2><span id="channel-count" class="muted"></span></div>
     <button id="new-task" type="button" class="primary new-task" disabled>＋ 新建主持任务</button>
+    <button id="all-usage" type="button" class="quiet" disabled>全部任务用量</button>
     <div id="channels" class="channels"><p class="muted">连接后显示频道。</p></div>
     <section id="host" class="host-card" hidden></section>
   </aside>
@@ -30,6 +32,7 @@
     <div id="empty" class="empty">
       <h2>选择一个频道</h2>
       <p>各频道在独立的工作线程中运行，共享平台账户与 LLM 连接。在左侧选择频道，查看它的实时状态、修改设置或查看日志。</p>
+      <section id="host-usage" class="card usage-card" hidden></section>
     </div>
 
     <div id="create" hidden>
@@ -81,12 +84,14 @@
           <button data-action="start">启动</button>
           <button data-action="restart">重启</button>
           <button data-action="stop" class="danger">停止</button>
+          <button id="remove" type="button" class="danger">删除主持任务</button>
         </div>
       </div>
       <div id="error-banner" class="banner error" hidden></div>
 
       <nav class="tabs" role="tablist">
         <button role="tab" data-tab="overview" aria-selected="true">概览</button>
+        <button role="tab" data-tab="plan" aria-selected="false">计划</button>
         <button role="tab" data-tab="settings" aria-selected="false">设置<span id="dirty-count" class="count" hidden></span></button>
         <button role="tab" data-tab="yaml" aria-selected="false">YAML</button>
         <button role="tab" data-tab="logs" aria-selected="false">日志</button>
@@ -97,15 +102,19 @@
         <div id="overview" class="grid"></div>
       </div>
 
+      <div id="tab-plan" class="tab" role="tabpanel" hidden>
+        <p class="muted small">只读查看 GM 当前采用的私密剧情计划。</p>
+        <div id="plan-view" class="grid"></div>
+      </div>
+
       <div id="tab-settings" class="tab" role="tabpanel" hidden>
         <section class="card task">
           <h3>主持任务</h3>
           <div class="task-row">
             <label class="check"><input id="r-enabled" type="checkbox"> 随主机自动启动</label>
             <label class="check"><input id="r-prepare" type="checkbox"> 启动时准备频道（沿用并补齐 AI 队友）</label>
-            <button id="remove" type="button" class="danger small">移除主持任务</button>
           </div>
-          <p class="muted small">这两项写入公共配置，下次启动时生效。移除会停止频道并把它从公共配置中删去；频道配置文件与状态会保留，之后可以重新接入。</p>
+          <p class="muted small">这两项写入公共配置，下次启动时生效。顶部“删除主持任务”会停止主持并移出任务列表；平台频道、本地配置与状态保留，之后可以重新接入。</p>
         </section>
         <div class="settings-bar">
           <input id="filter" type="search" placeholder="搜索设置（名称或键名）" aria-label="搜索设置">
@@ -144,6 +153,6 @@
   </section>
 </main>
 <p id="notice" class="notice" role="status" aria-live="polite">输入公共配置中的 Web UI 访问令牌。</p>
-<script src="/app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

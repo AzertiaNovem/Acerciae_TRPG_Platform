@@ -143,6 +143,9 @@ private struct SidebarView: View {
     @State private var creatingCharacter = false
     @State private var selectedCharacter: Resource?
     @State private var selectedScene: Resource?
+    @State private var serversExpanded = true
+    @State private var channelsExpanded = true
+    @State private var windowsExpanded = true
     @State private var charactersExpanded = true
     @State private var scenesExpanded = true
     var body: some View {
@@ -157,23 +160,28 @@ private struct SidebarView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         AccountMenu(model: model)
-                        Menu(model.serverName) {
-                            ForEach(model.servers) { server in Button(server.name) { model.navigate { try await model.selectServer(server.id) } } }
-                        }.font(.headline)
-                        row(tr("Servers"), icon: "globe") { browsingServers = true }
+                        DisclosureGroup(tr("Servers"), isExpanded: $serversExpanded) {
+                            ForEach(model.servers) { server in
+                                row(server.name, icon: "server.rack", selected: model.serverId == server.id) { model.navigate { try await model.selectServer(server.id) } }
+                            }
+                            row(tr("Servers"), icon: "globe") { browsingServers = true }
+                        }
                         if model.serverSettings["is_maintainer"].bool { row(tr("服务器选项"), icon: "server.rack") { select("server") } }
                         HStack {
-                            Text(tr("频道")).font(.caption).foregroundStyle(.secondary)
+                            Button { channelsExpanded.toggle() } label: {
+                                HStack { Image(systemName: channelsExpanded ? "chevron.down" : "chevron.right"); Text(tr("频道")) }.frame(maxWidth: .infinity, alignment: .leading)
+                            }.buttonStyle(.plain).accessibilityValue(tr(channelsExpanded ? "Expanded" : "Collapsed"))
                             Spacer()
                             Button { creatingChannel = true } label: { Image(systemName: "plus") }.accessibilityLabel(tr("添加频道")).disabled(model.serverId.isEmpty || !model.canCreateChannel)
                         }
-                        ForEach(model.channels) { item in
+                        if channelsExpanded { ForEach(model.channels) { item in
                             row(item.name, icon: "number", selected: model.channelId == item.id) { model.navigate { try await model.selectChannel(item.id) } }
-                        }
+                        } }
                         if model.gm { row(tr("频道选项"), icon: "slider.horizontal.3") { select("channel") } }
-                        Text(tr("聊天窗口")).font(.caption).foregroundStyle(.secondary)
+                        DisclosureGroup(tr("聊天窗口"), isExpanded: $windowsExpanded) {
                         ForEach(model.windows) { item in
                             row(item.name + (item["unread"].int > 0 ? " · " + (item["unread"].int > 99 ? "99+" : String(item["unread"].int)) : ""), icon: "bubble.left", selected: model.windowId == item.id) { select("chat"); model.navigate { try await model.selectWindow(item.id) } }
+                        }
                         }
                         DisclosureGroup(tr("角色"), isExpanded: $charactersExpanded) {
                             if !model.channelId.isEmpty { row(tr("添加角色"), icon: "person.badge.plus") { creatingCharacter = true } }
@@ -374,6 +382,7 @@ private struct MessageBubble: View {
                                 .id("\(model.session?.user.id ?? ""):\(model.scopeKey):\(model.windowId):\(id)")
                         }
                         if message.dice != nil { DiceResultView(message: message) }
+                        else if message.hasIllustration { ChatIllustration(message: message, model: model) }
                         else { Text(message.displayText).textSelection(.enabled) }
                     }
                     .padding(14)
