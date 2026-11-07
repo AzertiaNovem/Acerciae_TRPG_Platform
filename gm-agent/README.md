@@ -280,6 +280,32 @@ creates the character, or reuses the existing one when that name is already in t
 
 The client never decides memory proposals; those stay with the human GM in the web app.
 
+## Recalled lines
+
+On the platform the author of a line may recall it for two minutes after sending it (not a roll, a system line or a
+PbtA move's record). The line becomes a tombstone everywhere, and the client takes it out of every context: no
+prompt of the GM, an NPC or a co-player quotes it again. What happens to the table's answer depends on how recent it
+still is:
+
+- **Ten or more lines since** in its window: only the line goes. What the table said and did after it stays.
+- **Fewer than ten lines since**: the table rolls back as if the line had never been sent (`src/rollback.mjs`).
+  - Every turn that answered it, or that ran after it in that window, is undone, together with the turns those
+    started (a follow-up, the opening of a scene a move created). A turn still running is stopped; one not started
+    yet is cancelled.
+  - The client recalls every line those turns posted, in any window, and its own later lines in that window:
+    narration, NPC and co-player lines, whispers, notes, and the copy of a recalled text in another player's phone.
+  - It restores what they changed in its own state: where everyone is (timelines, co-player seats, the move guard,
+    and window access with scene forks), the date, relationships, hidden truths, and phone texts still on their way.
+    A part that a later, unrelated turn changed again is left as it is.
+  - What the platform already holds stays: a roll's result, a scenario change, a world change, a new NPC (who stays
+    in the cast). A GM-only note in the window says what was taken back and what stays.
+  - Other players' lines after the recalled one stay, and the GM answers them again in a new turn.
+- A line recalled before its turn started is simply not answered; one sent right after it is answered once.
+- A wish or correction recalled in the planner window leaves the planner's inbox.
+
+Each turn keeps a checkpoint for this in memory for five minutes, so a restart forgets them. Lines the GM account
+recalls itself never start a rollback.
+
 ## Timelines and autonomy
 
 The table does not always wait for a human, and it does not keep everyone in one room.

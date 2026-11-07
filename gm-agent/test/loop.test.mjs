@@ -64,6 +64,16 @@ class FakeApi {
   async characters() { return structuredClone(this.characters_); }
   async windows() { return structuredClone(this.windows_.map((w) => ({ ...w, last_seq: Math.max(0, ...this.lines.filter((m) => m.chat_window_id === w.id).map((m) => m.seq)) }))); }
   async messages(_ch, w, limit, beforeSeq = 0) { return this.lines.filter((m) => m.chat_window_id === w && (!beforeSeq || m.seq < beforeSeq)).slice(-limit); }
+  // The platform's recall: the author's line becomes a tombstone; rolls stay on the record.
+  async recallMessage(_ch, id) {
+    const i = this.lines.findIndex((m) => m.id === id);
+    if (i < 0) throw Object.assign(new Error("message not found"), { status: 404, code: "not_found" });
+    const m = this.lines[i];
+    if (m.kind === "roll") throw Object.assign(new Error("Dice rolls cannot be recalled"), { status: 409, code: "not_recallable" });
+    const tombstone = { ...m, content: "", dice: null, recalled_at: "2026-11-07T00:00:00Z", recall_seconds_left: null };
+    this.lines[i] = tombstone; (this.recalled ??= []).push(id);
+    return { message: tombstone, content: m.content };
+  }
   async postMessage(_ch, w, body) {
     this.posts.push({ window: w, ...body });
     const roll = body.content.startsWith(".");
@@ -2503,4 +2513,111 @@ test("new people: reuse the cast for new plots; a specific person with more than
   }
   assert.match(director, /enters with new_npc \(name, a brief for their role card, their first line\) and speaks with npc after that; never put a real NPC's words inside narrate/);
   assert.match(_dirSys("English", { profile: _rulesProfile("dnd2024") }), /could build a lasting bond with the player characters/);
+});
+
+
+// ---- recall: a player takes a line back
+const recallLine = (t, api, line) => {
+  const tombstone = { ...line, content: "", recalled_at: "2026-11-07T00:00:00Z", recall_seconds_left: null };
+  api.lines[api.lines.findIndex((m) => m.id === line.id)] = tombstone;
+  return t.onEvent({ stream: "chat", type: "message.recalled", channel_id: "ch", message: tombstone });
+};
+const lineSaid = (api, content, { who = "alice", w = "w-main" } = {}) => api.add({ chat_window_id: w, author_id: `u-${who}`, author_role: "player", character_id: `c-${who}`, content });
+const sayLine = (t, line) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: line });
+const openSeats = (cp) => cp.seats.filter((s) => s.toSeq === null).map((s) => s.windowId);
+
+test("a recent recall rolls the table back: the GM's lines after it are recalled and the co-player's move is undone", async () => {
+  const { t, api } = await table({ forks: false });
+  const harriet = t.roster.coplayerByName("Harriet Vance");
+  const before = { timelines: structuredClone(t.timelines.toJSON()), seats: openSeats(harriet) };
+  const said = lineSaid(api, "I go to the docks to look for the sailor.");
+  await sayLine(t, said); await settle(t);
+  assert.equal(api.createdWindows.length, 1, "Harriet, left behind, got a side window");
+  assert.notDeepEqual(openSeats(harriet), ["w-main"]);
+  const answered = api.lines.filter((m) => m.author_id === "u-bot" && m.seq > said.seq);
+  assert.ok(answered.length >= 2, "the GM answered, in the Main Chat and in the side window");
+  await recallLine(t, api, said); await settle(t);
+  for (const m of answered) assert.ok(api.recalled.includes(m.id), `recalled: ${m.content.slice(0, 40)}`);
+  assert.deepEqual(openSeats(harriet), before.seats, "Harriet is back in the Main Chat");
+  assert.deepEqual(JSON.parse(JSON.stringify(t.timelines.toJSON())), JSON.parse(JSON.stringify(before.timelines)), "the timelines are as they were");
+  const note = api.posts.at(-1);
+  assert.equal(note.visibility, "gm_only"); assert.match(note.content, /^Alice Hale recalled a line\. I took back \d+ of my lines after it and undid where everyone is\./);
+  assert.ok(!t.history.lines("w-main").some((m) => answered.some((a) => a.id === m.id) || m.id === said.id), "none of it is in the context");
+  assert.equal(t.checkpoints.length, 0, "the undone turns are forgotten");
+});
+
+test("a recall after ten or more lines only takes the line out of the context", async () => {
+  const { t, api } = await table({ forks: false });
+  const said = lineSaid(api, "I look around the study.");
+  await sayLine(t, said); await settle(t);
+  for (let i = 0; i < 10; i++) t.onMessage(api.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: `later ${i}` }));
+  const posts = api.posts.length;
+  await recallLine(t, api, said); await settle(t);
+  assert.equal(api.recalled, undefined, "nothing is recalled");
+  assert.equal(api.posts.length, posts, "no note");
+  assert.ok(!t.history.lines("w-main").some((m) => m.id === said.id), "the line itself is gone");
+  assert.ok(t.history.lines("w-main").some((m) => m.content === "later 9"));
+});
+
+test("a line recalled before its turn starts is not answered; one recalled mid-turn stops the turn", async () => {
+  const waiting = await table({ forks: false, cfg: { debounceMs: 40 } });
+  const early = lineSaid(waiting.api, "I open the cabinet.");
+  sayLine(waiting.t, early);
+  await recallLine(waiting.t, waiting.api, early);
+  await new Promise((r) => setTimeout(r, 80)); await settle(waiting.t);
+  assert.equal(waiting.llm.calls.filter((c) => c.purpose === "director").length, 0, "no turn for a recalled line");
+  assert.equal(waiting.api.posts.length, 0);
+
+  const llm = new MockLlm(), base = llm.complete.bind(llm);
+  let release; const gate = new Promise((r) => { release = r; });
+  llm.complete = async (args) => { if (args.purpose === "coplayer_turn") await gate; return base(args); };
+  const { t, api } = await table({ llm, forks: false });
+  const said = lineSaid(api, "Harriet, what do you make of the clock?");
+  sayLine(t, said);
+  for (let i = 0; i < 50 && !api.posts.length; i++) await new Promise((r) => setTimeout(r, 2));
+  const gm = api.posts.length;
+  assert.ok(gm > 0, "the GM spoke before the co-player");
+  const rolledBack = recallLine(t, api, said);
+  release(); await rolledBack; await settle(t);
+  assert.ok(!api.posts.some((p) => p.character_id === "c-harriet"), "the co-player never spoke");
+  assert.ok(api.lines.filter((m) => m.author_id === "u-bot" && m.seq > said.seq && !m.visibility?.startsWith("gm")).every((m) => m.recalled_at), "what the GM said is recalled");
+});
+
+test("another player's line after the recalled one stays and is answered again; a roll stays on the record", async () => {
+  const llm = new MockLlm();
+  const { t, api } = await table({ llm, bob: true, forks: false });
+  const said = lineSaid(api, "I knock on the cellar door.");
+  await sayLine(t, said); await settle(t);
+  await t.post("w-main", { content: ".ra Listen", kind: "ic", character_id: "c-harriet" }, { count: false });
+  const bob = lineSaid(api, "I check the window.", { who: "bob" });
+  await sayLine(t, bob); await settle(t);
+  const calls = llm.calls.filter((c) => c.purpose === "director").length;
+  await recallLine(t, api, said); await settle(t);
+  const fresh = llm.calls.filter((c) => c.purpose === "director").slice(calls);
+  assert.ok(fresh.length >= 1, "a new turn answers Bob");
+  const prompt = fresh[0].messages[0].content;
+  assert.ok(prompt.includes("I check the window."), "Bob's line is still there");
+  assert.ok(!prompt.includes("I knock on the cellar door."), "the recalled line is not");
+  const note = api.posts.find((p) => p.visibility === "gm_only" && /recalled a line/.test(p.content));
+  assert.ok(note, "the GM is told"); assert.match(note.content, /These stay, because the platform already holds them: a roll's result\./);
+  assert.ok(api.lines.some((m) => m.kind === "roll" && !m.recalled_at), "the roll stays");
+});
+
+
+test("casual: a recalled text is taken back from the other player's phone, and a reply on its way is cancelled", async () => {
+  const llm = new MockLlm(), base = llm.director.bind(llm);
+  llm.director = (user) => (/^MODE: phone/m.test(user) ? { actions: [{ type: "text", from: "Mr. Grimsby", to: "Alice Hale", text: "Under the clock, miss.", delay_minutes: 30 }], coplayers_may_act: false } : base(user));
+  const { t, api } = await isolated({ llm });
+  await t.setCasual(true);
+  await textFrom(t, api, "c-alice", "@Bob Price meet me at the pier"); await settle(t);
+  const text = api.lines.findLast((m) => m.author_id === "u-alice");
+  const copy = texts(t, api, "c-bob")[0];
+  assert.equal(copy.content, "meet me at the pier");
+  await recallLine(t, api, text); await settle(t);
+  const copyLine = api.lines.find((m) => m.chat_window_id === phoneOf(t, "c-bob") && m.character_id === "c-alice");
+  assert.ok(copyLine.recalled_at, "the copy in Bob's phone is recalled");
+  await textFrom(t, api, "c-alice", "@Mr. Grimsby where is the key?"); await settle(t);
+  assert.equal(t.casual.pending.length, 1, "Grimsby's answer is on its way");
+  await recallLine(t, api, api.lines.findLast((m) => m.author_id === "u-alice")); await settle(t);
+  assert.equal(t.casual.pending.length, 0, "and is cancelled with the text it answered");
 });

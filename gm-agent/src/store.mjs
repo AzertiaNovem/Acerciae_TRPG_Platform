@@ -149,6 +149,8 @@ export class Store {
 
   // ---- phone (casual mode)
   addPhone({ seq = 0, windowId, from, to, text, at = Date.now() }) { this.q.addPhone.run(seq | 0, windowId, from, to, String(text), at); }
+  // A text its sender recalled.
+  removePhone(seq) { if (seq) this.db.prepare("DELETE FROM phone WHERE seq = ?").run(seq | 0); }
   // Messages between two characters, oldest first (the newest `limit`).
   thread(a, b, limit = 40) { return this.q.thread.all(a, b, b, a, limit).map((r) => ({ ...r })).reverse(); }
   // Every message to or from one character, oldest first (the newest `limit`).
