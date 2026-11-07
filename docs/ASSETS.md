@@ -114,6 +114,12 @@ orphan sweep can remove it after its protection period. Cleanup rechecks live re
 under a row lock, so a new queued request can safely reuse an older snapshot. `STORAGE_CLEANUP=false` disables this
 maintenance. Removing job rows does not remove their generated media assets.
 
+Cached voice lines (`tts_audio_assets`) record `last_used_at`, refreshed when the cache serves a line and when a line is
+played (at most once an hour). Cleanup deletes a line, row and object, once no presentation event points at it, no live
+publication's frozen audio names it or its object, no voice job of its channel is pending or running, and it has gone
+unused for `RETENTION_VOICE_AUDIO_DAYS` (default 30, 1–3650). Each delete re-checks those conditions in the same
+statement, so a line taken back into use meanwhile stays.
+
 `stored_objects` records each physical bucket/key separately with SHA-256, size, MIME when known, owner kind/ID,
 verification time and bounded provenance receipts. Normal puts register the object and successful deletes remove
 its record. Startup migration and daily cleanup reconcile configured buckets, including legacy files and external

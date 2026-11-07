@@ -37,6 +37,7 @@
 #include "core/Text.h"
 #include "core/Errors.h"
 #include "logstudio/StorageCleanup.h"
+#include "logstudio/TtsService.h"
 #include "logstudio/ImageReferences.h"
 #include "logstudio/VnScriptService.h"
 #include "logstudio/MediaMigrator.h"
@@ -1337,6 +1338,55 @@ int main() {
         auto again = cleanup.runOnce(true);
         CHECK(again.characterImages == 0); CHECK(again.oldVersions == 0); CHECK(again.orphans == 0);
         S.objectStore->remove(youngOrphan); S.objectStore->remove(foreign);
+    });
+    test("storage cleanup deletes voice lines nothing uses after the retention period, and keeps those a line, a live publication or a running job needs", [&] {
+        // Six cached voice lines, each with its own stored file.
+        auto voice = [&](const std::string& name, int unusedDays) {
+            auto key = "channels/" + channelId + "/tts/cleanup-" + name + ".mp3";
+            S.objectStore->put(key, "ID3-" + name, "audio/mpeg");
+            return S.db->queryOne("INSERT INTO tts_audio_assets(channel_id, cache_key, provider, model_id, voice_id, spoken_text, object_key, mime, bytes, created_at, last_used_at) "
+                                  "VALUES($1,$2,'mock','mock','v',$3,$4,'audio/mpeg',10, now() - make_interval(days => $5 + 1), now() - make_interval(days => $5)) RETURNING id, object_key",
+                                  {channelId, "cleanup-" + name + "-" + channelId, name, key, (int64_t)unusedDays});
+        };
+        auto gone = voice("deleted-vn", 40), recent = voice("recent", 5), line = voice("vn-line", 40), published = voice("published", 40), revoked = voice("revoked", 40), queued = voice("queued", 40);
+        auto exists = [&](const Json::Value& v) { return !S.db->queryOne("SELECT 1 AS x FROM tts_audio_assets WHERE id=$1", {v["id"].asString()}).isNull(); };
+        // A visual-novel line uses one; a live publication plays another; a revoked publication played a third.
+        auto log = S.studio->campaignLog(gm); auto snap = S.studio->createSnapshot(gm, log["project"]["id"].asString(), Json::Value(Json::objectValue));
+        auto pid = S.presentations->create(gm, snap["id"].asString(), Json::Value(Json::objectValue))["id"].asString();
+        S.db->exec("INSERT INTO presentation_events(presentation_id, position, audio_asset_id) VALUES($1, 9999, $2)", {pid, line["id"].asString()});
+        auto publish = [&](const Json::Value& v, bool isRevoked) {
+            Json::Value frozen; frozen["audio"][v["id"].asString()]["object_key"] = v["object_key"]; frozen["audio"][v["id"].asString()]["mime"] = "audio/mpeg";
+            S.db->exec("INSERT INTO published_logs(channel_id, project_id, snapshot_id, kind, title, frozen_content, revoked) VALUES($1,$2,$3,'vn','Voice fixture',$4::jsonb,$5)",
+                       {channelId, log["project"]["id"].asString(), snap["id"].asString(), json::dump(frozen), isRevoked});
+        };
+        publish(published, false); publish(revoked, true);
+        auto& cleanup = *S.storageCleanup;
+        auto dry = cleanup.runOnce(true);
+        CHECK(dry.voiceLines >= 3); CHECK(exists(gone));   // a dry run deletes nothing
+        // While a voice job of the channel is under way, nothing of the channel goes: it may point a line at the cache.
+        auto job = S.db->queryOne("INSERT INTO tts_jobs(channel_id, kind, status, provider) VALUES($1,'batch','running','mock') RETURNING id", {channelId})["id"].asString();
+        auto held = cleanup.runOnce();
+        CHECK(exists(gone)); CHECK(exists(queued)); CHECK(held.failed == 0);
+        S.db->exec("UPDATE tts_jobs SET status='completed' WHERE id=$1", {job});
+        auto rep = cleanup.runOnce();
+        CHECK(rep.voiceLines >= 3); CHECK(rep.failed == 0);
+        CHECK(!exists(gone)); CHECK(!S.objectStore->exists(gone["object_key"].asString()));
+        CHECK(!exists(revoked)); CHECK(!S.objectStore->exists(revoked["object_key"].asString()));
+        CHECK(!exists(queued));
+        CHECK(exists(recent)); CHECK(S.objectStore->exists(recent["object_key"].asString()));
+        CHECK(exists(line)); CHECK(S.objectStore->exists(line["object_key"].asString()));
+        CHECK(exists(published)); CHECK(S.objectStore->exists(published["object_key"].asString()));
+        // Deleting the visual novel releases its line on the next run once the line is old enough.
+        S.presentations->remove(gm, pid);
+        CHECK(cleanup.runOnce().voiceLines >= 1); CHECK(!exists(line)); CHECK(!S.objectStore->exists(line["object_key"].asString()));
+        // Playing or serving a line from the cache counts as a use.
+        S.db->exec("UPDATE tts_audio_assets SET last_used_at=now() - interval '40 days' WHERE id=$1", {recent["id"].asString()});
+        std::string bytes, mime; CHECK(S.tts->fetchAudio(gm, recent["id"].asString(), bytes, mime, nullptr));
+        CHECK(S.db->queryOne("SELECT last_used_at > now() - interval '1 minute' AS fresh FROM tts_audio_assets WHERE id=$1", {recent["id"].asString()})["fresh"].asBool());
+        CHECK(exists(recent));
+        S.db->exec("DELETE FROM tts_audio_assets WHERE id=$1", {recent["id"].asString()}); S.objectStore->remove(recent["object_key"].asString());
+        S.db->exec("DELETE FROM published_logs WHERE title='Voice fixture'");
+        S.db->exec("DELETE FROM tts_audio_assets WHERE id=$1", {published["id"].asString()}); S.objectStore->remove(published["object_key"].asString());
     });
 
     test("recall: two minutes, the author only, not rolls; what cites the line is dismissed; a batch that held it forgets it", [&] {

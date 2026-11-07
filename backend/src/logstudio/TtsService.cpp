@@ -164,7 +164,7 @@ std::vector<TtsService::LinePlan> TtsService::plan(const ChannelAccess& a, const
         l.instruction = ident.empty() ? line : (line.empty() ? ident : ident + "; " + line);
         l.params["language"] = l.language; l.cacheKey = cacheKey(a.channelId + ":" + l.voiceProfileId + ":" + provider->cacheNamespace(), l.modelId, l.voiceId, l.voiceVersion, l.text, l.instruction, l.dictVersion, l.params);
         auto hit = db_.queryOne("SELECT id FROM tts_audio_assets WHERE cache_key=$1", {l.cacheKey});
-        if (!hit.isNull()) { l.cached = true; l.cachedAudioId = hit["id"].asString(); }
+        if (!hit.isNull()) { l.cached = true; l.cachedAudioId = hit["id"].asString(); touchAudio(l.cachedAudioId); }
         if (!force && l.cached && e["audio_asset_id"] == l.cachedAudioId) continue;
         out.push_back(l);
     }
@@ -199,7 +199,7 @@ std::string TtsService::synthesizeLine(const std::string& channelId, const LineP
     struct Release { TtsService* s; const std::string& k; ~Release() { { std::lock_guard<std::mutex> g(s->inflightMu_); s->inflight_.erase(k); } s->inflightCv_.notify_all(); } } release{this, l.cacheKey};
     auto provider = providerFor(channelId);
     auto hit = db_.queryOne("SELECT id FROM tts_audio_assets WHERE cache_key=$1", {l.cacheKey});
-    if (!hit.isNull()) { db_.exec("INSERT INTO tts_usage_records(channel_id, provider, model_id, chars, estimated_cost, cached) VALUES($1,$2,$3,$4,0,true)", {channelId, provider->name(), l.modelId, (int64_t)utf8Chars(l.text)}); return hit["id"].asString(); }
+    if (!hit.isNull()) { touchAudio(hit["id"].asString()); db_.exec("INSERT INTO tts_usage_records(channel_id, provider, model_id, chars, estimated_cost, cached) VALUES($1,$2,$3,$4,0,true)", {channelId, provider->name(), l.modelId, (int64_t)utf8Chars(l.text)}); return hit["id"].asString(); }
     if (!provider->isMock()) requireCloudPermission(db_, channelId);
     TtsSynthesisRequest req; req.modelId = l.modelId; req.voiceId = l.voiceId; req.text = l.text; req.language = l.language; req.instruction = l.instruction; req.parameters = l.params;
     // Charge the channel's character budget up front (under the channel row lock) and refund it if synthesis fails.
@@ -297,10 +297,16 @@ bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, 
         }
         if(!allowed) return false;
     }
+    touchAudio(audioId);
     mime = row["mime"].asString();
     if (redirectUrl) { *redirectUrl = store_.publicUrl(row["object_key"].asString()); if (!redirectUrl->empty()) return true; }
     auto data = store_.get(row["object_key"].asString()); if (!data) return false;
     bytes = std::move(*data); return true;
+}
+
+void TtsService::touchAudio(const std::string& audioId) {
+    try { db_.exec("UPDATE tts_audio_assets SET last_used_at=now() WHERE id=$1 AND last_used_at < now() - interval '1 hour'", {audioId}); }
+    catch (const std::exception& e) { ALOG_WARN << "tts: could not note the use of " << audioId << ": " << e.what(); }
 }
 
 // ---- worker -------------------------------------------------------------------------------------------
