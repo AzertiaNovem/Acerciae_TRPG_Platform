@@ -2,7 +2,7 @@ import { api } from '../api/client';
 import { bumpEpoch } from '../store/session';
 import { useEffect } from 'react';
 import { chatSocket, contextSocket } from '../api/ws';
-import { useChat } from '../store/chat';
+import { useChat, accessKey } from '../store/chat';
 import { useDocuments } from '../store/documents';
 import { useHighlights } from '../store/highlights';
 import { useReminders } from '../store/reminders';
@@ -20,15 +20,22 @@ export function useRealtime() {
   const windowId = useNav((s) => s.windowId);
   const windows = useNav((s) => s.windows);
   useEffect(() => {
-    // After a reconnect, reload what may have been posted while the socket was down.
+    // Pushed lines show as they come (store/chat); the open window is still checked against the server now and then,
+    // less often while the stream is subscribed. Once the channel is subscribed again the open window is checked at
+    // once (the others when they are opened), after a reconnect together with the window list and the channel.
     let dropped = false;
     const offChat = chatSocket.on((m) => {
-      if (m.type === '_close') { dropped = true; return; }
-      if (m.type === '_open') {
-        if (!dropped) return;
-        dropped = false;
-        const { channelId: cur, windowId: win } = useNav.getState();
-        if (cur) { useNav.getState().refreshWindows(); useNav.getState().refreshChannel(); if (win) useChat.getState().load(cur, win).catch(() => undefined); }
+      if (m.type === '_close') { dropped = true; useChat.getState().streamDown(); return; }
+      if (m.type === '_open') return;
+      if (m.type === 'subscribed' && !m.spectate) {
+        const nav = useNav.getState();
+        if (!nav.channelId || m.channel_id !== nav.channelId) return;
+        useChat.getState().streamUp(m.channel_id);
+        if (dropped) { dropped = false; nav.refreshWindows().catch(() => undefined); nav.refreshChannel().catch(() => undefined); }
+        if (nav.windowId) {
+          const chat = useChat.getState(), access = accessKey(nav.channel);
+          (chat.spans[nav.windowId] ? chat.catchUp(nav.channelId, nav.windowId, access) : chat.open(nav.channelId, nav.windowId, access)).catch(() => undefined);
+        }
         return;
       }
       const ch = useNav.getState().channelId;
@@ -52,9 +59,9 @@ export function useRealtime() {
       const sceneId = activeWindow?.active_scene_id ?? undefined;
       if (m.type === 'document.updated') { useDocuments.getState().onUpdated(m, ch, sceneId); useUi.getState().setAiActivity(`${m.doc_type.replace('_', ' ')} updated (v${m.version})`); setTimeout(() => useUi.getState().setAiActivity(null), 4000); }
       else if (m.type === 'knowledge.reset') {
-        bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useUi.getState().reset(); useReminders.getState().reset(); useReminders.getState().load(ch).catch(() => undefined);
+        bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useChat.getState().forgetChannel(ch); useUi.getState().reset(); useReminders.getState().reset(); useReminders.getState().load(ch).catch(() => undefined);
         useDocuments.getState().loadList(ch).catch(()=>undefined); useHighlights.getState().load(ch).catch(()=>undefined); useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
-        const win=useNav.getState().windowId; if(win) useChat.getState().load(ch,win).catch(()=>undefined);
+        const win=useNav.getState().windowId; if(win) useChat.getState().open(ch,win,accessKey(useNav.getState().channel)).catch(()=>undefined);
       }
       else if (m.type === 'reminder.created' || m.type === 'reminders.changed' || m.type === '_open') useReminders.getState().load(ch).catch(() => undefined);
       else if (m.type === 'kp.board') useKp.getState().set(m.board);
@@ -88,9 +95,9 @@ export function useRealtime() {
         if(!active) return;
         const next=groups.map(g=>`${g.id}:${g.version}`).join(',');
         if(groupVersion && groupVersion!==next) {
-          bumpEpoch(); useReminders.getState().reset(); useReminders.getState().load(channelId).catch(() => undefined); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useUi.getState().reset();
-          useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
-          const win=useNav.getState().windowId; if(win) useChat.getState().load(channelId,win).catch(()=>undefined);
+          bumpEpoch(); useReminders.getState().reset(); useReminders.getState().load(channelId).catch(() => undefined); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useChat.getState().forgetChannel(channelId); useUi.getState().reset();
+          useNav.getState().refreshWindows(); useNav.getState().refreshScenes(); await useNav.getState().refreshChannel();
+          const win=useNav.getState().windowId; if(win) useChat.getState().open(channelId,win,accessKey(useNav.getState().channel)).catch(()=>undefined);
         }
         groupVersion=next; await useDocuments.getState().loadList(channelId);
       } catch { /* socket reconnect or next poll will retry */ }
@@ -99,9 +106,26 @@ export function useRealtime() {
     poll(); const timer=setInterval(poll,10000);
     return ()=>{active=false;clearInterval(timer);clearInterval(remindersTimer);};
   }, [channelId]);
+  // Opening a window shows what is kept at once, and checks it against the server when that is due.
+  const access = useNav((s) => accessKey(s.channel));
   useEffect(() => {
-    if (!channelId || !windowId) return;
-    useChat.getState().load(channelId, windowId);
-  }, [channelId, windowId]);
-  useEffect(() => { void windows; }, [windows]);
+    if (!channelId || !windowId || !access) return;
+    useChat.getState().open(channelId, windowId, access).catch(() => undefined);
+  }, [channelId, windowId, access]);
+  // The open window is checked against the server when that is due: every 30 s while the chat stream is subscribed
+  // (a push can still be lost), every 5 s while it is not. Not while the page is hidden.
+  useEffect(() => {
+    if (!channelId || !windowId || !access) return;
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      useChat.getState().refresh(channelId, windowId, access).catch(() => undefined);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [channelId, windowId, access]);
+  // A window that is no longer listed (deleted, or no longer the viewer's) keeps nothing here.
+  useEffect(() => {
+    if (!channelId || !windows.length || windows.some((w) => w.channel_id !== channelId)) return;
+    const listed = new Set(windows.map((w) => w.id));
+    for (const [w, span] of Object.entries(useChat.getState().spans)) if (span.channelId === channelId && !listed.has(w)) useChat.getState().forgetWindow(w);
+  }, [channelId, windows]);
 }

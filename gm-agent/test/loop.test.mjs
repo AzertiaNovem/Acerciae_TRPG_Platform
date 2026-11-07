@@ -45,7 +45,7 @@ class FakeApi {
     return msg;
   }
   async me() { return this.user; }
-  async channel() { return { id: "ch", server_id: "s", name: "Hale house", my_role: "gm", era: "1920s", current_scene_id: this.currentScene, knowledge_mode: this.knowledgeMode, rule_system: this.ruleSystem, point_buy: this.pointBuy ?? false }; }
+  async channel() { return { id: "ch", server_id: "s", name: "Hale house", my_role: "gm", era: "1920s", current_scene_id: this.currentScene, knowledge_mode: this.knowledgeMode, rule_system: this.ruleSystem, point_buy: this.pointBuy ?? false, illustrations_enabled: this.channelIllustrations ?? true }; }
   async dndRules() { return DND_RULES; }
   async pbtaRules() { return PBTA_RULES; }
   async pbtaRulings() { return []; }
@@ -59,7 +59,7 @@ class FakeApi {
     if (win && body?.user_id && !win.members.some((m) => m.user_id === body.user_id)) win.members.push({ user_id: body.user_id, character_id: this.characters_.find((c) => c.user_id === body.user_id && c.kind === "pc")?.id ?? null });
     return [];
   }
-  async serverSettings() { return { language: "en", features: {} }; }
+  async serverSettings() { return { language: "en", features: this.serverIllustrations === false ? { illustrations: false } : {} }; }
   async coc7Rules() { return { skills: [{ name: "Spot Hidden", base: 25, names: {} }], families: [] }; }
   async characters() { return structuredClone(this.characters_); }
   async windows() { return structuredClone(this.windows_.map((w) => ({ ...w, last_seq: Math.max(0, ...this.lines.filter((m) => m.chat_window_id === w.id).map((m) => m.seq)) }))); }
@@ -71,6 +71,8 @@ class FakeApi {
   async illustrate(_ch, w, body) {
     if (this.releaseIllustrations) for (const j of this.illustrations_ ?? []) if (j.status === "pending") this.finishIllustration(j);
     if (this.noImages) throw Object.assign(new Error("POST illustrations: 400 bad_request image generation disabled or not configured by the server maintainer"), { status: 400 });
+    // `serverIllustrations` / `channelIllustrations` false: the server's maintainers or the GM turned drawing off.
+    if (this.serverIllustrations === false || this.channelIllustrations === false) throw Object.assign(new Error("POST illustrations: 403 feature_disabled turned off"), { status: 403, code: "feature_disabled" });
     this.illustrations_ ??= [];
     if (this.illustrations_.some((j) => ["pending", "running"].includes(j.status))) throw Object.assign(new Error("POST illustrations: 409 conflict your previous illustration is still being drawn"), { status: 409 });
     const job = { id: `ill${this.illustrations_.length + 1}`, status: "pending", window_id: w, prompt: body.prompt, character_ids: body.character_ids, orientation: body.orientation, allow_cloud: body.allow_cloud, message_id: null };
@@ -2712,6 +2714,31 @@ test("a co-player-only thread gets no scenario picture; a busy account makes the
   assert.doesNotMatch(none.llm.calls.filter((c) => c.purpose === "director").at(-1).system, /"illustrate"/, "the GM is no longer offered it");
 });
 
+test("the platform's switches: no drawing while the GM or the server's maintainers have it off, never off for good", async () => {
+  const { t, api, llm } = await table({ forks: false, cfg: illustrateCfg() });
+  // The GM turned it off since the table started: the refusal is learnt, not taken for a missing image provider.
+  api.channelIllustrations = false;
+  await t.illustrateMoment("w-main", { text: "A moment", who: [] });
+  assert.equal(api.illustrations_?.length ?? 0, 0);
+  assert.equal(t.illustrationOff, null, "not off for good");
+  assert.equal(t.illustrationsOn(), false);
+  await playerSays(t, api, "Hello?"); await settle(t);
+  assert.doesNotMatch(llm.calls.filter((c) => c.purpose === "director").at(-1).system, /"illustrate"/, "the GM is not offered it while it is off");
+  // Back on: the channel's update is followed.
+  api.channelIllustrations = true;
+  t.onEvent({ stream: "chat", type: "channel.updated", channel_id: "ch" }); await settle(t);
+  assert.equal(t.illustrationsOn(), true);
+  // The server's maintainers switch it: their settings event is followed at once, both ways.
+  t.onEvent({ stream: "chat", type: "server.settings", channel_id: "ch", settings: { features: { illustrations: false } } });
+  assert.equal(t.illustrationsOn(), false);
+  t.onEvent({ stream: "chat", type: "server.settings", channel_id: "ch", settings: { features: { illustrations: true } } });
+  await t.illustrateMoment("w-main", { text: "The hall in moonlight", who: [] });
+  assert.deepEqual(api.illustrations_.map((j) => j.prompt), ["The hall in moonlight"]);
+  // Off on the server when the table starts: read from the server's settings.
+  const later = await table({ forks: false, cfg: illustrateCfg(), before: (a) => { a.serverIllustrations = false; } });
+  assert.equal(later.t.illustrationsOn(), false);
+});
+
 test("a recall that rolls back a turn cancels the picture it asked for", async () => {
   const llm = new MockLlm();
   llm.director = (user) => (user.includes("NEWEST LINE") ? { actions: [{ type: "narrate", text: "Moonlight floods the hall." }, { type: "illustrate", text: "The hall in moonlight", who: [] }], coplayers_may_act: false } : { actions: [], coplayers_may_act: false });
@@ -2814,6 +2841,14 @@ test("a player asks the planner window for a picture of a past plot: found howev
   await planned(t, api);
   const read = [...directorCalls(llm), ...plannerCalls(llm).map((c) => c.messages.map((m) => m.content).join("\n"))];
   assert.ok(read.length && read.every((u) => !u.includes("/draw the aurora") && !u.includes("🎨") && !u.includes("[mock picture]")));
+});
+
+test("a picture request while the GM has illustrations off is answered at once, and costs nothing", async () => {
+  const { t, api, llm } = await table({ heal: true, forks: false, cfg: artCfg(), before: (a) => { a.channelIllustrations = false; } });
+  await inPlanner(t, api, "/draw the aurora above the lighthouse");
+  assert.deepEqual(plannerPosts(t, api), ["🎨 Picture requests are turned off for this table."]);
+  assert.equal(llm.calls.filter((c) => c.purpose === "plot_search" || c.purpose === "plot_illustration").length, 0);
+  assert.equal(api.illustrations_?.length ?? 0, 0);
 });
 
 test("a picture request: only lines the player could read, a hint when empty, one at a time and capped per hour, and no resumption of a paused table", async () => {

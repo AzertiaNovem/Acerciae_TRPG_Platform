@@ -9,7 +9,7 @@
 // What may be drawn: lines of the windows the player is a member of (and the Main Chat), posted for the whole window,
 // never a whisper, a GM-only note, a phone or another table window.
 import { completeJson } from "./llm/index.mjs";
-import { normalizeIllustration } from "./illustrations.mjs";
+import { MAX_CHARACTERS, normalizeIllustration } from "./illustrations.mjs";
 
 const COMMAND = /^\/(?:插画|画|draw|illustrate)(?=$|\s|[^\x00-\x7f])\s*([\s\S]*)$/i;
 export const REQUEST_MAX = 500;
@@ -116,7 +116,7 @@ export function bestPlace(hits, span = 400) {
 
 const PICK_SYSTEM = (language) => `You are the art director of an online tabletop roleplaying campaign. A player asked for a picture of a moment from earlier play, in their own words. You are given the stretch of play a search found; the player has seen all of it.
 
-Find the moment the player means in these lines. If it is not there, reply {"found": false}. Otherwise describe it for a painter as one frozen moment: who is there and what they are doing, the place, the light, the colours and the mood, in at most 120 words. Use only what happens in the lines; follow the player's wishes about framing and style where the lines allow, but invent no event, reveal no secret, and put no dialogue or words in the picture. Name the characters who appear in it, at most four, exactly as they are named in the cast. Choose the frame: landscape for places and groups, portrait for a single figure, square otherwise.
+Find the moment the player means in these lines. If it is not there, reply {"found": false}. Otherwise describe it for a painter as one frozen moment: who is there and what they are doing, the place, the light, the colours and the mood, in at most 120 words. Use only what happens in the lines; follow the player's wishes about framing and style where the lines allow, but invent no event, reveal no secret, and put no dialogue or words in the picture. Name the characters who appear in it, at most ${MAX_CHARACTERS}, exactly as they are named in the cast. Choose the frame: landscape for places and groups, portrait for a single figure, square otherwise.
 
 Write the description in ${language}. Reply with only one JSON object:
 {"found": true, "moment": "<the description>", "who": ["<character names>"], "orientation": "landscape" | "portrait" | "square", "why": "<one short line: which part of the play it is>"}`;

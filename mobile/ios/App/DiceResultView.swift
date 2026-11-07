@@ -20,8 +20,20 @@ struct DiceResultView: View {
                 Image(systemName: message.diceTone == .notice ? "lock" : "die.face.5").foregroundStyle(tone).padding(.top, 2)
                 VStack(alignment: .leading, spacing: 5) {
                     if message.dice?["hidden"].bool == true && message.diceTone != .notice { Text(tr("暗骰")).font(.caption).foregroundStyle(.secondary) }
-                    Text(message.displayText).fontWeight(emphasized ? .semibold : .regular).monospacedDigit().textSelection(.enabled)
-                        .foregroundStyle(message.diceTone == .notice ? .secondary : .primary)
+                    if let dice = message.dice, message.hasStructuredPbtaResult {
+                        Text(dice["name"].text).font(.headline)
+                        Text(dice["trigger"].text).font(.caption).foregroundStyle(.secondary)
+                        if !dice["rolls"].array.isEmpty {
+                            if !dice["stat_name"].text.isEmpty { Text(dice["stat_name"].text).font(.caption) }
+                            Text("2d6 [" + dice["rolls"].array.map { String($0.int) }.joined(separator:", ") + "] + \(dice["stat_value"].int) + (\(dice["modifier"].int)) = \(dice["total"].int)").monospacedDigit()
+                            Text(dice["band"]["name"].text).fontWeight(.semibold)
+                            Text(dice["outcome"].text).textSelection(.enabled)
+                        }
+                        if dice["player_choice"].bool { Text(tr("Player choice")).font(.caption) }
+                    } else {
+                        Text(message.displayText).fontWeight(emphasized ? .semibold : .regular).monospacedDigit().textSelection(.enabled)
+                            .foregroundStyle(message.diceTone == .notice ? .secondary : .primary)
+                    }
                 }
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
                 .background(tone.opacity(emphasized ? 0.16 : 0.08), in: RoundedRectangle(cornerRadius: 12))

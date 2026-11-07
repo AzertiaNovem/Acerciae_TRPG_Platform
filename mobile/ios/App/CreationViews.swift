@@ -12,7 +12,7 @@ struct CreateChannelView: View {
     @State private var createdId: String?
     var body: some View {
         Form {
-                Picker(tr("Rule system"), selection: $ruleSystem) { Text("Call of Cthulhu 7e").tag("coc7e"); Text("D&D 2024 · SRD 5.2").tag("dnd2024") }
+                Picker(tr("Rule system"), selection: $ruleSystem) { Text("Call of Cthulhu 7e").tag("coc7e"); Text("D&D 2024 · SRD 5.2").tag("dnd2024"); Text("PbtA").tag("pbta") }
             TextField(tr("频道名称"), text: $name)
             TextField(tr("频道介绍"), text: $description, axis: .vertical)
             Picker(tr("角色知识"), selection: $mode) {

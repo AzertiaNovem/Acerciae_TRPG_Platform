@@ -195,6 +195,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun SidebarPanel(state: AppState, model: AppViewModel, page: Int, select: (Int) -> Unit, showDetail: (String) -> Unit, close: () -> Unit) {
+    var serversExpanded by rememberSaveable { mutableStateOf(true) }
+    var channelsExpanded by rememberSaveable { mutableStateOf(true) }
+    var windowsExpanded by rememberSaveable { mutableStateOf(true) }
     var charactersExpanded by rememberSaveable { mutableStateOf(true) }
     var stagesExpanded by rememberSaveable { mutableStateOf(true) }
     Column(Modifier.fillMaxHeight().padding(horizontal = 16.dp)) {
@@ -205,23 +208,20 @@ class MainActivity : ComponentActivity() {
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state.online) {
                 item { AccountMenu(state, model) }
-                item {
-                    var expanded by remember { mutableStateOf(false) }
-                    TextButton(onClick = { expanded = true }) { Text(state.serverName) }
-                    DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                        state.servers.forEach { server -> DropdownMenuItem(text = { Text(server.name) }, onClick = { expanded = false; model.navigate { model.selectServer(server.id) } }) }
-                    }
+                item { TextButton(onClick = { serversExpanded = !serversExpanded }) { Text(tr("Servers") + if (serversExpanded) " −" else " +") } }
+                if (serversExpanded) {
+                    items(state.servers, key = { "server:" + it.id }) { server -> SidebarRow(server.name, server.id == state.serverId) { model.navigate { model.selectServer(server.id) } } }
+                    item { SidebarRow(tr("Servers")) { select(5) } }
                 }
-                item { SidebarRow(tr("Servers")) { select(5) } }
                 if (state.serverSettings.flag("is_maintainer")) item { SidebarRow(tr("服务器选项")) { select(3) } }
                 item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(tr("频道"), style = MaterialTheme.typography.labelMedium)
+                    TextButton(onClick = { channelsExpanded = !channelsExpanded }) { Text(tr("频道") + if (channelsExpanded) " −" else " +") }
                     TextButton(onClick = { showDetail("create-channel") }, enabled = state.serverId.isNotEmpty() && state.canCreateChannel && !state.busy) { Text(tr("添加")) }
                 } }
-                items(state.channels, key = { "channel:" + it.id }) { channel -> SidebarRow(channel.name, channel.id == state.channelId) { model.navigate { model.selectChannel(channel.id) } } }
+                if (channelsExpanded) items(state.channels, key = { "channel:" + it.id }) { channel -> SidebarRow(channel.name, channel.id == state.channelId) { model.navigate { model.selectChannel(channel.id) } } }
                 if (state.gm) item { SidebarRow(tr("频道选项")) { select(4) } }
-                item { Text(tr("聊天窗口"), style = MaterialTheme.typography.labelMedium) }
-                items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { select(0); model.navigate { model.selectWindow(window.id) } } }
+                item { TextButton(onClick = { windowsExpanded = !windowsExpanded }) { Text(tr("聊天窗口") + if (windowsExpanded) " −" else " +") } }
+                if (windowsExpanded) items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { select(0); model.navigate { model.selectWindow(window.id) } } }
                 item { TextButton(onClick = { charactersExpanded = !charactersExpanded }) { Text(tr("Characters") + if (charactersExpanded) " −" else " +") } }
                 if (charactersExpanded && state.channelId.isNotEmpty()) item { TextButton(onClick = { showDetail("create-character") }, enabled = !state.busy) { Text(tr("添加角色")) } }
                 if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.number("avatar_asset_version"), hash = item.text("avatar_asset_hash")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }

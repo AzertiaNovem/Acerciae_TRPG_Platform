@@ -321,7 +321,7 @@ recalls itself never start a rollback.
 
 ## Illustrations
 
-The platform can draw a moment of the story with the server's image provider: a description, up to four characters
+The platform can draw a moment of the story with the server's image provider: a description, up to six characters
 whose portraits guide the picture, and a frame (landscape, portrait or square). The picture is posted in the window
 as the GM's out-of-character line ("🖼️ " and the description), a little after it was asked for; it never starts a
 turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`):
@@ -371,7 +371,9 @@ turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`
 
 A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
 is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
-illustrations stay off for the rest of the run. `illustrations.allow_cloud` confirms that the descriptions and
+illustrations stay off for the rest of the run. The platform's switches are followed live instead: while the server's
+maintainers or the GM have illustrations off, the GM is not offered the action, no event or scenario picture is drawn, and a
+player's `/draw` is answered "turned off for this table"; turned back on, they resume. `illustrations.allow_cloud` confirms that the descriptions and
 portraits may go to a cloud image service; `illustrations.enabled: false` turns all four uses off.
 
 ## Timelines and autonomy

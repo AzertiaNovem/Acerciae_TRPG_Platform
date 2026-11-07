@@ -11,12 +11,12 @@
 // Every choice is told what was already drawn in the scenario, so no moment is drawn twice.
 import { completeJson } from "./llm/index.mjs";
 
-export const MAX_PROMPT = 1500, MAX_CHARACTERS = 4;
+export const MAX_PROMPT = 1500, MAX_CHARACTERS = 6;
 export const ORIENTATIONS = ["landscape", "portrait", "square"];
 
-export const ILLUSTRATE_RULE = `- Pictures: the story moves in small events: a conversation that reaches its point, a search that turns something up, a fight or a chase, an arrival somewhere new, a ritual, a farewell. When your actions this turn bring one to its end, add event_done naming it, after the lines that end it and before any scenario change: the table then has the event's most striking moment drawn for the players here. Only at the real end of an event, once for each; never in the middle of one, and never for players chatting out of character. Separately, for a breathtaking moment in the middle of an event (a place revealed, a charged meeting), you may have it drawn at once with illustrate: one frozen moment for a painter, with who is there and what they do, the place, the light, the colours and the mood; no dialogue and no words in the picture, and only what everyone in this window has seen. Name up to four characters in it, so their portraits guide the painter, and choose landscape (places, groups), portrait (one figure) or square. Use illustrate rarely. A picture is posted a little later, as yours, and costs no line.`;
+export const ILLUSTRATE_RULE = `- Pictures: the story moves in small events: a conversation that reaches its point, a search that turns something up, a fight or a chase, an arrival somewhere new, a ritual, a farewell. When your actions this turn bring one to its end, add event_done naming it, after the lines that end it and before any scenario change: the table then has the event's most striking moment drawn for the players here. Only at the real end of an event, once for each; never in the middle of one, and never for players chatting out of character. Separately, for a breathtaking moment in the middle of an event (a place revealed, a charged meeting), you may have it drawn at once with illustrate: one frozen moment for a painter, with who is there and what they do, the place, the light, the colours and the mood; no dialogue and no words in the picture, and only what everyone in this window has seen. Name up to ${MAX_CHARACTERS} characters in it, so their portraits guide the painter, and choose landscape (places, groups), portrait (one figure) or square. Use illustrate rarely. A picture is posted a little later, as yours, and costs no line.`;
 export const ILLUSTRATE_SCHEMA = `  {"type": "event_done", "text": "<the small event your lines just brought to its end, in a few words>"},
-  {"type": "illustrate", "text": "<one frozen moment: who does what, where, the light and mood>", "who": ["<up to four character names in it>"], "orientation": "landscape | portrait | square"},`;
+  {"type": "illustrate", "text": "<one frozen moment: who does what, where, the light and mood>", "who": ["<up to ${MAX_CHARACTERS} character names in it>"], "orientation": "landscape | portrait | square"},`;
 
 const clip = (s, n) => String(s ?? "").trim().slice(0, n);
 const names = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => clip(x, 120)).filter(Boolean);
@@ -28,10 +28,12 @@ export function normalizeIllustration(x) {
   return { text, who: [...new Set(names(x?.who))].slice(0, MAX_CHARACTERS), orientation };
 }
 
-// What a request's failure means: the platform cannot draw at all here (no provider, no route yet), the account is
-// busy with a picture still being drawn, or it is over the hourly cap.
+// What a request's failure means: the server's maintainers or the GM turned illustrations off (they may turn them back
+// on), the platform cannot draw at all here (no provider, no route yet), the account is busy with a picture still
+// being drawn, or it is over the hourly cap.
 export function illustrationFailure(e) {
   const message = String(e?.message ?? e);
+  if (e?.status === 403 && e?.code === "feature_disabled") return "disabled";
   if (e?.status === 404 || /disabled or not configured|not configured/i.test(message)) return "unavailable";
   if (e?.status === 409 && /still being drawn/i.test(message)) return "busy";
   if (e?.status === 429) return "rate_limited";
@@ -45,7 +47,7 @@ ${PAINT(language)}`;
 // How to describe the chosen moment, for both the scenario's and a small event's picture.
 const PAINT = (language) => `Some moments of this scenario may already have been drawn (listed as ALREADY DRAWN): choose a different one, another beat, place or image, never one of those again.
 
-Describe it for a painter as one frozen moment: who is there and what they are doing, the place, the light, the colours and the mood, in at most 120 words. Use only what happens in the lines you are given (the players saw all of them); invent no event, reveal no secret, and put no dialogue or words in the picture. Name the characters who appear in it, at most four, exactly as they are named in the cast. Choose the frame: landscape for places and groups, portrait for a single figure, square otherwise.
+Describe it for a painter as one frozen moment: who is there and what they are doing, the place, the light, the colours and the mood, in at most 120 words. Use only what happens in the lines you are given (the players saw all of them); invent no event, reveal no secret, and put no dialogue or words in the picture. Name the characters who appear in it, at most ${MAX_CHARACTERS}, exactly as they are named in the cast. Choose the frame: landscape for places and groups, portrait for a single figure, square otherwise.
 
 Write the description in ${language}. Reply with only one JSON object:
 {"moment": "<the description>", "who": ["<character names>"], "orientation": "landscape" | "portrait" | "square", "why": "<one short line: why this moment>"}`;

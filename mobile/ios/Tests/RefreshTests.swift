@@ -3,6 +3,63 @@ import AcerciaeCore
 @testable import Acerciae
 
 @MainActor final class RefreshTests: XCTestCase {
+    func testBackgroundCatchupBridgesMoreThanOnePageWithoutDiscardingCachedHistory() async throws {
+        let model=try model()
+        func rows(_ range: ClosedRange<Int>) throws -> String {
+            let messages=range.map{Message(id:"line-\($0)",content:"Line \($0)",authorName:"Reader",characterName:nil,kind:"ic",seq:Int64($0))}
+            return String(data:try JSONEncoder().encode(messages),encoding:.utf8)!
+        }
+        RefreshProtocol.set("messages",status:200,body:try rows(1...1))
+        try await model.refresh(metadata:false)
+        RefreshProtocol.set("messages",status:200,body:try rows(102...151))
+        RefreshProtocol.set("messages@102",status:200,body:try rows(52...101))
+        RefreshProtocol.set("messages@52",status:200,body:try rows(2...51))
+        RefreshProtocol.set("messages@2",status:200,body:try rows(1...1))
+        try await model.refresh(metadata:false)
+        XCTAssertEqual(model.campaign?.messages.map(\.seq),Array(1...151).map{Int64($0)})
+        XCTAssertTrue(RefreshProtocol.paths.contains{$0.contains("before_seq=102")})
+        XCTAssertTrue(RefreshProtocol.paths.contains{$0.contains("before_seq=52")})
+        model.foreground=false
+    }
+    func testSwitchingWindowsAndRestartingShowAllCachedPagesBeforeSlowGet() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let windows = #"[{"id":"window","name":"Main","kind":"main","members":[]},{"id":"other","name":"Side","kind":"scene","members":[]}]"#
+        let model = try model(cache: directory)
+        model.windows = try decode([Resource].self, windows)
+        RefreshProtocol.set("windows",status:200,body:windows)
+        try await model.refresh(metadata:false)
+        let older = (0..<150).map { Message(id:"old-\($0)",content:"Earlier \($0)",authorName:"Reader",characterName:nil,kind:"ic",seq:Int64($0-150)) }
+        model.campaign?.messages.insert(contentsOf:older,at:0); model.hasOlder=false
+        try await model.selectWindow("other")
+        XCTAssertEqual(model.campaign?.messages.count,1)
+        RefreshProtocol.delay=0.5
+        let switching=Task { try await model.selectWindow("window") }
+        let deadline=Date().addingTimeInterval(0.3)
+        while model.campaign?.messages.count != 151 && Date()<deadline { try await Task.sleep(for:.milliseconds(5)) }
+        XCTAssertEqual(model.campaign?.messages.count,151,"A warm window appears from memory before any GET completes")
+        XCTAssertFalse(model.busy); model.draft="Typing over cached history"
+        try await switching.value
+        XCTAssertEqual(model.campaign?.messages.count,151,"Tail refresh must merge, not discard older loaded pages")
+        XCTAssertEqual(model.draft,"Typing over cached history"); XCTAssertFalse(model.hasOlder)
+        model.foreground=false
+        let disk=AssetDiskCache(directory:directory)
+        let key="https://refresh.test/api/channels/channel/windows/window/mobile-history"
+        let saved=Date().addingTimeInterval(3)
+        while disk.get(key)==nil && Date()<saved { try await Task.sleep(for:.milliseconds(10)) }
+        XCTAssertNotNil(disk.get(key))
+        let restarted=try self.model(cache:directory)
+        restarted.windows=try decode([Resource].self,windows); restarted.campaign=nil
+        RefreshProtocol.set("windows",status:200,body:windows); RefreshProtocol.delay=0.5
+        let restoring=Task { try await restarted.selectWindow("window") }
+        let restored=Date().addingTimeInterval(0.3)
+        while restarted.campaign?.messages.count != 151 && Date()<restored { try await Task.sleep(for:.milliseconds(5)) }
+        XCTAssertEqual(restarted.campaign?.messages.count,151,"Disk restores all visited pages before the slow network on relaunch")
+        try await restoring.value
+        XCTAssertEqual(restarted.campaign?.messages.count,151)
+        restarted.foreground=false
+    }
+
     func testRecallCannotBeUndoneByAnOlderRefreshAndCleansReferencesAndDiskPages() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -216,7 +273,8 @@ private final class RefreshProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request:URLRequest)->URLRequest { request }
     override func startLoading() {
         let key=request.url!.lastPathComponent
-        Self.lock.lock(); let override=Self.responses[key]; Self.requests.append(request.url!.path + (request.url!.query.map { "?" + $0 } ?? "")); Self.lock.unlock()
+        let before=URLComponents(url:request.url!,resolvingAgainstBaseURL:false)?.queryItems?.first{$0.name=="before_seq"}?.value
+        Self.lock.lock(); let override=before.flatMap{Self.responses[key+"@"+$0]} ?? Self.responses[key]; Self.requests.append(request.url!.path + (request.url!.query.map { "?" + $0 } ?? "")); Self.lock.unlock()
         let fallback:String
         switch key {
         case "channel": fallback=Self.gm

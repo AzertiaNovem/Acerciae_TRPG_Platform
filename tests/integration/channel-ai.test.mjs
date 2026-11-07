@@ -19,12 +19,12 @@ test('channel AI switches: the GM turns the chronicler, consistency, inspiration
 
   // Everything on by default, and only the GM changes it.
   const before = await request(pl.token, 'GET', `/api/channels/${ch}`);
-  for (const k of ['ai_enabled', 'consistency_enabled', 'inspiration_enabled', 'atmosphere_enabled']) assert.equal(before[k], true, k);
+  for (const k of ['ai_enabled', 'consistency_enabled', 'inspiration_enabled', 'atmosphere_enabled', 'illustrations_enabled']) assert.equal(before[k], true, k);
   await request(pl.token, 'PUT', `/api/channels/${ch}`, { ai_enabled: false }, 403);
   assert.equal((await request(pl.token, 'GET', `/api/channels/${ch}/atmosphere`)).enabled, true);
 
-  const off = await request(gm.token, 'PUT', `/api/channels/${ch}`, { ai_enabled: false, consistency_enabled: false, inspiration_enabled: false, atmosphere_enabled: false });
-  for (const k of ['ai_enabled', 'consistency_enabled', 'inspiration_enabled', 'atmosphere_enabled']) assert.equal(off[k], false, k);
+  const off = await request(gm.token, 'PUT', `/api/channels/${ch}`, { ai_enabled: false, consistency_enabled: false, inspiration_enabled: false, atmosphere_enabled: false, illustrations_enabled: false });
+  for (const k of ['ai_enabled', 'consistency_enabled', 'inspiration_enabled', 'atmosphere_enabled', 'illustrations_enabled']) assert.equal(off[k], false, k);
   // The player's helpers answer feature_disabled; the backdrop is off for everyone.
   const draft = await request(pl.token, 'POST', `/api/channels/${ch}/inspiration`, { chat_window_id: main, hint: 'anything' }, 403);
   assert.equal(draft.error, 'feature_disabled');

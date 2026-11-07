@@ -6515,6 +6515,30 @@
     "Propõe resposta conforme o personagem; nunca envia sozinho.",
     "Propone una risposta dalle conoscenze del personaggio; mai inviata automaticamente."
   ],
+  "Illustrations": [
+    "插画",
+    "插畫",
+    "イラスト",
+    "일러스트",
+    "Ilustraciones",
+    "Illustrations",
+    "Illustrationen",
+    "Иллюстрации",
+    "Ilustrações",
+    "Illustrazioni"
+  ],
+  "Members can have a moment of play drawn by this server’s image provider and posted in the chat. Uses the image budget; GMs can still turn it off per channel. Pictures already posted stay.": [
+    "成员可让本服务器的图像服务把一段剧情画成插画并发到聊天中。会消耗图像额度；GM 仍可按频道关闭。已发布的插画会保留。",
+    "成員可讓本伺服器的圖像服務把一段劇情畫成插畫並發到聊天中。會消耗圖像額度；GM 仍可依頻道關閉。已發布的插畫會保留。",
+    "メンバーはプレイの一場面をこのサーバーの画像サービスで描かせ、チャットに投稿できます。画像の予算を使います。GM はチャンネルごとにオフにできます。投稿済みのイラストは残ります。",
+    "멤버가 플레이의 한 장면을 이 서버의 이미지 서비스로 그려 채팅에 올릴 수 있습니다. 이미지 예산을 사용하며, GM은 채널별로 끌 수 있습니다. 이미 올린 그림은 남습니다.",
+    "Los miembros pueden hacer que el proveedor de imágenes del servidor dibuje un momento de la partida y lo publique en el chat. Usa el presupuesto de imágenes; los GM aún pueden desactivarlo por canal. Las imágenes ya publicadas se quedan.",
+    "Les membres peuvent faire dessiner un moment de la partie par le fournisseur d’images du serveur et le publier dans le chat. Utilise le budget d’images ; les GM peuvent encore le désactiver par canal. Les images déjà publiées restent.",
+    "Mitglieder können einen Moment des Spiels vom Bildanbieter dieses Servers zeichnen und im Chat posten lassen. Verbraucht das Bildbudget; GMs können es pro Kanal weiterhin abschalten. Bereits gepostete Bilder bleiben.",
+    "Участники могут попросить сервис изображений этого сервера нарисовать момент игры и опубликовать его в чате. Расходует бюджет изображений; GM по-прежнему может выключить это в своём канале. Уже опубликованные картинки остаются.",
+    "Os membros podem pedir ao provedor de imagens do servidor que desenhe um momento do jogo e o publique no chat. Usa o orçamento de imagens; os GMs ainda podem desligar por canal. As imagens já publicadas ficam.",
+    "I membri possono far disegnare un momento della partita dal fornitore di immagini del server e pubblicarlo in chat. Usa il budget immagini; i GM possono comunque disattivarlo per canale. Le immagini già pubblicate restano."
+  ],
   "username must be 3-32 chars of letters, digits, _ . -": [
     "用户名须为 3–32 个英文字母、数字或 _ . -",
     "使用者名稱須為 3–32 個英文字母、數字或 _ . -",
@@ -14471,17 +14495,17 @@
     "Fundos de atmosfera",
     "Sfondi d’atmosfera"
   ],
-  "Turn all four off for a plain chat room that costs no tokens: no model calls are made for this channel. Features the server maintainer turned off are greyed out.": [
-    "四项全部关闭即为不消耗 token 的普通聊天室：本频道不会发起任何模型调用。服务器维护者已关闭的功能显示为灰色。",
-    "四項全部關閉即為不消耗 token 的普通聊天室：本頻道不會發起任何模型呼叫。伺服器維護者已關閉的功能顯示為灰色。",
-    "4つすべてをオフにすると、トークンを消費しない普通のチャットルームになります。このチャンネルではモデル呼び出しが行われません。サーバー管理者がオフにした機能はグレー表示です。",
-    "네 가지를 모두 끄면 토큰이 들지 않는 일반 채팅방이 됩니다. 이 채널에서는 모델 호출이 일어나지 않습니다. 서버 관리자가 끈 기능은 회색으로 표시됩니다.",
-    "Desactiva las cuatro para una sala de chat simple sin coste de tokens: no se hacen llamadas al modelo en este canal. Las funciones desactivadas por el mantenedor del servidor aparecen en gris.",
-    "Désactivez les quatre pour un simple salon de discussion sans coût en jetons : aucun appel au modèle n’est fait pour ce canal. Les fonctions désactivées par le mainteneur du serveur sont grisées.",
-    "Alle vier ausschalten für einen einfachen Chatraum ohne Token-Kosten: für diesen Kanal werden keine Modellaufrufe gemacht. Vom Server-Betreuer abgeschaltete Funktionen sind ausgegraut.",
-    "Выключите все четыре для обычного чата без расхода токенов: для этого канала модель не вызывается. Функции, отключённые сопровождающим сервера, показаны серым.",
-    "Desligue as quatro para uma sala de chat simples sem custo de tokens: nenhuma chamada ao modelo é feita neste canal. Recursos desligados pelo mantenedor do servidor ficam acinzentados.",
-    "Disattiva tutte e quattro per una semplice chat senza costo di token: nessuna chiamata al modello viene fatta per questo canale. Le funzioni disattivate dal manutentore del server sono in grigio."
+  "Turn all five off for a plain chat room that costs no tokens: no model calls are made for this channel. Features the server maintainer turned off are greyed out.": [
+    "五项全部关闭即为不消耗 token 的普通聊天室：本频道不会发起任何模型调用。服务器维护者已关闭的功能显示为灰色。",
+    "五項全部關閉即為不消耗 token 的普通聊天室：本頻道不會發起任何模型呼叫。伺服器維護者已關閉的功能顯示為灰色。",
+    "5つすべてをオフにすると、トークンを消費しない普通のチャットルームになります。このチャンネルではモデル呼び出しが行われません。サーバー管理者がオフにした機能はグレー表示です。",
+    "다섯 가지를 모두 끄면 토큰이 들지 않는 일반 채팅방이 됩니다. 이 채널에서는 모델 호출이 일어나지 않습니다. 서버 관리자가 끈 기능은 회색으로 표시됩니다.",
+    "Desactiva las cinco para una sala de chat simple sin coste de tokens: no se hacen llamadas al modelo en este canal. Las funciones desactivadas por el mantenedor del servidor aparecen en gris.",
+    "Désactivez les cinq pour un simple salon de discussion sans coût en jetons : aucun appel au modèle n’est fait pour ce canal. Les fonctions désactivées par le mainteneur du serveur sont grisées.",
+    "Alle fünf ausschalten für einen einfachen Chatraum ohne Token-Kosten: für diesen Kanal werden keine Modellaufrufe gemacht. Vom Server-Betreuer abgeschaltete Funktionen sind ausgegraut.",
+    "Выключите все пять для обычного чата без расхода токенов: для этого канала модель не вызывается. Функции, отключённые сопровождающим сервера, показаны серым.",
+    "Desligue as cinco para uma sala de chat simples sem custo de tokens: nenhuma chamada ao modelo é feita neste canal. Recursos desligados pelo mantenedor do servidor ficam acinzentados.",
+    "Disattiva tutte e cinque per una semplice chat senza costo di token: nessuna chiamata al modello viene fatta per questo canale. Le funzioni disattivate dal manutentore del server sono in grigio."
   ],
   "system": [
     "系统",
@@ -21191,28 +21215,40 @@
     "ex.: Ada e Mo sussurram no cais chuvoso ao entardecer, lanternas balançando atrás deles",
     "es. Ada e Mo sussurrano sul molo piovoso al tramonto, con le lanterne che oscillano alle loro spalle"
   ],
-  "🖼 Drawing…": [
-    "🖼 绘制中……",
-    "🖼 繪製中……",
-    "🖼 描画中…",
-    "🖼 그리는 중…",
-    "🖼 Dibujando…",
-    "🖼 Dessin…",
-    "🖼 Zeichnet …",
-    "🖼 Рисуем…",
-    "🖼 Desenhando…",
-    "🖼 Disegno…"
+  "Drawing…": [
+    "绘制中……",
+    "繪製中……",
+    "描画中…",
+    "그리는 중…",
+    "Dibujando…",
+    "Dessin…",
+    "Zeichnet …",
+    "Рисуем…",
+    "Desenhando…",
+    "Disegno…"
   ],
-  "🖼 Illustrate": [
-    "🖼 插画",
-    "🖼 插畫",
-    "🖼 イラスト",
-    "🖼 그림",
-    "🖼 Ilustrar",
-    "🖼 Illustrer",
-    "🖼 Illustrieren",
-    "🖼 Иллюстрация",
-    "🖼 Ilustrar",
-    "🖼 Illustra"
+  "Illustrate": [
+    "插画",
+    "插畫",
+    "イラスト",
+    "그림",
+    "Ilustrar",
+    "Illustrer",
+    "Illustrieren",
+    "Иллюстрация",
+    "Ilustrar",
+    "Illustra"
+  ],
+  "Saved to {path}": [
+    "已保存到 {path}",
+    "已儲存到 {path}",
+    "{path} に保存しました",
+    "{path}에 저장했습니다",
+    "Guardado en {path}",
+    "Enregistré dans {path}",
+    "Gespeichert unter {path}",
+    "Сохранено: {path}",
+    "Salvo em {path}",
+    "Salvato in {path}"
   ]
 }

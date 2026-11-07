@@ -1,0 +1,23 @@
+{
+  "revision": 4,
+  "pack": {
+    "schemaVersion": 1,
+    "name": "Night Watch",
+    "stats": [{"id": "wit", "name": "Wit"}, {"id": "heart", "name": "Heart"}],
+    "books": [{"id": "scout", "name": "Scout"}, {"id": "healer", "name": "Healer"}],
+    "resources": [{"id": "xp", "name": "Experience"}],
+    "conditions": [{"id": "afraid", "name": "Afraid"}],
+    "bands": [
+      {"id": "miss", "name": "A complication", "min": null, "max": 6},
+      {"id": "mixed", "name": "Success at a cost", "min": 7, "max": 9},
+      {"id": "hit", "name": "Success", "min": 10, "max": null}
+    ],
+    "moves": [
+      {"id": "search", "name": "Read the scene", "trigger": "When you search a dangerous place", "stat": "wit", "book": "", "outcomes": {"miss": "The danger finds you.", "mixed": "Choose a cost.", "hit": "You find a useful lead."}, "playerChoiceBands": ["mixed"]},
+      {"id": "prepare", "name": "Prepare a route", "trigger": "When you have time to study a route", "stat": "", "book": "scout", "outcomes": {}},
+      {"id": "heal", "name": "Tend wounds", "trigger": "When you tend a companion", "stat": "heart", "book": "healer", "outcomes": {"miss": "Supplies run short.", "mixed": "Choose a cost.", "hit": "They recover."}}
+    ],
+    "gmMoves": [{"id": "reveal", "name": "Reveal a danger", "text": "Show a consequence already established in the fiction."}]
+  },
+  "sheet": {"book": "scout", "stats": {"wit": 2, "heart": 0}, "resources": {"xp": 1}, "conditions": {"afraid": true}}
+}
