@@ -927,6 +927,15 @@ The tests need no backend and no model. They cover:
   D&D cards, the GM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
   keeps a CoC table's prompts byte for byte.
 
+## Sessions
+
+The platform's sessions end (`AUTH_TOKEN_TTL_HOURS`, 168 by default, or when an admin revokes them), and it checks a
+WebSocket's session only when the socket connects. The client signs in again on its own: a REST call refused with 401
+signs in once and retries, and a socket refused as unauthorized after a reconnect (a backend restart, a network blip)
+signs in again and reconnects at once with the new session. Both sockets and the REST client share one sign-in. If no
+session can be had (a suspended account, a changed password), the sockets keep retrying with backoff and the log says
+why; the control page shows the chat and context streams as disconnected.
+
 ## Known limitations
 
 - **Co-player lines count as GM lines.** They are posted by the GM account, so the platform records them with

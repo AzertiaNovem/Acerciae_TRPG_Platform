@@ -27,8 +27,8 @@ export class Api {
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (res.status === 401 && retryAuth && this.credentials) {
-      // The session ended (logout elsewhere, secret rotated): sign in again once.
-      await this.login(this.credentials.username, this.credentials.password);
+      // The session ended (expired, logout elsewhere, secret rotated): sign in again once.
+      await this.relogin();
       return this.call(method, path, body, { retryAuth: false });
     }
     if (!res.ok) throw new ApiError(method, path, res.status, data);
@@ -44,6 +44,12 @@ export class Api {
     const r = await this.call("POST", "/api/auth/login", { username, password }, { retryAuth: false });
     this.token = r.token; this.user = r.user; this.credentials = { username, password };
     return r.user;
+  }
+  // A new session with the same credentials. Concurrent callers (REST calls, both sockets) share one sign-in.
+  relogin() {
+    if (!this.credentials) return Promise.reject(new Error("not signed in"));
+    this.signingIn ??= this.login(this.credentials.username, this.credentials.password).finally(() => { this.signingIn = null; });
+    return this.signingIn;
   }
   async register(username, password, displayName) {
     const r = await this.call("POST", "/api/auth/register", { username, password, display_name: displayName }, { retryAuth: false });

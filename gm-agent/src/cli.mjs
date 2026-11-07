@@ -287,7 +287,8 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   catch (e) { release(); throw e; }
   const { api, channel, table } = opened;
   const roster = table.roster;
-  const rt = new Realtime({ apiBase: cfg.apiBase, token: api.token, channelId: channel.id, log });
+  // The sockets read the client's current token and sign in again when the platform refuses theirs (sessions end).
+  const rt = new Realtime({ apiBase: cfg.apiBase, token: () => api.token, reauth: () => api.relogin(), channelId: channel.id, log });
   rt.on("event", (ev) => { try { table.onEvent(ev)?.catch?.((e) => log(`event ${ev.type}: ${e.message}`)); } catch (e) { log(`event ${ev.type}: ${e.message}`); } });
   rt.on("subscribed", async (stream, reconnected) => {
     try {
