@@ -87,7 +87,7 @@ class BackendClient(
                 val cache = assets; val generation = cache?.generation()
                 cache?.get(key)?.let { return@async it }
                 val fetched = sendFetched(Request.Builder().url(url).header("Authorization", "Bearer $token").build())
-                if (cache != null && AssetDiskCache.keepable(fetched.cacheControl)) cache.put(key, fetched.bytes, generation)
+                if (cache != null && ChatIllustrations.keepable(fetched.cacheControl, path)) cache.put(key, fetched.bytes, generation)
                 fetched.bytes
             }.also { pending ->
                 transfers[key] = pending
@@ -96,6 +96,9 @@ class BackendClient(
             }
         }
         task.await()
+    }
+    suspend fun forgetMessageImage(channel: String, message: String) = withContext(Dispatchers.IO) {
+        assets?.remove(cacheKey(ChatIllustrations.path(channel, message), emptyMap()))
     }
 
     suspend fun uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, bytes: ByteArray, token: String): JsonObject = withContext(Dispatchers.IO) {

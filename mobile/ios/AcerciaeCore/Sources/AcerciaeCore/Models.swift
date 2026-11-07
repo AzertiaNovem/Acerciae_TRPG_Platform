@@ -39,6 +39,8 @@ public struct Message: Codable, Identifiable, Sendable {
     public let characterName: String?
     public let kind: String
     public let seq: Int64
+    public var channelId: String? = nil
+    public var mediaAssetId: String? = nil
     public var authorId: String? = nil
     public var characterId: String? = nil
     public var characterAvatarAssetId: String? = nil
@@ -54,6 +56,8 @@ public struct Message: Codable, Identifiable, Sendable {
     /// Seconds left, when the message arrived, for its author to recall it; nil when it cannot be recalled.
     public var recallSecondsLeft: Int? = nil
     public var recalled: Bool { recalledAt != nil }
+    public var hasIllustration: Bool { !recalled && !(mediaAssetId ?? "").isEmpty }
+    public var illustrationCaption: String { ChatIllustrations.caption(content) }
     public var displayText: String { recalled ? "" : dice?["text"].string ?? (diceTone == .notice ? "" : content) }
     public init(id: String, content: String, authorName: String, characterName: String?, kind: String, seq: Int64) {
         self.id = id; self.content = content; self.authorName = authorName

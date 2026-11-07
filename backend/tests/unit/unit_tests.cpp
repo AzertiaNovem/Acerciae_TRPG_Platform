@@ -1172,6 +1172,11 @@ int main() {
         CHECK(p.find("era 1920s.") != std::string::npos && p.find("Moment in the story: Thursday night.") != std::string::npos);
         CHECK(p.find("Dare to imagine the characters from an unexpected perspective") != std::string::npos);
         CHECK(p.find("No text, captions, speech bubbles") != std::string::npos);
+        // Which image is whom, by name, numbered as attached (characters without one are skipped in the count).
+        auto who = illustrationIdentity({{"Kai", "", false}, {"Ada", "", true}, {"Mo", "", true}});
+        CHECK(who.find("Kai has no reference image: follow the description. Reference image 1 is Ada. Reference image 2 is Mo.") != std::string::npos);
+        CHECK(who.find("never swap or blend") != std::string::npos);
+        CHECK(illustrationIdentity({{"Kai", "", false}}).empty());
         auto bare = illustrationPrompt("A lighthouse in a storm", {}, "", "");
         CHECK(bare.find("Characters in the picture") == std::string::npos && bare.find("Setting:") == std::string::npos);
     });

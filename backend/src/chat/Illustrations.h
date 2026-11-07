@@ -17,6 +17,9 @@ namespace logstudio { class CreativeService; class MediaService; }
 struct IllustrationCharacter { std::string name, appearance; bool hasReference = false; };
 std::string illustrationPrompt(const std::string& scene, const std::vector<IllustrationCharacter>& characters,
                                const std::string& era, const std::string& narrativeTime);
+// Which attached image is whom, by name ("Reference image 1 is Ada. Mo has no reference image: …"). The image files
+// carry no names; the model sees them in attachment order. "" when no character has a reference.
+std::string illustrationIdentity(const std::vector<IllustrationCharacter>& characters);
 
 class IllustrationService {
 public:

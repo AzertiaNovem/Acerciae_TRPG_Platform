@@ -374,6 +374,7 @@ private struct MessageBubble: View {
                                 .id("\(model.session?.user.id ?? ""):\(model.scopeKey):\(model.windowId):\(id)")
                         }
                         if message.dice != nil { DiceResultView(message: message) }
+                        else if message.hasIllustration { ChatIllustration(message: message, model: model) }
                         else { Text(message.displayText).textSelection(.enabled) }
                     }
                     .padding(14)

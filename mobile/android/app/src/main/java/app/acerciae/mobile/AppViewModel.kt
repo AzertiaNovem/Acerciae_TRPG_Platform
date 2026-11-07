@@ -119,6 +119,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (!tombstone.recalled) return
         if (!wasRecalled(tombstone.id)) {
             metadataUpdated = 0L
+            val s = state.value; val imageChannel = tombstone.channelId ?: s.channelId
+            ChatIllustrationImages.remove(ChatIllustrations.key(s.endpoint, s.user?.id.orEmpty(), imageChannel, tombstone.id))
+            val imageClient = api
+            viewModelScope.launch { imageClient?.forgetMessageImage(imageChannel, tombstone.id) }
             val cache = api?.reads
             viewModelScope.launch(Dispatchers.IO) { cache?.removeMessage(tombstone.id) }
         }
@@ -221,6 +225,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun get(path: List<String>, body: JsonObject? = null, method: String? = null, query: Map<String, String> = emptyMap()) = client().resource(path, token(), body, method, query)
     suspend fun rows(path: List<String>, query: Map<String, String> = emptyMap()) = client().resources(path, token(), query)
     suspend fun bytes(path: List<String>, query: Map<String, String> = emptyMap(), hash: String? = null) = client().bytes(path, token(), query, hash)
+    suspend fun discardMessageImage(channel: String, message: String) { client().forgetMessageImage(channel, message) }
     suspend fun uploadModule(bytes: ByteArray, title: String): JsonObject = client().uploadModule(state.value.channelId, title, bytes, token())
     suspend fun uploadArtwork(bytes: ByteArray, character: String, slot: String, subtitle: String) = client().uploadCharacterAsset(state.value.channelId, character, slot, subtitle, bytes, token())
     fun login(username: String, password: String, registering: Boolean = false, displayName: String = "") = launch {
@@ -275,7 +280,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val oldApi = api; val oldToken = session?.token
         epoch++; api = null; session = null; drafts.clear(); catalogUpdated = 0L
         update { AppState(connection = "已退出登录", accountUsers = others) }
-        oldApi?.assets?.invalidate(); oldApi?.reads?.invalidate(); navigationJob?.cancel(); clearAvatarImages()
+        oldApi?.assets?.invalidate(); oldApi?.reads?.invalidate(); navigationJob?.cancel(); clearAvatarImages(); ChatIllustrationImages.clear()
         if (oldApi != null && oldToken != null) kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch { runCatching { oldApi.resource(listOf("auth", "logout"), oldToken, emptyObject) } }
         retired = true
         restartAccount()
@@ -374,7 +379,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }) }.getOrNull() ?: return
         update { copy(campaign = campaign.copy(messages = campaign.messages.map { recalledMessages[it.id] ?: it }), hasOlder = campaign.messages.size == 50) }
     }
-    private fun purgeCachedAccess() { stopArtworkPrefetch(reset = true); clearAvatarImages(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
+    private fun purgeCachedAccess() { stopArtworkPrefetch(reset = true); clearAvatarImages(); ChatIllustrationImages.clear(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
     private fun permissionsDiffer(old: JsonObject, oldWindows: List<JsonObject>, fresh: JsonObject, freshWindows: List<JsonObject>) =
         listOf("player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode").any { old[it] != fresh[it] } || oldWindows.any { win -> freshWindows.find { it.id == win.id }?.get("members") != win["members"] }
     private var artworkPrefetcher = CharacterArtworkPrefetcher()

@@ -64,6 +64,9 @@ import AcerciaeCore
         if recalledMessages[tombstone.id] == nil {
             recalledMessages[tombstone.id] = tombstone
             metadataUpdated = .distantPast
+            let imageChannel = tombstone.channelId ?? channelId
+            ArtworkImages.remove(ChatIllustrations.key(server: endpoint, account: session?.user.id ?? "", channel: imageChannel, message: tombstone.id))
+            if let client { Task { await client.forgetMessageImage(channel: imageChannel, message: tombstone.id) } }
             if let cache = client?.reads {
                 Task.detached(priority: .utility) { cache.removeMessage(tombstone.id) }
             }
@@ -385,6 +388,9 @@ import AcerciaeCore
     func bytes(_ path: [String], query: [String: String] = [:], hash: String? = nil) async throws -> Data {
         guard let client, let session else { throw ClientError.http(401) }
         return try await client.bytes(path, token: session.token, query: query, hash: hash)
+    }
+    func discardMessageImage(channel: String, message: String) async {
+        await client?.forgetMessageImage(channel: channel, message: message)
     }
     func uploadArtwork(_ data: Data, character: String, slot: String, subtitle: String) async throws -> JSONValue {
         guard let client, let session else { throw ClientError.http(401) }

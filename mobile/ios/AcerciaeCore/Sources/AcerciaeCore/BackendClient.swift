@@ -101,14 +101,18 @@ public struct BackendClient: Sendable {
     /// Media bytes; with the picture's content `hash` the disk cache serves them by content (see `AssetDiskCache.key`).
     public func bytes(_ path: [String], token: String, query: [String: String] = [:], hash: String? = nil) async throws -> Data {
         var c = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
-        c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
         let url = c.url!; let key = AssetDiskCache.key(hash: hash, url: url.absoluteString)
         return try await transfers.load(key: key, cache: assets) {
             var r = URLRequest(url: url); r.timeoutInterval = 120
             r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             let (data, response) = try await sendResponse(r)
-            return (data, AssetDiskCache.keepable(response.value(forHTTPHeaderField: "Cache-Control")))
+            return (data, ChatIllustrations.keepable(response.value(forHTTPHeaderField: "Cache-Control"), path: path))
         }
+    }
+    public func forgetMessageImage(channel: String, message: String) async {
+        let key = cacheKey(ChatIllustrations.path(channel: channel, message: message), [:])
+        if let assets { await Task.detached(priority: .utility) { assets.remove(key) }.value }
     }
 
     public func uploadCharacterAsset(channel: String, character: String, slot: String, subtitle: String, data: Data, token: String) async throws -> JSONValue {
