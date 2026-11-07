@@ -3,6 +3,7 @@
 #include "characters/Coc7Rules.h"
 #include "core/NetGuard.h"
 #include "core/Text.h"
+#include "chat/Illustrations.h"
 #include "core/Json.h"
 #include "core/Crypto.h"
 #include "core/Db.h"
@@ -1162,6 +1163,17 @@ int main() {
         CHECK(p.find("grey coat") != std::string::npos && p.find("1920s") != std::string::npos && p.find("Thursday night") != std::string::npos && p.find("FIGHT") != std::string::npos && p.find("standee") != std::string::npos);
         CHECK(p.find("transparent background") != std::string::npos && p.find("plain background") == std::string::npos);
         CHECK(CharacterSpaceService::buildPrompt("x", "", "", "avatar", "").find("head-and-shoulders") != std::string::npos);
+    });
+    test("an illustration prompt keeps the requester's moment, names its characters and dares an unexpected perspective", [] {
+        auto p = illustrationPrompt("  Ada and Mo whisper on the rainy pier at dusk ", {{"Ada", "a tall reporter in a green coat", true}, {"Mo", "", false}}, "1920s", "Thursday night");
+        CHECK(p.find("Ada and Mo whisper on the rainy pier at dusk\n") != std::string::npos);
+        CHECK(p.find("- Ada: a tall reporter in a green coat (identity reference image 1 attached)") != std::string::npos);
+        CHECK(p.find("- Mo (no reference image: follow the description)") != std::string::npos);
+        CHECK(p.find("era 1920s.") != std::string::npos && p.find("Moment in the story: Thursday night.") != std::string::npos);
+        CHECK(p.find("Dare to imagine the characters from an unexpected perspective") != std::string::npos);
+        CHECK(p.find("No text, captions, speech bubbles") != std::string::npos);
+        auto bare = illustrationPrompt("A lighthouse in a storm", {}, "", "");
+        CHECK(bare.find("Characters in the picture") == std::string::npos && bare.find("Setting:") == std::string::npos);
     });
     test("mock standees have real transparent pixels while backgrounds remain RGB", [] {
         logstudio::ImageConfig config; config.provider = "mock";

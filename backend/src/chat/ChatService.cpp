@@ -426,6 +426,7 @@ Json::Value ChatService::spectatorMessage(Json::Value m) {
     // Character art lives in the channel's media library, which spectators cannot open.
     m["character_avatar_asset_id"] = Json::Value(); m["character_avatar_version"] = Json::Value(); m["character_avatar_hash"] = Json::Value();
     m.removeMember("whisper_to");
+    m["media_asset_id"] = Json::Value();   // an illustration is served only to channel members who may read the line
     return m;
 }
 
@@ -714,7 +715,7 @@ Json::Value ChatService::postSystemMessage(pqxx::work& w, const std::string& cha
     events_.append(w, e);
     return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {id});
 }
-Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling) {
+Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling, const std::string& mediaAssetId) {
     auth_.requireWindowMember(a, windowId);
     if (!ruling.isNull()) auth_.requireGm(a);
     auto content = json::str(body, "content");
@@ -798,6 +799,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         audit.finish(w,messageId,characterId);
         for(const auto& id : references) if(Db::queryOne(w,MSG_SELECT+"WHERE m.id=$1 AND m.channel_id=$2 AND "+Visibility::messageFilter(a),{id,a.channelId}).isNull()) throw forbidden("Referenced chat is no longer accessible");
         Db::exec(w,"UPDATE messages SET reference_ids=$2::uuid[] WHERE id=$1",{messageId,pgArrayLiteral(references)});
+        if (!mediaAssetId.empty()) Db::exec(w, "UPDATE messages SET media_asset_id=$2 WHERE id=$1", {messageId, mediaAssetId});
         if (diceCmd && diceResult.hidden) {
             Json::Value nd; nd["type"] = "hidden_notice"; nd["command"] = diceCmd->raw; nd["text"] = diceResult.hiddenNotice;
             notice = Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {insert("window", {}, diceCmd->raw, nd)});
@@ -816,6 +818,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
             e.actorUserId = a.userId; e.actorRole = a.isGm ? "gm" : "player"; e.characterId = characterId; e.kind = "message.posted";
             e.visibility = evVis; e.audience = audience;
             e.payload["content"] = eventText; e.payload["message_kind"] = kind; e.payload["reference_message_ids"]=json::fromStrArray(references);
+            if (!mediaAssetId.empty()) e.payload["media_asset_id"] = mediaAssetId;
             if (diceCmd) { e.payload["command"] = content; e.payload["dice"] = diceJson; }
             events_.append(w, e);
         }

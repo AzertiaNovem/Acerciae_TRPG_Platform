@@ -96,6 +96,32 @@ on the same browser it is emptied first. Personal settings show its size with a 
 
 
 
+## Illustrations in chat
+
+**🖼 Illustrate** in the chat composer (shown when the server has an image provider) lets any member who may post in
+the window draw a moment of the story: they pick up to four characters as visual references (players: player
+characters; the GM: NPCs too), describe the pose, action, place and light, and choose landscape, portrait or square.
+
+- **The prompt** (`chat/Illustrations.cpp`, `illustrationPrompt`) keeps the requester's description and adds the
+  platform's direction: each named character with their appearance description, the channel's era and the current
+  story time, and a composition note that asks the image model to dare an unexpected, cinematic viewpoint (low or
+  high angle, over the shoulder or from behind, a wide shot, a close-up, a tilted frame, strong depth) instead of a
+  plain front view, while keeping every character recognisable. No text or watermarks. The channel's default style
+  profile applies, as for character art.
+- **References**: each chosen character's main portrait (else avatar), when approved and PNG, JPEG or WebP, is frozen
+  as an identity reference (20 MB in all); a character without one is drawn from the description.
+- **Limits**: the server's image provider, budget and concurrency apply (`asset_generation_jobs.kind =
+  'illustration'`); one illustration in flight per person and channel, 20 an hour. Like character art, it does not
+  need the Log Studio's cloud switch; the requester confirms that the description and portraits go to the image
+  service.
+- **Posting**: when the picture is stored (`media_assets.asset_type = 'illustration'`, approved, GM-scoped so it is
+  not listed in the players' media library), it is posted in the window as the requester's `ooc` line with
+  `messages.media_asset_id`, with the requester's rights at that moment: a window they left gets no line, and the
+  job keeps `error` "drawn, but not posted". `GET …/messages/{mid}/image` serves the picture only to those who may
+  read the line (whispers and private windows stay private; spectators get no picture). The picture's object is AI
+  art and lives in the public bucket under an unguessable key, as other generated art does.
+- The mobile apps show the line's text (`🖼️ ` and the description) until they render pictures.
+
 ## Image references and object inventory
 
 Image-generation jobs store reference asset IDs, versions, SHA-256 hashes and private snapshot keys. The image

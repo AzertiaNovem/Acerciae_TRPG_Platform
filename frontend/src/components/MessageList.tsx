@@ -79,9 +79,24 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
           : m.dice ? (<>
             <div className={`content dice-command ${jumped ? 'jumped' : ''}`}>{m.content}</div>
             <div className={`dice-result ${diceTone(m)}`}>🎲 {m.dice.text}</div>
-          </>) : <div className={`content ${jumped ? 'jumped' : ''}`}>{m.content}</div>}
+          </>) : m.media_asset_id ? <Illustration m={m} jumped={jumped} />
+          : <div className={`content ${jumped ? 'jumped' : ''}`}>{m.content}</div>}
       </div>
     </div>
+  );
+}
+
+// An illustration drawn on request: the picture (loaded through its line) and the description as its caption.
+function Illustration({ m, jumped }: { m: Message; jumped: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const url = api.messageImageUrl(m.channel_id, m.id);
+  const caption = m.content.replace(/^\u{1F5BC}\u{FE0F}?\s*/u, '');
+  return (
+    <figure className={`message-illustration ${jumped ? 'jumped' : ''}`}>
+      {failed ? <div className="muted small">{tr('The picture could not be loaded.')}</div>
+        : <a href={url} target="_blank" rel="noopener noreferrer"><img src={url} alt={caption} loading="lazy" onError={() => setFailed(true)} /></a>}
+      <figcaption className="content">{caption}</figcaption>
+    </figure>
   );
 }
 

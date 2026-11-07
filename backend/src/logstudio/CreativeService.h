@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include "../auth/AuthService.h"
 #include "../core/Db.h"
 #include "ImageProvider.h"
@@ -37,6 +38,12 @@ public:
   // Art a visual-novel script asked for: a scene background ({presentation_id, scene_key}) or a generated-mode
   // character's subtitle portrait ({presentation_id, character_id, slot:"subtitle", subtitle}). Attached on completion.
   Json::Value createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud, bool retryFailed = false);
+  // An illustration for a chat window (chat/Illustrations.cpp composes the prompt and freezes the references):
+  // `request` holds characters, reference_images, size and identity_instruction; `attach` names the window. Any
+  // member may ask; the server's image provider and budget apply, not the Log Studio's cloud switch.
+  Json::Value createIllustration(const ChannelAccess &a, const std::string &prompt, const Json::Value &request, const Json::Value &attach, bool allowCloud, const std::string &requestId);
+  // Called by the worker once an illustration is stored (set by Services: posts it in the chat window).
+  std::function<void(const Json::Value &job, const Json::Value &asset)> onIllustration;
   bool available(const std::string& channelId);
 
 private:

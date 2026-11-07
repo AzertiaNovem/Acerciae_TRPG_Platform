@@ -437,3 +437,14 @@ fieldset legend { font-size: 12px; color: var(--fg-1); padding: 0 6px; }
 .admin-panel .detail { background: var(--bg-2); border: 1px solid var(--bg-4); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .admin-panel .toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .admin-panel .toolbar input { min-width: 220px; }
+
+/* Illustrations drawn on request: the picture in the chat line, and the dialog that asks for it. */
+.message-illustration { margin: 4px 0 0; display: flex; flex-direction: column; gap: 4px; max-width: min(520px, 100%); }
+.message-illustration img { display: block; max-width: 100%; max-height: 420px; border-radius: 10px; border: 1px solid var(--bg-4); object-fit: contain; background: var(--bg-3); }
+.message-illustration figcaption { font-size: .9em; opacity: .85; }
+.modal.illustrate textarea { width: 100%; resize: vertical; }
+.illustrate-cast { display: flex; flex-wrap: wrap; gap: 6px; }
+.illustrate-who { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--bg-4); border-radius: 999px; cursor: pointer; }
+.illustrate-who.on { border-color: var(--accent, #7aa2f7); background: var(--bg-3); }
+.illustrate-who .avatar.small { width: 22px; height: 22px; font-size: 10px; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; }
+.illustrate-who .avatar.small img { width: 100%; height: 100%; object-fit: cover; }
