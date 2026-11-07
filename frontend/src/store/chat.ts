@@ -33,32 +33,39 @@ export function recallError(err: any): string {
 // ---- the history of each window ---------------------------------------------------------------------------------
 // A window's lines are kept here for the visit and on this device between visits (lib/chatHistory), so switching to
 // a window shows what was read before at once and scrolling up goes through what is already here. Lines pushed over
-// the chat stream are recorded as they arrive, in every window of the channel. Fetching only makes up for what the
-// stream could not deliver:
-// - While the stream stayed subscribed to the channel since a window was last brought up to date, every line of it
-//   was pushed and recorded: opening the window asks the server for nothing.
-// - Otherwise (the socket dropped, another channel was open, the page was reloaded) opening it asks for the lines
-//   after the last one kept (`after_seq`), from a little earlier when recent lines are kept, so that one recalled in
-//   the meantime turns into its tombstone. A gap too long to page through starts again from the newest lines.
-// - Scrolling up asks for older lines until the window's first line has been reached.
-// Each window keeps one contiguous block of lines, as `Span`: `from` its first seq, `through` the seq up to which it
-// is complete, `complete` when it reaches the window's first line, `live` the chat stream subscription it is kept
-// current by. A message opened elsewhere (a reference, a hint) may sit outside the block for this visit only.
-export interface Span { channelId: string; access: string; from: number; through: number; complete: boolean; live: number | null }
+// the chat stream show as they arrive, in every window of the channel, but a quiet connection does not prove that
+// none was lost: only lines the server returned count as checked. So the window is checked against the server (the
+// lines after the last checked one, `after_seq`, from a little earlier when recent lines are kept so that one
+// recalled in the meantime turns into its tombstone):
+// - when it is opened and its last check is older than the current interval;
+// - while it is open: every CHECK_LIVE_MS while the stream is subscribed to its channel, every CHECK_DOWN_MS when it is
+//   not (the socket dropped, it is still subscribing), and at once when a subscription is confirmed again;
+// - after a reload (nothing checked yet in this visit).
+// A gap too long to page through starts again from the newest lines. Scrolling up asks for older lines until the
+// window's first line has been reached.
+// Each window keeps one contiguous block of lines, as `Span`: `from` its first seq, `through` the seq up to which the
+// server's answers cover it, `complete` when it reaches the window's first line, `checkedAt` when it was last checked
+// (this visit). A message opened elsewhere (a reference, a hint) may sit outside the block for this visit only.
+export interface Span { channelId: string; access: string; from: number; through: number; complete: boolean; checkedAt: number }
 export const PAGE = 80;              // the newest lines, and each step back
 export const CATCH_UP_PAGE = 200;    // each step forward when catching up
 export const CATCH_UP_PAGES = 5;     // beyond this many lines missed, start again from the newest
 export const RECENT_MS = 5 * 60 * 1000;    // lines this recent are read again on catching up (a recall takes 2 minutes at most)
 export const RECENT_LINES = 50;            // ... among the newest ones kept
+export const CHECK_LIVE_MS = 30_000;       // the stream is subscribed: a check now and then catches what a push lost
+export const CHECK_DOWN_MS = 5_000;        // it is not: the server is asked about as often as a table chats
 
 // The viewer's access to a channel's lines: kept history read under another access is never shown.
 export const accessKey = (c: Pick<Channel, 'my_role' | 'player_group_id' | 'player_group_version' | 'knowledge_mode'> | null | undefined) =>
   c ? [c.my_role, c.player_group_id ?? '', c.player_group_version ?? '', c.knowledge_mode ?? ''].join('|') : '';
 
-// The chat stream's current subscription: lines of its channel arrive by push from the moment it was confirmed.
-let stream: { gen: number; channelId: string } | null = null;
-let streamGen = 0;
-const live = (span: Span | undefined) => !!span && !!stream && span.live === stream.gen && span.channelId === stream.channelId;
+// The channel the chat stream is confirmed subscribed to: its lines arrive by push (most likely all of them).
+let stream: string | null = null;
+let streamGen = 0;   // counts confirmed subscriptions
+// Whether the window is due for a check against the server.
+export function checkDue(span: Span | undefined, now = Date.now()): boolean {
+  return !span || now - span.checkedAt >= (stream === span.channelId ? CHECK_LIVE_MS : CHECK_DOWN_MS);
+}
 
 interface ChatState {
   byWindow: Record<string, Message[]>;
@@ -69,9 +76,11 @@ interface ChatState {
   removeReference: (id: string) => void;
   clearReferences: () => void;
   jumpTo: { messageId: string; nonce: number } | null;
-  // Shows the window from what is kept, then fetches only what the chat stream did not deliver.
+  // Shows the window from what is kept, then checks it against the server when that is due.
   open: (channelId: string, windowId: string, access: string) => Promise<void>;
-  // Brings a window up to date from the server (open calls it when the stream did not keep the window current).
+  // Checks the open window when that is due (called every second while it is shown).
+  refresh: (channelId: string, windowId: string, access: string) => Promise<void>;
+  // Checks a window against the server now: the lines after the last checked one.
   catchUp: (channelId: string, windowId: string, access: string) => Promise<void>;
   loadOlder: (channelId: string, windowId: string) => Promise<void>;
   push: (m: Message) => void;
@@ -91,7 +100,7 @@ interface ChatState {
   reset: () => void;
 }
 const olderInFlight = new Set<string>();
-const catching = new Map<string, Promise<void>>();
+const catching = new Map<string, { run: Promise<void>; gen: number }>();
 
 // Kept on this device shortly after it changes: the contiguous block only.
 function persist(w: string) {
@@ -123,28 +132,36 @@ export const useChat = create<ChatState>((set, get) => ({
       if (isStale(e)) return;
       span = get().spans[w];   // another open may have filled it meanwhile
       if (!span && kept && kept.access === access && kept.channelId === ch && kept.through > 0) {
-        span = { channelId: ch, access, from: kept.from, through: kept.through, complete: kept.complete, live: null };
+        span = { channelId: ch, access, from: kept.from, through: kept.through, complete: kept.complete, checkedAt: 0 };
         const restored = span;
         set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(kept.messages, s.byWindow[w] ?? []) }, spans: { ...s.spans, [w]: restored } }));
       } else if (!span && kept) void dropHistory({ windowId: w });
     }
-    if (live(span)) return;   // every line since was pushed and recorded
+    if (!checkDue(span)) return;   // checked a moment ago
     await get().catchUp(ch, w, access);
   },
-  // One at a time per window; again if the stream changed meanwhile.
+  refresh: async (ch, w, access) => {
+    const span = get().spans[w];
+    if (span && span.channelId === ch && span.access === access && checkDue(span)) await get().catchUp(ch, w, access);
+  },
+  // One at a time per window: a check asked for meanwhile waits for the running one, and runs again after it only
+  // when the stream subscribed since that one started (what was pushed in between may have been lost).
   catchUp: async (ch, w, access) => {
-    const running = catching.get(w);
-    if (running) { await running; if (live(get().spans[w]) || isStale(sessionEpoch())) return; }
+    for (let running = catching.get(w); running; running = catching.get(w)) {
+      await running.run;
+      if (running.gen === streamGen || isStale(sessionEpoch())) return;
+    }
+    const gen = streamGen;
     const run = (async () => {
       const e = sessionEpoch();
-      const at = stream && stream.channelId === ch ? stream.gen : null;   // pushes reach this window from here on
+      const startedAt = Date.now();
       set((s) => ({ loading: { ...s.loading, [w]: true } }));
       try {
         const span = get().spans[w];
         const newest = async (): Promise<Span | null> => {
           const page = await api.messages(ch, w, undefined, PAGE);
           if (isStale(e)) return null;
-          const fresh: Span = { channelId: ch, access, from: page[0]?.seq ?? 0, through: page.length ? page[page.length - 1].seq : 0, complete: page.length < PAGE, live: null };
+          const fresh: Span = { channelId: ch, access, from: page[0]?.seq ?? 0, through: page.length ? page[page.length - 1].seq : 0, complete: page.length < PAGE, checkedAt: startedAt };
           // The block starts again here: older lines kept are not known to join it. Lines in memory from its first one on
           // stay (pushed ones, and a recall applied while this was in flight stays final).
           set((s) => ({ byWindow: { ...s.byWindow, [w]: merge((s.byWindow[w] ?? []).filter((m) => !page.length || m.seq >= fresh.from), page) } }));
@@ -164,20 +181,19 @@ export const useChat = create<ChatState>((set, get) => ({
           }
           if (full) next = await newest();   // too much was missed to page through: start again from the newest lines
           else {
-            next = { ...span, through: Math.max(span.through, after), live: null };
+            next = { ...span, through: Math.max(span.through, after), checkedAt: startedAt };
             set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], fetched) } }));
           }
         } else next = await newest();   // nothing kept: the newest lines
         if (!next) return;
-        // Current from now on only if the stream was subscribed before the request and still is.
-        next.live = at !== null && stream?.gen === at ? at : null;
         set((s) => ({ spans: { ...s.spans, [w]: next } }));
         persist(w);
       } catch (err: any) { if (!isStale(e)) useUi.getState().toast(err.message, 'error'); }
       finally { if (!isStale(e)) set((s) => ({ loading: { ...s.loading, [w]: false } })); }
     })();
-    catching.set(w, run);
-    try { await run; } finally { if (catching.get(w) === run) catching.delete(w); }
+    const entry = { run, gen };
+    catching.set(w, entry);
+    try { await run; } finally { if (catching.get(w) === entry) catching.delete(w); }
   },
   loadOlder: async (ch, w) => {
     const cur = get().byWindow[w] ?? [];
@@ -207,9 +223,8 @@ export const useChat = create<ChatState>((set, get) => ({
     const s = get(); const list = s.byWindow[w] ?? [];
     if (list.some((x) => x.id === m.id)) return;
     const span = s.spans[w];
-    // A live window is complete through every line pushed to it.
-    const spans = span && live(span) && m.seq > span.through ? { ...s.spans, [w]: { ...span, through: m.seq } } : s.spans;
-    set({ byWindow: { ...s.byWindow, [w]: merge(list, [m]) }, spans });
+    // Shown at once; it counts as checked only once the server's answer covers it.
+    set({ byWindow: { ...s.byWindow, [w]: merge(list, [m]) } });
     if (span) persist(w);
   },
   applyRecall: (tombstone) => {
@@ -233,7 +248,7 @@ export const useChat = create<ChatState>((set, get) => ({
       if (r.content) set((s) => ({ recallDrafts: { ...s.recallDrafts, [m.id]: r.content } }));
     } catch (err: any) { if (!isStale(e)) useUi.getState().toast(recallError(err), 'error'); }
   },
-  streamUp: (channelId) => { stream = { gen: ++streamGen, channelId }; },
+  streamUp: (channelId) => { stream = channelId; streamGen++; },
   streamDown: () => { stream = null; },
   forgetChannel: (channelId) => {
     set((s) => {

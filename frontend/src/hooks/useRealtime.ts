@@ -20,9 +20,9 @@ export function useRealtime() {
   const windowId = useNav((s) => s.windowId);
   const windows = useNav((s) => s.windows);
   useEffect(() => {
-    // Lines pushed while the chat stream is subscribed are recorded as they come (store/chat). A lost connection
-    // ends that; once the channel is subscribed again the open window catches up on what it missed (the others
-    // when they are opened), after a reconnect together with the window list and the channel.
+    // Pushed lines show as they come (store/chat); the open window is still checked against the server now and then,
+    // less often while the stream is subscribed. Once the channel is subscribed again the open window is checked at
+    // once (the others when they are opened), after a reconnect together with the window list and the channel.
     let dropped = false;
     const offChat = chatSocket.on((m) => {
       if (m.type === '_close') { dropped = true; useChat.getState().streamDown(); return; }
@@ -32,7 +32,10 @@ export function useRealtime() {
         if (!nav.channelId || m.channel_id !== nav.channelId) return;
         useChat.getState().streamUp(m.channel_id);
         if (dropped) { dropped = false; nav.refreshWindows().catch(() => undefined); nav.refreshChannel().catch(() => undefined); }
-        if (nav.windowId) useChat.getState().open(nav.channelId, nav.windowId, accessKey(nav.channel)).catch(() => undefined);
+        if (nav.windowId) {
+          const chat = useChat.getState(), access = accessKey(nav.channel);
+          (chat.spans[nav.windowId] ? chat.catchUp(nav.channelId, nav.windowId, access) : chat.open(nav.channelId, nav.windowId, access)).catch(() => undefined);
+        }
         return;
       }
       const ch = useNav.getState().channelId;
@@ -103,11 +106,21 @@ export function useRealtime() {
     poll(); const timer=setInterval(poll,10000);
     return ()=>{active=false;clearInterval(timer);clearInterval(remindersTimer);};
   }, [channelId]);
-  // Opening a window shows what is kept at once and fetches only what the chat stream did not deliver.
+  // Opening a window shows what is kept at once, and checks it against the server when that is due.
   const access = useNav((s) => accessKey(s.channel));
   useEffect(() => {
     if (!channelId || !windowId || !access) return;
     useChat.getState().open(channelId, windowId, access).catch(() => undefined);
+  }, [channelId, windowId, access]);
+  // The open window is checked against the server when that is due: every 30 s while the chat stream is subscribed
+  // (a push can still be lost), every 5 s while it is not. Not while the page is hidden.
+  useEffect(() => {
+    if (!channelId || !windowId || !access) return;
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      useChat.getState().refresh(channelId, windowId, access).catch(() => undefined);
+    }, 1000);
+    return () => clearInterval(timer);
   }, [channelId, windowId, access]);
   // A window that is no longer listed (deleted, or no longer the viewer's) keeps nothing here.
   useEffect(() => {
