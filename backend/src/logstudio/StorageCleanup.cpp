@@ -25,7 +25,7 @@ void StorageCleanup::start() {
         while (!stopping()) {
             try {
                 auto r = runOnce();
-                if (r.expiredJobs + r.characterImages + r.oldVersions + r.superseded + r.orphans + r.failed > 0) ALOG_INFO << "storage cleanup: " << describe(r);
+                if (r.expiredJobs + r.characterImages + r.oldVersions + r.superseded + r.voiceLines + r.orphans + r.failed > 0) ALOG_INFO << "storage cleanup: " << describe(r);
             } catch (const std::exception& e) { ALOG_WARN << "storage cleanup stopped: " << e.what(); }
             for (int i = 0; i < 24 * 3600 && !stopping(); ++i) std::this_thread::sleep_for(std::chrono::seconds(1));
         }
@@ -38,7 +38,7 @@ void StorageCleanup::stop() {
 
 std::string StorageCleanup::describe(const Report& r, bool dryRun) {
     return std::string(dryRun ? "would delete " : "deleted ") + std::to_string(r.expiredJobs) + " expired image jobs, " + std::to_string(r.characterImages) + " replaced or unused character images, " + std::to_string(r.oldVersions) +
-           " old asset versions, " + std::to_string(r.superseded) + " images no publication shows any more, " + std::to_string(r.orphans) + " stored objects nothing refers to (" +
+           " old asset versions, " + std::to_string(r.superseded) + " images no publication shows any more, " + std::to_string(r.voiceLines) + " unused voice lines, " + std::to_string(r.orphans) + " stored objects nothing refers to (" +
            std::to_string(r.bytes / (1024 * 1024)) + " MB); " + std::to_string(r.failed) + " failed";
 }
 
@@ -68,6 +68,7 @@ StorageCleanup::Report StorageCleanup::runOnce(bool dryRun) {
             try { r.superseded += media_.purgeSuperseded(c["id"].asString()); } catch (const std::exception& e) { ALOG_WARN << "storage cleanup: " << e.what(); ++r.failed; }
         }
     }
+    if (!stopping()) voiceLines(r, dryRun);
     if (!stopping()) orphans(r, dryRun);
     return r;
 }
@@ -141,7 +142,37 @@ void StorageCleanup::oldVersions(Report& r, bool dryRun) {
     }
 }
 
-// 3. Stored objects nothing names. Only the folders this platform writes, only objects of channels and users this
+// 3. Cached voice lines nothing uses: no visual-novel line points at them, no live publication plays them, no voice job
+// of the channel is under way (it may be about to point a line at one from the cache), and nobody has served or played
+// them for RETENTION_VOICE_AUDIO_DAYS (default 30; last_used_at). The guards are checked again in the DELETE itself, so
+// a line taken back into use meanwhile stays. A publication reads the same stored file, so a revoked one no longer
+// protects it.
+void StorageCleanup::voiceLines(Report& r, bool dryRun) {
+    int days = 30;
+    if (const auto value = std::getenv("RETENTION_VOICE_AUDIO_DAYS")) {
+        try { days = std::clamp(std::stoi(value), 1, 3650); } catch (...) {}
+    }
+    const std::string unused =
+        "t.last_used_at < now() - make_interval(days => $1) AND t.created_at < now() - " + std::string(kAge) +
+        " AND NOT EXISTS (SELECT 1 FROM presentation_events e WHERE e.audio_asset_id = t.id)"
+        " AND NOT EXISTS (SELECT 1 FROM published_logs p WHERE NOT p.revoked AND jsonb_typeof(p.frozen_content->'audio')='object' AND p.frozen_content->'audio' ? t.id::text)"
+        " AND NOT EXISTS (SELECT 1 FROM live WHERE live.k = t.object_key)"
+        " AND NOT EXISTS (SELECT 1 FROM tts_jobs j WHERE j.channel_id = t.channel_id AND j.status IN ('pending','running'))"
+        " AND NOT EXISTS (SELECT 1 FROM tts_audio_assets o WHERE o.object_key = t.object_key AND o.id <> t.id)";
+    auto rows = db_.queryJson("WITH live AS (" + kLiveKeys + ") SELECT t.id, t.object_key, t.bytes FROM tts_audio_assets t WHERE " + unused + " ORDER BY t.last_used_at LIMIT 2000", {int64_t(days)});
+    for (auto& v : rows) {
+        if (stopping()) return;
+        if (dryRun) { ++r.voiceLines; r.bytes += v["bytes"].asInt64(); continue; }
+        try {
+            auto gone = db_.queryOne("WITH live AS (" + kLiveKeys + ") DELETE FROM tts_audio_assets t WHERE t.id = $2 AND " + unused + " RETURNING t.object_key, t.bytes", {int64_t(days), v["id"].asString()});
+            if (gone.isNull()) continue;   // used again since the list was taken
+            ++r.voiceLines; r.bytes += gone["bytes"].asInt64();
+            removeObject(gone["object_key"].asString());
+        } catch (const std::exception& e) { ALOG_WARN << "storage cleanup: voice line " << v["id"].asString() << ": " << e.what(); ++r.failed; }
+    }
+}
+
+// 4. Stored objects nothing names. Only the folders this platform writes, only objects of channels and users this
 // database knows (a bucket shared with another installation keeps that installation's objects), only after a day.
 void StorageCleanup::orphans(Report& r, bool dryRun) {
     std::unordered_set<std::string> referenced, channels, users;

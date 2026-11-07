@@ -107,7 +107,7 @@ test('permission and stale-draft errors during validation do not regenerate the 
 
 test('PbtA actor repairs resources and conditions together, preserving identity, background and stats', async () => {
   const pack={books:[{id:'scout'}],stats:[{id:'nerve'}],resources:[{id:'supply'}],conditions:[{id:'tired'}],moves:[]};
-  const draft={name:'Ann',persona:'Original biography',appearance_prompt:'Original portrait',role_card:{basic:{age:24},background:{home:'Harbour'},pbta:{book:'scout',stats:{nerve:2},resources:[],conditions:{tired:'no'}}}};
+  const draft={name:'Ann',persona:'Original biography',appearance_prompt:'Original portrait',role_card:{basic:{age:24},background:{home:'Harbour'},pbta:{book:'scout',stats:{nerve:2},resources:'plenty',conditions:{tired:'somewhat'}}}};   // not fixable without the model (fitSheet leaves them)
   const requests=[],writes=[];
   const llm={complete:async req=>{
     requests.push(structuredClone(req));

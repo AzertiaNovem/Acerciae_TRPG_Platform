@@ -115,9 +115,9 @@ async function setupChannel(cfg, api, target, automatic = false) {
 
 // A one-shot setup returns a pending draft. A running host keeps the channel lock and waits here,
 // before any cards, world publication, WebSocket or turn timers are started.
-async function reviewBeforePlay(api, llm, channel, rules, world, language, review, automatic) {
+async function reviewBeforePlay(api, llm, channel, rules, world, language, review, automatic, table = null) {
   async function design(current) {
-    try { return await preparePack(api, llm, channel, rules, world, language, current, (m) => console.log(m)); }
+    try { return await preparePack(api, llm, channel, rules, world, language, current, (m) => console.log(m), table); }
     catch (error) {
       if (error.status !== 409) throw error;
       // A GM can keep the pack or request a retry even while the model is still answering.
@@ -199,17 +199,32 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
       }
       state.pbtaSetup = { coplayers, ready: false };
       if (!running) saveState(cfg.stateDir, { ...state, ...roster.toJSON() });
+      // The design leaves spare playbooks for the human players: it is told the table's size.
+      const players = (await api.channelMembers(channel.id).catch(() => [])).filter((m) => m.role === "player").length;
       const draft = await reviewBeforePlay(api, llm, channel.id, rules,
-        improv?.world ?? state.improv?.world ?? "", language, review, automatic);
+        improv?.world ?? state.improv?.world ?? "", language, review, automatic, { coplayers, players });
       if (awaitingReview(draft.status)) return false;
       // The GM may have edited the official rules and the cast while the host was waiting.
       if (draft.revision !== rules.revision) rules = await api.pbtaRules(channel.id);
       if (automatic) roster.reconcile(await api.characters(channel.id), seats, { castBy: me.id });
     }
+    // A PbtA co-player whose card cannot be built (the model's reply unusable twice, a timeout) is tried once more
+    // from scratch, then left for later: the table starts without it and the next start tries again (pbtaSetup stays
+    // not ready), instead of the whole host exiting.
+    let incomplete = false;
+    const actorOrLater = async (what, args) => {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try { return await prepareActor(api, llm, channel.id, args); }
+        catch (e) { log(`${what}: no card yet (${String(e.message).replace(/\s+/g, " ").slice(0, 200)})${attempt === 1 ? "; trying once more" : "; left for the next start"}`); }
+      }
+      incomplete = true;
+      return null;
+    };
     for (const existing of roster.coplayers) {
       if(pbta) {
         const current=(await api.characterSpace(channel.id,existing.characterId)).character;
-        await prepareActor(api,llm,channel.id,{rules,language,world,existing:current});
+        const takenBooks=(await api.characters(channel.id)).filter((c)=>c.id!==current.id).map((c)=>c.role_card?.pbta?.book).filter(Boolean);
+        await actorOrLater(`co-player ${current.name ?? existing.name}`, {rules,language,world,existing:current,takenBooks});
         continue;
       }
       await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, profile, level: cfg.level, log });
@@ -222,17 +237,19 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
       const characters = await api.characters(channel.id);
       const takenNames = characters.map((c) => c.name);
       const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-      const args = { language, era: channel.era, rules, pointsMode, takenNames, partyNotes, index: roster.coplayers.length, total: coplayers, world, profile, level: cfg.level, log };
+      const takenBooks = characters.map((c) => c.role_card?.pbta?.book).filter(Boolean);
+      const args = { language, era: channel.era, rules, pointsMode, takenNames, takenBooks, partyNotes, index: roster.coplayers.length, total: coplayers, world, profile, level: cfg.level, log };
       let saved;
       if(pbta) {
-        const actor=await prepareActor(api,llm,channel.id,args);
+        const actor=await actorOrLater(`co-player ${roster.coplayers.length + 1}/${coplayers}`, args);
+        if (!actor) continue;
         saved={id:actor.id,name:actor.name,persona:actor.bio,speakingStyle:actor.speaking_style};
       } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"coplayer",rules,llm,language,pointsMode,profile,level:cfg.level});
       roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
       if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
       log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${profile.castNote(saved.card) || saved.card?.basic?.occupation || profile.vocab.pc})`);
     }
-    if (pbta) state.pbtaSetup.ready = true;
+    if (pbta) state.pbtaSetup.ready = !incomplete;
     if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
     if (automatic) return true;
     const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
