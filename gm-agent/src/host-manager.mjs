@@ -88,7 +88,9 @@ export class HostManager {
       const rt = this.runtime(e.id), live = rt.snapshot;
       return { id: e.id, enabled: e.enabled, status: this.states.get(e.id) ?? 'stopped', name: live?.channel?.name ?? null, rule: live?.channel?.rule ?? null,
         startedAt: rt.startedAt ? new Date(rt.startedAt).toISOString() : null, lastError: rt.lastError, paused: live?.activity?.paused ?? null,
-        usageToday: live?.usage?.today?.billable ?? null };
+        usageToday: live?.usage?.today?.billable ?? null,
+        usage: live?.usage ? { at: live.usage.at ?? live.at, since: live.usage.periods?.today?.since ?? null,
+          timezone: live.usage.timezone ?? null, today: live.usage.today } : null };
     });
   }
   hostInfo() {

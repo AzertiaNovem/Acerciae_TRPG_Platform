@@ -1,10 +1,13 @@
 // GM 控制台: channel status, settings form, YAML editor and logs for the multi-channel host.
 // Only login sends the access token. An HttpOnly session cookie restores the UI across visits.
 // All content is set with textContent (no HTML from the server).
+import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
 'use strict';
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
 let channelRequest = 0;
+let usageRange = 'today', usageDetailsOpen = false, planKey = '';
+let usageKey = '', usageNode = null;
 const dirty = new Map();            // field key → new value ('' = back to default)
 let logSeq = 0, logLines = [];
 const $ = id => document.getElementById(id);
@@ -59,13 +62,14 @@ async function connect() {
   schema = await api('/api/schema');
   await Promise.all([refreshChannels(), refreshHost()]);
   connected = true;
-  $('login').hidden = true; $('session').hidden = false; $('summary').hidden = false; $('token').value = ''; $('new-task').disabled = false;
+  $('login').hidden = true; $('session').hidden = false; $('summary').hidden = false; $('token').value = ''; $('new-task').disabled = false; $('all-usage').disabled = false;
   notice('已连接。请选择频道。');
 }
 function disconnect() {
   connection++; connected = false; selected = ''; config = null; detail = null; hostInfo = null; schema = null; channels = []; platform = null; dirty.clear();
   logSeq = 0; logLines = []; $('log').replaceChildren(); $('token').value = ''; $('channel-count').textContent = '';
   $('yaml').value = ''; $('form').replaceChildren(); $('overview').replaceChildren(); $('host').replaceChildren(); renderSavebar();
+  planKey = ''; $('plan-view').replaceChildren(); $('host-usage').replaceChildren(); $('host-usage').hidden = true; $('all-usage').disabled = true;
   $('login').hidden = false; $('session').hidden = true; $('summary').hidden = true; $('host').hidden = true;
   $('channels').replaceChildren(h('p', { class: 'muted', text: '连接后显示频道。' }));
   $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false; $('new-task').disabled = true;
@@ -111,13 +115,15 @@ async function refreshChannels() {
   if (request !== channelRequest) return;
   channels = next;
   $('channel-count').textContent = `${channels.length} 个`; renderSummary();
+  renderHostUsage();
   $('channels').replaceChildren(...channels.map(ch => {
     const [label, kind] = STATES[ch.status] ?? [ch.status, 'off'];
     return h('button', { class: 'channel-item', 'aria-pressed': String(ch.id === selected), onclick: () => select(ch.id) },
       h('div', { class: 'ci-top' }, h('span', { class: `dot ${kind}` }), h('strong', { text: ch.name || ch.id }), ch.rule ? h('span', { class: 'tag', text: RULES[ch.rule] ?? ch.rule }) : null),
       h('div', { class: 'ci-meta' }, h('span', { text: label }), ch.paused ? h('span', { class: 'warn-text', text: '暂停中' }) : null,
         !ch.enabled ? h('span', { class: 'muted', text: '不自动启动' }) : null,
-        ch.usageToday !== null ? h('span', { class: 'muted', text: `今日 ${num(ch.usageToday)} 令牌` }) : null),
+        hasTodayUsage(ch.usage) ? h('span', { class: 'muted', text: `今日 ${num(ch.usage.today.total)} token` })
+          : !ch.usage && Number.isFinite(ch.usageToday) ? h('span', { class: 'muted', text: `预算折算 ${num(ch.usageToday)}` }) : null),
       ch.name ? h('div', { class: 'ci-id mono', text: ch.id }) : null,
       ch.status === 'failed' && ch.lastError ? h('div', { class: 'ci-error', text: ch.lastError }) : null);
   }));
@@ -145,7 +151,7 @@ for (const button of document.querySelectorAll('[data-tab]')) button.onclick = (
 function showTab(name) {
   tab = name;
   for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
-  for (const t of ['overview', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
+  for (const t of ['overview', 'plan', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
   if (name === 'logs') refreshLogs().catch(() => {});
 }
 
@@ -155,7 +161,7 @@ async function refreshDetail() {
   const id = selected, next = await api(`/api/channels/${id}/status`);
   if (selected !== id) return;
   detail = next;
-  renderHead(); renderOverview();
+  renderHead(); renderOverview(); renderPlan();
 }
 function renderHead() {
   const d = detail, live = d.live, [label, kind] = STATES[d.status] ?? [d.status, 'off'];
@@ -175,6 +181,75 @@ function renderHead() {
 }
 function card(title, ...rows) { return h('section', { class: 'card' }, h('h3', { text: title }), ...rows); }
 const kv = (k, v, cls = '') => h('div', { class: 'kv' }, h('span', { text: k }), h('span', { class: cls, text: v ?? '—' }));
+const chart = (rows, title, onSelect) => tokenChart(rows, { h, num, title, onSelect });
+function hasTodayUsage(u) {
+  return !!u?.since && Number.isFinite(u?.today?.total) && u.at
+    && new Date(u.at).toLocaleDateString('en-CA', { timeZone: u.timezone || 'UTC' }) === new Date().toLocaleDateString('en-CA', { timeZone: u.timezone || 'UTC' });
+}
+function renderHostUsage() {
+  const root = $('host-usage'); root.hidden = false;
+  const rows = [], missing = [];
+  for (const c of channels) {
+    const u = c.usage;
+    // A stopped worker's last snapshot can belong to yesterday. Show the timestamp instead of
+    // silently treating yesterday's total as today's (or an unavailable worker as zero cost).
+    if (!hasTodayUsage(u)) { missing.push(c.name || c.id); continue; }
+    rows.push({ ...u.today, id: c.id, label: c.name || c.id, note: `${STATES[c.status]?.[0] || c.status} · 统计于 ${time(u.at)}` });
+  }
+  rows.sort((a, b) => b.total - a.total);
+  root.replaceChildren(h('h3', { text: '各主持任务 · 今日 token' }),
+    h('p', { class: 'muted small', text: '按主机所在时区统计今日用量；点击任务名称查看用途明细。' }),
+    rows.length || !channels.length ? chart(rows, '各主持任务的今日 token 用量', select) : h('p', { class: 'muted', text: '等待任务返回用量统计…' }),
+    missing.length ? h('p', { class: 'muted small', text: `暂未取得今日统计：${missing.join('、')}。未运行或尚未返回用量的任务不计为零。` }) : h('p', { class: 'muted small', text: '总量为输入 + 输出，缓存已包含在输入中。' }));
+}
+function usageCard(u) {
+  const key = JSON.stringify([selected, usageRange, u]);
+  if (key === usageKey && usageNode) return usageNode;
+  const period = u.periods?.[usageRange] || { summary: u.today, byPurpose: u.byPurpose || [] };
+  const s = period.summary, total = s.total ?? s.input + s.output;
+  const rate = s.input ? (s.cacheRead / s.input * 100).toFixed(1) : '0.0';
+  const controls = h('div', { class: 'usage-controls', role: 'group', 'aria-label': '用量统计时间范围' },
+    ...[['today', '今日'], ['week', '近 7 天']].map(([key, label]) => h('button', { type: 'button', class: 'small',
+      'aria-pressed': String(usageRange === key), disabled: key === 'week' && !u.periods?.week,
+      onclick: () => { usageRange = key; renderOverview(); }, text: label })));
+  const body = h('tbody');
+  for (const r of period.byPurpose) body.append(h('tr', {},
+    h('th', { scope: 'row' }, PURPOSES[r.purpose] || r.purpose || '未分类', h('small', { class: 'muted', text: r.phase ? PHASES[r.phase] || r.phase : '未分阶段' })),
+    h('td', { text: `${r.provider || '历史记录'} / ${r.model || '未知模型'}` }),
+    h('td', {}, num(r.calls), h('small', { class: 'muted', text: [r.failed ? `失败 ${num(r.failed)}` : '', r.unknown ? `未知 ${num(r.unknown)}` : '', r.estimated ? `估算 ${num(r.estimated)}` : ''].filter(Boolean).join(' · ') })),
+    ...[r.input, r.cacheRead, r.cacheWrite, r.output, r.total, r.averageOutput == null ? null : Math.round(r.averageOutput)].map(n => h('td', { class: 'mono', text: num(r.calls > 0 && r.unknown === r.calls && !r.total ? null : n) }))));
+  const table = h('table', { class: 'mini usage-table' }, h('thead', {}, h('tr', {},
+    ...['任务 / 阶段', '服务商 / 模型', '调用', '输入', '缓存读', '缓存写', '输出', '总量', '平均输出'].map(text => h('th', { scope: 'col', text })))), body);
+  const detail = h('details', { class: 'usage-details', open: usageDetailsOpen, ontoggle: e => { usageDetailsOpen = e.target.open; } },
+    h('summary', { text: '按阶段和模型查看明细' }), h('div', { class: 'usage-table-wrap', tabindex: '0', role: 'region', 'aria-label': '各调用阶段的 token 明细' }, table));
+  const result = card('Token 用量', h('div', { class: 'usage-toolbar' }, controls,
+    h('span', { class: 'muted small', text: `${u.timezone || '主机时间'} · 更新于 ${time(u.at)} · 用量约 15 秒更新` })),
+    h('div', { class: 'usage-totals' }, ...[['已记录总量', `${num(total)} token`], ['输入', num(s.input)], ['输出', num(s.output)], ['缓存读取占输入', `${rate}%`]].map(([label, value]) => h('div', {}, h('span', { class: 'muted small', text: label }), h('strong', { text: value })))),
+    h('p', { class: 'muted small', text: `${num(s.calls)} 次调用${s.failed ? `，${num(s.failed)} 次失败` : ''}${s.unknown ? `；${num(s.unknown)} 次未上报完整用量，总量可能偏低` : ''}${s.estimated ? `；${num(s.estimated)} 次使用估算值` : ''}。缓存读写已包含在输入中，不会重复相加。` }),
+    chart(groupPurposes(period.byPurpose), '各用途的 token 消耗'), detail,
+    h('p', { class: 'muted small', text: `今日预算折算 ${num(u.today.billable)}${u.budget ? ` / ${num(u.budget)}${u.overBudget ? '（已用尽，自主回合暂停）' : ''}` : '（不限额）'}。预算按缓存读取折扣计算，不是实际金额；图表展示输入 + 输出的记录总量。` }));
+  result.classList.add('usage-card'); result.id = 'usage-card'; usageKey = key; usageNode = result; return result;
+}
+function renderPlan() {
+  const root = $('plan-view'), planner = detail?.live?.planner, p = planner?.plan;
+  const key = JSON.stringify([selected, p, planner?.pendingVersion, detail?.live?.stale]);
+  if (key === planKey) return;
+  planKey = key;
+  if (!p) { root.replaceChildren(card('当前计划', h('p', { text: '暂无已采用的 plan。剧情规划生成并采用计划后会在这里显示。' }))); return; }
+  const text = (label, value) => value ? kv(label, value) : null;
+  const rows = [card(`当前计划 v${p.version}`, text('规划状态', planner.on ? '已开启' : '已关闭（显示保留的计划）'), text('模式', p.mode === 'pace' ? '仅节奏规划' : '完整剧情规划'), text('生成于', time(p.updatedAt)), text('触发原因', p.trigger),
+    text('贯穿主线', p.throughline), text('已发生', p.played), text('节奏判断', p.verdict?.moveOn ? '可以推进' : '继续当前'), text('判断原因', p.verdict?.why),
+    planner.pendingVersion ? h('p', { class: 'warn-text', text: `v${planner.pendingVersion} 已生成，等待在回合边界采用。` }) : null,
+    detail.live.stale ? h('p', { class: 'muted small', text: `这是 ${time(detail.live.at)} 的最后快照。` }) : null),
+    card('当前节拍', text('标题', p.beat?.title), text('目的', p.beat?.purpose), text('退出条件', p.beat?.exit), text('状态', p.beat?.closed ? '已结束' : '进行中')),
+    card('后续安排', ...(p.next || []).map(x => text(x.when || '待触发', x.what))),
+    card('复盘与日历', text('评审', p.review?.critique), text('本轮修改', p.review?.changed), text('日期', p.calendar?.start), text('时段', p.calendar?.time),
+      text('推进建议', p.calendar?.advice), text('日常安排', p.calendar?.routine), ...(p.calendar?.upcoming || []).map(x => text(x.when || '后续', x.what)))];
+  for (const t of p.threads || []) rows.push(card(`${t.id} · ${t.title}`, text('状态', t.status), text('利害关系', t.stakes),
+    text('引子', (t.hooks || []).join('；')), text('转折', t.twist), text('成熟条件', t.ripeWhen), text('交织线索', t.weaveWith)));
+  const raw = h('details', { class: 'card plan-raw' }, h('summary', { text: '完整 plan JSON' }), h('pre', { text: JSON.stringify(p, null, 2) }));
+  root.replaceChildren(...rows, raw);
+}
 function renderOverview() {
   const d = detail, live = d.live, rt = d.runtime;
   $('snapshot-note').textContent = !live ? (d.status === 'running' ? '正在读取实时状态…' : '频道未运行，还没有可显示的实时状态。启动后这里显示牌桌、用量与剧情。')
@@ -195,6 +270,7 @@ function renderOverview() {
       kv('知识模式', c.knowledge === 'isolated' ? '隔离' : c.knowledge === 'public' ? '公开' : c.knowledge), kv('窗口', num(cast.windows)),
       kv('模型', `${s.model ?? '—'}${s.effort ? ` · ${s.effort}` : ''}`),
       c.warning ? h('p', { class: 'warn-text', text: c.warning }) : null));
+    if (u) cards.push(usageCard(u));
     cards.push(card('活动',
       kv('状态', a.paused ? '主持已暂停（玩家 /pause）' : a.away ? '玩家离开（共享窗口暂停）' : '玩家在场', a.paused ? 'warn-text' : ''),
       kv('GM 回合', num(a.turns)), kv('排队中的回合', num(a.pendingTurns)),
@@ -202,16 +278,6 @@ function renderOverview() {
       kv('近一小时自主回合', num(a.autonomousLastHour)),
       a.splitInProgress ? kv('分头', '进行中（重启后会完成）', 'warn-text') : null,
       a.openingTurnsOwed ? kv('待开场的场景', num(a.openingTurnsOwed)) : null));
-    if (u) {
-      const today = u.today, cache = today.input ? Math.round((today.cacheRead / today.input) * 100) : 0;
-      const budget = u.budget ? h('div', { class: 'budget' }, h('progress', { max: u.budget, value: Math.min(today.billable, u.budget) }), h('span', { class: u.overBudget ? 'error-text' : 'muted', text: `${num(today.billable)} / ${num(u.budget)}${u.overBudget ? '（已用尽，自主回合暂停）' : ''}` })) : null;
-      cards.push(card('模型用量',
-        kv('今日（计费等价）', `${num(today.billable)} 令牌`), budget ?? kv('每日预算', '不限'),
-        kv('今日调用', `${num(today.calls)} 次 · 缓存命中 ${cache}%`), kv('今日输入 / 输出', `${num(today.input)} / ${num(today.output)}`),
-        kv('近 7 天', `${num(u.week.billable)} 令牌 · ${num(u.week.calls)} 次`),
-        u.byPurpose?.length ? h('table', { class: 'mini' }, h('thead', {}, h('tr', {}, h('th', { text: '用途' }), h('th', { text: '次数' }), h('th', { text: '令牌' }))),
-          h('tbody', {}, ...u.byPurpose.map(r => h('tr', {}, h('td', { text: `${r.purpose}${r.phase ? `/${r.phase}` : ''}` }), h('td', { text: `${num(r.calls)}${r.failed ? `（失败 ${r.failed}）` : ''}` }), h('td', { text: num(r.total) }))))) : null));
-    }
     cards.push(card('角色',
       h('h4', { text: `玩家角色（${cast.players?.length ?? 0}）` }),
       cast.players?.length ? h('ul', { class: 'list' }, ...cast.players.map(x => h('li', {}, h('strong', { text: x.name }), x.player ? ` · ${x.player}` : '', x.timeline !== null ? h('span', { class: 'tag', text: `T${x.timeline}` }) : null))) : h('p', { class: 'muted', text: '暂无' }),
@@ -392,7 +458,7 @@ window.addEventListener('beforeunload', event => { if (connected && unsaved()) {
 setInterval(() => {
   if (!connected || busy) return;
   refreshChannels().catch(error => notice(error.message, 'bad'));
-  if (selected && tab === 'overview') refreshDetail().catch(() => {});
+  if (selected && ['overview', 'plan'].includes(tab)) refreshDetail().catch(() => {});
   else if (selected && detail) { const id = selected; api(`/api/channels/${id}/status`).then(d => { if (selected === id) { detail = d; renderHead(); } }).catch(() => {}); }
 }, 4000);
 setInterval(() => { if (connected && !busy && selected && tab === 'logs') refreshLogs().catch(() => {}); }, 2500);
@@ -400,6 +466,12 @@ setInterval(() => { if (connected && !busy) refreshHost().catch(() => {}); }, 30
 
 // ---------- hosting tasks: create, auto-start / prepare switches, remove
 let platform = null;
+$('all-usage').onclick = () => {
+  if (busy || !confirmDiscard()) return;
+  selected = ''; detail = null; config = null; dirty.clear(); renderSavebar();
+  $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false;
+  refreshChannels().catch(e => notice(e.message, 'bad')); notice('');
+};
 const CREATE_FIELDS = ['table.language', 'table.coplayers', 'table.level', 'modes.casual', 'timelines.scene_forks', 'autonomy.enabled', 'planner.enabled'];
 const source = () => document.querySelector('input[name=source]:checked').value;
 function createRule() {

@@ -1,4 +1,4 @@
-// A live table's state for the host's Web UI: plain JSON, no secrets (no keys, tokens or passwords; model names only).
+// Private GM state for the authenticated host UI, including story plans; credentials are excluded.
 // Each section is built on its own, so one that cannot be read reports its error instead of hiding the rest.
 import { openWindows } from "./roles/roster.mjs";
 import { billableTokens } from "./store.mjs";
@@ -10,9 +10,24 @@ const at = (ms) => (Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() :
 const parsed = (s) => { const t = Date.parse(s ?? ""); return Number.isFinite(t) ? new Date(t).toISOString() : null; };
 const clip = (s, n = 200) => { const v = String(s ?? ""); return v.length > n ? `${v.slice(0, n - 1)}…` : v; };
 
-function usageOf(store, since) {
-  const u = store.usageSince(since);
-  return { calls: u.calls, input: u.input, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite, output: u.output, billable: billableTokens(u) };
+const usageCache = new WeakMap();
+export function usageSnapshot(store, now = Date.now()) {
+  const day = new Date(now); day.setHours(0, 0, 0, 0);
+  const since = day.getTime(), cached = usageCache.get(store);
+  if (cached && cached.daySince === since && now >= cached.atMs && now - cached.atMs < 15000) return cached.value;
+  const range = start => {
+    const byPurpose = store.usageByPurpose(start);
+    const summary = { calls: 0, failed: 0, unknown: 0, estimated: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 };
+    for (const row of byPurpose) for (const key of Object.keys(summary)) summary[key] += row[key] ?? 0;
+    summary.billable = billableTokens(summary);
+    return { since: new Date(start).toISOString(), summary, byPurpose };
+  };
+  // Two indexed aggregates cover both ranges without loading individual calls or the entire history.
+  const periods = { today: range(since), week: range(now - 7 * 86400000) };
+  const value = { at: new Date(now).toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    today: periods.today.summary, week: periods.week.summary, byPurpose: periods.today.byPurpose, periods };
+  usageCache.set(store, { atMs: now, daySince: since, value });
+  return value;
 }
 
 export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel, realtime = null, now = Date.now() } = {}) {
@@ -21,7 +36,6 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
   const windows = table.windows ?? [];
   const wname = (id) => windows.find((w) => w.id === id)?.name ?? id;
   const cname = (id) => table.characters?.find((c) => c.id === id)?.name ?? id;
-  const day = new Date(now); day.setHours(0, 0, 0, 0);
 
   const snapshot = {
     at: new Date(now).toISOString(),
@@ -59,11 +73,8 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
       }));
     }),
     usage: section("usage", () => {
-      const today = usageOf(table.store, day.getTime());
-      return {
-        today, week: usageOf(table.store, now - 7 * 86400000), budget: cfg.dailyTokenBudget || 0, overBudget: Boolean(cfg.dailyTokenBudget) && today.billable >= cfg.dailyTokenBudget,
-        byPurpose: table.store.usageByPurpose(day.getTime()).slice(0, 10).map((r) => ({ purpose: r.purpose, phase: r.phase, model: r.model, calls: r.calls, failed: r.failed, total: r.total })),
-      };
+      const usage = usageSnapshot(table.store, now);
+      return { ...usage, budget: cfg.dailyTokenBudget || 0, overBudget: Boolean(cfg.dailyTokenBudget) && usage.today.billable >= cfg.dailyTokenBudget };
     }),
     memory: section("memory", () => {
       const db = table.store.db;
@@ -80,6 +91,7 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
         corrections: notes.filter((n) => n.kind === "correction").length, wishes: notes.filter((n) => n.kind === "wish").length,
         session: p.session ? { lines: p.session.lines, startedAt: at(p.session.startedAt) } : null, between: Boolean(p.between),
         model: [cfg.planner.provider, cfg.planner.model].filter(Boolean).join(" "), effort: cfg.planner.effort, finalReview: Boolean(cfg.planner.finalReview),
+        plan: arc ?? null, pendingVersion: p.pending?.arc?.version ?? null,
       };
     }),
     calendar: section("calendar", () => {

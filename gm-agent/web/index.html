@@ -23,6 +23,7 @@
   <aside class="side">
     <div class="side-head"><h2>主持频道</h2><span id="channel-count" class="muted"></span></div>
     <button id="new-task" type="button" class="primary new-task" disabled>＋ 新建主持任务</button>
+    <button id="all-usage" type="button" class="quiet" disabled>全部任务用量</button>
     <div id="channels" class="channels"><p class="muted">连接后显示频道。</p></div>
     <section id="host" class="host-card" hidden></section>
   </aside>
@@ -31,6 +32,7 @@
     <div id="empty" class="empty">
       <h2>选择一个频道</h2>
       <p>各频道在独立的工作线程中运行，共享平台账户与 LLM 连接。在左侧选择频道，查看它的实时状态、修改设置或查看日志。</p>
+      <section id="host-usage" class="card usage-card" hidden></section>
     </div>
 
     <div id="create" hidden>
@@ -89,6 +91,7 @@
 
       <nav class="tabs" role="tablist">
         <button role="tab" data-tab="overview" aria-selected="true">概览</button>
+        <button role="tab" data-tab="plan" aria-selected="false">计划</button>
         <button role="tab" data-tab="settings" aria-selected="false">设置<span id="dirty-count" class="count" hidden></span></button>
         <button role="tab" data-tab="yaml" aria-selected="false">YAML</button>
         <button role="tab" data-tab="logs" aria-selected="false">日志</button>
@@ -97,6 +100,11 @@
       <div id="tab-overview" class="tab" role="tabpanel">
         <p id="snapshot-note" class="muted small"></p>
         <div id="overview" class="grid"></div>
+      </div>
+
+      <div id="tab-plan" class="tab" role="tabpanel" hidden>
+        <p class="muted small">只读查看 GM 当前采用的私密剧情计划。</p>
+        <div id="plan-view" class="grid"></div>
       </div>
 
       <div id="tab-settings" class="tab" role="tabpanel" hidden>
@@ -145,6 +153,6 @@
   </section>
 </main>
 <p id="notice" class="notice" role="status" aria-live="polite">输入公共配置中的 Web UI 访问令牌。</p>
-<script src="/app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>
