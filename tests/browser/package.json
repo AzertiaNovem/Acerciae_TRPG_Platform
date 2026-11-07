@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:recall": "node recall.mjs chromium && node recall.mjs webkit",
     "test:references": "node references.mjs chromium && node references.mjs webkit",
     "test:desktop-accounts": "node desktop-accounts.mjs chromium && node desktop-accounts.mjs webkit",
     "test:theme": "node theme.mjs chromium && node theme.mjs webkit",

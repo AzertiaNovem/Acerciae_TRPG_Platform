@@ -32,14 +32,18 @@ import AcerciaeCore
         if let socket { stream = socket } else {
             stream = ChatSocket(address: client.address, fileToken: { try await client.fileToken(token: token) }, handlers: ChatSocket.Handlers(
                 event: { [weak self] event in self?.onPush(event) },
-                live: { [weak self] live in self?.pushConnected = live; if live { self?.connection = "已连接 · 实时推送" } },
+                live: { [weak self] live in
+                    self?.pushConnected = live
+                    if live { self?.pushPending = true }
+                    if self?.online == true { self?.connection = live ? "已连接 · 实时推送" : "已连接 · 自动刷新" }
+                },
                 resync: { [weak self] in self?.pushPending = true }))
             socket = stream; socketToken = token
         }
         stream.follow(channelId)
     }
     func stopRealtime() { socket?.close(); socket = nil; socketToken = nil; pushConnected = false }
-    private func onPush(_ e: RealtimeEvent) {
+    func onPush(_ e: RealtimeEvent) {
         guard e.channelId.isEmpty || e.channelId == channelId else { return }
         switch e.type {
         case "message.recalled": if let tombstone = e.message { applyRecall(tombstone) }
@@ -53,9 +57,18 @@ import AcerciaeCore
     // in quoted references and in banners; the author keeps the text for "Re-edit".
     private var recallDeadlines = RecallDeadlines()
     @Published var recallDrafts: [String: String] = [:]
+    @Published private(set) var recalledMessages: [String: Message] = [:]
     func canRecall(_ m: Message) -> Bool { m.authorId != nil && m.authorId == session?.user.id && recallDeadlines.open(m) }
     private func applyRecall(_ tombstone: Message) {
         guard tombstone.recalled else { return }
+        if recalledMessages[tombstone.id] == nil {
+            recalledMessages[tombstone.id] = tombstone
+            metadataUpdated = .distantPast
+            if let cache = client?.reads {
+                Task.detached(priority: .utility) { cache.removeMessage(tombstone.id) }
+            }
+        }
+        speech.stopSpeaking(at: .immediate)
         if let messages = campaign?.messages { campaign?.messages = messages.withRecall(tombstone) }
         references.removeAll { $0.id == tombstone.id }
         chatNotices = chatNotices.compactMap { n in
@@ -172,7 +185,7 @@ import AcerciaeCore
             let auth: Session
             if registering { auth = try await api.register(username: username, password: password, displayName: displayName) }
             else { auth = try await api.login(username: username, password: password) }
-            epoch = UUID(); client = api.withAssets(assets(for: auth.user), reads: reads(for: auth.user)); session = auth; draft = ""; drafts = [:]
+            epoch = UUID(); recalledMessages = [:]; client = api.withAssets(assets(for: auth.user), reads: reads(for: auth.user)); session = auth; draft = ""; drafts = [:]
             if let code = auth.user.uiLanguage { MobileLocale.shared.set(code) }
             do { try sessionStore.save(SavedLogin(endpoint: endpoint, session: auth)); accountUsers = try sessionStore.roster().accounts.map { $0.session.user } }
             catch { notice = tr("登录成功，但设备未能安全保存登录状态") }
@@ -239,7 +252,7 @@ import AcerciaeCore
         catalogUpdated = .distantPast
         epoch = UUID(); session = nil; client = nil; servers = []; channels = []; serverId = ""; serverSettings = .null
         api?.assets?.invalidate(); api?.reads?.invalidate(); navigationTask?.cancel(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects()
-        clearChannel(); drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
+        clearChannel(); recalledMessages = [:]; drafts = [:]; draft = ""; role = tr("场外"); connection = "已退出登录"
         if let api, let token { Task { _ = try? await api.resource(["auth", "logout"], token: token, body: .object([:])) } }
         retired = true
         onAccountChanged()
@@ -351,7 +364,10 @@ import AcerciaeCore
         let values = await (messages,docs,hints)
         guard stamp == epoch, !Task.isCancelled, let messages = values.0 else { return }
         let payload: JSONValue = .object(["title":.string(channel["name"].text),"scene":.string(windows.first { $0.id == id }?["scene_title"].text ?? ""),"messages":messages,"documents":gm ? values.1 ?? .array([]) : .array([]),"highlights":gm ? values.2 ?? .array([]) : .array([]),"replay":.array([])])
-        if let data = try? JSONEncoder().encode(payload), let view = try? DemoCampaign.decode(data) { campaign = view; hasOlder = view.messages.count == 50 }
+        if let data = try? JSONEncoder().encode(payload), var view = try? DemoCampaign.decode(data) {
+            view.messages = view.messages.map { recalledMessages[$0.id] ?? $0 }
+            campaign = view; hasOlder = view.messages.count == 50
+        }
     }
     private func purgeCachedAccess() { stopArtworkPrefetch(reset: true); cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects() }
     private func permissionsDiffer(_ old: JSONValue, _ oldWindows: [Resource], _ fresh: JSONValue, _ freshWindows: [Resource]) -> Bool {
@@ -428,8 +444,10 @@ import AcerciaeCore
             if channel["my_role"] != info["my_role"] { speechMode = isGM ? "narration" : "ic" }
         }
         channel = info; windows = wins
-        let messages: [Message] = try await typed(["channels",c,"windows",w,"messages"],query:["limit":"50"])
+        var messages: [Message] = try await typed(["channels",c,"windows",w,"messages"],query:["limit":"50"])
         guard stamp == epoch else { return }
+        for message in messages where message.recalled { applyRecall(message) }
+        messages = messages.map { recalledMessages[$0.id] ?? $0 }
         recallDeadlines.note(messages)
         var all = merge && !permissionsChanged ? campaign?.messages ?? [] : []
         for message in messages { all.removeAll { $0.id == message.id }; all.append(message) }
@@ -513,7 +531,7 @@ import AcerciaeCore
                 let old = previous.first { $0.id == win.id }?["last_seq"].int ?? 0
                 let rows: [Message] = try await typed(["channels",c,"windows",win.id,"messages"],query:["limit":"24"])
                 guard !Task.isCancelled, foreground, stamp == epoch else { return }
-                let incoming = rows.filter { $0.seq > old && $0.authorId != user && !$0.recalled }
+                let incoming = rows.filter { $0.seq > old && $0.authorId != user && !$0.recalled && recalledMessages[$0.id] == nil }
                 let recalled = Set(rows.filter(\.recalled).map(\.id))   // a banner never keeps a line taken back
                 if !incoming.isEmpty {
                     let prior = (chatNotices.first { $0.id == win.id }?.messages ?? []).filter { !recalled.contains($0.id) }
@@ -562,8 +580,9 @@ import AcerciaeCore
             let stamp = self.epoch
             let rows: [Message] = try await self.typed(["channels", self.channelId, "windows", self.windowId, "messages"], query: ["limit": "50", "before_seq": String(seq)])
             guard stamp == self.epoch else { return }
+            for message in rows where message.recalled { self.applyRecall(message) }
             let existing = Set(self.campaign?.messages.map(\.id) ?? [])
-            self.campaign?.messages.insert(contentsOf: rows.filter { !existing.contains($0.id) }, at: 0)
+            self.campaign?.messages.insert(contentsOf: rows.filter { !existing.contains($0.id) }.map { self.recalledMessages[$0.id] ?? $0 }, at: 0)
             self.hasOlder = rows.count == 50
         }
     }
@@ -571,6 +590,7 @@ import AcerciaeCore
         let stamp = epoch; let sourceChannel = channelId; let sourceToken = session?.token
         let message: Message = try await typed(["channels", channelId, "messages", event["message_id"].text])
         guard stamp == epoch else { return }
+        guard !message.recalled, recalledMessages[message.id] == nil else { return }
         if quote {
             if !references.contains(where: { $0.id == message.id }) {
                 guard references.count < 5 else { notice = tr("At most five chat references"); return }

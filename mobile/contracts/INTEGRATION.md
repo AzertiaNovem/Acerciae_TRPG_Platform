@@ -114,3 +114,7 @@ Run `xcodebuild ... -scheme Acerciae test` for the new AppModel fault-injection 
 
 **测试。** 共享 fixture `contracts/fixtures/realtime-events.json` 为真实服务端发出的帧（hello、subscribed、消息、撤回墓碑、窗口变更），两端都解码它。Android 核心测试另用 MockWebServer 的真实 WebSocket 验证文件令牌、订阅、事件、断线重连换新令牌、补齐刷新和切换频道；本次在无 Android SDK 的环境中以纯 JVM 运行 `core` 包测试（51 项通过），`AppViewModel`、Compose 界面和 iOS 代码未能在此编译，需在 Xcode 与 Android Studio 中按下方 README 的命令验证。
 
+本机验收补充：iOS 签名构建、普通 iPhone 模拟器的 AppModel 测试，以及 Android 完整构建、单元测试和 lint 已执行。撤回与刷新并发的回归覆盖旧 GET 返回、待发引用、横幅及离线重启缓存：已知墓碑优先于旧响应，后台删除包含该消息 ID 的页面缓存并阻止之前的请求回写，其他页面与美术缓存保留；常规刷新收到墓碑时同样清理引用。引用原文不在当前窗口时也按已知墓碑隐藏。首次订阅成功立即补拉一次，覆盖首次历史加载与订阅之间的空隙。
+
+Swift 的真实 WebSocket 测试可先运行 `node mobile/scripts/socket-test-server.mjs`（依赖 `tests/integration` 的 npm 包），再运行 `ACERCIAE_SOCKET_TEST_BASE=http://127.0.0.1:18090 swift test --package-path mobile/ios/AcerciaeCore --filter RealtimeTests`。测试只访问本地隔离服务，验证 URLSession 的文件令牌、订阅、真实断线重连、补拉回调与频道切换。浏览器双实例验收使用 `WEB_BASE=<本地 Vite 地址> CHROME_CHANNEL=chrome npm --prefix tests/browser run test:recall`，Vite 通过 `ACERCIAE_API_TARGET` 指向专用测试后端，验证另一客户端实时收到撤回、引用/草稿清理、重新编辑、重载和重连补拉。
+

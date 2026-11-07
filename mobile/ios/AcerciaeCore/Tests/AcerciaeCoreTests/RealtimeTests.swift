@@ -2,6 +2,38 @@ import XCTest
 @testable import AcerciaeCore
 
 final class RealtimeTests: XCTestCase {
+    @MainActor func testLiveSocketSubscribesReconnectsWithNewTokenAndChangesChannel() async throws {
+        guard let base = ProcessInfo.processInfo.environment["ACERCIAE_SOCKET_TEST_BASE"] else {
+            throw XCTSkip("Run mobile/scripts/socket-test-server.mjs and set ACERCIAE_SOCKET_TEST_BASE to its loopback URL")
+        }
+        XCTAssertEqual(URL(string: base)?.host, "127.0.0.1")
+        guard URL(string: base)?.host == "127.0.0.1" else { return }
+        var reset = URLRequest(url: URL(string: base + "/reset")!); reset.httpMethod = "POST"
+        _ = try await URLSession.shared.data(for: reset)
+        let address = try BackendAddress(base, allowLocalHTTP: true)
+        let client = BackendClient(address: address)
+        var events: [RealtimeEvent] = [], resyncs = 0, states: [Bool] = []
+        let socket = ChatSocket(address: address, fileToken: { try await client.fileToken(token: "socket-test-session") },
+            handlers: .init(event: { events.append($0) }, live: { states.append($0) }, resync: { resyncs += 1 }), pause: { _ in 0.05 })
+        defer { socket.close() }
+        func wait(_ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(8)
+            while !condition() && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertTrue(condition(), "Socket condition timed out")
+        }
+        socket.follow("first")
+        try await wait { events.contains { $0.type == "message.recalled" } && resyncs == 1 }
+        XCTAssertEqual(states.prefix(3), [true, false, true])
+        XCTAssertTrue(events.contains { $0.type == "message.posted" && $0.channelId == "first" })
+        socket.follow("second")
+        try await wait { events.contains { $0.channelId == "second" && $0.type == "message.posted" } }
+        socket.close()
+        XCTAssertFalse(socket.live)
+        let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/checks")!)
+        let checks = try JSONDecoder().decode([String:Int].self, from: data)
+        XCTAssertEqual(checks["tokens"], 3); XCTAssertEqual(checks["connections"], 3)
+    }
+
     /// The chat-stream frames of contracts/fixtures/realtime-events.json, each as the text the socket receives.
     private func frames() throws -> [String] {
         var directory = URL(fileURLWithPath: #filePath)

@@ -38,6 +38,7 @@ data class AppState(
     val hasOlder: Boolean = false, val diceHint: String = "", val result: String? = null, val resultType: String = "",
     /** The text of lines the user recalled in this visit, by message id, for "Re-edit". */
     val recallDrafts: Map<String, String> = emptyMap(),
+    val recalledMessages: Map<String, Message> = emptyMap(),
 ) {
     val online get() = user != null
     val scopeKey get() = cacheRevision.toString() + channelId + channel.text("my_role") + channel.text("player_group_id") + channel["player_group_version"].toString() + channel["my_character_ids"].toString()
@@ -83,7 +84,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var socketToken: String? = null
     private val pushListener = object : ChatSocket.Listener {
         override fun event(event: RealtimeEvent) { viewModelScope.launch { onPush(event) } }
-        override fun live(live: Boolean) { viewModelScope.launch { pushConnected = live; if (live) update { copy(connection = "已连接 · 实时推送") } } }
+        override fun live(live: Boolean) { viewModelScope.launch {
+            pushConnected = live
+            if (live) pushPending = true
+            if (state.value.online) update { copy(connection = if (live) "已连接 · 实时推送" else "已连接 · 自动刷新") }
+        } }
         override fun resync() { pushPending = true }
     }
     fun followRealtime() {
@@ -107,10 +112,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // ---- recall: the author takes a line back within two minutes (docs/API.md). The tombstone replaces the line here,
     // in quoted references and in banners; the author keeps the text for "Re-edit".
     private val recallDeadlines = RecallDeadlines()
+    private val recalledMessages get() = state.value.recalledMessages
+    private fun wasRecalled(id: String) = recalledMessages.containsKey(id)
     fun canRecall(m: Message) = state.value.user?.id != null && m.authorId == state.value.user?.id && recallDeadlines.open(m)
     private fun applyRecall(tombstone: Message) {
         if (!tombstone.recalled) return
-        update { copy(campaign = campaign?.copy(messages = campaign.messages.withRecall(tombstone)), references = references.filterNot { it.id == tombstone.id },
+        if (!wasRecalled(tombstone.id)) {
+            metadataUpdated = 0L
+            val cache = api?.reads
+            viewModelScope.launch(Dispatchers.IO) { cache?.removeMessage(tombstone.id) }
+        }
+        speech.stop()
+        update { copy(recalledMessages = recalledMessages + (tombstone.id to tombstone), campaign = campaign?.copy(messages = campaign.messages.withRecall(tombstone)), references = references.filterNot { it.id == tombstone.id },
             chatNotices = chatNotices.map { n -> n.copy(messages = n.messages.filterNot { it.id == tombstone.id }) }.filter { it.messages.isNotEmpty() }) }
     }
     fun recall(m: Message) = launch {
@@ -132,7 +145,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if(s.bannersEnabled) for(win in s.windows.filter { WindowActivity.shouldNotify(previous.windows.find { old->old.id==it.id },it,user,if(chatVisible) s.windowId else "") }) {
             val old=previous.windows.find { it.id==win.id }?.number("last_seq") ?: 0
             val rows=client().messages(token(),s.channelId,win.id)
-            val messages=rows.filter { it.seq>old && it.authorId!=user && !it.recalled }
+            val messages=rows.filter { it.seq>old && it.authorId!=user && !it.recalled && !wasRecalled(it.id) }
             val recalled=rows.filter { it.recalled }.map { it.id }.toSet()   // a banner never keeps a line taken back
             if(stamp!=epoch || !foreground) return
             if(messages.isNotEmpty()) update { val prior=chatNotices.find { it.id==win.id }?.messages.orEmpty().filterNot { it.id in recalled }; copy(chatNotices=(listOf(ChatNotice(win.id,win.name,(messages+prior).distinctBy { it.id }.sortedByDescending { it.seq }.take(24)))+chatNotices.filter { it.id!=win.id }).take(4)) }
@@ -143,7 +156,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if(stamp!=epoch || !foreground || !chatVisible) return
         if(allowSpeech && s.readAloud && speechReady && before!=null) {
             speech.language=java.util.Locale.forLanguageTag(s.serverSettings.text("language"))
-            s.campaign?.messages.orEmpty().filter { it.seq>before && it.authorId!=user && it.kind!="system" && !it.recalled }.takeLast(5).forEach { speech.speak(it.displayText.take(1500),android.speech.tts.TextToSpeech.QUEUE_ADD,null,it.id) }
+            s.campaign?.messages.orEmpty().filter { it.seq>before && it.authorId!=user && it.kind!="system" && !it.recalled && !wasRecalled(it.id) }.takeLast(5).forEach { speech.speak(it.displayText.take(1500),android.speech.tts.TextToSpeech.QUEUE_ADD,null,it.id) }
         }
         val seq=s.campaign?.messages?.maxOfOrNull { it.seq }
         if(seq!=null && seq>(readSeq[s.windowId] ?: -1) && s.windows.find { it.id==s.windowId }?.containsKey("unread")==true) {
@@ -359,7 +372,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             put("title", s.channel.name); put("scene", s.windows.find { it.id == id }?.text("scene_title").orEmpty()); put("messages", messages)
             put("documents", if(s.gm) docs else JsonArray(emptyList())); put("highlights", if(s.gm) hints else JsonArray(emptyList())); put("replay", JsonArray(emptyList()))
         }) }.getOrNull() ?: return
-        update { copy(campaign = campaign, hasOlder = campaign.messages.size == 50) }
+        update { copy(campaign = campaign.copy(messages = campaign.messages.map { recalledMessages[it.id] ?: it }), hasOlder = campaign.messages.size == 50) }
     }
     private fun purgeCachedAccess() { stopArtworkPrefetch(reset = true); clearAvatarImages(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
     private fun permissionsDiffer(old: JsonObject, oldWindows: List<JsonObject>, fresh: JsonObject, freshWindows: List<JsonObject>) =
@@ -419,8 +432,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val messages=client().messages(token(),s.channelId,s.windowId)
             if(stamp!=epoch) return
             recallDeadlines.note(messages)
+            messages.filter { it.recalled }.forEach(::applyRecall)
             val old=state.value.campaign
-            val all=((if(merge && !permissionsChanged) old?.messages.orEmpty() else emptyList())+messages).associateBy { it.id }.values.sortedBy { it.seq }
+            val all=((if(merge && !permissionsChanged) old?.messages.orEmpty() else emptyList())+messages).map { recalledMessages[it.id] ?: it }.associateBy { it.id }.values.sortedBy { it.seq }
             update { copy(campaign=DemoCampaign(info.name,wins.find { it.id==s.windowId }?.text("scene_title").orEmpty(),all,if(isGM) old?.documents.orEmpty() else emptyList(),if(isGM) old?.highlights.orEmpty() else emptyList(),emptyList()),channel=info,windows=wins,hasOlder=if(merge && !permissionsChanged) hasOlder else messages.size==50,connection=if(pushConnected) "已连接 · 实时推送" else "已连接 · 自动刷新") }
             // Optional metadata must never prevent authorized chat messages from appearing.
             if(metadata || permissionsChanged || (metadataJob==null && (metadataUpdated==0L || android.os.SystemClock.elapsedRealtime()-metadataUpdated>=30_000))) {
@@ -506,12 +520,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun older() = launch {
         val s = state.value; val before = s.campaign?.messages?.firstOrNull()?.seq ?: return@launch; val stamp = epoch
         val messages = client().messages(token(), s.channelId, s.windowId, before)
-        if (stamp == epoch) update { copy(campaign = campaign?.copy(messages = (messages + campaign.messages).distinctBy { it.id }.sortedBy { it.seq }), hasOlder = messages.size == 50) }
+        if (stamp == epoch) messages.filter { it.recalled }.forEach(::applyRecall)
+        if (stamp == epoch) update { copy(campaign = campaign?.copy(messages = (messages + campaign.messages).map { recalledMessages[it.id] ?: it }.distinctBy { it.id }.sortedBy { it.seq }), hasOlder = messages.size == 50) }
     }
     suspend fun openEvidence(event: JsonObject, quote: Boolean) {
         val s = state.value; val stamp = epoch
         val message = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Message>(get(listOf("channels", s.channelId, "messages", event.text("message_id"))))
         if (stamp != epoch) return
+        if (message.recalled || wasRecalled(message.id)) return
         if (quote) {
             if (s.references.size >= 5 && s.references.none { it.id == message.id }) { notice(tr("At most five chat references")); return }
             update { copy(references = (references + message).distinctBy { it.id }) }
