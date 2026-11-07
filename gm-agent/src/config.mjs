@@ -82,6 +82,7 @@ const SETTINGS = [
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
   ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
   ["improv", null, "modes.improv"], ["world", null, "modes.world_file"], ["secrets", null, "modes.secrets_file"], ["casual", null, "modes.casual"], ["casual-max-delay-minutes", null, "modes.casual_max_delay_minutes"],
+  ["illustrations", null, "illustrations.enabled"], ["illustrations-per-hour", null, "illustrations.max_per_hour"], ["illustrations-allow-cloud", null, "illustrations.allow_cloud"],
   ["state-dir", "STATE_DIR", null],
 ];
 const LEGACY_ENV = {
@@ -97,7 +98,7 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
-const SECTIONS = ["account", "channel", "table", "llm", "planner", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes"];
+const SECTIONS = ["account", "channel", "table", "llm", "planner", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
 
 const TTL = (v) => (["1h", "5m", "off"].includes(String(v)) ? String(v) : "1h");
 // true/false, or undefined when nothing says (a mode kept in the state file is then left as it is).
@@ -234,6 +235,14 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     calendarMinMinutes: Math.max(0, int(pick("calendar-min-minutes", 30), 30)),
     calendarMinLines: Math.max(0, int(pick("calendar-min-lines", 30), 30)),
     calendarMaxDays: Math.max(0, int(pick("calendar-max-days", 2), 2)),
+    // Illustrations (illustrations.mjs): the GM may have an evocative moment drawn (at most max_per_hour), and every
+    // scenario change draws the best moment of each timeline a player was in. The server's image provider draws them;
+    // allow_cloud confirms that descriptions and portraits may go to a cloud image service.
+    illustrations: {
+      enabled: bool(pick("illustrations"), true),
+      maxPerHour: Math.max(0, Math.min(20, int(pick("illustrations-per-hour", 3), 3))),
+      allowCloud: bool(pick("illustrations-allow-cloud"), true),
+    },
     // Improvisation and casual modes are kept in the state file; these only change them when given (`setup`, `world`,
     // `casual`).
     improv: tri(pick("improv")),

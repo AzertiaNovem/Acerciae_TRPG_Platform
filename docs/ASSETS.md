@@ -96,6 +96,32 @@ on the same browser it is emptied first. Personal settings show its size with a 
 
 
 
+## Illustrations in chat
+
+**🖼 Illustrate** in the chat composer (shown when the server has an image provider) lets any member who may post in
+the window draw a moment of the story: they pick up to four characters as visual references (players: player
+characters; the GM: NPCs too), describe the pose, action, place and light, and choose landscape, portrait or square.
+
+- **The prompt** (`chat/Illustrations.cpp`, `illustrationPrompt`) keeps the requester's description and adds the
+  platform's direction: each named character with their appearance description, the channel's era and the current
+  story time, and a composition note that asks the image model to dare an unexpected, cinematic viewpoint (low or
+  high angle, over the shoulder or from behind, a wide shot, a close-up, a tilted frame, strong depth) instead of a
+  plain front view, while keeping every character recognisable. No text or watermarks. The channel's default style
+  profile applies, as for character art.
+- **References**: each chosen character's main portrait (else avatar), when approved and PNG, JPEG or WebP, is frozen
+  as an identity reference (20 MB in all); a character without one is drawn from the description.
+- **Limits**: the server's image provider, budget and concurrency apply (`asset_generation_jobs.kind =
+  'illustration'`); one illustration in flight per person and channel, 20 an hour. Like character art, it does not
+  need the Log Studio's cloud switch; the requester confirms that the description and portraits go to the image
+  service.
+- **Posting**: when the picture is stored (`media_assets.asset_type = 'illustration'`, approved, GM-scoped so it is
+  not listed in the players' media library), it is posted in the window as the requester's `ooc` line with
+  `messages.media_asset_id`, with the requester's rights at that moment: a window they left gets no line, and the
+  job keeps `error` "drawn, but not posted". `GET …/messages/{mid}/image` serves the picture only to those who may
+  read the line (whispers and private windows stay private; spectators get no picture). The picture's object is AI
+  art and lives in the public bucket under an unguessable key, as other generated art does.
+- The mobile apps show the line's text (`🖼️ ` and the description) until they render pictures.
+
 ## Image references and object inventory
 
 Image-generation jobs store reference asset IDs, versions, SHA-256 hashes and private snapshot keys. The image
@@ -113,6 +139,12 @@ named as a portrait dependency stays. Failed, pending and running jobs stay. Onc
 orphan sweep can remove it after its protection period. Cleanup rechecks live references and a database-backed lease
 under a row lock, so a new queued request can safely reuse an older snapshot. `STORAGE_CLEANUP=false` disables this
 maintenance. Removing job rows does not remove their generated media assets.
+
+Cached voice lines (`tts_audio_assets`) record `last_used_at`, refreshed when the cache serves a line and when a line is
+played (at most once an hour). Cleanup deletes a line, row and object, once no presentation event points at it, no live
+publication's frozen audio names it or its object, no voice job of its channel is pending or running, and it has gone
+unused for `RETENTION_VOICE_AUDIO_DAYS` (default 30, 1–3650). Each delete re-checks those conditions in the same
+statement, so a line taken back into use meanwhile stays.
 
 `stored_objects` records each physical bucket/key separately with SHA-256, size, MIME when known, owner kind/ID,
 verification time and bounded provenance receipts. Normal puts register the object and successful deletes remove

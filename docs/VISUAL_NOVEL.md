@@ -122,6 +122,21 @@ The job lists `continues_presentation_id`, and its `script` holds the new lines 
 
 The desktop Open Log Studio does the same with a supplement log (see [desktop/README.md](../desktop/README.md)).
 
+### Deleting a visual novel: what leaves storage
+
+Deleting a visual novel removes its draft (scenes, lines, cast) and, at once, its prepared downloads from storage.
+What it used stays where other things can still use it:
+
+- **Images and music** (backgrounds, character standees, BGM) belong to the channel's media library. Delete them there;
+  the library refuses while a live publication still shows one.
+- **Voice lines** are cached per channel by text and voice, so another visual novel or a preview can reuse them
+  without paying again. The daily storage cleanup deletes a cached line once no visual-novel line and no live
+  publication uses it, no voice job of the channel is under way, and nobody has served or played it for
+  `RETENTION_VOICE_AUDIO_DAYS` days (default 30, 1–3650). Re-voiced lines and voice previews go the same way. Voicing
+  such a line again costs TTS again; the channel's TTS budget is counted from usage records and is not refunded.
+- **A publication** of the visual novel is a separate frozen copy and stays online, with its images and voice lines,
+  until it is revoked.
+
 ### Questions from the editor
 
 A part's answer may carry up to five `questions` (`{id, question, refs, options}`, in the log's own language) next to

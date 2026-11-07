@@ -68,6 +68,14 @@ node src/cli.mjs run --channel <CHANNEL_ID>
 
 The first setup prints the channel ID and exits before creating the cast. Edit the proposed moves, save a draft to return later, then choose **Activate draft** or **Keep current rules**. Retry design in the workspace and rerun setup if the local agent was interrupted. Use the same state directory when repeating `--create`. With the channel ID you can always resume using `setup --channel <CHANNEL_ID>`. An attached PbtA table with play history or a custom pack uses its existing rules. Without a public world, a new PbtA table starts with the platform starter. Only the public world file is sent to the rules designer.
 
+PbtA designs and role cards get up to three validation-repair rounds. Validation names the exact JSON fields and expected types/IDs; the model returns replacements only for those fields, which are merged into the last parsed draft and validated again. Valid names, biographies, playbooks and unrelated moves stay unchanged. Independent errors in several moves, or in both resource and condition maps, can be repaired together. A reply that edits other fields is rejected. If the reply is not parseable JSON at all, a full JSON correction is still needed. The platform preview remains authoritative, and rules still require GM review before activation.
+
+Structured JSON model calls automatically retry interrupted streams, transient connection errors, idle timeouts and selected temporary HTTP failures at most twice, waiting 2 then 4 seconds. This retry budget is shared across the initial response and all its repairs; it does not restart for each field. Each inference attempt has its own usage record under the original request ID, including failures with unknown usage. A disconnected stream is never accepted as a completed answer. Cancellation interrupts backoff; authentication failures, refusals, output truncation and platform validation/access/conflict errors do not trigger transport retries. These retries repeat model inference only, never character creation, chat messages or other platform writes. Exhausted recovery leaves the existing visible failure/review flow in place.
+
+**Playbooks for everyone.** Every character takes a different playbook. The designer is told the table's size: the requested co-players and the human players who are channel members so far. It designs at least two playbooks more than the co-players, and at least one for each of those characters plus a spare. A draft with no playbook left over for a human player is sent back for repair. Each co-player is offered only playbooks nobody holds yet, so the spares stay free for the human players. Top-level fields the platform does not take are left out of a draft before it is checked.
+
+**Co-player cards.** A card that names a playbook, stat, resource or condition by its name instead of its ID, gives a number as text ("+1"), or lists the marked conditions is fitted to the pack; entries the pack does not define are left out. When a co-player's card still cannot be built after its repair rounds and one fresh try, setup goes on without it and logs why; the next start tries that co-player again. One bad card no longer stops the host.
+
 The GM can invoke a triggered move for the speaking player, with a reference to their declaration. The platform rolls or returns the diceless instructions. For a player choice the GM asks in the same window and waits for their answer. Required choices may be marked for each outcome in the rule editor. When the cost is known the GM records the old and new resource or condition values on the card and cites the ruling in chat. Conflicting edits require manual reconciliation. Keep private sessions in their own window. Co-players see their own playbook and witnessed chat. GM reference moves stay in the GM context.
 
 ## What each role sees
@@ -305,6 +313,29 @@ still is:
 
 Each turn keeps a checkpoint for this in memory for five minutes, so a restart forgets them. Lines the GM account
 recalls itself never start a rollback.
+
+## Illustrations
+
+The platform can draw a moment of the story with the server's image provider: a description, up to four characters
+whose portraits guide the picture, and a frame (landscape, portrait or square). The picture is posted in the window
+as the GM's out-of-character line ("🖼️ " and the description), a little after it was asked for; it never starts a
+turn. The table uses it two ways (`src/illustrations.mjs`):
+
+- **Evocative moments.** When a moment is truly evocative and beautiful (a breathtaking place revealed, a charged
+  meeting, a striking image the players will remember), the GM may have it drawn with `illustrate`, in any scene:
+  one frozen moment for a painter, with who is in it, the place, the light and the mood, and no words. The GM is told
+  to use it rarely, and the table allows at most `illustrations.max_per_hour` (3) such pictures an hour.
+- **Every scenario change.** When the story enters its next scenario, the table always draws the most brilliant,
+  beautiful, artistic moment of the scenario that just ended, once for each timeline a human player was in
+  (co-player-only threads are skipped). A model call reads that timeline's window, the lines of the ending scenario
+  that its readers saw (no whispers, GM-only notes or other windows), and chooses the moment, the characters in it
+  and the frame. All of these pictures are posted in the Main Chat, one after another: the platform draws one
+  picture at a time per account, so each waits for the previous one.
+
+A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
+is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
+illustrations stay off for the rest of the run. `illustrations.allow_cloud` confirms that the descriptions and
+portraits may go to a cloud image service; `illustrations.enabled: false` turns both uses off.
 
 ## Timelines and autonomy
 
@@ -881,6 +912,9 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `scenarios.auto` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the primary story window only) |
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
 | `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
+| `illustrations.enabled` | `--illustrations` | `true` | evocative moments and the scenario-change pictures (see Illustrations) |
+| `illustrations.max_per_hour` | `--illustrations-per-hour` | `3` | pictures the GM may ask for in play each hour (0: none in play; scenario pictures are not counted) |
+| `illustrations.allow_cloud` | `--illustrations-allow-cloud` | `true` | descriptions and portraits may go to a cloud image service |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
 | `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the GM's secrets, read by `setup` and `world` (relative to the file) |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
@@ -926,6 +960,15 @@ The tests need no backend and no model. They cover:
 - D&D 2024: the rules profile, the build maths and the local point-buy check, generation, repair and completion of
   D&D cards, the GM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
   keeps a CoC table's prompts byte for byte.
+
+## Sessions
+
+The platform's sessions end (`AUTH_TOKEN_TTL_HOURS`, 168 by default, or when an admin revokes them), and it checks a
+WebSocket's session only when the socket connects. The client signs in again on its own: a REST call refused with 401
+signs in once and retries, and a socket refused as unauthorized after a reconnect (a backend restart, a network blip)
+signs in again and reconnects at once with the new session. Both sockets and the REST client share one sign-in. If no
+session can be had (a suspended account, a changed password), the sockets keep retrying with backoff and the log says
+why; the control page shows the chat and context streams as disconnected.
 
 ## Known limitations
 

@@ -114,7 +114,11 @@ export interface Message {
   recalled_at?: string | null;
   // Seconds left, when the message arrived, for its author to recall it; null when it cannot be recalled.
   recall_seconds_left?: number | null;
+  // The picture the line shows (an illustration drawn on request); loaded through the line, by those who may read it.
+  media_asset_id?: string | null;
 }
+// An illustration asked for in chat (POST …/windows/{w}/illustrations), as its requester sees it.
+export interface IllustrationJob { id: string; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; error: string | null; created_at: string; finished_at: string | null; window_id: string; prompt: string; character_ids: string[]; orientation: 'landscape' | 'portrait' | 'square'; message_id: string | null; reference_count: number }
 export interface DiceResult { type: string; command: string; text: string; hidden?: boolean; [k: string]: unknown }
 export interface Scene { id: string; title: string; location: string; narrative_time: string; status: 'active' | 'closed'; summary: string; off_module: boolean; sequence: number; event_count?: number; windows?: { chat_window_id: string; name: string }[] | null; auto_detected?: boolean; stage_reason?: string; summary_status?: 'none' | 'pending' | 'ready' | 'gm_edited'; summary_llm_mode?: string; key_points?: string[]; created_at?: string; closed_at?: string | null }
 export type DocType = 'current_scene' | 'clue_journal' | 'relationships' | 'open_threads' | 'timeline' | 'module_progress';

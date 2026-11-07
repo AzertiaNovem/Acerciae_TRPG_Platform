@@ -64,6 +64,32 @@ class FakeApi {
   async characters() { return structuredClone(this.characters_); }
   async windows() { return structuredClone(this.windows_.map((w) => ({ ...w, last_seq: Math.max(0, ...this.lines.filter((m) => m.chat_window_id === w.id).map((m) => m.seq)) }))); }
   async messages(_ch, w, limit, beforeSeq = 0) { return this.lines.filter((m) => m.chat_window_id === w && (!beforeSeq || m.seq < beforeSeq)).slice(-limit); }
+  // Illustrations: one picture in flight per account; `holdIllustrations` keeps the next ones drawing, `noImages` is a
+  // server without an image provider. A finished picture is posted as the account's ooc line in the window.
+  async illustrate(_ch, w, body) {
+    if (this.releaseIllustrations) for (const j of this.illustrations_ ?? []) if (j.status === "pending") this.finishIllustration(j);
+    if (this.noImages) throw Object.assign(new Error("POST illustrations: 400 bad_request image generation disabled or not configured by the server maintainer"), { status: 400 });
+    this.illustrations_ ??= [];
+    if (this.illustrations_.some((j) => ["pending", "running"].includes(j.status))) throw Object.assign(new Error("POST illustrations: 409 conflict your previous illustration is still being drawn"), { status: 409 });
+    const job = { id: `ill${this.illustrations_.length + 1}`, status: "pending", window_id: w, prompt: body.prompt, character_ids: body.character_ids, orientation: body.orientation, allow_cloud: body.allow_cloud, message_id: null };
+    this.illustrations_.push(job);
+    if (!(this.holdIllustrations > 0)) this.finishIllustration(job);
+    else this.holdIllustrations--;
+    return { id: job.id, status: job.status, kind: "illustration" };
+  }
+  finishIllustration(job) {
+    job.status = "completed";
+    job.message_id = this.add({ chat_window_id: job.window_id, author_id: "u-bot", author_role: "gm", kind: "ooc", content: `🖼️ ${job.prompt}`, media_asset_id: `asset-${job.id}` }).id;
+  }
+  async illustrations() {
+    for (const j of this.illustrations_ ?? []) if (j.status === "pending" && this.releaseIllustrations) this.finishIllustration(j);
+    return [...(this.illustrations_ ?? [])].reverse();
+  }
+  async cancelIllustration(_ch, id) {
+    const j = this.illustrations_.find((x) => x.id === id);
+    if (!["pending", "running"].includes(j.status)) throw Object.assign(new Error("409 not cancellable"), { status: 409 });
+    j.status = "cancelled";
+  }
   // The platform's recall: the author's line becomes a tombstone; rolls stay on the record.
   async recallMessage(_ch, id) {
     const i = this.lines.findIndex((m) => m.id === id);
@@ -2621,3 +2647,77 @@ test("casual: a recalled text is taken back from the other player's phone, and a
   await recallLine(t, api, api.lines.findLast((m) => m.author_id === "u-alice")); await settle(t);
   assert.equal(t.casual.pending.length, 0, "and is cancelled with the text it answered");
 });
+
+
+// ---- illustrations
+const illustrateCfg = (over = {}) => ({ illustrations: { enabled: true, maxPerHour: 3, allowCloud: true, ...over } });
+
+test("the GM may have an evocative moment drawn: with the characters' portraits, at most so often, and it costs no line", async () => {
+  const llm = new MockLlm();
+  llm.director = (user) => (user.includes("NEWEST LINE") ? { actions: [
+    { type: "narrate", text: "The fog parts over the harbour." },
+    { type: "illustrate", text: "Harriet at the end of the pier, lantern raised, fog lit gold", who: ["Harriet Vance", "Mr. Grimsby", "Nobody"], orientation: "portrait" },
+  ], coplayers_may_act: false } : { actions: [], coplayers_may_act: false });
+  const { t, api } = await table({ llm, forks: false, cfg: illustrateCfg({ maxPerHour: 1 }) });
+  await playerSays(t, api, "I walk to the end of the pier."); await settle(t);
+  const system = llm.calls.find((c) => c.purpose === "director").system;
+  assert.match(system, /- Illustrations: when a moment is truly evocative and beautiful/); assert.match(system, /"type": "illustrate"/);
+  assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt, j.character_ids, j.orientation, j.allow_cloud]),
+    [["w-main", "Harriet at the end of the pier, lantern raised, fog lit gold", ["c-harriet", "c-butler"], "portrait", true]], "unknown names are left out");
+  assert.ok(api.lines.some((m) => m.kind === "ooc" && m.content.startsWith("🖼️ Harriet at the end") && m.media_asset_id), "posted by the platform as the GM's picture");
+  await playerSays(t, api, "I look back at the town."); await settle(t);
+  assert.equal(api.illustrations_.length, 1, "the hourly limit holds");
+  const off = await table({ llm: new MockLlm(), forks: false, cfg: illustrateCfg({ enabled: false }) });
+  await playerSays(off.t, off.api, "Hello?"); await settle(off.t);
+  assert.doesNotMatch(off.llm.calls.find((c) => c.purpose === "director").system, /Illustrations:|"illustrate"/, "off: the GM is not offered the action");
+});
+
+test("every scenario change draws the best moment of each timeline a player is in, all posted in the Main Chat", async () => {
+  const { t, api, llm } = await table({ bob: true, forks: false, cfg: illustrateCfg() });
+  await playerSays(t, api, "I go to the docks to look for the sailor."); await settle(t);
+  const scene = t.timelines.of("c-alice").windowId;
+  assert.ok(scene && scene !== "w-main", "Alice plays in her own scene");
+  await sayLine(t, lineSaid(api, "I watch the gulls over the moonlit water.", { w: scene })); await settle(t);
+  await sayLine(t, lineSaid(api, "I bar the study door.", { who: "bob" })); await settle(t);
+  const before = llm.calls.length;
+  await t.command({ cmd: "advance", title: "The next morning" }); await t.illustrating;
+  const asks = llm.calls.slice(before).filter((c) => c.purpose === "scenario_illustration").map((c) => c.messages[0].content);
+  assert.equal(asks.length, 2, "one for Bob's timeline in the Main Chat, one for Alice's scene");
+  const [main, docks] = [asks.find((a) => a.includes("I bar the study door.")), asks.find((a) => a.includes("moonlit water"))];
+  assert.ok(main && docks, "each from its own window's lines");
+  assert.ok(!main.includes("moonlit water") && !docks.includes("I bar the study door."), "neither sees the other's scene");
+  assert.ok(!asks.some((a) => a.includes("The next morning\n")), "the next scenario's own lines are not part of it");
+  assert.deepEqual(api.illustrations_.map((j) => j.window_id), ["w-main", "w-main"], "both posted in the Main Chat");
+  assert.ok(api.illustrations_.every((j) => j.prompt.startsWith("[mock moment]")));
+});
+
+test("a co-player-only thread gets no scenario picture; a busy account makes the picture wait; no image provider turns illustrations off", async () => {
+  const { t, api, llm } = await table({ forks: false, cfg: illustrateCfg() });
+  await playerSays(t, api, "I go to the docks to look for the sailor."); await settle(t);
+  assert.ok(t.timelines.active().some((tl) => tl.members.length && tl.members.every((id) => !t.isPc(id))), "Harriet, left behind, has a thread of her own");
+  api.holdIllustrations = 1;                       // the first picture stays in the drawing
+  await t.illustrateMoment("w-main", { text: "A picture still being drawn", who: [] });
+  api.releaseIllustrations = true;                 // finished when the table next looks
+  await t.command({ cmd: "advance", title: "Later" }); await t.illustrating;
+  assert.equal(llm.calls.filter((c) => c.purpose === "scenario_illustration").length, 1, "only Alice's timeline");
+  assert.deepEqual(api.illustrations_.map((j) => j.status), ["completed", "completed"], "it waited for the first picture, then was drawn");
+  const none = await table({ forks: false, cfg: illustrateCfg() });
+  none.api.noImages = true;
+  await none.t.illustrateMoment("w-main", { text: "A moment", who: [] });
+  assert.match(none.t.illustrationOff, /not configured/);
+  await playerSays(none.t, none.api, "Hello?"); await settle(none.t);
+  assert.doesNotMatch(none.llm.calls.filter((c) => c.purpose === "director").at(-1).system, /"illustrate"/, "the GM is no longer offered it");
+});
+
+test("a recall that rolls back a turn cancels the picture it asked for", async () => {
+  const llm = new MockLlm();
+  llm.director = (user) => (user.includes("NEWEST LINE") ? { actions: [{ type: "narrate", text: "Moonlight floods the hall." }, { type: "illustrate", text: "The hall in moonlight", who: [] }], coplayers_may_act: false } : { actions: [], coplayers_may_act: false });
+  const { t, api } = await table({ llm, forks: false, cfg: illustrateCfg() });
+  api.holdIllustrations = 1;
+  const said = lineSaid(api, "I open the shutters.");
+  await sayLine(t, said); await settle(t);
+  assert.equal(api.illustrations_[0].status, "pending");
+  await recallLine(t, api, said); await settle(t);
+  assert.equal(api.illustrations_[0].status, "cancelled");
+});
+

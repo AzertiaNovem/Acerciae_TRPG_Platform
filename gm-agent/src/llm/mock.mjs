@@ -20,6 +20,9 @@ export class MockLlm {
       case "pbta_design": {
         const {template:pack,public_world:world}=JSON.parse(messages[0].content);
         for (const move of pack.moves) move.playerChoiceBands=[];
+        // As many playbooks as the design asks for (one per character plus spares for the human players).
+        const want=Number(system.match(/Design at least (\d+) playbooks/)?.[1] ?? 0);
+        for (let i=pack.books.length;i<want;i++) pack.books.push({id:`mockbook${i+1}`,name:`[mock] Playbook ${i+1}`});
         pack.name="[mock] "+world.slice(0,24);
         return JSON.stringify({pack,reasons:["[mock] Preview the world's title before setup.","[mock] The starter moves exercise both rolled and diceless play."]});
       }
@@ -38,6 +41,7 @@ export class MockLlm {
       case "scene_presence": return JSON.stringify(this.presence(JSON.parse(messages[0].content)));
       case "scene_handoff": return JSON.stringify(this.handoff(JSON.parse(messages[0].content)));
       case "coplayer_build": return JSON.stringify({ dnd: this.dndBuild() });
+      case "scenario_illustration": return JSON.stringify(this.scenarioMoment(user));
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
       case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
@@ -45,6 +49,13 @@ export class MockLlm {
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }
+  }
+
+  // The best moment of a scenario: its last line of play, with the first character of the cast in it.
+  scenarioMoment(user) {
+    const play = (user.split("PLAY (oldest first):\n")[1] ?? "").trim().split("\n");
+    const cast = (user.match(/^CAST: (.*)$/m)?.[1] ?? "").split(", ").filter((n) => n && n !== "(none named)");
+    return { moment: `[mock moment] ${(play.at(-1) ?? "").replace(/^[^:]*: /, "").slice(0, 200)}`, who: cast.slice(0, 1), orientation: "landscape", why: "[mock] the last line" };
   }
 
   // A legal D&D 2024 build (27 points): a level-1 Elf Rogue with the Criminal background.

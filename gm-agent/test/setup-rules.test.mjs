@@ -38,6 +38,7 @@ for (const scenario of ["create D&D", "attach D&D", "review PbtA"]) {
         "PUT /api/channels/ch/characters/cp/appearance": () => ({ character }),
         ...(pbta ? {
           "GET /api/channels/ch/pbta": () => PBTA_RULES,
+          "GET /api/channels/ch/members": () => [{ id: "gm", role: "gm" }, { id: "p1", role: "player" }],
           "GET /api/channels/ch/pbta/draft": () => ({ status: review, eligible: false, version: 1, revision: 1 }),
         } : { "GET /api/dnd/rules": () => DND_RULES }),
       };

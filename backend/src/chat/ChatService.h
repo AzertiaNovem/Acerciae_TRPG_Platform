@@ -76,7 +76,8 @@ public:
     Json::Value markRead(const ChannelAccess& a, const std::string& windowId, int64_t seq);
     // messages
     Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq, bool includeHistory = true);
-    Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling = {});
+    // `mediaAssetId`: the picture the line shows (an illustration posted by the server; never from the request body).
+    Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling = {}, const std::string& mediaAssetId = "");
     Json::Value getMessage(const ChannelAccess& a, const std::string& messageId);   // 404 once recalled
     Json::Value searchMessages(const ChannelAccess& a, const std::string& query, int limit);
     // Recall: the author takes back their own line (ic, ooc or narration; not dice rolls, system lines or a PbtA

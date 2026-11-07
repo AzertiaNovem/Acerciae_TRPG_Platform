@@ -20,6 +20,7 @@ import { GmContext, duration } from "./context/gmContext.mjs";
 import { sceneForks } from "./sceneForks.mjs";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { illustrationFailure, normalizeIllustration, pickScenarioMoment, scenarioLines } from "./illustrations.mjs";
 import { CHECKPOINT_MS, CHECKPOINTS_KEPT, RECALL_ROLLBACK_LINES, addedPending, checkpointsToUndo, movedBetween, rollbackNote, stable } from "./rollback.mjs";
 import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
 import { Store, billableTokens } from "./store.mjs";
@@ -113,6 +114,12 @@ export class Table {
     this.turnScope = new AsyncLocalStorage();
     this.phoneCopies = new Map();
     this.recallEmptied = new Set();
+    // Illustrations (illustrations.mjs): the GM's in-play requests of the last hour, the scenario pictures waiting
+    // their turn (the platform draws one picture at a time per account), and why the platform cannot draw, if it can't.
+    this.illustrationTimes = [];
+    this.illustrationQueue = [];
+    this.illustrationRunning = false;
+    this.illustrationOff = null;
     this.timers = new Map();
     this.queue = Promise.resolve();
     this.pending = 0;          // turns waiting or running
@@ -411,7 +418,7 @@ export class Table {
     if (ev.type === "scene.changed" && ev.scene?.status === "active" && ev.scene.id !== this.scenario?.id) {
       // A plan made before the platform opened its first scenario is not stale because of it: no replan for that.
       if (this.planner.arc && this.planner.scenarioId === null && !this.scenario) this.planner.scenarioId = ev.scene.id;
-      this.scenario = { id: ev.scene.id, since: this.now() };
+      this.scenario = { id: ev.scene.id, since: this.now(), fromSeq: this.lastSeq + 1 };
       this.beatClosed();
       this.save();
     }
@@ -484,7 +491,7 @@ export class Table {
     let resolve;
     const done = new Promise((r) => { resolve = r; });
     const cp = { windowId, mode, at: now, startSeq: this.lastSeq, batch: [], before: this.slices(), state: { calendar: structuredClone(this.calendar), guard: structuredClone(this.guard.by) },
-      after: null, posted: [], audience: [], kept: [], abort: new AbortController(), running: true, done, resolve };
+      after: null, posted: [], audience: [], kept: [], illustrations: [], abort: new AbortController(), running: true, done, resolve };
     this.checkpoints.push(cp);
     return cp;
   }
@@ -504,6 +511,7 @@ export class Table {
     for (const id of copies) ids.set(id, { id });
     for (const line of this.history.lines(windowId, { after: m.seq })) if (!this.isHuman(line)) ids.set(line.id, { id: line.id, seq: line.seq, kind: line.kind });
     const kept = undo.flatMap((cp) => cp.kept);
+    const restored = new Set();
     let recalled = 0;
     for (const p of [...ids.values()].sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))) {
       if (p.kind === "roll") { kept.push("a roll's result"); continue; }
@@ -517,8 +525,17 @@ export class Table {
     }
     this.phoneCopies.delete(m.id);
     if (this.isPhone(windowId)) this.store.removePhone(m.seq);
+    // Pictures those turns asked for: cancelled while drawing, recalled once posted.
+    const jobs = undo.flatMap((cp) => cp.illustrations);
+    if (jobs.length) {
+      const done = await this.api.illustrations(this.channelId).catch(() => []);
+      for (const id of jobs) {
+        const job = (done ?? []).find((j) => j.id === id);
+        if (job?.message_id) { try { const res = await this.api.recallMessage(this.channelId, job.message_id); if (res?.message) this.history.add(res.message); recalled++; } catch { kept.push("a picture already posted"); } }
+        else { try { await this.api.cancelIllustration(this.channelId, id); restored.add("a picture being drawn"); } catch { /* drawn meanwhile; it will be posted */ } }
+      }
+    }
     // State, newest turn first; a part something else changed since is left as it is.
-    const restored = new Set();
     for (const cp of [...undo].reverse()) {
       if (!cp.after) continue;
       const now = this.slices();
@@ -824,7 +841,7 @@ export class Table {
       // A public handoff or seat correction just posted by the table must not replace the player's question.
       const newest = roundMode === "human" && ctx.newest && !this.isHuman(ctx.newest)
         ? ctx.lines(windowId).findLast(m => this.isTrigger(m)) ?? ctx.newest : ctx.newest;
-      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra };
+      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra };
       let plan = await directTurn(this.llm, request);
       const moves = MOVE_MODES.has(roundMode) && !(roundMode === "followup" && (mode === "arrival" || mode === "kickoff"));
       let placements;
@@ -1411,6 +1428,7 @@ export class Table {
         }
         return this.post(windowId, { content: a.text, kind: "ic", character_id: npc.characterId });
       }
+      case "illustrate": return this.illustrateMoment(windowId, a);
       case "whisper": {
         const target = this.characterByName(a.to);
         if (!target) return this.post(windowId, { content: `(whisper for ${a.to}) ${a.text}`, kind: "narration", visibility: "gm_only" });
@@ -1513,6 +1531,8 @@ export class Table {
       const p = calendarPace(this.calendar, { now: this.now(), minMinutes, minLines });
       if (!p.ok) return this.post(windowId, { content: `Scenario change refused: the date moved on too recently to jump ahead again (${p.wait} first). Change the scenario within the same day (advance_days 0), or let the day play out.`, kind: "narration", visibility: "gm_only" });
     }
+    // The scenario that ends here, for its pictures: the timelines a player is in, read before anything moves.
+    const ending = this.endingScenario(v.scenes);
     try {
       let res;
       if (a.type === "enter_scenario") {
@@ -1525,7 +1545,7 @@ export class Table {
       }
       const scene = res?.scene;
       this.channel.current_scene_id = scene?.id ?? this.channel.current_scene_id;
-      this.scenario = { id: this.channel.current_scene_id, since: this.now() };
+      this.scenario = { id: this.channel.current_scene_id, since: this.now(), fromSeq: this.lastSeq + 1 };
       const oldTime = this.timelines.main().narrativeTime;
       this.timelines.relocate(MAIN, { location: scene?.location || a.location, narrativeTime: scene?.narrative_time || a.narrative_time });
       const moved = Number(a.advance_days) > 0 && this.calendarOn() ? this.moveCalendar({ days: a.advance_days, why: `scenario: ${scene?.title ?? a.title ?? a.scenario ?? ""}`, by: "keeper" }) : null;
@@ -1533,6 +1553,9 @@ export class Table {
       this.beatClosed();   // the planner's "move on" is spent; the next plan opens the next beat
       this.save();
       this.log(`scenario: ${scene?.title ?? a.title ?? a.scenario} (${a.reason ?? "the story moved on"})`);
+      // Outside this turn: a recall that rolls the turn back keeps the scenario change, and so its pictures.
+      const pictures = await ending;
+      this.illustrating = this.turnScope.exit(() => this.generation.tasks.exit(() => this.illustrateScenario(pictures).catch((e) => this.log(`scenario pictures: ${e.message}`))));
       const time = this.timelines.main().narrativeTime;
       const advancedDay = Boolean(moved?.changed);
       if ((time && time !== oldTime) || advancedDay) return held + await this.postHandoff(windowId, advancedDay ? describeCalendar(this.calendar, { time }) : time, evidenceThrough);
@@ -1540,6 +1563,97 @@ export class Table {
     } catch (e) {
       return this.post(windowId, { content: `Scenario change failed: ${e.message}`, kind: "narration", visibility: "gm_only" });
     }
+  }
+
+  // ---- illustrations (illustrations.mjs)
+  illustrationsOn() { return this.cfg.illustrations?.enabled !== false && !this.illustrationOff; }
+
+  // One request to the platform. Returns {job} or {failure: "unavailable" | "busy" | "rate_limited" | "error"}.
+  async requestIllustration(windowId, { text, who, orientation }) {
+    const ids = [...new Set(who.map((n) => this.characterByName(n)?.id).filter(Boolean))].slice(0, 4);
+    try {
+      const job = await this.api.illustrate(this.channelId, windowId, { prompt: text, character_ids: ids, orientation, allow_cloud: this.cfg.illustrations?.allowCloud !== false, request_id: randomUUID() });
+      this.log(`illustration requested in "${this.windowName(windowId)}"${ids.length ? ` with ${ids.map((id) => this.nameOf(id)).join(", ")}` : ""}: ${text.slice(0, 100)}`);
+      return { job };
+    } catch (e) {
+      const failure = illustrationFailure(e);
+      if (failure === "unavailable") { this.illustrationOff = e.message; this.log(`illustrations are off: the platform cannot draw here (${e.message})`); }
+      else this.log(`illustration not requested (${failure}): ${e.message}`);
+      return { failure };
+    }
+  }
+
+  // The GM's illustrate action: rare by rule, capped per hour here; it posts no line now (the picture arrives later).
+  async illustrateMoment(windowId, a) {
+    if (!this.illustrationsOn()) return 0;
+    const now = this.now();
+    this.illustrationTimes = this.illustrationTimes.filter((t) => now - t < HOUR);
+    if (this.illustrationTimes.length >= (this.cfg.illustrations?.maxPerHour ?? 0)) { this.log("illustration skipped: the hourly limit is reached"); return 0; }
+    const n = normalizeIllustration(a);
+    if (!n.text) return 0;
+    if (this.illustrationRunning) { this.log("illustration skipped: a scenario picture is being drawn"); return 0; }
+    const r = await this.requestIllustration(windowId, n);
+    if (r.job) { this.illustrationTimes.push(now); const turn = this.turnScope.getStore(); if (turn?.running) turn.illustrations.push(r.job.id); }
+    return 0;
+  }
+
+  // Before a scenario change: the timelines a player is in, each with its window and the lines of the scenario there.
+  async endingScenario(scenes) {
+    // Read now, before the change moves anyone or posts the next scene; only the title waits for the platform.
+    const id = this.channel.current_scene_id;
+    // Its lines: from the seq it began at (older state files know only when: a line without a time is kept).
+    const own = this.scenario?.id === id, fromSeq = own ? this.scenario.fromSeq ?? null : 0, since = own ? this.scenario.since ?? 0 : 0, upTo = this.lastSeq;
+    const inScenario = (m) => (fromSeq !== null ? m.seq >= fromSeq : !m.created_at || Date.parse(m.created_at) >= since);
+    const threads = this.timelines.active().filter((t) => t.members.some((m) => this.isPc(m))).map((t) => {
+      const windowId = this.windowOf(t);
+      const lines = windowId ? this.history.lines(windowId, { upTo }).filter((m) => m.visibility === "window" && ["ic", "narration", "roll"].includes(m.kind) &&
+        !m.media_asset_id && inScenario(m)) : [];
+      return { name: t.name, place: t.location, time: t.narrativeTime, lines };
+    });
+    const list = scenes ?? (await this.api.scenes(this.channelId).catch(() => []));
+    return { title: (list ?? []).find((sc) => sc.id === id)?.title ?? "", threads };
+  }
+
+  // After a scenario change: always one picture per timeline a player was in, of its most brilliant, beautiful moment,
+  // all posted in the Main Chat.
+  async illustrateScenario(ending) {
+    const main = this.mainWindow();
+    if (!this.illustrationsOn() || !main || !ending) return;
+    const cast = this.characters.filter((c) => this.isPc(c.id) || this.roster.isCoplayer(c.id) || this.roster.isNpc(c.id)).map((c) => c.name);
+    for (const thread of ending.threads) {
+      if (!thread.lines.length) continue;
+      const moment = await pickScenarioMoment(this.llm, { language: this.language, title: ending.title, place: thread.place, time: thread.time, era: this.channel.era ?? "",
+        cast, lines: scenarioLines(thread.lines, (id) => this.nameOf(id)) });
+      this.log(`scenario picture of "${thread.name}": ${moment.why || moment.text.slice(0, 80)}`);
+      this.illustrationQueue.push({ windowId: main.id, moment, tries: 0 });
+    }
+    return this.drainIllustrations();
+  }
+
+  // Scenario pictures, one at a time: each waits for the account's previous picture to be drawn.
+  async drainIllustrations() {
+    if (this.illustrationRunning) return;
+    this.illustrationRunning = true;
+    try {
+      while (this.illustrationQueue.length && this.illustrationsOn()) {
+        const item = this.illustrationQueue[0];
+        const r = await this.requestIllustration(item.windowId, item.moment);
+        if (r.job) { this.illustrationQueue.shift(); await this.waitIllustration(r.job.id); continue; }
+        if (["busy", "rate_limited"].includes(r.failure) && ++item.tries <= 20) { await this.sleep(r.failure === "busy" ? 15000 : 120000); continue; }
+        this.log(`scenario picture dropped (${r.failure})`);
+        this.illustrationQueue.shift();
+      }
+    } finally { this.illustrationRunning = false; }
+  }
+
+  // Until the platform has drawn (or failed) a picture, at most ten minutes.
+  async waitIllustration(id) {
+    for (let i = 0; i < 60; i++) {
+      const job = ((await this.api.illustrations(this.channelId).catch(() => [])) ?? []).find((j) => j.id === id);
+      if (!job || !["pending", "running"].includes(job.status)) return job ?? null;
+      await this.sleep(10000);
+    }
+    return null;
   }
 
   // ---- manual commands from the CLI (applied by the run process, or by the CLI itself when no run process is up)

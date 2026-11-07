@@ -53,6 +53,7 @@ private:
     std::vector<LinePlan> plan(const ChannelAccess& a, const std::string& presentationId, const Json::Value& scope, bool force, const std::string& modelOverride);
     Json::Value voiceRow(const std::string& channelId, const std::string& voiceProfileId);
     std::string synthesizeLine(const std::string& channelId, const LinePlan& l, const std::string& userId, std::string& error, bool& retryable);   // returns audio asset id
+    void touchAudio(const std::string& audioId);   // a cached line was used: the storage cleanup keeps it (at most one write an hour)
     void workerLoop(); void runJob(const std::string& jobId);
     const Config& cfg_; Db& db_; ObjectStore& store_; Notifier& notifier_; PresentationService& pres_;
     std::shared_ptr<TtsProvider> provider_;

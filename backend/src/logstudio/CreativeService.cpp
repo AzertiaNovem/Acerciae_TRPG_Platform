@@ -233,6 +233,37 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   cv_.notify_all();
   return j;
 }
+Json::Value CreativeService::createIllustration(const ChannelAccess &a, const std::string &prompt, const Json::Value &request, const Json::Value &attach, bool allowCloud, const std::string &requestId) {
+  auto provider_ = providerFor(a.channelId);
+  if (!provider_)
+    throw badRequest("image generation disabled or not configured by the server maintainer");
+  if (provider_->name() != "mock") policy_.checkImages(a.channelId);
+  if (provider_->name() != "mock" && !allowCloud)
+    throw badRequest("confirm cloud processing for the illustration prompt and reference portraits");
+  auto style = db_.queryOne("SELECT * FROM visual_style_profiles WHERE channel_id=$1 ORDER BY is_default DESC, created_at LIMIT 1", {a.channelId});
+  Json::Value params;
+  params["provider_configuration"] = provider_->configurationId();
+  params["style"] = style.isNull() ? Json::Value(Json::objectValue) : style;
+  if (!style.isNull()) params["style_profile_version"] = style["version"];
+  params["request"] = request;
+  setImageKind(params["request"], "illustration");
+  params["request"]["prompt"] = prompt;
+  params["request"]["style"] = params["style"];
+  params["attach"] = attach;
+  params["cloud_authorized"] = allowCloud;
+  params["visibility_scope"] = "gm";   // served through its chat line, to those who may read it
+  auto idem = crypto::sha256Hex(a.channelId + a.userId + provider_->name() + provider_->model() + json::dump(params) +
+                                (requestId.empty() ? std::to_string(std::time(nullptr) / 10) : requestId));
+  auto old = db_.queryOne("SELECT id,status,kind FROM asset_generation_jobs WHERE idempotency_key=$1", {idem});
+  if (!old.isNull())
+    return old;
+  auto j = db_.queryOne(
+      "INSERT INTO asset_generation_jobs(channel_id,kind,provider,prompt,params,style_profile_id,created_by,idempotency_key) "
+      "VALUES($1,'illustration',$2,$3,$4::jsonb,$5,$6,$7) RETURNING id,status,kind",
+      {a.channelId, provider_->name(), prompt, json::dump(params), style.isNull() ? dbNull() : DbParam(style["id"].asString()), a.userId, idem});
+  cv_.notify_all();
+  return j;
+}
 Json::Value CreativeService::createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud, bool retryFailed) {
   auto provider_ = providerFor(a.channelId);
   if (provider_ && provider_->name() != "mock") policy_.checkImages(a.channelId);
@@ -372,7 +403,8 @@ void CreativeService::run(const Json::Value &j) {
       // Character-page art is not Log Studio work; everything else follows the campaign's Studio cloud policy.
       const auto &att = j["params"]["attach"];
       const bool characterArt = att.isObject() && att.isMember("character_id") && !att.isMember("presentation_id");
-      if (!characterArt && !atmosphere) requireCloudPermission(db_, j["channel_id"].asString());
+      const bool chatArt = att.isObject() && att.isMember("window_id");   // an illustration asked for in chat
+      if (!characterArt && !chatArt && !atmosphere) requireCloudPermission(db_, j["channel_id"].asString());
     }
     auto params = j["params"];
     const auto parentId = json::str(params, "portrait_job_id");
@@ -449,6 +481,9 @@ void CreativeService::run(const Json::Value &j) {
     if (forScript && !forCharacter) m["name"] = "Background · " + json::str(attachTo, "scene_title", json::str(attachTo, "scene_key"));
     if (forCharacter) { m["name"] = json::str(j["params"]["request"]["character"], "name") + " · " + (json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot")); m["expression"] = json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot"); }
     if(atmosphere) { m["name"]="Atmosphere · "+json::str(attachTo,"scene_title")+" · "+json::str(attachTo,"variant"); m["visibility_scope"]="channel"; }
+    // A chat illustration is the requester's picture: no review; only readers of its chat line see it.
+    const bool illustration = j["kind"].asString() == "illustration";
+    if (illustration) { m["name"] = "Illustration · " + text::utf8Prefix(json::str(attachTo, "user_prompt"), 80); m["approval_status"] = "approved"; m["visibility_scope"] = "gm"; }
     m["generation_provider"] = provider_->name();
     m["generation_model"] = provider_->model();
     m["prompt"] = j["prompt"];
@@ -490,6 +525,13 @@ void CreativeService::run(const Json::Value &j) {
       }
       // Character art needs no stage update: a stage names the character and subtitle, and shows its current image.
       pres_.touch(pid, j["channel_id"].asString(), "art");
+    }
+    if (illustration && onIllustration) {
+      try { onIllustration(j, asset); }
+      catch (const std::exception &e) {
+        // The picture is kept (the GM finds it in the library); the requester sees why it was not posted.
+        db_.exec("UPDATE asset_generation_jobs SET error=$2, updated_at=now() WHERE id=$1", {id, text::utf8Prefix(std::string("drawn, but not posted: ") + e.what(), 1000)});
+      }
     }
     Json::Value out;
     out["job_id"] = id;

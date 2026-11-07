@@ -44,6 +44,7 @@
 #include "../core/Throttle.h"
 #include "../core/Crypto.h"
 #include "../core/Text.h"
+#include "../chat/Illustrations.h"
 #include <drogon/drogon.h>
 #include <drogon/MultiPart.h>
 #include <set>
@@ -434,6 +435,22 @@ void registerRoutes() {
         return S.chat->postMessage(access(p,a[0]),a[1],line,b);
     });
     route2("/api/channels/{1}/windows/{2}/messages", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->postMessage(access(p, a[0]), a[1], body(req)); });
+    // Illustrations: drawn on request and posted in the window as the requester's out-of-character line.
+    route2("/api/channels/{1}/windows/{2}/illustrations", {Post}, [&](auto& req, auto& p, auto& a) { return S.illustrations->request(access(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/illustrations", {Get}, [&](auto&, auto& p, auto& a) { return S.illustrations->jobs(access(p, a[0])); });
+    route2("/api/channels/{1}/illustrations/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.illustrations->cancel(access(p, a[0]), a[1]); });
+    // A line's picture, for <img>: only to those who may read the line (?token= since image tags cannot set headers).
+    app().registerHandler("/api/channels/{1}/messages/{2}/image", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string mid) {
+        try {
+            auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
+            auto ac = access(*pr, ch); std::string bytes, mime, direct;
+            const std::string cc = "private, max-age=86400";   // a line's picture never changes
+            if (!S.illustrations->image(ac, mid, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "no picture")); return; }
+            if (!direct.empty()) { cb(toBucket(req, direct, true, cc.c_str())); return; }
+            auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("X-Content-Type-Options", "nosniff");
+            cb(r);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
+    }, {Get});
     // Deprecated alias of /scenarios/enter: scenarios are campaign-wide, the window is ignored.
     route2("/api/channels/{1}/windows/{2}/scene", {Post}, [&](auto& req, auto& p, auto& a) { return S.scenarios->enter(access(p, a[0]), json::requireStr(body(req), "scene_id")); });
     route2("/api/channels/{1}/messages/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->getMessage(access(p, a[0]), a[1]); });

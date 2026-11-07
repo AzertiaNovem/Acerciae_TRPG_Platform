@@ -18,6 +18,7 @@ import { COC7E } from "./rules/coc7e.mjs";
 import { adaptPrompt } from "./rules/index.mjs";
 import { completeJson } from "./llm/index.mjs";
 import { validateWhereabouts } from "./whereabouts.mjs";
+import { ILLUSTRATE_RULE, ILLUSTRATE_SCHEMA, normalizeIllustration } from "./illustrations.mjs";
 
 const BASE_ACTIONS = ["time_skip", "narrate", "npc", "new_npc", "whisper", "request_roll", "note", "timeline", "advance_scenario", "enter_scenario", "world_change", "date", "bond"];
 const LEGACY_ACTIONS = ["split", "rejoin"];
@@ -50,7 +51,7 @@ const CASUAL_RULES = `- Casual mode: light, everyday and slice-of-life play is w
 const PBTA_PLAY = `- Start with the fiction. Only an explicit action that satisfies an available move triggers it. If ambiguous, ask. To act on a declaration in this window use move with its precise source_id and character_id. Use the server for both rolled and diceless moves. For an NPC whose own declared action triggers a player move, include move_id and optionally modifier on its npc or new_npc action. NPCs otherwise need no playbook. Stop after requesting a move and read the posted result before narrating. Use its frozen outcome, even if the current pack differs. A low roll is not a generic failure.
 - If the outcome gives the player a choice, use ask, quote the options and wait for their actual reply; do not choose for them. Narrate only the GM's own decisions. Use mark for mandatory effects or after the player chooses. Copy expected from initial_card (absent means 0 or false), and give the absolute resulting value. Include the reply's answer_id for a choice. Do not repeat paid costs. No dice commands inside free speech. Never take a new action on behalf of a silent human.
 `;
-export function directorSystem(language, { auto = true, forks = false, improv = false, casual = false, planner = false, calendar = false, pbta = false, profile = COC7E } = {}) {
+export function directorSystem(language, { auto = true, forks = false, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
   return adaptPrompt(profile, `You are ${pbta ? "the GM (Game master) of a Powered by the Apocalypse campaign" : profile.framing(improv)} on an online table. Human players play their investigators; some investigators are AI co-players that act on their own turn after you. You voice the world and every real NPC.
 
 How to keep the table:
@@ -63,7 +64,7 @@ ${WORLD_RULE}
 ${calendar ? `${TIME_RULE(planner)}
 ` : ""}${PEOPLE_RULE}
 ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
-${SCENARIO_RULES(forks)}${improv ? `\n${IMPROV_RULES}` : ""}${casual ? `\n${CASUAL_RULES}` : ""}${planner ? `\n${PLANNER_RULE}` : ""}
+${SCENARIO_RULES(forks)}${improv ? `\n${IMPROV_RULES}` : ""}${casual ? `\n${CASUAL_RULES}` : ""}${planner ? `\n${PLANNER_RULE}` : ""}${illustrate ? `\n${ILLUSTRATE_RULE}` : ""}
 ${profile.combatRule ? `${profile.combatRule}
 ` : ""}${profile.dice.gmHelp ? `${profile.dice.gmHelp}
 ` : ""}- Keep each line short enough for chat (1-5 sentences). One to three actions per turn is typical. Return no actions if nothing needs the GM now (for example players talking among themselves out of character).
@@ -86,6 +87,7 @@ ${calendar ? `  {"type": "date", "advance_days": 1, "time": "<time of day, e.g. 
 ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for your own memory>"},
 ` : ""}${casual ? `  {"type": "text", "from": "<a real NPC>", "to": "<a player character or a co-player>", "text": "<the text message>", "delay_minutes": <0 = now; or when it arrives>},
 ` : ""}${planner ? `  {"type": "planner_note", "text": "<for the story planner: what the players did that changed the plan, or what you need>", "beat_done": true | false},
+` : ""}${illustrate ? `${ILLUSTRATE_SCHEMA}
 ` : ""}${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-player names>"], "location": "...", "narrative_time": "...", "opening": "<first narration of the thread>"},
   {"type": "rejoin", "timeline": "<thread name>", "into": "<window name, optional>", "text": "<optional narration where they return>"},
 `}  {"type": "timeline", "timeline": "<handle or thread name>", "narrative_time": "...", "location": "...", "notes": "<your private notes>", "span": "short" | "long"},
@@ -98,11 +100,13 @@ ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for yo
  "whereabouts": [{"who": ["<investigator names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": "<first narration there>"}]` : ""}}`);
 }
 
-export function validateDirector(x, { auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, profile = COC7E } = {}) {
+export function validateDirector(x, { auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
   if (!x || typeof x !== "object" || !Array.isArray(x.actions)) throw new Error("actions must be an array");
   const allowed = [...(!pbta && profile.gmDice ? ["dice"] : []), ...(pbta ? ["move","ask","mark"] : []), ...BASE_ACTIONS.filter(t => (calendar || t !== "date") && (!pbta || t !== "request_roll")), ...(auto ? [] : LEGACY_ACTIONS), ...(improv ? ["truth"] : []), ...(casual ? ["text"] : []), ...(planner ? ["planner_note"] : [])];
+  if (illustrate) allowed.push("illustrate");
   const actions = x.actions
     .filter((a) => a && allowed.includes(a.type))
+    .map((a) => (a.type === "illustrate" ? { ...a, ...normalizeIllustration(a) } : a))
     .map((a) => ({ ...a, text: String(a.text ?? "").trim() }))
     .filter((a) => a.text || (pbta && ["move","mark"].includes(a.type)) || NO_TEXT_NEEDED.has(a.type));
   return {
@@ -128,7 +132,7 @@ const MODE_NOTES = {
 // `whereabouts` is the brief from whereabouts.mjs; `scenario` says whether a scenario change is possible this turn.
 // `planner` is {on, moveOn, beat, why, next}: the planner's verdict, a turn note when it says the event is over.
 // `between` is what the last final review left for the first turn of a new session: {days, today, offscreen, opening}.
-export async function directTurn(llm, { language, context, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, forks = false, improv = false, casual = false, planner = null, between = null, calendar = false, pbta = null, profile = COC7E, ...extra }) {
+export async function directTurn(llm, { language, context, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, forks = false, improv = false, casual = false, planner = null, between = null, calendar = false, pbta = null, illustrate = false, profile = COC7E, ...extra }) {
   const v = profile.vocab;
   if (kickoff) mode = "kickoff";
   const note = MODE_NOTES[mode]?.({ ...extra, pcs: v.pcs }) ?? "";
@@ -152,5 +156,5 @@ export async function directTurn(llm, { language, context, newest, mode = "human
   ].filter(Boolean).join("\n");
   const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
   const on = Boolean(planner?.on);
-  return completeJson(llm, { system: directorSystem(language, { auto, forks, improv, casual, planner: on, calendar, pbta: !!pbta, profile }), user, purpose: "director", phase: mode }, (x) => validateDirector(x, { auto, improv, casual, planner: on, calendar, pbta: !!pbta, profile }));
+  return completeJson(llm, { system: directorSystem(language, { auto, forks, improv, casual, planner: on, calendar, pbta: !!pbta, illustrate, profile }), user, purpose: "director", phase: mode }, (x) => validateDirector(x, { auto, improv, casual, planner: on, calendar, pbta: !!pbta, illustrate, profile }));
 }

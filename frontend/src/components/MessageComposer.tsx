@@ -7,6 +7,7 @@ import { useChat } from '../store/chat';
 import { useUi } from '../store/ui';
 import ConsistencyButton from './ConsistencyButton';
 import InspirationButton from './InspirationButton';
+import IllustrateButton from './IllustrateButton';
 
 const DICE_PREFIX = /^\s*[.。．](move|r|ra|rc|rh|rah|rch|sc|st|en)/i;
 
@@ -96,6 +97,7 @@ export default function MessageComposer() {
         <span className="spacer" />
         {features?.consistency !== false && channel?.consistency_enabled !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
         {features?.inspiration !== false && channel?.inspiration_enabled !== false && <InspirationButton characterId={activeCharacter} />}
+        {serverSettings?.images_enabled && canPost && <IllustrateButton />}
         <button className="primary" onClick={send} disabled={!canPost || !text.trim() || sending}>{tr("Send")}</button>
       </div>
     </div>
