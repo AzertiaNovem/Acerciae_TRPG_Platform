@@ -8,7 +8,7 @@ import { useEscape } from '../hooks/useEscape';
 import CachedImg from './CachedImg';
 import type { IllustrationJob } from '../types';
 
-const MAX_CHARACTERS = 4, MAX_PROMPT = 1500;
+const MAX_CHARACTERS = 6, MAX_PROMPT = 1500;
 
 // Illustrate a moment: pick characters as visual references (their main portraits), describe the pose, action and
 // place, and the server's image AI draws it. The platform asks it to dare an unexpected viewpoint. The picture is

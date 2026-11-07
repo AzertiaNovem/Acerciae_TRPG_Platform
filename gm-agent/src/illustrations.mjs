@@ -8,11 +8,11 @@
 //     saw (no whisper, GM-only note or other window, so the picture reveals nothing they did not witness).
 import { completeJson } from "./llm/index.mjs";
 
-export const MAX_PROMPT = 1500, MAX_CHARACTERS = 4;
+export const MAX_PROMPT = 1500, MAX_CHARACTERS = 6;
 export const ORIENTATIONS = ["landscape", "portrait", "square"];
 
-export const ILLUSTRATE_RULE = `- Illustrations: when a moment is truly evocative and beautiful (a breathtaking place revealed, a charged meeting, a striking image the players will remember), you may have it drawn with illustrate. Describe one frozen moment for a painter: who is there and what they do, the place, the light, the colours and the mood; no dialogue and no words in the picture, and only what everyone in this window has seen. Name up to four characters in it, so their portraits guide the painter, and choose landscape (places, groups), portrait (one figure) or square. Use it rarely: at most once in a scene, never for routine moments. It is drawn and posted a little later, as your picture, and costs no line.`;
-export const ILLUSTRATE_SCHEMA = `  {"type": "illustrate", "text": "<one frozen moment: who does what, where, the light and mood>", "who": ["<up to four character names in it>"], "orientation": "landscape | portrait | square"},`;
+export const ILLUSTRATE_RULE = `- Illustrations: when a moment is truly evocative and beautiful (a breathtaking place revealed, a charged meeting, a striking image the players will remember), you may have it drawn with illustrate. Describe one frozen moment for a painter: who is there and what they do, the place, the light, the colours and the mood; no dialogue and no words in the picture, and only what everyone in this window has seen. Name up to ${MAX_CHARACTERS} characters in it, so their portraits guide the painter, and choose landscape (places, groups), portrait (one figure) or square. Use it rarely: at most once in a scene, never for routine moments. It is drawn and posted a little later, as your picture, and costs no line.`;
+export const ILLUSTRATE_SCHEMA = `  {"type": "illustrate", "text": "<one frozen moment: who does what, where, the light and mood>", "who": ["<up to ${MAX_CHARACTERS} character names in it>"], "orientation": "landscape | portrait | square"},`;
 
 const clip = (s, n) => String(s ?? "").trim().slice(0, n);
 const names = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => clip(x, 120)).filter(Boolean);
@@ -36,7 +36,7 @@ export function illustrationFailure(e) {
 
 const SCENARIO_SYSTEM = (language) => `You are the GM's art director for an online tabletop roleplaying campaign. A stage of the story (a scenario) has just ended. From its play, choose the single most brilliant, beautiful and artistic moment: the image the players would hang on a wall. It may be a vista, a gesture, a confrontation or a quiet beat in striking light; prefer what is visually remarkable over what is merely important.
 
-Describe it for a painter as one frozen moment: who is there and what they are doing, the place, the light, the colours and the mood, in at most 120 words. Use only what happens in the lines you are given (the players saw all of them); invent no event, reveal no secret, and put no dialogue or words in the picture. Name the characters who appear in it, at most four, exactly as they are named in the cast. Choose the frame: landscape for places and groups, portrait for a single figure, square otherwise.
+Describe it for a painter as one frozen moment: who is there and what they are doing, the place, the light, the colours and the mood, in at most 120 words. Use only what happens in the lines you are given (the players saw all of them); invent no event, reveal no secret, and put no dialogue or words in the picture. Name the characters who appear in it, at most ${MAX_CHARACTERS}, exactly as they are named in the cast. Choose the frame: landscape for places and groups, portrait for a single figure, square otherwise.
 
 Write the description in ${language}. Reply with only one JSON object:
 {"moment": "<the description>", "who": ["<character names>"], "orientation": "landscape" | "portrait" | "square", "why": "<one short line: why this moment>"}`;
