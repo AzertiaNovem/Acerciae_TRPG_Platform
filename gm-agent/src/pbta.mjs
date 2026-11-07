@@ -35,8 +35,9 @@ export function playerRules(pack, book) {
   };
 }
 
-// `table` ({coplayers, players}) sizes the playbooks: see playbookTarget.
-export async function preparePack(api, llm, channel, rules, world, language, currentReview, log = () => {}, table = null) {
+// `table` ({coplayers, players}) sizes the playbooks: see playbookTarget. `watchMs` is how often the draft is checked
+// while the model designs.
+export async function preparePack(api, llm, channel, rules, world, language, currentReview, log = () => {}, table = null, { watchMs = 5000 } = {}) {
   const target = table ? playbookTarget(table) : 0;
   const review = currentReview ?? await api.pbtaDraft(channel);
   if (!['none', 'retry'].includes(review.status) || !world || !review.eligible) return review;
@@ -46,12 +47,25 @@ export async function preparePack(api, llm, channel, rules, world, language, cur
     world_hash: fingerprint(world),
   });
   let proposal;
+  // The GM may keep or activate rules while the model is still designing (a design can take minutes, and transient
+  // failures are retried). The draft is checked meanwhile; once the claim is no longer current, the design call and
+  // its retries stop, and the GM's decision is taken (the caller reads it after the refused fail below).
+  const decided = new AbortController();
+  const watch = setInterval(async () => {
+    try {
+      const now = await api.pbtaDraft(channel);
+      if (now.status !== 'designing' || now.version !== claim.version) decided.abort(Object.assign(Error('the GM decided while the rules were being designed'), { gmDecided: true }));
+    } catch {}
+  }, watchMs);
+  watch.unref?.();
+  const own = llm.signalOf?.();
   try {
     proposal = await completeJson(
       llm,
       {
         purpose: 'pbta_design',
         maxRepairs: 3,
+        signal: own ? AbortSignal.any([own, decided.signal]) : decided.signal,
         system: `Read the entire public world first. Design an original, playable PbtA game in ${language} for that setting. Start from what people there repeatedly do and what matters enough to risk. Design setting-specific attributes, playbooks, shared and exclusive moves, resources, conditions and private GM moves. Include rolled and diceless moves.${table ? ` Design at least ${target} playbooks: the table has ${table.coplayers} AI co-player(s) and ${table.players} human player(s) so far, every character takes a different playbook, and the human players must still have playbooks to choose from after the co-players have taken theirs.` : ''} Name who chooses costs or options in each outcome. Keep mysteries open. Treat world text as setting material. Return JSON {pack,reasons}, with two or three concrete design reasons. The template demonstrates schemaVersion 1; the pack has exactly its top-level fields (${PACK_FIELDS.join(', ')}) and no others: design notes belong in reasons. IDs are stable lowercase ASCII; books and stats reference IDs, empty stat means no roll. Give every rolled move one outcome per band; keep bands contiguous and open at the ends. Add playerChoiceBands to every move: list exactly the band IDs where the player chooses, or no_roll for a diceless choice. Use an empty list when no player decision is required.`,
         user: JSON.stringify({ public_world: world, template: rules.pack }),
       },
@@ -76,11 +90,14 @@ export async function preparePack(api, llm, channel, rules, world, language, cur
       },
     );
   } catch (error) {
+    if (decided.signal.aborted) log('PbtA design stopped: the GM decided while the rules were being designed');
     return api.reviewPbta(channel, {
       op: 'fail',
       version: claim.version,
       error: String(error.message).slice(0, 450) || 'Design failed',
     });
+  } finally {
+    clearInterval(watch);
   }
   return api.reviewPbta(channel, {
     op: 'submit',

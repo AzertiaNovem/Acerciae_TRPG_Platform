@@ -181,3 +181,21 @@ test("the PbtA design asks for spare playbooks for the human players, and refuse
   assert.match(asks[1], /\/pack\/books: Design at least 4 playbooks: one for each character \(2 AI co-player\(s\) and 1 human player\(s\)\), and spares for the human players/, "one playbook for two co-players is sent back for repair");
   assert.equal(r.status, "submit"); assert.equal(r.pack.books.length, 3, "more playbooks than co-players");
 });
+
+test("the PbtA design stops, retries included, once the GM has decided while the model was still designing", async () => {
+  const ops = [], logs = [];
+  let checks = 0;
+  const api = {
+    pbtaDraft: async () => (checks++ === 0 ? { status: "none", version: 1, eligible: true } : checks < 3 ? { status: "designing", version: 2 } : { status: "kept", version: 3 }),
+    previewPbta: async () => ({}),
+    reviewPbta: async (_c, b) => { ops.push(b.op); if (b.op === "fail") throw Object.assign(Error("409 conflict"), { status: 409 }); return { status: "designing", version: 2 }; },
+  };
+  let calls = 0;
+  const llm = { complete: ({ signal }) => { calls++; return new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })); } };
+  const alive = setInterval(() => {}, 1000);   // a real model call holds a socket open; this fake one holds nothing
+  try { await assert.rejects(preparePack(api, llm, "ch", { pack: PACK }, "World.", "English", undefined, (m) => logs.push(m), null, { watchMs: 10 }), /409/); }
+  finally { clearInterval(alive); }
+  assert.deepEqual(ops, ["start", "fail"], "the refused fail lets the caller read the GM's decision");
+  assert.equal(calls, 1, "no retry after the GM decided");
+  assert.deepEqual(logs, ["PbtA design stopped: the GM decided while the rules were being designed"]);
+});
