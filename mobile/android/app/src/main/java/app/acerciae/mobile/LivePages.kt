@@ -33,7 +33,7 @@ import java.io.File
     LaunchedEffect(character.id) {
         (model.cached(path.dropLast(1) + "space") as? JsonObject)?.let { space = it; loading = false }
         (model.cached(path) as? JsonObject)?.let { attrs = it }
-        model.load { try { space = model.get(path.dropLast(1) + "space"); attrs = model.get(path) }
+        model.load { try { space = model.get(path.dropLast(1) + "space"); attrs = if(space.text("rule_system")=="pbta") JsonObject(emptyMap()) else model.get(path) }
             catch (e: BackendException) { if (e.apiResponse && e.status in listOf(401,403,404)) { space = JsonObject(emptyMap()); attrs = JsonObject(emptyMap()) }; throw e } }
         loading = false
     }
@@ -58,13 +58,20 @@ import java.io.File
         if (space.obj("character").text("bio").isNotEmpty()) item { Text(space.obj("character").text("bio")) }
         if (space.obj("character").text("speaking_style").isNotEmpty()) item { Text(space.obj("character").text("speaking_style")) }
         item { Button(onClick = { showSpace = true }) { Text(tr("角色卡与外观空间")) } }
+        if(space.text("rule_system")=="pbta") item {
+            val sheet=space.obj("character").obj("role_card").obj("pbta"); val pack=space.obj("pbta_rules").obj("pack")
+            Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                Text(tr("Playbook")+" · "+(pack.rows("books").find{it.id==sheet.text("book")}?.name?:tr("Choose a playbook")))
+                listOf("stats","resources","conditions").forEach{group->pack.rows(group).forEach{entry->if(group!="conditions")Text(entry.name+" · "+sheet.obj(group).number(entry.id))else if(sheet.obj(group).flag(entry.id))Text(entry.name)}}
+            }
+        }
         if (space.rows("subtitles").isNotEmpty()) item { Text(tr("表情立绘"), style = MaterialTheme.typography.titleMedium) }
         items(space.rows("subtitles"), key = { it.id + it.text("subtitle") }) { asset ->
             Text(asset.text("subtitle"))
             TextButton(onClick = { image = asset }, modifier = Modifier.fillMaxWidth()) { AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(260.dp), asset.text("hash")) }
         }
         items(attrs.obj("attrs").keys.sorted()) { key -> Text("$key  ${attrs.obj("attrs")[key]}") }
-        if (attrs.flag("editable") && (space.text("rule_system") == "dnd2024" || !space.obj("points").flag("enabled"))) {
+        if (attrs.flag("editable") && space.text("rule_system") != "pbta" && (space.text("rule_system") == "dnd2024" || !space.obj("points").flag("enabled"))) {
             item { OutlinedTextField(attribute, { attribute = it }, label = { Text(tr("属性或技能名")) }) }
             item { OutlinedTextField(value, { value = it }, label = { Text(tr("数值")) }) }
             item { Button(onClick = { model.launch {
@@ -122,6 +129,8 @@ import java.io.File
 }
 
 @Composable fun LiveChannelPage(state: AppState, model: AppViewModel) {
+    var pbtaSettings by remember(state.channelId) { mutableStateOf(false) }
+    if(pbtaSettings && state.gm) { PbtaRulesScreen(state,model){pbtaSettings=false};return }
     var voiceSettings by remember { mutableStateOf(false) }
     if (voiceSettings) { VoiceSettings(state, model) { voiceSettings = false }; return }
     var moduleImports by remember { mutableStateOf(false) }
@@ -160,6 +169,7 @@ import java.io.File
     LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if(state.gm && state.studioAvailable) item { TextButton(onClick = { voiceSettings = true }) { Text(tr("Voice settings")) } }
         if(state.gm) item { TextButton(onClick = { moduleImports = true }) { Text(tr("Module imports")) } }
+        if(state.gm && state.channel.text("rule_system")=="pbta") item { TextButton(onClick={pbtaSettings=true}){Text(tr("Rule pack"))} }
         item { Text(state.channel.text("name"), style = MaterialTheme.typography.titleLarge); Text(tr("以下设置仅作用于当前频道")) }
             item { HorizontalDivider(); Text(tr("GM 设置"), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium) }
             item { OutlinedTextField(channelName, { channelName = it }, label = { Text(tr("频道名称")) }) }

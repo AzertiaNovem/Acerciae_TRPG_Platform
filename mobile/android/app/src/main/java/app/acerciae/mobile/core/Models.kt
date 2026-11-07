@@ -11,6 +11,11 @@ import kotlinx.serialization.json.*
 @Serializable data class Server(val id: String, val name: String)
 @Serializable data class Channel(val id: String, val name: String, @SerialName("my_role") val myRole: String = "player")
 @Serializable data class ChatWindow(val id: String, val name: String, val kind: String)
+@Serializable data class ChatHistory(val messages: List<Message>, val hasOlder: Boolean) {
+    companion object {
+        fun merge(existing: List<Message>, incoming: List<Message>, recalled: Map<String, Message>) = (existing + incoming).associateBy { it.id }.values.map { recalled[it.id] ?: it }.sortedBy { it.seq }
+    }
+}
 @Serializable data class Message(
     val id: String,
     val content: String,

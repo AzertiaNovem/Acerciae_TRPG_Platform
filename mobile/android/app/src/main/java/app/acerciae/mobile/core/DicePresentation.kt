@@ -2,6 +2,7 @@ package app.acerciae.mobile.core
 
 import kotlinx.serialization.json.*
 
+val Message.hasStructuredPbtaResult: Boolean get() = dice?.let { it.text("type") == "pbta_move" && it.text("name").isNotEmpty() && ((it["rolls"] as? JsonArray).isNullOrEmpty() || it["total"] != null) } == true
 enum class DiceTone { NEUTRAL, SUCCESS, FAILURE, CRITICAL, FUMBLE, NOTICE }
 val Message.diceTone: DiceTone get() {
     val dice = dice ?: return DiceTone.NEUTRAL

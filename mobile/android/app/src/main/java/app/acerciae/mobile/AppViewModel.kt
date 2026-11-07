@@ -229,6 +229,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun uploadModule(bytes: ByteArray, title: String): JsonObject = client().uploadModule(state.value.channelId, title, bytes, token())
     suspend fun uploadArtwork(bytes: ByteArray, character: String, slot: String, subtitle: String) = client().uploadCharacterAsset(state.value.channelId, character, slot, subtitle, bytes, token())
     fun login(username: String, password: String, registering: Boolean = false, displayName: String = "") = launch {
+        histories.clear()
         val client = BackendClient(BackendAddress(state.value.endpoint, BuildConfig.DEBUG))
         val auth = try {
             if (registering) client.register(username, password, displayName) else client.login(username, password)
@@ -280,7 +281,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val oldApi = api; val oldToken = session?.token
         epoch++; api = null; session = null; drafts.clear(); catalogUpdated = 0L
         update { AppState(connection = "已退出登录", accountUsers = others) }
-        oldApi?.assets?.invalidate(); oldApi?.reads?.invalidate(); navigationJob?.cancel(); clearAvatarImages(); ChatIllustrationImages.clear()
+        oldApi?.assets?.invalidate(); oldApi?.reads?.invalidate(); histories.clear(); navigationJob?.cancel(); clearAvatarImages(); ChatIllustrationImages.clear()
         if (oldApi != null && oldToken != null) kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch { runCatching { oldApi.resource(listOf("auth", "logout"), oldToken, emptyObject) } }
         retired = true
         restartAccount()
@@ -291,6 +292,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         metadataJob?.cancel(); metadataJob=null; metadataGeneration++
         metadataUpdated=0L; failedPolls=0; nextPoll=0L; readSeq.clear(); speech.stop(); recallDeadlines.clear(); update { copy(recallDrafts=emptyMap(),chatNotices=emptyList(),initiative=emptyObject,speechMode = "ooc", references = emptyList(), jumpMessageId = null, channelId = "", windowId = "", characterId = "", channel = emptyObject, campaign = null, windows = emptyList(), characters = emptyList(), scenes = emptyList(), reminders = emptyList(), draft = "", diceHint = "", result = null, hasOlder = false) } }
     suspend fun selectServer(id: String) {
+        if (id == state.value.serverId && state.value.channels.isNotEmpty() && state.value.channelId.isNotEmpty() && state.value.campaign != null) return
+        rememberHistory()
         rememberDraft(); epoch++; val stamp = epoch; clearChannel()
         update { copy(serverId = id, serverSettings = emptyObject, channels = emptyList()) }
         restoreCachedServer(id, stamp)
@@ -301,6 +304,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         (channels.find { it.id == state.value.channelId } ?: channels.firstOrNull())?.let { selectChannel(it.id) } ?: run { val settings=get(listOf("servers",id,"settings")); if(stamp==epoch) update { copy(serverSettings=settings) } }
     }
     suspend fun selectChannel(id: String) {
+        if (id == state.value.channelId && state.value.channels.isNotEmpty() && state.value.windowId.isNotEmpty() && state.value.campaign != null) { refresh(metadata=false); return }
+        rememberHistory()
         rememberDraft(); epoch++; val stamp = epoch; clearChannel(); update { copy(channelId = id) }
         restoreCachedChannel(id, stamp)
         coroutineContext.ensureActive(); if (stamp != epoch) return
@@ -312,13 +317,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         (windows.find { it.id == state.value.windowId } ?: windows.firstOrNull())?.let { selectWindow(it.id) }
     }
     suspend fun selectWindow(id: String) {
+        if (id == state.value.windowId && state.value.campaign != null) { refresh(true,metadata=false); return }
+        rememberHistory()
         rememberDraft(); epoch++
         update { copy(speechMode = if (gm) "narration" else "ic", references = emptyList(), jumpMessageId = null, windowId = id, draft = drafts[id].orEmpty(), campaign = null, diceHint = "", result = null) }
         val stamp = epoch
         restoreCachedWindow(id, stamp)
         coroutineContext.ensureActive(); if (stamp != epoch) return
         rememberSelection()
-        refresh(false,metadata=false)
+        refresh(true,metadata=false)
     }
     private var navigationJob: Job? = null
     fun navigate(work: suspend () -> Unit) {
@@ -367,19 +374,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             restoreCachedWindow(win.id, stamp)
         }
     }
-    private suspend fun restoreCachedWindow(id: String, stamp: Long) {
-        val s = state.value
-        val messages = cached(listOf("channels",s.channelId,"windows",id,"messages"), mapOf("limit" to "50")) ?: return
-        val docs = cached(listOf("channels",s.channelId,"documents")) ?: JsonArray(emptyList())
-        val hints = cached(listOf("channels",s.channelId,"highlights")) ?: JsonArray(emptyList())
-        if (stamp != epoch) return
-        val campaign = runCatching { Json { ignoreUnknownKeys = true }.decodeFromJsonElement<DemoCampaign>(buildJsonObject {
-            put("title", s.channel.name); put("scene", s.windows.find { it.id == id }?.text("scene_title").orEmpty()); put("messages", messages)
-            put("documents", if(s.gm) docs else JsonArray(emptyList())); put("highlights", if(s.gm) hints else JsonArray(emptyList())); put("replay", JsonArray(emptyList()))
-        }) }.getOrNull() ?: return
-        update { copy(campaign = campaign.copy(messages = campaign.messages.map { recalledMessages[it.id] ?: it }), hasOlder = campaign.messages.size == 50) }
+    private val histories = linkedMapOf<String, ChatHistory>()
+    private fun rememberHistory() {
+        val s = state.value; val view = s.campaign ?: return
+        if (s.channelId.isEmpty() || s.windowId.isEmpty()) return
+        val key = s.channelId + "|" + s.windowId; val snapshot = ChatHistory(view.messages, s.hasOlder)
+        if (histories[key] == snapshot) return
+        histories.remove(key); histories[key] = snapshot
+        if (histories.size > 12) histories.remove(histories.keys.first())
+        api?.keepHistory(snapshot, s.channelId, s.windowId)
     }
-    private fun purgeCachedAccess() { stopArtworkPrefetch(reset = true); clearAvatarImages(); ChatIllustrationImages.clear(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
+    private suspend fun restoreCachedWindow(id: String, stamp: Long) {
+        val s = state.value; val key = s.channelId + "|" + id
+        val saved = histories[key] ?: api?.cachedHistory(s.channelId, id) ?: kotlin.run {
+            val rows = cached(listOf("channels",s.channelId,"windows",id,"messages"), mapOf("limit" to "50")) ?: return
+            val messages = runCatching { Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<Message>>(rows) }.getOrNull() ?: return
+            ChatHistory(messages, messages.size == 50)
+        }
+        if (stamp != epoch) return
+        val messages = saved.messages.map { recalledMessages[it.id] ?: it }
+        histories.remove(key); histories[key] = ChatHistory(messages, saved.hasOlder)
+        if (histories.size > 12) histories.remove(histories.keys.first())
+        update { copy(campaign = DemoCampaign(s.channel.name, s.windows.find { it.id == id }?.text("scene_title").orEmpty(), messages,emptyList(),emptyList(),emptyList()), hasOlder = saved.hasOlder) }
+        if (s.gm) {
+            val docs = cached(listOf("channels",s.channelId,"documents")) ?: JsonArray(emptyList())
+            val hints = cached(listOf("channels",s.channelId,"highlights")) ?: JsonArray(emptyList())
+            if (stamp != epoch) return
+            val json = Json { ignoreUnknownKeys = true }
+            update { copy(campaign = campaign?.copy(documents = json.decodeFromJsonElement(docs), highlights = json.decodeFromJsonElement(hints))) }
+        }
+    }
+    private fun purgeCachedAccess() { histories.clear(); stopArtworkPrefetch(reset = true); clearAvatarImages(); ChatIllustrationImages.clear(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
     private fun permissionsDiffer(old: JsonObject, oldWindows: List<JsonObject>, fresh: JsonObject, freshWindows: List<JsonObject>) =
         listOf("player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode").any { old[it] != fresh[it] } || oldWindows.any { win -> freshWindows.find { it.id == win.id }?.get("members") != win["members"] }
     private var artworkPrefetcher = CharacterArtworkPrefetcher()
@@ -434,13 +459,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 update { copy(campaign=null,characters=emptyList(),scenes=emptyList(),reminders=emptyList(),chatNotices=emptyList(),result=null,diceHint="",references=emptyList(),jumpMessageId=null,speechMode=if(s.channel["my_role"]!=info["my_role"]) if(isGM) "narration" else "ic" else speechMode) }
             }
             update { copy(channel=info,windows=wins) }
-            val messages=client().messages(token(),s.channelId,s.windowId)
+            var messages=client().messages(token(),s.channelId,s.windowId)
             if(stamp!=epoch) return
+            val previous=if(merge&&!permissionsChanged) state.value.campaign?.messages.orEmpty() else emptyList()
+            if(previous.isNotEmpty()&&messages.size==50) {
+                val newest=previous.last().seq;var cursor=messages.minOf{it.seq};var count=50
+                while(cursor>newest&&count==50) {
+                    val page=client().messages(token(),s.channelId,s.windowId,cursor)
+                    if(stamp!=epoch) return
+                    val next=page.minOfOrNull{it.seq}?:cursor
+                    if(next>=cursor) break
+                    messages=page+messages;cursor=next;count=page.size
+                }
+            }
             recallDeadlines.note(messages)
             messages.filter { it.recalled }.forEach(::applyRecall)
             val old=state.value.campaign
-            val all=((if(merge && !permissionsChanged) old?.messages.orEmpty() else emptyList())+messages).map { recalledMessages[it.id] ?: it }.associateBy { it.id }.values.sortedBy { it.seq }
-            update { copy(campaign=DemoCampaign(info.name,wins.find { it.id==s.windowId }?.text("scene_title").orEmpty(),all,if(isGM) old?.documents.orEmpty() else emptyList(),if(isGM) old?.highlights.orEmpty() else emptyList(),emptyList()),channel=info,windows=wins,hasOlder=if(merge && !permissionsChanged) hasOlder else messages.size==50,connection=if(pushConnected) "已连接 · 实时推送" else "已连接 · 自动刷新") }
+            val incoming=messages;val recalled=recalledMessages
+            val merged=withContext(Dispatchers.Default){ChatHistory.merge(previous,incoming,recalled)}
+            if(stamp!=epoch) return
+            val all=merged.map{recalledMessages[it.id]?:it}
+            update { copy(campaign=DemoCampaign(info.name,wins.find { it.id==s.windowId }?.text("scene_title").orEmpty(),all,if(isGM) old?.documents.orEmpty() else emptyList(),if(isGM) old?.highlights.orEmpty() else emptyList(),emptyList()),channel=info,windows=wins,hasOlder=if(merge && !permissionsChanged && old!=null) hasOlder else messages.size==50,connection=if(pushConnected) "已连接 · 实时推送" else "已连接 · 自动刷新") }
+            rememberHistory()
             // Optional metadata must never prevent authorized chat messages from appearing.
             if(metadata || permissionsChanged || (metadataJob==null && (metadataUpdated==0L || android.os.SystemClock.elapsedRealtime()-metadataUpdated>=30_000))) {
                 metadataUpdated=android.os.SystemClock.elapsedRealtime()
@@ -527,6 +567,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val messages = client().messages(token(), s.channelId, s.windowId, before)
         if (stamp == epoch) messages.filter { it.recalled }.forEach(::applyRecall)
         if (stamp == epoch) update { copy(campaign = campaign?.copy(messages = (messages + campaign.messages).map { recalledMessages[it.id] ?: it }.distinctBy { it.id }.sortedBy { it.seq }), hasOlder = messages.size == 50) }
+        if (stamp == epoch) rememberHistory()
     }
     suspend fun openEvidence(event: JsonObject, quote: Boolean) {
         val s = state.value; val stamp = epoch

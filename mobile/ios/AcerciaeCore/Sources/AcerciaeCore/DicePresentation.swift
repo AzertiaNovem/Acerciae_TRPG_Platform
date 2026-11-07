@@ -2,6 +2,10 @@ import Foundation
 
 public enum DiceTone: String { case neutral, success, failure, critical, fumble, notice }
 public extension Message {
+    var hasStructuredPbtaResult: Bool {
+        guard let dice, dice["type"].text == "pbta_move", !dice["name"].text.isEmpty else { return false }
+        return dice["rolls"].array.isEmpty || dice["total"] != .null
+    }
     var diceTone: DiceTone {
         guard let dice else { return .neutral }
         if dice["type"].text == "hidden_notice" { return .notice }

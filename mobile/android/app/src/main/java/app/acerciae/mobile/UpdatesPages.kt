@@ -93,7 +93,8 @@ import kotlinx.serialization.json.*
     var name by remember { mutableStateOf("") }; var bio by remember { mutableStateOf("") }; var speakingStyle by remember { mutableStateOf("") }; var prompt by remember { mutableStateOf("") }; var mode by remember { mutableStateOf("uploaded") }; var cloud by remember { mutableStateOf(false) }
     val base = listOf("channels", state.channelId, "characters", character.id)
     var baselineCard by remember { mutableStateOf(JsonObject(emptyMap())) }; var reloadCard by remember { mutableStateOf(false) }
-    fun apply(v: JsonObject) { space = v; baselineCard = v.obj("character").obj("role_card"); card = v.obj("character").obj("role_card"); name = v.obj("character").text("name"); bio = v.obj("character").text("bio"); speakingStyle = v.obj("character").text("speaking_style"); prompt = v.obj("character").text("appearance_prompt"); mode = v.obj("character").text("asset_mode") }
+    var pbtaRules by remember { mutableStateOf(JsonObject(emptyMap())) }; var cardRuleSystem by remember { mutableStateOf("coc7e") }
+    fun apply(v: JsonObject) { space = v; pbtaRules = v.obj("pbta_rules"); cardRuleSystem = v.text("rule_system").ifEmpty { state.channel.text("rule_system").ifEmpty { "coc7e" } }; baselineCard = v.obj("character").obj("role_card"); card = v.obj("character").obj("role_card"); name = v.obj("character").text("name"); bio = v.obj("character").text("bio"); speakingStyle = v.obj("character").text("speaking_style"); prompt = v.obj("character").text("appearance_prompt"); mode = v.obj("character").text("asset_mode") }
     var slot by remember { mutableStateOf("portrait") }; var subtitle by remember { mutableStateOf("IDLE") }
     if (reloadCard) AlertDialog(onDismissRequest = { reloadCard = false }, title = { Text(tr("Discard draft and reload character card?")) }, confirmButton = { TextButton(onClick = { reloadCard = false; model.launch { apply(model.get(base + "space")) } }) { Text(tr("Reload card")) } }, dismissButton = { TextButton(onClick = { reloadCard = false }) { Text(tr("Cancel")) } })
     val context = LocalContext.current
@@ -108,8 +109,9 @@ import kotlinx.serialization.json.*
     }
     val editable = space.obj("character").flag("editable") && !state.busy
     val dnd = space.text("rule_system") == "dnd2024" || state.channel.text("rule_system") == "dnd2024"
+    val pbta = space.text("rule_system") == "pbta" || state.channel.text("rule_system") == "pbta"
     val pointsOn = space.obj("points").flag("enabled")
-    val pointsValid = dnd || !pointsOn || (pointRules != null && PointBuy(card, pointRules!!).issues.isEmpty())
+    val pointsValid = if(pbta) Pbta.validSheet(card.obj("pbta"),pbtaRules.obj("pack")) else dnd || !pointsOn || (pointRules != null && PointBuy(card, pointRules!!).issues.isEmpty())
     LaunchedEffect(character.id) {
         (model.cached(base + "space") as? JsonObject)?.let { apply(it) }
         val initialCard = card; val initialText = listOf(name,bio,speakingStyle,prompt,mode)
@@ -120,11 +122,7 @@ import kotlinx.serialization.json.*
             model.notice(tr("角色资料加载失败，请重新打开角色卡"))
         }
     }
-    LaunchedEffect(pointsOn,dnd) { if (pointsOn || dnd) { try { pointRules = model.get(listOf(if (dnd) "dnd" else "coc7", "rules")); rulesError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { rulesError = tr("职业规则暂不可用，请重试；草稿保留") } } }
-    if (state.channel.text("rule_system") == "pbta" || space.text("rule_system") == "pbta") {
-        Column { TextButton(onClick = close) { Text(tr("返回角色")) }; Text(tr("PbtA · Edit the playbook in the web or desktop app.")) }
-        return
-    }
+    LaunchedEffect(pointsOn,dnd,pbta) { if (!pbta && (pointsOn || dnd)) { try { pointRules = model.get(listOf(if (dnd) "dnd" else "coc7", "rules")); rulesError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { rulesError = tr("职业规则暂不可用，请重试；草稿保留") } } }
     val groups = listOf(
         Triple("basic", tr("基本信息"), listOf("player", "occupation", "age", "sex", "residence", "birthplace")),
         Triple("characteristics", tr("CoC7 属性"), listOf("STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK")),
@@ -136,15 +134,17 @@ import kotlinx.serialization.json.*
         TextButton(onClick = close) { Text(tr("返回角色")) }
         if (space.obj("character").flag("editable")) TextButton(onClick = { model.launch {
             val latest = model.get(base + "space")
-            if (latest.obj("character").obj("role_card") != baselineCard) { model.notice(tr("The character card changed on the server. Your draft is preserved. Reload the card before saving.")); return@launch }
-            apply(model.get(base + "card", buildJsonObject { put("name", name); put("bio", bio); put("speaking_style", speakingStyle); put("role_card", card) }, "PUT")); model.refresh(); model.notice(tr("角色卡已保存"))
+            if (latest.obj("character").obj("role_card") != baselineCard || latest.text("rule_system") != cardRuleSystem || (pbta && latest.obj("pbta_rules")["revision"] != pbtaRules["revision"])) { model.notice(tr("The character card changed on the server. Your draft is preserved. Reload the card before saving.")); return@launch }
+            apply(model.get(base + "card", buildJsonObject { put("name", name); put("bio", bio); put("speaking_style", speakingStyle); put("role_card", card); put("rule_system",cardRuleSystem); if(pbta) put("pack_revision",pbtaRules["revision"]?:JsonPrimitive(0)) }, "PUT")); model.refresh(); model.notice(tr("角色卡已保存"))
         } }, enabled = editable && pointsValid && name.isNotBlank()) { Text(tr("保存")) }
     }
     LazyColumn(Modifier.weight(1f).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text(tr("角色空间"), style = MaterialTheme.typography.titleLarge) }
         item { OutlinedTextField(name, { name = it }, label = { Text(tr("姓名")) }, enabled = editable); OutlinedTextField(bio, { bio = it }, label = { Text(tr("简介")) }, enabled = editable); OutlinedTextField(speakingStyle, { speakingStyle = it }, label = { Text(tr("说话风格")) }, enabled = editable) }
+        if(space.obj("character").flag("card_pending")) item { Text(tr("The rules changed: this character's numbers need rebuilding")) }
+        if(pbta) item { if(pbtaRules.obj("pack").isNotEmpty()) PbtaSheetEditor(card,pbtaRules,character.id,editable,card!=baselineCard||name!=space.obj("character").text("name")||bio!=space.obj("character").text("bio")||speakingStyle!=space.obj("character").text("speaking_style"),state,model){card=it} else TextButton(onClick={model.loadAsync { pbtaRules=model.get(listOf("channels",state.channelId,"pbta")) }}){Text(tr("Reload rules"))} }
         if (dnd) item { pointRules?.let { DndCardEditor(card, it, editable, state.gm, pointsOn, state.serverSettings.text("language")) { card = it } } ?: TextButton(onClick = { model.launch { pointRules = model.get(listOf("dnd", "rules")) } }) { Text(tr("Reload rules")) } }
-        items(groups.filter { !dnd }.filter { !pointsOn || it.first != "skills" }) { (group, label, fields) ->
+        items(groups.filter { !dnd && !pbta }.filter { !pointsOn || it.first != "skills" }) { (group, label, fields) ->
             var expanded by remember { mutableStateOf(false) }
             Column {
                 TextButton(onClick = { expanded = !expanded }) { Text(label) }
@@ -160,7 +160,7 @@ import kotlinx.serialization.json.*
                 }
             }
         }
-        if (pointsOn && !dnd) item {
+        if (pointsOn && !dnd && !pbta) item {
             pointRules?.let { PointBuyEditor(card, it, editable, state.gm, space.obj("points").text("language").ifEmpty { state.serverSettings.text("language") }) { updated -> card = updated } } ?: Column {
                 Text(rulesError.ifEmpty { tr("正在读取职业和技能规则…") })
                 TextButton(onClick = { model.launch { pointRules = model.get(listOf(if (dnd) "dnd" else "coc7", "rules")); rulesError = "" } }) { Text(tr("重新加载规则")) }

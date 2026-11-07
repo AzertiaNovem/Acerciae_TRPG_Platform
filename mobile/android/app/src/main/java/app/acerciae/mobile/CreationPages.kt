@@ -31,7 +31,7 @@ import kotlinx.serialization.json.*
         Text(tr("添加频道"), style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(name, { name = it }, label = { Text(tr("频道名称")) }, enabled = createdId == null && !state.busy)
         OutlinedTextField(description, { description = it }, label = { Text(tr("频道介绍")) }, enabled = createdId == null && !state.busy)
-        Choice(tr("Rule system"), ruleSystem, listOf("coc7e" to "Call of Cthulhu 7e", "dnd2024" to "D&D 2024 · SRD 5.2"), createdId == null && !state.busy) { ruleSystem = it }
+        Choice(tr("Rule system"), ruleSystem, listOf("coc7e" to "Call of Cthulhu 7e", "dnd2024" to "D&D 2024 · SRD 5.2", "pbta" to "PbtA"), createdId == null && !state.busy) { ruleSystem = it }
         Choice(tr("角色知识"), mode, listOf("isolated" to tr("隔离：各自掌握线索"), "public" to tr("公开：共享知识")), createdId == null && !state.busy) { mode = it }
         Text(tr("创建后你将成为此频道的 GM，并自动建立主聊天窗口。"))
         Button(onClick = { model.launch {

@@ -38,10 +38,20 @@ struct CharacterView: View {
                 }
             }
             Section(tr("属性")) {
+                if space["rule_system"].text == "pbta" {
+                    let sheet = space["character"]["role_card"]["pbta"], pack = space["pbta_rules"]["pack"]
+                    LabeledContent(tr("Playbook"), value: pack["books"].array.first { $0.id == sheet["book"].text }?.name ?? tr("Choose a playbook"))
+                    ForEach(["stats","resources","conditions"],id:\.self) { group in
+                        ForEach(pack[group].array,id:\.id) { item in
+                            if group == "conditions" { if sheet[group][item.id].bool { Text(item.name) } }
+                            else { LabeledContent(item.name,value:String(sheet[group][item.id].int)) }
+                        }
+                    }
+                }
                 ForEach(attributes["attrs"].object.keys.sorted(), id: \.self) { key in
                     LabeledContent(key, value: String(attributes["attrs"][key].int))
                 }
-                if attributes["editable"].bool && (space["rule_system"].text == "dnd2024" || !space["points"]["enabled"].bool) {
+                if attributes["editable"].bool && space["rule_system"].text != "pbta" && (space["rule_system"].text == "dnd2024" || !space["points"]["enabled"].bool) {
                     TextField(tr("属性或技能名"), text: $attribute)
                     TextField(tr("数值"), text: $value).keyboardType(.numbersAndPunctuation)
                     Button(tr("保存属性")) { Task { await model.run {
@@ -65,7 +75,8 @@ struct CharacterView: View {
     }
     private func load() async throws {
         space = try await model.get(["channels", model.channelId, "characters", character.id, "space"])
-        attributes = try await model.get(["channels", model.channelId, "characters", character.id, "attributes"])
+        if space["rule_system"].text == "pbta" { attributes = .null }
+        else { attributes = try await model.get(["channels", model.channelId, "characters", character.id, "attributes"]) }
     }
     private func artwork(_ asset: JSONValue, height: CGFloat) -> some View {
         NavigationLink {
@@ -183,6 +194,7 @@ struct LiveChannelView: View {
                 Form {
                     if model.studioAvailable { NavigationLink(tr("Voice settings")) { VoiceSettings(model: model).id(model.scopeKey) } }
                     NavigationLink(tr("Module imports")) { ModuleImports(model: model).id(model.scopeKey) }
+                    if model.channel["rule_system"].text == "pbta" { NavigationLink(tr("Rule pack")) { PbtaRulesView(model: model).id(model.scopeKey) } }
                     Section { Text(model.channel["name"].text).font(.headline); Text(tr("以下设置仅作用于当前频道")).font(.caption) }
                 Section(tr("GM 设置")) {
                     TextField(tr("频道名称"), text: $channelName)

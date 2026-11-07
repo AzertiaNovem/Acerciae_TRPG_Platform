@@ -7,7 +7,7 @@ public enum ReadCachePolicy {
         if ["coc7", "dnd"].contains(first) { return path.last == "rules" }
         guard first == "channels", path.count >= 2 else { return false }
         if path.count == 2 { return true }
-        return ["windows", "characters", "scenes", "documents", "highlights", "reminders", "atmosphere", "world"].contains(path[2])
+        return ["windows", "characters", "scenes", "documents", "highlights", "reminders", "atmosphere", "world", "pbta"].contains(path[2])
             && !path.contains("assets")
     }
 }
