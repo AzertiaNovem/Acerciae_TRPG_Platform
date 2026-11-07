@@ -64,6 +64,8 @@ class FakeApi {
   async characters() { return structuredClone(this.characters_); }
   async windows() { return structuredClone(this.windows_.map((w) => ({ ...w, last_seq: Math.max(0, ...this.lines.filter((m) => m.chat_window_id === w.id).map((m) => m.seq)) }))); }
   async messages(_ch, w, limit, beforeSeq = 0) { return this.lines.filter((m) => m.chat_window_id === w && (!beforeSeq || m.seq < beforeSeq)).slice(-limit); }
+  // The platform's message search: every window, the whole history, newest first.
+  async searchMessages(_ch, q, limit = 100) { (this.searches ??= []).push(q); return this.lines.filter((m) => !m.recalled_at && String(m.content).toLowerCase().includes(q.toLowerCase())).slice(-limit).reverse(); }
   // Illustrations: one picture in flight per account; `holdIllustrations` keeps the next ones drawing, `noImages` is a
   // server without an image provider. A finished picture is posted as the account's ooc line in the window.
   async illustrate(_ch, w, body) {
@@ -163,7 +165,7 @@ class FakeApi {
 
 const SECRETS = ["SECRET-ONE", "SECRET-TWO", "SECRET-THREE", "SECRET-BOARD", "SECRET-REMINDER", "SECRET-SCRIPT", "SECRET-DOC"];
 
-async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [], clock = { t: 1_700_000_000_000 }, bob = false, improv = null, casual = null, heal = false, rules = "coc7e", forks = true } = {}) {
+async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = [], clock = { t: 1_700_000_000_000 }, bob = false, improv = null, casual = null, heal = false, rules = "coc7e", forks = true, before = null } = {}) {
   const api = new FakeApi();
   api.ruleSystem = rules;
   api.characters_.push(...extraCharacters);
@@ -179,6 +181,7 @@ async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = []
   old({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "SECRET-TWO: you alone hear a whisper", visibility: "whisper", whisper_to: ["c-alice"] });
   old({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "SECRET-THREE in Alice's own window" });
   old({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "The study is cold and smells of pipe smoke." });
+  before?.(api);   // more of the channel's past, before the table starts
   // The story planner is off unless a test turns it on (pcfg): with no date set, it would plan after the first line.
   const base = buildConfig({}, {});
   const cfg = { ...base, sceneForks: forks, debounceMs: 0, postDelayMs: 0, planner: { ...base.planner, enabled: false }, ...over };
@@ -2719,5 +2722,76 @@ test("a recall that rolls back a turn cancels the picture it asked for", async (
   assert.equal(api.illustrations_[0].status, "pending");
   await recallLine(t, api, said); await settle(t);
   assert.equal(api.illustrations_[0].status, "cancelled");
+});
+
+// ---- pictures of past plots, asked for in the planner window
+const AURORA = "Green light ripples over the bay as the aurora wakes above the lighthouse.";
+const artCfg = (over = {}) => ({ ...pcfg(), ...illustrateCfg(over), historyBackfillLines: 10, contextLines: 20 });
+const inPlanner = (t, api, content, who = "alice") => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch",
+  message: api.add({ chat_window_id: t.planner.window, author_id: `u-${who}`, author_name: who, author_role: "player", character_id: `c-${who}`, content }) });
+const plannerPosts = (t, api) => api.posts.filter((p) => p.window === t.planner.window && p.content.startsWith("🎨")).map((p) => p.content);
+
+test("a player asks the planner window for a picture of a past plot: found however long ago, drawn there at once, never the planner's", async () => {
+  // The aurora was long ago: before the oldest line the table keeps, so only the platform's search still has it.
+  const { t, api, llm } = await table({ heal: true, forks: false, cfg: artCfg(), before: (a) => {
+    a.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: AURORA });
+    for (let i = 0; i < 60; i++) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: `Filler ${i}: we talk about the weather.` });
+  } });
+  assert.ok(!t.history.lines("w-main").some((m) => m.content === AURORA), "not in the local copy");
+  const turns = t.turns;
+  await inPlanner(t, api, "/draw the aurora above the lighthouse, as a watercolour");
+  assert.equal(t.turns, turns, "no turn is played");
+  assert.equal(t.planner.inbox.length, 0, "the planner never gets it");
+  assert.ok(api.searches.includes("aurora") && api.searches.includes("lighthouse"), "searched the whole history");
+  const asked = llm.calls.find((c) => c.purpose === "plot_illustration").messages[0].content;
+  assert.match(asked, /THE PLAYER'S REQUEST: the aurora above the lighthouse, as a watercolour/);
+  assert.ok(asked.includes(AURORA) && asked.includes("Filler 0:"), "the lines around it, read from the platform");
+  assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt.slice(0, 40), j.status]), [[t.planner.window, `[mock picture] ${AURORA}`.slice(0, 40), "completed"]]);
+  assert.deepEqual(plannerPosts(t, api), ["🎨 Looking for that moment in the story; the picture will appear here when it is drawn."]);
+  assert.ok(api.lines.some((m) => m.chat_window_id === t.planner.window && m.media_asset_id), "the picture is posted in the planner window");
+  assert.match(api.posts.find((p) => p.window === t.planner.window && p.content.startsWith("🧭")).content, /Send \/draw \(or \/画\) and a moment from earlier play/, "the window says how");
+  // Neither the GM nor the planner reads the command, the reply or the picture.
+  for (const m of api.lines.filter((x) => x.chat_window_id === t.planner.window)) t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: m });
+  await planned(t, api);
+  const read = [...directorCalls(llm), ...plannerCalls(llm).map((c) => c.messages.map((m) => m.content).join("\n"))];
+  assert.ok(read.length && read.every((u) => !u.includes("/draw the aurora") && !u.includes("🎨") && !u.includes("[mock picture]")));
+});
+
+test("a picture request: only lines the player could read, a hint when empty, one at a time and capped per hour, and no resumption of a paused table", async () => {
+  const { t, api, llm } = await table({ heal: true, forks: false, bob: true, cfg: artCfg({ requestsPerHour: 2 }), before: (a) => {
+    a.add({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "I find the brass astrolabe hidden behind the portrait." });
+    a.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "Only you hear the violin playing under the floorboards.", visibility: "whisper", whisper_to: ["c-bob"] });
+  } });
+  // Bob is no member of Alice's window; a whisper is not drawn either.
+  await inPlanner(t, api, "/draw the astrolabe behind the portrait", "bob");
+  await inPlanner(t, api, "/画", "bob");
+  await inPlanner(t, api, "/draw the violin under the floorboards", "bob");
+  await inPlanner(t, api, "/draw the violin once more", "bob");
+  assert.equal(api.illustrations_?.length ?? 0, 0);
+  const notFound = "🎨 I could not find that moment in the chat you can read. Add a detail or two: who was there, where it was, what happened.";
+  assert.deepEqual(plannerPosts(t, api).filter((c) => !c.startsWith("🎨 Looking")), [
+    notFound,
+    "🎨 Write what to draw after the command, for example: /draw the moment we reached the lighthouse at dusk",
+    notFound,
+    "🎨 That is 2 pictures in the last hour; please ask again a little later.",
+  ], "an empty command costs nothing; the third request is over the cap");
+  assert.ok(llm.calls.filter((c) => c.purpose === "plot_illustration").every((c) => !c.messages[0].content.includes("astrolabe") && !c.messages[0].content.includes("violin")),
+    "nothing Bob could not read reached the picture");
+  // Alice may: it is her window. Asked while the table is paused, it is drawn, and play stays paused.
+  await inPlanner(t, api, "/pause");
+  assert.equal(t.generation.paused, true);
+  await inPlanner(t, api, "/draw the astrolabe behind the portrait");
+  assert.equal(t.generation.paused, true, "a picture request is no play");
+  assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt]), [[t.planner.window, "[mock picture] I find the brass astrolabe hidden behind the portrait."]]);
+  // While a request is on its way, the same player's next one is turned away.
+  let open;
+  const gate = new Promise((r) => (open = r)), complete = llm.complete.bind(llm);
+  llm.complete = async (req) => { if (req.purpose === "plot_search") await gate; return complete(req); };
+  const first = inPlanner(t, api, "/draw the astrolabe behind the portrait");
+  await inPlanner(t, api, "/draw the astrolabe behind the portrait");
+  assert.equal(plannerPosts(t, api).at(-1), "🎨 Your previous picture is still on its way; ask again once it has arrived.");
+  open(); await first;
+  assert.deepEqual(api.illustrations_.map((j) => j.status), ["completed", "completed"]);
+  assert.equal(llm.calls.filter((c) => c.purpose === "director").length, 0, "no GM turn at any point");
 });
 

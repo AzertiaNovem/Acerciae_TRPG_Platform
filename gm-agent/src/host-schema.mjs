@@ -14,7 +14,7 @@ export const GROUPS = [
   { id: "scenarios", title: "场景", help: "GM 自行开启下一场景的条件。" },
   { id: "calendar", title: "日历（日常模式）", help: "GM 推进故事日期的速度。0 表示不限。" },
   { id: "modes", title: "模式", help: "即兴与日常模式保存在状态文件中；这里只在设置时改变它们。" },
-  { id: "illustrations", title: "插画", help: "由服务器的图像服务绘制，作为 GM 的图片发在聊天中。每次进入下一场景，都会为有玩家的每条时间线画出该场景最精彩、最美的一刻，发在主聊天。" },
+  { id: "illustrations", title: "插画", help: "由服务器的图像服务绘制，作为 GM 的图片发在聊天中。每次进入下一场景，都会为有玩家的每条时间线画出该场景最精彩、最美的一刻，发在主聊天。玩家在“致剧情规划”窗口写 /画 加上想要的场面，可为过去的剧情配图，画好后发在该窗口。" },
 ];
 
 const f = (key, type, label, help, effective, extra = {}) => ({ key, group: key.split(".")[0] === "channel" ? "table" : key.split(".")[0], type, label, help, effective, ...extra });
@@ -93,8 +93,9 @@ export const FIELDS = [
   f("modes.casual", "tri", "日常模式", "手机、短信与故事日历。留空则保持状态文件中的设置。", (c) => c.casual),
   f("modes.casual_max_delay_minutes", "int", "短信最长延迟", "NPC 短信最晚多久送达。", (c) => c.casualMaxDelayMinutes, { min: 0, unit: "分钟" }),
   f("modes.casual_ai_texts_per_hour", "int", "AI 间短信每小时", "AI 角色之间每小时最多回复的短信数。", (c) => c.casualAiTextsPerHour, { min: 0 }),
-  f("illustrations.enabled", "bool", "启用插画", "GM 可为动人的时刻配图；每次场景切换时为上一场景配图。关闭则两者都不画。", (c) => c.illustrations.enabled),
+  f("illustrations.enabled", "bool", "启用插画", "GM 可为动人的时刻配图；每次场景切换时为上一场景配图；玩家可在“致剧情规划”窗口用 /画 请求为过去的剧情配图。关闭则三者都不画。", (c) => c.illustrations.enabled),
   f("illustrations.max_per_hour", "int", "游戏中每小时配图", "GM 在游戏中主动配图的上限（场景切换的配图不计入）。0 表示游戏中不配图。", (c) => c.illustrations.maxPerHour, { min: 0, max: 20 }),
+  f("illustrations.requests_per_hour", "int", "玩家每小时插画请求", "每位玩家每小时可在“致剧情规划”窗口用 /画 请求为过去的剧情配图的次数。0 表示关闭该命令。", (c) => c.illustrations.requestsPerHour, { min: 0, max: 20 }),
   f("illustrations.allow_cloud", "bool", "允许云端绘制", "确认描述与角色立绘可以发送给服务器配置的云端图像服务。关闭时只有本地图像服务能画。", (c) => c.illustrations.allowCloud),
   f("modes.casual_ai_chain", "int", "AI 间连续短信", "两名 AI 角色连续往来的上限，玩家发言后重置。", (c) => c.casualAiChain, { min: 1 }),
 ];

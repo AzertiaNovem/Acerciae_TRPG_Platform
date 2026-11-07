@@ -21,6 +21,7 @@ import { sceneForks } from "./sceneForks.mjs";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { illustrationFailure, normalizeIllustration, pickScenarioMoment, scenarioLines } from "./illustrations.mjs";
+import { artRequest, artText, bestPlace, drawable, isArtLine, locatePlot, pickRequestedMoment } from "./plotArt.mjs";
 import { CHECKPOINT_MS, CHECKPOINTS_KEPT, RECALL_ROLLBACK_LINES, addedPending, checkpointsToUndo, movedBetween, rollbackNote, stable } from "./rollback.mjs";
 import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
 import { Store, billableTokens } from "./store.mjs";
@@ -120,6 +121,13 @@ export class Table {
     this.illustrationQueue = [];
     this.illustrationRunning = false;
     this.illustrationOff = null;
+    // Pictures of past plots asked for in the planner window (plotArt.mjs): the command lines and the table's replies
+    // (kept out of every context), the requests handled, and each player's requests in flight and of the last hour.
+    this.artLines = new Set();
+    this.artHandled = new Set();
+    this.artBusy = new Set();
+    this.artTimes = new Map();
+    this.artSignal = new AbortController().signal;   // a player's picture is not play: /pause does not cancel it
     this.timers = new Map();
     this.queue = Promise.resolve();
     this.pending = 0;          // turns waiting or running
@@ -324,6 +332,7 @@ export class Table {
       if (!controlsOnly) for (const m of lines.slice(-20)) this.noteLine(m);
       for (const m of lines) {
         if (this.pauseCommand(m)) this.pauseLines.add(m.id);
+        if (this.noteArt(m)) continue;
         if (m.seq > this.lastPlayerSeq && this.playerSpeech(m)) controls.push(m);
       }
     }
@@ -648,6 +657,13 @@ export class Table {
   // Returns the scheduled turn (settled when it ran), or undefined when the line starts no turn.
   onMessage(m) {
     if (!m || m.channel_id !== this.channelId) return;
+    // A picture request in the planner window: handled here, never the planner's, and never a resumption of play.
+    if (this.noteArt(m)) {
+      this.history.add(m);
+      this.noteSeq(m.chat_window_id, m.seq ?? 0);
+      const request = this.artCommand(m);
+      return request === null ? undefined : this.onArtCommand(m, request);
+    }
     if (this.pauseCommand(m)) {
       this.history.add(m);
       return this.updatePause(m);
@@ -1047,7 +1063,7 @@ export class Table {
     const actors = threads.flatMap(t => t.members).filter(id => this.roster.isCoplayer(id) || this.userOf(id) === message.author_id)
       .map(id => ({ id, name: this.nameOf(id), sources: [message.seq], current: "T" + this.timelines.of(id).handle }));
     const destinations = threads.map(t => ({ key: "T" + t.handle, place: t.location || t.name, companions: t.members.map(id => this.nameOf(id)) }));
-    const lines = publicLines(this.history.lines(message.chat_window_id).filter(m => m.seq <= message.seq)).slice(-24);
+    const lines = publicLines(this.history.lines(message.chat_window_id).filter(m => m.seq <= message.seq && !this.artLines.has(m.id))).slice(-24);
     const decisions = await readDestinations(this.llm, { lines, actors, destinations, correction: message.seq });
     const reports = [];
     for (const m of decisions) {
@@ -1637,23 +1653,160 @@ export class Table {
     try {
       while (this.illustrationQueue.length && this.illustrationsOn()) {
         const item = this.illustrationQueue[0];
+        const drop = () => { const i = this.illustrationQueue.indexOf(item); if (i >= 0) this.illustrationQueue.splice(i, 1); };
         const r = await this.requestIllustration(item.windowId, item.moment);
-        if (r.job) { this.illustrationQueue.shift(); await this.waitIllustration(r.job.id); continue; }
-        if (["busy", "rate_limited"].includes(r.failure) && ++item.tries <= 20) { await this.sleep(r.failure === "busy" ? 15000 : 120000); continue; }
-        this.log(`scenario picture dropped (${r.failure})`);
-        this.illustrationQueue.shift();
+        if (r.job) { drop(); const job = await this.waitIllustration(r.job.id, item.done ? 3000 : 10000); item.done?.(job && job.status !== "completed" ? { failure: job.status === "cancelled" ? "cancelled" : "error" } : { job: r.job }); continue; }
+        // A player waits for a busy account, but not for the hourly cap.
+        const patience = item.done ? (r.failure === "busy" ? 40 : 0) : 20;
+        if (["busy", "rate_limited"].includes(r.failure) && ++item.tries <= patience) { await this.sleep(r.failure === "busy" ? 15000 : 120000); continue; }
+        this.log(`${item.done ? "requested" : "scenario"} picture dropped (${r.failure})`);
+        drop();
+        item.done?.({ failure: r.failure });
       }
     } finally { this.illustrationRunning = false; }
+    // Pictures can no longer be drawn: a player still waiting is told so.
+    for (const item of this.illustrationQueue.filter((x) => x.done)) { this.illustrationQueue.splice(this.illustrationQueue.indexOf(item), 1); item.done({ failure: "unavailable" }); }
   }
 
-  // Until the platform has drawn (or failed) a picture, at most ten minutes.
-  async waitIllustration(id) {
-    for (let i = 0; i < 60; i++) {
+  // Until the platform has drawn (or failed) a picture, at most ten minutes, looking every `every` ms (a player waiting
+  // for their picture is let go sooner).
+  async waitIllustration(id, every = 10000) {
+    for (let i = 0; i < Math.ceil(600000 / every); i++) {
       const job = ((await this.api.illustrations(this.channelId).catch(() => [])) ?? []).find((j) => j.id === id);
       if (!job || !["pending", "running"].includes(job.status)) return job ?? null;
-      await this.sleep(10000);
+      await this.sleep(every);
     }
     return null;
+  }
+
+  // ---- pictures of past plots, asked for in the planner window (plotArt.mjs)
+  // The request in a player's command line in the planner window ("" when it names nothing), or null.
+  artCommand(m) {
+    return this.playerSpeech(m) && this.isPlannerWindow(m.chat_window_id) && m.visibility === "window" ? artRequest(m.content) : null;
+  }
+
+  // A command line, the table's reply about a picture, or the picture itself, in the planner window: kept out of the
+  // planner's inbox and of every context. True for such a line.
+  noteArt(m) {
+    if (!m || !this.isPlannerWindow(m.chat_window_id)) return false;
+    const art = this.artCommand(m) !== null || (!this.isHuman(m) && isArtLine(m));
+    if (art) this.artLines.add(m.id);
+    return art;
+  }
+
+  // A player's request: answered in the planner window at once, drawn there as soon as the platform can. One request
+  // in flight per player, at most illustrations.requests_per_hour an hour each.
+  onArtCommand(m, request) {
+    if (this.artHandled.has(m.id)) return undefined;
+    this.artHandled.add(m.id);
+    const user = m.author_id;
+    const say = (key, vars) => this.post(m.chat_window_id, { kind: "ooc", content: artText(this.language, key, vars) }, { count: false, allowPaused: true });
+    if (!request) return say("usage");
+    const cap = this.cfg.illustrations?.requestsPerHour ?? 4;
+    if (this.cfg.illustrations?.enabled === false || cap <= 0) return say("off");
+    if (!this.illustrationsOn()) return say("unavailable");
+    if (this.artBusy.has(user)) return say("busy");
+    const now = this.now(), times = (this.artTimes.get(user) ?? []).filter((t) => now - t < HOUR);
+    if (times.length >= cap) return say("limit", { n: times.length });
+    this.artTimes.set(user, [...times, now]);
+    this.artBusy.add(user);
+    this.log(`picture requested by ${m.author_name || "a player"} in the planner window: ${request.slice(0, 100)}`);
+    // Outside any turn (a recall rollback never touches it) and outside the pause (it is not play).
+    return this.turnScope.exit(() => this.generation.tasks.run(this.artSignal, async () => {
+      await say("searching");
+      const outcome = await this.drawPastPlot(m, request);
+      if (outcome) await say(outcome);
+    })).catch(async (e) => { this.log(`picture request: ${e.message}`); await say("failed"); }).finally(() => this.artBusy.delete(user));
+  }
+
+  // Finds the stretch of play the player means and has its moment drawn into the planner window. Returns the reply to
+  // post when there is no picture ("notFound", "unavailable", "rateLimited", "failed"), else null.
+  async drawPastPlot(m, request) {
+    const user = m.author_id;
+    // What this player can read: the Main Chat and the windows they are a member of; never a table window.
+    const readable = this.windows.filter((w) => !this.isTableWindow(w.id) && (w.kind === "main" || (w.members ?? []).some((x) => x.user_id === user)));
+    const ids = new Set(readable.map((w) => w.id));
+    if (!ids.size) return "notFound";
+    const mine = this.characters.filter((c) => c.user_id === user && this.isPc(c.id)).map((c) => c.name);
+    const cast = this.characters.filter((c) => this.isPc(c.id) || this.roster.isCoplayer(c.id) || this.roster.isNpc(c.id)).map((c) => c.name);
+    const scenes = ((await this.api.scenes(this.channelId).catch(() => [])) ?? []).filter((x) => x.title || x.summary)
+      .sort((a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0));
+    const scenarios = scenes.map((x, i) => ({ key: `S${i + 1}`, id: x.id, title: x.title, location: x.location, time: x.narrative_time, summary: x.summary }));
+    const chapters = readable.flatMap((w) => this.memory.gmChapters(w.id).map((c) => ({ windowId: w.id, window: w.name, fromSeq: c.fromSeq, toSeq: c.toSeq, text: c.text })))
+      .map((c, i) => ({ ...c, key: `C${i + 1}` }));
+    const where = await locatePlot(this.llm, { request, requester: mine, cast, scenarios, chapters });
+    this.log(`picture request: searching ${where.terms.map((t) => `"${t}"`).join(", ") || "(no terms)"}${where.scenario ? ` in ${where.scenario}` : ""}${where.chapter ? `, ${where.chapter}` : ""}`);
+    const chapter = chapters.find((c) => c.key === where.chapter) ?? null;
+    const scene = scenarios.find((x) => x.key === where.scenario) ?? null;
+    // The densest place of the matches, inside the chapter or scenario named when any match falls there.
+    const hits = await this.plotHits(where.terms, ids);
+    const inChapter = chapter ? hits.filter((h) => h.windowId === chapter.windowId && h.seq >= chapter.fromSeq && h.seq <= chapter.toSeq) : [];
+    const inScene = scene ? hits.filter((h) => h.sceneId === scene.id) : [];
+    const place = bestPlace(inChapter.length ? inChapter : inScene.length ? inScene : hits);
+    let windowId = null, lines = [];
+    if (place) { windowId = place.windowId; lines = await this.linesAround(windowId, place.seq); }
+    else if (chapter) { windowId = chapter.windowId; lines = this.history.lines(windowId, { after: chapter.fromSeq - 1, upTo: chapter.toSeq }).filter(drawable); }
+    else if (scene) {
+      const most = readable.map((w) => ({ id: w.id, lines: this.history.lines(w.id).filter((x) => x.scene_id === scene.id && drawable(x)) })).sort((a, b) => b.lines.length - a.lines.length)[0];
+      if (most?.lines.length) ({ id: windowId, lines } = most);
+    }
+    if (!lines.length) return "notFound";
+    const moment = await pickRequestedMoment(this.llm, { language: this.language, request, era: this.channel.era ?? "", cast, window: this.windowName(windowId),
+      lines: scenarioLines(lines, (id) => this.nameOf(id)) });
+    if (!moment.found) return "notFound";
+    this.log(`picture request: drawing ${moment.why || moment.text.slice(0, 80)}`);
+    // Ahead of any scenario picture still waiting; the platform still draws one picture at a time per account.
+    const outcome = await new Promise((done) => {
+      this.illustrationQueue.unshift({ windowId: m.chat_window_id, moment, tries: 0, done });
+      this.drainIllustrations().catch((e) => this.log(`pictures: ${e.message}`));
+    });
+    if (outcome.job) return null;
+    return { unavailable: "unavailable", rate_limited: "rateLimited" }[outcome.failure] ?? "failed";
+  }
+
+  // Lines containing any of `terms` in the windows `ids`, from the local copy and the platform's search of the whole
+  // history: [{windowId, seq, sceneId, terms}], drawable lines only.
+  async plotHits(terms, ids) {
+    const hits = new Map();
+    const add = (m, term) => {
+      if (!m || !ids.has(m.chat_window_id) || !drawable(m)) return;
+      const h = hits.get(m.id) ?? { windowId: m.chat_window_id, seq: Number(m.seq), sceneId: m.scene_id ?? null, terms: new Set() };
+      h.terms.add(term);
+      hits.set(m.id, h);
+    };
+    const wanted = terms.map((t) => [t, t.toLowerCase()]);
+    for (const id of ids) for (const m of this.history.lines(id)) {
+      const text = String(m.content ?? "").toLowerCase();
+      for (const [t, low] of wanted) if (text.includes(low)) add(m, t);
+    }
+    for (const [t] of wanted) for (const m of (await this.api.searchMessages(this.channelId, t).catch(() => null)) ?? []) add(m, t);
+    return [...hits.values()];
+  }
+
+  // The drawable lines of a window around `seq`: from the local copy when it reaches back that far, else read from the
+  // platform (the newest page up to the line, then a page after it found by narrowing the span).
+  async linesAround(windowId, seq, before = 60, after = 60) {
+    let all;
+    const first = this.store.firstSeq(windowId);
+    if (first !== null && first <= seq) all = this.history.lines(windowId);
+    else {
+      const get = async (beforeSeq) => ((await this.api.messages(this.channelId, windowId, 200, beforeSeq).catch(() => null)) ?? []);
+      const prior = await get(seq + 1);
+      let later = [];
+      for (let span = 400, i = 0; i < 6 && span >= 1; i++) {
+        const page = await get(seq + 1 + span);
+        if (page.length >= 200 && (page[0]?.seq ?? Infinity) > seq + 1) { span = Math.floor(span / 4); continue; }   // lines were skipped
+        later = page.filter((x) => x.seq > seq);
+        if (later.length >= after || page.length < 200) break;
+        span *= 2;
+      }
+      const seen = new Set();
+      all = [...prior, ...later].filter((x) => !x.recalled_at && !seen.has(x.id) && seen.add(x.id)).sort((a, b) => a.seq - b.seq);
+    }
+    const lines = all.filter(drawable);
+    let at = lines.findIndex((x) => x.seq >= seq);
+    if (at < 0) at = lines.length;
+    return lines.slice(Math.max(0, at - before), at + after);
   }
 
   // ---- manual commands from the CLI (applied by the run process, or by the CLI itself when no run process is up)
@@ -1984,7 +2137,7 @@ export class Table {
       this.save();
       this.windows = [...this.windows, w];
       this.log(`planner window: opened "${w.name}"`);
-      await this.post(w.id, { content: "🧭 This window is for the story planner, out of character. Tell it where you would like the story to go, or what went against your setting (\"Harriet would never leave a friend behind\", \"there is no magic in this world\"). It reads what you write here the next time it plans, answers here, and the GM keeps to it. No scene is played here. Send /pause to pause hosting until the next player message in the channel.", kind: "ooc" }, { count: false, allowPaused: true });
+      await this.post(w.id, { content: `🧭 This window is for the story planner, out of character. Tell it where you would like the story to go, or what went against your setting ("Harriet would never leave a friend behind", "there is no magic in this world"). It reads what you write here the next time it plans, answers here, and the GM keeps to it. No scene is played here. Send /pause to pause hosting until the next player message in the channel.${this.cfg.illustrations?.enabled !== false && (this.cfg.illustrations?.requestsPerHour ?? 4) > 0 ? " Send /draw (or /画) and a moment from earlier play to have a picture of it drawn here." : ""}`, kind: "ooc" }, { count: false, allowPaused: true });
       return;
     }
     const seated = new Set((w.members ?? []).map((m) => m.user_id));
@@ -2204,7 +2357,7 @@ export class Table {
 
   // ---- improvisation mode
   // The posted world setting is left out of every chat context: the GM and the co-players get it as a section of its own.
-  hiddenLines() { return new Set([...this.improv.published.ids, ...this.pauseLines]); }
+  hiddenLines() { return new Set([...this.improv.published.ids, ...this.pauseLines, ...this.artLines]); }
 
   // `world` command (and `setup` while `run` is up): turns the mode on or off and replaces the setting texts.
   async setWorld({ on, world, secrets }) {
@@ -2494,6 +2647,7 @@ export class Table {
       if (turn?.running) turn.posted.push({ id: m.id, seq: m.seq, kind: m.kind, windowId });
       this.lastPosted = m;
       this.noteLine(m);
+      this.noteArt(m);
       if (this.cfg.verbose) this.log(`posted ${body.kind}${body.visibility && body.visibility !== "window" ? `/${body.visibility}` : ""} in "${this.windowName(windowId)}": ${body.content.slice(0, 100)}`);
       if (count) await this.sleep(this.cfg.postDelayMs);
       return count ? 1 : 0;

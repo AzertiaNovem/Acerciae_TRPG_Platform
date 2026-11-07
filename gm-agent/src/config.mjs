@@ -82,7 +82,7 @@ const SETTINGS = [
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
   ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
   ["improv", null, "modes.improv"], ["world", null, "modes.world_file"], ["secrets", null, "modes.secrets_file"], ["casual", null, "modes.casual"], ["casual-max-delay-minutes", null, "modes.casual_max_delay_minutes"],
-  ["illustrations", null, "illustrations.enabled"], ["illustrations-per-hour", null, "illustrations.max_per_hour"], ["illustrations-allow-cloud", null, "illustrations.allow_cloud"],
+  ["illustrations", null, "illustrations.enabled"], ["illustrations-per-hour", null, "illustrations.max_per_hour"], ["illustrations-allow-cloud", null, "illustrations.allow_cloud"], ["illustrations-requests-per-hour", null, "illustrations.requests_per_hour"],
   ["state-dir", "STATE_DIR", null],
 ];
 const LEGACY_ENV = {
@@ -242,6 +242,8 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
       enabled: bool(pick("illustrations"), true),
       maxPerHour: Math.max(0, Math.min(20, int(pick("illustrations-per-hour", 3), 3))),
       allowCloud: bool(pick("illustrations-allow-cloud"), true),
+      // Pictures of past plots each player may ask for in the planner window an hour ("/画 …"; plotArt.mjs); 0: none.
+      requestsPerHour: Math.max(0, Math.min(20, int(pick("illustrations-requests-per-hour", 4), 4))),
     },
     // Improvisation and casual modes are kept in the state file; these only change them when given (`setup`, `world`,
     // `casual`).

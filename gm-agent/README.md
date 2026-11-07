@@ -322,7 +322,7 @@ recalls itself never start a rollback.
 The platform can draw a moment of the story with the server's image provider: a description, up to four characters
 whose portraits guide the picture, and a frame (landscape, portrait or square). The picture is posted in the window
 as the GM's out-of-character line ("🖼️ " and the description), a little after it was asked for; it never starts a
-turn. The table uses it two ways (`src/illustrations.mjs`):
+turn. The table uses it three ways (`src/illustrations.mjs`, `src/plotArt.mjs`):
 
 - **Evocative moments.** When a moment is truly evocative and beautiful (a breathtaking place revealed, a charged
   meeting, a striking image the players will remember), the GM may have it drawn with `illustrate`, in any scene:
@@ -334,11 +334,29 @@ turn. The table uses it two ways (`src/illustrations.mjs`):
   that its readers saw (no whispers, GM-only notes or other windows), and chooses the moment, the characters in it
   and the frame. All of these pictures are posted in the Main Chat, one after another: the platform draws one
   picture at a time per account, so each waits for the previous one.
+- **On a player's request.** A player writes `/画` (or `/插画`, `/draw`, `/illustrate`) and the moment they want in
+  the planner window: `/画 我们黄昏时抵达灯塔的那一刻`, `/draw the duel on the bridge, as an ink sketch`. The request
+  never reaches the story planner, and the GM does not read it either. The table answers at once ("🎨 Looking for that
+  moment…") and finds the stretch of play, however long ago it was:
+  1. a model call (`plot_search`) reads the scenarios and the GM's chapter summaries, says where the moment most
+     likely is and which words its lines will contain;
+  2. those words are looked up in the table's copy of the chat and in the platform's message search, which reaches
+     the whole history; the place where most of them meet wins;
+  3. a second call (`plot_illustration`) reads the lines around that place (fetched from the platform when they are
+     older than the table's copy), picks the moment, and follows the player's wishes about framing and style where
+     the lines allow.
+
+  The picture is drawn into the planner window as soon as the platform can (ahead of any scenario picture still
+  waiting). Only lines the player can read are drawn on: the Main Chat and the windows they are a member of, said
+  for the whole window, never a whisper, a GM-only note or a phone. The planner window is shared, so every player
+  there sees the picture. If the moment cannot be found, the table says so and asks for a detail or two. A player has
+  one request on its way at a time, and at most `illustrations.requests_per_hour` (4) an hour; `/画` with nothing
+  after it explains the command. A request is not play: it works while the table is paused and does not resume it.
 
 A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
 is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
 illustrations stay off for the rest of the run. `illustrations.allow_cloud` confirms that the descriptions and
-portraits may go to a cloud image service; `illustrations.enabled: false` turns both uses off.
+portraits may go to a cloud image service; `illustrations.enabled: false` turns all three uses off.
 
 ## Timelines and autonomy
 
@@ -783,6 +801,9 @@ or a hidden truth. Who reads the notes:
 
 `status` lists the notes. Every player in the channel can read what the others write there.
 
+A line starting with `/画`, `/插画`, `/draw` or `/illustrate` asks for a picture of a past plot instead; it is no wish
+and the planner never reads it (see Illustrations).
+
 Send `/pause` on its own in this window to pause the channel. It cancels current and queued GM, co-player
 and planner generation. Phone messages whose text and delivery time are already saved still arrive. Their delivery
 does not trigger another reply while paused. The next message from any human player in the channel resumes hosting,
@@ -918,6 +939,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `illustrations.enabled` | `--illustrations` | `true` | evocative moments and the scenario-change pictures (see Illustrations) |
 | `illustrations.max_per_hour` | `--illustrations-per-hour` | `3` | pictures the GM may ask for in play each hour (0: none in play; scenario pictures are not counted) |
 | `illustrations.allow_cloud` | `--illustrations-allow-cloud` | `true` | descriptions and portraits may go to a cloud image service |
+| `illustrations.requests_per_hour` | `--illustrations-requests-per-hour` | `4` | pictures of past plots each player may ask for with `/画` in the planner window each hour (0: the command is off) |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
 | `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the GM's secrets, read by `setup` and `world` (relative to the file) |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |

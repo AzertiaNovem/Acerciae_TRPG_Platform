@@ -42,6 +42,8 @@ export class MockLlm {
       case "scene_handoff": return JSON.stringify(this.handoff(JSON.parse(messages[0].content)));
       case "coplayer_build": return JSON.stringify({ dnd: this.dndBuild() });
       case "scenario_illustration": return JSON.stringify(this.scenarioMoment(user));
+      case "plot_search": return JSON.stringify(this.plotSearch(user));
+      case "plot_illustration": return JSON.stringify(this.plotMoment(user));
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
       case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
@@ -49,6 +51,19 @@ export class MockLlm {
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }
+  }
+
+  // A past plot a player asked for: the request's long words are the search terms; the moment is the first line of
+  // play that has one of them, or none.
+  plotWords(user) { return (user.match(/^THE PLAYER'S REQUEST: (.*)$/m)?.[1] ?? "").toLowerCase().split(/[\s,.;:!?，。；：！？]+/).filter((w) => w.length >= 6); }
+  plotSearch(user) { return { terms: this.plotWords(user).slice(0, 4), scenario: null, chapter: null }; }
+  plotMoment(user) {
+    const words = this.plotWords(user);
+    const play = (user.split(/\nPLAY[^\n]*\(oldest first\):\n/)[1] ?? "").trim().split("\n");
+    const line = play.find((l) => words.some((w) => l.toLowerCase().includes(w)));
+    if (!line) return { found: false };
+    const cast = (user.match(/^CAST: (.*)$/m)?.[1] ?? "").split(", ").filter((n) => n && n !== "(none named)");
+    return { found: true, moment: `[mock picture] ${line.replace(/^[^:]*: /, "").slice(0, 200)}`, who: cast.slice(0, 1), orientation: "landscape", why: "[mock] the line the request names" };
   }
 
   // The best moment of a scenario: its last line of play, with the first character of the cast in it.
