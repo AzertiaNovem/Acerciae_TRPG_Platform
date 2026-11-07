@@ -20,6 +20,9 @@ export class MockLlm {
       case "pbta_design": {
         const {template:pack,public_world:world}=JSON.parse(messages[0].content);
         for (const move of pack.moves) move.playerChoiceBands=[];
+        // As many playbooks as the design asks for (one per character plus spares for the human players).
+        const want=Number(system.match(/Design at least (\d+) playbooks/)?.[1] ?? 0);
+        for (let i=pack.books.length;i<want;i++) pack.books.push({id:`mockbook${i+1}`,name:`[mock] Playbook ${i+1}`});
         pack.name="[mock] "+world.slice(0,24);
         return JSON.stringify({pack,reasons:["[mock] Preview the world's title before setup.","[mock] The starter moves exercise both rolled and diceless play."]});
       }
