@@ -40,7 +40,7 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   await rejects(draw(p1, main, { prompt: "x".repeat(1501) }), 400);
   await rejects(draw(p1, main, { prompt: "Ada", orientation: "diagonal" }), 400);
   await rejects(draw(p1, main, { prompt: "Ada", character_ids: ["not-a-uuid"] }), 400);
-  await rejects(draw(p1, main, { prompt: "Ada", character_ids: [1, 2, 3, 4, 5].map((n) => `00000000-0000-4000-8000-00000000000${n}`) }), 400);   // at most four
+  await rejects(draw(p1, main, { prompt: "Ada", character_ids: [1, 2, 3, 4, 5, 6, 7].map((n) => `00000000-0000-4000-8000-00000000000${n}`) }), 400);   // at most six
   await rejects(draw(p1, main, { prompt: "Ada", character_ids: ["00000000-0000-4000-8000-000000000009"] }), 400);   // not in this channel
   await rejects(draw(p1, main, { prompt: "Tom at the bar", character_ids: [npc.id] }), 403);   // players picture player characters only
 

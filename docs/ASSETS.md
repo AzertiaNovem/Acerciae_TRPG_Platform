@@ -99,7 +99,7 @@ on the same browser it is emptied first. Personal settings show its size with a 
 ## Illustrations in chat
 
 **🖼 Illustrate** in the chat composer (shown when the server has an image provider) lets any member who may post in
-the window draw a moment of the story: they pick up to four characters as visual references (players: player
+the window draw a moment of the story: they pick up to six characters as visual references (players: player
 characters; the GM: NPCs too), describe the pose, action, place and light, and choose landscape, portrait or square.
 
 - **The prompt** (`chat/Illustrations.cpp`, `illustrationPrompt`) keeps the requester's description and adds the

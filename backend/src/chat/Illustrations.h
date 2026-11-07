@@ -9,7 +9,7 @@ namespace acerciae {
 class ChatService;
 namespace logstudio { class CreativeService; class MediaService; }
 
-// Illustrations in chat: a member describes a moment (pose, action, place, light), picks up to four characters as
+// Illustrations in chat: a member describes a moment (pose, action, place, light), picks up to six characters as
 // visual references, and the image-generation provider draws it. The platform adds its own direction, which asks the
 // model to dare an unexpected viewpoint rather than a plain front view, and each character's appearance; their main
 // portraits go along as identity references. When the picture is ready it is posted in the chat window as an
@@ -23,7 +23,7 @@ std::string illustrationIdentity(const std::vector<IllustrationCharacter>& chara
 
 class IllustrationService {
 public:
-    static constexpr int kMaxCharacters = 4, kMaxPromptChars = 1500, kPerHour = 20;
+    static constexpr int kMaxCharacters = 6, kMaxPromptChars = 1500, kPerHour = 20;
     IllustrationService(Db& db, AuthService& auth, ChatService& chat, logstudio::CreativeService& creative, logstudio::MediaService& media)
         : db_(db), auth_(auth), chat_(chat), creative_(creative), media_(media) {}
     // body: {prompt, character_ids[], orientation: landscape|portrait|square, allow_cloud, request_id?}

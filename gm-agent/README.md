@@ -319,7 +319,7 @@ recalls itself never start a rollback.
 
 ## Illustrations
 
-The platform can draw a moment of the story with the server's image provider: a description, up to four characters
+The platform can draw a moment of the story with the server's image provider: a description, up to six characters
 whose portraits guide the picture, and a frame (landscape, portrait or square). The picture is posted in the window
 as the GM's out-of-character line ("🖼️ " and the description), a little after it was asked for; it never starts a
 turn. The table uses it three ways (`src/illustrations.mjs`, `src/plotArt.mjs`):
