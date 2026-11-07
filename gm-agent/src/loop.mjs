@@ -406,7 +406,16 @@ export class Table {
       this.save();
     }
     if (ev.type === "message.posted") return this.onMessage(ev.message);
+    if (ev.type === "message.recalled") return this.onRecalled(ev.message);
     return undefined;
+  }
+
+  // The author took a line back: its tombstone replaces it in the history, so no prompt quotes it again. A turn still
+  // waiting for a quiet moment in that window waits again, so a corrected line sent right after is answered once.
+  onRecalled(m) {
+    if (!m || m.channel_id !== this.channelId || !m.recalled_at) return undefined;
+    this.history.add(m);
+    return this.timers.has(m.chat_window_id) ? this.schedule(m.chat_window_id) : undefined;
   }
 
   isTrigger(m) {

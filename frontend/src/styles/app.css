@@ -87,6 +87,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); paddi
 .message.ooc .content { color: var(--fg-2); }
 .message.system { background: var(--bg-2); border-left: 3px solid var(--ok); } .message.system .content { color: var(--fg-1); font-size: 13px; }
 .message.gm_only { border-left: 3px solid var(--warn); } .message.whisper { border-left: 3px solid var(--accent-2); }
+.message.recalled { display: flex; justify-content: center; align-items: baseline; gap: 8px; padding: 2px 8px; border: 0; background: none; color: var(--fg-2); font-size: 12px; font-style: italic; }
+.message.recalled button { font-style: normal; }
 .composer { border-top: 1px solid var(--bg-3); background: var(--bg-1); padding: 10px 16px 12px; position: relative; }
 .composer textarea { width: 100%; min-height: 64px; max-height: 220px; resize: vertical; }
 .composer .toolbar { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }

@@ -103,6 +103,7 @@ WORLD STATE: also keep what this group knows to be true NOW about entities. When
             Db::exec(w,"UPDATE ai_jobs SET status='succeeded',llm_calls=$2,result=$3::jsonb,finished_at=now() WHERE id=$1",{jobId,(int64_t)outcome.llmCalls,json::dump(result)});
         });
         result["status"]="succeeded"; groupsProcessed_++;
+        forgetRecalled(channelId,sources);
     } catch(const std::exception& e) {
         ALOG_WARN << "player group observer job failed: " << e.what();
         try {
