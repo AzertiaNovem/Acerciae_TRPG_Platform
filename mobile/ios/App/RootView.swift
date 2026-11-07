@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import AcerciaeCore
 
 private let ink = Color(red: 0.07, green: 0.086, blue: 0.098)
@@ -82,9 +83,16 @@ struct RootView: View {
             model.foreground = scenePhase == .active
             if scenePhase != .active { model.speech.stopSpeaking(at:.immediate); model.chatNotices = [] }
             guard model.online, scenePhase == .active else { return }
+            model.followRealtime()
             await model.poll(forceCatalog: true)
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(4)) } catch { break }
+                // A push (or a reconnect) wakes the loop within a quarter second; while the chat stream is live the
+                // timed poll is only a safety net. The stream follows whichever channel is on screen.
+                var waited = 0.0
+                repeat {
+                    do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                    waited += 0.25; model.followRealtime()
+                } while !model.pushPending && waited < (model.pushConnected ? 30 : 4)
                 await model.poll()
             }
         }
@@ -344,6 +352,16 @@ private struct MessageBubble: View {
     private var ooc: Bool { message.kind == "ooc" }
     private var name: String { (ooc ? nil : message.characterName) ?? message.authorName }
     var body: some View {
+        if message.recalled {
+            // Taken back by its author: one quiet line in its place; the author can edit the text again.
+            HStack(spacing: 8) {
+                Text(mine ? tr("You recalled a message") : tr("{name} recalled a message").replacingOccurrences(of: "{name}", with: name))
+                    .font(.caption).italic().foregroundStyle(.secondary)
+                if mine && model.recallDrafts[message.id] != nil { Button(tr("Re-edit")) { model.reedit(message.id) }.font(.caption) }
+            }.frame(maxWidth: .infinity)
+        } else { bubble }
+    }
+    private var bubble: some View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 36) } else { avatar }
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
@@ -362,6 +380,7 @@ private struct MessageBubble: View {
                     .background(mine ? Color(red: 0.21, green: 0.26, blue: 0.22) : panelColor,
                         in: UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: mine ? 18 : 5,
                                                    bottomTrailingRadius: mine ? 5 : 18, topTrailingRadius: 18))
+                    .modifier(RecallMenu(enabled: model.canRecall(message), text: message.displayText) { Task { await model.recall(message) } })
                 }
             }
             if mine { avatar } else { Spacer(minLength: 36) }
@@ -374,6 +393,22 @@ private struct MessageBubble: View {
     }
 }
 
+/// A long press on one of the user's own lines, while it can still be recalled, offers "Recall" (and "Copy", which the
+/// menu takes over from text selection). Other lines keep plain text selection.
+private struct RecallMenu: ViewModifier {
+    let enabled: Bool
+    let text: String
+    let recall: () -> Void
+    func body(content: Content) -> some View {
+        if enabled {
+            content.contextMenu {
+                Button { UIPasteboard.general.string = text } label: { Label(tr("Copy"), systemImage: "doc.on.doc") }
+                Button(role: .destructive, action: recall) { Label(tr("Recall"), systemImage: "arrow.uturn.backward") }
+            }
+        } else { content }
+    }
+}
+
 private struct ChatReferenceView: View {
     let messageId: String
     @ObservedObject var model: AppModel
@@ -382,9 +417,12 @@ private struct ChatReferenceView: View {
     private var message: Message? {
         unavailable ? nil : original ?? model.campaign?.messages.first { $0.id == messageId }
     }
+    private var recalled: Bool { model.campaign?.messages.first { $0.id == messageId }?.recalled == true }
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            if let message {
+            if recalled {
+                Text(tr("This message was recalled.")).font(.caption).foregroundStyle(.secondary)
+            } else if let message {
                 Text((message.kind == "ooc" ? nil : message.characterName) ?? message.authorName)
                     .font(.caption2).lineLimit(1)
                 Text(message.displayText).font(.caption).lineLimit(2).textSelection(.enabled)

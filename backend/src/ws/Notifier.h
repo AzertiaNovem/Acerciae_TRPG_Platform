@@ -13,6 +13,9 @@ public:
     explicit Notifier(Db& db) : db_(db) {}
     // chat stream
     void messagePosted(const Json::Value& message);                      // audience from message visibility
+    // The author took a line back: `message` is its tombstone (text erased, recalled_at set), sent to everyone who
+    // could read the line (`message.recalled`, or `spectate.recalled` on the spectator feed).
+    void messageRecalled(const Json::Value& message);
     void knowledgeChanged(const std::string& channelId);
     void windowChanged(const std::string& channelId, const Json::Value& window);
     void initiativeChanged(const std::string& channelId, const std::string& windowId);   // invalidation only: members refetch
@@ -44,6 +47,7 @@ public:
     std::vector<std::string> windowUsers(const std::string& chatWindowId);
     std::vector<std::string> usersOfCharacters(const std::vector<std::string>& characterIds);
 private:
+    void deliverMessage(const Json::Value& message, const char* type, const char* spectateType);
     Db& db_;
 };
 

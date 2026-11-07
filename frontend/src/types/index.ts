@@ -110,6 +110,10 @@ export interface Message {
   character_id: string | null; character_name: string | null; character_avatar_asset_id?: string | null; character_avatar_version?: number | null; character_avatar_hash?: string | null; author_name: string; author_avatar_version?: number; author_avatar_hash?: string | null; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
   content: string; visibility: 'window' | 'gm_only' | 'whisper'; whisper_to: string[]; seq: number; created_at: string;
   dice?: DiceResult | null;
+  // Recalled by its author: a tombstone (empty content, no dice or references) kept in the line's place.
+  recalled_at?: string | null;
+  // Seconds left, when the message arrived, for its author to recall it; null when it cannot be recalled.
+  recall_seconds_left?: number | null;
 }
 export interface DiceResult { type: string; command: string; text: string; hidden?: boolean; [k: string]: unknown }
 export interface Scene { id: string; title: string; location: string; narrative_time: string; status: 'active' | 'closed'; summary: string; off_module: boolean; sequence: number; event_count?: number; windows?: { chat_window_id: string; name: string }[] | null; auto_detected?: boolean; stage_reason?: string; summary_status?: 'none' | 'pending' | 'ready' | 'gm_edited'; summary_llm_mode?: string; key_points?: string[]; created_at?: string; closed_at?: string | null }

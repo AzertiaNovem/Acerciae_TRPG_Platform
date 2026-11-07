@@ -21,6 +21,7 @@ let audio: AudioContext | null = null;
 let playing: AudioBufferSourceNode | null = null;
 let queue: number[] = [];                        // ids waiting to be played, in order
 const ready = new Map<number, AudioBuffer>();    // synthesized, not played yet
+const ofMessage = new Map<string, number>();     // chat message id -> its queued line
 let nextId = 1;
 let generation = 0;                              // bumped on stop: answers for older lines are dropped
 let lastSpeaker: string | null = null;
@@ -93,7 +94,7 @@ function playNext() {
 
 function stop() {
   generation++;
-  queue = []; ready.clear(); lastSpeaker = null;
+  queue = []; ready.clear(); ofMessage.clear(); lastSpeaker = null;
   try { playing?.stop(); } catch { /* already ended */ }
   playing = null;
 }
@@ -112,7 +113,16 @@ export function speakMessage(m: Message, me: string | undefined, channelId: stri
   if (!line) return;
   lastSpeaker = line.speaker;
   const id = nextId++;
-  queue.push(id);
+  queue.push(id); ofMessage.set(m.id, id);
+  if (ofMessage.size > 100) ofMessage.delete(ofMessage.keys().next().value!);   // only recent lines can still be queued
   if (queue.length > 20) { const dropped = queue.shift()!; ready.delete(dropped); }   // far behind: skip the oldest
   worker.postMessage({ type: 'speak', id, text: line.text, voice: s.voice, speed: 1, model: s.model });
+}
+
+/** A line its author recalled is not read if it has not started yet. */
+export function forgetSpokenMessage(messageId: string) {
+  const id = ofMessage.get(messageId);
+  if (id === undefined) return;
+  ofMessage.delete(messageId);
+  queue = queue.filter((q) => q !== id); ready.delete(id);
 }

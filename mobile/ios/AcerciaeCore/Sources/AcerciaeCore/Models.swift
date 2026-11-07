@@ -49,7 +49,12 @@ public struct Message: Codable, Identifiable, Sendable {
     public var dice: JSONValue? = nil
     public var visibility: String? = nil
     public var referenceIds: [String]? = nil
-    public var displayText: String { dice?["text"].string ?? (diceTone == .notice ? "" : content) }
+    /// Recalled by its author: a tombstone (no text, dice or references) kept in the line's place.
+    public var recalledAt: String? = nil
+    /// Seconds left, when the message arrived, for its author to recall it; nil when it cannot be recalled.
+    public var recallSecondsLeft: Int? = nil
+    public var recalled: Bool { recalledAt != nil }
+    public var displayText: String { recalled ? "" : dice?["text"].string ?? (diceTone == .notice ? "" : content) }
     public init(id: String, content: String, authorName: String, characterName: String?, kind: String, seq: Int64) {
         self.id = id; self.content = content; self.authorName = authorName
         self.characterName = characterName; self.kind = kind; self.seq = seq

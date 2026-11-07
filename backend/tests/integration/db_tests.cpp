@@ -14,6 +14,7 @@
 #include "logstudio/MediaService.h"
 #include "auth/AuthService.h"
 #include "chat/ChatService.h"
+#include "chat/Recall.h"
 #include "scenes/SceneManager.h"
 #include "scenes/ScenarioService.h"
 #include "reminders/ReminderService.h"
@@ -1336,6 +1337,49 @@ int main() {
         auto again = cleanup.runOnce(true);
         CHECK(again.characterImages == 0); CHECK(again.oldVersions == 0); CHECK(again.orphans == 0);
         S.objectStore->remove(youngOrphan); S.objectStore->remove(foreign);
+    });
+
+    test("recall: two minutes, the author only, not rolls; what cites the line is dismissed; a batch that held it forgets it", [&] {
+        auto line = say(p1User, mainWin, "I wave at the ferryman.");
+        auto id = line["id"].asString(), ev = eventOf(id)["id"].asString();
+        CHECK(line["recall_seconds_left"].asInt() > 0);
+        // A reminder quoting the line and a highlight citing it, as the AI makes them.
+        auto doc = S.db->queryOne("SELECT id FROM documents WHERE channel_id=$1 AND player_group_id IS NULL AND doc_type='clue_journal'", {channelId})["id"].asString();
+        auto reminder = S.db->queryOne("INSERT INTO reminders(channel_id, kind, title, citations, dedupe_key) VALUES($1,'note','Ferryman',$2::jsonb,'recall-test') RETURNING id",
+            {channelId, "[{\"event_id\":\"" + ev + "\",\"quotes\":[\"wave at the ferryman\"]}]"})["id"].asString();
+        auto highlight = S.db->queryOne("INSERT INTO highlights(channel_id, document_id, reason, source_event_ids, expires_at) VALUES($1,$2,'ferryman',$3::uuid[],now()+interval '1 hour') RETURNING id",
+            {channelId, doc, "{" + ev + "}"})["id"].asString();
+        auto refused = [&](const ChannelAccess& who, const std::string& mid) { try { S.chat->recallMessage(who, mid); } catch (const ApiError& e) { return e.code(); } return std::string(); };
+        auto p2 = S.auth->channelAccess(p2User, channelId);
+        CHECK(!S.chat->getMessage(p2, id).isNull());   // they can read it, but it is not theirs
+        CHECK(refused(gm, id) == "forbidden"); CHECK(refused(p2, id) == "forbidden");
+        auto done = S.chat->recallMessage(p1, id);
+        CHECK(done["content"] == "I wave at the ferryman."); CHECK(done["message"]["content"] == ""); CHECK(!done["message"]["recalled_at"].isNull());
+        CHECK(eventOf(id).isNull());
+        auto r = S.db->queryOne("SELECT status, version FROM reminders WHERE id=$1", {reminder});
+        CHECK(r["status"] == "dismissed"); CHECK(r["version"].asInt() == 2);
+        CHECK(!S.db->queryOne("SELECT 1 AS x FROM reminder_revisions WHERE reminder_id=$1 AND action='dismissed'", {reminder}).isNull());
+        CHECK(S.db->queryOne("SELECT dismissed FROM highlights WHERE id=$1", {highlight})["dismissed"].asBool());
+
+        // After two minutes the line stays; a dice roll stays from the start.
+        auto old = say(p1User, mainWin, "I said this a while ago.");
+        S.db->exec("UPDATE messages SET created_at=now()-interval '3 minutes' WHERE id=$1", {old["id"].asString()});
+        CHECK(S.chat->getMessage(p1, old["id"].asString())["recall_seconds_left"].isNull());
+        CHECK(refused(p1, old["id"].asString()) == "recall_expired");
+        auto roll = say(gmUser, mainWin, ".r 1d6");
+        CHECK(roll["recall_seconds_left"].isNull()); CHECK(refused(gm, roll["id"].asString()) == "not_recallable");
+
+        // A recall that lands while an observer batch holds the line: gone() names it, forget() retracts the entry.
+        auto clue = say(gmUser, mainWin, "Alpha, you notice a rusted anchor chain under the pier.", "narration");
+        auto clueEvent = eventOf(clue["id"].asString())["id"].asString();
+        S.observer->observeChannel(channelId, true);
+        auto entry = [&] { return S.db->queryOne("SELECT de.removed FROM document_entries de JOIN knowledge_facts f ON f.id=de.fact_id WHERE f.channel_id=$1 AND f.player_group_id IS NULL AND f.source_event_ids @> $2::uuid[]", {channelId, "{" + clueEvent + "}"}); };
+        CHECK(!entry().isNull() && !entry()["removed"].asBool());
+        S.db->exec("DELETE FROM events WHERE id=$1", {clueEvent});
+        auto gone = recall::gone(*S.db, channelId, {clueEvent, eventOf(old["id"].asString())["id"].asString()});
+        CHECK(gone.size() == 1 && gone[0] == clueEvent);
+        recall::forget(*S.db, *S.documents, *S.notifier, channelId, gone);
+        CHECK(entry()["removed"].asBool());
     });
 
     std::cout << passed << " checks passed, " << failures << " failed\n";

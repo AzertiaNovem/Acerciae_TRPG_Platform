@@ -77,8 +77,16 @@ public:
     // messages
     Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq, bool includeHistory = true);
     Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling = {});
-    Json::Value getMessage(const ChannelAccess& a, const std::string& messageId);
+    Json::Value getMessage(const ChannelAccess& a, const std::string& messageId);   // 404 once recalled
     Json::Value searchMessages(const ChannelAccess& a, const std::string& query, int limit);
+    // Recall: the author takes back their own line (ic, ooc or narration; not dice rolls, system lines or a PbtA
+    // move's record) within kRecallSeconds of sending it. The row becomes a tombstone: text, dice and references
+    // erased, `recalled_at` set, its events and campaign-log copies deleted; everyone who could read it is told
+    // (Notifier::messageRecalled) and what the AI made of it is forgotten (recall::forget). Returns
+    // {message: tombstone, content: the original text, for the author to edit and send again}. Repeating it is a no-op.
+    // Every message row carries `recall_seconds_left`: seconds until it can no longer be recalled, null when it cannot.
+    static constexpr int kRecallSeconds = 120;
+    Json::Value recallMessage(const ChannelAccess& a, const std::string& messageId);
     struct Policy { std::string join = "invite", channelCreation = "members"; bool guestInvites = false, spectators = false; };
     Policy policy(const std::string& serverId);
 private:

@@ -176,6 +176,22 @@ test("a player's line starts one turn: the GM answers with the whole GM context,
   assert.ok(followup.includes("NEWEST LINE: Harriet Vance"), "and sees their lines as the newest");
 });
 
+test("a recalled line leaves the table: no later prompt quotes it, even after a sync of the window", async () => {
+  const { t, api, llm } = await table();
+  await playerSays(t, api, "I whisper TYPO-WRONG-NAME to the butler.");
+  const said = api.lines.find((m) => m.content.includes("TYPO-WRONG-NAME"));
+  const tombstone = { ...said, content: "", recalled_at: "2026-11-07T00:00:00Z", recall_seconds_left: null };
+  api.lines[api.lines.indexOf(said)] = tombstone;   // what the platform now returns for it
+  t.onEvent({ stream: "chat", type: "message.recalled", channel_id: "ch", message: tombstone });
+  llm.calls.length = 0;
+  await playerSays(t, api, "I ask the butler about the clock.");
+  const prompts = llm.calls.map((c) => (c.system ?? "") + c.messages.map((m) => m.content).join("\n")).join("\n");
+  assert.ok(prompts.includes("about the clock"), "the next line is read");
+  // (The mock GM's reply, posted before the recall, quotes the line; the line itself must be gone from every log.)
+  assert.ok(!prompts.includes(`#${said.seq} `), "the recalled line is in no chat log");
+  assert.ok(!t.history.lines(said.chat_window_id).some((m) => m.id === said.id));
+});
+
 test("lines the client posts never start a turn", async () => {
   const { t, api } = await table();
   await playerSays(t, api, "Hello?");

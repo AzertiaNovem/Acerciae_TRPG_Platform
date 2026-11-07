@@ -39,6 +39,7 @@ export default function ChatReference({channelId,messageId}:{channelId:string;me
       useChat.getState().requestJump(original.id);
     } catch {if(!isStale(epoch))setResolved({key,message:null});} finally {if(!isStale(epoch))setBusy(false);}
   };
+  if (cached?.recalled_at) return <div className="chat-reference"><span className="tiny muted">{t('This message was recalled.')}</span></div>;
   return <div className="chat-reference">
     {!message && !unavailable && <span className="tiny muted" role="status">{t('Loading…')}</span>}
     {unavailable && <span className="tiny muted">{t('Reference unavailable for your current view.')}</span>}

@@ -20856,6 +20856,102 @@
       "Voice ID (empty = silent)",
       "Voice ID (empty = silent)"
     ],
+    "Recall": [
+      "撤回",
+      "收回",
+      "送信取消",
+      "전송 취소",
+      "Retirar",
+      "Retirer",
+      "Zurückziehen",
+      "Отозвать",
+      "Retirar",
+      "Ritira"
+    ],
+    "Take this message back from everyone in this chat": [
+      "从此聊天中所有人那里撤回这条消息",
+      "從此聊天中所有人那裡收回這則訊息",
+      "このチャットの全員からこのメッセージを取り消します",
+      "이 채팅의 모든 사람에게서 이 메시지를 회수합니다",
+      "Retirar este mensaje para todos en este chat",
+      "Retirer ce message pour tout le monde dans ce chat",
+      "Diese Nachricht für alle in diesem Chat zurückziehen",
+      "Отозвать это сообщение у всех в этом чате",
+      "Retirar esta mensagem para todos neste chat",
+      "Ritira questo messaggio per tutti in questa chat"
+    ],
+    "You recalled a message": [
+      "你撤回了一条消息",
+      "你收回了一則訊息",
+      "メッセージの送信を取り消しました",
+      "메시지 전송을 취소했습니다",
+      "Retiraste un mensaje",
+      "Vous avez retiré un message",
+      "Du hast eine Nachricht zurückgezogen",
+      "Вы отозвали сообщение",
+      "Você retirou uma mensagem",
+      "Hai ritirato un messaggio"
+    ],
+    "{name} recalled a message": [
+      "{name} 撤回了一条消息",
+      "{name} 收回了一則訊息",
+      "{name}がメッセージの送信を取り消しました",
+      "{name}님이 메시지 전송을 취소했습니다",
+      "{name} retiró un mensaje",
+      "{name} a retiré un message",
+      "{name} hat eine Nachricht zurückgezogen",
+      "{name} отозвал(а) сообщение",
+      "{name} retirou uma mensagem",
+      "{name} ha ritirato un messaggio"
+    ],
+    "Re-edit": [
+      "重新编辑",
+      "重新編輯",
+      "再編集",
+      "다시 편집",
+      "Volver a editar",
+      "Modifier à nouveau",
+      "Erneut bearbeiten",
+      "Изменить снова",
+      "Editar novamente",
+      "Modifica di nuovo"
+    ],
+    "This message was recalled.": [
+      "这条消息已被撤回。",
+      "這則訊息已被收回。",
+      "このメッセージは取り消されました。",
+      "이 메시지는 전송이 취소되었습니다.",
+      "Este mensaje fue retirado.",
+      "Ce message a été retiré.",
+      "Diese Nachricht wurde zurückgezogen.",
+      "Это сообщение было отозвано.",
+      "Esta mensagem foi retirada.",
+      "Questo messaggio è stato ritirato."
+    ],
+    "Messages can only be recalled within 2 minutes of sending.": [
+      "消息只能在发送后 2 分钟内撤回。",
+      "訊息只能在傳送後 2 分鐘內收回。",
+      "メッセージは送信後 2 分以内にのみ取り消せます。",
+      "메시지는 보낸 후 2분 이내에만 전송을 취소할 수 있습니다.",
+      "Los mensajes solo se pueden retirar en los 2 minutos siguientes a su envío.",
+      "Un message ne peut être retiré que dans les 2 minutes qui suivent son envoi.",
+      "Nachrichten können nur innerhalb von 2 Minuten nach dem Senden zurückgezogen werden.",
+      "Сообщение можно отозвать только в течение 2 минут после отправки.",
+      "As mensagens só podem ser retiradas até 2 minutos após o envio.",
+      "I messaggi possono essere ritirati solo entro 2 minuti dall'invio."
+    ],
+    "This message can't be recalled.": [
+      "这条消息无法撤回。",
+      "這則訊息無法收回。",
+      "このメッセージは取り消せません。",
+      "이 메시지는 전송을 취소할 수 없습니다.",
+      "Este mensaje no se puede retirar.",
+      "Ce message ne peut pas être retiré.",
+      "Diese Nachricht kann nicht zurückgezogen werden.",
+      "Это сообщение нельзя отозвать.",
+      "Esta mensagem não pode ser retirada.",
+      "Questo messaggio non può essere ritirato."
+    ],
     "Channel settings": [
       "频道选项",
       "頻道選項",
@@ -22859,6 +22955,30 @@
       "PbtA · Редактируйте буклет в веб-версии или настольном приложении.",
       "PbtA · Edite a cartilha na web ou no aplicativo de computador.",
       "PbtA · Modifica il libretto nell’app web o desktop."
+    ],
+    "Connected · live updates": [
+      "已连接 · 实时推送",
+      "已連線 · 即時推送",
+      "接続済み · リアルタイム更新",
+      "연결됨 · 실시간 업데이트",
+      "Conectado · actualizaciones en vivo",
+      "Connecté · mises à jour en direct",
+      "Verbunden · Live-Aktualisierung",
+      "Подключено · обновления в реальном времени",
+      "Conectado · atualizações em tempo real",
+      "Connesso · aggiornamenti in tempo reale"
+    ],
+    "Copy": [
+      "复制",
+      "複製",
+      "コピー",
+      "복사",
+      "Copiar",
+      "Copier",
+      "Kopieren",
+      "Копировать",
+      "Copiar",
+      "Copia"
     ]
   },
   "aliases": {
@@ -24689,6 +24809,14 @@
     "本地配音表": "Local dubbing cast",
     "已保留服务器的声线 ID 和演绎配置。在此改选本地声线，只会清除对应角色的已有配音。": "Server voice IDs and delivery settings are retained. Change a voice here to use your local service; only that speaker’s recordings are cleared.",
     "声线 ID（留空为无配音）": "Voice ID (empty = silent)",
+    "撤回": "Recall",
+    "从此聊天中所有人那里撤回这条消息": "Take this message back from everyone in this chat",
+    "你撤回了一条消息": "You recalled a message",
+    "{name} 撤回了一条消息": "{name} recalled a message",
+    "重新编辑": "Re-edit",
+    "这条消息已被撤回。": "This message was recalled.",
+    "消息只能在发送后 2 分钟内撤回。": "Messages can only be recalled within 2 minutes of sending.",
+    "这条消息无法撤回。": "This message can't be recalled.",
     "暂无 PDF，请先在网页版日志工作室完成渲染": "No PDF yet. Render one in the web Log Studio.",
     "所有聊天窗口进入新阶段，当前阶段将关闭。": "All chat windows enter the new scenario and the current scenario closes.",
     "GM 可邀请服务器成员；服务器管理员还可邀请其他已注册用户。": "GMs can invite server members; server maintainers can also invite other registered users.",
@@ -24806,6 +24934,8 @@
     "作品或 AI 服务已变更，请放弃未完成任务后重新开始": "Project or AI service changed; discard the unfinished task and start again",
     "AI 剧本可能包含私密上下文。请先检查剧本，勾选“包含私密消息”后再分享。": "AI scripts may include private context. Review the script and enable Include secret messages before sharing it.",
     "暂停": "Pause",
-    "PbtA · 请在网页或桌面端编辑角色手册。": "PbtA · Edit the playbook in the web or desktop app."
+    "PbtA · 请在网页或桌面端编辑角色手册。": "PbtA · Edit the playbook in the web or desktop app.",
+    "已连接 · 实时推送": "Connected · live updates",
+    "复制": "Copy"
   }
 }

@@ -108,7 +108,8 @@ Chat messages carry `character_avatar_asset_id` and `character_avatar_version`; 
 | POST | `/channels/{id}/windows/{w}/messages` | `{content, kind: ic|ooc|narration, character_id?, visibility: window|gm_only|whisper, whisper_to?[], reference_ids?: UUID[0..5]}`. When dice are enabled, Sealdice commands are evaluated: `.r [N#]<expr> [reason]`, `.rh` (hidden), `.ra`/`.rc [N#] [hard|extreme|困难|极难] [b|p[n]] <skill> [value][±mod] [reason]`, `.rah`, `.sc <ok>/<fail> [SAN]`, `.st <name><value>…` / `.st <name>±<dice>` / `.st show|del|clr`, `.en <skill>`. In a `dnd2024` channel the D20 commands replace the percentile ones: `.rc`/`.ra [adv|dis] <ability|skill|ABILITY save|attack> [±mod] [dc|ac N] [#reason]`, `.ri`/`.rih [adv|dis] [±mod] [name]` (Initiative, stored per window), `.init [next|del <name>|clr]`, `.ds` (Death Saving Throw), `.ss [<level> [+N|-N]] | .ss reset` (spell slots: list, spend, regain, Long Rest); `.r` and `.st` work in both, and the other system's commands answer 400 `dice_error`. The message keeps the command as `content`, gets `kind: roll` (the only way to get it: `roll` sent without a command is refused) and `dice: {type, command, text, …}`; hidden rolls are whispered to the roller's character and the window gets a `hidden_notice`. Errors (no character, unknown attribute) return 400 `dice_error` |
 | POST | `/channels/{id}/windows/{w}/scene` | deprecated alias of `/scenarios/enter` (`{scene_id}`); scenarios are campaign-wide, the window is ignored |
 | GET | `/channels/{id}/messages?q=` | search |
-| GET | `/channels/{id}/messages/{mid}` | |
+| GET | `/channels/{id}/messages/{mid}` | 404 once the message is recalled |
+| POST | `/channels/{id}/messages/{mid}/recall` | the author takes back their own `ic`, `ooc` or `narration` line up to 2 minutes after sending it; anyone else gets 403, a line the caller cannot read 404, a dice roll, system line or PbtA move record 409 `not_recallable`, a later attempt 409 `recall_expired`. Returns `{message, content}`: the tombstone and the original text (for the author to edit and send again); repeating it returns the tombstone with `content: ""`. The row stays as a tombstone (same `id`, window and `seq`; `content` empty, `dice` null, `reference_ids` empty, `recalled_at` set), so clients replace their copy by id; message lists return it in place, while search, unread counts and references skip it. Its events and campaign-log copies (and with them every snapshot's line) are deleted, so the AI, scene logs and exports never see it again; highlights and reminders citing it are dismissed and Keeper journal entries resting only on recalled lines are retracted (a `system` revision). Copies already published, rendered to PDF or downloaded are not reached. Every message row carries `recall_seconds_left`: seconds until it can no longer be recalled, `null` when it cannot be. |
 
 Window reads, search, references, player knowledge, Log Studio and WebSocket message delivery use the same
 membership intervals. Resume opens a new interval; it never reveals the gap. Fork history additionally checks
@@ -237,9 +238,9 @@ Both return 403 `feature_disabled` when a server maintainer turned the feature o
 | GET | `/channels/{id}/gm/workspace` | modules, scenes vs module, pending hints/proposals, node progress, GM-only facts, recent jobs |
 
 ## WebSocket
-Connect with `?token=` to `/ws/chat` or `/ws/context`, then send `{"type":"subscribe","channel_id":"..."}`.
+Connect with `?token=` (a short-lived file token from `POST /auth/file-token`, as the web and mobile apps do; a session token is also accepted) to `/ws/chat` or `/ws/context`, then send `{"type":"subscribe","channel_id":"..."}`.
 
-Chat stream: `message.posted {message}` (only to users allowed to read it), `window.changed {window}`, `scene.changed {scene}`,
+Chat stream: `message.posted {message}` (only to users allowed to read it), `message.recalled {message}` (the tombstone, to the same audience; spectators get `spectate.recalled`), `window.changed {window}`, `scene.changed {scene}`,
 `character.updated {character}` (attribute changes; NPCs to GMs only), `server.settings {server_id, settings}` (public view), `initiative.changed {chat_window_id}` (refetch the window's Initiative order).
 
 Context stream: `document.updated {document_id, doc_type, version, change_count, entry_ids, gm_only, actor, summary}`,
