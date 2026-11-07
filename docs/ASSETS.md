@@ -125,7 +125,12 @@ characters; the GM: NPCs too), describe the pose, action, place and light, and c
   job keeps `error` "drawn, but not posted". `GET …/messages/{mid}/image` serves the picture only to those who may
   read the line (whispers and private windows stay private; spectators get no picture). The picture's object is AI
   art and lives in the public bucket under an unguessable key, as other generated art does.
-- The mobile apps show the line's text (`🖼️ ` and the description) until they render pictures.
+- **Saving a picture**: the web app shows **Download** under each picture: a browser downloads it (the server names
+  the file `illustration-<date>-<description>.png`), and the desktop app asks where with its own "Save as". On
+  Android, **Save** in the full-screen picture opens the system's file picker (no storage permission). On iOS it opens
+  the share sheet ("Save Image" to Photos, "Save to Files", AirDrop); the app declares
+  `NSPhotoLibraryAddUsageDescription` for that. Both apps save the original bytes from their disk cache under the
+  same kind of name, without the date.
 
 ## Image references and object inventory
 

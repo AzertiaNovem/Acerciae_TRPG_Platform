@@ -444,11 +444,18 @@ void registerRoutes() {
     app().registerHandler("/api/channels/{1}/messages/{2}/image", [&](const HttpRequestPtr& req, Cb&& cb, std::string ch, std::string mid) {
         try {
             auto pr = fileAuth(req); if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
-            auto ac = access(*pr, ch); std::string bytes, mime, direct;
+            auto ac = access(*pr, ch); std::string bytes, mime, direct, name;
             const std::string cc = "private, max-age=86400";   // a line's picture never changes
-            if (!S.illustrations->image(ac, mid, bytes, mime, mayRedirect(req) ? &direct : nullptr)) { cb(errResp(404, "not_found", "no picture")); return; }
+            // ?download=1: the bytes themselves, saved as a file with a readable name (never a bucket redirect, which
+            // would lose the name).
+            const bool download = req->getParameter("download") == "1";
+            if (!S.illustrations->image(ac, mid, bytes, mime, !download && mayRedirect(req) ? &direct : nullptr, &name)) { cb(errResp(404, "not_found", "no picture")); return; }
             if (!direct.empty()) { cb(toBucket(req, direct, true, cc.c_str())); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("X-Content-Type-Options", "nosniff");
+            if (download) {
+                std::string ascii; for (char c : name) ascii += (unsigned char)c < 0x80 && c != '"' ? c : '_';
+                r->addHeader("Content-Disposition", "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + drogon::utils::urlEncodeComponent(name));
+            }
             cb(r);
         } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});

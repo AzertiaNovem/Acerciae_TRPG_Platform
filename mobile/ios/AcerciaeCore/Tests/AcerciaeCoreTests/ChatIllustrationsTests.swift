@@ -24,6 +24,15 @@ final class ChatIllustrationsTests: XCTestCase {
         XCTAssertEqual(ChatIllustrations.caption("🖼️\nA room"), "A room")
         XCTAssertEqual(ChatIllustrations.caption("Text 🖼️ stays"), "Text 🖼️ stays")
     }
+    func testSavedCopiesAreNamedLikeTheServersDownloads() {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        let webp = Data("RIFF\u{0}\u{0}\u{0}\u{0}WEBPVP8 ".utf8)
+        XCTAssertEqual(ChatIllustrations.fileName("🖼️ Ada and Mo whisper on the pier: dusk!", data: png), "illustration-Ada-and-Mo-whisper-on-the-pier-dusk.png")
+        XCTAssertEqual(ChatIllustrations.fileName("🖼️ 艾达/莫", data: jpeg), "illustration-艾达-莫.jpg")
+        XCTAssertEqual(ChatIllustrations.fileName("🖼️ ", data: webp), "illustration.webp")
+        XCTAssertEqual(ChatIllustrations.fileName(String(repeating: "x", count: 100), data: png).count, "illustration-".count + 40 + 4)
+    }
     func testMessageScopedAuthenticatedFetchPersistsAndIsIsolatedByAccount() async throws {
         let path = ChatIllustrations.path(channel: "channel", message: "line")
         let first = try client()

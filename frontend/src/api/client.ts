@@ -179,6 +179,8 @@ export const api = {
   illustrations: (ch: string) => request<T.IllustrationJob[]>('GET', `/api/channels/${ch}/illustrations`),
   cancelIllustration: (ch: string, id: string) => post<{ id: string; status: string }>(`/api/channels/${ch}/illustrations/${id}/cancel`, {}),
   messageImageUrl: (ch: string, messageId: string) => `${apiBase()}/api/channels/${ch}/messages/${messageId}/image?token=${encodeURIComponent(fileToken())}`,
+  // The same picture as a file to save, with a readable name (illustration-<date>-<description>.png).
+  messageImageDownloadUrl: (ch: string, messageId: string) => `${apiBase()}/api/channels/${ch}/messages/${messageId}/image?download=1&token=${encodeURIComponent(fileToken())}`,
   message: (ch: string, id: string) => get<T.Message>(`/api/channels/${ch}/messages/${id}`),
   // The author takes a line back: its tombstone, and the original text to edit and send again.
   recallMessage: (ch: string, id: string) => post<{ message: T.Message; content: string }>(`/api/channels/${ch}/messages/${id}/recall`),

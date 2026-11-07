@@ -8,6 +8,7 @@ import { useUi } from '../store/ui';
 import ChatReference from './ChatReference';
 import type { Message } from '../types';
 import { CachedImg } from './CachedImg';
+import { isDesktop } from '../lib/platform';
 
 // Colour a check by its (last) outcome so successes and failures read at a glance.
 function diceTone(m: Message): string {
@@ -96,8 +97,26 @@ function Illustration({ m, jumped }: { m: Message; jumped: boolean }) {
       {failed ? <div className="muted small">{tr('The picture could not be loaded.')}</div>
         : <a href={url} target="_blank" rel="noopener noreferrer"><img src={url} alt={caption} loading="lazy" onError={() => setFailed(true)} /></a>}
       <figcaption className="content">{caption}</figcaption>
+      {!failed && <div className="row"><DownloadPicture m={m} /></div>}
     </figure>
   );
+}
+
+// Save the picture as a file: the desktop app asks where (its own "Save as"); a browser downloads it, the server
+// naming the file.
+function DownloadPicture({ m }: { m: Message }) {
+  const toast = useUi((s) => s.toast);
+  const href = api.messageImageDownloadUrl(m.channel_id, m.id);
+  const save = async (e: React.MouseEvent) => {
+    if (!isDesktop) return;
+    e.preventDefault();
+    try {
+      const { downloadToFile } = await import('../lib/desktop');
+      const path = await downloadToFile(href);
+      if (path) toast(tr('Saved to {path}', { path }));
+    } catch (err: any) { toast(String(err?.message ?? err), 'error'); }
+  };
+  return <a className="button ghost small" href={href} download onClick={save}>{tr('Download')}</a>;
 }
 
 // Where each window was left in this visit: at its newest line, or up in its history.

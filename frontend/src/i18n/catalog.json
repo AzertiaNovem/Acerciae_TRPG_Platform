@@ -21191,28 +21191,40 @@
     "ex.: Ada e Mo sussurram no cais chuvoso ao entardecer, lanternas balançando atrás deles",
     "es. Ada e Mo sussurrano sul molo piovoso al tramonto, con le lanterne che oscillano alle loro spalle"
   ],
-  "🖼 Drawing…": [
-    "🖼 绘制中……",
-    "🖼 繪製中……",
-    "🖼 描画中…",
-    "🖼 그리는 중…",
-    "🖼 Dibujando…",
-    "🖼 Dessin…",
-    "🖼 Zeichnet …",
-    "🖼 Рисуем…",
-    "🖼 Desenhando…",
-    "🖼 Disegno…"
+  "Drawing…": [
+    "绘制中……",
+    "繪製中……",
+    "描画中…",
+    "그리는 중…",
+    "Dibujando…",
+    "Dessin…",
+    "Zeichnet …",
+    "Рисуем…",
+    "Desenhando…",
+    "Disegno…"
   ],
-  "🖼 Illustrate": [
-    "🖼 插画",
-    "🖼 插畫",
-    "🖼 イラスト",
-    "🖼 그림",
-    "🖼 Ilustrar",
-    "🖼 Illustrer",
-    "🖼 Illustrieren",
-    "🖼 Иллюстрация",
-    "🖼 Ilustrar",
-    "🖼 Illustra"
+  "Illustrate": [
+    "插画",
+    "插畫",
+    "イラスト",
+    "그림",
+    "Ilustrar",
+    "Illustrer",
+    "Illustrieren",
+    "Иллюстрация",
+    "Ilustrar",
+    "Illustra"
+  ],
+  "Saved to {path}": [
+    "已保存到 {path}",
+    "已儲存到 {path}",
+    "{path} に保存しました",
+    "{path}에 저장했습니다",
+    "Guardado en {path}",
+    "Enregistré dans {path}",
+    "Gespeichert unter {path}",
+    "Сохранено: {path}",
+    "Salvo em {path}",
+    "Salvato in {path}"
   ]
 }

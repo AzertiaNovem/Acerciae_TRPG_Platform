@@ -57,6 +57,12 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   assert.equal(img.status, 200); assert.match(img.headers.get("content-type"), /^image\//);
   assert.equal((await picture(p1, ch, line.id)).status, 200);
   assert.equal((await fetch(`${base}/api/channels/${ch}/messages/${line.id}/image`)).status, 401, "a file token is needed");
+  // Saved as a file: the bytes with a readable name, never a redirect.
+  const saved = await fetch(`${base}/api/channels/${ch}/messages/${line.id}/image?download=1&token=${encodeURIComponent(await fileToken(p2))}`, { redirect: "manual" });
+  assert.equal(saved.status, 200); assert.match(saved.headers.get("content-type"), /^image\//);
+  const disposition = saved.headers.get("content-disposition") ?? "";
+  assert.match(disposition, /^attachment; filename="illustration-\d{4}-\d{2}-\d{2}-Ada-and-Mo-whisper-on-the-rainy-pier-at\.png"; filename\*=UTF-8''illustration-/);
+  assert.ok((await saved.arrayBuffer()).byteLength > 0);
   // The picture is the line's, not the media library's: players do not find it there.
   const library = await call(p2, "GET", `/api/channels/${ch}/media`);
   assert.ok(!(library.assets ?? library).some((a) => a.id === line.media_asset_id));
@@ -69,6 +75,7 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   assert.equal((await picture(p1, ch, posted.message_id)).status, 200);
   assert.equal((await picture(gm, ch, posted.message_id)).status, 200);
   assert.equal((await picture(p2, ch, posted.message_id)).status, 404, "Mo's player may not read that line, so not its picture");
+  assert.equal((await fetch(`${base}/api/channels/${ch}/messages/${posted.message_id}/image?download=1&token=${encodeURIComponent(await fileToken(p2))}`)).status, 404, "nor save it");
 
   // The GM may picture an NPC; the job list is each requester's own.
   const tom = await draw(gm, main, { prompt: "Old Tom polishes a glass, seen from behind the bar", character_ids: [npc.id] });
