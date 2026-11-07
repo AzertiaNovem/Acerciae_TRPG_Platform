@@ -1,0 +1,85 @@
+{
+  "_comment": "Chat-stream frames as the backend sends them (captured from a live server): hello, subscribed, a line, its recall (the tombstone: no text, recalled_at set), a window change. Both mobile apps decode these in their tests.",
+  "events": [
+    {
+      "stream": "chat",
+      "type": "hello",
+      "user_id": "5ac3fab5-758c-45b7-bedd-1eb4bf3a3f0d"
+    },
+    {
+      "channel_id": "eeed6fc7-332b-428c-bb89-b36f640fd7b1",
+      "type": "subscribed"
+    },
+    {
+      "channel_id": "eeed6fc7-332b-428c-bb89-b36f640fd7b1",
+      "message": {
+        "author_avatar_hash": null,
+        "author_avatar_version": 0,
+        "author_id": "90645182-d90d-4de1-8b04-41ec5de5d4f3",
+        "author_name": "Ann",
+        "author_role": "player",
+        "channel_id": "eeed6fc7-332b-428c-bb89-b36f640fd7b1",
+        "character_avatar_asset_id": null,
+        "character_avatar_hash": null,
+        "character_avatar_version": null,
+        "character_id": "ceaed1b1-2697-4958-a3cb-7efe83d15603",
+        "character_name": "Ada Vance",
+        "chat_window_id": "23d2dada-df29-4142-840f-963d3ffd7fb3",
+        "content": "I look at teh brass lantern.",
+        "created_at": "2026-11-07T05:30:07.946403+00:00",
+        "dice": null,
+        "edited_at": null,
+        "id": "2ed4f651-d46e-40b8-b233-a03f963cb26b",
+        "kind": "ic",
+        "recall_seconds_left": 120,
+        "recalled_at": null,
+        "reference_ids": [],
+        "scene_id": "a5560959-bd44-4411-803b-b2614f86be79",
+        "search": "'brass':5 'lantern':6 'look':2 'teh':4",
+        "seq": 1,
+        "visibility": "window",
+        "whisper_to": []
+      },
+      "type": "message.posted"
+    },
+    {
+      "channel_id": "eeed6fc7-332b-428c-bb89-b36f640fd7b1",
+      "message": {
+        "author_avatar_hash": null,
+        "author_avatar_version": 0,
+        "author_id": "90645182-d90d-4de1-8b04-41ec5de5d4f3",
+        "author_name": "Ann",
+        "author_role": "player",
+        "channel_id": "eeed6fc7-332b-428c-bb89-b36f640fd7b1",
+        "character_avatar_asset_id": null,
+        "character_avatar_hash": null,
+        "character_avatar_version": null,
+        "character_id": "ceaed1b1-2697-4958-a3cb-7efe83d15603",
+        "character_name": "Ada Vance",
+        "chat_window_id": "23d2dada-df29-4142-840f-963d3ffd7fb3",
+        "content": "",
+        "created_at": "2026-11-07T05:30:07.946403+00:00",
+        "dice": null,
+        "edited_at": null,
+        "id": "2ed4f651-d46e-40b8-b233-a03f963cb26b",
+        "kind": "ic",
+        "recall_seconds_left": null,
+        "recalled_at": "2026-11-07T05:30:08.366957+00:00",
+        "reference_ids": [],
+        "scene_id": "a5560959-bd44-4411-803b-b2614f86be79",
+        "search": "",
+        "seq": 1,
+        "visibility": "window",
+        "whisper_to": []
+      },
+      "type": "message.recalled"
+    },
+    {
+      "type": "window.changed",
+      "channel_id": "eeed6fc7-332b-428c-bb89-b36f640fd7b1",
+      "window": {
+        "id": "23d2dada-df29-4142-840f-963d3ffd7fb3"
+      }
+    }
+  ]
+}

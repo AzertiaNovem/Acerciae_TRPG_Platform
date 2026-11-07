@@ -43,6 +43,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.serialization.json.*
 
 private val Ink = Color(0xFF121619)
@@ -90,7 +92,16 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(state.user?.id) {
         if (state.online) lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             model.foreground = true
-            try { model.poll(forceCatalog = true); while (true) { delay(4000); model.poll() } } finally { model.foreground=false; model.stopSpeech() }
+            try {
+                model.followRealtime(); model.poll(forceCatalog = true)
+                while (true) {
+                    // A push (or a reconnect) wakes the loop within a quarter second; while the chat stream is live the
+                    // timed poll is only a safety net. The stream follows whichever channel is on screen.
+                    var waited = 0L
+                    do { delay(250); waited += 250; model.followRealtime() } while (!model.pushPending && waited < if (model.pushConnected) 30_000L else 4_000L)
+                    model.poll()
+                }
+            } finally { model.foreground=false; model.stopSpeech(); model.stopRealtime() }
         }
     }
     SideEffect { model.chatVisible = page == 0 && detail == null && !drawer.isOpen }
@@ -303,6 +314,15 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     val revision = picture?.version ?: 0
     val hash = picture?.hash.orEmpty()
     val name = (if (ooc) null else message.characterName) ?: message.authorName
+    if (message.recalled) {
+        // Taken back by its author: one quiet line in its place; the author can edit the text again.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Text(if (mine) tr("You recalled a message") else tr("{name} recalled a message").replace("{name}", name),
+                style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9), fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+            if (mine && state.recallDrafts.containsKey(message.id)) TextButton(onClick = { model.reedit(message.id) }) { Text(tr("Re-edit"), style = MaterialTheme.typography.labelSmall) }
+        }
+    } else {
+    var menu by remember(message.id) { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {
         if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()); Spacer(Modifier.width(8.dp)) }
@@ -310,6 +330,11 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
             Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
             Spacer(Modifier.height(6.dp))
+            // A long press on one of the user's own lines, while it can still be recalled, offers "Recall".
+            Box(Modifier.pointerInput(message.id) { detectTapGestures(onLongPress = { if (model.canRecall(message)) menu = true }) }) {
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text(tr("Recall")) }, onClick = { menu = false; model.recall(message) })
+            }
             if (message.dice != null && message.referenceIds.isNullOrEmpty()) DiceResult(message) else Surface(shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
                 bottomEnd = if (mine) 5.dp else 18.dp, bottomStart = if (mine) 18.dp else 5.dp),
                 color = if (mine) Color(0xFF354337) else Panel) {
@@ -321,8 +346,10 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
                     else Text(message.displayText, style = MaterialTheme.typography.bodyLarge)
                 }
             }
+            }
         }
         if (mine) { Spacer(Modifier.width(8.dp)); ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()) }
+    }
     }
 }
 
@@ -330,6 +357,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     var original by remember { mutableStateOf<Message?>(null) }
     var unavailable by remember { mutableStateOf(false) }
     val message = if (unavailable) null else original ?: state.campaign?.messages?.find { it.id == messageId }
+    val recalled = state.campaign?.messages?.find { it.id == messageId }?.recalled == true
     LaunchedEffect(messageId) {
         try {
             val value = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Message>(
@@ -348,7 +376,8 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         Box(Modifier.width(2.dp).fillMaxHeight().background(Accent.copy(alpha = 0.5f), RoundedCornerShape(1.dp)))
         Column(Modifier.padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            if (message != null) {
+            if (recalled) Text(tr("This message was recalled."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else if (message != null) {
                 Text((if (message.kind == "ooc") null else message.characterName) ?: message.authorName,
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
