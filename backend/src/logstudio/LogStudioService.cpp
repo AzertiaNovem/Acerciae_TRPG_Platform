@@ -1,3 +1,4 @@
+#include "ContentPolicy.h"
 #include "LogStudioService.h"
 #include "../ws/Notifier.h"
 #include "../core/Errors.h"
@@ -383,9 +384,9 @@ Json::Value LogStudioService::listSnapshots(const ChannelAccess& a, const std::s
 std::vector<LogEvent> LogStudioService::snapshotEvents(const ChannelAccess& a, const std::string& snapshotId, Json::Value* snapOut) {
     auto s = db_.queryOne("SELECT * FROM log_snapshots WHERE id=$1 AND channel_id=$2", {snapshotId, a.channelId});
     if (s.isNull()) throw notFound("snapshot not found");
-    if (!a.isGm && s["scope"].asString() == "gm_full") throw forbidden("GM snapshot");
     auto story = storyState(db_, a.channelId);
-    if (!a.isGm && !story.ended && s["scope"].asString() == "character" && std::find(a.characterIds.begin(), a.characterIds.end(), s["scope_character_id"].asString()) == a.characterIds.end()) throw forbidden("snapshot belongs to another character");
+    const bool owns = std::find(a.characterIds.begin(), a.characterIds.end(), s["scope_character_id"].asString()) != a.characterIds.end();
+    if (!contentPolicy::readSnapshot(a.isGm, owns, story.ended, s["scope"].asString())) throw forbidden("snapshot is not visible to this viewer");
     if (snapOut) *snapOut = s;
     // Each line is re-checked for the viewer now: a line hidden later, or never theirs, does not come back.
     auto rows = db_.queryJson("SELECT se.frozen_event FROM log_events e JOIN log_snapshot_events se ON se.log_event_id=e.id WHERE se.snapshot_id=$1 AND " +
@@ -507,9 +508,9 @@ Json::Value LogStudioService::nativeExport(const ChannelAccess& a, const std::ve
         if (!id.isString() || id.asString().empty()) return Json::Value();
         auto k = id.asString();
         if (!mediaLink.count(k)) {
-            auto m = db_.queryOne("SELECT object_key, version, approval_status, visibility_scope FROM media_assets WHERE id=$1 AND channel_id=$2", {k, a.channelId});
-            mediaLink[k] = m.isNull() || m["approval_status"].asString() != "approved" || (!a.isGm && m["visibility_scope"].asString() == "gm") ? Json::Value()
-                : link(m["object_key"].asString(), "/api/channels/" + a.channelId + "/media/" + k + "?v=" + std::to_string(m["version"].asInt()));
+            auto m = db_.queryOne("SELECT object_key, version, approval_status, visibility_scope, source_reference FROM media_assets WHERE id=$1 AND channel_id=$2", {k, a.channelId});
+            mediaLink[k] = m.isNull() || !contentPolicy::exportMedia(m, false) || !contentPolicy::readMedia(a.isGm, false, m) ? Json::Value()
+                : link(contentPolicy::privateArt(m) ? "" : m["object_key"].asString(), "/api/channels/" + a.channelId + "/media/" + k + "?v=" + std::to_string(m["version"].asInt()));
         }
         return mediaLink[k];
     };

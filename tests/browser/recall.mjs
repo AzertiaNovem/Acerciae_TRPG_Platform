@@ -39,6 +39,8 @@ try {
   assert.equal(await other.locator('.chat-reference-drafts').count(),0);
   assert.equal(await other.getByText('Original text to take back.',{exact:true}).count(),0);
   await author.getByRole('button',{name:'Re-edit',exact:true}).click();
+  // Re-edit reaches the controlled textarea through a React effect. Wait for that user-visible state.
+  await author.waitForFunction(() => document.querySelector('.composer textarea')?.value === 'Original text to take back.');
   assert.equal(await author.locator('.composer textarea').inputValue(),'Original text to take back.');
   await other.reload();
   await other.locator('#msg-'+original.id+'.recalled').waitFor();

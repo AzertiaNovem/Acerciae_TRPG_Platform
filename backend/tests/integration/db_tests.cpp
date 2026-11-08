@@ -138,6 +138,30 @@ int main() {
     auto say = [&](const std::string& uid, const std::string& win, const std::string& content, const std::string& kind = "ic") { Json::Value b; b["content"] = content; b["kind"] = kind; return S.chat->postMessage(S.auth->channelAccess(uid, channelId), win, b); };
     auto eventOf = [&](const std::string& messageId) { return S.db->queryOne("SELECT id, audience FROM events WHERE message_id=$1", {messageId}); };
 
+    test("configured administrator names cannot be claimed or released through profile APIs", [&] {
+        Config protectedCfg = cfg; protectedCfg.platformAdmins = {"reserved_operator", "gm" + suffix};
+        AuthService guarded(*S.db, protectedCfg);
+        auto denied = [&](auto fn) { bool rejected=false; try { fn(); } catch(const ApiError& e) { rejected=e.status()==403; } CHECK(rejected); };
+        denied([&] { guarded.registerUser("reserved_operator", "password", "intruder"); });
+        Json::Value b; b["username"]="reserved_operator";
+        denied([&] { guarded.updateProfile(Principal{p1User,"p1","P1"},b); });
+        b["username"]="renamed_operator";
+        denied([&] { guarded.updateProfile(gmP,b); });
+        CHECK(guarded.profile(gmUser)["is_admin"].asBool());
+        CHECK(!guarded.profile(p1User)["is_admin"].asBool());
+        b.removeMember("username"); b["display_name"]="GM";
+        CHECK(guarded.updateProfile(gmP,b)["is_admin"].asBool());
+    });
+    test("invalid channel settings leave rules, cards and messages unchanged", [&] {
+        const auto before=S.chat->getChannel(gm);
+        const auto card=S.db->queryOne("SELECT sheet,role_card FROM characters WHERE id=$1", {c1});
+        const auto messages=S.db->queryOne("SELECT count(*) AS n FROM messages WHERE channel_id=$1", {channelId});
+        Json::Value bad; bad["rule_system"]="dnd2024"; bad["ai_enabled"]=1e30;
+        bool rejected=false; try { S.chat->updateChannel(gm,bad); } catch(const ApiError& e) { rejected=e.status()==400; }
+        CHECK(rejected); CHECK(S.chat->getChannel(gm)==before);
+        CHECK(S.db->queryOne("SELECT sheet,role_card FROM characters WHERE id=$1", {c1})==card);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM messages WHERE channel_id=$1", {channelId})==messages);
+    });
     std::string clueFactId, clueEntryId, clueDocId;
     test("image references migrate once, retain their exact bytes and inventory, and expire completed tasks safely", [&] {
         Json::Value body; body["name"] = "Reference retention";

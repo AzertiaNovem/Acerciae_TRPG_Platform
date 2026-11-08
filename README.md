@@ -85,7 +85,7 @@ Everything is read from environment variables; see [`.env.example`](.env.example
 | `CORS_ORIGINS` | origins allowed to call the API cross-origin (empty = same origin only) |
 | `TRUST_PROXY` | take the client address from the reverse proxy's `X-Real-IP` / `X-Forwarded-For` (login throttling) |
 | `AUTH_REGISTER_PER_HOUR`, `RETENTION_AI_JOB_DAYS`, `RETENTION_AUDIT_DAYS` | registration throttle and retention of old rows |
-| `PLATFORM_ADMINS` | comma-separated usernames of the deployment's administrators: the 🛡 admin panel (storage, database and account use per server and user) and the power to suspend servers and accounts. See [docs/ADMIN.md](docs/ADMIN.md) |
+| `PLATFORM_ADMINS` | comma-separated usernames of existing, verified operator accounts (configured names are reserved): the 🛡 admin panel (storage, database and account use per server and user) and the power to suspend servers and accounts. See [docs/ADMIN.md](docs/ADMIN.md) |
 
 There are no platform AI keys. Each server's maintainers set its language model, embedding model, image and speech providers
 with the server's own keys (sealed at rest, never sent to browsers); a server without a provider runs in **Mock mode** (banner in
@@ -288,6 +288,9 @@ player or video, with your own AI keys). See [desktop/README.md](desktop/README.
 
 ## AI GM client
 
+The original platform-embedded AI GM proposal was abandoned before implementation. The current `gm-agent` is an external client: it reuses the backend HTTP API and WebSocket notifications with ordinary accounts, and runs its own model calls and orchestration. The historical [embedded design](docs/AI_AGENTS_DESIGN.md) is not the current architecture.
+
+
 [`gm-agent/`](gm-agent/README.md) is an optional Node.js client that sits at the table as the GM through the same
 HTTP + WebSocket API the web and mobile apps use. It narrates and voices the NPCs with the GM's full context,
 including the platform's AI tips (board, reminders, script knowledge, documents, highlights). It also plays a chosen
@@ -361,3 +364,5 @@ The integration test `tests/integration/atmosphere.test.mjs` exercises opt-in, f
 The web GM workspace acknowledges imports immediately, shows extraction/structuring/knowledge-preparation stages and actual completed-block counts, and displays completion or failure persistently. You can leave the panel and return later. Concurrent submissions of identical content share one task; failed tasks can be retried without re-uploading. Interrupted imports are recoverable after restart. Long single-page text is split without breaking UTF-8 or original page references. GM-knowledge failures are shown as warnings instead of silently claiming full success.
 
 General LLM output allowance defaults to 8192 tokens; module graph and GM knowledge builds use 32768 tokens with a five-minute call timeout. See [operations](docs/OPERATIONS.md#import-output-allowance) for deployment overrides and [API details](docs/API.md#module-import-progress-and-duplicate-protection) for mobile integration. The existing synchronous text API remains compatible; `async:true` opts into the new immediate response.
+
+The implemented constraint and module-boundary work is mapped in [docs/ENGINEERING_PLAN.md](docs/ENGINEERING_PLAN.md). [docs/CONSTRAINTS.md](docs/CONSTRAINTS.md) records authoritative state, failure behavior and regression entry points. Set `RUN_BROWSER_TESTS=1` when running `scripts/test.sh` to include Chromium/WebKit checks (install `tests/browser` dependencies and Playwright browsers first). Native mobile checks run through Gradle and `mobile/scripts/test-ios.sh`; relevant PRs also run mobile and desktop checks.

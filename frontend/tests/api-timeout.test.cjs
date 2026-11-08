@@ -35,3 +35,8 @@ test('API clears deadlines on success and preserves an upstream error', async ()
   await assert.rejects(failed.request('POST', '/test'), e => e.status === 503 && e.code === 'server_busy');
   assert.equal(failed.timers.size, 0);
 });
+
+test('an HTML gateway 401 is not an API authentication rejection', async () => {
+ const c=client(async()=>({ok:false,status:401,text:async()=>'<html>proxy login</html>'}));
+ await assert.rejects(c.request('GET','/api/auth/me'),e=>e.status===401&&!e.apiResponse);
+});

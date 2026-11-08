@@ -1,0 +1,47 @@
+[
+  {
+    "status": 401,
+    "api_response": true,
+    "clear_session": true
+  },
+  {
+    "status": 401,
+    "api_response": false,
+    "clear_session": false
+  },
+  {
+    "status": 403,
+    "api_response": true,
+    "clear_session": false
+  },
+  {
+    "status": 404,
+    "api_response": true,
+    "clear_session": false
+  },
+  {
+    "status": 408,
+    "api_response": true,
+    "clear_session": false
+  },
+  {
+    "status": 429,
+    "api_response": true,
+    "clear_session": false
+  },
+  {
+    "status": 502,
+    "api_response": false,
+    "clear_session": false
+  },
+  {
+    "status": 503,
+    "api_response": true,
+    "clear_session": false
+  },
+  {
+    "status": 504,
+    "api_response": false,
+    "clear_session": false
+  }
+]

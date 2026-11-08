@@ -4,9 +4,11 @@ import { ensureFileToken, getToken } from './client';
 // Two sockets: chat traffic and context (document/highlight) traffic are kept apart so that a burst of
 // document updates never delays message delivery and vice versa.
 export type WsStream = 'chat' | 'context';
+export type ConnectionPhase = 'idle' | 'connecting' | 'connected' | 'retrying' | 'closed';
 type Listener = (msg: any) => void;
 
 class StreamSocket {
+  phase: ConnectionPhase = 'idle';
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
   private channels = new Set<string>();
@@ -22,7 +24,8 @@ class StreamSocket {
     if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
     this.detach();
     const gen = ++this.generation;
-    if (!getToken()) return;
+    if (!getToken()) { this.phase = 'idle'; return; }
+    this.phase = 'connecting';
     // The URL carries a short-lived file token, never the session token.
     ensureFileToken().then((token) => {
       if (gen !== this.generation || this.closed || !token) return;
@@ -30,7 +33,7 @@ class StreamSocket {
       const base = apiBase() || `${proto}://${location.host}`;
       const ws = new WebSocket(base.replace(/^http/, 'ws') + `/ws/${this.stream}?token=${encodeURIComponent(token)}`);
       this.ws = ws;
-      ws.onopen = () => { this.retry = 1000; for (const c of this.channels) ws.send(JSON.stringify({ type: 'subscribe', channel_id: c })); for (const c of this.spectating) ws.send(JSON.stringify({ type: 'subscribe', channel_id: c, spectate: true })); this.emit({ type: '_open' }); };
+      ws.onopen = () => { this.phase = 'connected'; this.retry = 1000; for (const c of this.channels) ws.send(JSON.stringify({ type: 'subscribe', channel_id: c })); for (const c of this.spectating) ws.send(JSON.stringify({ type: 'subscribe', channel_id: c, spectate: true })); this.emit({ type: '_open' }); };
       ws.onmessage = (ev) => { try { this.emit(JSON.parse(ev.data)); } catch { /* ignore */ } };
       ws.onclose = () => { if (this.ws === ws) { this.ws = null; this.emit({ type: '_close' }); this.scheduleRetry(gen); } };
       ws.onerror = () => ws.close();
@@ -38,11 +41,12 @@ class StreamSocket {
   }
   private scheduleRetry(gen: number) {
     if (this.closed || gen !== this.generation || this.retryTimer) return;
+    this.phase = 'retrying';
     this.retryTimer = setTimeout(() => { this.retryTimer = null; this.connect(); }, this.retry);
     this.retry = Math.min(this.retry * 2, 15000);
   }
-  private detach() { const ws = this.ws; this.ws = null; if (ws) { ws.onclose = null; ws.onmessage = null; ws.onerror = null; ws.close(); } }
-  close() { this.closed = true; this.generation++; if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; } this.detach(); this.channels.clear(); this.spectating.clear(); }
+  private detach() { const ws = this.ws; this.ws = null; if (ws) { ws.onopen = null; ws.onclose = null; ws.onmessage = null; ws.onerror = null; ws.close(); } }
+  close() { this.phase = 'closed'; this.closed = true; this.generation++; if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; } this.detach(); this.channels.clear(); this.spectating.clear(); }
   subscribe(channelId: string) { this.channels.add(channelId); if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'subscribe', channel_id: channelId })); }
   unsubscribe(channelId: string) { this.channels.delete(channelId); if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'unsubscribe', channel_id: channelId })); }
   spectate(channelId: string) { this.spectating.add(channelId); if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'subscribe', channel_id: channelId, spectate: true })); }

@@ -1,6 +1,13 @@
 import XCTest
 @testable import AcerciaeCore
 final class AccessAndNamesTests: XCTestCase {
+    func testSharedClientAccessContract() throws {
+        var root = URL(fileURLWithPath: #filePath); for _ in 0..<5 { root.deleteLastPathComponent() }
+        let fixture = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: root.appendingPathComponent("contracts/fixtures/client-access.json")))
+        for row in fixture["studio"].array { XCTAssertEqual(AccessRules.studio(row["channel"],row["settings"]),row["expected"].text) }
+        for row in fixture["cache"].array { XCTAssertEqual(AssetDiskCache.keepable(row["header"].text),row["keep"] == .bool(true)) }
+    }
+
     private func json(_ s: String) throws -> JSONValue { try JSONDecoder().decode(JSONValue.self, from: Data(s.utf8)) }
     func testEveryServerLanguageAndCanonicalKeys() throws {
         var dir = URL(fileURLWithPath: #filePath); for _ in 0..<5 { dir.deleteLastPathComponent() }

@@ -30,6 +30,20 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select browser checks
+        id: browser
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 - <<'PYCODE'
+          import os, subprocess
+          base = os.environ.get('BASE', '')
+          paths = subprocess.check_output(['git', 'diff', '--name-only', base, 'HEAD'], text=True).splitlines() if base and set(base) != {'0'} else ['frontend/']
+          enabled = any(p.startswith(('frontend/', 'desktop/', 'backend/', 'gm-agent/', 'tests/browser/', 'scripts/test', '.github/workflows/ci.yml')) for p in paths)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output: output.write(f'enabled={str(enabled).lower()}\n')
+          PYCODE
 
       - uses: actions/setup-node@v4
         with:
@@ -72,9 +86,16 @@ jobs:
         if: always()
         run: if command -v ccache >/dev/null; then ccache --show-stats; fi
 
+      - name: Install browser fixtures
+        if: steps.browser.outputs.enabled == 'true'
+        run: |
+          npm ci --prefix tests/browser
+          cd tests/browser && npx playwright install --with-deps chromium webkit
+
       - name: Test (unit, database, HTTP/WebSocket, PDF worker, GM agent, frontend)
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
+          RUN_BROWSER_TESTS: ${{ steps.browser.outputs.enabled == 'true' && '1' || '0' }}
         run: scripts/test.sh postgresql://postgres:postgres@localhost:5432/postgres
 
       - name: Server logs

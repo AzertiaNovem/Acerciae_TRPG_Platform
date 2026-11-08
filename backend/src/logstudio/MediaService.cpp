@@ -1,3 +1,4 @@
+#include "ContentPolicy.h"
 #include "MediaService.h"
 #include "../core/Crypto.h"
 #include "../core/Errors.h"
@@ -48,16 +49,28 @@ static const std::string ASSET_COLS = "id, channel_id, asset_type, source_type, 
 Json::Value MediaService::list(const ChannelAccess& a, const std::string& type, const std::string& characterId, const std::string& approval) {
     std::string sql = "SELECT " + ASSET_COLS + " FROM media_assets WHERE channel_id=$1 AND NOT (source_reference ? 'superseded_by')"; DbParams p{a.channelId};
     // Players never list an NPC's art: the library would otherwise name NPCs they have not met.
-    if (!a.isGm) sql += " AND visibility_scope='channel' AND approval_status='approved' AND (character_id IS NULL OR EXISTS (SELECT 1 FROM characters c WHERE c.id=media_assets.character_id AND c.kind='pc'))";
+    if (!a.isGm) sql += " AND visibility_scope='channel' AND approval_status='approved' AND NOT (source_reference ?| ARRAY['private_presentation_id','private_chat_window_id']) AND (character_id IS NULL OR EXISTS (SELECT 1 FROM characters c WHERE c.id=media_assets.character_id AND c.kind='pc'))";
     if (!type.empty()) { p.push_back(type); sql += " AND asset_type=$" + std::to_string(p.size()); }
     if (!characterId.empty()) { p.push_back(characterId); sql += " AND character_id=$" + std::to_string(p.size()); }
     if (!approval.empty() && a.isGm) { p.push_back(approval); sql += " AND approval_status=$" + std::to_string(p.size()); }
     sql += " ORDER BY created_at DESC LIMIT 500";
     return db_.queryJson(sql, p);
 }
+bool MediaService::canRead(const ChannelAccess& a, const Json::Value& asset) {
+    const auto pid = json::str(asset["source_reference"], "private_presentation_id");
+    bool ownsSource = false;
+    if (!a.isGm && contentPolicy::privateArt(asset) && Visibility::isUuid(pid)) {
+        // Resolve current ownership, never the creator recorded when generation began.
+        ownsSource = !db_.queryOne("SELECT p.id FROM log_presentations p JOIN log_snapshots s ON s.id=p.snapshot_id "
+                                  "JOIN characters c ON c.id=s.scope_character_id AND c.channel_id=p.channel_id "
+                                  "WHERE p.id=$1 AND p.channel_id=$2 AND s.scope='character' AND c.user_id=$3",
+                                  {pid, a.channelId, a.userId}).isNull();
+    }
+    return contentPolicy::readMedia(a.isGm, ownsSource, asset);
+}
 Json::Value MediaService::get(const ChannelAccess& a, const std::string& id) {
-    auto r = db_.queryOne("SELECT " + ASSET_COLS + " FROM media_assets WHERE id=$1 AND channel_id=$2" + std::string(a.isGm ? "" : " AND visibility_scope='channel' AND approval_status='approved'"), {id, a.channelId});
-    if (r.isNull()) throw notFound("asset not found");
+    auto r = db_.queryOne("SELECT " + ASSET_COLS + " FROM media_assets WHERE id=$1 AND channel_id=$2", {id, a.channelId});
+    if (r.isNull() || !canRead(a, r)) throw notFound("asset not found");
     if (!a.isGm && r["character_id"].isString() && db_.queryOne("SELECT 1 AS ok FROM characters WHERE id=$1 AND kind='npc'", {r["character_id"].asString()}).isMember("ok")) {
         r.removeMember("prompt"); r.removeMember("source_reference");   // an NPC's appearance notes stay with the GM
     }
@@ -91,7 +104,7 @@ Json::Value MediaService::upload(const ChannelAccess& a, const std::string& file
 }
 Json::Value MediaService::storeInternal(const std::string& channelId, const std::string& assetType, const std::string& sourceType, const std::string& bytes, const std::string& mime, const Json::Value& meta) {
     auto ext = mime == "image/png" ? "png" : mime == "image/jpeg" ? "jpg" : mime == "image/svg+xml" ? "svg" : mime == "audio/wav" ? "wav" : mime == "audio/mpeg" ? "mp3" : "bin";
-    auto key = publicEligible(sourceType, mime) ? publicObjectKey(store_, channelId, assetType, ext) : safeObjectKey(channelId, assetType, ext);
+    auto key = contentPolicy::publicObject(sourceType, mime, meta) ? publicObjectKey(store_, channelId, assetType, ext) : safeObjectKey(channelId, assetType, ext);
     store_.put(key, bytes, mime);
     int w = 0, h = 0; probeDimensions(bytes, mime, w, h);
     auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, license_metadata, created_by, content_hash) "
@@ -203,7 +216,7 @@ int MediaService::purgeSuperseded(const std::string& channelId) {
 }
 bool MediaService::publicEligible(const std::string& sourceType, const std::string& mime) {
     // SVG can carry script, so it is never served from a public origin; uploads and imports stay private.
-    return (sourceType == "generated" || sourceType == "mock") && mime.rfind("image/", 0) == 0 && mime != "image/svg+xml";
+    return contentPolicy::publicRaster(sourceType, mime);
 }
 bool MediaService::resolve(const ChannelAccess& a, const std::string& id, int version, MediaMeta& meta) {
     std::string mime, name;
@@ -216,14 +229,13 @@ bool MediaService::fetchRow(const ChannelAccess& a, const std::string& id, int v
     // Players get every approved channel-scoped asset, an NPC's art included (its notes stay with the GM, see
     // get()). What a player's client may keep for good is narrower: an NPC's art is the GM's, shown or withdrawn
     // as the story goes, so it is never marked immutable.
-    const bool visible = cur["visibility_scope"].asString() != "gm" && cur["approval_status"] == "approved";
-    if (!a.isGm && !visible) return false;
-    const bool playerVisible = visible && json::str(cur, "character_kind", "pc") != "npc";
+    if (!canRead(a, cur)) return false;
+    const bool playerVisible = contentPolicy::retainMedia(cur);
     std::string key = cur["object_key"].asString(); mime = cur["mime"].asString();
     std::string hash = json::str(cur, "content_hash"); int servedVersion = cur["version"].asInt();
     if (version > 0 && version != cur["version"].asInt()) { auto v = db_.queryOne("SELECT object_key, mime, content_hash FROM asset_versions WHERE asset_id=$1 AND version=$2", {id, (int64_t)version}); if (v.isNull()) return false; key = v["object_key"].asString(); mime = v["mime"].asString(); hash = json::str(v, "content_hash"); servedVersion = version; }
     fileName = cur["name"].asString();
-    meta.objectKey = key; meta.pinned = version > 0; meta.playerVisible = playerVisible; meta.contentHash = hash; meta.version = servedVersion;
+    meta.privateSource = contentPolicy::privateArt(cur); meta.objectKey = key; meta.pinned = version > 0; meta.playerVisible = playerVisible; meta.contentHash = hash; meta.version = servedVersion;
     return true;
 }
 
@@ -235,7 +247,7 @@ bool MediaService::fetch(const ChannelAccess& a, const std::string& id, int vers
     // browser is then sent to the public bucket); from then on every listing names the hash.
     if (meta.contentHash.empty()) { if (auto data = store_.get(key)) { meta.contentHash = crypto::sha256Hex(*data); recordHash(id, meta.version, meta.contentHash); } }
     if (metaOut) *metaOut = meta;
-    if (redirectUrl) { *redirectUrl = store_.publicUrl(key); if (!redirectUrl->empty()) return true; }
+    if (redirectUrl && !meta.privateSource) { *redirectUrl = store_.publicUrl(key); if (!redirectUrl->empty()) return true; }
     auto data = store_.get(key); if (!data) return false;
     bytes = std::move(*data); return true;
 }

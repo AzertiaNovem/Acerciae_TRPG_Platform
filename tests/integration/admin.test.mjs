@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 // Platform administration: PLATFORM_ADMINS (the test server names `platform_admin`) and granted administrators inspect
 // storage, database and account use across every server, and suspend servers and accounts; nothing is deleted and
-// every action is logged. The suite registers `platform_admin` the first time and signs it in after that.
+// every action is logged. scripts/test.sh provisions `platform_admin` through the trusted test database before starting the server.
 const base = process.env.API_BASE || 'http://127.0.0.1:18081';
 async function call(token, method, path, body) {
   const r = await fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20000) });
@@ -14,8 +14,7 @@ async function call(token, method, path, body) {
 const rejects = async (p, status, code) => { try { await p; } catch (e) { assert.equal(e.status, status, e.message); if (code) assert.equal(e.body.error, code); return e; } assert.fail(`expected HTTP ${status}`); };
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 async function adminToken() {
-  try { return (await call('', 'POST', '/api/auth/register', { username: 'platform_admin', password: 'password', display_name: 'Operator' })).token; }
-  catch (e) { if (e.status !== 409) throw e; return (await call('', 'POST', '/api/auth/login', { username: 'platform_admin', password: 'password' })).token; }
+  return (await call('', 'POST', '/api/auth/login', {username:'platform_admin',password:'password'})).token;
 }
 function socket(token) {
   return new Promise((resolve, reject) => {

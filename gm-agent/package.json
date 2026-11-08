@@ -15,7 +15,7 @@
     "start": "node src/cli.mjs run",
     "setup": "node src/cli.mjs setup",
     "usage": "node src/cli.mjs usage",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --import ./test/environment.mjs --test test/*.test.mjs",
     "host": "node src/host.mjs"
   },
   "dependencies": {

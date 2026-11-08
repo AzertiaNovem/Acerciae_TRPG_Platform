@@ -62,7 +62,7 @@ without serving.
 
 ## Platform administration
 
-Name the deployment's administrators in `PLATFORM_ADMINS` (comma-separated usernames) before exposing it. They get the
+Create and verify the operator accounts while the deployment is private, then name them in `PLATFORM_ADMINS` (comma-separated usernames) and restart before exposing it. Configured names cannot be registered or changed through public APIs. They get the
 🛡 panel in the web client: accounts, servers, stored media by kind, the database and its largest tables, AI use, and
 per-server and per-user storage, with **suspend** / **reinstate** for servers and accounts (reversible; nothing is
 deleted; every action and its reason is kept in `admin_actions`). Administrators named in the variable cannot be
@@ -72,7 +72,7 @@ suspended or demoted from the panel; they can grant the role to other accounts. 
 
 - Visual-novel downloads are packed on the background pool and kept for `VN_BUNDLE_TTL_HOURS` (default 24). The
   maintenance thread deletes expired ones within a minute, from every storage backend. As a backstop, you can also
-  add an R2 lifecycle rule on the public bucket that deletes objects under `pub/channels/` matching `*/bundles/*`
+  add an R2 lifecycle rule on authenticated storage for `channels/*/bundles/*` (and on the old public bucket for legacy `pub/channels/*/bundles/*`)
   after a day longer than the TTL.
 - Deleting a channel or a server removes its stored files everywhere: each recorded object from the local disk, the
   private R2 bucket and the public bucket, the local copies the media migrator kept under their old names, and
@@ -112,3 +112,27 @@ OpenAI/Anthropic text and embedding HTTP calls share a dedicated libcurl multi r
 `http_transport_tests` exercises concurrent sockets, bounded admission, queued deadlines, retry fairness, response caps and shutdown. The HTTP streaming suite is also run with one network loop and two AI workers, and verifies ordinary reads/writes and job submissions while both AI workers are stalled.
 
 Visual-novel scripts use independent `LLM_VN_MAX_TOKENS` (default 32768) and `LLM_VN_TIMEOUT_MS` (default 300000, per request). Daily limits can be reduced without reducing these. `VN_SCRIPT_RETRY_FAILED_CHUNKS=true` defaults new jobs to durable partial retries; the Studio can override it per job. See [visual-novel retry behavior](VISUAL_NOVEL.md#script-limits-and-retrying).
+
+
+## Private derived objects during upgrade
+
+Migrations `0060_private_script_art.sql`, `0061_private_audio.sql` and `0062_private_chat_art.sql` record private replay art, audio and chat-illustration origins. Chat images stay bound to their message audience, with authenticated delivery and no persistent cache. New private outputs use authenticated storage; the background migrator excludes them. File delivery also suppresses public redirects for legacy keys and returns `Cache-Control: private, no-store`. Prepared ZIP downloads also remain in authenticated storage and recheck current presentation access on download. Explicit publications remain available.
+
+Before upgrading a deployment with a public bucket, pause generation and the old media migrator, back up the database and storage, apply migrations, then inventory the old private keys with this read-only query:
+
+```sql
+SELECT object_key FROM media_assets
+ WHERE source_reference ?| ARRAY['private_presentation_id','private_chat_window_id'] AND object_key LIKE 'pub/%'
+UNION SELECT av.object_key FROM asset_versions av JOIN media_assets m ON m.id=av.asset_id
+ WHERE m.source_reference ?| ARRAY['private_presentation_id','private_chat_window_id'] AND av.object_key LIKE 'pub/%'
+UNION SELECT object_key FROM tts_audio_assets WHERE private_source AND object_key LIKE 'pub/%'
+UNION SELECT object_key FROM vn_bundle_jobs WHERE object_key LIKE 'pub/%';
+```
+
+For each listed key, copy and verify the bytes and MIME type into authenticated storage under a non-`pub/` key before changing its database references. Update every matching asset/version/audio reference in one transaction; use the deployment's object-store configuration to verify a permission-checked download. Remove the old public object and purge that exact URL from the CDN before resuming generation. Keep backups until verification completes. This is deployment-specific storage maintenance, not something the SQL migration can safely perform. Previously downloaded copies cannot be recalled. An explicitly published product remains an intentional publication; revoke it separately if its audience is changing.
+
+## Regression checks
+
+`scripts/test.sh` owns disposable databases, a trusted administrator fixture and local provider fixtures. With `RUN_BROWSER_TESTS=1` it also runs `scripts/test-browser.sh`, which starts isolated local Vite preview/development servers and checks Chromium and WebKit. Browser ports default to 18442/18443 and can be overridden with `BROWSER_PORT`/`BROWSER_DEV_PORT`. Set `CHROME_CHANNEL=chrome` to use an installed Chrome locally; CI installs Playwright's bundled engines.
+
+GM unit tests clear deployment-only environment variables before loading tests and pass `ACERCIAE_NO_DOTENV=1` to child processes. CLI/host production behavior is unchanged; an explicit `--env` file is loaded alone, without additionally merging the repository's local `.env`. Never point the database runner at a server whose `acerciae_test` or `acerciae_e2e` databases contain real data.

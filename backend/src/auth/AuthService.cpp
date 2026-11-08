@@ -26,6 +26,7 @@ std::string AuthService::tokenHash(const std::string& token) const {
 
 Json::Value AuthService::registerUser(const std::string& username, const std::string& password, const std::string& displayName) {
     validateUsername(username);
+    if (listedAdmin(username)) throw forbidden("administrator usernames must be provisioned before configuring PLATFORM_ADMINS");
     if (password.size() < 6) throw badRequest("password must be at least 6 characters");
     auto existing = db_.queryOne("SELECT id FROM users WHERE username=$1", {username});
     if (!existing.isNull()) throw conflict("username already taken");
@@ -108,6 +109,8 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
         db_.tx([&](pqxx::work& w) {
             auto current = Db::queryOne(w, "SELECT * FROM users WHERE id=$1 FOR UPDATE", {principal.userId});
             auto username = json::str(body, "username", current["username"].asString());
+            if (username != current["username"].asString() && (listedAdmin(username) || listedAdmin(current["username"].asString())))
+                throw forbidden("remove the username from PLATFORM_ADMINS before changing it; configured names are reserved");
             auto name = text::trim(json::str(body, "display_name", current["display_name"].asString()));
             auto language = json::str(body, "ui_language", current["ui_language"].asString());
             auto theme = json::str(body, "ui_theme", current["ui_theme"].asString());

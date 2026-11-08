@@ -1,3 +1,5 @@
+#include "logstudio/VnScriptRecovery.h"
+#include "logstudio/ContentPolicy.h"
 #include "documents/NarrativeMemoryPolicy.h"
 // Core unit tests: no database required.
 #include "characters/Coc7Rules.h"
@@ -1337,6 +1339,34 @@ int main() {
         CHECK(local->exists("channels/c2/portrait/b.png"));
         local->removePrefix("../"); local->removePrefix(""); local->removePrefix("/etc/"); CHECK(fs::exists(root / "local"));   // never outside the root
         std::error_code ec; fs::remove_all(root, ec);
+    });
+    test("content policy: source scope governs delivery, export and retention", [] {
+        using namespace logstudio::contentPolicy;
+        Json::Value asset; asset["approval_status"] = "approved"; asset["visibility_scope"] = "channel";
+        CHECK(readMedia(false, false, asset)); CHECK(retainMedia(asset)); CHECK(exportMedia(asset, true));
+        CHECK(publicObject("generated", "image/png", asset));
+        asset["source_reference"]["private_presentation_id"] = "private-source";
+        CHECK(readMedia(true, false, asset)); CHECK(readMedia(false, true, asset));
+        CHECK(!readMedia(false, false, asset)); CHECK(!retainMedia(asset)); CHECK(!exportMedia(asset, true));
+        CHECK(exportMedia(asset, false)); CHECK(!publicObject("generated", "image/png", asset));
+        asset["approval_status"] = "candidate";
+        CHECK(!readMedia(false, true, asset)); CHECK(readMedia(true, false, asset)); CHECK(!exportMedia(asset, false));
+        CHECK(readSnapshot(true, false, false, "gm_full")); CHECK(!readSnapshot(false, true, true, "gm_full"));
+        CHECK(readSnapshot(false, true, false, "character")); CHECK(!readSnapshot(false, false, false, "character"));
+        CHECK(readSnapshot(false, false, true, "character")); CHECK(!readSnapshot(false, false, true, "unknown"));
+        CHECK(publishSnapshot("pl_public", "link")); CHECK(!publishSnapshot("character", "link"));
+    });
+    test("VN chunk recovery preserves answers but invalidates a divergent prefix", [] {
+        using namespace logstudio::vnscript;
+        Json::Value row; row["response"]["script"] = Json::Value(Json::arrayValue);
+        CHECK(chooseChunk(nullptr, true, true) == ChunkReuse::generate);
+        CHECK(chooseChunk(&row, true, true) == ChunkReuse::completed);
+        CHECK(chooseChunk(&row, false, true) == ChunkReuse::generate);
+        CHECK(chooseChunk(&row, true, false) == ChunkReuse::generate);
+        row["questions"] = Json::Value(Json::objectValue);
+        CHECK(chooseChunk(&row, true, true) == ChunkReuse::waiting);
+        row["answers"] = Json::Value(Json::objectValue);
+        CHECK(chooseChunk(&row, false, false) == ChunkReuse::answered);
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;

@@ -88,8 +88,8 @@ The **Make a visual novel** card on the Visual novel tab has four steps.
    titles), or create one from a provider preset. **Apply cast and voice every line** stores the cast on the draft
    (`POST /presentations/{p}/cast`) and starts a TTS job (Qwen TTS, or the mock provider).
 4. **Export.** Preview the draft, open it in the advanced editor, or prepare a download: the zip is packed in the
-   background (`POST /presentations/{p}/bundle`), stored for `VN_BUNDLE_TTL_HOURS` (default 24; in the public R2
-   bucket when one is configured, GM-only presentations included) and deleted when it expires. It holds `index.html`, `script.json`, every image under `assets/` and every
+   background (`POST /presentations/{p}/bundle`), stored for `VN_BUNDLE_TTL_HOURS` (default 24; in authenticated
+   storage, including GM-only presentations) and deleted when it expires. It holds `index.html`, `script.json`, every image under `assets/` and every
    voice line under `audio/`. The page plays offline in any browser: click, space or arrow keys advance; `A` auto-plays
    with the voices, `M` mutes, `F` goes fullscreen, and a menu jumps between scenes.
 
@@ -326,3 +326,16 @@ language, delivery, dialect and synthesis parameters are carried over; the endpo
 from the local AI settings. A voice from a different provider must be reassigned locally, and a server-account
 custom voice works only if the local account also has access. Changing a cast member clears only that speaker's
 recordings. This first version targets the desktop app; browser and native mobile do not generate hybrid media.
+
+## Generated art and private drafts
+
+Art generated for a `gm_full` or character-perspective snapshot belongs to that presentation. It is approved for use in that draft, but does not enter the channel's shared media library or replace the character's shared poses. The GM can read it; character-perspective art is also readable by the current owner of that character. A public-player snapshot retains the existing channel-sharing behavior. The same access check governs metadata and file delivery.
+
+Migration `0060_private_script_art.sql` restricts previously generated private-draft assets as well. New private art uses private object keys and is excluded from automatic public-bucket migration. Previously downloaded or CDN-cached public copies cannot be recalled by changing database visibility; deployments that used a public bucket should remove/purge their old private-script objects and caches during the upgrade.
+
+
+Private audio follows the same source boundary as private art. Migration `0061_private_audio.sql` marks existing private/unreferenced clips; new clips from character/GM snapshots and voice previews stay in authenticated storage. Public and private synthesis use distinct cache identities. Private files do not redirect to public URLs, and their responses carry `no-store`. See [upgrade operations](OPERATIONS.md#private-derived-objects-during-upgrade) for old bucket/CDN copies.
+
+The generation implementation is split across `VnScriptInputs`, `VnScriptTranscript`, `VnScriptMock`, `VnScriptValidation`, `VnScriptContinuation`, `VnScriptRecovery`, `VnScriptModel` and `VnScriptArt`; `VnScriptService` still owns task lifecycle and the public service interface. Open Log Studio composes a revisioned `SaveQueue` and view/task `ProjectLeases`. Deleting a local project waits for started writes; failed deletion restores its in-memory copy, and late loads cannot resurrect a deleted project.
+
+Prepared ZIP downloads use authenticated storage and recheck the requester’s current presentation access. Their file tokens cannot be exchanged for public bucket URLs. Explicit publication remains a separate, audience-checked operation.

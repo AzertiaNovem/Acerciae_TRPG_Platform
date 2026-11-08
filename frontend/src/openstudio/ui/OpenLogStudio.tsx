@@ -7,12 +7,14 @@ import AiSettingsDialog from './AiSettingsDialog';
 import NewProject from './NewProject';
 import TaskTray from './TaskTray';
 import { cancelProjectTasks } from '../tasks';
-import { forgetProject } from '../projects';
+import { forgetProject, flushProject, useProjects } from '../projects';
 const ProjectView = lazy(() => import('./ProjectView'));
 
 // Open Log Studio: the Log Studio on this computer. Logs from SealDice, QQ or Acerciae become projects stored in the
 // app's data folder; nothing needs an account or the server, and AI runs on the user's own keys.
 export default function OpenLogStudio() {
+  const saveErrors = useProjects((s) => s.saveErrors);
+  const openProjects = useProjects((s) => s.projects);
   const close = useOpenStudio((s) => s.setOpen);
   const selectedProject = useOpenStudio((s) => s.projectId);
   const toast = useUi((s) => s.toast);
@@ -23,7 +25,7 @@ export default function OpenLogStudio() {
   useEffect(() => { if (view.kind === 'list') load(); }, [view.kind]);
   const remove = async (p: ProjectMeta) => {
     if (!confirm(tr('Delete "{title}" and every file it holds from this computer?', { title: p.title }))) return;
-    try { cancelProjectTasks(p.id); forgetProject(p.id); await deleteProject(p.id); load(); } catch (e: any) { toast(String(e?.message ?? e), 'error'); }
+    try { cancelProjectTasks(p.id); await forgetProject(p.id, () => deleteProject(p.id)); load(); } catch (e: any) { toast(String(e?.message ?? e), 'error'); }
   };
   return (
     <div className="open-studio">
@@ -36,6 +38,11 @@ export default function OpenLogStudio() {
         <button className="ghost small" onClick={() => setAi(true)}>{tr('AI services')}</button>
       </header>
       <main className="open-studio-main">
+        {Object.entries(saveErrors).map(([id, error]) => <div key={id} role="alert" className="card">
+          <p>{tr('Changes could not be saved. Keep the app open and retry.')} {openProjects[id]?.title}: {error}</p>
+          <button onClick={() => void flushProject(id)}>{tr('Retry')}</button>
+          <button onClick={() => setView({ kind: 'project', id })}>{tr('open')}</button>
+        </div>)}
         {view.kind === 'new' && <NewProject onCreated={(id) => setView({ kind: 'project', id })} onCancel={() => setView({ kind: 'list' })} />}
         {view.kind === 'project' && <Suspense fallback={<div className="muted">{tr('Loading…')}</div>}><ProjectView key={view.id} id={view.id} /></Suspense>}
         {view.kind === 'list' && (
