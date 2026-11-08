@@ -17,6 +17,8 @@
 #include "Recall.h"
 
 #include "../characters/Outfits.h"
+#include "../characters/Vitals.h"
+#include "../rules/Pbta.h"
 #include "ChatQueries.h"
 namespace acerciae {
 using namespace chatQueries;
@@ -27,6 +29,12 @@ Json::Value ChatService::listCharacters(const ChannelAccess& a) {
     sql += " ORDER BY c.kind, c.created_at";
     auto list = db_.queryJson(sql, {a.channelId});
     outfits::present(db_, a.channelId, list);   // each in the outfit they wear now
+    // The numbers shown next to each name (HP, SAN, DEX; or the rule system's counterparts).
+    auto rs = db_.queryOne("SELECT rule_system FROM channels WHERE id=$1", {a.channelId});
+    const auto ruleSystem = rs.isNull() ? std::string("coc7e") : rs["rule_system"].asString();
+    Json::Value pack;
+    if (ruleSystem == "pbta") { try { pack = pbta::read(db_, a)["pack"]; } catch (const std::exception&) {} }
+    for (auto& c : list) c["vitals"] = vitals::of(c, ruleSystem, pack);
     return list;
 }
 Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Value& body) {

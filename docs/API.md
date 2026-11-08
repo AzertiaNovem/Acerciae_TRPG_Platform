@@ -75,7 +75,7 @@ delivered with `Cache-Control: private, max-age=31536000, immutable`.
 | POST | `/channels/{id}/story/reopen` | GM: back to the GM's Studio switches and per-player visibility |
 | GET/POST | `/channels/{id}/members` | add `{user_id | username, role: gm|player}` (GM; the user must already be on the server unless the GM is a server maintainer) |
 | DELETE | `/channels/{id}/members/{uid}` | (GM) also removes them from every chat window of the channel |
-| GET/POST | `/channels/{id}/characters` | create `{name, kind: pc|npc, speaking_style?, sheet?, description?}` (NPC: GM). A PC belongs to its creator, or to `user_id` when the GM names one. A PC owned by a GM account is a *GM-cast* PC, such as an AI co-player: the GM voices it, so it is never bound into the GM's window memberships, and Log Studio and the player-group memory treat its lines as an investigator's. |
+| GET/POST | `/channels/{id}/characters` | create `{name, kind: pc|npc, speaking_style?, sheet?, description?}` (NPC: GM). A PC belongs to its creator, or to `user_id` when the GM names one. A PC owned by a GM account is a *GM-cast* PC, such as an AI co-player: the GM voices it, so it is never bound into the GM's window memberships, and Log Studio and the player-group memory treat its lines as an investigator's. GET: each row carries `vitals` for the status summary: `{rule_system, hp, hp_max, san, san_max, dex}` (Call of Cthulhu), `{rule_system, hp, hp_max, ac, dex}` (D&D 2024) or `{rule_system, resources[{id, name, value}], conditions[{id, name}]}` (PbtA: the pack's resources and the conditions that are on); a number the sheet lacks is null. |
 | PUT | `/channels/{id}/characters/{cid}` | owner or GM |
 | GET/PUT | `/channels/{id}/characters/{cid}/attributes` | `{attrs, editable}`; PUT `{set?: {name: number}, remove?: [name]}` (owner or GM; NPCs: GM). Names are canonicalised (`侦查`, `spot` → `Spot Hidden`) |
 | POST | `/channels/{id}/dice/preview` | `{content, chat_window_id, character_id?}` → `{hint, command}` — the composer's gray hint; never rolls |
@@ -249,7 +249,10 @@ Both return 403 `feature_disabled` when a server maintainer turned the feature o
 Connect with `?token=` (a short-lived file token from `POST /auth/file-token`, as the web and mobile apps do; a session token is also accepted) to `/ws/chat` or `/ws/context`, then send `{"type":"subscribe","channel_id":"..."}`.
 
 Chat stream: `message.posted {message}` (only to users allowed to read it), `message.recalled {message}` (the tombstone, to the same audience; spectators get `spectate.recalled`), `window.changed {window}`, `scene.changed {scene}`,
-`character.updated {character}` (attribute changes; NPCs to GMs only), `server.settings {server_id, settings}` (public view), `initiative.changed {chat_window_id}` (refetch the window's Initiative order).
+`character.updated {character}` (attribute changes; NPCs to GMs only), `server.settings {server_id, settings}` (public view), `initiative.changed {chat_window_id}` (refetch the window's Initiative order),
+`typing.changed {chat_window_id, character_id, active}` and, right after `subscribed`, `typing.snapshot {typing: [{chat_window_id, character_id}]}` (see below).
+
+Typing flags are the character's, not the user's. A client raises one with `{"type":"typing","channel_id","chat_window_id","character_id","active":true}` (its own character, or any for the GM, in a window it belongs to; anything else answers `error`), sends the same pack again every few seconds while the writer keeps typing, and lowers it with `"active":false`. The server lets a flag fall 10 s after the last pack, or when the socket that raised it closes, so a closed tab never leaves a character typing. Each change goes to the users who may read the window (the GMs; the window's members whose view is not paused; everyone in the channel for the Main Chat or a public-knowledge channel); an NPC's flag reaches the GMs only. Heartbeats get no reply.
 
 Context stream: `document.updated {document_id, doc_type, version, change_count, entry_ids, gm_only, actor, summary}`,
 `highlight.created {highlight}` (scope-filtered), `highlight.expired {highlight_ids}`, `proposal.pending` (GM),

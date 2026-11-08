@@ -8,6 +8,7 @@ import { useUi } from '../store/ui';
 import ConsistencyButton from './ConsistencyButton';
 import InspirationButton from './InspirationButton';
 import IllustrateButton from './IllustrateButton';
+import { useTypingSignal } from '../hooks/useTypingSignal';
 
 const DICE_PREFIX = /^\s*[.。．](move|r|ra|rc|rh|rah|rch|sc|st|en)/i;
 
@@ -36,6 +37,8 @@ export default function MessageComposer() {
 
   useEffect(() => { if (composerInsert) { setText((t) => (t ? t + '\n' : '') + composerInsert.text); ta.current?.focus(); } }, [composerInsert]);
   useEffect(() => { setKind(isGm ? 'narration' : 'ic'); }, [isGm, windowId]);
+  // The table sees the character being written as (a pen next to its name) while there is text here.
+  useTypingSignal(channelId, windowId, canPost ? activeCharacter : '', text);
 
   // Gray hint after a dice command (".ra research —— Alice's research is 53"); the server renders it with the
   // channel's dice texts and the speaking character's attributes, without rolling.
