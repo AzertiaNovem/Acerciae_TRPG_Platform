@@ -56,16 +56,19 @@ import AcerciaeCore
     func testNativePDFRendererWritesMultipleReadablePages() async throws {
         let web = WKWebView(frame:CGRect(x:0,y:0,width:420,height:595))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
         let controller = UIViewController()
         window.rootViewController = controller
         controller.view.addSubview(web)
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
-        defer { web.stopLoading(); window.isHidden = true }
+        defer { web.stopLoading(); window.isHidden = true; previousWindow?.makeKeyAndVisible() }
         let loaded = expectation(description:"HTML loaded")
         var navigationError: Error?
         let delegate = StudioLoadDelegate { error in navigationError = error; loaded.fulfill() }; web.navigationDelegate = delegate
+        // WKWebView keeps its delegate weakly, including across the asynchronous navigation wait.
+        defer { withExtendedLifetime(delegate) {} }
         let content = (0..<8).map { "<div style='page-break-after:always;height:500px'>Chapter \($0)</div>" }.joined()
         web.loadHTMLString("<html><body>\(content)</body></html>",baseURL:nil)
         // WebKit's first process launch on a new simulator can exceed ten seconds.
