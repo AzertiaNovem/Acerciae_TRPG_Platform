@@ -37,6 +37,9 @@ public:
     // files. An image a live publication still shows is kept, marked superseded, until that publication is revoked.
     // Returns how many images were deleted.
     int adoptCharacterImage(const std::string& channelId, const std::string& characterId, const std::string& slot, const std::string& subtitle, const std::string& assetId);
+    // The same for one of the character's outfits (character_outfits): the asset becomes that outfit's image for the
+    // slot. Returns -1 when the outfit no longer exists (the caller drops the asset).
+    int adoptOutfitImage(const std::string& channelId, const std::string& characterId, const std::string& outfitId, const std::string& slot, const std::string& subtitle, const std::string& assetId);
     // Deletes superseded images no live publication shows any more.
     int purgeSuperseded(const std::string& channelId);
     ObjectStore& store() { return store_; }

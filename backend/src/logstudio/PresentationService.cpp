@@ -181,13 +181,23 @@ Json::Value PresentationService::get(const ChannelAccess& a, const std::string& 
         auto key = text::lower(text::trim(json::str(art, "expression")));
         images[art["character_id"].asString()][key == "default" ? "" : key] = art;
     }
-    resolveStage(visible, images);
+    wearOutfits(visible, frozen);
+    auto outfitImages = outfitStandees(a.channelId, p["snapshot_scope"].asString() == "gm_full");
+    resolveStage(visible, images, &outfitImages);
     p["events"] = visible;
     p["can_edit"] = canEdit(a, p);
     p["character_visuals"] = db_.queryJson("SELECT cv.*, c.name, c.kind FROM character_visual_profiles cv JOIN characters c ON c.id=cv.character_id WHERE cv.channel_id=$1", {a.channelId});
     // The subtitles each character has an image for (the editor's choices); "default" is the main portrait.
     p["character_images"] = Json::Value(Json::objectValue);
     for (auto& [cid, slots] : images) { Json::Value list(Json::arrayValue); for (auto& [k, img] : slots) list.append(k.empty() ? "default" : img["expression"].asString()); p["character_images"][cid] = list; }
+    // Each character's outfits (the editor's choices) with the subtitles each has an image for.
+    p["character_outfits"] = Json::Value(Json::objectValue);
+    for (auto& o : db_.queryJson("SELECT id, character_id, name FROM character_outfits WHERE channel_id=$1 ORDER BY created_at, id", {a.channelId})) {
+        Json::Value x; x["id"] = o["id"]; x["name"] = o["name"]; x["images"] = Json::Value(Json::arrayValue);
+        auto it = outfitImages.find(o["id"].asString());
+        if (it != outfitImages.end()) for (auto& [k, img] : it->second) x["images"].append(k.empty() ? "default" : img["expression"].asString());
+        p["character_outfits"][o["character_id"].asString()].append(x);
+    }
     if (!a.isGm) limitVisuals(p);
     return p;
 }
@@ -203,6 +213,11 @@ void PresentationService::limitVisuals(Json::Value& p) {
         Json::Value images(Json::objectValue);
         for (const auto& cid : p["character_images"].getMemberNames()) if (shown.count(cid) || speakers.count(cid)) images[cid] = p["character_images"][cid];
         p["character_images"] = images;
+    }
+    if (p["character_outfits"].isObject()) {
+        Json::Value outfits(Json::objectValue);
+        for (const auto& cid : p["character_outfits"].getMemberNames()) if (shown.count(cid) || speakers.count(cid)) outfits[cid] = p["character_outfits"][cid];
+        p["character_outfits"] = outfits;
     }
 }
 Json::Value PresentationService::update(const ChannelAccess& a, const std::string& id, const Json::Value& body) {
@@ -380,7 +395,7 @@ std::map<std::string, std::map<std::string, Json::Value>> PresentationService::c
     std::map<std::string, std::map<std::string, Json::Value>> out;
     // Every usable character image of the channel, newest first.
     std::map<std::string, Json::Value> usable; std::vector<std::string> newest;
-    for (auto& r : db_.queryJson("SELECT id, version, content_hash, asset_type, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type IN ('standee','portrait') AND NOT (source_reference ? 'private_presentation_id') AND NOT (source_reference ? 'superseded_by') ORDER BY updated_at DESC, created_at DESC", {channelId})) {
+    for (auto& r : db_.queryJson("SELECT id, version, content_hash, asset_type, character_id, expression, visibility_scope, outfit_id FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type IN ('standee','portrait') AND NOT (source_reference ? 'private_presentation_id') AND NOT (source_reference ? 'superseded_by') ORDER BY updated_at DESC, created_at DESC", {channelId})) {
         if (!gmOnly && r["visibility_scope"].asString() == "gm") continue;
         auto id = r["id"].asString(); newest.push_back(id); usable[id] = r;
     }
@@ -398,7 +413,7 @@ std::map<std::string, std::map<std::string, Json::Value>> PresentationService::c
     // Library standees filed under a character and subtitle fill what the character space leaves open.
     for (auto& id : newest) {
         auto& r = usable[id];
-        if (r["asset_type"].asString() != "standee" || !r["character_id"].isString()) continue;
+        if (r["asset_type"].asString() != "standee" || !r["character_id"].isString() || r["outfit_id"].isString()) continue;   // an outfit's are its own
         auto expr = text::trim(r["expression"].asString()); auto key = text::lower(expr);
         if (expr.empty() || key == "default") continue;
         auto& slots = out[r["character_id"].asString()];
@@ -406,14 +421,26 @@ std::map<std::string, std::map<std::string, Json::Value>> PresentationService::c
     }
     return out;
 }
-void PresentationService::resolveStage(Json::Value& events, const std::map<std::string, std::map<std::string, Json::Value>>& images) {
+void PresentationService::resolveStage(Json::Value& events, const std::map<std::string, std::map<std::string, Json::Value>>& images,
+                                       const std::map<std::string, std::map<std::string, Json::Value>>* outfitImages) {
     for (auto& e : events) {
         if (!e["character_asset_ids"].isArray()) continue;
         for (auto& pl : e["character_asset_ids"]) {
             pl["asset_id"] = Json::Value(); pl["asset_version"] = Json::Value(); pl["asset_hash"] = Json::Value();
+            auto key = text::lower(text::trim(json::str(pl, "expression")));
+            // In an outfit: its image for the subtitle, else its portrait (the same clothes beat the right pose).
+            if (outfitImages && !json::str(pl, "outfit_id").empty()) {
+                auto o = outfitImages->find(json::str(pl, "outfit_id"));
+                if (o != outfitImages->end() && !o->second.empty()) {
+                    auto img = o->second.find(key == "default" ? "" : key);
+                    if (img == o->second.end()) img = o->second.find("");
+                    if (img == o->second.end()) img = o->second.begin();
+                    pl["asset_id"] = img->second["id"]; pl["asset_version"] = img->second["version"]; pl["asset_hash"] = img->second["content_hash"];
+                    continue;
+                }
+            }
             auto c = images.find(json::str(pl, "character_id"));
             if (c == images.end()) continue;
-            auto key = text::lower(text::trim(json::str(pl, "expression")));
             auto img = c->second.find(key == "default" ? "" : key);
             if (img == c->second.end()) img = c->second.find("");
             if (img == c->second.end()) continue;
@@ -431,7 +458,60 @@ Json::Value PresentationService::placement(const Json::Value& in) {
     if (in.isMember("active")) x["active"] = json::toBool(in, "active");
     if (in["scale"].isNumeric()) x["scale"] = std::min(2.0, std::max(0.3, in["scale"].asDouble()));
     if (in.isMember("flip")) x["flip"] = json::toBool(in, "flip");
+    // An outfit an editor chose ("" = the base look). One the reader filled in (outfit_auto) is worked out again on
+    // each read, so it is not stored.
+    if (in.isMember("outfit_id") && !json::toBool(in, "outfit_auto")) {
+        auto outfit = json::str(in, "outfit_id");
+        if (outfit.empty() || Visibility::isUuid(outfit)) x["outfit_id"] = outfit;
+    }
     return x;
+}
+std::map<std::string, std::map<std::string, Json::Value>> PresentationService::outfitStandees(const std::string& channelId, bool gmOnly) {
+    std::map<std::string, std::map<std::string, Json::Value>> out;
+    auto outfits = db_.queryJson("SELECT id, portrait_asset_id, expressions FROM character_outfits WHERE channel_id=$1", {channelId});
+    if (outfits.empty()) return out;
+    std::map<std::string, Json::Value> usable;
+    for (auto& r : db_.queryJson("SELECT id, version, content_hash, visibility_scope FROM media_assets WHERE channel_id=$1 AND outfit_id IS NOT NULL AND approval_status='approved' AND NOT (source_reference ? 'superseded_by')", {channelId}))
+        if (gmOnly || r["visibility_scope"].asString() != "gm") usable[r["id"].asString()] = r;
+    auto image = [&](const std::string& id, const std::string& expression) { Json::Value v; v["id"] = id; v["version"] = usable[id]["version"]; v["content_hash"] = usable[id]["content_hash"]; v["expression"] = expression; return v; };
+    for (auto& o : outfits) {
+        auto& slots = out[o["id"].asString()];
+        auto portrait = json::str(o, "portrait_asset_id");
+        if (!portrait.empty() && usable.count(portrait)) slots[""] = image(portrait, "default");
+        if (o["expressions"].isObject()) for (auto& k : o["expressions"].getMemberNames()) {
+            auto id = o["expressions"][k].isString() ? o["expressions"][k].asString() : "";
+            if (!text::trim(k).empty() && usable.count(id)) slots[text::lower(text::trim(k))] = image(id, text::trim(k));
+        }
+        if (slots.empty()) out.erase(o["id"].asString());
+    }
+    return out;
+}
+void PresentationService::wearOutfits(Json::Value& events, const std::map<std::string, LogEvent>& lines) {
+    std::vector<std::string> ids;
+    for (const auto& [k, e] : lines) if (Visibility::isUuid(e.sourceMessageId)) ids.push_back(e.sourceMessageId);
+    if (ids.empty()) return;
+    std::map<std::string, std::pair<std::string, std::string>> stamp;   // message → character, outfit ("" = base)
+    for (auto& r : db_.queryJson("SELECT id, character_id, outfit_id FROM messages WHERE id = ANY($1::uuid[]) AND character_id IS NOT NULL", {pgArrayLiteral(ids)}))
+        stamp[r["id"].asString()] = {r["character_id"].asString(), json::str(r, "outfit_id")};
+    std::map<std::string, std::vector<std::pair<Json::ArrayIndex, std::string>>> worn;   // character → their own lines: event index, outfit
+    for (Json::ArrayIndex i = 0; i < events.size(); ++i) {
+        auto line = lines.find(json::str(events[i], "canonical_event_id"));
+        if (line == lines.end()) continue;
+        auto s = stamp.find(line->second.sourceMessageId);
+        if (s != stamp.end()) worn[s->second.first].push_back({i, s->second.second});
+    }
+    for (Json::ArrayIndex i = 0; i < events.size(); ++i) {
+        if (!events[i]["character_asset_ids"].isArray()) continue;
+        for (auto& pl : events[i]["character_asset_ids"]) {
+            if (pl.isMember("outfit_id")) continue;   // an editor chose
+            auto w = worn.find(json::str(pl, "character_id"));
+            if (w == worn.end()) continue;
+            const std::string* outfit = &w->second.front().second;   // their next line, when they have not spoken yet
+            for (const auto& [at, o] : w->second) { if (at > i) break; outfit = &o; }
+            if (outfit->empty()) continue;
+            pl["outfit_id"] = *outfit; pl["outfit_auto"] = true;
+        }
+    }
 }
 Json::Value PresentationService::applyCast(const ChannelAccess& a, const std::string& id, const Json::Value& castIn) {
     auto p = presentationRow(a, id); if (!canEdit(a, p)) throw forbidden("not your presentation");
@@ -486,7 +566,9 @@ Json::Value PresentationService::updateEvent(const ChannelAccess& a, const std::
     auto kind = json::str(body, "display_kind", e["display_kind"].asString()); if (!kinds.count(kind)) throw badRequest("invalid display_kind");
     Json::Value assets = body.isMember("character_asset_ids") && body["character_asset_ids"].isArray() ? body["character_asset_ids"] : e["character_asset_ids"];
     // A placement names a character and a subtitle; the image is looked up when the presentation is read.
-    { Json::Value stage(Json::arrayValue); for (const auto& c : assets) { auto x = placement(c); if (x.isNull()) continue; if (db_.queryOne("SELECT 1 AS ok FROM characters WHERE id=$1 AND channel_id=$2", {x["character_id"].asString(), a.channelId}).isNull()) throw badRequest("character not in channel"); stage.append(x); } assets = stage; }
+    { Json::Value stage(Json::arrayValue); for (const auto& c : assets) { auto x = placement(c); if (x.isNull()) continue; if (db_.queryOne("SELECT 1 AS ok FROM characters WHERE id=$1 AND channel_id=$2", {x["character_id"].asString(), a.channelId}).isNull()) throw badRequest("character not in channel");
+        if (!json::str(x, "outfit_id").empty() && db_.queryOne("SELECT 1 AS ok FROM character_outfits WHERE id=$1 AND character_id=$2", {x["outfit_id"].asString(), x["character_id"].asString()}).isNull()) throw badRequest("outfit not found for that character");
+        stage.append(x); } assets = stage; }
     // tts_text is the separately stored speech adaptation; it never replaces display text.
     bool clearAudio = body.isMember("tts_text") || body.isMember("voice_profile_id") || body.isMember("style_instruction") || body.isMember("script_text");
     // script_text: the presentation's wording of the line (null or "" = the log's own words).

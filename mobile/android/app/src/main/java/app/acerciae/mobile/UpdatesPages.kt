@@ -172,6 +172,19 @@ import kotlinx.serialization.json.*
         item { Text(tr("Appearance & images") + " · ${space.text("era")} · ${space.text("narrative_time")}", style = MaterialTheme.typography.titleMedium) }
         items(listOf("avatar", "portrait")) { slot -> val asset = space.obj(slot); if (asset.id.isNotEmpty()) AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(if (slot == "avatar") 80.dp else 220.dp), asset.text("hash")) }
         items(space.rows("subtitles")) { asset -> Text(asset.text("subtitle")); AuthenticatedArtwork(model, state.channelId, asset.id, asset.number("version"), Modifier.fillMaxWidth().height(180.dp), asset.text("hash")) }
+        // Outfits: other clothes with their own images. The one worn now shows in the chat, and each line remembers it.
+        val outfits = space.rows("outfits")
+        if (outfits.isNotEmpty()) {
+            item { ChoiceMenu(tr("Wearing"), space.obj("character").text("outfit_id"), listOf("" to tr("Base look")) + outfits.map { it.id to it.text("name") }) { choice ->
+                if (space.obj("character").flag("editable")) model.launch { space = model.get(base + "outfit", buildJsonObject { if (choice.isEmpty()) put("outfit_id", JsonNull) else put("outfit_id", choice) }, "PUT") }
+            } }
+            items(outfits) { outfit ->
+                Text(outfit.text("name") + if (outfit.id == space.obj("character").text("outfit_id")) " · " + tr("Worn now") else "", style = MaterialTheme.typography.titleSmall)
+                Text(outfit.text("attire"), style = MaterialTheme.typography.bodySmall)
+                val look = outfit.obj("portrait").takeIf { it.id.isNotEmpty() } ?: outfit.obj("avatar")
+                if (look.id.isNotEmpty()) AuthenticatedArtwork(model, state.channelId, look.id, look.number("version"), Modifier.fillMaxWidth().height(180.dp), look.text("hash"))
+            }
+        }
         if (space.obj("character").flag("editable")) {
             item { ChoiceMenu(tr("素材来源"), mode, listOf("uploaded" to tr("上传素材"), "generated" to tr("生成素材"))) { mode = it } }
             item { OutlinedTextField(prompt, { prompt = it }, label = { Text(tr("外观与统一画风描述")) }, enabled = editable) }

@@ -159,6 +159,11 @@ export const api = {
   uploadCharacterAsset: (ch: string, id: string, slot: 'avatar' | 'portrait' | 'subtitle', file: File, subtitle = '') => { const fd = new FormData(); fd.append('slot', slot); fd.append('subtitle', subtitle); fd.append('file', file); return request<T.CharacterSpace>('POST', `/api/channels/${ch}/characters/${id}/assets`, undefined, fd); },
   generateCharacterAssets: (ch: string, id: string, body: { slots?: string[]; subtitles?: string[]; allow_cloud?: boolean }) => post<{ jobs: unknown[]; space: T.CharacterSpace }>(`/api/channels/${ch}/characters/${id}/assets/generate`, body),
   deleteCharacterAsset: (ch: string, id: string, assetId: string) => del<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/assets/${assetId}`),
+  createOutfit: (ch: string, id: string, body: { name: string; attire: string }) => post<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/outfits`, body),
+  updateOutfit: (ch: string, id: string, outfitId: string, body: { name?: string; attire?: string }) => put<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/outfits/${outfitId}`, body),
+  deleteOutfit: (ch: string, id: string, outfitId: string) => del<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/outfits/${outfitId}`),
+  generateOutfit: (ch: string, id: string, outfitId: string, body: { slots?: string[]; subtitles?: string[]; allow_cloud?: boolean }) => post<{ jobs: unknown[]; space: T.CharacterSpace }>(`/api/channels/${ch}/characters/${id}/outfits/${outfitId}/generate`, body),
+  wearOutfit: (ch: string, id: string, outfitId: string | null) => put<T.CharacterSpace>(`/api/channels/${ch}/characters/${id}/outfit`, { outfit_id: outfitId }),
   attributes: (ch: string, id: string) => get<T.CharacterAttributes>(`/api/channels/${ch}/characters/${id}/attributes`),
   updateAttributes: (ch: string, id: string, body: { set?: Record<string, number>; remove?: string[] }) => put<T.CharacterAttributes>(`/api/channels/${ch}/characters/${id}/attributes`, body),
   dicePreview: (ch: string, body: { content: string; chat_window_id: string; character_id?: string }) => post<{ hint: string | null; command: string | null }>(`/api/channels/${ch}/dice/preview`, body),
@@ -174,7 +179,7 @@ export const api = {
   // The lines right after `afterSeq` (oldest first): catching up from the last line kept here.
   messagesAfter: (ch: string, w: string, afterSeq: number, limit = 200) => get<T.Message[]>(`/api/channels/${ch}/windows/${w}/messages${q({ after_seq: afterSeq, limit })}`),
   postMessage: (ch: string, w: string, body: { content: string; kind?: string; character_id?: string; visibility?: string; whisper_to?: string[]; reference_ids?: string[] }) => post<T.Message>(`/api/channels/${ch}/windows/${w}/messages`, body),
-  illustrate: (ch: string, w: string, body: { prompt: string; character_ids: string[]; orientation: 'landscape' | 'portrait' | 'square'; allow_cloud: boolean; request_id?: string }) =>
+  illustrate: (ch: string, w: string, body: { prompt: string; character_ids: string[]; outfits?: Record<string, string>; orientation: 'landscape' | 'portrait' | 'square'; allow_cloud: boolean; request_id?: string }) =>
     post<{ id: string; status: string; kind: string; reference_count: number }>(`/api/channels/${ch}/windows/${w}/illustrations`, body),
   illustrations: (ch: string) => request<T.IllustrationJob[]>('GET', `/api/channels/${ch}/illustrations`),
   cancelIllustration: (ch: string, id: string) => post<{ id: string; status: string }>(`/api/channels/${ch}/illustrations/${id}/cancel`, {}),

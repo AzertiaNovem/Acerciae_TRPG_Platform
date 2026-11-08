@@ -61,12 +61,16 @@ function IllustrateDialog({ channelId, windowId, characters, jobs, busy, onClose
   const [picked, setPicked] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
   const [orientation, setOrientation] = useState<'landscape' | 'portrait' | 'square'>('landscape');
+  // Each character in the outfit they wear now unless another is picked here ("" = the base look).
+  const [outfitOf, setOutfitOf] = useState<Record<string, string>>({});
+  const dressed = picked.map((id) => characters.find((c) => c.id === id)).filter((c): c is NonNullable<typeof c> => !!c?.outfits?.length);
   const [sending, setSending] = useState(false);
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= MAX_CHARACTERS ? p : [...p, id]));
   const draw = async () => {
     setSending(true);
     try {
-      await api.illustrate(channelId, windowId, { prompt: prompt.trim(), character_ids: picked, orientation, allow_cloud: true, request_id: crypto.randomUUID() });
+      const outfits = Object.fromEntries(dressed.map((c) => [c.id, outfitOf[c.id] ?? c.outfit_id ?? '']));
+      await api.illustrate(channelId, windowId, { prompt: prompt.trim(), character_ids: picked, outfits, orientation, allow_cloud: true, request_id: crypto.randomUUID() });
       toast(tr('Drawing… the picture will appear in this window.'));
       onQueued(); onClose();
     } catch (e: any) { toast(e.message, 'error'); }
@@ -91,6 +95,20 @@ function IllustrateDialog({ channelId, windowId, characters, jobs, busy, onClose
                 </label>
               );
             })}
+          </div>
+        )}
+        {dressed.length > 0 && (
+          <div className="col" style={{ gap: 4 }}>
+            <span className="section-label">{tr('Outfits')}</span>
+            {dressed.map((c) => (
+              <label key={c.id} className="row small" style={{ gap: 8 }}>
+                <span className="grow">{c.name}</span>
+                <select value={outfitOf[c.id] ?? c.outfit_id ?? ''} onChange={(e) => setOutfitOf({ ...outfitOf, [c.id]: e.target.value })}>
+                  <option value="">{tr('Base look')}{!c.outfit_id ? tr(' (worn now)') : ''}</option>
+                  {c.outfits!.map((o) => <option key={o.id} value={o.id}>{o.name}{o.id === c.outfit_id ? tr(' (worn now)') : ''}</option>)}
+                </select>
+              </label>
+            ))}
           </div>
         )}
         <label className="col" style={{ gap: 4 }}>

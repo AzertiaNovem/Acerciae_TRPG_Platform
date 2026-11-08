@@ -29,6 +29,17 @@ public:
     // Queues image jobs for the requested slots and subtitles (generated mode only).
     Json::Value generate(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);
     Json::Value removeAsset(const ChannelAccess& a, const std::string& characterId, const std::string& assetId);
+
+    // Outfits (generated mode only, at most outfits::kMaxPerCharacter): a name and an attire description, each with its
+    // own avatar, portrait and poses. The GM and the character's actor manage them and choose the one worn now (none:
+    // the base look). Each returns the character's space.
+    Json::Value createOutfit(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);        // {name, attire}
+    Json::Value updateOutfit(const ChannelAccess& a, const std::string& characterId, const std::string& outfitId, const Json::Value& body);
+    Json::Value deleteOutfit(const ChannelAccess& a, const std::string& characterId, const std::string& outfitId);   // and its images
+    // Like generate, for one outfit: {slots: [portrait, avatar], subtitles: [...], allow_cloud}. The outfit's portrait
+    // is drawn from the base portrait; its avatar and poses from the outfit's portrait.
+    Json::Value generateOutfit(const ChannelAccess& a, const std::string& characterId, const std::string& outfitId, const Json::Value& body);
+    Json::Value wear(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);   // {outfit_id | null}
     // Brings an archived card of the channel's current rule system back as the active numbers (the numbers it replaces,
     // if any, are archived in turn); the archive entry is used up.
     Json::Value restoreArchive(const ChannelAccess& a, const std::string& characterId, const std::string& archiveId);
@@ -61,6 +72,9 @@ public:
 private:
     Json::Value characterFor(const ChannelAccess& a, const std::string& characterId, bool write);
     void attach(const std::string& channelId, const std::string& characterId, const std::string& slot, const std::string& subtitle, const std::string& assetId);
+    Json::Value assetBrief(const ChannelAccess& a, const Json::Value& assetId);   // {id, version, hash, mime, …} or null
+    Json::Value outfitFor(const ChannelAccess& a, const std::string& characterId, const std::string& outfitId);
+    std::vector<std::pair<std::string, std::string>> targets(const Json::Value& body);   // requested (slot, subtitle)
     Db& db_; logstudio::MediaService& media_; logstudio::CreativeService& creative_;
     ServerSettingsService& settings_; Notifier& notifier_;
 };

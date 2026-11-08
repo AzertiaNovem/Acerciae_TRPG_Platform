@@ -32,9 +32,11 @@ public:
   Json::Value suggest(const ChannelAccess &a, const std::string &presentation,
                       const Json::Value &body);
   // A character's own portrait, avatar or subtitle standee. Allowed to the GM and the character's actor;
-  // the result is approved on completion and attached to the character (params.attach).
+  // the result is approved on completion and attached to the character (params.attach). With `outfit` (a
+  // character_outfits row) it is that outfit's image instead: its portrait is drawn from the base portrait (same person,
+  // the outfit's attire), its avatar and poses from its own portrait (`portraitJobId` when that is being drawn too).
   Json::Value createForCharacter(const ChannelAccess &a, const Json::Value &character, const std::string &kind,
-                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud, const std::string &portraitJobId = "");
+                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud, const std::string &portraitJobId = "", const Json::Value &outfit = Json::Value());
   // Art a visual-novel script asked for: a scene background ({presentation_id, scene_key}) or a generated-mode
   // character's subtitle portrait ({presentation_id, character_id, slot:"subtitle", subtitle}). Attached on completion.
   Json::Value createForScript(const ChannelAccess &a, const std::string &kind, const std::string &prompt, const Json::Value &attach, bool allowCloud, bool retryFailed = false);
@@ -59,6 +61,8 @@ private:
   AuthService &auth_;
   AiPolicyService &policy_;
   void usePortraitReference(const ChannelAccess &a, const std::string &characterId, Json::Value &params, const std::string &portraitJobId = "");
+  // The approved image `assetId` as the job's identity reference, with the instruction the image model gets about it.
+  void useImageReference(const ChannelAccess &a, const std::string &assetId, Json::Value &params, const std::string &instruction, const char *what);
   std::unique_ptr<ImageGenerationProvider> providerFor(const std::string& channelId);
   std::atomic<bool> running_{false};
   std::thread thread_;
