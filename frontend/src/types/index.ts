@@ -55,7 +55,11 @@ export interface ChatWindow {
 }
 export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; avatar_asset_version?: number | null; avatar_asset_hash?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean; card_pending?: boolean;
   /** The outfit worn now (null = the base look); avatar_asset_id is then the outfit's avatar, base_avatar_asset_id the base one. */
-  outfit_id?: string | null; outfit_name?: string | null; base_avatar_asset_id?: string | null; outfits?: { id: string; name: string }[] }
+  outfit_id?: string | null; outfit_name?: string | null; base_avatar_asset_id?: string | null; outfits?: { id: string; name: string }[];
+  /** The numbers shown next to the name (see Vitals), by the channel's rule system. */
+  vitals?: Vitals }
+/** CoC: hp, hp_max, san, san_max, dex; D&D: hp, hp_max, ac, dex; PbtA: resources and the conditions that are on. A missing number is null. */
+export interface Vitals { rule_system: string; hp?: number | null; hp_max?: number | null; san?: number | null; san_max?: number | null; dex?: number | null; ac?: number | null; resources?: { id: string; name: string; value: number }[]; conditions?: { id: string; name: string }[] }
 /** Other clothes of a generated character, with their own images (drawn from the main portrait). */
 export interface Outfit { id: string; name: string; attire: string; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[] }
 // The COC7-styled role card. Numbers are mirrored into sheet.attrs for the dice.

@@ -252,6 +252,17 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .attr { display: flex; align-items: center; gap: 6px; background: var(--bg-3); border-radius: 6px; padding: 3px 4px 3px 9px; }
 .attr-value { width: 58px; text-align: right; padding: 3px 6px; font-variant-numeric: tabular-nums; }
 .channel-sidebar .item .member-count { padding: 0 5px; font-size: 11px; color: var(--fg-2); }
+/* A character's entry: the name line, and under it the rule system's vital numbers; a pen while being written as. */
+.channel-sidebar .item.character { align-items: flex-start; padding-top: 5px; padding-bottom: 5px; }
+.channel-sidebar .item.character .mini-avatar { margin-top: 1px; }
+.channel-sidebar .char-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.channel-sidebar .char-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.channel-sidebar .char-vitals { font-size: 11px; line-height: 1.3; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.channel-sidebar .char-vitals .vital + .vital::before { content: ' · '; color: var(--fg-3); }
+.channel-sidebar .char-vitals .vital.low { color: var(--danger); font-weight: 600; }
+.channel-sidebar .typing { color: var(--accent); flex-shrink: 0; animation: typing-pen 1.2s ease-in-out infinite; }
+.channel-sidebar .item.is-typing .name { color: var(--fg-0); }
+@keyframes typing-pen { 50% { opacity: .35; } }
 
 /* ---- dice ---- */
 .composer-input { position: relative; }

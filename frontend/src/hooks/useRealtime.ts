@@ -13,6 +13,7 @@ import { useUi } from '../store/ui';
 import { onIncomingMessage } from './useUnread';
 import { speakMessage, forgetSpokenMessage } from '../lib/speech';
 import { useNotifications } from '../store/notifications';
+import { useTyping } from '../store/typing';
 
 // Wires WebSocket events to the stores. Chat and context streams are handled independently.
 export function useRealtime() {
@@ -25,7 +26,7 @@ export function useRealtime() {
     // once (the others when they are opened), after a reconnect together with the window list and the channel.
     let dropped = false;
     const offChat = chatSocket.on((m) => {
-      if (m.type === '_close') { dropped = true; useChat.getState().streamDown(); return; }
+      if (m.type === '_close') { dropped = true; useChat.getState().streamDown(); useTyping.getState().reset(); return; }
       if (m.type === '_open') return;
       if (m.type === 'subscribed' && !m.spectate) {
         const nav = useNav.getState();
@@ -47,6 +48,8 @@ export function useRealtime() {
       else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows(); }
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
       else if (m.type === 'character.updated') useNav.getState().refreshCharacters();
+      else if (m.type === 'typing.changed') useTyping.getState().changed(m);
+      else if (m.type === 'typing.snapshot') useTyping.getState().snapshot(m.typing ?? []);
       else if (m.type === 'channel.updated') useNav.getState().refreshChannel();
       else if (m.type === 'channel.deleted') { const nav = useNav.getState(); if (nav.channelId === m.channel_id) useUi.getState().toast('The channel you were in was deleted.'); nav.forgetChannel(m.channel_id).catch(() => undefined); }
       else if (m.type === 'server.deleted') { const nav = useNav.getState(); if (nav.serverId === m.server_id) useUi.getState().toast('The server you were on was deleted.'); nav.forgetServer(m.server_id).catch(() => undefined); }
@@ -78,7 +81,8 @@ export function useRealtime() {
       else if (m.type === 'ai.job' && m.job?.status === 'failed') useUi.getState().toast(`AI observer error: ${m.job.error}`, 'error');
     });
     const prune = setInterval(() => { useHighlights.getState().prune(); useReminders.getState().prune(); }, 15000);
-    return () => { offChat(); offCtx(); clearInterval(prune); };
+    const typing = setInterval(() => useTyping.getState().prune(), 5000);
+    return () => { offChat(); offCtx(); clearInterval(prune); clearInterval(typing); };
   }, []);
   useEffect(() => {
     if (!channelId) return;
