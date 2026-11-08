@@ -9,7 +9,7 @@
 // What may be drawn: lines of any window of play, other players' and co-players' scenes too, posted for the whole
 // window; never a whisper, a GM-only note, a phone or another table window.
 import { completeJson } from "./llm/index.mjs";
-import { MAX_CHARACTERS, normalizeIllustration } from "./illustrations.mjs";
+import { MAX_CHARACTERS, normalizeIllustration, outfitBlock, withOutfits } from "./illustrations.mjs";
 
 const COMMAND = /^\/(?:插画|画|draw|illustrate)(?=$|\s|[^\x00-\x7f])\s*([\s\S]*)$/i;
 export const REQUEST_MAX = 500;
@@ -137,15 +137,16 @@ Write the description in ${language}. Reply with only one JSON object:
 {"found": true, "moment": "<the description>", "who": ["<character names>"], "orientation": "landscape" | "portrait" | "square", "why": "<one short line: which part of the play it is>"}`;
 
 // The requested moment: {found, text, who, orientation, why}.
-export async function pickRequestedMoment(llm, { language, request, era = "", cast = [], window = "", lines }) {
+export async function pickRequestedMoment(llm, { language, request, era = "", cast = [], window = "", lines, wardrobe = [] }) {
   const user = [
     `THE PLAYER'S REQUEST: ${request}`,
     era ? `ERA: ${era}` : "",
     `CAST: ${cast.join(", ") || "(none named)"}`,
+    outfitBlock(wardrobe),
     `PLAY${window ? ` in "${window}"` : ""} (oldest first):\n${lines}`,
   ].filter(Boolean).join("\n\n");
-  return completeJson(llm, { system: PICK_SYSTEM(language), user, purpose: "plot_illustration" }, (x) => {
-    if (x?.found === false) return { found: false, text: "", who: [], orientation: "landscape", why: "" };
+  return completeJson(llm, { system: withOutfits(PICK_SYSTEM(language), wardrobe), user, purpose: "plot_illustration" }, (x) => {
+    if (x?.found === false) return { found: false, text: "", who: [], orientation: "landscape", outfits: {}, why: "" };
     const n = normalizeIllustration(x);
     if (!n.text) throw new Error("moment is required, or found: false");
     return { found: true, ...n, why: clip(x.why, 300) };

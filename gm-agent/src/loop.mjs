@@ -117,6 +117,7 @@ export class Table {
     this.queue = Promise.resolve();
     this.pending = 0;          // turns waiting or running
     this.cards = new Map();
+    this.outfitCache = new Map();   // character → their outfits with attire, for pictures (table/art.mjs)
     this.attrs = new Map();
     this.turns = 0;
     this.lastSeq = 0;          // newest line seen in the channel

@@ -77,7 +77,9 @@ export class MockLlm {
   scenarioMoment(user) {
     const play = (user.split("PLAY (oldest first):\n")[1] ?? "").trim().split("\n");
     const cast = (user.match(/^CAST: (.*)$/m)?.[1] ?? "").split(", ").filter((n) => n && n !== "(none named)");
-    return { moment: `[mock moment] ${(play.at(-1) ?? "").replace(/^[^:]*: /, "").slice(0, 200)}`, who: cast.slice(0, 1), orientation: "landscape", why: "[mock] the last line" };
+    // Outfitted characters: each in the first outfit listed (in the picture when they are in the cast's first place).
+    const outfits = Object.fromEntries([...user.matchAll(/^- (.+?) \(wears now: [^\n]*?\): "([^"]+)"/gm)].map((m) => [m[1], m[2]]));
+    return { moment: `[mock moment] ${(play.at(-1) ?? "").replace(/^[^:]*: /, "").slice(0, 200)}`, who: [...new Set([...cast.slice(0, 1), ...Object.keys(outfits)])], orientation: "landscape", outfits, why: "[mock] the last line" };
   }
 
   // A legal D&D 2024 build (27 points): a level-1 Elf Rogue with the Criminal background.

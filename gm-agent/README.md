@@ -371,6 +371,15 @@ turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`
   one request on its way at a time, and at most `illustrations.requests_per_hour` (4) an hour; `/画` with nothing
   after it explains the command. A request is not play: it works while the table is paused and does not resume it.
 
+**Outfits.** A character with a generated look may have several outfits on the platform (a name and the attire), and
+wears one of them, or their usual clothes, at any time; each line records what its character wore. Every picture
+dresses its characters in the outfit that suits the moment. The art director of an event, scenario or requested
+picture is shown each outfitted character's outfits with their attire, what they wear now and what they wore in the
+lines being drawn, and names an outfit for each character in the picture (the place, the occasion and the lines
+decide); the GM sees the outfits in its cast and may do the same for its own `illustrate`. A character the choice
+leaves out, or names an outfit they do not have, is drawn in what they wear now; the outfit worn now is not sent
+again. Without outfits at the table, nothing about them is asked or sent.
+
 A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
 is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
 illustrations stay off for the rest of the run. The platform's switches are followed live instead: while the server's

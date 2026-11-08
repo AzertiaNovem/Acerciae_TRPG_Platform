@@ -1,6 +1,6 @@
 // art: table is the explicit runtime context supplied by Table; no service singleton.
 import { randomUUID } from "node:crypto";
-import { MAX_CHARACTERS, illustrationFailure, lineRows, normalizeIllustration, pickEventMoment, pickScenarioMoment, scenarioLines } from "../illustrations.mjs";
+import { MAX_CHARACTERS, USUAL, illustrationFailure, lineRows, normalizeIllustration, pickEventMoment, pickScenarioMoment, scenarioLines } from "../illustrations.mjs";
 import { PART_LINES, PICK_BUDGET, artRequest, artText, chooseEntries, drawable, isArtLine, parts, pickRequestedMoment, playLength } from "../plotArt.mjs";
 import { recall } from "../context/recall.mjs";
 import { MAIN } from "../timelines.mjs";
@@ -16,11 +16,57 @@ export async function readIllustrationSwitches(table, { server = true } = {}) {
     if (server) { const s = await table.api.serverSettings(channel.server_id ?? table.channel.server_id); table.illustrationSwitches.server = s?.features?.illustrations !== false; }
   }
 
-export async function requestIllustration(table, windowId, { text, who, orientation }) {
+// ---- outfits: each pictured character in the outfit that suits the moment, else in what they wear now
+// The platform's `outfits` field for a picture of `ids`: {characterId: outfitId, or "" for the usual look} for each
+// character the art director dressed in another outfit than the one worn now. An outfit name that matches none of
+// theirs, or the outfit worn now, is left out: they are drawn in what they wear now.
+export function outfitRequest(table, ids, chosen = {}) {
+    const out = {};
+    for (const [name, choice] of Object.entries(chosen ?? {})) {
+      const c = table.characters.find((x) => x.id === table.characterByName(name)?.id);
+      if (!c || !ids.includes(c.id) || !c.outfits?.length) continue;
+      const pick = norm(choice);
+      const id = pick === USUAL || /^(usual|base|default|none)\b/.test(pick) ? "" : c.outfits.find((o) => norm(o.name) === pick)?.id ?? null;
+      if (id === null || id === (c.outfit_id ?? "")) continue;
+      out[c.id] = id;
+    }
+    return out;
+  }
+
+// What the art director needs to dress the cast: [{name, wearing, worn, outfits: [{name, attire}]}] for the characters
+// among `names` that have outfits. `worn` is the outfit of their newest line among `lines` ("" for the usual look),
+// undefined when none of these lines records it.
+export async function wardrobe(table, names, lines = []) {
+    const out = [];
+    for (const c of table.characters.filter((x) => names.includes(x.name) && x.outfits?.length)) {
+      const outfits = await outfitsOf(table, c);
+      if (!outfits.length) continue;
+      const last = lines.findLast((m) => m.character_id === c.id && m.outfit_id !== undefined);
+      const worn = last ? (last.outfit_id ? outfits.find((o) => o.id === last.outfit_id)?.name ?? null : "") : undefined;
+      out.push({ name: c.name, wearing: c.outfit_name ?? (c.outfit_id ? outfits.find((o) => o.id === c.outfit_id)?.name ?? null : null), worn, outfits });
+    }
+    return out;
+  }
+
+// A character's outfits with their attire (the character list names them only): read from the character's page once,
+// again when the list of outfits changes or the character is updated.
+async function outfitsOf(table, c) {
+    const sig = c.outfits.map((o) => o.id).join(",");
+    const cached = table.outfitCache.get(c.id);
+    if (cached?.sig === sig) return cached.list;
+    const space = await table.api.characterSpace(table.channelId, c.id).catch(() => null);
+    const list = (space?.outfits ?? c.outfits).map((o) => ({ id: o.id, name: o.name, attire: o.attire ?? "" }));
+    table.outfitCache.set(c.id, { sig, list });
+    return list;
+  }
+
+export async function requestIllustration(table, windowId, { text, who, orientation, outfits = {} }) {
     const ids = [...new Set(who.map((n) => table.characterByName(n)?.id).filter(Boolean))].slice(0, MAX_CHARACTERS);
+    const dress = outfitRequest(table, ids, outfits);
     try {
-      const job = await table.api.illustrate(table.channelId, windowId, { prompt: text, character_ids: ids, orientation, allow_cloud: table.cfg.illustrations?.allowCloud !== false, request_id: randomUUID() });
-      table.log(`illustration requested in "${table.windowName(windowId)}"${ids.length ? ` with ${ids.map((id) => table.nameOf(id)).join(", ")}` : ""}: ${text.slice(0, 100)}`);
+      const job = await table.api.illustrate(table.channelId, windowId, { prompt: text, character_ids: ids, orientation, allow_cloud: table.cfg.illustrations?.allowCloud !== false, request_id: randomUUID(), ...(Object.keys(dress).length ? { outfits: dress } : {}) });
+      const dressed = (id) => (id in dress ? ` in ${dress[id] ? `"${table.characters.find((c) => c.id === id)?.outfits?.find((o) => o.id === dress[id])?.name}"` : USUAL}` : "");
+      table.log(`illustration requested in "${table.windowName(windowId)}"${ids.length ? ` with ${ids.map((id) => `${table.nameOf(id)}${dressed(id)}`).join(", ")}` : ""}: ${text.slice(0, 100)}`);
       return { job };
     } catch (e) {
       const failure = illustrationFailure(e);
@@ -80,7 +126,7 @@ export async function drawEvent(table, { windowId, event, from, upTo, turn, scen
     const cast = table.characters.filter((c) => table.isPc(c.id) || table.roster.isCoplayer(c.id) || table.roster.isNpc(c.id)).map((c) => c.name);
     const title = scenario?.id ? ((await table.api.scenes(table.channelId).catch(() => [])) ?? []).find((x) => x.id === scenario.id)?.title ?? "" : "";
     const moment = await pickEventMoment(table.llm, { language: table.language, event, scenario: title, place: scene?.location, time: scene?.narrativeTime, era: table.channel.era ?? "",
-      cast, lines: scenarioLines(lines, (id) => table.nameOf(id)), drawn: table.drawnIn(scenario) });
+      cast, lines: scenarioLines(lines, (id) => table.nameOf(id)), drawn: table.drawnIn(scenario), wardrobe: await wardrobe(table, cast, lines) });
     if (turn?.undone) return;
     table.recordPicture(moment.text, windowId, scenario?.id);
     table.log(`event picture of "${event}" in "${table.windowName(windowId)}": ${moment.why || moment.text.slice(0, 80)}`);
@@ -127,7 +173,7 @@ export async function illustrateScenario(table, ending) {
     for (const thread of ending.threads) {
       if (!thread.lines.length) continue;
       const moment = await pickScenarioMoment(table.llm, { language: table.language, title: ending.title, place: thread.place, time: thread.time, era: table.channel.era ?? "",
-        cast, lines: scenarioLines(thread.lines, (id) => table.nameOf(id)), drawn: table.drawnIn(ending.scenario) });
+        cast, lines: scenarioLines(thread.lines, (id) => table.nameOf(id)), drawn: table.drawnIn(ending.scenario), wardrobe: await wardrobe(table, cast, thread.lines) });
       table.recordPicture(moment.text, main.id, ending.scenario?.id ?? null);
       table.log(`scenario picture of "${thread.name}": ${moment.why || moment.text.slice(0, 80)}`);
       table.illustrationQueue.push({ windowId: main.id, moment, tries: 0 });
@@ -230,7 +276,7 @@ export async function drawPastPlot(table, m, request) {
       if (!found.lines.length) continue;
       const lines = await zoomIn(table, { request, requester: mine, cast, lines: found.lines, nameOf });
       const moment = await pickRequestedMoment(table.llm, { language: table.language, request, era: table.channel.era ?? "", cast, window: table.windowName(found.windowId),
-        lines: scenarioLines(lines, nameOf, PICK_BUDGET) });
+        lines: scenarioLines(lines, nameOf, PICK_BUDGET), wardrobe: await wardrobe(table, cast, lines) });
       if (!moment.found) { table.log(`picture request: not in ${key}`); continue; }
       table.log(`picture request: drawing ${moment.why || moment.text.slice(0, 80)}`);
       table.recordPicture(moment.text, m.chat_window_id);

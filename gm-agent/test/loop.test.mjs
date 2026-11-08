@@ -40,7 +40,8 @@ class FakeApi {
   }
   add(m) {
     const c = this.characters_.find((x) => x.id === m.character_id);
-    const msg = { id: `m${++this.seq}`, seq: this.seq, channel_id: "ch", scene_id: this.currentScene, visibility: "window", kind: "ic", whisper_to: [], character_name: c?.name ?? null, ...m };
+    // A character with outfits writes each line in the one they wear (the platform records it).
+    const msg = { id: `m${++this.seq}`, seq: this.seq, channel_id: "ch", scene_id: this.currentScene, visibility: "window", kind: "ic", whisper_to: [], character_name: c?.name ?? null, ...(c?.outfits ? { outfit_id: c.outfit_id ?? null } : {}), ...m };
     this.lines.push(msg);
     return msg;
   }
@@ -73,7 +74,7 @@ class FakeApi {
     if (this.serverIllustrations === false || this.channelIllustrations === false) throw Object.assign(new Error("POST illustrations: 403 feature_disabled turned off"), { status: 403, code: "feature_disabled" });
     this.illustrations_ ??= [];
     if (this.illustrations_.some((j) => ["pending", "running"].includes(j.status))) throw Object.assign(new Error("POST illustrations: 409 conflict your previous illustration is still being drawn"), { status: 409 });
-    const job = { id: `ill${this.illustrations_.length + 1}`, status: "pending", window_id: w, prompt: body.prompt, character_ids: body.character_ids, orientation: body.orientation, allow_cloud: body.allow_cloud, message_id: null };
+    const job = { id: `ill${this.illustrations_.length + 1}`, status: "pending", window_id: w, prompt: body.prompt, character_ids: body.character_ids, orientation: body.orientation, allow_cloud: body.allow_cloud, outfits: body.outfits, message_id: null };
     this.illustrations_.push(job);
     if (!(this.holdIllustrations > 0)) this.finishIllustration(job);
     else this.holdIllustrations--;
@@ -2778,6 +2779,42 @@ test("the end of each small event is drawn where it was played, from its own lin
   assert.match(scenario[0], /ALREADY DRAWN IN THIS SCENARIO[^\n]*\n- \[mock event\] The duel on the pier is over[^\n]*\n- \[mock event\] The coins glint in the lamplight\./, "the scenario picture knows both, the newest one too");
   assert.deepEqual(llm.calls.map((c) => c.purpose).filter((x) => x.endsWith("_illustration")), ["event_illustration", "event_illustration", "scenario_illustration"], "chosen one at a time, in order");
   assert.deepEqual(api.illustrations_.map((j) => j.status), ["completed", "completed", "completed"]);
+});
+
+test("pictures dress each character in the outfit that suits the moment; when unsure, in what they wear now", async () => {
+  const llm = new MockLlm();
+  llm.director = (user) => {
+    const said = user.match(/^NEWEST LINE: Alice Hale: (.*)$/m)?.[1] ?? "";
+    return { actions: said ? [{ type: "narrate", text: `So it goes: ${said}` }, ...(/leave the ball/.test(said) ? [{ type: "event_done", text: "the ball" }] : [])] : [], coplayers_may_act: false };
+  };
+  const ATTIRE = { "o-gown": "black silk evening gown, long gloves, pearls", "o-dive": "brass-helmeted diving suit, lead boots" };
+  const { t, api } = await table({ llm, forks: false, cfg: illustrateCfg({ maxPerHour: 10 }), before: (a) => {
+    // Harriet has two outfits and wears the diving suit now; her line at the ball was written in the gown.
+    Object.assign(a.characters_.find((c) => c.id === "c-harriet"), { outfits: [{ id: "o-gown", name: "Evening gown" }, { id: "o-dive", name: "Diving suit" }], outfit_id: "o-dive", outfit_name: "Diving suit" });
+    const space = a.characterSpace.bind(a);
+    a.characterSpace = async (ch, id) => ({ ...(await space(ch, id)), outfits: id === "c-harriet" ? [{ id: "o-gown", name: "Evening gown", attire: ATTIRE["o-gown"] }, { id: "o-dive", name: "Diving suit", attire: ATTIRE["o-dive"] }] : [] });
+  } });
+  await playerSays(t, api, "We arrive at the ball."); await settle(t);
+  await sayLine(t, api.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "player", character_id: "c-harriet", content: "Harriet takes the floor and waltzes.", outfit_id: "o-gown" })); await settle(t);
+  // The art director's choice: the gown for Harriet; Alice has no outfits, so naming one for her changes nothing.
+  llm.scenarioMoment = () => ({ moment: "Harriet waltzing under the chandeliers", who: ["Harriet Vance", "Alice Hale"], orientation: "landscape", outfits: { "Harriet Vance": "Evening gown", "Alice Hale": "Evening gown" }, why: "the waltz" });
+  await playerSays(t, api, "We leave the ball."); await settle(t); await t.illustrating;
+  const ask = llm.calls.find((c) => c.purpose === "event_illustration");
+  assert.match(ask.system, /Some characters have outfits[\s\S]*leave the character out of "outfits": they are drawn in what they wear now/);
+  assert.match(ask.messages[0].content, /^OUTFITS:\n- Harriet Vance \(wears now: "Diving suit"; in these lines: "Evening gown"\): "Evening gown" — black silk evening gown, long gloves, pearls; "Diving suit" — brass-helmeted diving suit, lead boots; usual clothes$/m);
+  assert.deepEqual(api.illustrations_.map((j) => j.outfits), [{ "c-harriet": "o-gown" }], "the gown, by its id; Alice as she is");
+  // The GM sees the outfits in the cast, and may dress its own picture too; the outfit worn now, or a name that is no
+  // outfit of hers, sends nothing: she is drawn in what she wears.
+  assert.match(llm.calls.filter((c) => c.purpose === "director").at(-1).messages[0].content, /- Harriet Vance[\s\S]*?\n {4}outfits: "Evening gown", "Diving suit", or their usual clothes; wears "Diving suit" now/);
+  for (const outfits of [{ "Harriet Vance": "usual clothes" }, { "Harriet Vance": "Diving suit" }, { "Harriet Vance": "Tuxedo" }]) await t.illustrateMoment("w-main", { text: "Harriet on the pier", who: ["Harriet Vance"], outfits });
+  assert.deepEqual(api.illustrations_.slice(1).map((j) => j.outfits), [{ "c-harriet": "" }, undefined, undefined]);
+  // Without outfits at the table, the art director is told nothing of them.
+  const plain = await table({ llm: new MockLlm(), forks: false, cfg: illustrateCfg() });
+  plain.llm.director = llm.director;
+  for (const l of ["We arrive at the ball.", "We dance.", "We leave the ball."]) { await playerSays(plain.t, plain.api, l); await settle(plain.t); }
+  await plain.t.illustrating;
+  const bare = plain.llm.calls.find((c) => c.purpose === "event_illustration");
+  assert.ok(bare && !/outfits|OUTFITS/.test(bare.system + bare.messages[0].content));
 });
 
 test("an event's picture: none for a short event, none past the hourly cap, and a rolled-back turn's picture is not drawn", async () => {

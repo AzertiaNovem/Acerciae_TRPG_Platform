@@ -130,11 +130,11 @@ export class GmContext {
     a.push([
       "## Cast",
       "Player characters (real people play them; never speak or decide for them), with their basic details and background:",
-      ...(pcList.length ? pcList.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`, P)) : ["- (none yet)"]),
+      ...(pcList.length ? pcList.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`, P) + wardrobeNote(c, "\n    ")) : ["- (none yet)"]),
       `Co-players (AI ${pcs} that play alongside the players; they act on their own turn, so never speak or decide for them either), with their basic details and background:`,
-      ...(coplayers.length ? coplayers.map((c) => renderProfile(c, "", P)) : ["- (none)"]),
+      ...(coplayers.length ? coplayers.map((c) => renderProfile(c, "", P) + wardrobeNote(c, "\n    ")) : ["- (none)"]),
       "Real NPCs (you voice them; known cast, not everyone currently active), with gender, age and what is most striking about them:",
-      ...(roster.npcs.length ? roster.npcs.map((c) => { const look = impression(characters.find((x) => x.id === c.characterId)?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}`; }) : [`- (none yet; a new person who could bond with the ${pcs}, has more than one sentence to say and is one specific person enters with new_npc)`]),
+      ...(roster.npcs.length ? roster.npcs.map((c) => { const ch = characters.find((x) => x.id === c.characterId); const look = impression(ch?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}${wardrobeNote(ch, " ")}`; }) : [`- (none yet; a new person who could bond with the ${pcs}, has more than one sentence to say and is one specific person enters with new_npc)`]),
     ].join("\n"));
     // Every window's chapters (the story so far, compacted), windows in a fixed order.
     const chaptered = windows.map((w) => ({ w, chapters: this.memory.gmChapters(w.id) })).filter((x) => x.chapters.length);
@@ -229,6 +229,12 @@ export class GmContext {
     const here = [...frozen, ...tail];
     return { parts, text: parts.map((p) => p.text).join(""), newest: here.at(-1) ?? null, current, world, render, lines: (w) => linesOf(w) };
   }
+}
+
+// A character's outfits (the platform's outfit system) and the one worn now, for pictures; "" without outfits.
+function wardrobeNote(c, lead) {
+  if (!c?.outfits?.length) return "";
+  return `${lead}outfits: ${c.outfits.map((o) => `"${o.name}"`).join(", ")}, or their usual clothes; wears ${c.outfit_name ? `"${c.outfit_name}"` : "their usual clothes"} now`;
 }
 
 // The platform's living world record: every entity with something known about it now, within `budget` tokens (the
