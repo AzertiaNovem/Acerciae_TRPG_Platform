@@ -237,14 +237,19 @@ function renderPlan() {
   planKey = key;
   if (!p) { root.replaceChildren(card('当前计划', h('p', { text: '暂无已采用的 plan。剧情规划生成并采用计划后会在这里显示。' }))); return; }
   const text = (label, value) => value ? kv(label, value) : null;
+  const event = (entry, fallback) => {
+    const row = text(entry.when || fallback, entry.what);
+    row?.classList.add('plan-event');
+    return row;
+  };
   const rows = [card(`当前计划 v${p.version}`, text('规划状态', planner.on ? '已开启' : '已关闭（显示保留的计划）'), text('模式', p.mode === 'pace' ? '仅节奏规划' : '完整剧情规划'), text('生成于', time(p.updatedAt)), text('触发原因', p.trigger),
     text('贯穿主线', p.throughline), text('已发生', p.played), text('节奏判断', p.verdict?.moveOn ? '可以推进' : '继续当前'), text('判断原因', p.verdict?.why),
     planner.pendingVersion ? h('p', { class: 'warn-text', text: `v${planner.pendingVersion} 已生成，等待在回合边界采用。` }) : null,
     detail.live.stale ? h('p', { class: 'muted small', text: `这是 ${time(detail.live.at)} 的最后快照。` }) : null),
     card('当前节拍', text('标题', p.beat?.title), text('目的', p.beat?.purpose), text('退出条件', p.beat?.exit), text('状态', p.beat?.closed ? '已结束' : '进行中')),
-    card('后续安排', ...(p.next || []).map(x => text(x.when || '待触发', x.what))),
+    card('后续安排', ...(p.next || []).map(x => event(x, '待触发'))),
     card('复盘与日历', text('评审', p.review?.critique), text('本轮修改', p.review?.changed), text('日期', p.calendar?.start), text('时段', p.calendar?.time),
-      text('推进建议', p.calendar?.advice), text('日常安排', p.calendar?.routine), ...(p.calendar?.upcoming || []).map(x => text(x.when || '后续', x.what)))];
+      text('推进建议', p.calendar?.advice), text('日常安排', p.calendar?.routine), ...(p.calendar?.upcoming || []).map(x => event(x, '后续')))];
   for (const t of p.threads || []) rows.push(card(`${t.id} · ${t.title}`, text('状态', t.status), text('利害关系', t.stakes),
     text('引子', (t.hooks || []).join('；')), text('转折', t.twist), text('成熟条件', t.ripeWhen), text('交织线索', t.weaveWith)));
   const raw = h('details', { class: 'card plan-raw' }, h('summary', { text: '完整 plan JSON' }), h('pre', { text: JSON.stringify(p, null, 2) }));
