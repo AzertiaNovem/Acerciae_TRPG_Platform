@@ -3,6 +3,12 @@ import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.serialization.json.*
 class AccessAndNamesTest {
+    @Test fun sharedClientAccessContract() {
+        val fixture = Json.parseToJsonElement(javaClass.classLoader!!.getResourceAsStream("client-access.json")!!.bufferedReader().use { it.readText() }).jsonObject
+        for (value in fixture.getValue("studio").jsonArray) { val row=value.jsonObject; assertEquals(row.getValue("expected").jsonPrimitive.content,AccessRules.studio(row.getValue("channel").jsonObject,row.getValue("settings").jsonObject)) }
+        for (value in fixture.getValue("cache").jsonArray) { val row=value.jsonObject; assertEquals(row.getValue("keep").jsonPrimitive.boolean,AssetDiskCache.keepable(row.getValue("header").jsonPrimitive.content)) }
+    }
+
     private fun obj(s: String) = Json.parseToJsonElement(s).jsonObject
     @Test fun allLanguagesAndCanonicalKeys() {
         val rules = obj(javaClass.classLoader!!.getResourceAsStream("localized-rules.json")!!.bufferedReader().use { it.readText() })

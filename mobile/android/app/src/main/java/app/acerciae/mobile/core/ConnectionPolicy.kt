@@ -3,6 +3,7 @@ import java.io.*
 import java.net.*
 import javax.net.ssl.SSLException
 object ConnectionPolicy {
+    fun invalidatesSession(error: Exception): Boolean = error is BackendException && error.apiResponse && error.status == 401
     fun retry(error: IOException): Boolean = when(error) {
         is BackendException -> error.status in listOf(408,502,503,504,520,522,523,524)
         is SSLException, is ProtocolException -> false

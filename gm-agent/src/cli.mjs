@@ -518,8 +518,11 @@ async function usage(cfg, args) {
 
 export async function main() {
   const args = parseArgs(process.argv.slice(2));
-  loadEnvFile(args.env ?? path.join(process.cwd(), ".env"));
-  loadEnvFile(path.join(here, "..", ".env"));
+  if (args.env) loadEnvFile(args.env);
+  else if (process.env.ACERCIAE_NO_DOTENV !== "1") {
+    loadEnvFile(path.join(process.cwd(), ".env"));
+    loadEnvFile(path.join(here, "..", ".env"));
+  }
   const cfg = buildConfig(args, process.env, loadConfigFile(configPath(args, process.env, process.cwd(), path.join(here, ".."))));
   for (const w of cfg.warnings) console.error(`warning: ${w}`);
   const command = args._[0] ?? "run";

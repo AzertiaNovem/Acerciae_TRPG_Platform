@@ -24,7 +24,7 @@ const finished = (token, root, id) => wait(async () => { const j = await call(to
 test("visual novel from the campaign log: freeze, time-block script, portraits and backgrounds, dubbing cast, standalone bundle", async () => {
   const suffix = Math.random().toString(36).slice(2);
   const u = {};
-  for (const role of ["gm", "p1", "p2"])
+  for (const role of ["gm", "p1", "p2", "outside"])
     u[role] = await call(null, "POST", "/api/auth/register", { username: role + suffix, password: "password", display_name: role });
   const gm = u.gm.token, p1 = u.p1.token, p2 = u.p2.token;
   const server = await call(gm, "POST", "/api/servers", { name: "VN script" });
@@ -95,14 +95,25 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   assert.equal(gen.backgrounds.length, 2);
   assert.deepEqual(gen.portraits.map((p) => [p.character_id, p.subtitle]), [[ada.id, "SAY"]]);
   for (const need of done.script.asset_needs) if (need.kind === "background") assert.match(need.brief, /1920s New England/);
-  // Generated art lands in the draft: backgrounds on their scenes, the SAY portrait on Ada's placements and in her character space.
+  // Private generated art lands only in this draft; character profiles and channel media stay separate.
   const withArt = await wait(async () => { const p = await call(gm, "GET", root + `/presentations/${done.presentation_id}`); return p.scenes.every((s) => s.background_asset_id) ? p : null; });
   const ledger = await wait(async () => { const p = await call(gm, "GET", root + `/presentations/${done.presentation_id}`); const e = p.events.find((x) => x.display_text === "I pull the 1923 ledger."); return e.character_asset_ids[0].asset_id ? e : null; });
   assert.equal(ledger.character_asset_ids[0].character_id, ada.id);
   assert.equal(ledger.character_asset_ids[0].expression, "SAY");
   const look = await call(p1, "GET", `/api/channels/${ch}/characters/${ada.id}/space`);
-  assert.ok(look.subtitles.some((s) => s.subtitle === "SAY" && s.id === ledger.character_asset_ids[0].asset_id));
+  assert.ok(!look.subtitles.some((s) => s.id === ledger.character_asset_ids[0].asset_id), 'private draft poses do not change the shared character profile');
   assert.ok(withArt.scenes.every((s) => s.background_asset_id));
+  const privateIds = [...withArt.scenes.map(s => s.background_asset_id), ledger.character_asset_ids[0].asset_id];
+  for (const player of [p1, p2]) {
+    const library = await call(player, "GET", `/api/channels/${ch}/media`);
+    assert.ok(library.every(a => !privateIds.includes(a.id)));
+    for (const id of privateIds) {
+      await rejects(call(player, "GET", `/api/channels/${ch}/media/${id}/meta`), 404);
+      const r = await fetch(base + `/api/channels/${ch}/media/${id}`, {headers:{Authorization:`Bearer ${player}`}});
+      assert.equal(r.status, 404);
+    }
+  }
+
 
   // Dubbing cast: one voice per character plus the narrator, then mock Qwen TTS reads every visible line.
   const voices = {};
@@ -121,6 +132,14 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   const tts = await call(gm, "POST", root + `/presentations/${done.presentation_id}/tts/jobs`, {});
   const voiced = await wait(async () => { const s = await call(gm, "GET", root + `/tts/jobs/${tts.id}`); assert.notEqual(s.status, "failed", JSON.stringify(s)); return s.status === "completed" ? s : null; });
   assert.ok(voiced.done >= 6);
+  const voicedPres = await call(gm, "GET", root + `/presentations/${done.presentation_id}`);
+  const audio = voicedPres.events.find(e => e.audio_asset_id).audio_asset_id;
+  const privateAudio = await fetch(base + root + `/tts/audio/${audio}`, {headers:{Authorization:`Bearer ${gm}`}});
+  assert.equal(privateAudio.status,200);assert.match(privateAudio.headers.get('cache-control'),/no-store/);
+  const fileToken = (await call(gm,'POST','/api/auth/file-token',{})).token;
+  const directAudio = await fetch(base + root + `/tts/audio/${audio}?direct=1&token=${encodeURIComponent(fileToken)}`,{redirect:'manual'});
+  assert.equal(directAudio.status,200);assert.ok(!directAudio.headers.get('content-type').includes('direct+json'));
+
 
   // The standalone bundle: index.html, the script, every image and every voice line.
   const zipRes = await fetch(base + root + `/presentations/${done.presentation_id}/bundle.zip`, { headers: { Authorization: `Bearer ${gm}` } });
@@ -164,6 +183,9 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   assert.equal(ready.id, prepared.id); assert.equal(ready.file_name, "Harbour_VN.zip"); assert.ok(new Date(ready.expires_at) > new Date());
   const got = await fetch(base + ready.download_path, { headers: { Authorization: `Bearer ${gm}` } });
   assert.equal(got.status, 200); assert.match(got.headers.get("content-disposition"), /filename\*=UTF-8''Harbour_VN\.zip/);
+  const bundleFileToken=(await call(gm,'POST','/api/auth/file-token',{})).token;
+  const bundleDirect=await fetch(base+ready.download_path+`?direct=1&token=${encodeURIComponent(bundleFileToken)}`,{redirect:'manual'});
+  assert.equal(bundleDirect.status,200);assert.match(bundleDirect.headers.get('content-type'),/application\/zip/);
   const prepZip = Buffer.from(await got.arrayBuffer());
   assert.equal(prepZip.readUInt32LE(0), 0x04034b50); assert.equal(new Set(prepZip.toString("latin1").match(/audio\/[0-9a-f]{8}\.wav/g)).size, 6);
   assert.equal((await call(gm, "POST", root + `/presentations/${done.presentation_id}/bundle`, {})).id, ready.id, "a current bundle is reused");
@@ -182,6 +204,22 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   assert.equal(pd.status, "completed", pd.error);
   const pp0 = await call(p2, "GET", root + `/presentations/${pd.presentation_id}`);
   assert.equal(pp0.can_edit, true);
+  const ownArt = await wait(async () => { const p = await call(p2, "GET", root + `/presentations/${pd.presentation_id}`); return p.scenes.every(s => s.background_asset_id) ? p : null; });
+  for (const scene of ownArt.scenes) {
+    const path = `/api/channels/${ch}/media/${scene.background_asset_id}`;
+    assert.equal((await call(p2, "GET", path + '/meta')).visibility_scope, 'gm');
+    const bytes = await fetch(base + path, {headers:{Authorization:`Bearer ${p2}`}});
+    assert.equal(bytes.status,200);assert.match(bytes.headers.get('cache-control'),/no-store/);
+    await rejects(call(u.outside.token,'GET',path+'/meta'),403);
+    // A metadata edit cannot erase the private origin or allow persistence/public delivery.
+    await call(gm,'PUT',path,{visibility_scope:'channel'});
+    await rejects(call(p1,'GET',path+'/meta'),404);
+    assert.ok((await call(p2,'GET',`/api/channels/${ch}/media`)).every(x=>x.id!==scene.background_asset_id));
+    await call(gm,'PUT',path,{visibility_scope:'gm'});
+    await rejects(call(p1, "GET", path + '/meta'), 404);
+    assert.equal((await fetch(base + path, {headers:{Authorization:`Bearer ${p1}`}})).status, 404);
+  }
+
   await call(p2, "POST", root + `/presentations/${pd.presentation_id}/cast`, { cast: { narrator: p2Narrator.id, [mo.id]: voices[mo.id] } });
   const pp = await call(p2, "GET", root + `/presentations/${pd.presentation_id}`);
   assert.ok(pp.events.filter((e) => !e.hidden).every((e) => e.voice_profile_id));
@@ -192,6 +230,8 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   assert.equal((await call(p2, "GET", root + "/vn-scripts")).length, 1);
   const pzip = await fetch(base + root + `/presentations/${pd.presentation_id}/bundle.zip`, { headers: { Authorization: `Bearer ${p2}` } });
   assert.equal(pzip.status, 200);
+  const ownFiles=await call(p2,'GET',root+`/presentations/${pd.presentation_id}/files`);
+  for(const scene of ownArt.scenes)assert.ok(JSON.stringify(ownFiles).includes(scene.background_asset_id),'private export includes authorized source art');
 
   // The GM hides the Studio in this channel: every Studio route closes for everyone, chat and media stay open.
   await call(gm, "PUT", `/api/channels/${ch}`, { studio_visible: false });
@@ -208,4 +248,12 @@ test("visual novel from the campaign log: freeze, time-block script, portraits a
   assert.equal((await rejects(call(gm, "GET", root + "/vn-scripts"), 403)).code, "studio_disabled");
   await call(gm, "PUT", `/api/servers/${server.id}/settings`, { features: { log_studio: true } });
   await call(p2, "GET", root + "/vn-scripts");
+  await call(gm,'DELETE',`/api/channels/${ch}/members/${userId(u.p2)}`);
+  for(const scene of ownArt.scenes){
+    const path=`/api/channels/${ch}/media/${scene.background_asset_id}`;
+    await rejects(call(p2,'GET',path+'/meta'),403);
+    const response=await fetch(base+path,{headers:{Authorization:`Bearer ${p2}`,'If-None-Match':'*'}});
+    assert.equal(response.status,403,'revoked access is checked before conditional delivery');
+  }
+
 });

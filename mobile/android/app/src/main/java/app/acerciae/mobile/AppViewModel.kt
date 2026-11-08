@@ -625,7 +625,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: CancellationException) { throw e } catch (_: Exception) { if (stamp == epoch) update { copy(diceHint = tr("命令预览不可用；发送时由服务器校验")) } }
     }
     private fun handle(e: Exception, silent: Boolean = false) {
-        if (e is BackendException && e.apiResponse && e.status == 401) { logout(); notice(tr("登录已过期，请重新登录")); return }
+        if (ConnectionPolicy.invalidatesSession(e)) { logout(); notice(tr("登录已过期，请重新登录")); return }
         if (e is BackendException && e.apiResponse && e.status in listOf(403, 404) && silent) { purgeCachedAccess(); epoch++; clearChannel(); catalogUpdated = 0L }
         val message = if (e is BackendException && !e.apiResponse) tr("服务入口暂时不可用，请稍后重试")+" (HTTP ${e.status})" else if (e is BackendException || e is IllegalArgumentException) e.message ?: "请求失败" else tr(ConnectionPolicy.message(e))
         update { copy(connection = message, notice = if (silent) notice else message) }

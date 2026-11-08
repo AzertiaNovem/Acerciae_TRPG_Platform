@@ -8,6 +8,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackendClientTest {
+    @Test fun sharedSessionErrorContract() {
+        val rows = Json.parseToJsonElement(javaClass.classLoader!!.getResourceAsStream("session-errors.json")!!.bufferedReader().use { it.readText() }).jsonArray
+        for (value in rows) {
+            val row = value.jsonObject
+            val error = BackendException(row.getValue("status").jsonPrimitive.int, row.getValue("api_response").jsonPrimitive.boolean)
+            assertEquals(row.getValue("clear_session").jsonPrimitive.boolean, ConnectionPolicy.invalidatesSession(error))
+        }
+        assertFalse(ConnectionPolicy.invalidatesSession(java.net.SocketTimeoutException()))
+    }
+
     @Test fun savedSessionsCannotOverrideCompiledServer() {
         assertTrue(ServiceConfiguration.acceptsSavedEndpoint(ServiceConfiguration.BACKEND_ROOT + "/"))
         assertFalse(ServiceConfiguration.acceptsSavedEndpoint("http://localhost:18083"))

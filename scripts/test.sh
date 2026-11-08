@@ -4,6 +4,7 @@
 # acerciae_e2e. The Log Studio suite needs the PDF worker and a Chromium/Chrome: set CHROMIUM_PATH, or it is looked up
 # (chromium, chromium-browser, google-chrome); without one that suite is skipped with a notice.
 set -euo pipefail
+export ACERCIAE_NO_DOTENV=1
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PG="${1:-postgresql://postgres@localhost:5432/postgres}"
 PGBASE="${PG%/*}"
@@ -19,6 +20,14 @@ echo "== database tests"; psql "$PG" -q -c "DROP DATABASE IF EXISTS acerciae_tes
 
 echo "== end-to-end (HTTP + WebSocket)"
 psql "$PG" -q -c "DROP DATABASE IF EXISTS acerciae_e2e" -c "CREATE DATABASE acerciae_e2e"
+# Provision the operator through the trusted test database before reserving its name in PLATFORM_ADMINS.
+env AUTH_SECRET="$(openssl rand -hex 32)" DATABASE_URL="$PGBASE/acerciae_e2e" MIGRATIONS_DIR="$ROOT/backend/migrations" "$ROOT/backend/build/acerciae-server" --migrate-only
+node --input-type=module -e '
+import {pbkdf2Sync, randomBytes} from "node:crypto";
+const salt=randomBytes(16).toString("hex");
+const hash=["pbkdf2",60000,salt,pbkdf2Sync("password",salt,60000,32,"sha256").toString("hex")].join("$");
+console.log("INSERT INTO users(username,display_name,password_hash) VALUES (" + ["platform_admin","Operator",hash].map(x=>String.fromCharCode(39)+x+String.fromCharCode(39)).join(",") + ");");
+' | psql "$PGBASE/acerciae_e2e" -q -v ON_ERROR_STOP=1
 WORKER_TOKEN="$(openssl rand -hex 32)"
 # Strict mode: a nested database transaction fails the request instead of risking a pool deadlock. The provider suites
 # talk to local protocol fixtures, hence private endpoints.
@@ -55,4 +64,5 @@ echo "== pdf worker tests"; (cd "$ROOT/pdf-worker" && [ -d node_modules ] || npm
 echo "== frontend typecheck, tests and build"
 (cd "$ROOT/frontend" && [ -d node_modules ] || npm ci --silent)
 (cd "$ROOT/frontend" && npx tsc --noEmit && npm test --silent && npm run build --silent)
+if [ "${RUN_BROWSER_TESTS:-0}" = "1" ]; then API_BASE="http://127.0.0.1:$PORT" "$ROOT/scripts/test-browser.sh"; fi
 echo "ALL GREEN"

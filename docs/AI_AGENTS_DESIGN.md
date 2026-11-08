@@ -1,9 +1,10 @@
 # Design: AI as player and AI as GM
 
-# Abandoned 2026-10-31: a dedicated gm-agent is in the project
+Status: abandoned before implementation (2026-10-31). This document preserves the first, platform-embedded design for historical reference. Its agent seats, backend runtime and proposed tables are not the current implementation or planned work.
 
-Status: **design only — nothing here is implemented yet.** Written against `main` at `6ee93b4` (scenarios, independent
-GM / player-group memory, reminders, script knowledge, Character space, COC7 point-buy, server AI providers, dice).
+The current implementation is the external [GM Agent](../gm-agent/README.md), which reuses ordinary account authentication, the backend HTTP API and WebSocket notifications. Model calls and orchestration run in the independent Node.js process; no embedded platform agent runtime was introduced.
+
+The original proposal below was written against `main` at `6ee93b4` (scenarios, independent GM / player-group memory, reminders, script knowledge, Character space, COC7 point-buy, server AI providers, dice).
 
 Terms: *GM* = the game master (identifiers and stored values still say `keeper` / `kp`). *Seat* = one AI participant in one channel. *Turn* = one decision cycle of a seat.
 

@@ -68,7 +68,7 @@ test("illustrations: drawn from a description and chosen characters, posted as t
   assert.ok(line, "Mo's player reads the line"); assert.equal(line.kind, "ooc"); assert.equal(line.author_id, u.p1.user.id);
   assert.match(line.content, /^🖼️ Ada and Mo whisper on the rainy pier at dusk$/); assert.ok(line.media_asset_id);
   const img = await picture(p2, ch, line.id);
-  assert.equal(img.status, 200); assert.match(img.headers.get("content-type"), /^image\//);
+  assert.equal(img.status, 200); assert.match(img.headers.get('cache-control'), /no-store/); assert.match(img.headers.get("content-type"), /^image\//);
   assert.equal((await picture(p1, ch, line.id)).status, 200);
   assert.equal((await fetch(`${base}/api/channels/${ch}/messages/${line.id}/image`)).status, 401, "a file token is needed");
   // Saved as a file: the bytes with a readable name, never a redirect.

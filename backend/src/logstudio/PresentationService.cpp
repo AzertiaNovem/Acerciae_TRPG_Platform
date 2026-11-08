@@ -174,6 +174,13 @@ Json::Value PresentationService::get(const ChannelAccess& a, const std::string& 
     }
     // Each placement shows its character's current image for its subtitle; the stored stage names no image.
     auto images = currentStandees(a.channelId, p["snapshot_scope"].asString() == "gm_full");
+    // Private generated poses belong to this draft, never the shared character profile or another draft.
+    for (const auto& art : db_.queryJson("SELECT id,version,content_hash,character_id,expression FROM media_assets "
+                                       "WHERE channel_id=$1 AND source_reference->>'private_presentation_id'=$2 "
+                                       "AND approval_status='approved' AND character_id IS NOT NULL ORDER BY created_at", {a.channelId, id})) {
+        auto key = text::lower(text::trim(json::str(art, "expression")));
+        images[art["character_id"].asString()][key == "default" ? "" : key] = art;
+    }
     resolveStage(visible, images);
     p["events"] = visible;
     p["can_edit"] = canEdit(a, p);
@@ -373,7 +380,7 @@ std::map<std::string, std::map<std::string, Json::Value>> PresentationService::c
     std::map<std::string, std::map<std::string, Json::Value>> out;
     // Every usable character image of the channel, newest first.
     std::map<std::string, Json::Value> usable; std::vector<std::string> newest;
-    for (auto& r : db_.queryJson("SELECT id, version, content_hash, asset_type, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type IN ('standee','portrait') AND NOT (source_reference ? 'superseded_by') ORDER BY updated_at DESC, created_at DESC", {channelId})) {
+    for (auto& r : db_.queryJson("SELECT id, version, content_hash, asset_type, character_id, expression, visibility_scope FROM media_assets WHERE channel_id=$1 AND approval_status='approved' AND asset_type IN ('standee','portrait') AND NOT (source_reference ? 'private_presentation_id') AND NOT (source_reference ? 'superseded_by') ORDER BY updated_at DESC, created_at DESC", {channelId})) {
         if (!gmOnly && r["visibility_scope"].asString() == "gm") continue;
         auto id = r["id"].asString(); newest.push_back(id); usable[id] = r;
     }

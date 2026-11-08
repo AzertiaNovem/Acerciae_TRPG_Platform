@@ -21250,5 +21250,29 @@
     "Сохранено: {path}",
     "Salvo em {path}",
     "Salvato in {path}"
+  ],
+  "Changes could not be saved. Keep the app open and retry.": [
+    "修改未能保存。请保持应用打开并重试。",
+    "修改未能儲存。請保持應用程式開啟並重試。",
+    "変更を保存できませんでした。アプリを開いたまま再試行してください。",
+    "변경 사항을 저장하지 못했습니다. 앱을 열어 둔 채 다시 시도하세요.",
+    "No se pudieron guardar los cambios. Mantén la aplicación abierta y vuelve a intentarlo.",
+    "Impossible d’enregistrer les modifications. Gardez l’application ouverte et réessayez.",
+    "Änderungen konnten nicht gespeichert werden. Lassen Sie die App geöffnet und versuchen Sie es erneut.",
+    "Не удалось сохранить изменения. Не закрывайте приложение и повторите попытку.",
+    "Não foi possível salvar as alterações. Mantenha o aplicativo aberto e tente novamente.",
+    "Impossibile salvare le modifiche. Tieni aperta l’app e riprova."
+  ],
+  "Retry": [
+    "重试",
+    "重試",
+    "再試行",
+    "다시 시도",
+    "Reintentar",
+    "Réessayer",
+    "Erneut versuchen",
+    "Повторить",
+    "Tentar novamente",
+    "Riprova"
   ]
 }

@@ -19,13 +19,13 @@ public:
     Json::Value remove(const ChannelAccess& a, const std::string& assetId);
     // What a client may keep: the stored object (one per version, never rewritten), whether the request named a
     // version, and whether a player could see the asset (only then may a client keep it on disk).
-    struct MediaMeta { std::string objectKey; bool pinned = false; bool playerVisible = false; /* may be kept for good by a player's client: channel-scoped, approved, not an NPC's */ std::string contentHash; int version = 0; };
+    struct MediaMeta { std::string objectKey; bool pinned = false; bool privateSource = false; bool playerVisible = false; /* may be kept for good by a player's client: channel-scoped, approved, not an NPC's */ std::string contentHash; int version = 0; };
     // Returns bytes + mime for streaming; enforces channel membership and GM-only visibility. version 0 = current.
     // With `redirectUrl`, a version stored in the public bucket is not read: its URL is returned there instead.
     bool fetch(const ChannelAccess& a, const std::string& assetId, int version, std::string& bytes, std::string& mime, std::string& fileName, std::string* redirectUrl = nullptr, MediaMeta* meta = nullptr);
     // The same checks as fetch, without reading the bytes (for a revalidation answered with 304).
     bool resolve(const ChannelAccess& a, const std::string& assetId, int version, MediaMeta& meta);
-    // AI-generated raster art (and its mock stand-in) is not secret: it may live in the public bucket.
+    // Media-type eligibility only; ContentPolicy additionally excludes private derived origins.
     static bool publicEligible(const std::string& sourceType, const std::string& mime);
     bool fetchRow(const ChannelAccess& a, const std::string& assetId, int version, std::string& mime, std::string& fileName, MediaMeta& meta);
     // Internal: store a generated/derived asset (TTS audio, generated images).
@@ -44,6 +44,7 @@ public:
     // Stores the SHA-256 of a version's bytes (content_hash) when it was not known yet.
     void recordHash(const std::string& assetId, int version, const std::string& hash);
 private:
+    bool canRead(const ChannelAccess& a, const Json::Value& asset);
     const Config& cfg_; Db& db_; ObjectStore& store_;
 };
 

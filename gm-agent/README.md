@@ -1054,3 +1054,10 @@ GM-agent deployment is manual. Pushing or deploying the platform must not update
 Deploy the backend and migration 0055 first, then the web/desktop UI. Before an explicitly requested agent upgrade,
 stop its old process and back up its state directory. Start only one agent per channel. On restart it recovers
 unfinished forks and audience changes and partitions existing split parties before narrating again.
+
+
+## Runtime modules
+
+`src/loop.mjs` owns `Table` construction, initialization and turn order. `src/table/` separates scheduling/cancellation, recall recovery, context, window movement, actions, illustrations, planning, social messages and co-player actions. Functions receive the table runtime explicitly; the table owns state, injected API/model clients, clock and persistence. The public methods remain available for CLI/host callers and test fixtures. Co-player context never reuses the GM's complete context, and platform mutations still travel through `src/api.mjs` with their existing idempotency keys.
+
+`npm test` runs with deployment environment variables cleared and automatic local `.env` loading disabled for CLI children. For an explicit configuration fixture or normal operation, `--env FILE` loads only that file. Normal startup without `--env` retains automatic `.env` loading. This client remains a separate Node.js process; the abandoned embedded platform GM proposal is historical documentation.

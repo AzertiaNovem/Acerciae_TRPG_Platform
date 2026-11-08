@@ -706,7 +706,7 @@ import AcerciaeCore
     }
     func handle(_ error: Error, silent: Bool = false) {
         if retired || error is CancellationError || (error as? URLError)?.code == .cancelled { return }
-        if case ClientError.http(401) = error { logout(); notice = tr("登录已过期，请重新登录"); return }
+        if ConnectionPolicy.invalidatesSession(error) { logout(); notice = tr("登录已过期，请重新登录"); return }
         if silent, let e = error as? ClientError, [403, 404].contains(e.httpStatus ?? 0) { purgeCachedAccess(); epoch = UUID(); clearChannel(); catalogUpdated = .distantPast }
         if case ClientError.gateway(let status) = error { connection = tr("服务入口暂时不可用，请稍后重试") + " (HTTP \(status))" }
         else { connection = tr(ConnectionPolicy.message(error)) }
