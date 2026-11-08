@@ -6,6 +6,7 @@
 #include "core/NetGuard.h"
 #include "core/Text.h"
 #include "chat/Illustrations.h"
+#include "characters/Outfits.h"
 #include "core/Json.h"
 #include "core/Crypto.h"
 #include "core/Db.h"
@@ -1185,6 +1186,12 @@ int main() {
         CHECK(illustrationFileName(std::string(100, 'x'), "2026-11-07", "image/png").size() == std::string("illustration-2026-11-07-").size() + 40 + 4);   // at most 40 characters of text
         auto bare = illustrationPrompt("A lighthouse in a storm", {}, "", "");
         CHECK(bare.find("Characters in the picture") == std::string::npos && bare.find("Setting:") == std::string::npos);
+        // An outfit with no image of its own: the base portrait is for the face only; the description says what they wear.
+        std::vector<IllustrationCharacter> dressed{{"Ada", outfits::appearance("a tall reporter in a green coat", "Ball gown", "an emerald silk gown"), true, true}};
+        auto inGown = illustrationPrompt("Ada dances", dressed, "", "");
+        CHECK(inGown.find("- Ada: a tall reporter in a green coat. Outfit (replaces any clothing described above): an emerald silk gown (identity reference image 1 attached; it shows other clothes: dress them as described here)") != std::string::npos);
+        CHECK(illustrationIdentity(dressed).find("Reference image 1 is Ada (for the face and hair only: dress them as the description says, not as in the image).") != std::string::npos);
+        CHECK(outfits::appearance("", "Ball gown", "") == "Outfit (replaces any clothing described above): Ball gown");
     });
     test("mock standees have real transparent pixels while backgrounds remain RGB", [] {
         logstudio::ImageConfig config; config.provider = "mock";

@@ -16,6 +16,7 @@
 #include "../core/Log.h"
 #include "Recall.h"
 
+#include "../characters/Outfits.h"
 #include "ChatQueries.h"
 namespace acerciae {
 using namespace chatQueries;
@@ -24,7 +25,9 @@ Json::Value ChatService::listCharacters(const ChannelAccess& a) {
     std::string sql = "SELECT c.*, u.display_name AS player_name, av.version AS avatar_asset_version, av.content_hash AS avatar_asset_hash FROM characters c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN media_assets av ON av.id=c.avatar_asset_id WHERE c.channel_id=$1";
     if (!a.isGm) sql += " AND c.kind='pc'";
     sql += " ORDER BY c.kind, c.created_at";
-    return db_.queryJson(sql, {a.channelId});
+    auto list = db_.queryJson(sql, {a.channelId});
+    outfits::present(db_, a.channelId, list);   // each in the outfit they wear now
+    return list;
 }
 Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Value& body) {
     auto name = json::requireStr(body, "name");

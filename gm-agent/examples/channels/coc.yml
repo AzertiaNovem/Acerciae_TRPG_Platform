@@ -1,6 +1,9 @@
 table:
   coplayers: 2
   language: zh-CN
+# models:                     # this channel's routes over the shared file's: a provider's name from gm-host.yml
+#   coplayers: fast
+#   director: { effort: high }
 pacing:
   debounce_ms: 4000
   post_delay_ms: 1200

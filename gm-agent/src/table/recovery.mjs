@@ -50,7 +50,7 @@ export function save(table) { try { table.persist(table); } catch (e) { table.lo
 export function onEvent(table, ev) {
     if (ev.channel_id && ev.channel_id !== table.channelId) return undefined;
     if (ev.stream === "context") { table.gm.onContextEvent(ev); return undefined; }
-    if (ev.type === "character.updated" && ev.character) table.cards.delete(ev.character.id);
+    if (ev.type === "character.updated" && ev.character) { table.cards.delete(ev.character.id); table.outfitCache.delete(ev.character.id); }
     if (ev.type === "window.changed") { table.memberCache = null; table.refresh().catch((e) => table.log(`refresh: ${e.message}`)); }
     if (ev.type === "server.settings" && ev.settings?.features) table.illustrationSwitches.server = ev.settings.features.illustrations !== false;
     if (ev.type === "channel.updated") table.readIllustrationSwitches({ server: false }).catch(() => undefined);

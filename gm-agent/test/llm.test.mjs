@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { createLlm } from "../src/llm/index.mjs";
+import { createLlm, createModels } from "../src/llm/index.mjs";
 import { buildConfig } from "../src/config.mjs";
 import { planStory } from "../src/planner.mjs";
 
@@ -302,6 +302,27 @@ test("an Anthropic gateway can explicitly use non-streaming JSON", async () => {
     assert.equal(await llm.complete(request), "{}");
     assert.equal(s.seen[0].body.stream, false);
   } finally { s.close(); }
+});
+
+test("one routed model object: each purpose on its function's provider and model, usage naming them", async () => {
+  const claude = await stub((body) => ({ status: 200, body: { id: "msg", type: "message", role: "assistant", model: body.model, stop_reason: "end_turn", content: [{ type: "text", text: `{"from":"${body.model}"}` }], usage: { input_tokens: 10, output_tokens: 2 } } }));
+  const gw = await stub(responseObject("{\"from\":\"gw\"}"));
+  try {
+    const cfg = buildConfig({}, { ANTHROPIC_API_KEY: "ka" }, { llm: { provider: "anthropic", api_base: claude.base, model: "claude-opus-5-5", stream: false },
+      providers: { gw: { provider: "openai_compatible", api_base: `${gw.base}/v1`, api_key: "kg", model: "gpt-x", stream: false } },
+      models: { coplayers: "gw", memory: { provider: "default", model: "claude-haiku-5-5", effort: "low" } } });
+    const llm = createModels(cfg);
+    const usage = [];
+    const ask = (purpose) => llm.complete({ system: "sys", messages: [{ role: "user", content: "hi" }], purpose, onUsage: (u) => usage.push([u.provider, u.model]) });
+    assert.equal(await ask("director"), '{"from":"claude-opus-5-5"}');
+    assert.equal(await ask("coplayer_turn"), '{"from":"gw"}');
+    assert.equal(await ask("compact"), '{"from":"claude-haiku-5-5"}');
+    assert.equal(await ask("npc_card"), '{"from":"claude-opus-5-5"}', "a function not routed runs on the default");
+    assert.deepEqual(claude.seen.map((r) => [r.body.model, r.body.output_config.effort, r.headers["x-api-key"]]), [["claude-opus-5-5", "medium", "ka"], ["claude-haiku-5-5", "low", "ka"], ["claude-opus-5-5", "medium", "ka"]]);
+    assert.deepEqual(gw.seen.map((r) => [r.body.model, r.headers.authorization]), [["gpt-x", "Bearer kg"]]);
+    assert.deepEqual(usage, [["anthropic", "claude-opus-5-5"], ["gw", "gpt-x"], ["anthropic", "claude-haiku-5-5"], ["anthropic", "claude-opus-5-5"]], "the usage names the provider (the llm settings by their type) and the model that answered");
+    assert.deepEqual([llm.route("coplayer_phone").name, llm.route("planner").effort], ["gw", "high"]);
+  } finally { claude.close(); gw.close(); }
 });
 
 test("a separately configured planner streams its draft, critique and revision via Messages", async () => {

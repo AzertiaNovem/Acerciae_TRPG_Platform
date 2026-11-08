@@ -12,6 +12,7 @@
 #include "../logstudio/CreativeService.h"
 #include "../logstudio/MediaService.h"
 #include "../ws/Notifier.h"
+#include "Outfits.h"
 #include <algorithm>
 #include <set>
 
@@ -248,12 +249,22 @@ Json::Value CharacterSpaceService::space(const ChannelAccess& a, const std::stri
     auto c = characterFor(a, characterId, false);
     Json::Value out; out["character"] = c;
     out["character"]["role_card"] = normalizeRoleCard(c["role_card"]);
-    auto asset = [&](const Json::Value& id) { if (!id.isString()) return Json::Value(); return db_.queryOne("SELECT id, version, content_hash AS hash, mime, width, height, source_type, approval_status FROM media_assets WHERE id=$1 AND channel_id=$2", {id.asString(), a.channelId}); };
+    auto asset = [&](const Json::Value& id) { return assetBrief(a, id); };
     out["avatar"] = asset(c["avatar_asset_id"]); out["portrait"] = asset(c["portrait_asset_id"]);
     out["subtitles"] = Json::Value(Json::arrayValue);
     auto vis = db_.queryOne("SELECT expressions, description, color FROM character_visual_profiles WHERE character_id=$1", {characterId});
     if (!vis.isNull() && vis["expressions"].isObject()) for (auto& k : vis["expressions"].getMemberNames()) { auto as = asset(vis["expressions"][k]); if (as.isNull()) continue; as["subtitle"] = k; out["subtitles"].append(as); }
-    out["jobs"] = db_.queryJson("SELECT id, kind, status, error, params->'attach' AS attach, created_at, finished_at FROM asset_generation_jobs WHERE channel_id=$1 AND character_id=$2 AND params ? 'attach' ORDER BY created_at DESC LIMIT 12", {a.channelId, characterId});
+    out["jobs"] = db_.queryJson("SELECT id, kind, status, error, params->'attach' AS attach, created_at, finished_at FROM asset_generation_jobs WHERE channel_id=$1 AND character_id=$2 AND params ? 'attach' ORDER BY created_at DESC LIMIT 24", {a.channelId, characterId});
+    // Outfits: each with its own avatar, portrait and poses; character.outfit_id is the one worn now.
+    out["outfits"] = Json::Value(Json::arrayValue);
+    for (auto& o : db_.queryJson("SELECT id, name, attire, avatar_asset_id, portrait_asset_id, expressions, created_at FROM character_outfits WHERE character_id=$1 AND channel_id=$2 ORDER BY created_at, id", {characterId, a.channelId})) {
+        Json::Value x; x["id"] = o["id"]; x["name"] = o["name"]; x["attire"] = o["attire"]; x["created_at"] = o["created_at"];
+        x["avatar"] = asset(o["avatar_asset_id"]); x["portrait"] = asset(o["portrait_asset_id"]);
+        x["subtitles"] = Json::Value(Json::arrayValue);
+        if (o["expressions"].isObject()) for (auto& k : o["expressions"].getMemberNames()) { auto as = asset(o["expressions"][k]); if (as.isNull()) continue; as["subtitle"] = k; x["subtitles"].append(as); }
+        out["outfits"].append(x);
+    }
+    out["max_outfits"] = outfits::kMaxPerCharacter;
     auto ch = db_.queryOne("SELECT c.era, s.narrative_time FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
     out["era"] = ch["era"]; out["narrative_time"] = ch["narrative_time"];
     out["attrs"] = c["sheet"]["attrs"].isObject() ? c["sheet"]["attrs"] : Json::Value(Json::objectValue);
@@ -392,17 +403,14 @@ Json::Value CharacterSpaceService::generate(const ChannelAccess& a, const std::s
     if (c["asset_mode"].asString() != "generated") throw conflict("switch the character to generated mode first");
     auto appearance = text::trim(c["appearance_prompt"].asString());
     auto ch = db_.queryOne("SELECT c.era, s.narrative_time FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
-    std::vector<std::pair<std::string, std::string>> targets;   // slot, subtitle
-    std::set<std::string> slots; for (auto& s : json::strArray(body["slots"])) slots.insert(text::lower(s));
-    if (slots.count("portrait")) targets.push_back({"portrait", ""});
-    if (slots.count("avatar")) targets.push_back({"avatar", ""});
-    std::set<std::string> seen; for (auto& s : json::strArray(body["subtitles"])) { auto n = normalizeSubtitle(s); if (!n.empty() && seen.insert(n).second && seen.size() <= 12) targets.push_back({"subtitle", n}); }
-    if (targets.empty()) throw badRequest("choose at least one of portrait, avatar or a subtitle");
-    if (appearance.empty() && (slots.count("portrait") || slots.count("avatar"))) throw badRequest("write the appearance prompt first");
-    if (!seen.empty() && !slots.count("portrait") && json::str(c, "portrait_asset_id").empty()) throw badRequest("generate or upload the main portrait before generating poses");
+    auto wanted = targets(body);
+    bool portrait = false, avatar = false, poses = false;
+    for (auto& [slot, sub] : wanted) { portrait = portrait || slot == "portrait"; avatar = avatar || slot == "avatar"; poses = poses || slot == "subtitle"; }
+    if (appearance.empty() && (portrait || avatar)) throw badRequest("write the appearance prompt first");
+    if (poses && !portrait && json::str(c, "portrait_asset_id").empty()) throw badRequest("generate or upload the main portrait before generating poses");
     std::string portraitJob;
     Json::Value out; out["jobs"] = Json::Value(Json::arrayValue);
-    for (auto& [slot, sub] : targets) {
+    for (auto& [slot, sub] : wanted) {
         auto prompt = buildPrompt(appearance, json::str(ch, "era"), json::str(ch, "narrative_time"), slot, sub);
         auto job = creative_.createForCharacter(a, c, slot == "subtitle" ? "standee" : slot, slot, sub, prompt, json::toBool(body, "allow_cloud"), slot == "subtitle" ? portraitJob : "");
         if (slot == "portrait") portraitJob = job["id"].asString();
@@ -421,9 +429,129 @@ Json::Value CharacterSpaceService::removeAsset(const ChannelAccess& a, const std
         Db::exec(w, "UPDATE character_visual_profiles SET default_asset_id=NULL WHERE character_id=$1 AND default_asset_id=$2", {characterId, assetId});
         auto vis = Db::queryOne(w, "SELECT expressions FROM character_visual_profiles WHERE character_id=$1", {characterId});
         if (!vis.isNull() && vis["expressions"].isObject()) { Json::Value e(Json::objectValue); for (auto& k : vis["expressions"].getMemberNames()) if (vis["expressions"][k].asString() != assetId) e[k] = vis["expressions"][k]; Db::exec(w, "UPDATE character_visual_profiles SET expressions=$2::jsonb WHERE character_id=$1", {characterId, json::dump(e)}); }
+        Db::exec(w, "UPDATE character_outfits SET avatar_asset_id=NULL WHERE character_id=$1 AND avatar_asset_id=$2", {characterId, assetId});
+        Db::exec(w, "UPDATE character_outfits SET portrait_asset_id=NULL WHERE character_id=$1 AND portrait_asset_id=$2", {characterId, assetId});
+        for (auto& o : Db::queryJson(w, "SELECT id, expressions FROM character_outfits WHERE character_id=$1", {characterId})) {
+            if (!o["expressions"].isObject()) continue;
+            Json::Value e(Json::objectValue); bool changed = false;
+            for (auto& k : o["expressions"].getMemberNames()) { if (o["expressions"][k].asString() == assetId) changed = true; else e[k] = o["expressions"][k]; }
+            if (changed) Db::exec(w, "UPDATE character_outfits SET expressions=$2::jsonb, updated_at=now() WHERE id=$1", {o["id"].asString(), json::dump(e)});
+        }
     });
     try { media_.remove(a, assetId); } catch (const ApiError& e) { if (e.status() != 404 && e.status() != 403) throw; }
     notifier_.characterUpdated(a.channelId, db_.queryOne("SELECT * FROM characters WHERE id=$1", {characterId}));
+    return space(a, characterId);
+}
+
+Json::Value CharacterSpaceService::assetBrief(const ChannelAccess& a, const Json::Value& id) {
+    if (!id.isString()) return Json::Value();
+    return db_.queryOne("SELECT id, version, content_hash AS hash, mime, width, height, source_type, approval_status FROM media_assets WHERE id=$1 AND channel_id=$2", {id.asString(), a.channelId});
+}
+
+std::vector<std::pair<std::string, std::string>> CharacterSpaceService::targets(const Json::Value& body) {
+    std::vector<std::pair<std::string, std::string>> out;   // slot, subtitle; the portrait first (the rest may follow it)
+    std::set<std::string> slots; for (auto& s : json::strArray(body["slots"])) slots.insert(text::lower(s));
+    if (slots.count("portrait")) out.push_back({"portrait", ""});
+    if (slots.count("avatar")) out.push_back({"avatar", ""});
+    std::set<std::string> seen; for (auto& s : json::strArray(body["subtitles"])) { auto n = normalizeSubtitle(s); if (!n.empty() && seen.insert(n).second && seen.size() <= 12) out.push_back({"subtitle", n}); }
+    if (out.empty()) throw badRequest("choose at least one of portrait, avatar or a subtitle");
+    return out;
+}
+
+// ---- outfits ----
+Json::Value CharacterSpaceService::outfitFor(const ChannelAccess& a, const std::string& characterId, const std::string& outfitId) {
+    if (!Visibility::isUuid(outfitId)) throw notFound("outfit not found");
+    auto o = db_.queryOne("SELECT * FROM character_outfits WHERE id=$1 AND character_id=$2 AND channel_id=$3", {outfitId, characterId, a.channelId});
+    if (o.isNull()) throw notFound("outfit not found");
+    return o;
+}
+
+namespace {
+std::string outfitName(const Json::Value& body, const std::string& fallback) {
+    auto name = clip(text::trim(json::str(body, "name", fallback)), outfits::kMaxNameBytes);
+    if (name.empty()) throw badRequest("name the outfit");
+    return name;
+}
+std::string outfitAttire(const Json::Value& body, const std::string& fallback) {
+    auto attire = clip(text::trim(json::str(body, "attire", fallback)), outfits::kMaxAttireBytes);
+    if (attire.empty()) throw badRequest("describe the outfit: the clothes, shoes and accessories");
+    return attire;
+}
+}  // namespace
+
+Json::Value CharacterSpaceService::createOutfit(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
+    auto c = characterFor(a, characterId, true);
+    if (c["asset_mode"].asString() != "generated") throw conflict("outfits are for characters whose look is generated");
+    auto name = outfitName(body, ""), attire = outfitAttire(body, "");
+    db_.tx([&](pqxx::work& w) {
+        Db::queryOne(w, "SELECT id FROM characters WHERE id=$1 FOR UPDATE", {characterId});
+        if (Db::queryOne(w, "SELECT count(*) AS n FROM character_outfits WHERE character_id=$1", {characterId})["n"].asInt() >= outfits::kMaxPerCharacter)
+            throw conflict("a character has at most " + std::to_string(outfits::kMaxPerCharacter) + " outfits");
+        if (!Db::queryOne(w, "SELECT 1 AS x FROM character_outfits WHERE character_id=$1 AND lower(name)=lower($2)", {characterId, name}).isNull())
+            throw conflict("this character already has an outfit with that name");
+        Db::exec(w, "INSERT INTO character_outfits(channel_id, character_id, name, attire, created_by) VALUES($1,$2,$3,$4,$5)", {a.channelId, characterId, name, attire, a.userId});
+    });
+    return space(a, characterId);
+}
+
+Json::Value CharacterSpaceService::updateOutfit(const ChannelAccess& a, const std::string& characterId, const std::string& outfitId, const Json::Value& body) {
+    characterFor(a, characterId, true);
+    auto o = outfitFor(a, characterId, outfitId);
+    auto name = outfitName(body, o["name"].asString()), attire = outfitAttire(body, o["attire"].asString());
+    if (!db_.queryOne("SELECT 1 AS x FROM character_outfits WHERE character_id=$1 AND lower(name)=lower($2) AND id<>$3", {characterId, name, outfitId}).isNull())
+        throw conflict("this character already has an outfit with that name");
+    db_.exec("UPDATE character_outfits SET name=$2, attire=$3, updated_at=now() WHERE id=$1", {outfitId, name, attire});
+    // Its name shows in the chat while it is worn.
+    auto row = db_.queryOne("SELECT * FROM characters WHERE id=$1", {characterId});
+    if (json::str(row, "outfit_id") == outfitId) notifier_.characterUpdated(a.channelId, row);
+    return space(a, characterId);
+}
+
+Json::Value CharacterSpaceService::deleteOutfit(const ChannelAccess& a, const std::string& characterId, const std::string& outfitId) {
+    characterFor(a, characterId, true);
+    outfitFor(a, characterId, outfitId);
+    // Its images go with it (any of them a live publication still shows is kept until that is revoked, never shown as
+    // the base look's). Lines written in it show the base look from now on.
+    ChannelAccess sys = a; sys.isGm = true;
+    for (auto& r : db_.queryJson("SELECT id FROM media_assets WHERE outfit_id=$1 AND channel_id=$2", {outfitId, a.channelId})) {
+        try { media_.remove(sys, r["id"].asString()); }
+        catch (const ApiError& e) {
+            if (e.status() == 409) db_.exec("UPDATE media_assets SET source_reference=source_reference || jsonb_build_object('superseded_by', $2::text), updated_at=now() WHERE id=$1", {r["id"].asString(), outfitId});
+            else if (e.status() != 404) throw;
+        }
+    }
+    auto worn = json::str(db_.queryOne("SELECT outfit_id FROM characters WHERE id=$1", {characterId}), "outfit_id") == outfitId;
+    db_.exec("DELETE FROM character_outfits WHERE id=$1", {outfitId});
+    if (worn) notifier_.characterUpdated(a.channelId, db_.queryOne("SELECT * FROM characters WHERE id=$1", {characterId}));
+    return space(a, characterId);
+}
+
+Json::Value CharacterSpaceService::generateOutfit(const ChannelAccess& a, const std::string& characterId, const std::string& outfitId, const Json::Value& body) {
+    auto c = characterFor(a, characterId, true);
+    if (c["asset_mode"].asString() != "generated") throw conflict("switch the character to generated mode first");
+    auto o = outfitFor(a, characterId, outfitId);
+    if (text::trim(c["appearance_prompt"].asString()).empty()) throw badRequest("write the appearance prompt first");
+    auto appearance = outfits::appearance(c["appearance_prompt"].asString(), o["name"].asString(), o["attire"].asString());
+    auto ch = db_.queryOne("SELECT c.era, s.narrative_time FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
+    auto wanted = targets(body);
+    std::string portraitJob;
+    Json::Value out; out["jobs"] = Json::Value(Json::arrayValue);
+    for (auto& [slot, sub] : wanted) {
+        auto prompt = buildPrompt(appearance, json::str(ch, "era"), json::str(ch, "narrative_time"), slot, sub);
+        auto job = creative_.createForCharacter(a, c, slot == "subtitle" ? "standee" : slot, slot, sub, prompt, json::toBool(body, "allow_cloud"), slot == "portrait" ? "" : portraitJob, o);
+        if (slot == "portrait") portraitJob = job["id"].asString();
+        out["jobs"].append(job);
+    }
+    out["space"] = space(a, characterId);
+    return out;
+}
+
+Json::Value CharacterSpaceService::wear(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
+    characterFor(a, characterId, true);
+    auto outfitId = json::str(body, "outfit_id");
+    if (!outfitId.empty()) outfitFor(a, characterId, outfitId);
+    auto row = db_.queryOne("UPDATE characters SET outfit_id=$2, updated_at=now() WHERE id=$1 RETURNING *", {characterId, outfitId.empty() ? dbNull() : DbParam(outfitId)});
+    notifier_.characterUpdated(a.channelId, row);
     return space(a, characterId);
 }
 

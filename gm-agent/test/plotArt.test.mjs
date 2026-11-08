@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { artRequest, artText, bestPlace, drawable, isArtLine } from "../src/plotArt.mjs";
+import { artRequest, artText, drawable, isArtLine, parts, playLength, renderEntries } from "../src/plotArt.mjs";
 
 test("the picture command: /画, /插画, /draw and /illustrate, with or without a space after a Chinese command", () => {
   assert.equal(artRequest("/画 我们在灯塔顶上看到极光的那一刻"), "我们在灯塔顶上看到极光的那一刻");
@@ -25,12 +25,16 @@ test("what a picture may draw on, and the table's own picture traffic", () => {
   assert.ok(!isArtLine({ content: "🧭 Noted." }));
 });
 
-test("the best place: most different terms together, then most matches, then the newer; its middle match", () => {
-  const hit = (windowId, seq, ...terms) => ({ windowId, seq, terms: new Set(terms) });
-  const hits = [hit("w1", 10, "aurora"), hit("w1", 2000, "aurora"), hit("w1", 2010, "lighthouse"), hit("w1", 2030, "aurora"), hit("w2", 2015, "lighthouse")];
-  assert.deepEqual(bestPlace(hits), { windowId: "w1", seq: 2010, score: 2003 });
-  assert.equal(bestPlace([]), null);
-  assert.equal(bestPlace([hit("w1", 5, "a"), hit("w1", 900, "a")]).seq, 900, "a tie goes to the newer place");
+test("the index: runs of lines, shortened and thinned to fit, summaries as given", () => {
+  assert.deepEqual(parts([1, 2, 3, 4, 5], 2).map((p) => p.length), [2, 2, 1]);
+  assert.equal(parts(Array.from({ length: 100 }, (_, i) => i), 5, 4).length, 4, "never more runs than asked: they grow");
+  const rows = Array.from({ length: 40 }, (_, i) => ({ who: "Alice", text: `line ${i} ${"word ".repeat(60)}` }));
+  assert.equal(playLength([{ who: "GM", text: "Hi." }]), 8);
+  const entries = [{ key: "C1", label: "summary", text: "The night at the harbour." }, { key: "R1", label: "play", rows }];
+  const full = renderEntries(entries, 1e9);
+  assert.match(full, /^C1 \[summary\] The night at the harbour\.\nR1 \[play\] Alice: line 0 word/);
+  const small = renderEntries(entries, 2000);
+  assert.ok(small.length <= 2000 && small.startsWith("C1 [summary] The night at the harbour.") && small.includes("Alice: line 0"), "shortened, then thinned");
 });
 
 test("the replies follow the table's language", () => {

@@ -40,7 +40,8 @@ class FakeApi {
   }
   add(m) {
     const c = this.characters_.find((x) => x.id === m.character_id);
-    const msg = { id: `m${++this.seq}`, seq: this.seq, channel_id: "ch", visibility: "window", kind: "ic", whisper_to: [], character_name: c?.name ?? null, ...m };
+    // A character with outfits writes each line in the one they wear (the platform records it).
+    const msg = { id: `m${++this.seq}`, seq: this.seq, channel_id: "ch", scene_id: this.currentScene, visibility: "window", kind: "ic", whisper_to: [], character_name: c?.name ?? null, ...(c?.outfits ? { outfit_id: c.outfit_id ?? null } : {}), ...m };
     this.lines.push(msg);
     return msg;
   }
@@ -64,8 +65,6 @@ class FakeApi {
   async characters() { return structuredClone(this.characters_); }
   async windows() { return structuredClone(this.windows_.map((w) => ({ ...w, last_seq: Math.max(0, ...this.lines.filter((m) => m.chat_window_id === w.id).map((m) => m.seq)) }))); }
   async messages(_ch, w, limit, beforeSeq = 0) { return this.lines.filter((m) => m.chat_window_id === w && (!beforeSeq || m.seq < beforeSeq)).slice(-limit); }
-  // The platform's message search: every window, the whole history, newest first.
-  async searchMessages(_ch, q, limit = 100) { (this.searches ??= []).push(q); return this.lines.filter((m) => !m.recalled_at && String(m.content).toLowerCase().includes(q.toLowerCase())).slice(-limit).reverse(); }
   // Illustrations: one picture in flight per account; `holdIllustrations` keeps the next ones drawing, `noImages` is a
   // server without an image provider. A finished picture is posted as the account's ooc line in the window.
   async illustrate(_ch, w, body) {
@@ -75,7 +74,7 @@ class FakeApi {
     if (this.serverIllustrations === false || this.channelIllustrations === false) throw Object.assign(new Error("POST illustrations: 403 feature_disabled turned off"), { status: 403, code: "feature_disabled" });
     this.illustrations_ ??= [];
     if (this.illustrations_.some((j) => ["pending", "running"].includes(j.status))) throw Object.assign(new Error("POST illustrations: 409 conflict your previous illustration is still being drawn"), { status: 409 });
-    const job = { id: `ill${this.illustrations_.length + 1}`, status: "pending", window_id: w, prompt: body.prompt, character_ids: body.character_ids, orientation: body.orientation, allow_cloud: body.allow_cloud, message_id: null };
+    const job = { id: `ill${this.illustrations_.length + 1}`, status: "pending", window_id: w, prompt: body.prompt, character_ids: body.character_ids, orientation: body.orientation, allow_cloud: body.allow_cloud, outfits: body.outfits, message_id: null };
     this.illustrations_.push(job);
     if (!(this.holdIllustrations > 0)) this.finishIllustration(job);
     else this.holdIllustrations--;
@@ -2782,6 +2781,42 @@ test("the end of each small event is drawn where it was played, from its own lin
   assert.deepEqual(api.illustrations_.map((j) => j.status), ["completed", "completed", "completed"]);
 });
 
+test("pictures dress each character in the outfit that suits the moment; when unsure, in what they wear now", async () => {
+  const llm = new MockLlm();
+  llm.director = (user) => {
+    const said = user.match(/^NEWEST LINE: Alice Hale: (.*)$/m)?.[1] ?? "";
+    return { actions: said ? [{ type: "narrate", text: `So it goes: ${said}` }, ...(/leave the ball/.test(said) ? [{ type: "event_done", text: "the ball" }] : [])] : [], coplayers_may_act: false };
+  };
+  const ATTIRE = { "o-gown": "black silk evening gown, long gloves, pearls", "o-dive": "brass-helmeted diving suit, lead boots" };
+  const { t, api } = await table({ llm, forks: false, cfg: illustrateCfg({ maxPerHour: 10 }), before: (a) => {
+    // Harriet has two outfits and wears the diving suit now; her line at the ball was written in the gown.
+    Object.assign(a.characters_.find((c) => c.id === "c-harriet"), { outfits: [{ id: "o-gown", name: "Evening gown" }, { id: "o-dive", name: "Diving suit" }], outfit_id: "o-dive", outfit_name: "Diving suit" });
+    const space = a.characterSpace.bind(a);
+    a.characterSpace = async (ch, id) => ({ ...(await space(ch, id)), outfits: id === "c-harriet" ? [{ id: "o-gown", name: "Evening gown", attire: ATTIRE["o-gown"] }, { id: "o-dive", name: "Diving suit", attire: ATTIRE["o-dive"] }] : [] });
+  } });
+  await playerSays(t, api, "We arrive at the ball."); await settle(t);
+  await sayLine(t, api.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "player", character_id: "c-harriet", content: "Harriet takes the floor and waltzes.", outfit_id: "o-gown" })); await settle(t);
+  // The art director's choice: the gown for Harriet; Alice has no outfits, so naming one for her changes nothing.
+  llm.scenarioMoment = () => ({ moment: "Harriet waltzing under the chandeliers", who: ["Harriet Vance", "Alice Hale"], orientation: "landscape", outfits: { "Harriet Vance": "Evening gown", "Alice Hale": "Evening gown" }, why: "the waltz" });
+  await playerSays(t, api, "We leave the ball."); await settle(t); await t.illustrating;
+  const ask = llm.calls.find((c) => c.purpose === "event_illustration");
+  assert.match(ask.system, /Some characters have outfits[\s\S]*leave the character out of "outfits": they are drawn in what they wear now/);
+  assert.match(ask.messages[0].content, /^OUTFITS:\n- Harriet Vance \(wears now: "Diving suit"; in these lines: "Evening gown"\): "Evening gown" — black silk evening gown, long gloves, pearls; "Diving suit" — brass-helmeted diving suit, lead boots; usual clothes$/m);
+  assert.deepEqual(api.illustrations_.map((j) => j.outfits), [{ "c-harriet": "o-gown" }], "the gown, by its id; Alice as she is");
+  // The GM sees the outfits in the cast, and may dress its own picture too; the outfit worn now, or a name that is no
+  // outfit of hers, sends nothing: she is drawn in what she wears.
+  assert.match(llm.calls.filter((c) => c.purpose === "director").at(-1).messages[0].content, /- Harriet Vance[\s\S]*?\n {4}outfits: "Evening gown", "Diving suit", or their usual clothes; wears "Diving suit" now/);
+  for (const outfits of [{ "Harriet Vance": "usual clothes" }, { "Harriet Vance": "Diving suit" }, { "Harriet Vance": "Tuxedo" }]) await t.illustrateMoment("w-main", { text: "Harriet on the pier", who: ["Harriet Vance"], outfits });
+  assert.deepEqual(api.illustrations_.slice(1).map((j) => j.outfits), [{ "c-harriet": "" }, undefined, undefined]);
+  // Without outfits at the table, the art director is told nothing of them.
+  const plain = await table({ llm: new MockLlm(), forks: false, cfg: illustrateCfg() });
+  plain.llm.director = llm.director;
+  for (const l of ["We arrive at the ball.", "We dance.", "We leave the ball."]) { await playerSays(plain.t, plain.api, l); await settle(plain.t); }
+  await plain.t.illustrating;
+  const bare = plain.llm.calls.find((c) => c.purpose === "event_illustration");
+  assert.ok(bare && !/outfits|OUTFITS/.test(bare.system + bare.messages[0].content));
+});
+
 test("an event's picture: none for a short event, none past the hourly cap, and a rolled-back turn's picture is not drawn", async () => {
   const llm = new MockLlm();
   llm.director = (user) => {
@@ -2818,7 +2853,7 @@ const inPlanner = (t, api, content, who = "alice") => t.onEvent({ stream: "chat"
 const plannerPosts = (t, api) => api.posts.filter((p) => p.window === t.planner.window && p.content.startsWith("🎨")).map((p) => p.content);
 
 test("a player asks the planner window for a picture of a past plot: found however long ago, drawn there at once, never the planner's", async () => {
-  // The aurora was long ago: before the oldest line the table keeps, so only the platform's search still has it.
+  // The aurora was long ago: before the oldest line the table keeps, in the scenario it began.
   const { t, api, llm } = await table({ heal: true, forks: false, cfg: artCfg(), before: (a) => {
     a.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: AURORA });
     for (let i = 0; i < 60; i++) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: `Filler ${i}: we talk about the weather.` });
@@ -2828,7 +2863,7 @@ test("a player asks the planner window for a picture of a past plot: found howev
   await inPlanner(t, api, "/draw the aurora above the lighthouse, as a watercolour");
   assert.equal(t.turns, turns, "no turn is played");
   assert.equal(t.planner.inbox.length, 0, "the planner never gets it");
-  assert.ok(api.searches.includes("aurora") && api.searches.includes("lighthouse"), "searched the whole history");
+  assert.match(llm.calls.find((c) => c.purpose === "plot_search").messages[0].content, /^ENTRIES:\nS1 \[scenario "The study"\][^\n]*\nR1 \[play in "Main Chat", #\d+–#\d+\] /m, "an index of the story to choose from");
   const asked = llm.calls.find((c) => c.purpose === "plot_illustration").messages[0].content;
   assert.match(asked, /THE PLAYER'S REQUEST: the aurora above the lighthouse, as a watercolour/);
   assert.ok(asked.includes(AURORA) && asked.includes("Filler 0:"), "the lines around it, read from the platform");
@@ -2851,6 +2886,33 @@ test("a picture request while the GM has illustrations off is answered at once, 
   assert.equal(api.illustrations_?.length ?? 0, 0);
 });
 
+test("a picture request searches by meaning: summaries and recent play, a zoom into a long stretch, and the next entry when the first holds nothing", async () => {
+  const pad = " The rain keeps falling on the slate roofs while we wait and talk of tides, of debts, of the old harbour master's stubborn silence.";
+  const llm = new MockLlm();
+  const { t, api } = await table({ llm, heal: true, forks: false, cfg: { ...pcfg(), ...illustrateCfg() }, before: (a) => {
+    for (let i = 0; i < 300; i++) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice",
+      content: i === 150 ? "Harriet lifts the lantern and green light ripples across the bay." : `Line ${i}:${pad}` });
+    for (const l of ["We dry our coats by the fire.", "We say little.", "We sleep."]) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: l });
+  } });
+  const night = api.lines.filter((m) => /^Line \d+:|lantern/.test(m.content));
+  t.store.addChapter({ scope: "gm", windowId: "w-main", fromSeq: night[0].seq, toSeq: night.at(-1).seq, level: 1, text: "Through a long wet night at the harbour, Harriet showed the others the lights over the bay." });
+  // The model's reading, by meaning: no entry shares a word with "lantern", yet the summary is the night it means.
+  llm.plotChoose = (user) => (user.includes("PARTS:")
+    ? { entries: [user.match(/^(P\d+) \[[^\]]*\][^\n]*green light/m)?.[1]].filter(Boolean), why: "the lights" }
+    : { entries: ["R1", "C1"], why: "the night by the bay, or just after" });
+  await inPlanner(t, api, "/draw Harriet's lantern over the bay");
+  const searches = llm.calls.filter((c) => c.purpose === "plot_search").map((c) => c.messages[0].content);
+  assert.match(searches[0], /^C1 \[summary of earlier play in "Main Chat"\] Through a long wet night at the harbour/m);
+  assert.match(searches[0], /^R1 \[play in "Main Chat", #\d+–#\d+\] [^\n]*We dry our coats by the fire\./m, "recent play since the summary, shortened");
+  assert.ok(!/^R\d+ [^\n]*Line 1:/m.test(searches[0]), "summarised play is not repeated in full");
+  const picks = llm.calls.filter((c) => c.purpose === "plot_illustration").map((c) => c.messages[0].content);
+  assert.equal(picks.length, 2, "the first entry held nothing; the second was read");
+  assert.ok(picks[0].includes("We dry our coats") && !picks[0].includes("green light"));
+  assert.match(searches[1], /^PARTS:/m, "the summary's night was too long to read whole: zoomed in");
+  assert.ok(picks[1].includes("green light ripples") && !picks[1].includes("Line 0:") && !picks[1].includes("Line 299:"), "only the part that holds it, with a few lines around");
+  assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt]), [[t.planner.window, "[mock picture] Harriet lifts the lantern and green light ripples across the bay."]]);
+});
+
 test("a picture request: any scene, never a whisper; a hint when empty, one at a time and capped per hour, and no resumption of a paused table", async () => {
   const { t, api, llm } = await table({ heal: true, forks: false, bob: true, cfg: artCfg({ requestsPerHour: 2 }), before: (a) => {
     a.add({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "I find the brass astrolabe hidden behind the portrait." });
@@ -2868,7 +2930,7 @@ test("a picture request: any scene, never a whisper; a hint when empty, one at a
     notFound,
     "🎨 That is 2 pictures in the last hour; please ask again a little later.",
   ], "an empty command costs nothing; the third request is over the cap");
-  assert.ok(llm.calls.filter((c) => c.purpose === "plot_illustration").every((c) => !c.messages[0].content.includes("violin")), "the whisper reached no picture");
+  assert.ok(llm.calls.filter((c) => c.purpose.startsWith("plot_")).every((c) => !c.messages[0].content.includes("Only you hear the violin")), "the whisper reached neither the search nor a picture");
   // Asked while the table is paused, a picture is drawn, and play stays paused.
   await inPlanner(t, api, "/pause");
   assert.equal(t.generation.paused, true);

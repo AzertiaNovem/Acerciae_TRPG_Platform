@@ -43,7 +43,7 @@ export class MockLlm {
       case "coplayer_build": return JSON.stringify({ dnd: this.dndBuild() });
       case "scenario_illustration": return JSON.stringify(this.scenarioMoment(user));
       case "event_illustration": return JSON.stringify({ ...this.scenarioMoment(user), moment: this.scenarioMoment(user).moment.replace("[mock moment]", "[mock event]") });
-      case "plot_search": return JSON.stringify(this.plotSearch(user));
+      case "plot_search": return JSON.stringify(this.plotChoose(user));
       case "plot_illustration": return JSON.stringify(this.plotMoment(user));
       case "director": return JSON.stringify(this.director(user));
       case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
@@ -54,10 +54,16 @@ export class MockLlm {
     }
   }
 
-  // A past plot a player asked for: the request's long words are the search terms; the moment is the first line of
+  // A past plot a player asked for: the request's long words stand for its meaning. The entries (or parts) that contain
+  // one are chosen; with none, the scenarios (a model would guess the story's stage). The moment is the first line of
   // play that has one of them, or none.
   plotWords(user) { return (user.match(/^THE PLAYER'S REQUEST: (.*)$/m)?.[1] ?? "").toLowerCase().split(/[\s,.;:!?，。；：！？]+/).filter((w) => w.length >= 6); }
-  plotSearch(user) { return { terms: this.plotWords(user).slice(0, 4), scenario: null, chapter: null }; }
+  plotChoose(user) {
+    const words = this.plotWords(user);
+    const entries = [...user.matchAll(/^([SCRP]\d+) \[.*$/gm)].map((m) => ({ key: m[1], text: m[0].toLowerCase() }));
+    const named = entries.filter((e) => words.some((w) => e.text.includes(w))).map((e) => e.key);
+    return { entries: (named.length ? named : entries.filter((e) => e.key.startsWith("S")).map((e) => e.key)).slice(0, 3), why: "[mock] the entries that name it" };
+  }
   plotMoment(user) {
     const words = this.plotWords(user);
     const play = (user.split(/\nPLAY[^\n]*\(oldest first\):\n/)[1] ?? "").trim().split("\n");
@@ -71,7 +77,9 @@ export class MockLlm {
   scenarioMoment(user) {
     const play = (user.split("PLAY (oldest first):\n")[1] ?? "").trim().split("\n");
     const cast = (user.match(/^CAST: (.*)$/m)?.[1] ?? "").split(", ").filter((n) => n && n !== "(none named)");
-    return { moment: `[mock moment] ${(play.at(-1) ?? "").replace(/^[^:]*: /, "").slice(0, 200)}`, who: cast.slice(0, 1), orientation: "landscape", why: "[mock] the last line" };
+    // Outfitted characters: each in the first outfit listed (in the picture when they are in the cast's first place).
+    const outfits = Object.fromEntries([...user.matchAll(/^- (.+?) \(wears now: [^\n]*?\): "([^"]+)"/gm)].map((m) => [m[1], m[2]]));
+    return { moment: `[mock moment] ${(play.at(-1) ?? "").replace(/^[^:]*: /, "").slice(0, 200)}`, who: [...new Set([...cast.slice(0, 1), ...Object.keys(outfits)])], orientation: "landscape", outfits, why: "[mock] the last line" };
   }
 
   // A legal D&D 2024 build (27 points): a level-1 Elf Rogue with the Criminal background.

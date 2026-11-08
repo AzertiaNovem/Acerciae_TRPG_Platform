@@ -117,6 +117,7 @@ export class Table {
     this.queue = Promise.resolve();
     this.pending = 0;          // turns waiting or running
     this.cards = new Map();
+    this.outfitCache = new Map();   // character → their outfits with attire, for pictures (table/art.mjs)
     this.attrs = new Map();
     this.turns = 0;
     this.lastSeq = 0;          // newest line seen in the channel
@@ -690,14 +691,6 @@ export class Table {
   // Finds the stretch of play the player means and has its moment drawn into the planner window. Returns the reply to
   // post when there is no picture ("notFound", "unavailable", "rateLimited", "failed"), else null.
   drawPastPlot(...args) { return art.drawPastPlot(this, ...args); }
-
-  // Lines containing any of `terms` in the windows `ids`, from the local copy and the platform's search of the whole
-  // history: [{windowId, seq, sceneId, terms}], drawable lines only.
-  plotHits(...args) { return art.plotHits(this, ...args); }
-
-  // The drawable lines of a window around `seq`: from the local copy when it reaches back that far, else read from the
-  // platform (the newest page up to the line, then a page after it found by narrowing the span).
-  linesAround(...args) { return art.linesAround(this, ...args); }
 
   // ---- manual commands from the CLI (applied by the run process, or by the CLI itself when no run process is up)
   async command(cmd) {

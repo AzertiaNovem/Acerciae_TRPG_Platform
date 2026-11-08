@@ -14,9 +14,23 @@ import { completeJson } from "./llm/index.mjs";
 export const MAX_PROMPT = 1500, MAX_CHARACTERS = 6;
 export const ORIENTATIONS = ["landscape", "portrait", "square"];
 
-export const ILLUSTRATE_RULE = `- Pictures: the story moves in small events: a conversation that reaches its point, a search that turns something up, a fight or a chase, an arrival somewhere new, a ritual, a farewell. When your actions this turn bring one to its end, add event_done naming it, after the lines that end it and before any scenario change: the table then has the event's most striking moment drawn for the players here. Only at the real end of an event, once for each; never in the middle of one, and never for players chatting out of character. Separately, for a breathtaking moment in the middle of an event (a place revealed, a charged meeting), you may have it drawn at once with illustrate: one frozen moment for a painter, with who is there and what they do, the place, the light, the colours and the mood; no dialogue and no words in the picture, and only what everyone in this window has seen. Name up to ${MAX_CHARACTERS} characters in it, so their portraits guide the painter, and choose landscape (places, groups), portrait (one figure) or square. Use illustrate rarely. A picture is posted a little later, as yours, and costs no line.`;
+export const ILLUSTRATE_RULE = `- Pictures: the story moves in small events: a conversation that reaches its point, a search that turns something up, a fight or a chase, an arrival somewhere new, a ritual, a farewell. When your actions this turn bring one to its end, add event_done naming it, after the lines that end it and before any scenario change: the table then has the event's most striking moment drawn for the players here. Only at the real end of an event, once for each; never in the middle of one, and never for players chatting out of character. Separately, for a breathtaking moment in the middle of an event (a place revealed, a charged meeting), you may have it drawn at once with illustrate: one frozen moment for a painter, with who is there and what they do, the place, the light, the colours and the mood; no dialogue and no words in the picture, and only what everyone in this window has seen. Name up to ${MAX_CHARACTERS} characters in it, so their portraits guide the painter, and choose landscape (places, groups), portrait (one figure) or square. Use illustrate rarely. A character with outfits (listed in the cast) is drawn in what they wear now, unless you name in outfits another of theirs that suits the moment better; leave them out when unsure. A picture is posted a little later, as yours, and costs no line.`;
 export const ILLUSTRATE_SCHEMA = `  {"type": "event_done", "text": "<the small event your lines just brought to its end, in a few words>"},
-  {"type": "illustrate", "text": "<one frozen moment: who does what, where, the light and mood>", "who": ["<up to ${MAX_CHARACTERS} character names in it>"], "orientation": "landscape | portrait | square"},`;
+  {"type": "illustrate", "text": "<one frozen moment: who does what, where, the light and mood>", "who": ["<up to ${MAX_CHARACTERS} character names in it>"], "orientation": "landscape | portrait | square", "outfits": {"<character with outfits in it>": "<one of their outfits, or usual clothes; leave a character out when unsure>"}},`;
+
+// Outfits: a character may have several sets of clothes (a name and the attire); a picture can dress each character in
+// any of them. The art director is shown the outfits of the cast, what each wears now and wore in the lines, and
+// chooses; a character it leaves out is drawn in what they wear now.
+export const USUAL = "usual clothes";
+export const OUTFIT_RULE = `Some characters have outfits (listed under OUTFITS, with what they wear now and what they wore in these lines). For each of them in the picture, choose the outfit that suits the moment best: what the lines say or imply they wore, the place, the occasion, the weather, the time of day. Name it in "outfits" exactly as listed, or "${USUAL}" for their usual look, and describe their clothes in the moment to match. When it is hard to tell, leave the character out of "outfits": they are drawn in what they wear now.
+Add to the JSON object: "outfits": {"<character name>": "<outfit name>" | "${USUAL}"}`;
+// The OUTFITS block of a request: `wardrobe` is [{name, wearing, worn, outfits: [{name, attire}]}].
+export function outfitBlock(wardrobe) {
+  if (!wardrobe?.length) return "";
+  const said = (o) => (o ? `"${o}"` : USUAL);
+  return `OUTFITS:\n${wardrobe.map((w) => `- ${w.name} (wears now: ${said(w.wearing)}${w.worn !== undefined && w.worn !== null ? `; in these lines: ${said(w.worn || null)}` : ""}): ${[...w.outfits.map((o) => `"${o.name}"${o.attire ? ` — ${clip(o.attire, 300)}` : ""}`), USUAL].join("; ")}`).join("\n")}`;
+}
+export const withOutfits = (system, wardrobe) => (wardrobe?.length ? `${system}\n\n${OUTFIT_RULE}` : system);
 
 const clip = (s, n) => String(s ?? "").trim().slice(0, n);
 const names = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => clip(x, 120)).filter(Boolean);
@@ -25,7 +39,9 @@ const names = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => clip(x, 12
 export function normalizeIllustration(x) {
   const text = clip(x?.text ?? x?.moment, MAX_PROMPT);
   const orientation = ORIENTATIONS.includes(x?.orientation) ? x.orientation : "landscape";
-  return { text, who: [...new Set(names(x?.who))].slice(0, MAX_CHARACTERS), orientation };
+  const outfits = Object.fromEntries(Object.entries(x?.outfits && typeof x.outfits === "object" && !Array.isArray(x.outfits) ? x.outfits : {})
+    .map(([k, v]) => [clip(k, 120), clip(v, 120)]).filter(([k, v]) => k && v).slice(0, MAX_CHARACTERS));
+  return { text, who: [...new Set(names(x?.who))].slice(0, MAX_CHARACTERS), orientation, outfits };
 }
 
 // What a request's failure means: the server's maintainers or the GM turned illustrations off (they may turn them back
@@ -64,10 +80,15 @@ const moment = (x) => {
   return { ...n, why: clip(x.why, 300) };
 };
 
+// Lines as {who, text}: who said it (the character, "GM", or the player's name) and what, on one line; empty ones dropped.
+export function lineRows(lines, nameOf) {
+  return lines.map((m) => ({ who: m.character_id ? nameOf(m.character_id) : m.author_role === "gm" ? "GM" : (m.author_name || "a player"), text: String(m.dice?.text ?? m.content ?? "").replace(/\s+/g, " ").trim() })).filter((r) => r.text);
+}
+
 // The lines a scenario's illustration may draw on, oldest first, as compact text within `budget` characters: every
 // line is kept when they fit, otherwise each is shortened, then the oldest go.
 export function scenarioLines(lines, nameOf, budget = 40000) {
-  const rows = lines.map((m) => ({ who: m.character_id ? nameOf(m.character_id) : m.author_role === "gm" ? "GM" : (m.author_name || "a player"), text: String(m.dice?.text ?? m.content ?? "").replace(/\s+/g, " ").trim() })).filter((r) => r.text);
+  const rows = lineRows(lines, nameOf);
   let width = 600;
   const render = () => rows.map((r) => `${r.who}: ${r.text.slice(0, width)}`);
   let out = render();
@@ -78,19 +99,20 @@ export function scenarioLines(lines, nameOf, budget = 40000) {
 
 // The moment to draw for the scenario that just ended: {text, who, orientation, why}. `drawn`: the descriptions of the
 // pictures already drawn in it.
-export async function pickScenarioMoment(llm, { language, title, place, time, era, cast, lines, drawn = [] }) {
+export async function pickScenarioMoment(llm, { language, title, place, time, era, cast, lines, drawn = [], wardrobe = [] }) {
   const user = [
     `SCENARIO: ${title || "(untitled)"}${place ? ` — ${place}` : ""}${time ? `, ${time}` : ""}`,
     era ? `ERA: ${era}` : "",
     `CAST: ${cast.join(", ") || "(none named)"}`,
     drawnBlock(drawn),
+    outfitBlock(wardrobe),
     `PLAY (oldest first):\n${lines}`,
   ].filter(Boolean).join("\n\n");
-  return completeJson(llm, { system: SCENARIO_SYSTEM(language), user, purpose: "scenario_illustration" }, moment);
+  return completeJson(llm, { system: withOutfits(SCENARIO_SYSTEM(language), wardrobe), user, purpose: "scenario_illustration" }, moment);
 }
 
 // The moment to draw for a small event that just ended (the GM's event_done): {text, who, orientation, why}.
-export async function pickEventMoment(llm, { language, event, scenario = "", place, time, era, cast, lines, drawn = [] }) {
+export async function pickEventMoment(llm, { language, event, scenario = "", place, time, era, cast, lines, drawn = [], wardrobe = [] }) {
   const user = [
     `THE EVENT THAT JUST ENDED: ${event || "(unnamed)"}`,
     scenario ? `SCENARIO: ${scenario}` : "",
@@ -98,7 +120,8 @@ export async function pickEventMoment(llm, { language, event, scenario = "", pla
     era ? `ERA: ${era}` : "",
     `CAST: ${cast.join(", ") || "(none named)"}`,
     drawnBlock(drawn),
+    outfitBlock(wardrobe),
     `PLAY (oldest first):\n${lines}`,
   ].filter(Boolean).join("\n\n");
-  return completeJson(llm, { system: EVENT_SYSTEM(language), user, purpose: "event_illustration" }, moment);
+  return completeJson(llm, { system: withOutfits(EVENT_SYSTEM(language), wardrobe), user, purpose: "event_illustration" }, moment);
 }

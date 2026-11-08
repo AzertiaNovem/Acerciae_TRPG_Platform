@@ -14,7 +14,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Api } from "./api.mjs";
 import { buildConfig, configPath, loadConfigFile, loadEnvFile, parseArgs } from "./config.mjs";
-import { createLlm } from "./llm/index.mjs";
+import { createModels } from "./llm/index.mjs";
+import { describeModels, providerLabel, routeFor } from "./llm/routes.mjs";
 import { withProgress } from "./llm/progress.mjs";
 import { Realtime } from "./realtime.mjs";
 import { Roster, openSeat, openWindows } from "./roles/roster.mjs";
@@ -152,7 +153,7 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
   const state = loadState(cfg.stateDir, channel.id) ?? { channelId: channel.id, serverId: channel.server_id };
   const store = Store.open(cfg.stateDir, channel.id);
   try {
-    const llm = metered(withProgress(createLlm(cfg.llm), log), { sink: usageSink(store, log), channelId: channel.id, log });
+    const llm = metered(withProgress(createModels(cfg), log), { sink: usageSink(store, log), channelId: channel.id, log });
     const settings = await api.serverSettings(channel.server_id);
     const language = languageName(cfg.language || settings?.language || "en");
     // Point buy is the channel's own option (its GM's); servers before that had a server feature.
@@ -233,7 +234,7 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     const missing = coplayers - roster.coplayers.length;
     if (missing < 0) log(`the channel already has ${roster.coplayers.length} co-players (asked for ${coplayers}); keeping them`);
     for (let i = 0; i < missing; i++) {
-      log(`preparing co-player ${roster.coplayers.length + 1}/${coplayers} with ${cfg.llm.provider} / ${cfg.llm.model || "mock"}`);
+      log(`preparing co-player ${roster.coplayers.length + 1}/${coplayers} with ${modelOf(cfg, "coplayer_card")}`);
       const characters = await api.characters(channel.id);
       const takenNames = characters.map((c) => c.name);
       const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
@@ -253,7 +254,7 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
     if (automatic) return true;
     const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
-    console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  LLM: ${cfg.llm.provider}${cfg.llm.model ? ` ${cfg.llm.model}` : ""}${cfg.llm.provider === "mock" ? " (placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
+    console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  models: ${modelsLine(cfg)}${cfg.llm.provider === "mock" ? " (mock: placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
     return true;
   } finally { store.close(); }
 }
@@ -261,6 +262,10 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
 // The table for a channel: roster, timelines, guard and scenario from the state file. `write` saves changes back
 // (compare-and-swap); read-only commands pass write:false and never touch the file.
 // A save refused because another process changed the file is fatal: `onConflict` decides how to stop (default: throw).
+// "provider model (effort)" of the route a purpose runs on, and the whole table of functions, for logs and `status`.
+const modelOf = (cfg, purpose) => { const r = routeFor(cfg, purpose); return `${providerLabel(r)}${r.model && r.model !== providerLabel(r) ? ` ${r.model}` : ""}${r.effort ? ` (${r.effort})` : ""}`; };
+const modelsLine = (cfg) => describeModels(cfg).map((r) => `${r.function} → ${r.provider}${r.model && r.model !== r.provider ? ` ${r.model}` : ""}${r.effort ? ` (${r.effort})` : ""}`).join("; ");
+
 async function openTable(cfg, { llm = null, plannerLlm = null, write = true, heal = false, deferArrivals = false, channel: known = null, onConflict = (e) => { throw e; } } = {}) {
   const api = known?.api ?? (await signIn(cfg));
   const channel = known?.channel ?? (await resolveChannel(api, cfg, { create: false })).channel;
@@ -294,12 +299,10 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   // Another writer changed the state file under us: continuing would act on a stale table, so stop loudly.
   const onConflict = (e) => { log(`stopping: ${e.message}. Restart \`run\` to continue from the file.`); release(); process.exit(3); };
   let opened;
-  // The story planner's own model, when it differs from the GM's (otherwise the table reuses the GM's instance).
-  const sameModel = ["provider", "apiBase", "model", "effort", "apiKey"].every((k) => cfg.planner[k] === cfg.llm[k]);
-  const plannerLlm = sameModel ? null : withProgress(createLlm(cfg.planner), log);
   try {
     if ((managed && cfg.prepareOnStart !== false) || ch.rule_system === "pbta") await setupChannel(cfg, signedIn, { channel: ch }, true);
-    opened = await openTable(cfg, { llm: withProgress(createLlm(cfg.llm), log), plannerLlm, heal: true, channel: { api: signedIn, channel: ch }, onConflict });
+    // One model object answers every role, each purpose on the provider and model its function is routed to.
+    opened = await openTable(cfg, { llm: withProgress(createModels(cfg), log), heal: true, channel: { api: signedIn, channel: ch }, onConflict });
   }
   catch (e) { release(); throw e; }
   const { api, channel, table } = opened;
@@ -325,7 +328,7 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   const inbox = inboxPath(cfg.stateDir, channel.id);
   fs.watchFile(inbox, { interval: 1000 }, take);
   take();
-  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; LLM: ${cfg.llm.provider}; autonomy: ${cfg.autonomy ? `on (side every ${cfg.autonomySideIntervalMs / 1000}s, quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? `${cfg.planner.provider}${cfg.planner.model ? ` ${cfg.planner.model}` : ""} (${cfg.planner.effort})` : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
+  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; models: ${modelsLine(cfg)}; autonomy: ${cfg.autonomy ? `on (side every ${cfg.autonomySideIntervalMs / 1000}s, quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? "on" : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
   if (cfg.kickoff) {
     const main = table.primaryWindowId();
     if (main) table.schedule(main, { kickoff: true, delay: 0 });
@@ -445,7 +448,8 @@ async function status(cfg) {
   console.log(`relationships: ${table.bonds.length ? table.bonds.map((b) => `${nameOf(b.a)} — ${nameOf(b.b)}: ${b.kind}${b.secret ? " (secret)" : ""}`).join("; ") : "(none recorded)"}`);
   const pl = table.planner, arc = pl.arc;
   const plMode = !pl.on ? "off" : table.improv.on ? "full plotting" : "pace only: module-led campaign";
-  console.log(`story planner: ${pl.on ? `on (${plMode})${arc ? ` — plan v${arc.version}, ${Math.round((Date.now() - Date.parse(arc.updatedAt)) / 60000)} min ago (${arc.trigger}); beat "${arc.beat.title}", verdict: ${arc.verdict?.moveOn ? "move on" : "continue"}; ${arc.threads.length} thread(s)${pl.impulses.length ? `; impulses: ${pl.impulses.map((i) => i.name).join(", ")}` : ""}` : " — no plan yet (needs 10 lines, or `plan now`)"}; automatic after ${cfg.planner.intervalMs / 60000} min and ${cfg.planner.minLines} lines, cooldown ${cfg.planner.cooldownMs / 60000} min, ≤ ${cfg.planner.maxRunsPerHour}/h; model ${cfg.planner.provider}${cfg.planner.model ? ` ${cfg.planner.model}` : ""} effort ${cfg.planner.effort}` : "off"}`);
+  console.log(`story planner: ${pl.on ? `on (${plMode})${arc ? ` — plan v${arc.version}, ${Math.round((Date.now() - Date.parse(arc.updatedAt)) / 60000)} min ago (${arc.trigger}); beat "${arc.beat.title}", verdict: ${arc.verdict?.moveOn ? "move on" : "continue"}; ${arc.threads.length} thread(s)${pl.impulses.length ? `; impulses: ${pl.impulses.map((i) => i.name).join(", ")}` : ""}` : " — no plan yet (needs 10 lines, or `plan now`)"}; automatic after ${cfg.planner.intervalMs / 60000} min and ${cfg.planner.minLines} lines, cooldown ${cfg.planner.cooldownMs / 60000} min, ≤ ${cfg.planner.maxRunsPerHour}/h; model ${modelOf(cfg, "planner")}` : "off"}`);
+  console.log(`models: ${modelsLine(cfg)}`);
   const im = table.improv;
   const notes = pl.table;
   console.log(`planner window: ${pl.window ? `"${wname(pl.window)}" — ${notes.filter((n) => n.kind === "correction").length} correction(s), ${notes.filter((n) => n.kind === "wish").length} wish(es) standing${pl.inbox.length ? `; ${pl.inbox.length} line(s) not read yet` : ""}` : cfg.planner.wishWindow && pl.on ? "opened by run" : "off"}${notes.length ? `\n  ${notes.map((n) => `${n.id} [${n.kind}] ${n.text}`).join("\n  ")}` : ""}`);

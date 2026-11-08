@@ -28,7 +28,7 @@ never get them.
 
 Copy `gm-host.example.yml` to `gm-host.yml`, create `channels/`, and copy the files from `examples/channels/` there. Replace the channel IDs with existing platform channels where the shared account is GM. Paths are relative to the configuration file that contains them. The channel's rule system comes from the platform; change it in the GM workspace and restart that channel.
 
-The shared file contains the platform address, account, state directory, LLM provider/endpoint/key, optional planner connection and channel list. Keep it private (`chmod 600 gm-host.yml`). Passwords and keys can instead come from `.env` (`GM_PASSWORD`, `LLM_API_KEY`/`ANTHROPIC_API_KEY`, `PLANNER_API_KEY`). The shared file takes precedence. Never commit real credentials. Channel files cannot override credentials, provider or endpoint; they can select a model, effort, token budgets, language, co-player count, calendar pacing, autonomy, scene strategies and modes using the existing configuration keys. Each channel has its own daily token budget; there is no combined provider spending cap.
+The shared file contains the platform address, account, state directory, LLM provider/endpoint/key, optional planner connection, further named `providers` (each an endpoint with its key and default model), every channel's default `models` routes and the channel list. Keep it private (`chmod 600 gm-host.yml`). Passwords and keys can instead come from `.env` (`GM_PASSWORD`, `LLM_API_KEY`/`ANTHROPIC_API_KEY`, `PLANNER_API_KEY`). The shared file takes precedence. Never commit real credentials. Channel files cannot override credentials, provider or endpoint, and cannot define providers; they can route each function to a provider by name with `models` (see "Several models"), and select a model, effort, token budgets, language, co-player count, calendar pacing, autonomy, scene strategies and modes using the existing configuration keys. Each channel has its own daily token budget; there is no combined provider spending cap.
 
 At startup the host prepares each enabled channel independently, adopts existing co-players, creates any missing requested co-players and applies explicit world/casual settings. PbtA waits for its rule review without delaying other channels. A failed worker stays failed until explicitly started or restarted; it does not terminate its peers or repeatedly retry a broken configuration. `enabled: false` prevents automatic startup but still lists the channel in the UI. A second host using the same state directory is refused. For an established CoC/D&D table being migrated, set `prepare_on_start: false` on its shared channel entry to attach without generating or completing cards or reapplying setup modes; existing state remains authoritative. PbtA still performs its required review checks.
 
@@ -353,14 +353,16 @@ turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`
 - **On a player's request.** A player writes `/画` (or `/插画`, `/draw`, `/illustrate`) and the moment they want in
   the planner window: `/画 我们黄昏时抵达灯塔的那一刻`, `/draw the duel on the bridge, as an ink sketch`. The request
   never reaches the story planner, and the GM does not read it either. The table answers at once ("🎨 Looking for that
-  moment…") and finds the stretch of play, however long ago it was:
-  1. a model call (`plot_search`) reads the scenarios and the GM's chapter summaries, says where the moment most
-     likely is and which words its lines will contain;
-  2. those words are looked up in the table's copy of the chat and in the platform's message search, which reaches
-     the whole history; the place where most of them meet wins;
-  3. a second call (`plot_illustration`) reads the lines around that place (fetched from the platform when they are
-     older than the table's copy), picks the moment, and follows the player's wishes about framing and style where
-     the lines allow.
+  moment…") and finds the stretch of play by meaning, not by matching words, however long ago it was:
+  1. a model call (`plot_search`) reads an index of the whole story: the scenarios with their summaries (S…), the GM's
+     summaries of each window's earlier play (C…), and the play since the last summary in runs of 30 lines (R…),
+     shortened to fit. It names the entries most likely to hold the moment, best first, judging by meaning: the
+     player may put it in other words than the play used, from another character's side, or in another language;
+  2. an entry too long to read in full (a summary of a long night, a whole scenario) is split into parts, and the
+     model names the part that holds the moment (`plot_search/zoom`, up to three rounds). A scenario older than the
+     table's copy of the chat is read back from the platform;
+  3. a second call (`plot_illustration`) reads those lines, picks the moment, and follows the player's wishes about
+     framing and style where the lines allow. If the moment is not there, the next entry named is read.
 
   The picture is drawn into the planner window as soon as the platform can (ahead of any scenario picture still
   waiting). Any window of play may be drawn on, other players' and co-players' scenes too (this is a casual table:
@@ -368,6 +370,15 @@ turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`
   note or a phone. The planner window is shared, so every player there sees the picture. If the moment cannot be found, the table says so and asks for a detail or two. A player has
   one request on its way at a time, and at most `illustrations.requests_per_hour` (4) an hour; `/画` with nothing
   after it explains the command. A request is not play: it works while the table is paused and does not resume it.
+
+**Outfits.** A character with a generated look may have several outfits on the platform (a name and the attire), and
+wears one of them, or their usual clothes, at any time; each line records what its character wore. Every picture
+dresses its characters in the outfit that suits the moment. The art director of an event, scenario or requested
+picture is shown each outfitted character's outfits with their attire, what they wear now and what they wore in the
+lines being drawn, and names an outfit for each character in the picture (the place, the occasion and the lines
+decide); the GM sees the outfits in its cast and may do the same for its own `illustrate`. A character the choice
+leaves out, or names an outfit they do not have, is drawn in what they wear now; the outfit worn now is not sent
+again. Without outfits at the table, nothing about them is asked or sent.
 
 A recall that rolls back a turn cancels a picture that turn asked for, or recalls it once posted. A scenario change
 is not rolled back, so neither are its pictures. If the server has no image provider, the first request says so and
@@ -927,6 +938,8 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `planner.enabled` | `--planner` | `true` | the story planner (see "The story planner") |
 | `planner.provider`, `planner.api_base`, `planner.model` | `--planner-provider`, `--planner-api-base`, `--planner-model` | the GM's | the planner's own model and endpoint (its key: `PLANNER_API_KEY`, else the provider's key) |
 | `planner.effort` | `--planner-effort` | `high` | the planner's reasoning effort (ignored by `openai_compatible`) |
+| `providers.<name>.provider`, `.api_base`, `.api_key`, `.model`, `.effort`, `.max_tokens`, `.timeout_ms`, `.stream`, `.fallbacks`, `.cache_ttl` | | the `llm` settings | a named endpoint with its key and default model; a key left out comes from `ANTHROPIC_API_KEY` or `LLM_API_KEY` (see "Several models") |
+| `models.<function>` | | the `llm` settings | `{provider, model, effort, max_tokens}`, or a provider's name: where `director`, `coplayers`, `planner`, `memory`, `readers`, `pictures` or `cards` run; a purpose name or `default` is accepted too |
 | `planner.interval_minutes`, `planner.min_lines` | | `30`, `40` | play time and lines since the last plan before an automatic one (`interval_minutes: 0`: only `plan now`) |
 | `planner.cooldown_minutes`, `planner.max_runs_per_hour` | | `10`, `4` | least gap between runs; hourly cap |
 | `planner.stall_turns` | | `6` | turns in the same place with no world change, truth, move or scenario change before the planner is asked |
@@ -981,6 +994,50 @@ upstream or a gateway's absolute request deadline. After a failure, run setup ag
 the GM account are co-players and every NPC is a real NPC (including ones the GM makes in the web app).
 Co-players made by older versions are NPCs whose speaking style starts with `[co-player]`; they are still recognised,
 because the platform cannot change a character's kind.
+
+### Several models: `providers` and `models`
+
+Every model call names its purpose (the ones the usage list shows: `director`, `coplayer_turn`, `planner`, `compact`…).
+The purposes fall into seven functions, and a table may run each on a different provider and model
+(`src/llm/routes.mjs`):
+
+| Function | Purposes | What it is |
+|---|---|---|
+| `director` | `director` | the GM's turns: the largest context, the most judgement |
+| `coplayers` | `coplayer_turn`, `coplayer_phone` | the AI co-players' lines and texts |
+| `planner` | `planner` | the story planner's draft, critique and revision |
+| `memory` | `compact`, `coplayer_memory` | compacting older chat into chapters |
+| `readers` | `scene_presence`, `movement_evidence`, `placement_correction`, `scene_handoff` | the small calls that check who is where |
+| `pictures` | `scenario_illustration`, `event_illustration`, `plot_search`, `plot_illustration` | choosing moments to draw, finding past plots |
+| `cards` | `coplayer_card`, `npc_card`, `coplayer_repair`, `coplayer_points`, `coplayer_build`, `pbta_design`, `pbta_card` | writing and repairing role cards |
+
+`providers` names the endpoints: each a `provider` type (`anthropic`, `openai_compatible`, `mock`), its `api_base`
+and `api_key`, its default `model`, and any of `effort`, `max_tokens`, `timeout_ms`, `stream`, `fallbacks`,
+`cache_ttl` (else the `llm` section's). The `llm` section itself is the provider called `default`. `models` then
+says, function by function, which provider and which model answer: `{provider, model, effort, max_tokens}`, each
+part optional (a missing model or effort is the provider's), or just a provider's name. A purpose named directly
+(`coplayer_phone`) outranks its function; `default` covers every function not named; the planner's own
+`planner.provider/model/effort` keep naming its route when `models.planner` does not.
+
+```yaml
+providers:
+  fast: { provider: anthropic, model: claude-haiku-5-5 }
+  gateway: { provider: openai_compatible, api_base: https://gw.example/v1, api_key: "…", model: gpt-5-mini }
+models:
+  director: { effort: high }          # the llm section's model, more effort
+  coplayers: gateway
+  memory: fast
+  readers: { provider: fast, effort: low }
+  pictures: fast
+```
+
+In host mode the shared file holds `providers` (endpoints and keys are the host's) and may hold `models` as every
+channel's defaults; a channel file routes its own functions with `models`, naming the shared providers, and may not
+define providers. The control page's Settings tab has a "模型分配" group with each function's provider (a list of the
+host's providers), model and effort; the overview shows the functions routed away from the default, and the usage
+list records every call under the provider and model that answered it (a named provider by its name, the `llm`
+section by its type). One model object serves the whole table: instances are made once per distinct connection and
+model, so two functions on the same model share one, and prompt caches with it.
 
 ## Tests
 
