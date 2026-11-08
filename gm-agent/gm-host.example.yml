@@ -14,6 +14,20 @@ llm:
 planner:
   enabled: true
   effort: high
+# providers:                 # more endpoints, each with its key and default model; channels route functions to them by name
+#   fast:
+#     provider: anthropic
+#     model: claude-haiku-5-5
+#     # api_key: ""          # else ANTHROPIC_API_KEY
+#   gateway:
+#     provider: openai_compatible
+#     api_base: https://your-gateway.example/v1
+#     api_key: ""            # else LLM_API_KEY
+#     model: gpt-5-mini
+# models:                    # every channel's routes unless its own file says otherwise (see examples/channels)
+#   memory: fast
+#   readers: fast
+#   pictures: { provider: fast, effort: low }
 webui:
   enabled: false
   host: 127.0.0.1

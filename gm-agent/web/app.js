@@ -5,6 +5,7 @@ import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
 'use strict';
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
+const FUNCTIONS = { director: '主持', coplayers: '队友', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
 let channelRequest = 0;
 let usageRange = 'today', usageDetailsOpen = false, planKey = '';
 let usageKey = '', usageNode = null;
@@ -107,7 +108,7 @@ async function refreshHost() {
   const row = (k, v) => h('div', { class: 'kv' }, h('span', { text: k }), h('span', { class: 'mono', text: v ?? '—' }));
   $('host').replaceChildren(h('h3', { text: '主机' }),
     row('平台', host.apiBase), row('账户', host.account), row('模型', [host.llm?.provider, host.llm?.model].filter(Boolean).join(' · ')),
-    row('规划模型', host.planner?.model || '同主持模型'), row('状态目录', host.stateDir), row('进程', `pid ${host.pid} · Node ${host.node}`));
+    row('规划模型', host.planner?.model || '同主持模型'), row('服务商', (host.providers ?? []).join(' · ') || 'default'), row('状态目录', host.stateDir), row('进程', `pid ${host.pid} · Node ${host.node}`));
   $('host').hidden = false;
 }
 async function refreshChannels() {
@@ -269,6 +270,8 @@ function renderOverview() {
       kv('频道', c.name), kv('规则', RULES[c.rule] ?? c.rule), kv('语言', c.language), kv('GM 身份', c.gm === null ? '—' : c.gm ? '是' : '否（无法主持）', c.gm === false ? 'error-text' : ''),
       kv('知识模式', c.knowledge === 'isolated' ? '隔离' : c.knowledge === 'public' ? '公开' : c.knowledge), kv('窗口', num(cast.windows)),
       kv('模型', `${s.model ?? '—'}${s.effort ? ` · ${s.effort}` : ''}`),
+      // The functions routed to another provider or model than the default (llm/routes.mjs).
+      ...(s.models ?? []).filter(m => m.function !== 'default').map(m => kv(`模型 · ${FUNCTIONS[m.function] ?? m.function}`, `${m.model && m.model !== m.provider ? `${m.provider} ${m.model}` : m.provider}${m.effort ? ` · ${m.effort}` : ''}`)),
       c.warning ? h('p', { class: 'warn-text', text: c.warning }) : null));
     if (u) cards.push(usageCard(u));
     cards.push(card('活动',
@@ -345,7 +348,7 @@ function current(field) {
   return Array.isArray(v) ? v.join(', ') : typeof v === 'boolean' ? String(v) : String(v);
 }
 function input(field) {
-  const value = current(field), id = `f-${field.key.replace('.', '-')}`;
+  const value = current(field), id = `f-${field.key.replace(/\./g, '-')}`;
   const change = event => {
     const v = event.target.value, saved = (() => { const s = config?.values?.[field.key]?.set; return s === undefined ? '' : Array.isArray(s) ? s.join(', ') : String(s); })();
     if (v === saved) dirty.delete(field.key); else dirty.set(field.key, v);
@@ -376,7 +379,7 @@ function renderForm() {
       ...fields.map(field => {
         const v = config.values[field.key] ?? {};
         return h('div', { class: `field${v.set !== undefined ? ' set' : ''}${dirty.has(field.key) ? ' changed' : ''}` },
-          h('label', { for: `f-${field.key.replace('.', '-')}` }, h('span', { text: field.label }), h('code', { text: field.key })),
+          h('label', { for: `f-${field.key.replace(/\./g, '-')}` }, h('span', { text: field.label }), h('code', { text: field.key })),
           h('div', { class: 'control' }, input(field),
             v.set !== undefined || dirty.has(field.key) ? h('button', { type: 'button', class: 'quiet small', title: '删除这个键，使用默认值', onclick: () => {
               if (v.set === undefined) dirty.delete(field.key); else dirty.set(field.key, '');

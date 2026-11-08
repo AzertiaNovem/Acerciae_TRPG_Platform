@@ -36,7 +36,7 @@ export function metered(llm, { sink = () => {}, channelId = "", provider = "", m
       const known = Number.isSafeInteger(usage?.input) && usage.input >= 0 && Number.isSafeInteger(usage?.output) && usage.output >= 0;
       const record = { ...usage, callId, requestId: req.requestId ?? callId, at,
         purpose: req.purpose || "completion", phase: req.phase ?? "", attempt: req.attempt ?? 1,
-        provider: provider || llm?.provider || (llm?.mock ? "mock" : ""), model: usage?.model || model || llm?.model || "",
+        provider: usage?.provider || provider || llm?.provider || (llm?.mock ? "mock" : ""), model: usage?.model || model || llm?.model || "",
         durationMs: Math.max(0, now() - at), status, httpStatus, usageKnown: known,
         estimated: Boolean(usage?.estimated || llm?.mock) };
       try { sink(record); } catch { log(`LLM ${record.purpose}: token usage could not be saved`); }

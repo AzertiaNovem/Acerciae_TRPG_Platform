@@ -7,6 +7,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Store } from "../src/store.mjs";
 import { metered } from "../src/llm/parts.mjs";
+
+test("a metered call records the provider and model its usage names, over the table's defaults", async () => {
+  const records = [];
+  const llm = metered({ async complete({ onUsage }) { onUsage({ provider: "gw", model: "gpt-x", input: 5, cacheRead: 0, cacheWrite: 0, output: 1 }); return "x"; } }, { sink: (r) => records.push(r), provider: "anthropic", model: "claude-opus-5-5" });
+  await llm.complete({ purpose: "coplayer_turn" });
+  assert.deepEqual([records[0].provider, records[0].model, records[0].purpose], ["gw", "gpt-x", "coplayer_turn"]);
+});
 import { completeJson } from "../src/llm/index.mjs";
 import { withProgress } from "../src/llm/progress.mjs";
 import { usageOptions, usageReport, printUsageReport, usageSink } from "../src/usage.mjs";

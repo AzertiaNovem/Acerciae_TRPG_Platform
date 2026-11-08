@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
+import { DEFAULT_PROVIDER, FUNCTION_NAMES, PROVIDER_TYPES, PURPOSES } from "./llm/routes.mjs";
 
 // Loads KEY=VALUE lines from a .env file without overriding variables already set in the environment.
 export function loadEnvFile(file) {
@@ -98,7 +99,11 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
-const SECTIONS = ["account", "channel", "table", "llm", "planner", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
+const SECTIONS = ["account", "channel", "table", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
+// Named endpoints (`providers`) and the model of each function (`models`) have keys of their own (llm/routes.mjs).
+const FREE_SECTIONS = ["providers", "models"];
+const PROVIDER_KEYS = ["provider", "api_base", "api_key", "model", "effort", "max_tokens", "fallbacks", "timeout_ms", "stream", "cache_ttl"];
+const MODEL_KEYS = ["provider", "model", "effort", "max_tokens"];
 
 const TTL = (v) => (["1h", "5m", "off"].includes(String(v)) ? String(v) : "1h");
 // true/false, or undefined when nothing says (a mode kept in the state file is then left as it is).
@@ -112,6 +117,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   for (const [name, key] of Object.entries(LEGACY_ENV)) if (env[name] !== undefined) warnings.push(`${name} is no longer read; set ${key} in gm-agent.yml (or pass --${SETTINGS.find((s) => s[2] === key)?.[0] ?? key})`);
   for (const section of Object.keys(data)) {
     if (!SECTIONS.includes(section)) { warnings.push(`gm-agent.yml: unknown section "${section}"`); continue; }
+    if (FREE_SECTIONS.includes(section)) continue;
     for (const key of Object.keys(data[section] ?? {})) if (`${section}.${key}` !== "channel.rules" && !SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
   }
   // flag › environment (allowed names only) › file › default
@@ -165,6 +171,47 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     finalReviewMinLines: Math.max(1, int(pick("final-review-min-lines", 10), 10)),
     finalReviewMaxDays: Math.max(0, int(pick("final-review-max-days", 30), 30)),
   };
+  // Named providers: each a connection with its key and its default model; the llm settings are the one called
+  // "default". A key missing from the file comes from the environment, as for llm.
+  const providers = { [DEFAULT_PROVIDER]: { ...llm, name: DEFAULT_PROVIDER } };
+  const given = data.providers && typeof data.providers === "object" && !Array.isArray(data.providers) ? data.providers : {};
+  if (data.providers !== undefined && (typeof data.providers !== "object" || Array.isArray(data.providers) || data.providers === null)) warnings.push("gm-agent.yml: providers must be a mapping of names to connections");
+  for (const [name, spec] of Object.entries(given)) {
+    if (!/^[a-zA-Z0-9_-]{1,40}$/.test(name)) { warnings.push(`gm-agent.yml: providers: "${name}" is not a name (letters, digits, - and _)`); continue; }
+    if (name === DEFAULT_PROVIDER) { warnings.push(`gm-agent.yml: providers: "${DEFAULT_PROVIDER}" is the llm section; name the provider otherwise`); continue; }
+    if (!spec || typeof spec !== "object" || Array.isArray(spec)) { warnings.push(`gm-agent.yml: providers.${name} must be a mapping`); continue; }
+    for (const key of Object.keys(spec)) if (!PROVIDER_KEYS.includes(key)) warnings.push(`gm-agent.yml: unknown key "providers.${name}.${key}"`);
+    const type = str(spec.provider, "");
+    if (!PROVIDER_TYPES.includes(type)) { warnings.push(`gm-agent.yml: providers.${name}.provider must be ${PROVIDER_TYPES.join(", ")}, not "${type}"`); continue; }
+    const apiBase = str(spec.api_base, "");
+    if (type === "openai_compatible" && !apiBase) warnings.push(`gm-agent.yml: providers.${name} (openai_compatible) needs api_base`);
+    providers[name] = {
+      name, provider: type, apiBase,
+      apiKey: str(spec.api_key, "") || (type === "anthropic" ? env.ANTHROPIC_API_KEY ?? "" : type === "openai_compatible" ? env.LLM_API_KEY ?? "" : ""),
+      model: str(spec.model, "") || (type === "anthropic" ? "claude-opus-5-5" : ""),
+      effort: str(spec.effort, "") || llm.effort,
+      maxTokens: int(spec.max_tokens, llm.maxTokens), fallbacks: bool(spec.fallbacks, llm.fallbacks), timeoutMs: int(spec.timeout_ms, llm.timeoutMs),
+      stream: bool(spec.stream, llm.stream), cacheTtl: spec.cache_ttl === undefined ? llm.cacheTtl : TTL(spec.cache_ttl),
+    };
+    if (type === "openai_compatible" && !providers[name].model) warnings.push(`gm-agent.yml: providers.${name} (openai_compatible) needs a model`);
+  }
+  // Which function runs where: `models.<function | purpose | default>: {provider, model, effort, max_tokens}`, or
+  // just a provider's name.
+  const models = {};
+  const routes = data.models && typeof data.models === "object" && !Array.isArray(data.models) ? data.models : {};
+  if (data.models !== undefined && (typeof data.models !== "object" || Array.isArray(data.models) || data.models === null)) warnings.push("gm-agent.yml: models must be a mapping of functions to models");
+  for (const [fn, raw] of Object.entries(routes)) {
+    if (![...FUNCTION_NAMES, ...PURPOSES, "default"].includes(fn)) { warnings.push(`gm-agent.yml: models: unknown function "${fn}" (${FUNCTION_NAMES.join(", ")}, a purpose, or default)`); continue; }
+    const spec = typeof raw === "string" ? { provider: raw } : raw;
+    if (raw === null || raw === undefined) continue;
+    if (!spec || typeof spec !== "object" || Array.isArray(spec)) { warnings.push(`gm-agent.yml: models.${fn} must be a mapping (provider, model, effort, max_tokens) or a provider's name`); continue; }
+    for (const key of Object.keys(spec)) if (!MODEL_KEYS.includes(key)) warnings.push(`gm-agent.yml: unknown key "models.${fn}.${key}"`);
+    const providerName = str(spec.provider, "") || DEFAULT_PROVIDER;
+    if (!providers[providerName]) { warnings.push(`gm-agent.yml: models.${fn}: no provider "${providerName}" (${Object.keys(providers).join(", ")})`); continue; }
+    const effort = str(spec.effort, "");
+    if (effort && !["low", "medium", "high", "xhigh", "max"].includes(effort)) warnings.push(`gm-agent.yml: models.${fn}.effort must be low, medium, high, xhigh or max`);
+    models[fn] = { provider: providerName, model: str(spec.model, ""), effort, maxTokens: spec.max_tokens === undefined || spec.max_tokens === null || spec.max_tokens === "" ? 0 : Math.max(0, int(spec.max_tokens, 0)) };
+  }
   const cfg = {
     warnings,
     configFile: file?.file ?? null,
@@ -189,6 +236,8 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     language: str(pick("language", "")),
     llm,
     planner,
+    providers,
+    models,
     debounceMs: int(pick("debounce-ms", 4000), 4000),
     postDelayMs: int(pick("post-delay-ms", 1200), 1200),
     maxActionsPerTurn: Math.max(1, int(pick("max-actions", 6), 6)),

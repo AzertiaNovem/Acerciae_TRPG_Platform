@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { schema } from './host-schema.mjs';
+import { providerNames } from './host-config.mjs';
 import { HostSessions } from './host-sessions.mjs';
 const asset = name => fs.readFileSync(new URL(`../web/${name}`, import.meta.url));
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
@@ -49,7 +50,7 @@ export async function startWeb(manager, options) {
       }
       if (req.method === 'GET' && url.pathname === '/api/channels') { manager.warm(); return send(200, manager.status()); }
       if (req.method === 'GET' && url.pathname === '/api/host') return send(200, manager.hostInfo());
-      if (req.method === 'GET' && url.pathname === '/api/schema') return send(200, schema());
+      if (req.method === 'GET' && url.pathname === '/api/schema') return send(200, schema(providerNames(manager.host)));
       if (req.method === 'GET' && url.pathname === '/api/platform') return send(200, await manager.platform());
       const readJson = async () => {
         if (!req.headers['content-type']?.startsWith('application/json')) throw Object.assign(Error('Use application/json'), { code: 'HTTP', status: 415 });

@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import readline from 'node:readline';
 import { Worker } from 'node:worker_threads';
 import YAML from 'yaml';
-import { channelConfig, atomicWrite, parseChannel, sharedConfig, editRegistry, registryIndex, validId } from './host-config.mjs';
+import { channelConfig, atomicWrite, parseChannel, sharedConfig, editRegistry, registryIndex, validId, providerNames } from './host-config.mjs';
 import { keptChannels } from './channels.mjs';
 import { RULE_SYSTEMS } from './rules/index.mjs';
 import { applyChanges, formValues } from './host-schema.mjs';
@@ -16,6 +16,7 @@ const digest = text => crypto.createHash('sha256').update(text).digest('hex');
 // Every secret the host knows, longest first, so a key never shows through a shorter one that it contains.
 export function secretsOf(host, env = process.env) {
   const values = [host.data?.account?.password, host.data?.llm?.api_key, host.data?.planner?.api_key, host.web?.token,
+    ...Object.values(host.data?.providers && typeof host.data.providers === 'object' ? host.data.providers : {}).map(p => p?.api_key),
     env.GM_PASSWORD, env.LLM_API_KEY, env.ANTHROPIC_API_KEY, env.PLANNER_API_KEY];
   return [...new Set(values.filter(v => typeof v === 'string' && v.length >= 4))].sort((a, b) => b.length - a.length);
 }
@@ -99,6 +100,7 @@ export class HostManager {
     return { startedAt: new Date(this.startedAt).toISOString(), pid: process.pid, node: process.version, apiBase: d.api_base ?? 'http://localhost:8080',
       account: d.account?.username ?? null, llm: { provider: d.llm?.provider ?? null, model: d.llm?.model ?? null, effort: d.llm?.effort ?? null },
       planner: { model: d.planner?.model ?? null, effort: d.planner?.effort ?? null, enabled: d.planner?.enabled ?? null },
+      providers: providerNames(this.host),   // the names channels may route functions to (never their endpoints or keys)
       stateDir: path.relative(this.host.root, this.host.stateDir) || '.', web: { host: this.host.web.host, port: this.host.web.port }, counts, channels: this.host.channels.length };
   }
   async start(entry) {
@@ -173,7 +175,7 @@ export class HostManager {
     const entry = this.entry(id), yaml = fs.readFileSync(entry.config, 'utf8');
     return { yaml, revision: digest(yaml), values: this.values(entry, yaml) };
   }
-  values(entry, yaml) { return formValues(parseChannel(yaml) ?? {}, channelConfig(this.host, entry, yaml), data => channelConfig(this.host, entry, YAML.stringify(data))); }
+  values(entry, yaml) { return formValues(parseChannel(yaml, this.host.data?.providers) ?? {}, channelConfig(this.host, entry, yaml), data => channelConfig(this.host, entry, YAML.stringify(data))); }
   // The channel list shows names and usage from snapshots: refresh those older than `maxAge` in the background.
   warm(maxAge = 15000) {
     for (const [id, record] of this.running) {
@@ -204,7 +206,7 @@ export class HostManager {
   }); }
   save(id, text, revision) { return this.write(id, revision, () => text); }
   // Form edits: only the changed keys, written into the file in place (comments and other keys stay).
-  saveForm(id, changes, revision) { return this.write(id, revision, current => applyChanges(current, changes)); }
+  saveForm(id, changes, revision) { return this.write(id, revision, current => applyChanges(current, changes, { providers: providerNames(this.host) })); }
   // ---- hosting tasks (the registry in the shared file)
   async signIn() { const { signIn } = await import('./cli.mjs'); const cfg = sharedConfig(this.host); return { cfg, api: await signIn(cfg) }; }
   channelDir() { return this.host.channels.length ? path.dirname(this.host.channels[0].config) : path.join(this.host.root, 'channels'); }

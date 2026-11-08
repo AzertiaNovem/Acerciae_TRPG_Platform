@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import { textOf } from "./parts.mjs";
 import { completionAttempts } from './retry.mjs';
 import { JsonFieldError, applyFieldRepairs, repairInstruction } from './json-repair.mjs';
+import { providerLabel, routeFor, routeKey } from "./routes.mjs";
 
 export function createLlm(cfg) {
   let llm;
@@ -19,6 +20,29 @@ export function createLlm(cfg) {
   }
   llm.provider = cfg.provider;
   return cfg.trace ? traced(llm, cfg.trace) : llm;
+}
+
+// The table's model: one object every role calls, which answers each request with the model its purpose is routed to
+// (routes.mjs: `models` over `providers`). Instances are made once per distinct connection and model, so two
+// functions on the same model share one. Usage reports carry the provider's name and the model that answered.
+export function createModels(cfg) {
+  const instances = new Map();
+  const instance = (route) => {
+    const key = routeKey(route);
+    if (!instances.has(key)) instances.set(key, createLlm({ ...route, trace: "" }));
+    return instances.get(key);
+  };
+  const def = routeFor(cfg, "");
+  const router = {
+    provider: def.provider, model: def.model, routed: true,
+    route: (purpose) => routeFor(cfg, purpose),
+    async complete(req) {
+      const route = routeFor(cfg, req.purpose ?? "");
+      const llm = instance(route);
+      return llm.complete({ ...req, onUsage: (u) => req.onUsage?.({ ...u, provider: providerLabel(route), model: u?.model || route.model || route.provider }) });
+    },
+  };
+  return cfg.llm?.trace ? traced(router, cfg.llm.trace) : router;
 }
 
 // LLM_TRACE=<file>: append every request and reply as one JSON line, to audit what each role was shown.
