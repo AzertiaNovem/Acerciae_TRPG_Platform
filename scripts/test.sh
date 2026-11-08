@@ -41,7 +41,7 @@ for i in $(seq 1 30); do curl -fsS "http://localhost:$PORT/api/health" >/dev/nul
 SUITES=$(cd "$ROOT/tests/integration" && ls *.test.mjs)
 CHROME="${CHROMIUM_PATH:-$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)}"
 if [ -n "$CHROME" ]; then
-  (cd "$ROOT/pdf-worker" && [ -d node_modules ] || npm --prefix "$ROOT/pdf-worker" ci --silent)
+  (cd "$ROOT/pdf-worker" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
   (cd "$ROOT/pdf-worker" && exec env API_BASE="http://127.0.0.1:$PORT" PDF_WORKER_TOKEN="$WORKER_TOKEN" CHROMIUM_PATH="$CHROME" \
     node src/index.mjs > "${TMPDIR:-/tmp}/acerciae-pdf-worker.log" 2>&1) &
   PIDS+=($!)
@@ -49,9 +49,9 @@ else
   echo "   no Chromium/Chrome found: skipping logstudio.test.mjs (set CHROMIUM_PATH to run it)"
   SUITES=$(echo "$SUITES" | grep -v '^logstudio.test.mjs$')
 fi
-(cd "$ROOT/tests/integration" && [ -d node_modules ] || npm --prefix "$ROOT/tests/integration" ci --silent)
+(cd "$ROOT/tests/integration" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
 # HTTP tests drive the GM agent against this backend as well.
-(cd "$ROOT/gm-agent" && { [ -d node_modules ] || npm ci --silent; })
+(cd "$ROOT/gm-agent" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
 # shellcheck disable=SC2086
 (cd "$ROOT/tests/integration" && API_BASE="http://localhost:$PORT" E2E_UPLOAD_DIR="${TMPDIR:-/tmp}/acerciae-e2e-uploads" node --test --test-concurrency=1 --test-timeout=300000 $SUITES)
 # Every server the suites built (chat, dice, Log Studio, speech, PDFs, …) must be deletable: deletion relies on the
@@ -60,9 +60,9 @@ echo "== every server deletes cleanly"
 psql "$PGBASE/acerciae_e2e" -q -v ON_ERROR_STOP=1 -c "BEGIN" -c "DELETE FROM servers" -c "SELECT 'left: ' || ((SELECT count(*) FROM channels) + (SELECT count(*) FROM messages) + (SELECT count(*) FROM media_assets))" -c "ROLLBACK"
 
 echo "== gm-agent tests"; (cd "$ROOT/gm-agent" && npm test --silent)
-echo "== pdf worker tests"; (cd "$ROOT/pdf-worker" && [ -d node_modules ] || npm ci --silent) && (cd "$ROOT/pdf-worker" && npm test --silent)
+echo "== pdf worker tests"; (cd "$ROOT/pdf-worker" && { [ -d node_modules ] || npm ci --no-audit --no-fund; }) && (cd "$ROOT/pdf-worker" && npm test --silent)
 echo "== frontend typecheck, tests and build"
-(cd "$ROOT/frontend" && [ -d node_modules ] || npm ci --silent)
+(cd "$ROOT/frontend" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
 (cd "$ROOT/frontend" && npx tsc --noEmit && npm test --silent && npm run build --silent)
 if [ "${RUN_BROWSER_TESTS:-0}" = "1" ]; then API_BASE="http://127.0.0.1:$PORT" "$ROOT/scripts/test-browser.sh"; fi
 echo "ALL GREEN"

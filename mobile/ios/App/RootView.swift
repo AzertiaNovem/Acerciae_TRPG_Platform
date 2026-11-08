@@ -347,7 +347,12 @@ private struct ChatView: View {
 
 private extension View {
     @ViewBuilder func chatScrollEdge() -> some View {
+        // Xcode 16 has no declaration for this iOS 26 modifier, even behind a runtime availability check.
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) { self.scrollEdgeEffectHidden(true, for: .top) } else { self }
+        #else
+        self
+        #endif
     }
 }
 
