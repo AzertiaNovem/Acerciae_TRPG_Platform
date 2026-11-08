@@ -21,9 +21,10 @@ import AcerciaeCore
         let key = ChatIllustrations.key(server: model.endpoint, account: "reader", channel: "channel", message: "picture")
         let controller = UIHostingController(rootView: ChatIllustration(message: message, model: model).padding(20))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene); window.overrideUserInterfaceStyle = .dark
         window.rootViewController = controller; window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+        defer { window.isHidden = true; previousWindow?.makeKeyAndVisible() }
         model.draft = "Typing while the picture loads"
         XCTAssertFalse(model.busy)
         // A fresh CI simulator initializes networking and ImageIO on the first image request.

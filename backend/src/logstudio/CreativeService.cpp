@@ -43,19 +43,22 @@ void CreativeService::usePortraitReference(const ChannelAccess &a, const std::st
   auto c = db_.queryOne("SELECT portrait_asset_id FROM characters WHERE id=$1 AND channel_id=$2", {cid, a.channelId});
   auto id = json::str(c, "portrait_asset_id");
   if (id.empty()) throw badRequest("generate or upload the main portrait before generating poses");
+  useImageReference(a, id, params, "The attached main profile portrait is the identity reference. Preserve the face, hairstyle, clothing and art style. Change only the requested pose, expression and framing.", "main portrait");
+}
+void CreativeService::useImageReference(const ChannelAccess &a, const std::string &id, Json::Value &params, const std::string &instruction, const char *what) {
   auto m = media_.get(a, id);
-  if (m["approval_status"] != "approved") throw badRequest("approve the main portrait before generating poses");
+  if (m["approval_status"] != "approved") throw badRequest(std::string("approve the ") + what + " before generating from it");
   std::string bytes, mime, name;
   if (!media_.fetch(a, id, m["version"].asInt(), bytes, mime, name) ||
       (mime != "image/png" && mime != "image/jpeg" && mime != "image/webp") || bytes.size() > 20*1024*1024)
-    throw badRequest("main portrait must be a PNG, JPEG or WebP image up to 20 MB");
+    throw badRequest(std::string(what) + " must be a PNG, JPEG or WebP image up to 20 MB");
   Json::Value ref; ref["id"] = id; ref["version"] = m["version"];
   ref = freezeImageReference(media_.store(), a.channelId, ref, bytes, mime);
   params["request"]["reference_images"] = Json::Value(Json::arrayValue);
   params["request"]["reference_images"].append(ref);
   params["portrait_reference"]["asset_id"] = id;
   params["portrait_reference"]["version"] = m["version"];
-  params["request"]["identity_instruction"] = "The attached main profile portrait is the identity reference. Preserve the face, hairstyle, clothing and art style. Change only the requested pose, expression and framing.";
+  params["request"]["identity_instruction"] = instruction;
 }
 Json::Value CreativeService::status(const ChannelAccess &a) {
   auto provider_ = providerFor(a.channelId);
@@ -193,7 +196,7 @@ Json::Value CreativeService::create(const ChannelAccess &a,
   return j;
 }
 Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Json::Value &character, const std::string &kind,
-                                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud, const std::string &portraitJobId) {
+                                                 const std::string &slot, const std::string &subtitle, const std::string &prompt, bool allowCloud, const std::string &portraitJobId, const Json::Value &outfit) {
   bool owner = character["user_id"].isString() && character["user_id"].asString() == a.userId;
   if (!a.isGm && !owner)
     throw forbidden("only the GM or the character's actor may generate this character's images");
@@ -219,7 +222,23 @@ Json::Value CreativeService::createForCharacter(const ChannelAccess &a, const Js
   params["attach"]["character_id"] = cid;
   params["attach"]["slot"] = slot;
   params["attach"]["subtitle"] = subtitle;
-  if (slot == "subtitle") usePortraitReference(a, cid, params, portraitJobId);
+  if (outfit.isObject()) {
+    // An outfit's image: the same person in other clothes. Its portrait comes from the base portrait; its avatar and
+    // poses from the outfit's own portrait (being drawn in the same request, or the one it has).
+    params["attach"]["outfit_id"] = outfit["id"];
+    params["request"]["character"]["outfit"] = outfit["name"];
+    params["request"]["character"]["attire"] = outfit["attire"];
+    const std::string dress = "Dress them in the outfit the prompt describes instead of the clothes in the reference; keep the face, hairstyle, build and art style.";
+    if (slot != "portrait" && !portraitJobId.empty()) usePortraitReference(a, cid, params, portraitJobId);
+    else if (slot != "portrait" && !json::str(outfit, "portrait_asset_id").empty())
+      useImageReference(a, json::str(outfit, "portrait_asset_id"), params, "The attached portrait shows this character in this outfit: the identity and outfit reference. Preserve the face, hairstyle, clothing and art style. Change only the requested pose, expression and framing.", "outfit portrait");
+    else if (slot == "subtitle") throw badRequest("generate the outfit's portrait before its poses");
+    else {
+      auto base = json::str(character, "portrait_asset_id");
+      if (base.empty()) throw badRequest("generate the character's main portrait before an outfit");
+      useImageReference(a, base, params, "The attached main profile portrait is this character's identity reference. " + dress, "main portrait");
+    }
+  } else if (slot == "subtitle") usePortraitReference(a, cid, params, portraitJobId);
   params["cloud_authorized"] = allowCloud;
   params["visibility_scope"] = "channel";
   auto idem = crypto::sha256Hex(a.channelId + provider_->name() + provider_->model() + json::dump(params) + std::to_string(std::time(nullptr) / 60));
@@ -488,6 +507,11 @@ void CreativeService::run(const Json::Value &j) {
     if (privateScript) m["source_reference"]["private_presentation_id"] = attachTo["presentation_id"];
     if (forScript && !forCharacter) m["name"] = "Background · " + json::str(attachTo, "scene_title", json::str(attachTo, "scene_key"));
     if (forCharacter) { m["name"] = json::str(j["params"]["request"]["character"], "name") + " · " + (json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot")); m["expression"] = json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot"); }
+    const auto outfitId = forCharacter ? json::str(attachTo, "outfit_id") : std::string();
+    if (!outfitId.empty()) {
+      m["outfit_id"] = outfitId; m["outfit"] = json::str(j["params"]["request"]["character"], "outfit");
+      m["name"] = json::str(j["params"]["request"]["character"], "name") + " · " + m["outfit"].asString() + " · " + m["expression"].asString();
+    }
     if(atmosphere) { m["name"]="Atmosphere · "+json::str(attachTo,"scene_title")+" · "+json::str(attachTo,"variant"); m["visibility_scope"]="channel"; }
     // A chat illustration is the requester's picture: no review; only readers of its chat line see it.
     const bool illustration = j["kind"].asString() == "illustration";
@@ -519,8 +543,16 @@ void CreativeService::run(const Json::Value &j) {
     }
     if (updatesProfile) {
       auto cid = json::str(attachTo, "character_id"), slot = json::str(attachTo, "slot"), subtitle = json::str(attachTo, "subtitle");
-      // The character's one image for this slot: the older one is deleted.
-      media_.adoptCharacterImage(j["channel_id"].asString(), cid, slot.empty() ? "subtitle" : slot, subtitle, asset["id"].asString());
+      // The character's (or its outfit's) one image for this slot: the older one is deleted.
+      if (!outfitId.empty()) {
+        if (media_.adoptOutfitImage(j["channel_id"].asString(), cid, outfitId, slot.empty() ? "subtitle" : slot, subtitle, asset["id"].asString()) < 0) {
+          // The outfit was deleted while it was being drawn: nothing to attach the picture to.
+          ChannelAccess sys; sys.channelId = j["channel_id"].asString(); sys.isGm = true;
+          try { media_.remove(sys, asset["id"].asString()); } catch (const std::exception &e) { ALOG_WARN << "could not drop the art of a deleted outfit: " << e.what(); }
+        }
+      } else {
+        media_.adoptCharacterImage(j["channel_id"].asString(), cid, slot.empty() ? "subtitle" : slot, subtitle, asset["id"].asString());
+      }
       auto row = db_.queryOne("SELECT * FROM characters WHERE id=$1", {cid});
       if (!row.isNull()) notifier_.characterUpdated(j["channel_id"].asString(), row);
     }

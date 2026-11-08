@@ -336,6 +336,9 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .subtitle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 .subtitle-grid .tile { background: var(--bg-3); border-radius: 10px; overflow: hidden; text-align: center; }
 .subtitle-grid .tile img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; }
+/* Outfits on the character page: one card each; the one worn now is outlined. */
+.outfits .outfit { border: 1px solid var(--bg-4); border-radius: 10px; padding: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.outfits .outfit.worn { border-color: var(--accent); }
 .subtitle-grid .tile .cap { font-size: 11px; padding: 4px; }
 @media (max-width: 800px) { .character-space .hero { grid-template-columns: 1fr; } .character-space .portrait { width: 160px; } }
 /* Visual-novel wizard */

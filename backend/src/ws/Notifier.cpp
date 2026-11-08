@@ -3,6 +3,7 @@
 #include "../core/Json.h"
 #include "../knowledge/Visibility.h"
 #include "../chat/ChatService.h"
+#include "../characters/Outfits.h"
 #include <set>
 
 namespace acerciae {
@@ -96,6 +97,8 @@ void Notifier::sceneChanged(const std::string& channelId, const Json::Value& sce
 }
 void Notifier::characterUpdated(const std::string& channelId, const Json::Value& c) {
     Json::Value msg; msg["type"] = "character.updated"; msg["channel_id"] = channelId; msg["character"] = c;
+    // As the character list shows it: in the outfit it wears.
+    try { outfits::present(db_, channelId, msg["character"]); } catch (const std::exception&) {}
     if (json::str(c, "kind") == "npc") {
         std::set<std::string> gms; for (auto& u : gmUsers(channelId)) gms.insert(u);
         WsGateway::instance().broadcast("chat", channelId, msg, setFilter(std::move(gms)));

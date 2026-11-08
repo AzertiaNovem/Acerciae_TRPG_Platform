@@ -33,6 +33,12 @@ void registerCharacterRoutes() {
     });
     route2("/api/channels/{1}/characters/{2}/assets/generate", {Post}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->generate(access(p, a[0]), a[1], body(req)); });
     route3("/api/channels/{1}/characters/{2}/assets/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.characterSpace->removeAsset(access(p, a[0]), a[1], a[2]); });
+    // Outfits of a generated character, and the one worn now.
+    route2("/api/channels/{1}/characters/{2}/outfits", {Post}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->createOutfit(access(p, a[0]), a[1], body(req)); });
+    route3("/api/channels/{1}/characters/{2}/outfits/{3}", {Put}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->updateOutfit(access(p, a[0]), a[1], a[2], body(req)); });
+    route3("/api/channels/{1}/characters/{2}/outfits/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.characterSpace->deleteOutfit(access(p, a[0]), a[1], a[2]); });
+    route3("/api/channels/{1}/characters/{2}/outfits/{3}/generate", {Post}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->generateOutfit(access(p, a[0]), a[1], a[2], body(req)); });
+    route2("/api/channels/{1}/characters/{2}/outfit", {Put}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->wear(access(p, a[0]), a[1], body(req)); });
     // Numbers of an earlier rule system, archived when the GM switched the rules, back on the card (same system only).
     route3("/api/channels/{1}/characters/{2}/card-archives/{3}/restore", {Post}, [&](auto&, auto& p, auto& a) { return S.characterSpace->restoreArchive(access(p, a[0]), a[1], a[2]); });
     route2("/api/channels/{1}/characters/{2}/attributes", {Get}, [&](auto&, auto& p, auto& a) { return S.dice->getAttributes(access(p, a[0]), a[1]); });

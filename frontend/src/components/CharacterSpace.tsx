@@ -9,6 +9,7 @@ import DndSheet, { EMPTY_DND } from './DndSheet';
 import PointBuy from './PointBuy';
 import { sessionEpoch } from '../store/session';
 import { CachedImg } from './CachedImg';
+import CharacterOutfits from './CharacterOutfits';
 
 let rulesPromise: Promise<Coc7Rules> | null = null;
 // A failed load is not cached: the next visit tries again.
@@ -134,7 +135,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   useEffect(() => { if (needsDnd && !dndRules) loadDndRules().then(setDndRules).catch((e) => toast(e.message, 'error')); }, [needsDnd]);
   // Live updates (generation finished, another editor saved) arrive as character.updated → characters refresh.
   const version = characters.find((c) => c.id === characterId);
-  useEffect(() => { if (space) refresh(); }, [version?.avatar_asset_id, version?.portrait_asset_id, version?.asset_mode]);
+  useEffect(() => { if (space) refresh(); }, [version?.avatar_asset_id, version?.portrait_asset_id, version?.asset_mode, version?.outfit_id]);
   useEffect(() => { if (!space || !space.jobs.some((j) => j.status === 'pending' || j.status === 'running')) return; const t = setTimeout(refresh, 2500); return () => clearTimeout(t); }, [space]);
   if (!channelId || !space || !card) return <div className="workspace"><div className="content muted">{tr("Loading…")}</div></div>;
   const c = space.character; const editable = c.editable;
@@ -192,7 +193,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
               <div className="big-avatar">{space.avatar ? <CachedImg src={url(space.avatar)} hash={space.avatar.hash} alt="" /> : c.name.slice(0, 1)}</div>
               <div className="col grow">
                 {editable ? <input value={head.name} onChange={(e) => { setHead({ ...head, name: e.target.value }); setDirty(true); }} style={{ fontSize: 18, fontWeight: 700 }} /> : <h2 style={{ margin: 0 }}>{c.name}</h2>}
-                <div className="row tiny muted"><span className="pill">{c.kind === 'npc' ? tr('NPC') : tr('PC')}</span>{c.player_name && <span>{tr('played by')} {c.player_name}</span>}<span className="pill">{look.asset_mode === 'generated' ? tr('Generated assets') : tr('Uploaded assets')}</span>{space.era && <span>{space.era}</span>}</div>
+                <div className="row tiny muted"><span className="pill">{c.kind === 'npc' ? tr('NPC') : tr('PC')}</span>{c.player_name && <span>{tr('played by')} {c.player_name}</span>}<span className="pill">{look.asset_mode === 'generated' ? tr('Generated assets') : tr('Uploaded assets')}</span>{space.era && <span>{space.era}</span>}{(space.outfits?.length ?? 0) > 0 && <label className="row" style={{ gap: 4 }}>{tr('Wearing')}<select value={c.outfit_id ?? ''} disabled={!editable || busy} onChange={(e) => mutate(() => api.wearOutfit(channelId, characterId, e.target.value || null))}><option value="">{tr('Base look')}</option>{space.outfits!.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>}</div>
               </div>
               {editable && (look.asset_mode === 'uploaded' ? <button className="small" onClick={() => pickFile('avatar')}>{tr('Upload avatar')}</button> : <button className="small" onClick={() => generate(['avatar'], [])} disabled={!canGenerate || busy}>{tr('Generate avatar')}</button>)}
             </div>
@@ -273,10 +274,13 @@ export default function CharacterSpace({ characterId }: { characterId: string })
                 <div className="row"><button className="primary small" onClick={() => generate(['portrait', 'avatar'], genSubs)} disabled={!canGenerate || busy || !look.appearance_prompt.trim()}>{tr('Generate portrait, avatar and the chosen subtitles')}</button><button className="small" onClick={() => generate([], genSubs)} disabled={!canGenerate || busy || genSubs.length === 0 || !space.portrait}>{tr('Generate the chosen subtitles only')}</button></div>
               </div>
             )}
+            {(look.asset_mode === 'generated' || (space.outfits?.length ?? 0) > 0) && (
+              <CharacterOutfits channelId={channelId} characterId={characterId} space={space} editable={!!editable} busy={busy} canGenerate={canGenerate} subtitles={genSubs} mutate={mutate} />
+            )}
             {space.jobs.length > 0 && (
               <div style={{ marginTop: 10 }}>
                 <h4>{tr('Image jobs')}{pending.length > 0 && <span className="pill ai" style={{ marginLeft: 6 }}>{pending.length} {tr('running')}</span>}</h4>
-                {space.jobs.slice(0, 8).map((j) => <div key={j.id} className="row tiny"><span className={`pill ${j.status === 'completed' ? 'ok' : j.status === 'failed' ? 'danger' : ''}`}>{tr(j.status)}</span><span>{j.attach?.slot === 'subtitle' ? j.attach.subtitle : j.attach?.slot ?? j.kind}</span>{j.error && <span className="muted">{j.error}</span>}</div>)}
+                {space.jobs.slice(0, 8).map((j) => <div key={j.id} className="row tiny"><span className={`pill ${j.status === 'completed' ? 'ok' : j.status === 'failed' ? 'danger' : ''}`}>{tr(j.status)}</span><span>{j.attach?.outfit_id ? `${space.outfits?.find((o) => o.id === j.attach!.outfit_id)?.name ?? tr('Outfit')} · ` : ''}{j.attach?.slot === 'subtitle' ? j.attach.subtitle : j.attach?.slot ?? j.kind}</span>{j.error && <span className="muted">{j.error}</span>}</div>)}
               </div>
             )}
           </div>

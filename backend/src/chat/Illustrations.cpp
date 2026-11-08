@@ -7,6 +7,7 @@
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
+#include "../characters/Outfits.h"
 #include <set>
 
 namespace acerciae {
@@ -29,7 +30,8 @@ std::string illustrationPrompt(const std::string& scene, const std::vector<Illus
             p += "- " + c.name;
             auto look = text::trim(c.appearance);
             if (!look.empty()) p += ": " + text::utf8Prefix(look, 600);
-            p += c.hasReference ? " (identity reference image " + std::to_string(++ref) + " attached)" : " (no reference image: follow the description)";
+            p += !c.hasReference ? " (no reference image: follow the description)"
+                 : " (identity reference image " + std::to_string(++ref) + " attached" + (c.redress ? "; it shows other clothes: dress them as described here" : "") + ")";
             p += "\n";
         }
     }
@@ -52,8 +54,8 @@ std::string illustrationIdentity(const std::vector<IllustrationCharacter>& chara
     std::string mapping;
     int ref = 0;
     for (const auto& c : characters)
-        mapping += c.hasReference ? "Reference image " + std::to_string(++ref) + " is " + c.name + ". "
-                                  : c.name + " has no reference image: follow the description. ";
+        mapping += !c.hasReference ? c.name + " has no reference image: follow the description. "
+                 : "Reference image " + std::to_string(++ref) + " is " + c.name + (c.redress ? " (for the face and hair only: dress them as the description says, not as in the image)" : "") + ". ";
     if (!ref) return "";
     return "The attached images are identity references, in attachment order. " + mapping +
            "Keep each character's face, hairstyle, clothing and build as in their own reference, and never swap or blend two "
@@ -105,6 +107,9 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
         if (seen.insert(v.asString()).second) ids.push_back(v.asString());
     }
     if (ids.size() > (size_t)kMaxCharacters) throw badRequest("pick at most " + std::to_string(kMaxCharacters) + " characters");
+    // Each character in the outfit they wear now, unless the request picks one ({character_id: outfit_id, or "" for the
+    // base look}).
+    if (body.isMember("outfits") && !body["outfits"].isNull() && !body["outfits"].isObject()) throw badRequest("outfits must map character ids to outfit ids");
 
     // One picture in flight per person, and an hourly cap: the server's image budget is shared by the whole server.
     if (!db_.queryOne("SELECT 1 AS busy FROM asset_generation_jobs WHERE channel_id=$1 AND created_by=$2 AND kind='illustration' AND status IN ('pending','running') LIMIT 1", {a.channelId, a.userId}).isNull())
@@ -114,15 +119,27 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
 
     // The characters, each with its main portrait (or avatar) as the identity reference when it has one.
     std::vector<IllustrationCharacter> cast;
-    Json::Value request, refs(Json::arrayValue), characterIds(Json::arrayValue);
+    Json::Value request, refs(Json::arrayValue), characterIds(Json::arrayValue), outfitIds(Json::arrayValue);
     size_t refBytes = 0;
     for (const auto& id : ids) {
-        auto c = db_.queryOne("SELECT id, name, kind, appearance_prompt, portrait_asset_id, avatar_asset_id FROM characters WHERE id=$1 AND channel_id=$2", {id, a.channelId});
+        auto c = db_.queryOne("SELECT id, name, kind, appearance_prompt, portrait_asset_id, avatar_asset_id, outfit_id FROM characters WHERE id=$1 AND channel_id=$2", {id, a.channelId});
         if (c.isNull()) throw badRequest("character not in this channel");
         if (!a.isGm && c["kind"].asString() != "pc") throw forbidden("players may picture player characters only");
         IllustrationCharacter ic{c["name"].asString(), json::str(c, "appearance_prompt"), false};
-        for (const auto& slot : {"portrait_asset_id", "avatar_asset_id"}) {
-            auto assetId = json::str(c, slot);
+        const bool picked = body["outfits"].isObject() && body["outfits"].isMember(id);
+        if (picked && !body["outfits"][id].isNull() && !body["outfits"][id].isString()) throw badRequest("invalid outfit id");
+        auto outfitId = picked ? json::str(body["outfits"], id.c_str()) : json::str(c, "outfit_id");
+        Json::Value outfit;
+        if (!outfitId.empty()) {
+            if (Visibility::isUuid(outfitId)) outfit = db_.queryOne("SELECT id, name, attire, portrait_asset_id, avatar_asset_id FROM character_outfits WHERE id=$1 AND character_id=$2", {outfitId, id});
+            if (outfit.isNull() && picked) throw badRequest("outfit not found for " + c["name"].asString());
+        }
+        if (!outfit.isNull()) ic.appearance = outfits::appearance(ic.appearance, outfit["name"].asString(), outfit["attire"].asString());
+        // The reference: the outfit's own portrait (else avatar); without one, the base look's for the face only.
+        std::vector<std::pair<std::string, bool>> candidates;   // asset id, redress
+        if (!outfit.isNull()) for (const auto& slot : {"portrait_asset_id", "avatar_asset_id"}) candidates.push_back({json::str(outfit, slot), false});
+        for (const auto& slot : {"portrait_asset_id", "avatar_asset_id"}) candidates.push_back({json::str(c, slot), !outfit.isNull()});
+        for (const auto& [assetId, redress] : candidates) {
             if (assetId.empty()) continue;
             try {
                 auto m = media_.get(a, assetId);
@@ -132,11 +149,13 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
                 if ((mime != "image/png" && mime != "image/jpeg" && mime != "image/webp") || refBytes + bytes.size() > kReferenceBytes) continue;
                 Json::Value ref; ref["id"] = assetId; ref["version"] = m["version"];
                 refs.append(logstudio::freezeImageReference(media_.store(), a.channelId, ref, bytes, mime));
-                refBytes += bytes.size(); ic.hasReference = true;
+                refBytes += bytes.size(); ic.hasReference = true; ic.redress = redress;
                 break;
             } catch (const ApiError&) { continue; }   // a portrait this requester may not open is simply not sent
         }
-        Json::Value who; who["name"] = c["name"]; who["description"] = c["appearance_prompt"];
+        Json::Value who; who["name"] = c["name"]; who["description"] = ic.appearance;
+        if (!outfit.isNull()) who["outfit"] = outfit["name"];
+        outfitIds.append(outfit.isNull() ? Json::Value("") : outfit["id"]);
         // The same numbering as the prompt's character lines and the identity instruction.
         if (ic.hasReference) who["reference_image"] = (int)refs.size(); else who["reference_image"] = "none";
         request["characters"].append(who);
@@ -154,6 +173,7 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
     attach["window_id"] = windowId;
     attach["user_prompt"] = scene;
     attach["character_ids"] = characterIds;
+    attach["outfit_ids"] = outfitIds;   // per character: the outfit drawn ("" = the base look)
     attach["orientation"] = orientation;
     auto job = creative_.createIllustration(a, prompt, request, attach, json::toBool(body, "allow_cloud", false), json::str(body, "request_id"));
     job["reference_count"] = (int)refs.size();

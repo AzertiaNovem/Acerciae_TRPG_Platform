@@ -363,9 +363,9 @@ turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`
      the lines allow.
 
   The picture is drawn into the planner window as soon as the platform can (ahead of any scenario picture still
-  waiting). Only lines the player can read are drawn on: the Main Chat and the windows they are a member of, said
-  for the whole window, never a whisper, a GM-only note or a phone. The planner window is shared, so every player
-  there sees the picture. If the moment cannot be found, the table says so and asks for a detail or two. A player has
+  waiting). Any window of play may be drawn on, other players' and co-players' scenes too (this is a casual table:
+  a picture of someone else's scene is fine), but only lines said for the whole window: never a whisper, a GM-only
+  note or a phone. The planner window is shared, so every player there sees the picture. If the moment cannot be found, the table says so and asks for a detail or two. A player has
   one request on its way at a time, and at most `illustrations.requests_per_hour` (4) an hour; `/画` with nothing
   after it explains the command. A request is not play: it works while the table is paused and does not resume it.
 

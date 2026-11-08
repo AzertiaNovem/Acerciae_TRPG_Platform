@@ -208,8 +208,9 @@ export function onArtCommand(table, m, request) {
 
 export async function drawPastPlot(table, m, request) {
     const user = m.author_id;
-    // What this player can read: the Main Chat and the windows they are a member of; never a table window.
-    const readable = table.windows.filter((w) => !table.isTableWindow(w.id) && (w.kind === "main" || (w.members ?? []).some((x) => x.user_id === user)));
+    // Every window of play, other players' and co-players' scenes too (a picture of someone else's scene is fine at a
+    // casual table); never a table window (the planner window, phones, the phone log).
+    const readable = table.windows.filter((w) => !table.isTableWindow(w.id));
     const ids = new Set(readable.map((w) => w.id));
     if (!ids.size) return "notFound";
     const mine = table.characters.filter((c) => c.user_id === user && table.isPc(c.id)).map((c) => c.name);
