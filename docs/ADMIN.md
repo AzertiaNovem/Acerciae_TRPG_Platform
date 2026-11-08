@@ -12,7 +12,7 @@ numbers, a person decides.
 
 - **`PLATFORM_ADMINS`** (environment): comma-separated usernames, e.g. `PLATFORM_ADMINS=operator,sofia`. These accounts
   are administrators as long as they are listed. They cannot be suspended or demoted from the panel, so a deployment
-  always keeps at least one administrator it can rely on; change the variable and restart to change them.
+  always keeps at least one administrator it can rely on; change the variable and restart to change them. Configured usernames are reserved: public registration and profile edits cannot claim them, and a listed account cannot rename itself while listed. Display names remain editable.
 - **Granted administrators**: an administrator can make another account an administrator (`users.is_admin`) from the
   Users tab, and revoke it again. Granting and revoking are logged. An administrator cannot revoke their own role.
 
@@ -92,8 +92,8 @@ its sign-in with `403 account_suspended`; a suspended server's requests fail wit
 
 ## Operating notes
 
-- Set `PLATFORM_ADMINS` before exposing a deployment; the accounts need not exist yet (they become administrators when
-  they register with that username).
+- On a new deployment, keep the server private, create the operator account with `PLATFORM_ADMINS` empty, verify that account, then configure its username and restart before exposing the server. On an existing deployment, select an already verified account. An unregistered configured name stays reserved; it does not grant a future registrant administrator access.
+- To rename a configured administrator, first retain another administrator, remove the old name from the configuration and restart, rename the account, then configure the verified new name and restart. The panel cannot bypass the name reservation.
 - The tests start the backend with `PLATFORM_ADMINS=platform_admin` (`scripts/test.sh`).
 - Migration `0045_platform_admin.sql` adds the columns and the `admin_actions` table; nothing changes for existing
   accounts and servers.

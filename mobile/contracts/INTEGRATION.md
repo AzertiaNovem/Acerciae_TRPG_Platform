@@ -118,3 +118,10 @@ Run `xcodebuild ... -scheme Acerciae test` for the new AppModel fault-injection 
 
 Swift 的真实 WebSocket 测试可先运行 `node mobile/scripts/socket-test-server.mjs`（依赖 `tests/integration` 的 npm 包），再运行 `ACERCIAE_SOCKET_TEST_BASE=http://127.0.0.1:18090 swift test --package-path mobile/ios/AcerciaeCore --filter RealtimeTests`。测试只访问本地隔离服务，验证 URLSession 的文件令牌、订阅、真实断线重连、补拉回调与频道切换。浏览器双实例验收使用 `WEB_BASE=<本地 Vite 地址> CHROME_CHANNEL=chrome npm --prefix tests/browser run test:recall`，Vite 通过 `ACERCIAE_API_TARGET` 指向专用测试后端，验证另一客户端实时收到撤回、引用/草稿清理、重新编辑、重载和重连补拉。
 
+
+
+## Shared session failure contract
+
+`fixtures/session-errors.json` is read by Web auth, Android core and iOS core regression tests. Only an API-shaped HTTP 401 invalidates the saved session. A gateway's HTML 401, transport loss, 403/404, rate limiting and transient 5xx errors do not revoke identity; individual resource permissions and caches are still rechecked. Each client keeps its native credential storage and retry implementation. `mobile/scripts/test-ios.sh` runs core tests and application tests in a disposable simulator; the mobile workflow and desktop workflow run on relevant pull requests.
+
+`fixtures/client-access.json` is also consumed by all three clients: Studio access (GM/player, feature disabled, hidden, locked, story ended) and persistent-cache eligibility. `no-store` takes precedence over `immutable`; native storage implementations remain independent.

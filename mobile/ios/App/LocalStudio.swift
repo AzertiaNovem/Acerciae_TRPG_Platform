@@ -13,7 +13,8 @@ import AcerciaeCore
         super.init(); web.navigationDelegate = self
         guard let url = Bundle.main.url(forResource:"studio-engine",withExtension:"html") else { failure = LocalStudioError.invalidFile; return }
         web.loadFileURL(url,allowingReadAccessTo:url.deletingLastPathComponent())
-        Task { [weak self] in try? await Task.sleep(for:.seconds(30)); guard let self, !self.ready else { return }; self.fail(URLError(.timedOut)) }
+        // A cold WebKit process on older iOS simulators can take over 30 seconds to initialize.
+        Task { [weak self] in try? await Task.sleep(for:.seconds(60)); guard let self, !self.ready else { return }; self.fail(URLError(.timedOut)) }
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; failure = nil; waiting.forEach { $0.resume() }; waiting = [] }
     private func fail(_ error: Error) { failure = error; ready = false; waiting.forEach { $0.resume(throwing:error) }; waiting = [] }

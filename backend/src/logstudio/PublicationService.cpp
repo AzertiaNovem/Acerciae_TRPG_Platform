@@ -1,3 +1,4 @@
+#include "ContentPolicy.h"
 #include "../core/Text.h"
 #include "PublicationService.h"
 #include "VnBundle.h"
@@ -111,8 +112,7 @@ Json::Value PublicationService::saveTemplate(const ChannelAccess &a,
 Json::Value PublicationService::image(const ChannelAccess &a,
                                       const std::string &id, bool publicOnly) {
   auto m = media_.get(a, id);
-  if (m["approval_status"] != "approved" ||
-      (publicOnly && m["visibility_scope"] != "channel"))
+  if (!contentPolicy::exportMedia(m, publicOnly))
     throw badRequest(
         "only approved, audience-compatible images may be exported");
   auto mime = m["mime"].asString();
@@ -310,7 +310,7 @@ Json::Value PublicationService::publish(const ChannelAccess &a,
     throw badRequest("invalid publication kind");
   if (vis != "gm" && vis != "players" && vis != "link")
     throw badRequest("invalid publication visibility");
-  if (vis != "gm" && snap["scope"] != "pl_public")
+  if (!contentPolicy::publishSnapshot(snap["scope"].asString(), vis))
     throw badRequest("shared products require a public-player snapshot");
   Json::Value content;
   content["snapshot"] = snap;
@@ -335,8 +335,7 @@ Json::Value PublicationService::publish(const ChannelAccess &a,
       if (asset.empty())
         return;
       auto m = media_.get(a, asset);
-      if (m["approval_status"] != "approved" ||
-          (vis != "gm" && m["visibility_scope"] != "channel"))
+      if (!contentPolicy::exportMedia(m, vis != "gm"))
         throw badRequest("asset is not publishable");
       if (version <= 0)
         version = m["version"].asInt();
@@ -358,9 +357,10 @@ Json::Value PublicationService::publish(const ChannelAccess &a,
       for (auto &c : e["character_asset_ids"])
         freeze(json::str(c, "asset_id"), json::toInt(c, "asset_version", 0));
       if (e["audio_asset_id"].isString()) {
-        auto t = db_.queryOne("SELECT object_key,mime FROM tts_audio_assets "
+        auto t = db_.queryOne("SELECT object_key,mime,private_source FROM tts_audio_assets "
                               "WHERE id=$1 AND channel_id=$2",
                               {e["audio_asset_id"].asString(), a.channelId});
+        if (!t.isNull() && vis != "gm" && t["private_source"].asBool()) throw badRequest("private audio is not publishable to a shared audience");
         if (!t.isNull())
           content["audio"][e["audio_asset_id"].asString()] = t;
       }
@@ -496,7 +496,8 @@ PublicationService::BundlePlan PublicationService::bundlePlan(const ChannelAcces
                           "FROM media_assets m LEFT JOIN asset_versions av ON av.asset_id=m.id AND av.version=$2 WHERE m.id=$1 AND m.channel_id=$3",
                           {id, (int64_t)(version > 0 ? version : 0), a.channelId});
     if (m.isNull() || m["mime"].asString().rfind("image/", 0) != 0) return "";
-    if (!a.isGm && (m["visibility_scope"].asString() == "gm" || m["approval_status"].asString() != "approved")) return "";
+    MediaService::MediaMeta delivery;
+    if (!media_.resolve(a, id, version, delivery)) return "";
     int v = version > 0 ? version : m["current"].asInt();
     auto path = "assets/" + id.substr(0, 8) + "-v" + std::to_string(v) + "." + ext(m["mime"].asString());
     plan.files.push_back({path, "media", id, m["mime"].asString(), v, m["bytes"].asInt64()});
@@ -623,9 +624,8 @@ void PublicationService::runBundle(const std::string &jobId) {
       last = std::chrono::steady_clock::now();
       db_.exec("UPDATE vn_bundle_jobs SET progress=$2::jsonb WHERE id=$1", {jobId, json::dump(prog)});
     });
-    // Every bundle, GM-only ones included, goes to the public bucket when one is configured: the key is
-    // unguessable, only the requester is handed the link, and the file is deleted when it expires.
-    auto key = publicObjectKey(store_, a.channelId, "bundles", "zip");
+    // Prepared downloads belong to their requester. Explicit publications use a separate audience-checked path.
+    auto key = safeObjectKey(a.channelId, "bundles", "zip");
     key = key.substr(0, key.size() - 4) + "/" + fileName;   // ".../bundles/<uuid>/<Title>.zip": the download keeps its name
     store_.put(key, bytes, "application/zip");
     auto stored = db_.queryOne("UPDATE vn_bundle_jobs SET status='ready', object_key=$2, file_name=$3, bytes=$4, expires_at=now() + make_interval(hours => $5), finished_at=now(), progress=$6::jsonb WHERE id=$1 AND status='running' RETURNING id",
@@ -638,11 +638,12 @@ void PublicationService::runBundle(const std::string &jobId) {
 }
 bool PublicationService::bundleDownload(const ChannelAccess &a, const std::string &jobId, bool preferUrl, std::string &url, std::string &bytes, std::string &fileName) {
   if (!Visibility::isUuid(jobId)) return false;
-  auto r = db_.queryOne("SELECT object_key, file_name FROM vn_bundle_jobs WHERE id=$1 AND channel_id=$2 AND requested_by=$3 AND status='ready' AND expires_at > now()", {jobId, a.channelId, a.userId});
+  auto r = db_.queryOne("SELECT object_key, file_name, presentation_id FROM vn_bundle_jobs WHERE id=$1 AND channel_id=$2 AND requested_by=$3 AND status='ready' AND expires_at > now()", {jobId, a.channelId, a.userId});
   if (r.isNull() || !r["object_key"].isString()) return false;
+  pres_.get(a, r["presentation_id"].asString()); // Recheck current ownership/snapshot access, even for an existing job.
+  url.clear();
   fileName = r["file_name"].asString();
   auto key = r["object_key"].asString();
-  if (preferUrl) { url = store_.publicUrl(key); if (!url.empty()) return true; }
   auto data = store_.get(key);
   if (!data) return false;
   bytes = std::move(*data);

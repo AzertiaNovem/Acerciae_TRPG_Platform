@@ -141,3 +141,50 @@ test('the patches: art for a scene that has a picture by now, a renamed characte
   assert.deepEqual(S.openNeeds(q).map((n) => n.kind), ['background', 'standee']);
   assert.deepEqual(S.voiceJobs(q).map((j) => [j.seq, j.voice]), [[1, 'nar'], [2, 'nar'], [3, 'nar']]);
 });
+
+test('failed writes retain edits after the view closes and retry persists the latest revision', async () => {
+  const S = load(); const original = project('save-failure'); let disk = structuredClone(original);
+  S.persistence.load = async () => structuredClone(disk);
+  S.persistence.save = async () => { throw Error('ENOSPC'); }; S.persistence.onError = () => {};
+  const close = S.viewProject(original.id); await S.openProject(original.id);
+  S.updateProject(original.id, p => p.title = 'keep this edit'); close();
+  await until(() => !!S.useProjects.getState().saveErrors[original.id]);
+  assert.equal((await S.openProject(original.id)).title, 'keep this edit'); assert.equal(disk.title, original.title);
+  S.persistence.save = async p => { disk = structuredClone(p); };
+  assert.equal(await S.flushProject(original.id), true);
+  assert.equal(disk.title, 'keep this edit'); assert.equal(S.useProjects.getState().saveErrors[original.id], undefined);
+});
+test('slow saves cannot overwrite later edits and a closing view waits for both revisions', async () => {
+  const S = load(); let disk = project('save-order'), release; const gate = new Promise(r => release = r); let calls = 0;
+  S.persistence.load = async () => structuredClone(disk);
+  S.persistence.save = async p => { if (++calls === 1) await gate; disk = structuredClone(p); };
+  const close = S.viewProject(disk.id); await S.openProject(disk.id);
+  S.updateProject(disk.id, p => p.title = 'first'); const saving = S.flushProject(disk.id);
+  await until(() => calls === 1); S.updateProject(disk.id, p => p.title = 'latest'); close(); release();
+  await saving; await until(() => !S.getProject(disk.id));
+  assert.equal(disk.title, 'latest'); assert.equal(calls, 2);
+});
+
+test('deleting a project drains its in-flight write and rejects late edits and loads', async () => {
+  const originalSave=S.persistence.save, originalLoad=S.persistence.load;
+  let finish, started=false;
+  try {
+    disk.set('delete-race',project('delete-race'));await S.openProject('delete-race');
+    S.persistence.save=async p=>{started=true;await new Promise(r=>finish=r);disk.set(p.id,structuredClone(p));};
+    S.updateProject('delete-race',p=>p.title='last edit');const save=S.flushProject('delete-race');await until(()=>started);
+    let drained=false;const deleting=S.forgetProject('delete-race').then(()=>{disk.delete('delete-race');drained=true;});
+    assert.equal(S.updateProject('delete-race',p=>p.title='late task'),false);assert.equal(drained,false);
+    finish();await Promise.all([save,deleting]);assert.equal(disk.has('delete-race'),false);
+    let load;S.persistence.load=()=>new Promise(r=>load=r);const opening=S.openProject('late-load');
+    await S.forgetProject('late-load');load(project('late-load'));
+    await assert.rejects(opening,/deleted/);assert.equal(S.getProject('late-load'),undefined);
+  } finally {S.persistence.save=originalSave;S.persistence.load=originalLoad;}
+});
+
+test('a failed delete retains the latest project and blocks reopening during removal',async()=>{
+ disk.set('delete-error',project('delete-error'));await S.openProject('delete-error');S.updateProject('delete-error',p=>p.title='unsaved title');
+ let finish,removing=false;const deletion=S.forgetProject('delete-error',()=>{removing=true;return new Promise((_,reject)=>finish=reject);});
+ await until(()=>removing);await assert.rejects(S.openProject('delete-error'),/being deleted/);
+ finish(new Error('storage refused'));await assert.rejects(deletion,/storage refused/);
+ assert.equal(S.getProject('delete-error').title,'unsaved title');await S.flushProject('delete-error');assert.equal(disk.get('delete-error').title,'unsaved title');
+});

@@ -464,8 +464,15 @@ void CreativeService::run(const Json::Value &j) {
     // Art a visual-novel script asked for changes a character's own profile only when the GM or that
     // character's actor asked; anyone else's script gets it in their draft only.
     const bool forCharacter = attachTo.isObject() && attachTo.isMember("character_id");
-    bool updatesProfile = forCharacter;
-    if (forCharacter && forScript) {
+    bool privateScript = false;
+    if (forScript) {
+      auto source = db_.queryOne("SELECT s.scope FROM log_presentations p JOIN log_snapshots s ON s.id=p.snapshot_id WHERE p.id=$1 AND p.channel_id=$2",
+                                 {json::str(attachTo, "presentation_id"), j["channel_id"].asString()});
+      if (source.isNull()) throw notFound("source presentation no longer exists");
+      privateScript = source["scope"] != "pl_public";
+    }
+    bool updatesProfile = forCharacter && !privateScript;
+    if (forCharacter && forScript && !privateScript) {
       auto who = db_.queryOne("SELECT (c.user_id IS NOT NULL AND c.user_id=$3::uuid) OR EXISTS (SELECT 1 FROM channel_members m WHERE m.channel_id=$2 AND m.user_id=$3::uuid AND m.role='gm') AS ok "
                               "FROM characters c WHERE c.id=$1 AND c.channel_id=$2", {json::str(attachTo, "character_id"), j["channel_id"].asString(), j["created_by"].asString()});
       updatesProfile = !who.isNull() && who["ok"].asBool();
@@ -477,13 +484,14 @@ void CreativeService::run(const Json::Value &j) {
     // A character's own art is the actor's to use at once; everything else waits for the GM's review.
     // Script art lands straight in the draft it was asked for; the author reviews it in the player.
     m["approval_status"] = forCharacter || forScript ? "approved" : "candidate";
-    m["visibility_scope"] = forCharacter || forScript ? "channel" : "gm";
+    m["visibility_scope"] = !privateScript && (forCharacter || forScript) ? "channel" : "gm";
+    if (privateScript) m["source_reference"]["private_presentation_id"] = attachTo["presentation_id"];
     if (forScript && !forCharacter) m["name"] = "Background · " + json::str(attachTo, "scene_title", json::str(attachTo, "scene_key"));
     if (forCharacter) { m["name"] = json::str(j["params"]["request"]["character"], "name") + " · " + (json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot")); m["expression"] = json::str(attachTo, "slot") == "subtitle" ? json::str(attachTo, "subtitle") : json::str(attachTo, "slot"); }
     if(atmosphere) { m["name"]="Atmosphere · "+json::str(attachTo,"scene_title")+" · "+json::str(attachTo,"variant"); m["visibility_scope"]="channel"; }
     // A chat illustration is the requester's picture: no review; only readers of its chat line see it.
     const bool illustration = j["kind"].asString() == "illustration";
-    if (illustration) { m["name"] = "Illustration · " + text::utf8Prefix(json::str(attachTo, "user_prompt"), 80); m["approval_status"] = "approved"; m["visibility_scope"] = "gm"; }
+    if (illustration) { m["source_reference"]["private_chat_window_id"] = attachTo["window_id"]; m["name"] = "Illustration · " + text::utf8Prefix(json::str(attachTo, "user_prompt"), 80); m["approval_status"] = "approved"; m["visibility_scope"] = "gm"; }
     m["generation_provider"] = provider_->name();
     m["generation_model"] = provider_->model();
     m["prompt"] = j["prompt"];

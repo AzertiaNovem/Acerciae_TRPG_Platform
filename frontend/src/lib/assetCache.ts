@@ -19,6 +19,11 @@ import { readStorage, writeStorage } from './storage';
 // How long. Each time an entry is shown its lifespan starts over: it is dropped only when it has not been shown for
 // ASSET_CACHE_MAX_AGE_MS, or when the cache passes ASSET_CACHE_MAX_BYTES (least recently used first). Without
 // IndexedDB (private windows, blocked storage) or on any error the direct URL is used as before.
+export function keepable(cacheControl: string | null): boolean {
+  const directives = (cacheControl ?? '').split(',').map(s => s.trim().toLowerCase());
+  return directives.includes('immutable') && !directives.includes('no-store');
+}
+
 export const ASSET_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;   // not shown for 30 days → gone
 export const ASSET_CACHE_MAX_BYTES = 768 * 1024 * 1024;          // the whole cache
 export const ASSET_CACHE_MAX_ITEM_BYTES = 64 * 1024 * 1024;      // bigger files stream from the server every time
@@ -230,7 +235,7 @@ export function cachedSrc(url: string | null | undefined, hash?: string | null):
       const blob = await res.blob();
       // Not marked for keeping (the current version of something, GM-private material): these bytes serve this one
       // view and are neither stored nor remembered, so the next view asks again (and the browser revalidates by ETag).
-      if (!/\bimmutable\b/.test(res.headers.get('Cache-Control') ?? '')) return transientSrc(blob);
+      if (!keepable(res.headers.get('Cache-Control'))) return transientSrc(blob);
       void write(key, blob, now);
       return remember(key, blob);
     })().catch(() => url).finally(() => inflight.delete(key));

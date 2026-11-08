@@ -1,0 +1,125 @@
+{
+  "studio": [
+    {
+      "channel": {
+        "id": "fixture",
+        "my_role": "gm",
+        "story_status": "ongoing",
+        "studio_visible": true,
+        "studio_player_access": false
+      },
+      "settings": {
+        "features": {
+          "log_studio": true
+        }
+      },
+      "expected": "open"
+    },
+    {
+      "channel": {
+        "id": "fixture",
+        "my_role": "player",
+        "story_status": "ongoing",
+        "studio_visible": true,
+        "studio_player_access": false
+      },
+      "settings": {
+        "features": {
+          "log_studio": true
+        }
+      },
+      "expected": "locked"
+    },
+    {
+      "channel": {
+        "id": "fixture",
+        "my_role": "player",
+        "story_status": "ongoing",
+        "studio_visible": true,
+        "studio_player_access": true
+      },
+      "settings": {
+        "features": {
+          "log_studio": true
+        }
+      },
+      "expected": "open"
+    },
+    {
+      "channel": {
+        "id": "fixture",
+        "my_role": "gm",
+        "story_status": "ongoing",
+        "studio_visible": false,
+        "studio_player_access": true
+      },
+      "settings": {
+        "features": {
+          "log_studio": true
+        }
+      },
+      "expected": "hidden"
+    },
+    {
+      "channel": {
+        "id": "fixture",
+        "my_role": "player",
+        "story_status": "ended",
+        "studio_visible": false,
+        "studio_player_access": false
+      },
+      "settings": {
+        "features": {
+          "log_studio": true
+        }
+      },
+      "expected": "open"
+    },
+    {
+      "channel": {
+        "id": "fixture",
+        "my_role": "player",
+        "story_status": "ended",
+        "studio_visible": true,
+        "studio_player_access": true
+      },
+      "settings": {
+        "features": {
+          "log_studio": false
+        }
+      },
+      "expected": "disabled"
+    },
+    {
+      "channel": {},
+      "settings": {},
+      "expected": "hidden"
+    }
+  ],
+  "cache": [
+    {
+      "header": "private, max-age=31536000, immutable",
+      "keep": true
+    },
+    {
+      "header": "private, no-store",
+      "keep": false
+    },
+    {
+      "header": "private, max-age=3600",
+      "keep": false
+    },
+    {
+      "header": "immutable, no-store",
+      "keep": false
+    },
+    {
+      "header": "Private, IMMUTABLE",
+      "keep": true
+    },
+    {
+      "header": "",
+      "keep": false
+    }
+  ]
+}

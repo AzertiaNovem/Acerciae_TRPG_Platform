@@ -55,7 +55,7 @@ export async function ensureFileToken(): Promise<string> {
   return fileTokPending;
 }
 
-export class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }
+export class ApiError extends Error { constructor(public status: number, public code: string, message: string, public apiResponse = true) { super(message); } }
 
 export async function request<R>(method: string, path: string, body?: unknown, raw?: BodyInit): Promise<R> {
   const headers: Record<string, string> = {};
@@ -68,7 +68,7 @@ export async function request<R>(method: string, path: string, body?: unknown, r
     const text = await res.text();
     let data: any = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
-    if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText);
+    if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText, typeof data?.error === 'string');
     return data as R;
   } catch (error) {
     if (controller.signal.aborted) throw new ApiError(408, 'request_timeout', 'Request timed out. Check the saved task status before retrying.');

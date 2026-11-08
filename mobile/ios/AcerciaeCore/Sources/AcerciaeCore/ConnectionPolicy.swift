@@ -1,6 +1,9 @@
 import Foundation
 
 public enum ConnectionPolicy {
+    public static func invalidatesSession(_ error: Error) -> Bool {
+        if case ClientError.http(401) = error { return true }; return false
+    }
     public static func retryStatus(_ status: Int) -> Bool { [408, 502, 503, 504, 520, 522, 523, 524].contains(status) }
     public static func retryTransport(_ error: Error) -> Bool {
         guard let e = error as? URLError else { return false }

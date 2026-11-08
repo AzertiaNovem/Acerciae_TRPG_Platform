@@ -77,13 +77,13 @@ void MediaMigrator::moveInlineAvatars(Report& r) {
     }
 }
 
-// 2. Non-secret media into the public bucket: AI-generated raster art, voice clips, avatars.
+// 2. Public-eligible objects: non-private generated art, public-snapshot audio, avatars.
 void MediaMigrator::makePublic(Report& r) {
     auto rows = db_.queryJson(
         "SELECT av.object_key AS k, av.mime FROM asset_versions av JOIN media_assets m ON m.id=av.asset_id "
-        " WHERE m.source_type IN ('generated','mock') AND av.mime LIKE 'image/%' AND av.mime<>'image/svg+xml' AND av.object_key NOT LIKE 'pub/%' "
-        "UNION SELECT object_key, mime FROM media_assets WHERE source_type IN ('generated','mock') AND mime LIKE 'image/%' AND mime<>'image/svg+xml' AND object_key NOT LIKE 'pub/%' "
-        "UNION SELECT object_key, mime FROM tts_audio_assets WHERE object_key NOT LIKE 'pub/%' "
+        " WHERE NOT (m.source_reference ?| ARRAY['private_presentation_id','private_chat_window_id']) AND m.source_type IN ('generated','mock') AND av.mime LIKE 'image/%' AND av.mime<>'image/svg+xml' AND av.object_key NOT LIKE 'pub/%' "
+        "UNION SELECT object_key, mime FROM media_assets WHERE NOT (source_reference ?| ARRAY['private_presentation_id','private_chat_window_id']) AND source_type IN ('generated','mock') AND mime LIKE 'image/%' AND mime<>'image/svg+xml' AND object_key NOT LIKE 'pub/%' "
+        "UNION SELECT object_key, mime FROM tts_audio_assets WHERE NOT private_source AND object_key NOT LIKE 'pub/%' "
         "UNION SELECT avatar_key, coalesce(avatar_mime,'image/png') FROM users WHERE avatar_key IS NOT NULL AND avatar_key NOT LIKE 'pub/%'");
     for (auto& row : rows) {
         if (stopping()) return;

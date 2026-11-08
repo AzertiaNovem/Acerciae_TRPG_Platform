@@ -1,0 +1,29 @@
+name: Mobile contracts
+on:
+  pull_request:
+    paths: ['mobile/**', 'backend/src/api/**', 'backend/src/auth/**', 'backend/src/knowledge/Visibility*', 'backend/src/logstudio/**', 'backend/src/chat/**', 'backend/migrations/**', 'frontend/src/store/auth.ts', 'frontend/src/api/**', '.github/workflows/mobile.yml']
+  push:
+    branches: [main]
+    paths: ['mobile/**', 'backend/src/api/**', 'backend/src/auth/**', 'backend/src/knowledge/Visibility*', 'backend/src/logstudio/**', 'backend/src/chat/**', 'backend/migrations/**', 'frontend/src/store/auth.ts', 'frontend/src/api/**', '.github/workflows/mobile.yml']
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Build, unit tests and lint
+        working-directory: mobile/android
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core and simulator application tests
+        run: mobile/scripts/test-ios.sh

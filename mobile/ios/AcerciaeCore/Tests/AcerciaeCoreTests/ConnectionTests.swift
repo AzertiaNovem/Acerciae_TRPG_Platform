@@ -1,6 +1,18 @@
 import XCTest
 @testable import AcerciaeCore
 final class ConnectionTests: XCTestCase {
+    func testSharedSessionErrorContract() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { root.deleteLastPathComponent() }
+        let rows = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("contracts/fixtures/session-errors.json"))) as! [[String: Any]]
+        for row in rows {
+            let code = row["status"] as! Int
+            let error: ClientError = row["api_response"] as! Bool ? .http(code) : .gateway(code)
+            XCTAssertEqual(ConnectionPolicy.invalidatesSession(error), row["clear_session"] as! Bool)
+        }
+        XCTAssertFalse(ConnectionPolicy.invalidatesSession(URLError(.notConnectedToInternet)))
+    }
+
     private func client(_ replies:[ProbeProtocol.Reply]) throws -> BackendClient {
         ProbeProtocol.reset(replies)
         let config=URLSessionConfiguration.ephemeral; config.protocolClasses=[ProbeProtocol.self]

@@ -18,61 +18,37 @@
 // active, and not before SCENARIO_MIN_MINUTES and SCENARIO_MIN_LINES.
 import { GmContext, duration } from "./context/gmContext.mjs";
 import { sceneForks } from "./sceneForks.mjs";
-import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { MAX_CHARACTERS, illustrationFailure, normalizeIllustration, pickEventMoment, pickScenarioMoment, scenarioLines } from "./illustrations.mjs";
-import { artRequest, artText, bestPlace, drawable, isArtLine, locatePlot, pickRequestedMoment } from "./plotArt.mjs";
-import { CHECKPOINT_MS, CHECKPOINTS_KEPT, RECALL_ROLLBACK_LINES, addedPending, checkpointsToUndo, movedBetween, rollbackNote, stable } from "./rollback.mjs";
-import { coplayerLog, renderLine } from "./context/coplayerContext.mjs";
-import { Store, billableTokens } from "./store.mjs";
-import { History, Memory, estimateTokens, CHUNK_LINES } from "./memory.mjs";
+import { drawable } from "./plotArt.mjs";
+import { RECALL_ROLLBACK_LINES } from "./rollback.mjs";
+import { Store } from "./store.mjs";
+import { History, Memory } from "./memory.mjs";
 import { Generation } from "./generation.mjs";
 import { metered } from "./llm/parts.mjs";
 import { usageSink } from "./usage.mjs";
 import { recall } from "./context/recall.mjs";
 import { investigatorsFor } from "./context/profiles.mjs";
 import { directTurn } from "./director.mjs";
-import { coplayerSelf, coplayerTurn } from "./coplayer.mjs";
-import { prepareActor, playerRules, awaitingReview } from "./pbta.mjs";
-import { generateNpc, saveCharacter } from "./roles/cardgen.mjs";
-import { isPlayerCharacter, openWindows } from "./roles/roster.mjs";
+import { awaitingReview } from "./pbta.mjs";
 import { Timelines, MAIN, placeKey } from "./timelines.mjs";
-import { correctionNotice, publicLines, readDestinations, sceneHandoff } from "./continuity.mjs";
-import { readPresence } from "./presence.mjs";
 import { Guard, planWhereabouts, whereaboutsBrief } from "./whereabouts.mjs";
-import { addTruth, hashText, improvState, worldMessages } from "./improv.mjs";
-import { PHONE_LOG, PHONE_PREFIX, casualState, coplayerPhoneReply, dueAt, pairKey, parseAddress, renderThread } from "./casual.mjs";
-import { WISH_WINDOW, addToInbox, mergeTableNotes, plannerReply, renderCorrectionsFor, renderInbox, renderTableNotes } from "./wishes.mjs";
-import { leaksSecret, noteSessionLine, planStory, plannerDue, plannerModeOf, plannerState, renderFinalNote, renderImpulse, renderPlanNote, renderStoryPlan, sessionEnded, stallSignature } from "./planner.mjs";
-import { MAX_ADVANCE_DAYS, advanceCalendar, calendarPace, calendarState, changedBy, describeCalendar, describeRoutine, fitEra, noteCalendarLine, renderCalendar, setRoutine } from "./calendar.mjs";
-import { applyBond, bondsState, renderBonds, renderBondsFor, resolveBonds } from "./bonds.mjs";
-import { impression } from "./context/traits.mjs";
+import { improvState } from "./improv.mjs";
+import { casualState } from "./casual.mjs";
+import { plannerState } from "./planner.mjs";
+import { calendarState } from "./calendar.mjs";
+import { bondsState } from "./bonds.mjs";
 import { rulesProfile, ruleSystemOf } from "./rules/index.mjs";
-
-const LANGUAGES = { en: "English", zh: "Simplified Chinese", "zh-CN": "Simplified Chinese", "zh-TW": "Traditional Chinese", ja: "Japanese", ko: "Korean", es: "Spanish", fr: "French", de: "German", ru: "Russian", pt: "Portuguese", it: "Italian" };
-export const languageName = (code) => LANGUAGES[code] ?? LANGUAGES[String(code ?? "").split("-")[0]] ?? (code || "English");
-
-const TRIGGER_KINDS = new Set(["ic", "ooc", "roll", "narration"]);
-const SPEAKER_KINDS = new Set(["ic", "roll", "narration"]);       // lines that let a player's character move (not OOC)
-const MOVE_MODES = new Set(["human", "followup", "side", "relay", "manual"]);
-const norm = (s) => String(s ?? "").trim().toLowerCase();
-const names = (v) => (Array.isArray(v) ? v : [v]).map((x) => String(x ?? "").trim()).filter(Boolean);
-// Splits text at paragraph or line breaks into pieces of at most `max` characters.
-function chunk(text, max) {
-  const out = [];
-  let cur = "";
-  for (const line of String(text).split(/(?<=\n)/)) {
-    for (const piece of line.length > max ? line.match(new RegExp(`[\\s\\S]{1,${max}}`, "g")) : [line]) {
-      if (cur.length + piece.length > max) { out.push(cur); cur = ""; }
-      cur += piece;
-    }
-  }
-  if (cur.trim()) out.push(cur);
-  return out.map((x) => x.trim()).filter(Boolean);
-}
-
-const HOUR = 3600000;
-const EVENT_MIN_LINES = 4, EVENT_MAX_LINES = 120;   // a small event's picture: play long enough to draw, and its last lines
+import * as context from "./table/context.mjs";
+import * as recovery from "./table/recovery.mjs";
+import * as scheduling from "./table/scheduling.mjs";
+import * as windows from "./table/windows.mjs";
+import * as actions from "./table/actions.mjs";
+import * as art from "./table/art.mjs";
+import * as planning from "./table/planning.mjs";
+import * as social from "./table/social.mjs";
+import * as coplayers from "./table/coplayers.mjs";
+import { languageName, MOVE_MODES, norm, names } from "./table/shared.mjs";
+export { languageName } from "./table/shared.mjs";
 
 export class Table {
   // `deferArrivals`: a short-lived CLI process records arrivals in the state file for the `run` process to play.
@@ -267,473 +243,104 @@ export class Table {
     if (newcomers.length) this.welcomeNewcomers(newcomers);
   }
 
-  mainWindow() { return this.windows.find((w) => w.kind === "main") ?? this.windows[0]; }
-  windowName(id) { return this.windows.find((w) => w.id === id)?.name ?? "another window"; }
-  nameOf(id) { return this.characters.find((c) => c.id === id)?.name ?? id; }
+  mainWindow(...args) { return context.mainWindow(this, ...args); }
+  windowName(...args) { return context.windowName(this, ...args); }
+  nameOf(...args) { return context.nameOf(this, ...args); }
   // A player character, played by a real person (a GM-cast PC is a co-player).
-  isPc(id) { return isPlayerCharacter(this.characters.find((c) => c.id === id), this.roster); }
-  userOf(id) { return this.characters.find((c) => c.id === id)?.user_id ?? null; }
+  isPc(...args) { return context.isPc(this, ...args); }
+  userOf(...args) { return context.userOf(this, ...args); }
   // After the first split even the primary story has a private window; Main Chat becomes the lobby.
-  scene(windowId) {
-    if (windowId === this.mainWindow()?.id) return this.timelines.main().windowId ? null : this.timelines.main();
-    return this.timelines.activeOfWindow(windowId);
-  }
+  scene(...args) { return context.scene(this, ...args); }
   // Where a timeline is played.
-  windowOf(timeline) { return timeline?.windowId ?? (timeline?.id === MAIN ? this.mainWindow()?.id : null); }
-  primaryWindowId() { return this.windowOf(this.timelines.main()); }
-  sceneHistory(windowId) {
-    const seen = new Set(), lines = [];
-    let id = windowId, cutoff = Infinity;
-    while (id && !seen.has(id)) {
-      seen.add(id);
-      lines.push(...this.history.lines(id).filter(m => m.seq <= cutoff));
-      const win = this.windows.find(w => w.id === id);
-      cutoff = Math.min(cutoff, win?.fork_seq ?? 0);
-      id = win?.fork_parent_id;
-    }
-    return lines.sort((a,b) => a.seq-b.seq);
-  }
+  windowOf(...args) { return context.windowOf(this, ...args); }
+  primaryWindowId(...args) { return context.primaryWindowId(this, ...args); }
+  sceneHistory(...args) { return context.sceneHistory(this, ...args); }
   // Scene forks (timelines.scene_forks): after the first split the primary story moves to a restricted fork and the
   // Main Chat becomes a public lobby the GM never narrates in. Off (the default), the main story stays in the Main
   // Chat with the players, and only those who go elsewhere get a window of their own.
   get forks() { return Boolean(this.cfg.sceneForks); }
-  partitionPlan(ops) { return this.forks ? sceneForks(this.timelines, ops, { windowOf: t => this.windowOf(t) }) : ops; }
-  async archiveRetired() {
-    if (!this.forks) return;      // retired windows are kept for the same people at the same place
-    for (const w of this.windows) if (w.kind !== "main" && !w.archived_at && this.timelines.retired(w.id)) {
-      await this.api.updateWindow(this.channelId, w.id, { archived: true });
-      w.archived_at = new Date(this.now()).toISOString();
-    }
-  }
-  windowUsers(windowId) { return (this.windows.find((w) => w.id === windowId)?.members ?? []).filter(m => !m.visibility_paused).map((m) => m.user_id).filter((u) => u && u !== this.me?.id); }
+  partitionPlan(...args) { return windows.partitionPlan(this, ...args); }
+  archiveRetired(...args) { return windows.archiveRetired(this, ...args); }
+  windowUsers(...args) { return windows.windowUsers(this, ...args); }
 
-  async applyAudience(actions) {
-    const turn = this.turnScope.getStore();
-    if (actions.length && turn?.running) turn.audience.push(...actions.map((a) => ({ ...a })));
-    for (const action of actions) {
-      const win = this.windows.find(w => w.id === action.windowId);
-      const member = win?.members?.find(m => m.user_id === action.userId);
-      if (!member && action.paused) continue;
-      if (!member) await this.api.addWindowMember(this.channelId, action.windowId, { user_id: action.userId, character_id: action.characterId });
-      else if (!!member.visibility_paused !== action.paused) await this.api.setWindowVisibility(this.channelId, action.windowId, action.userId, action.paused);
-    }
-    if (actions.length) await this.refresh();
-  }
+  applyAudience(...args) { return windows.applyAudience(this, ...args); }
 
-  state(windowId) {
-    if (!this.windowState.has(windowId)) this.windowState.set(windowId, { lastLineAt: 0, lastHumanAt: 0, lastTurnAt: 0, quietTurns: 0 });
-    return this.windowState.get(windowId);
-  }
-  isHuman(m) { return m.author_id !== this.me?.id && !this.botMessageIds.has(m.id); }
-  noteSeq(windowId, seq) {
-    if (!Number.isFinite(seq)) return;
-    this.windowSeq.set(windowId, Math.max(this.windowSeq.get(windowId) ?? 0, seq));
-    this.lastSeq = Math.max(this.lastSeq, seq);
-  }
+  state(...args) { return context.state(this, ...args); }
+  isHuman(...args) { return context.isHuman(this, ...args); }
+  noteSeq(...args) { return context.noteSeq(this, ...args); }
 
   // On start: when humans last spoke, from the newest lines of every window (so a restart does not wake a dead table).
   // Brings the local copy of every window up to date (a first backfill, or the gap since the table last ran) and notes
   // the newest lines for pacing.
-  async observeHistory({ controlsOnly = false } = {}) {
-    const after = controlsOnly ? this.lastPlayerSeq : 0;
-    const controls = [];
-    for (const w of this.windows) {
-      await this.history.sync(w.id).catch((e) => this.log(`history ${w.name}: ${e.message}`));
-      const lines = this.history.lines(w.id, { after });
-      if (!controlsOnly) for (const m of lines.slice(-20)) this.noteLine(m);
-      for (const m of lines) {
-        if (this.pauseCommand(m)) this.pauseLines.add(m.id);
-        if (this.noteArt(m)) continue;
-        if (m.seq > this.lastPlayerSeq && this.playerSpeech(m)) controls.push(m);
-      }
-    }
-    for (const m of controls.sort((a, b) => a.seq - b.seq)) this.updatePause(m, { historical: true });
-  }
+  observeHistory(...args) { return context.observeHistory(this, ...args); }
 
   // The story keeps a date only in a casual game; a solemn game has none (calendar.mjs).
-  calendarOn() { return Boolean(this.casual.on); }
+  calendarOn(...args) { return context.calendarOn(this, ...args); }
   // The GM's pace on the calendar (config `calendar`; 0: no limit).
-  calendarPaceCfg() { return { minMinutes: this.cfg.calendarMinMinutes ?? 0, minLines: this.cfg.calendarMinLines ?? 0, maxDays: this.cfg.calendarMaxDays ?? 0 }; }
+  calendarPaceCfg(...args) { return context.calendarPaceCfg(this, ...args); }
 
   // The GM's context for a turn in `windowId` (gmContext.mjs), with the calendar (casual games) and the relationships.
-  async buildGm(windowId, extra = {}) {
-    const initiative = await this.initiativeOf(windowId);
-    return this.gm.build({ windowId, initiative, roster: this.roster, characters: this.characters, windows: this.windows, timelines: this.timelines, sceneOf: (w) => this.scene(w), improv: this.improv, hide: this.hiddenLines(), awayOf: (id) => this.awayOf(id), calendar: this.calendarOn() ? renderCalendar(this.calendar, { pace: this.calendarPaceCfg(), now: this.now() }) : "", bonds: renderBonds(this.bonds, (id) => this.nameOf(id)), table: renderTableNotes(this.planner.table), ...extra });
-  }
+  buildGm(...args) { return context.buildGm(this, ...args); }
 
   // How the GM reads a line: visibility and the timeline it comes from (see gmContext.mjs).
-  renderForGm(m) { return renderLine({ ...m, whisper_to_names: (m.whisper_to ?? []).map((id) => this.nameOf(id)) }, { markVisibility: true, timeline: this.timelines.ofLine(m).name, gm: this.profile?.vocab.gm }); }
+  renderForGm(...args) { return context.renderForGm(this, ...args); }
   // How a co-player reads a line (its own view, no visibility marks).
-  renderForCoplayer(m) { return renderLine(m, { gm: this.profile?.vocab.gm }); }
+  renderForCoplayer(...args) { return context.renderForCoplayer(this, ...args); }
 
   // D&D: a window's Initiative order from the platform, kept until the next initiative.changed event.
-  async initiativeOf(windowId) {
-    if (this.profile?.id !== "dnd2024" || !windowId) return null;
-    if (!this.initiative.has(windowId)) this.initiative.set(windowId, await this.api.initiative(this.channelId, windowId).catch(() => null));
-    return this.initiative.get(windowId);
-  }
+  initiativeOf(...args) { return context.initiativeOf(this, ...args); }
 
   // How long a player character's player has been away, or null while they are around (AUTONOMY_IDLE_MINUTES).
-  awayOf(id) {
-    if (!this.isPc(id)) return null;
-    const last = this.lastLineBy.get(id);
-    const gap = this.now() - (last ?? 0);
-    return last !== undefined && gap > this.cfg.autonomyIdleMinutes * 60000 ? gap : null;
-  }
+  awayOf(...args) { return context.awayOf(this, ...args); }
 
   // Waits for background compaction (tests, shutdown).
-  async memoryIdle() { await this.memory.idle(); }
+  memoryIdle(...args) { return context.memoryIdle(this, ...args); }
 
-  noteLine(m) {
-    this.history.add(m);
-    const at = Date.parse(m.created_at) || this.now();
-    const st = this.state(m.chat_window_id);
-    st.lastLineAt = Math.max(st.lastLineAt, at);
-    this.noteSeq(m.chat_window_id, m.seq ?? 0);
-    if (this.isHuman(m)) {
-      st.lastHumanAt = Math.max(st.lastHumanAt, at);
-      st.quietTurns = 0;
-      st.coplayersActed = new Set();       // every human line gives each co-player one more go
-      if (m.character_id) {
-        // A player back after being away (AUTONOMY_IDLE_MINUTES) is welcomed back by the next turn.
-        const prev = this.lastLineBy.get(m.character_id);
-        if (prev !== undefined && at - prev > this.cfg.autonomyIdleMinutes * 60000) this.returning.set(m.character_id, at - prev);
-        this.lastLineBy.set(m.character_id, Math.max(prev ?? 0, at));
-      }
-      this.lastHumanAt = Math.max(this.lastHumanAt, at);
-      if (Object.keys(this.casual.chain).length) this.casual.chain = {};   // AI characters may text on again
-      if (m.character_id && m.visibility === "window" && SPEAKER_KINDS.has(m.kind) && this.isPc(m.character_id)) {
-        if (!this.speakers.has(m.chat_window_id)) this.speakers.set(m.chat_window_id, []);
-        this.speakers.get(m.chat_window_id).push({ id: m.character_id, seq: m.seq, content: m.content });
-      }
-    }
-  }
+  noteLine(...args) { return recovery.noteLine(this, ...args); }
 
   // A running `run` process reloads its roster and timelines when the state file is changed by a CLI command; it is
   // queued like a turn, so it never lands in the middle of one.
-  reload(state) {
-    this.queue = this.queue.then(async () => {
-      this.roster.coplayers = new this.roster.constructor(state).coplayers;
-      this.roster.npcs = state.npcs ?? this.roster.npcs;
-      this.timelines = new Timelines(state.timelines ?? [], { now: this.now });
-      const guard = new Guard(state.guard ?? {});
-      guard.turn = Math.max(guard.turn, this.guard.turn);
-      this.guard = guard;
-      for (const a of state.owedArrivals ?? []) this.scheduleArrival(a.windowId, a.arrival, { force: true });
-      this.owedArrivals = [];
-      await this.refresh();
-    }).catch((e) => this.log(`reload: ${e.message}`));
-    return this.queue;
-  }
+  reload(...args) { return recovery.reload(this, ...args); }
 
-  save() { try { this.persist(this); } catch (e) { this.log(`state not saved: ${e.message}`); } }
+  save(...args) { return recovery.save(this, ...args); }
 
   // ---- events
-  onEvent(ev) {
-    if (ev.channel_id && ev.channel_id !== this.channelId) return undefined;
-    if (ev.stream === "context") { this.gm.onContextEvent(ev); return undefined; }
-    if (ev.type === "character.updated" && ev.character) this.cards.delete(ev.character.id);
-    if (ev.type === "window.changed") { this.memberCache = null; this.refresh().catch((e) => this.log(`refresh: ${e.message}`)); }
-    if (ev.type === "server.settings" && ev.settings?.features) this.illustrationSwitches.server = ev.settings.features.illustrations !== false;
-    if (ev.type === "channel.updated") this.readIllustrationSwitches({ server: false }).catch(() => undefined);
-    if (ev.type === "initiative.changed") this.initiative.delete(ev.chat_window_id ?? "*");
-    if (ev.type === "scene.changed" && ev.scene?.status === "active" && ev.scene.id !== this.scenario?.id) {
-      // A plan made before the platform opened its first scenario is not stale because of it: no replan for that.
-      if (this.planner.arc && this.planner.scenarioId === null && !this.scenario) this.planner.scenarioId = ev.scene.id;
-      this.scenario = { id: ev.scene.id, since: this.now(), fromSeq: this.lastSeq + 1 };
-      this.beatClosed();
-      this.save();
-    }
-    if (ev.type === "message.posted") return this.onMessage(ev.message);
-    if (ev.type === "message.recalled") return this.onRecalled(ev.message);
-    return undefined;
-  }
+  onEvent(...args) { return recovery.onEvent(this, ...args); }
 
   // The author took a line back: its tombstone replaces it in the history, so no prompt quotes it again. A player's
   // recall that is still recent (fewer than RECALL_ROLLBACK_LINES lines after it in its window) also rolls back what
   // the table did about it (rollback.mjs); an older one only leaves the context.
-  onRecalled(m) {
-    if (!m || m.channel_id !== this.channelId || !m.recalled_at) return undefined;
-    this.history.add(m);
-    if (!this.isHuman(m)) return undefined;              // this client's own recalls (a rollback), or its account's
-    const windowId = m.chat_window_id;
-    if (this.isPlannerWindow(windowId)) {                // a wish or correction withdrawn before the planner read it
-      const before = this.planner.inbox.length;
-      this.planner.inbox = this.planner.inbox.filter((e) => e.seq !== m.seq);
-      if (this.planner.inbox.length !== before) this.save();
-      return undefined;
-    }
-    // Not answered yet: it leaves the batch waiting for this window's turn.
-    const waiting = this.speakers.get(windowId);
-    if (waiting?.some((l) => l.seq === m.seq)) {
-      const rest = waiting.filter((l) => l.seq !== m.seq);
-      if (rest.length) this.speakers.set(windowId, rest); else { this.speakers.delete(windowId); this.recallEmptied.add(windowId); }
-    }
-    const after = this.history.lines(windowId, { after: m.seq }).length;
-    const undo = checkpointsToUndo(this.checkpoints, m);
-    const copies = this.phoneCopies.get(m.id) ?? [];
-    const phoneWaiting = this.timers.get(windowId)?.mode === "phone";
-    if (after >= RECALL_ROLLBACK_LINES) {
-      this.log(`recall in "${this.windowName(windowId)}": ${after} lines since; the line leaves the context, nothing is rolled back`);
-    } else if (undo.length || copies.length || this.isPhone(windowId) || this.history.lines(windowId, { after: m.seq }).some((l) => !this.isHuman(l))) {
-      // (Without checkpoints, after a restart, the client's later lines are still recalled; its state stays.)
-      for (const cp of undo) { cp.undone = true; if (cp.running) cp.abort.abort(new DOMException("A line it answers was recalled", "AbortError")); }
-      if (phoneWaiting) this.cancelTimer(windowId);
-      this.queue = this.queue.then(() => this.rollback(m, undo, copies)).catch((e) => this.log(`rollback failed: ${e.message}`));
-      return this.queue;
-    }
-    // A turn still waiting in that window waits again, so a corrected line sent right after is answered once.
-    return this.timers.has(windowId) ? this.schedule(windowId) : undefined;
-  }
+  onRecalled(...args) { return recovery.onRecalled(this, ...args); }
 
   // A turn waiting for its quiet moment that is no longer wanted.
-  cancelTimer(windowId) {
-    const pending = this.timers.get(windowId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    this.timers.delete(windowId);
-    this.pending--;
-    for (const resolve of pending.resolvers) resolve();
-  }
+  cancelTimer(...args) { return scheduling.cancelTimer(this, ...args); }
 
   // What a rollback can restore, as JSON (compared to tell whether anything else changed it since).
-  slices() {
-    return {
-      placement: stable({ timelines: this.timelines.toJSON(), seats: Object.fromEntries(this.roster.coplayers.map((c) => [c.characterId, c.seats])) }),
-      calendar: stable({ date: this.calendar.date, time: this.calendar.time, log: this.calendar.log, routine: this.calendar.routine }),
-      bonds: stable(this.bonds),
-      truths: stable(this.improv.truths ?? []),
-      pending: stable(this.casual.pending ?? []),
-    };
-  }
+  slices(...args) { return recovery.slices(this, ...args); }
 
-  openCheckpoint(windowId, mode) {
-    const now = this.now();
-    this.checkpoints = this.checkpoints.filter((c) => c.running || now - c.at < CHECKPOINT_MS).slice(-CHECKPOINTS_KEPT);
-    let resolve;
-    const done = new Promise((r) => { resolve = r; });
-    const cp = { windowId, mode, at: now, startSeq: this.lastSeq, batch: [], before: this.slices(), state: { calendar: structuredClone(this.calendar), guard: structuredClone(this.guard.by) },
-      after: null, posted: [], audience: [], kept: [], illustrations: [], abort: new AbortController(), running: true, done, resolve };
-    this.checkpoints.push(cp);
-    return cp;
-  }
-  closeCheckpoint(cp) { cp.after = this.slices(); cp.running = false; cp.resolve(); }
+  openCheckpoint(...args) { return recovery.openCheckpoint(this, ...args); }
+  closeCheckpoint(...args) { return recovery.closeCheckpoint(this, ...args); }
 
   // Rolls back the checkpoints `undo` after a recall of `m`: recalls what they posted (and this client's later lines in
   // that window, and the copies of a recalled text), restores the state they changed, answers the players' other
   // lines again, and leaves the GM a note of what stays.
-  async rollback(m, undo, copies = []) {
-    await Promise.all(undo.map((cp) => cp.done));
-    const windowId = m.chat_window_id;
-    // Turns the rolled-back ones scheduled and that have not started yet are not wanted either.
-    for (const [w, pending] of [...this.timers]) if (pending.origin && undo.includes(pending.origin)) this.cancelTimer(w);
-    // This client's lines to take back, newest first: what the turns posted anywhere, and anything later in the window.
-    const ids = new Map();
-    for (const cp of undo) for (const p of cp.posted) ids.set(p.id, p);
-    for (const id of copies) ids.set(id, { id });
-    for (const line of this.history.lines(windowId, { after: m.seq })) if (!this.isHuman(line)) ids.set(line.id, { id: line.id, seq: line.seq, kind: line.kind });
-    const kept = undo.flatMap((cp) => cp.kept);
-    const restored = new Set();
-    let recalled = 0;
-    for (const p of [...ids.values()].sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))) {
-      if (p.kind === "roll") { kept.push("a roll's result"); continue; }
-      try {
-        const res = await this.api.recallMessage(this.channelId, p.id);
-        if (res?.message) this.history.add(res.message);
-        recalled++;
-      } catch (e) {
-        kept.push(e.code === "recall_expired" ? "a line older than the recall window" : e.code === "not_recallable" ? "a line on the record (a roll or a move)" : `a line the platform would not recall (${e.status ?? e.message})`);
-      }
-    }
-    this.phoneCopies.delete(m.id);
-    if (this.isPhone(windowId)) this.store.removePhone(m.seq);
-    // Pictures those turns asked for: cancelled while drawing, recalled once posted.
-    const jobs = undo.flatMap((cp) => cp.illustrations);
-    if (jobs.length) {
-      const done = await this.api.illustrations(this.channelId).catch(() => []);
-      for (const id of jobs) {
-        const job = (done ?? []).find((j) => j.id === id);
-        if (job?.message_id) { try { const res = await this.api.recallMessage(this.channelId, job.message_id); if (res?.message) this.history.add(res.message); recalled++; } catch { kept.push("a picture already posted"); } }
-        else { try { await this.api.cancelIllustration(this.channelId, id); restored.add("a picture being drawn"); } catch { /* drawn meanwhile; it will be posted */ } }
-      }
-    }
-    // State, newest turn first; a part something else changed since is left as it is.
-    for (const cp of [...undo].reverse()) {
-      if (!cp.after) continue;
-      const now = this.slices();
-      let placed = true;
-      if (cp.after.placement !== cp.before.placement) {
-        placed = now.placement === cp.after.placement;
-        if (placed) {
-          const before = JSON.parse(cp.before.placement), after = JSON.parse(cp.after.placement);
-          this.timelines = new Timelines(before.timelines, { now: this.now });
-          for (const c of this.roster.coplayers) if (before.seats[c.characterId]) c.seats = before.seats[c.characterId];
-          for (const id of movedBetween(before.timelines, after.timelines)) { if (cp.state.guard[id]) this.guard.by[id] = cp.state.guard[id]; else delete this.guard.by[id]; }
-          restored.add("where everyone is");
-        } else kept.push("a move that later turns built on");
-      }
-      if (cp.after.calendar !== cp.before.calendar) {
-        if (now.calendar === cp.after.calendar) { this.calendar = cp.state.calendar; restored.add("the date"); } else kept.push("a date change that later turns built on");
-      }
-      if (cp.after.bonds !== cp.before.bonds) {
-        if (now.bonds === cp.after.bonds) { this.bonds = JSON.parse(cp.before.bonds); restored.add("relationships"); } else kept.push("a relationship that later turns changed again");
-      }
-      if (cp.after.truths !== cp.before.truths) {
-        if (now.truths === cp.after.truths) { this.improv.truths = JSON.parse(cp.before.truths); restored.add("hidden truths"); } else kept.push("a hidden truth that later turns built on");
-      }
-      const added = addedPending(JSON.parse(cp.before.pending), JSON.parse(cp.after.pending)).map((p) => stable(p));
-      if (added.length) { this.casual.pending = this.casual.pending.filter((p) => !added.includes(stable(p))); restored.add("texts on their way"); }
-      if (cp.audience.length && placed) {
-        try { await this.applyAudience([...cp.audience].reverse().map((a) => ({ ...a, paused: !a.paused }))); restored.add("who sees which window"); }
-        catch (e) { kept.push(`window access (${e.message})`); }
-      }
-    }
-    this.checkpoints = this.checkpoints.filter((c) => !undo.includes(c));
-    // A move a stopped turn left half done must not be finished later: it belonged to what was just undone.
-    if (this.journal && undo.some((cp) => cp.windowId === this.journal.windowId)) { this.journal = null; restored.add("a move in progress"); }
-    this.checkInvariants();
-    this.save();
-    const who = m.character_name || m.author_name || "A player";
-    this.log(`recall in "${this.windowName(windowId)}" by ${who}: ${recalled} line(s) taken back, ${undo.length} turn(s) rolled back${restored.size ? `; undid ${[...restored].join(", ")}` : ""}${kept.length ? `; kept ${kept.join("; ")}` : ""}`);
-    if (kept.length || recalled) {
-      await this.post(windowId, { content: rollbackNote({ who, recalled, restored: [...restored], kept: [...new Set(kept)] }), kind: "narration", visibility: "gm_only" }, { count: false, allowPaused: true });
-    }
-    // The players' other lines those turns answered, and any after the recalled one, are answered again.
-    const again = new Map();
-    for (const cp of undo) for (const l of cp.batch) if (l.seq !== m.seq) again.set(l.seq, { ...l, windowId: cp.windowId });
-    for (const line of this.history.lines(windowId, { after: m.seq })) {
-      if (this.isHuman(line) && line.character_id && line.visibility === "window" && this.isPc(line.character_id)) again.set(line.seq, { id: line.character_id, seq: line.seq, content: line.content, windowId });
-    }
-    const live = new Set(this.history.lines(windowId).map((l) => l.seq));
-    const byWindow = new Map();
-    for (const l of again.values()) {
-      if (l.windowId === windowId && !live.has(l.seq)) continue;      // recalled too
-      if (!byWindow.has(l.windowId)) byWindow.set(l.windowId, []);
-      byWindow.get(l.windowId).push({ id: l.id, seq: l.seq, content: l.content });
-    }
-    for (const [w, lines] of byWindow) {
-      const waiting = this.speakers.get(w) ?? [];
-      this.speakers.set(w, [...lines, ...waiting.filter((x) => !lines.some((l) => l.seq === x.seq))].sort((a, b) => a.seq - b.seq));
-      this.recallEmptied.delete(w);
-      this.schedule(w);
-    }
-    return recalled;
-  }
+  rollback(...args) { return recovery.rollback(this, ...args); }
 
-  isTrigger(m) {
-    if (!m || m.channel_id !== this.channelId) return false;
-    if (!this.isHuman(m)) return false;
-    return m.visibility === "window" && TRIGGER_KINDS.has(m.kind);
-  }
+  isTrigger(...args) { return scheduling.isTrigger(this, ...args); }
 
-  playerSpeech(m) {
-    return m?.channel_id === this.channelId && m.author_id && this.isHuman(m) && m.author_role === "player" &&
-      ["ic", "ooc", "narration"].includes(m.kind) && Boolean(String(m.content ?? "").trim());
-  }
+  playerSpeech(...args) { return scheduling.playerSpeech(this, ...args); }
 
-  pauseCommand(m) {
-    return this.playerSpeech(m) && this.isPlannerWindow(m.chat_window_id) &&
-      m.visibility === "window" && String(m.content).trim() === "/pause";
-  }
+  pauseCommand(...args) { return scheduling.pauseCommand(this, ...args); }
 
-  updatePause(m, { historical = false } = {}) {
-    const command = this.pauseCommand(m);
-    if (command) this.pauseLines.add(m.id);
-    if (!this.playerSpeech(m) || m.seq <= this.lastPlayerSeq) return;
-    this.lastPlayerSeq = m.seq;
-    if (!command && !this.generation.paused) return;
-    const changed = command !== this.generation.paused;
-    if (command) {
-      this.generation.pause();
-      this.speakers.clear();
-      for (const pending of this.timers.values()) {
-        clearTimeout(pending.timer);
-        this.pending--;
-        for (const resolve of pending.resolvers) resolve();
-      }
-      this.timers.clear();
-    } else {
-      this.speakers.clear();
-      this.generation.resume();
-    }
-    this.planner.paused = command;
-    this.planner.pauseSeq = m.seq;
-    this.save();
-    if (changed && command && !historical) {
-      const content = this.language === "Simplified Chinese" ? "主持已暂停。频道内下一条玩家发言会恢复主持，已预约的手机消息仍会按时送达。"
-        : this.language === "Traditional Chinese" ? "主持已暫停。頻道內下一則玩家發言會恢復主持，已預約的手機訊息仍會準時送達。"
-        : "Hosting paused. The next player message in this channel resumes play. Scheduled phone messages will still arrive.";
-      return this.post(m.chat_window_id, { kind: "ooc", content }, { count: false, allowPaused: true });
-    }
-  }
+  updatePause(...args) { return scheduling.updatePause(this, ...args); }
 
   // Returns the scheduled turn (settled when it ran), or undefined when the line starts no turn.
-  onMessage(m) {
-    if (!m || m.channel_id !== this.channelId) return;
-    // A picture request in the planner window: handled here, never the planner's, and never a resumption of play.
-    if (this.noteArt(m)) {
-      this.history.add(m);
-      this.noteSeq(m.chat_window_id, m.seq ?? 0);
-      const request = this.artCommand(m);
-      return request === null ? undefined : this.onArtCommand(m, request);
-    }
-    if (this.pauseCommand(m)) {
-      this.history.add(m);
-      return this.updatePause(m);
-    }
-    // Ignore re-delivery of pre-pause events. A newer real utterance resumes first
-    // and then goes through its usual chat, planner or phone handler.
-    if (this.isHuman(m) && m.seq <= this.planner.pauseSeq) return;
-    this.updatePause(m);
-    this.noteLine(m);
-    if (this.generation.paused) return;
-    if (this.isHuman(m) && !this.isPlannerWindow(m.chat_window_id)) this.noteSession(m);
-    // A player's line of play counts toward the calendar's pace (chatter out of character does not).
-    if (this.playerSpeech(m) && m.kind !== "ooc" && !this.isPlannerWindow(m.chat_window_id)) noteCalendarLine(this.calendar);
-    // A correction in chat or the planner window takes effect before the next GM/companion turn.
-    let placement;
-    if (this.isTrigger(m) && (this.isPlannerWindow(m.chat_window_id) || ((this.scene(m.chat_window_id) || m.chat_window_id === this.mainWindow()?.id) &&
-        (m.kind === "ooc" || this.timelines.active().length > 1)))) {
-      placement = this.queue = this.queue.then(this.generation.task(() => this.correctPlacement(m))).catch(e => this.log("placement correction: " + e.message));
-    }
-    if (m && this.isPlannerWindow(m.chat_window_id)) {
-      this.onWishLine(m);
-      return placement;
-    }
-    if (m && m.chat_window_id && m.chat_window_id === this.casual.log) return undefined;   // the GM's own phone log
-    if (m && this.isPhone(m.chat_window_id)) return this.onPhoneLine(m);   // a phone never starts a scene turn
-    if (!this.isTrigger(m)) return undefined;
-    return this.schedule(m.chat_window_id);
-  }
+  onMessage(...args) { return scheduling.onMessage(this, ...args); }
 
   // Waits for a quiet moment in the window, then queues one turn (turns run one at a time). A line arriving before the
   // turn starts restarts the wait; every caller's promise settles when that one turn has run. A human line outranks
   // an autonomous turn; an arrival rides along with whatever turn is pending and never shortens a human's wait.
-  schedule(windowId, { kickoff = false, mode = "human", delay = this.cfg.debounceMs, ...extra } = {}) {
-    const signal = this.generation.signal;
-    if (signal.aborted) return;
-    const existing = this.timers.get(windowId);
-    const pending = existing ?? { resolvers: [], kickoff: false, mode, extra: {} };
-    if (existing && mode === "arrival" && existing.mode === "human") {
-      pending.extra.arrival = extra.arrival;
-      return new Promise((resolve) => pending.resolvers.push(resolve));
-    }
-    clearTimeout(pending.timer);
-    pending.kickoff ||= kickoff;
-    if (mode === "human") { pending.mode = "human"; pending.extra = existing?.extra?.arrival ? { arrival: existing.extra.arrival } : {}; }
-    else if (!existing || mode === "arrival" || mode === "relay" || mode === "phone") { pending.mode = mode; pending.extra = { ...(existing?.extra ?? {}), ...extra }; }
-    if (!existing) this.pending++;
-    pending.origin ??= this.turnScope.getStore() ?? null;   // a turn this one follows from (a recall can cancel it)
-    this.timers.set(windowId, pending);
-    return new Promise((resolve) => {
-      pending.resolvers.push(resolve);
-      pending.timer = setTimeout(() => {
-        this.timers.delete(windowId);
-        const done = () => { this.pending--; for (const r of pending.resolvers) r(); if (!signal.aborted) this.maybePlan(); };
-        this.queue = this.queue.then(this.generation.task(() => this.turn(windowId, { kickoff: pending.kickoff, mode: pending.mode, ...pending.extra }))).catch((e) => this.log(`turn failed: ${e.message}`)).then(done);
-      }, delay);
-    });
-  }
+  schedule(...args) { return scheduling.schedule(this, ...args); }
 
   // ---- one turn
   // Every turn keeps a checkpoint (rollback.mjs): the state it started from, the lines it answers and what it posts, so
@@ -965,953 +572,132 @@ export class Table {
     }
   }
 
-  presenceThreads() {
-    const hidden = this.hiddenLines();
-    return this.timelines.active().filter(t => t.members.length).map(t => {
-      // Reused side windows must not supply records from the previous scene that occupied them.
-      const start = t.id === MAIN ? 0 : this.timelines.log.find(e => e.timelineId === t.id)?.fromSeq ?? 0;
-      const lines = this.sceneHistory(this.windowOf(t)).filter(m => m.seq >= start)
-        .filter(m => m.visibility === "window" && !hidden.has(m.id) && ["ic", "narration", "ooc"].includes(m.kind) &&
-          (!m.character_id || this.timelines.timelineAt(m.character_id, m.seq).id === t.id))
-        .slice(-40).map(m => ({ seq: m.seq, actor: m.character_id || null, kind: m.kind,
-          keeper: m.author_role === "gm" && !m.character_id && m.kind === "narration",
-          speaker: m.character_name || m.author_name || "GM", text: m.content }));
-      return { key: "T" + t.handle, location: t.location, time: t.narrativeTime,
-        members: t.members.map(id => ({ id, name: this.nameOf(id) })), lines };
-    });
-  }
+  presenceThreads(...args) { return windows.presenceThreads(this, ...args); }
 
-  async reconcilePresence(windowId, turn) {
-    const scene = this.scene(windowId);
-    const threads = this.presenceThreads();
-    if (!scene || threads.length < 2) return;
-    const current = "T" + scene.handle;
-    const digest = hashText(JSON.stringify(threads));
-    if (this.presenceChecked?.get(current) === digest) return;
-    let placements;
-    try { placements = await readPresence(this.llm, { current, threads }); }
-    catch (e) { this.generation.signal.throwIfAborted(); this.log("scene presence: " + e.message); return; }
-    this.generation.signal.throwIfAborted();
-    // A newer correction/departure received while the model was thinking invalidates its snapshot.
-    if (hashText(JSON.stringify(this.presenceThreads())) !== digest) return;
-    (this.presenceChecked ??= new Map()).set(current, digest);
-    if (!placements.length) return;
-    const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: scene, windowId },
-      reports: placements.map(p => ({ who: [this.nameOf(p.id)], thread: p.thread })),
-      scopeIds: new Set(placements.map(p => p.id)), mode: "presence", resolve: n => this.investigatorByName(n),
-      isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
-      guard: this.guard, turn, now: this.now(), cfg: this.cfg });
-    // If an entire thread is folded into the Main Chat, keep the confirmed room instead of its stale label.
-    for (const p of placements) {
-      const destination = this.timelines.byHandle(p.thread);
-      const regroup = result.ops.find(o => o.op === "split" && o.replaces === destination.id && o.ids.includes(p.id));
-      if (regroup) { regroup.place = p.place; continue; }
-      const merged = result.ops.find(o => o.op === "merge" && o.from === destination.id);
-      const final = merged?.into || destination.id;
-      const relocation = result.ops.find(o => o.op === "relocate" && o.timeline === final);
-      if (relocation) relocation.location = p.place;
-      else if (result.ops.some(o => o.op === "move" && o.to === final && o.ids.includes(p.id)))
-        result.ops.push({ op: "relocate", timeline: final, location: p.place });
-    }
-    this.log("scene presence: " + placements.map(p => `${this.nameOf(p.id)} joins ${this.nameOf(p.with)} at ${p.place} (#${p.actorSeq}, #${p.targetSeq})`).join("; "));
-    await this.applyPlan(result, { windowId, mode: "presence", turn });
-  }
+  reconcilePresence(...args) { return windows.reconcilePresence(this, ...args); }
 
-  async checkDestinations(windowId, reports, scope, batch, mode) {
-    const messages = this.history.lines(windowId).filter(m => m.visibility === "window");
-    const lines = publicLines(messages);
-    const actors = [];
-    for (const id of scope) {
-      const pc = this.isPc(id);
-      if (pc && !["relay", "human"].includes(mode)) continue;
-      const sources = pc ? batch.filter(l => l.id === id).map(l => l.seq) : messages.filter(m =>
-        m.character_id === id && m.kind === "ic" && m.seq > this.guard.rec(id).changedSeq &&
-        this.timelines.timelineAt(id, m.seq).id === this.timelines.of(id).id).map(m => m.seq);
-      for (const l of batch.filter(l => l.id === id)) {
-        if (!lines.some(m => m.seq === l.seq)) lines.push({ seq: l.seq, speaker: this.nameOf(id), text: l.content, kind: "ic" });
-      }
-      // A quiet character's last decision can precede a busy window's recent tail.
-      for (const seq of sources.slice(-6)) {
-        if (lines.some(l => l.seq === seq)) continue;
-        const at = messages.findIndex(m => m.seq === seq);
-        if (at >= 0) for (const l of publicLines(messages.slice(Math.max(0, at - 2), at + 1))) {
-          if (!lines.some(existing => existing.seq === l.seq)) lines.push(l);
-        }
-      }
-      const present = sources.filter(seq => lines.some(l => l.seq === seq));
-      if (present.length) actors.push({ id, name: this.nameOf(id), sources: present });
-    }
-    lines.sort((a, b) => a.seq - b.seq);
-    const options = new Map();
-    for (const report of reports) {
-      const key = report.thread === "NEW" ? "new:" + placeKey(report.place) : report.thread;
-      if (!options.has(key)) options.set(key, report);
-    }
-    const destinations = [...options].map(([key, r]) => {
-      const t = this.timelines.byHandle(key);
-      return { key, place: t?.location || r.place || t?.name, companions: t?.members.map(id => this.nameOf(id)),
-        recent: t ? publicLines(this.history.lines(this.windowOf(t)).filter(m => !this.hiddenLines().has(m.id))).slice(-16) : [] };
-    });
-    let decisions = [];
-    try { decisions = await readDestinations(this.llm, { lines, actors, destinations }); }
-    catch (e) { this.log("movement evidence: " + e.message); }
-    const checked = [], ignored = [];
-    let disputed = false;
-    for (const [key, r] of options) {
-      const who = decisions.filter(m => m.destination === key).map(m => this.nameOf(m.id));
-      const proposed = reports.filter(other => other.thread === r.thread && (r.thread !== "NEW" || placeKey(other.place) === placeKey(r.place))).flatMap(other => other.who);
-      const target = r.thread === "NEW" ? this.timelines.atPlace(r.place) : this.timelines.byHandle(r.thread);
-      const missing = proposed.map(n => this.investigatorByName(n)).filter(id => id &&
-        this.timelines.of(id) !== target && !who.includes(this.nameOf(id)));
-      const changed = missing.length > 0 || who.some(name => !proposed.some(n => this.investigatorByName(n) === this.investigatorByName(name)));
-      disputed ||= changed;
-      for (const id of missing) ignored.push({ id, why: "their own latest decision does not support this destination" });
-      if (who.length) checked.push({ ...r, who, opening: changed ? "" : r.opening });
-    }
-    return { reports: checked, ignored, disputed };
-  }
+  checkDestinations(...args) { return windows.checkDestinations(this, ...args); }
 
-  async correctPlacement(message) {
-    const threads = this.timelines.active();
-    const allowed = threads.filter(t => this.windowUsers(this.windowOf(t)).includes(message.author_id) ||
-      t.members.some(id => this.isPc(id) && this.userOf(id) === message.author_id));
-    if (!allowed.length) return;
-    const actors = threads.flatMap(t => t.members).filter(id => this.roster.isCoplayer(id) || this.userOf(id) === message.author_id)
-      .map(id => ({ id, name: this.nameOf(id), sources: [message.seq], current: "T" + this.timelines.of(id).handle }));
-    const destinations = threads.map(t => ({ key: "T" + t.handle, place: t.location || t.name, companions: t.members.map(id => this.nameOf(id)) }));
-    const lines = publicLines(this.history.lines(message.chat_window_id).filter(m => m.seq <= message.seq && !this.artLines.has(m.id))).slice(-24);
-    const decisions = await readDestinations(this.llm, { lines, actors, destinations, correction: message.seq });
-    const reports = [];
-    for (const m of decisions) {
-      const target = this.timelines.byHandle(m.destination), from = this.timelines.of(m.id);
-      if (m.destination === "NEW") {
-        if (!allowed.includes(from) || this.timelines.atPlace(m.place)) continue;
-      } else {
-        const restoringPrevious = allowed.includes(from) && this.guard.rec(m.id).prev === target.id;
-        if (target === from || (!allowed.includes(target) && !restoringPrevious)) continue;
-      }
-      if ((this.guard.rec(m.id).correctionSeq ?? 0) >= message.seq) continue;
-      reports.push({ who: [this.nameOf(m.id)], thread: m.destination, place: m.place, ownScene: true, span: "short" });
-    }
-    if (!reports.length) return;
-    const scene = this.scene(message.chat_window_id) || allowed[0];
-    const turn = this.guard.beginTurn();
-    const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: scene }, reports,
-      scopeIds: new Set(decisions.map(m => m.id)), mode: "correction", resolve: n => this.investigatorByName(n),
-      isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
-      guard: this.guard, turn, now: this.now(), cfg: this.cfg });
-    await this.applyPlan(result, { windowId: message.chat_window_id, mode: "correction", turn, correctionSeq: message.seq });
-  }
+  correctPlacement(...args) { return windows.correctPlacement(this, ...args); }
 
-  async postHandoff(windowId, time, upTo) {
-    const hidden = this.hiddenLines();
-    const t = this.scene(windowId);
-    // Side windows can be reused for a different scene. Old occupants' lines belong to their earlier stay.
-    const start = t && t.id !== MAIN ? this.timelines.log.find(e => e.timelineId === t.id)?.fromSeq ?? 0 : 0;
-    const messages = this.history.lines(windowId, { after: Math.max(0, start - 1), upTo }).filter(m => !hidden.has(m.id));
-    const body = await sceneHandoff(this.llm, { messages, time, language: this.language, log: this.log });
-    return this.post(windowId, body);
-  }
+  postHandoff(...args) { return windows.postHandoff(this, ...args); }
 
-  presentPlayers(windowId) {
-    const scene = this.scene(windowId);
-    if (scene) return scene.members.filter((id) => this.isPc(id));
-    return (this.windows.find((w) => w.id === windowId)?.members ?? []).filter((m) => m.user_id !== this.me?.id).map((m) => m.character_id);
-  }
+  presentPlayers(...args) { return windows.presentPlayers(this, ...args); }
 
   // ---- applying whereabouts: platform calls, then local state, then posts and arrivals
-  async channelUsers() { return (await this.channelMemberRows()).users; }
+  channelUsers(...args) { return windows.channelUsers(this, ...args); }
   // The channel's members, cached for a minute (a window.changed event, as when someone joins, drops the cache).
-  async channelMemberRows() {
-    if (!this.memberCache || this.now() - this.memberCache.at > 60000) {
-      const rows = (await this.api.channelMembers(this.channelId).catch(() => null)) ?? null;
-      this.memberCache = { at: this.now(), rows, users: rows ? new Set(rows.map((r) => r.id ?? r.user_id)) : null };
-    }
-    return this.memberCache;
-  }
+  channelMemberRows(...args) { return windows.channelMemberRows(this, ...args); }
 
   // A, with scene forks: restricted forks for the new scenes. Persist the exact parent and idempotency key BEFORE
   // sending a fork request; recovery also covers a server commit whose response was lost. No scene is played until
   // every audience has its fork.
-  async forkScenes(ops, { opId, mode, correctionSeq, result, windowId }) {
-    for (const [i, o] of ops.entries()) if (["split", "fork_main"].includes(o.op)) {
-      o.parentWindowId ??= this.windowOf(this.timelines.get(o.replaces || o.fromTimeline) ?? this.timelines.main());
-      o.requestId ??= `scene:${opId}:${i}`;
-    }
-    this.journal = { opId, mode, correctionSeq, ops, changed: result.changed, windowId, created: [], phase: "A" };
-    this.save();
-    const users = await this.channelUsers();
-    const windowFor = new Map();
-    for (const o of ops.filter(o => ["split", "fork_main"].includes(o.op))) {
-      if (o.legacyWindowId) { windowFor.set(o, o.legacyWindowId); continue; }
-      const pcs = o.ids.filter(id => this.isPc(id));
-      const members = [];
-      for (const id of pcs) {
-        const user_id = this.userOf(id);
-        if (!user_id || (users && !users.has(user_id))) throw Error("Cannot fork a scene for someone outside this channel");
-        if (!members.some(m => m.user_id === user_id)) members.push({ user_id, character_id: id });
-      }
-      const w = await this.api.forkWindow(this.channelId, o.parentWindowId, {
-        name: `${pcs.length ? "Scene" : "Side"}: ${String(o.place).slice(0, 60)}`, kind: "group", members, request_id: o.requestId,
-      });
-      windowFor.set(o, w.id);
-      this.journal.created.push({ windowId: w.id });
-      this.save();
-    }
-    return windowFor;
-  }
+  forkScenes(...args) { return windows.forkScenes(this, ...args); }
 
   // A, without scene forks: a fresh window for each new scene (or a spare/retired one for the same people at the same
   // place). Nothing local changes until they exist; a server failure postpones the whole plan (null).
-  async openSceneWindows(ops, { mode, correctionSeq, result, windowId, turn, lastSeq, dropped, factOf }) {
-    this.journal = { opId: `${turn}-${lastSeq}`, mode, correctionSeq, ops, changed: result.changed, windowId, created: [], phase: "A" };
-    this.save();
-    const users = await this.channelUsers();
-    const windowFor = new Map();
-    const reusedSpares = [];
-    for (const s of ops.filter((o) => o.op === "split" && !o.skip)) {
-      const pcs = s.ids.filter((id) => this.isPc(id));
-      const seatable = pcs.filter((id) => this.userOf(id) && (!users || users.has(this.userOf(id))));
-      for (const id of pcs.filter((p) => !seatable.includes(p))) { s.ids = s.ids.filter((x) => x !== id); dropped.push({ id, why: "not a channel member, so no window can seat them" }); }
-      if (!s.ids.length) { s.skip = true; continue; }
-      const wantUsers = [...new Set(seatable.map((id) => this.userOf(id)))].sort();
-      const key = placeKey(s.place);
-      const spare = this.guard.spare.find((x) => x.placeKey === key && JSON.stringify([...x.users].sort()) === JSON.stringify(wantUsers));
-      const retired = this.windows.find((w) => !w.archived_at && this.timelines.retired(w.id) && placeKey(this.timelines.ofWindow(w.id)?.location) === key && JSON.stringify(this.windowUsers(w.id).sort()) === JSON.stringify(wantUsers));
-      if (spare) { windowFor.set(s, spare.windowId); this.guard.spare = this.guard.spare.filter((x) => x !== spare); reusedSpares.push(spare); continue; }
-      if (retired) { windowFor.set(s, retired.id); continue; }
-      try {
-        const members = [];
-        for (const id of seatable) if (!members.some((m) => m.user_id === this.userOf(id))) members.push({ user_id: this.userOf(id), character_id: id });
-        const w = await this.api.createWindow(this.channelId, { name: `${pcs.length ? "Scene" : "Side"}: ${String(s.place).slice(0, 60)}`, kind: "group", members });
-        windowFor.set(s, w.id);
-        this.journal.created.push({ windowId: w.id, placeKey: key, users: wantUsers });
-        this.save();
-      } catch (e) {
-        if (e.status >= 400 && e.status < 500) { s.skip = true; for (const id of s.ids) dropped.push({ id, why: `the platform refused a window (${e.status})` }); continue; }
-        // A server or network failure: nothing local changes; created windows are kept for reuse; retried later.
-        for (const c of [...this.journal.created, ...reusedSpares]) this.guard.spare.push(c);
-        this.guard.retries[factOf(s)] = (this.guard.retries[factOf(s)] ?? 0) + 1;
-        this.guard.apply(result.guard);
-        this.journal = null;
-        this.save();
-        this.log(`split postponed (${e.message}); ${this.guard.retries[factOf(s)] >= 3 ? "given up after 3 tries" : "will retry"}`);
-        return null;
-      }
-    }
-    for (const o of ops) if (o.op === "split" && !o.skip) delete this.guard.retries[factOf(o)];
-    return windowFor;
-  }
+  openSceneWindows(...args) { return windows.openSceneWindows(this, ...args); }
 
-  async applyPlan(result, { windowId, mode, turn, autonomous = false, quiet = false, correctionSeq = 0, opId = randomUUID() }) {
-    const reconciling = mode === "correction" || mode === "presence";
-    const ops = this.partitionPlan(result.ops.map(o => ({ ...o })));
-    // Without scene forks, a split the platform failed three times is given up (the people stay), so it is not retried
-    // every turn.
-    const factOf = (o) => JSON.stringify([placeKey(o.place), [...o.ids].sort()]);
-    const dropped = [];
-    if (!this.forks) for (const o of ops) if (o.op === "split" && (this.guard.retries[factOf(o)] ?? 0) >= 3) { o.skip = true; dropped.push(...o.ids.map((id) => ({ id, why: "the platform failed to open this scene three times" }))); }
-    if (!ops.some(o => !o.skip)) { this.guard.apply(result.guard); const ig = [...(result.ignored ?? []), ...dropped]; if (ig.length) this.noteIgnored(windowId, ig); return null; }
-    const lastSeq = this.lastSeq;
-    const windowFor = this.forks
-      ? await this.forkScenes(ops, { opId, mode, correctionSeq, result, windowId })
-      : await this.openSceneWindows(ops, { mode, correctionSeq, result, windowId, turn, lastSeq, dropped, factOf });
-    if (!windowFor) return null;
+  applyPlan(...args) { return windows.applyPlan(this, ...args); }
 
-    // B. Commit all local placements together, after every new scene's window exists.
-    const fromSeq = lastSeq + 1;
-    const before = new Map(investigatorsFor(this.characters, this.roster).map((c) => [c.id, this.timelines.of(c.id).id]));
-    const beforeWindows = new Map([...before].map(([id, t]) => [id, this.windowOf(this.timelines.get(t))]));
-    for (const o of ops) if (o.op === "move") this.timelines.move(o.ids, o.to, fromSeq);
-    const created = [];
-    for (const o of ops) {
-      if (o.op !== "split" || o.skip) continue;
-      let t;
-      if (o.primary) {
-        t = this.timelines.move(o.ids, MAIN, fromSeq);
-        this.timelines.bind(MAIN, windowFor.get(o));
-        this.timelines.relocate(MAIN, { location: o.place, narrativeTime: o.time });
-        t.opened = reconciling;
-      } else t = this.timelines.split({ name: o.place, members: o.ids, windowId: windowFor.get(o), returnTo: [windowId], location: o.place, narrativeTime: o.time ?? "", span: o.span, opened: reconciling, fromSeq });
-      if (o.replaces) this.timelines.merge(o.replaces, t.id, fromSeq);
-      created.push({ op: o, timeline: t });
-    }
-    for (const o of ops) if (o.op === "merge") this.timelines.merge(o.from, o.into, fromSeq);
-    for (const o of ops) if (o.op === "relocate") this.timelines.relocate(o.timeline, { location: o.location, narrativeTime: o.narrativeTime });
-    for (const o of ops) if (o.op === "bind_main") this.timelines.bind(MAIN, o.windowId);
-    for (const o of ops.filter(o => o.op === "fork_main")) {
-      this.timelines.bind(MAIN, windowFor.get(o));
-      this.timelines.main().opened = reconciling;
-      created.push({ op: o, timeline: this.timelines.main() });
-    }
-    const after = new Map([...before.keys()].map((id) => [id, this.timelines.of(id).id]));
-    const moved = [...before.keys()].filter((id) => before.get(id) !== after.get(id) || beforeWindows.get(id) !== this.windowOf(this.timelines.of(id)));
-    // Co-players' seats follow their timeline's window, cut per window.
-    const cut = (w) => this.windowSeq.get(w) ?? lastSeq;
-    for (const id of moved) {
-      const cp = this.roster.coplayers.find((c) => c.characterId === id);
-      const target = this.windowOf(this.timelines.of(id));
-      if (cp && target) this.roster.moveSeats([cp], [target], cut, () => fromSeq);
-    }
-    this.guard.apply(result.guard);
-    const travelled = moved.filter(id => before.get(id) !== after.get(id));
-    this.guard.commit(travelled, { turn, now: this.now(), seq: lastSeq, prevOf: (id) => before.get(id), windowed: created.flatMap((c) => c.op.ids.filter((id) => this.isPc(id))) });
-    if (correctionSeq) for (const id of travelled) this.guard.by[id].correctionSeq = correctionSeq;
-    // Scene forks: departed players stop seeing new lines where they were; arrivals see the new scene's from now on.
-    const audience = [];
-    if (this.forks) for (const id of moved.filter(id => this.isPc(id))) {
-      const userId = this.userOf(id), source = beforeWindows.get(id), dest = this.windowOf(this.timelines.of(id));
-      if (source === dest) continue;
-      if (source && source !== this.mainWindow()?.id && !this.scene(source)?.members.some(other => this.isPc(other) && this.userOf(other) === userId))
-        audience.push({ windowId: source, userId, paused: true });
-      if (dest) audience.push({ windowId: dest, userId, characterId: id, paused: false });
-    }
-    this.journal = { ...this.journal, phase: "B", audience };
-    this.checkInvariants();
-    this.save();
-
-    // C. Refresh (the new windows), then D. posts and E. arrivals. A failed refresh never stops the posts.
-    try { await this.refresh(); } catch (e) { this.log(`refresh after a split failed: ${e.message}`); }
-    await this.applyAudience(audience);
-    const ignored = [...(result.ignored ?? []), ...dropped];
-    const summary = [];
-    for (const { op, timeline: t } of created) {
-      const w = t.windowId;
-      if (op.opening) await this.post(w, { content: op.opening, kind: "narration" }, { count: false });
-      const leaving = op.ids.filter((id) => this.isPc(id) && beforeWindows.get(id) !== w);
-      const sources = [...new Set(leaving.map((id) => beforeWindows.get(id)))].filter(Boolean);
-      for (const src of sources) {
-        const to = leaving.filter((id) => beforeWindows.get(id) === src);
-        if (to.length) await this.post(src, { content: `→ "${this.windowName(w)}"`, kind: "narration", visibility: "whisper", whisper_to: to }, { count: false });
-      }
-      summary.push(`${op.ids.map((id) => this.nameOf(id)).join(", ")} → ${t.name} ("${this.windowName(w)}", ${t.span} split)`);
-      if (!reconciling) {
-        const continuing = op.op === "fork_main" && !ops.some(o => o.op === "relocate" && o.timeline === MAIN);
-        if (continuing && !this.deferArrivals) { t.opened = true; this.schedule(w, { mode: "followup", delay: 0 }); }
-        else this.scheduleArrival(w, { names: op.ids.map((id) => this.nameOf(id)), place: t.location, opening: op.opening, reunion: false }, { autonomous, mode });
-      }
-    }
-    // Reunions: everyone who ended in an existing thread, grouped by where they ended, one arrival per window.
-    let here = null;
-    const inNew = new Set(created.flatMap((c) => c.timeline.members));
-    const byWindow = new Map();
-    for (const id of moved) {
-      if (inNew.has(id)) continue;
-      const dest = this.timelines.get(after.get(id));
-      const w = dest && this.windowOf(dest);
-      if (!w) continue;
-      if (!byWindow.has(w)) byWindow.set(w, { dest, ids: [] });
-      byWindow.get(w).ids.push(id);
-    }
-    // A thread merged away points its old window at where its members went (only if some of them went there).
-    for (const o of ops.filter((x) => x.op === "merge")) {
-      const old = this.timelines.get(o.from);
-      if (!old?.windowId) continue;
-      const went = moved.filter((id) => before.get(id) === o.from).map((id) => this.windowOf(this.timelines.get(after.get(id)) ?? this.timelines.main()));
-      const target = went.sort((a, b) => went.filter((x) => x === b).length - went.filter((x) => x === a).length)[0];
-      if (target && target !== old.windowId) await this.post(old.windowId, { content: `→ "${this.windowName(target)}"`, kind: "narration" }, { count: false });
-      // Its scene is over: what happened there becomes a chapter of the GM's memory.
-      this.memory.maintainGm(old.windowId, this.history.lines(old.windowId).filter((m) => !this.hiddenLines().has(m.id)), (m) => this.renderForGm(m), { windowName: this.windowName(old.windowId), whole: true });
-    }
-    for (const [w, { dest, ids }] of byWindow) {
-      summary.push(`${ids.map((id) => this.nameOf(id)).join(", ")} → ${dest.name}`);
-      const arrival = { names: ids.map((id) => this.nameOf(id)), place: dest.location, reunion: true };
-      if (reconciling) continue;
-      if (w === windowId) here = arrival;
-      else this.scheduleArrival(w, arrival, { autonomous, mode });
-    }
-    if (reconciling) {
-      // Correct both casts without announcing a fictional journey or revealing the other room.
-      const affected = new Set(moved.flatMap(id => [before.get(id), after.get(id)]));
-      for (const id of affected) {
-        const t = this.timelines.get(id), w = this.windowOf(t);
-        if (t.status === "active" && w) await this.post(w, {
-          content: correctionNotice(this.language, t.location || t.name, t.members.map(id => this.nameOf(id))), kind: "narration",
-        }, { count: false });
-      }
-    }
-    if (!quiet && summary.length) await this.post(windowId, { content: `Timelines: ${summary.join("; ")}`, kind: "narration", visibility: "gm_only" }, { count: false });
-    if (ignored.length) this.noteIgnored(windowId, ignored);
-    this.journal = null;
-    this.save();
-    await this.archiveRetired();
-    return { here, moved };
-  }
-
-  noteIgnored(windowId, ignored) {
-    const text = ignored.map((i) => `${this.nameOf(i.id)}: ${i.why}`).join("; ");
-    this.post(windowId, { content: `Whereabouts not applied: ${text}`, kind: "narration", visibility: "gm_only" }, { count: false }).catch(() => {});
-  }
+  noteIgnored(...args) { return scheduling.noteIgnored(this, ...args); }
 
   // Arrivals are capped per hour; those that come from autonomous turns also respect the idle pause and the hourly
   // autonomy cap. `force` (roll-forward after a restart, CLI-owed arrivals) skips the caps.
-  scheduleArrival(windowId, arrival, { autonomous = false, force = false } = {}) {
-    if (this.deferArrivals) { this.owedArrivals.push({ windowId, arrival }); return null; }
-    const now = this.now();
-    this.arrivalTimes = this.arrivalTimes.filter((t) => now - t < HOUR);
-    if (!force) {
-      if (this.arrivalTimes.length >= this.cfg.timelineMaxArrivalsPerHour) { this.log(`arrival in "${this.windowName(windowId)}" skipped: hourly arrival cap`); return null; }
-      if (autonomous) {
-        this.autonomousTurns = this.autonomousTurns.filter((t) => now - t < HOUR);
-        if (now - this.lastHumanAt > this.cfg.autonomyIdleMinutes * 60000 || this.autonomousTurns.length >= this.cfg.autonomyMaxTurnsPerHour || this.overBudget()) { this.log("arrival skipped: autonomy paused"); return null; }
-      }
-    }
-    this.arrivalTimes.push(now);
-    return this.schedule(windowId, { mode: "arrival", delay: 0, arrival, autonomous });
-  }
+  scheduleArrival(...args) { return scheduling.scheduleArrival(this, ...args); }
 
   // LLM_DAILY_TOKEN_BUDGET: once today's billable-equivalent tokens reach it, the table stops starting turns of its own
   // (answers to humans still run). Logged once a day.
-  overBudget() {
-    if (!this.cfg.dailyTokenBudget) return false;
-    const day = new Date(this.now()); day.setHours(0, 0, 0, 0);
-    const spent = billableTokens(this.store.usageSince(day.getTime()));
-    if (spent < this.cfg.dailyTokenBudget) return false;
-    if (this.budgetNoted !== day.getTime()) { this.budgetNoted = day.getTime(); this.log(`daily token budget reached (${spent} of ${this.cfg.dailyTokenBudget}): no autonomous turns until tomorrow`); }
-    return true;
-  }
+  overBudget(...args) { return scheduling.overBudget(this, ...args); }
 
   // After every change: each co-player has one open seat, in its timeline's window; every investigator is in one
   // active timeline; every active thread other than the main one has a window. Violations are logged and repaired.
-  checkInvariants() {
-    const ids = investigatorsFor(this.characters, this.roster).map((c) => c.id);
-    const counts = new Map(ids.map((id) => [id, 0]));
-    for (const t of this.timelines.active()) for (const id of t.members) counts.set(id, (counts.get(id) ?? 0) + 1);
-    if ([...counts.values()].some((n) => n !== 1)) { this.log("invariant: an investigator was in zero or several timelines; repaired"); this.timelines.reconcile(ids); }
-    for (const t of this.timelines.active()) if (t.id !== MAIN && !t.windowId) { this.log(`invariant: thread "${t.name}" had no window; merged`); this.timelines.merge(t.id, MAIN, this.lastSeq + 1); }
-    for (const cp of this.roster.coplayers) {
-      const want = this.windowOf(this.timelines.of(cp.characterId));
-      const open = openWindows(cp);
-      if (want && !(open.length === 1 && open[0] === want)) {
-        this.log(`invariant: ${cp.name}'s seat did not match its timeline; repaired`);
-        this.roster.moveSeats([cp], [want], (w) => this.windowSeq.get(w) ?? this.lastSeq);
-      }
-    }
-  }
+  checkInvariants(...args) { return scheduling.checkInvariants(this, ...args); }
 
   // ---- the GM's moves. Returns how many lines were posted.
-  async act(windowId, a, ctx, { mode, parent = mode, scope = null, evidenceThrough } = {}) {
-    this.generation.signal.throwIfAborted();
-    switch (a.type) {
-      case "time_skip": {
-        const scene = this.scene(windowId);
-        const time = typeof a.time === "string" && a.time.trim().slice(0, 120);
-        if (!scene || !time || scene.narrativeTime === time) return 0;
-        this.timelines.relocate(scene.id, { narrativeTime: time });
-        this.save();
-        return this.postHandoff(windowId, time, evidenceThrough);
-      }
-      case "narrate": return this.post(windowId, { content: a.text, kind: "narration" });
-      case "note": return this.post(windowId, { content: a.text, kind: "narration", visibility: "gm_only" });
-      case "truth":
-        if (this.improv.on && addTruth(this.improv, a.text)) { this.log(`hidden truth recorded: ${a.text.slice(0, 100)}`); this.save(); this.declare(a.text, true); }
-        return 0;
-      case "world_change": this.declare(a.text, a.secret === true || a.secret === "true"); return 0;
-      case "planner_note": return this.plannerNote(a);
-      case "date": {
-        if (!this.calendarOn()) return 0;
-        // While the planner is on, the story's first date is its to choose (from the era, the world and its plots).
-        const first = !this.calendar.date && a.date && this.plannerMode() !== "off";
-        if (first) this.log(`calendar: the GM's first date "${a.date}" left to the story planner`);
-        const change = this.moveCalendar({ days: a.advance_days, date: first ? undefined : a.date, time: a.time, why: a.reason ?? a.text, by: "keeper" });
-        const held = await this.calendarHeld(windowId, change);
-        if (change.changed && change.from && change.to) {
-          const scene = this.scene(windowId);
-          if (scene && a.time) { this.timelines.relocate(scene.id, { narrativeTime: a.time }); this.save(); }
-          return held + await this.postHandoff(windowId, change.to, evidenceThrough);
-        }
-        return held;
-      }
-      case "bond": this.recordBond(a, "keeper"); return 0;
-      case "dice": return this.gmDice(windowId, a);
-      case "text": return this.casualOn() ? this.sendText(a) : 0;
-      case "npc":
-      case "new_npc": {
-        const who = this.characterByName(a.name);
-        if (this.roster.coplayerByName(a.name) || who?.kind === "pc") { this.log(`the GM tried to voice ${a.name}, a ${this.roster.isCoplayer(who?.id) || !who ? "co-player" : "player character"}; skipped`); return 0; }
-        let npc = this.roster.npcByName(a.name);
-        if (!npc && a.type === "npc") {
-          // Not posted: a misspelled or invented name must not create a character by accident. The note tells the next
-          // round how to bring a new person in.
-          this.log(`the GM named an unknown NPC (${a.name}); skipped instead of creating a character`);
-          await this.post(windowId, { content: `Not posted: ${a.name} is not in the cast, and npc only voices someone in it. If this is a new person who passes the three tests for new people, introduce them with new_npc (name, brief, first line); otherwise use a cast member or keep them unnamed in narration.`, kind: "narration", visibility: "gm_only" }, { count: false });
-          return 0;
-        }
-        if (!npc) npc = await this.createNpc(a.name, a.brief, ctx.text);
-        if (!npc || !a.text) return 0;
-        if (this.pbta && a.move_id) {
-          const sheet = this.characters.find(c => c.id === npc.characterId);
-          const move = this.pbta.pack.moves.find(m => m.id === a.move_id);
-          if (!sheet || !move || /^[.。]/.test(a.text.trim())) return 0;
-          await prepareActor(this.api, this.llm, this.channelId, {
-            rules: this.pbta, language: this.language, world: this.improv.world, existing: sheet,
-            npc: true, requiredBook: move.book,
-          });
-          const line = await this.api.postMessage(this.channelId, windowId, {
-            content: a.text, kind: "ic", character_id: npc.characterId,
-          });
-          this.noteLine(line);
-          const result = await this.api.pbtaRuling(this.channelId, windowId, {
-            op: "move", source_id: line.id, character_id: npc.characterId, move_id: move.id,
-            modifier: a.modifier ?? 0, revision: this.pbta.revision,
-          });
-          this.noteLine(result);
-          return 2;
-        }
-        return this.post(windowId, { content: a.text, kind: "ic", character_id: npc.characterId });
-      }
-      case "illustrate": return this.illustrateMoment(windowId, a);
-      case "event_done": return this.eventDone(windowId, a);
-      case "whisper": {
-        const target = this.characterByName(a.to);
-        if (!target) return this.post(windowId, { content: `(whisper for ${a.to}) ${a.text}`, kind: "narration", visibility: "gm_only" });
-        return this.post(windowId, { content: a.text, kind: "narration", visibility: "whisper", whisper_to: [target.id] });
-      }
-      case "ask":
-      case "mark":
-      case "move": {
-        if (!this.pbta) return 0;
-        const target = this.characters.find(c => c.id === a.character_id);
-        if (!target || (scope && target.kind === "pc" && !scope.has(target.id))) return 0;
-        if (a.type === "move" && target.kind === "npc" && !target.role_card?.pbta?.book) {
-          const move = this.pbta.pack.moves.find(m => m.id === a.move_id);
-          if (!move) return 0;
-          await prepareActor(this.api, this.llm, this.channelId, {
-            rules: this.pbta, language: this.language, world: this.improv.world, existing: target,
-            npc: true, requiredBook: move.book,
-          });
-        }
-        const result = await this.api.pbtaRuling(this.channelId, windowId, { ...a, op: a.type, revision: this.pbta.revision });
-        this.noteLine(result);
-        this.cards.delete(target.id);
-        return 1;
-      }
-      case "request_roll": return this.pbta ? 0 : this.requestRoll(windowId, a, scope);
-      case "split": return this.cfg.timelineAuto ? 0 : this.legacySplit(windowId, a);
-      case "rejoin": return this.cfg.timelineAuto ? 0 : this.legacyRejoin(a);
-      case "timeline": {
-        const t = this.timelines.byName(a.timeline) ?? this.timelines.main();
-        const changed = a.narrative_time && a.narrative_time !== t.narrativeTime;
-        this.updateTimeline(a);
-        const w = this.windowOf(t);
-        return changed && w ? this.postHandoff(w, t.narrativeTime, evidenceThrough) : 0;
-      }
-      case "advance_scenario":
-      case "enter_scenario": return this.changeScenario(windowId, a, mode, parent, evidenceThrough);
-      default: return 0;
-    }
-  }
+  act(...args) { return actions.act(this, ...args); }
 
-  async requestRoll(windowId, a, scope = null) {
-    const command = String(a.command ?? "").trim();
-    const target = this.characterByName(a.who);
-    if (!this.profile.roll.test(command) || !target) return a.text ? this.post(windowId, { content: a.text, kind: "narration" }) : 0;
-    // Only someone in this scene (or a player writing here from elsewhere) can be asked to roll for it.
-    if (scope && (this.isPc(target.id) || this.roster.isCoplayer(target.id)) && !scope.has(target.id)) {
-      return this.post(windowId, { content: `Roll request for ${target.name} not posted: they are not in this scene.`, kind: "narration", visibility: "gm_only" });
-    }
-    let n = 0;
-    if (this.roster.isCoplayer(target.id) || this.roster.isNpc(target.id)) {
-      // The client rolls for the characters it plays; the platform rolls against their own sheets.
-      if (a.text) n += await this.post(windowId, { content: a.text, kind: "narration" });
-      n += await this.post(windowId, { content: command, kind: "ic", character_id: target.id });
-      return n;
-    }
-    // A player's roll is asked for, never made, and asked in the player's own scene.
-    const home = this.isPc(target.id) ? this.windowOf(this.timelines.of(target.id)) : null;
-    return this.post(home ?? windowId, { content: `${a.text ? `${a.text}\n` : ""}→ ${target.name}: ${command}`, kind: "narration" });
-  }
+  requestRoll(...args) { return actions.requestRoll(this, ...args); }
 
   // The GM's own dice (D&D: a monster's initiative, the order, plain rolls), posted as the GM account's line so the
   // platform rolls it; it has no character, so nothing is rolled against a sheet.
-  async gmDice(windowId, a) {
-    const command = String(a.command ?? "").trim();
-    if (!this.profile.gmDice?.test(command)) { this.log(`dice "${command}" skipped: not a command the GM may run`); return 0; }
-    let n = 0;
-    if (a.text) n += await this.post(windowId, { content: a.text, kind: "narration" });
-    n += await this.post(windowId, { content: command, kind: "narration" });
-    this.initiative.delete(windowId);
-    return n;
-  }
+  gmDice(...args) { return actions.gmDice(this, ...args); }
 
   // ---- scenarios
   // `parent` is the turn's own mode: a followup round inside a quiet, side or arrival turn is still autonomous.
-  async scenarioVerdict(windowId, mode, parent = mode) {
-    if (mode === "manual") return { ok: true };
-    if (!this.cfg.scenarioAuto) return { ok: false, reason: "automatic scenario changes are off" };
-    if (windowId !== this.primaryWindowId()) return { ok: false, reason: this.forks ? "only from the primary scene" : "only from the Main Chat" };
-    if (!["human", "followup"].includes(mode) || !["human", "relay"].includes(parent)) return { ok: false, reason: "only right after a player's or co-player's line, never in an autonomous turn" };
-    const short = this.timelines.active().find((t) => t.id !== MAIN && t.span !== "long");
-    if (short) return { ok: false, reason: `the party is briefly split ("${short.name}"): bring them together first` };
-    const minutes = (this.now() - (this.scenario?.since ?? 0)) / 60000;
-    // The story planner's "move on" lifts the pace guard (not the other rules).
-    if (this.planner.arc?.verdict?.moveOn) return { ok: true, planner: true };
-    if (minutes < this.cfg.scenarioMinMinutes) return { ok: false, reason: `the current scenario began ${Math.floor(minutes)} min ago (at least ${this.cfg.scenarioMinMinutes})` };
-    const scenes = (await this.api.scenes(this.channelId).catch(() => [])) ?? [];
-    const cur = scenes.find((s) => s.id === this.channel.current_scene_id || s.id === this.scenario?.id);
-    const events = Number(cur?.event_count ?? 0);
-    if (cur && events < this.cfg.scenarioMinLines) return { ok: false, reason: `only ${events} lines in the current scenario (at least ${this.cfg.scenarioMinLines})` };
-    return { ok: true, scenes };
-  }
+  scenarioVerdict(...args) { return actions.scenarioVerdict(this, ...args); }
 
-  async changeScenario(windowId, a, mode, parent = mode, evidenceThrough) {
-    const v = await this.scenarioVerdict(windowId, mode, parent);
-    if (!v.ok) return this.post(windowId, { content: `Scenario change refused: ${v.reason}.`, kind: "narration", visibility: "gm_only" });
-    // A scenario change that jumps days ahead keeps to the calendar's pace: refused whole, so the new scene's time and
-    // the date never disagree.
-    if (this.calendarOn() && Number(a.advance_days) > 0 && mode !== "manual") {
-      const { minMinutes, minLines } = this.calendarPaceCfg();
-      const p = calendarPace(this.calendar, { now: this.now(), minMinutes, minLines });
-      if (!p.ok) return this.post(windowId, { content: `Scenario change refused: the date moved on too recently to jump ahead again (${p.wait} first). Change the scenario within the same day (advance_days 0), or let the day play out.`, kind: "narration", visibility: "gm_only" });
-    }
-    // The scenario that ends here, for its pictures: the timelines a player is in, read before anything moves.
-    const ending = this.endingScenario(v.scenes);
-    try {
-      let res;
-      if (a.type === "enter_scenario") {
-        const scenes = v.scenes ?? (await this.api.scenes(this.channelId));
-        const target = scenes.find((s) => s.status === "active" && s.id !== this.channel.current_scene_id && (norm(s.title) === norm(a.scenario) || s.id === a.scenario));
-        if (!target) return this.post(windowId, { content: `Scenario change refused: no prepared scenario "${a.scenario}".`, kind: "narration", visibility: "gm_only" });
-        res = await this.api.enterScenario(this.channelId, target.id);
-      } else {
-        res = await this.api.advanceScenario(this.channelId, { title: a.title ?? "", location: a.location ?? "", narrative_time: a.narrative_time ?? "" });
-      }
-      const scene = res?.scene;
-      this.channel.current_scene_id = scene?.id ?? this.channel.current_scene_id;
-      this.scenario = { id: this.channel.current_scene_id, since: this.now(), fromSeq: this.lastSeq + 1 };
-      const oldTime = this.timelines.main().narrativeTime;
-      this.timelines.relocate(MAIN, { location: scene?.location || a.location, narrativeTime: scene?.narrative_time || a.narrative_time });
-      const moved = Number(a.advance_days) > 0 && this.calendarOn() ? this.moveCalendar({ days: a.advance_days, why: `scenario: ${scene?.title ?? a.title ?? a.scenario ?? ""}`, by: "keeper" }) : null;
-      const held = moved ? await this.calendarHeld(windowId, moved) : 0;
-      this.beatClosed();   // the planner's "move on" is spent; the next plan opens the next beat
-      this.save();
-      this.log(`scenario: ${scene?.title ?? a.title ?? a.scenario} (${a.reason ?? "the story moved on"})`);
-      // Outside this turn: a recall that rolls the turn back keeps the scenario change, and so its pictures.
-      const pictures = await ending;
-      this.pictureChain = this.pictureChain.then(() => this.turnScope.exit(() => this.generation.tasks.exit(() => this.illustrateScenario(pictures)))).catch((e) => this.log(`scenario pictures: ${e.message}`));
-      this.illustrating = this.pictureChain.then(() => this.draining);
-      const time = this.timelines.main().narrativeTime;
-      const advancedDay = Boolean(moved?.changed);
-      if ((time && time !== oldTime) || advancedDay) return held + await this.postHandoff(windowId, advancedDay ? describeCalendar(this.calendar, { time }) : time, evidenceThrough);
-      return held;
-    } catch (e) {
-      return this.post(windowId, { content: `Scenario change failed: ${e.message}`, kind: "narration", visibility: "gm_only" });
-    }
-  }
+  changeScenario(...args) { return actions.changeScenario(this, ...args); }
 
   // ---- illustrations (illustrations.mjs)
-  illustrationsOn() { return this.cfg.illustrations?.enabled !== false && !this.illustrationOff && this.illustrationsAllowed(); }
+  illustrationsOn(...args) { return art.illustrationsOn(this, ...args); }
   // Whether the platform's switches allow drawing here: the server's maintainers and the GM can each turn it off.
-  illustrationsAllowed() { return this.illustrationSwitches.server && this.illustrationSwitches.channel; }
-  async readIllustrationSwitches({ server = true } = {}) {
-    const channel = await this.api.channel(this.channelId);
-    this.illustrationSwitches.channel = channel.illustrations_enabled !== false;
-    if (server) { const s = await this.api.serverSettings(channel.server_id ?? this.channel.server_id); this.illustrationSwitches.server = s?.features?.illustrations !== false; }
-  }
+  illustrationsAllowed(...args) { return art.illustrationsAllowed(this, ...args); }
+  readIllustrationSwitches(...args) { return art.readIllustrationSwitches(this, ...args); }
 
   // One request to the platform. Returns {job} or {failure: "disabled" | "unavailable" | "busy" | "rate_limited" | "error"}.
-  async requestIllustration(windowId, { text, who, orientation }) {
-    const ids = [...new Set(who.map((n) => this.characterByName(n)?.id).filter(Boolean))].slice(0, MAX_CHARACTERS);
-    try {
-      const job = await this.api.illustrate(this.channelId, windowId, { prompt: text, character_ids: ids, orientation, allow_cloud: this.cfg.illustrations?.allowCloud !== false, request_id: randomUUID() });
-      this.log(`illustration requested in "${this.windowName(windowId)}"${ids.length ? ` with ${ids.map((id) => this.nameOf(id)).join(", ")}` : ""}: ${text.slice(0, 100)}`);
-      return { job };
-    } catch (e) {
-      const failure = illustrationFailure(e);
-      if (failure === "unavailable") { this.illustrationOff = e.message; this.log(`illustrations are off: the platform cannot draw here (${e.message})`); }
-      else if (failure === "disabled") {
-        // Turned off on the platform since the table last looked: learn which switch, so it is followed from now on.
-        await this.readIllustrationSwitches().catch(() => { this.illustrationSwitches.channel = false; });
-        this.log(`illustrations are turned off by the server's maintainers or the GM (${e.message})`);
-      }
-      else this.log(`illustration not requested (${failure}): ${e.message}`);
-      return { failure };
-    }
-  }
+  requestIllustration(...args) { return art.requestIllustration(this, ...args); }
 
   // The GM's illustrate action: rare by rule, capped per hour here; it posts no line now (the picture arrives later).
-  async illustrateMoment(windowId, a) {
-    if (!this.illustrationsOn()) return 0;
-    const now = this.now();
-    this.illustrationTimes = this.illustrationTimes.filter((t) => now - t < HOUR);
-    if (this.illustrationTimes.length >= (this.cfg.illustrations?.maxPerHour ?? 0)) { this.log("illustration skipped: the hourly limit is reached"); return 0; }
-    const n = normalizeIllustration(a);
-    if (!n.text) return 0;
-    if (this.illustrationRunning) { this.log("illustration skipped: a scenario picture is being drawn"); return 0; }
-    const r = await this.requestIllustration(windowId, n);
-    if (r.job) { this.illustrationTimes.push(now); this.recordPicture(n.text, windowId); const turn = this.turnScope.getStore(); if (turn?.running) turn.illustrations.push(r.job.id); }
-    return 0;
-  }
+  illustrateMoment(...args) { return art.illustrateMoment(this, ...args); }
 
   // ---- small events (the GM's event_done): each one's most striking moment, drawn where it was played
   // Where the current small event in a window began: after the last one there, the scenario's start, or the start of
   // the scene the window now holds (a reused scene window).
-  eventStart(windowId) {
-    const scene = this.scene(windowId);
-    const sceneStart = scene && scene.id !== MAIN ? (this.timelines.log.find((e) => e.timelineId === scene.id)?.fromSeq ?? 1) - 1 : 0;
-    return Math.max(this.eventMarks.get(windowId) ?? 0, (this.scenario?.fromSeq ?? 1) - 1, sceneStart);
-  }
+  eventStart(...args) { return art.eventStart(this, ...args); }
 
   // The event ends here; its picture is chosen after the turn, in order with every other picture's choice, unless no
   // player is here to see it, pictures are off, the event is too short, or the hour's in-play pictures are spent.
-  eventDone(windowId, a) {
-    const from = this.eventStart(windowId), upTo = this.lastSeq, event = String(a.text ?? "").trim().slice(0, 200);
-    this.eventMarks.set(windowId, upTo);
-    if (!this.illustrationsOn()) return 0;
-    if (!this.presentPlayers(windowId).length) { this.log(`event "${event}": no picture, no player is here`); return 0; }
-    if (this.history.lines(windowId, { after: from, upTo }).filter(drawable).length < EVENT_MIN_LINES) { this.log(`event "${event}": no picture, too short`); return 0; }
-    const now = this.now();
-    this.illustrationTimes = this.illustrationTimes.filter((t) => now - t < HOUR);
-    if (this.illustrationTimes.length >= (this.cfg.illustrations?.maxPerHour ?? 0)) { this.log(`event "${event}": no picture, the hourly limit is reached`); return 0; }
-    this.illustrationTimes.push(now);
-    const job = { windowId, event, from, upTo, turn: this.turnScope.getStore() ?? null, scenario: this.scenario ? { ...this.scenario } : null };
-    this.pictureChain = this.pictureChain
-      .then(() => this.turnScope.exit(() => this.generation.tasks.exit(() => this.drawEvent(job))))
-      .catch((e) => this.log(`event picture: ${e.message}`));
-    this.illustrating = this.pictureChain.then(() => this.draining);
-    return 0;
-  }
+  eventDone(...args) { return art.eventDone(this, ...args); }
 
-  async drawEvent({ windowId, event, from, upTo, turn, scenario }) {
-    if (turn?.undone) return;
-    const lines = this.history.lines(windowId, { after: from, upTo }).filter(drawable).slice(-EVENT_MAX_LINES);
-    if (!lines.length) return;
-    const scene = this.scene(windowId);
-    const cast = this.characters.filter((c) => this.isPc(c.id) || this.roster.isCoplayer(c.id) || this.roster.isNpc(c.id)).map((c) => c.name);
-    const title = scenario?.id ? ((await this.api.scenes(this.channelId).catch(() => [])) ?? []).find((x) => x.id === scenario.id)?.title ?? "" : "";
-    const moment = await pickEventMoment(this.llm, { language: this.language, event, scenario: title, place: scene?.location, time: scene?.narrativeTime, era: this.channel.era ?? "",
-      cast, lines: scenarioLines(lines, (id) => this.nameOf(id)), drawn: this.drawnIn(scenario) });
-    if (turn?.undone) return;
-    this.recordPicture(moment.text, windowId, scenario?.id);
-    this.log(`event picture of "${event}" in "${this.windowName(windowId)}": ${moment.why || moment.text.slice(0, 80)}`);
-    this.illustrationQueue.push({ windowId, moment, tries: 0, turn });
-    this.drainIllustrations().catch((e) => this.log(`pictures: ${e.message}`));   // the next choice need not wait for the drawing
-  }
+  drawEvent(...args) { return art.drawEvent(this, ...args); }
 
   // A picture chosen or asked for, under the scenario it belongs to.
-  recordPicture(text, windowId, scenarioId = this.scenario?.id ?? null) {
-    this.pictureLog = [...this.pictureLog, { text: String(text), windowId, scenarioId, seq: this.lastSeq }].slice(-60);
-  }
+  recordPicture(...args) { return art.recordPicture(this, ...args); }
 
   // The descriptions of the pictures of a scenario ({id, fromSeq, since}): the picture lines posted since it began in
   // every window, and those chosen this run and not posted yet; the newest twelve.
-  drawnIn(scenario) {
-    if (!scenario) return [];
-    const inScenario = (m) => (Number.isFinite(scenario.fromSeq) ? m.seq >= scenario.fromSeq : !m.created_at || Date.parse(m.created_at) >= (scenario.since ?? 0));
-    const texts = [];
-    for (const w of this.windows) for (const m of this.history.lines(w.id, { after: Math.max(0, (scenario.fromSeq ?? 1) - 1) })) {
-      if (!this.isHuman(m) && m.media_asset_id && inScenario(m)) texts.push({ seq: m.seq, text: String(m.content ?? "").replace(/^🖼️?\s*/u, "") });
-    }
-    for (const p of this.pictureLog) if (p.scenarioId === scenario.id) texts.push({ seq: p.seq, text: p.text });
-    const seen = new Set();
-    return texts.sort((a, b) => a.seq - b.seq).filter((t) => t.text && !seen.has(norm(t.text)) && seen.add(norm(t.text))).slice(-12).map((t) => t.text);
-  }
+  drawnIn(...args) { return art.drawnIn(this, ...args); }
 
   // Before a scenario change: the timelines a player is in, each with its window and the lines of the scenario there.
-  async endingScenario(scenes) {
-    // Read now, before the change moves anyone or posts the next scene; only the title waits for the platform.
-    const id = this.channel.current_scene_id;
-    // Its lines: from the seq it began at (older state files know only when: a line without a time is kept).
-    const own = this.scenario?.id === id, fromSeq = own ? this.scenario.fromSeq ?? null : 0, since = own ? this.scenario.since ?? 0 : 0, upTo = this.lastSeq;
-    const inScenario = (m) => (fromSeq !== null ? m.seq >= fromSeq : !m.created_at || Date.parse(m.created_at) >= since);
-    const threads = this.timelines.active().filter((t) => t.members.some((m) => this.isPc(m))).map((t) => {
-      const windowId = this.windowOf(t);
-      const lines = windowId ? this.history.lines(windowId, { upTo }).filter((m) => m.visibility === "window" && ["ic", "narration", "roll"].includes(m.kind) &&
-        !m.media_asset_id && inScenario(m)) : [];
-      return { name: t.name, place: t.location, time: t.narrativeTime, lines };
-    });
-    const list = scenes ?? (await this.api.scenes(this.channelId).catch(() => []));
-    return { title: (list ?? []).find((sc) => sc.id === id)?.title ?? "", threads, scenario: { id, fromSeq: fromSeq ?? undefined, since } };
-  }
+  endingScenario(...args) { return art.endingScenario(this, ...args); }
 
   // After a scenario change: always one picture per timeline a player was in, of its most brilliant, beautiful moment,
   // all posted in the Main Chat.
-  async illustrateScenario(ending) {
-    const main = this.mainWindow();
-    if (!this.illustrationsOn() || !main || !ending) return;
-    const cast = this.characters.filter((c) => this.isPc(c.id) || this.roster.isCoplayer(c.id) || this.roster.isNpc(c.id)).map((c) => c.name);
-    for (const thread of ending.threads) {
-      if (!thread.lines.length) continue;
-      const moment = await pickScenarioMoment(this.llm, { language: this.language, title: ending.title, place: thread.place, time: thread.time, era: this.channel.era ?? "",
-        cast, lines: scenarioLines(thread.lines, (id) => this.nameOf(id)), drawn: this.drawnIn(ending.scenario) });
-      this.recordPicture(moment.text, main.id, ending.scenario?.id ?? null);
-      this.log(`scenario picture of "${thread.name}": ${moment.why || moment.text.slice(0, 80)}`);
-      this.illustrationQueue.push({ windowId: main.id, moment, tries: 0 });
-    }
-    this.drainIllustrations().catch((e) => this.log(`pictures: ${e.message}`));
-  }
+  illustrateScenario(...args) { return art.illustrateScenario(this, ...args); }
 
   // Waiting pictures, one at a time: each waits for the account's previous picture to be drawn. Every caller gets the
   // same promise, settled when the queue is empty.
-  drainIllustrations() {
-    if (this.illustrationRunning) return this.draining ?? Promise.resolve();
-    this.illustrationRunning = true;
-    this.draining = this.drainQueue();
-    return this.draining;
-  }
-  async drainQueue() {
-    try {
-      while (this.illustrationQueue.length && this.illustrationsOn()) {
-        const item = this.illustrationQueue[0];
-        const drop = () => { const i = this.illustrationQueue.indexOf(item); if (i >= 0) this.illustrationQueue.splice(i, 1); };
-        if (item.turn?.undone) { drop(); continue; }   // the turn that ended its event was rolled back
-        const r = await this.requestIllustration(item.windowId, item.moment);
-        if (r.job) item.turn?.illustrations.push(r.job.id);
-        if (r.job) { drop(); const job = await this.waitIllustration(r.job.id, item.done ? 3000 : 10000); item.done?.(job && job.status !== "completed" ? { failure: job.status === "cancelled" ? "cancelled" : "error" } : { job: r.job }); continue; }
-        // A player waits for a busy account, but not for the hourly cap.
-        const patience = item.done ? (r.failure === "busy" ? 40 : 0) : 20;
-        if (["busy", "rate_limited"].includes(r.failure) && ++item.tries <= patience) { await this.sleep(r.failure === "busy" ? 15000 : 120000); continue; }
-        this.log(`${item.done ? "requested" : item.turn !== undefined ? "event" : "scenario"} picture dropped (${r.failure})`);
-        drop();
-        item.done?.({ failure: r.failure });
-      }
-    } finally { this.illustrationRunning = false; }
-    // Pictures can no longer be drawn: a player still waiting is told so.
-    for (const item of this.illustrationQueue.filter((x) => x.done)) { this.illustrationQueue.splice(this.illustrationQueue.indexOf(item), 1); item.done({ failure: this.illustrationsAllowed() ? "unavailable" : "disabled" }); }
-  }
+  drainIllustrations(...args) { return art.drainIllustrations(this, ...args); }
+  drainQueue(...args) { return art.drainQueue(this, ...args); }
 
   // Until the platform has drawn (or failed) a picture, at most ten minutes, looking every `every` ms (a player waiting
   // for their picture is let go sooner).
-  async waitIllustration(id, every = 10000) {
-    for (let i = 0; i < Math.ceil(600000 / every); i++) {
-      const job = ((await this.api.illustrations(this.channelId).catch(() => [])) ?? []).find((j) => j.id === id);
-      if (!job || !["pending", "running"].includes(job.status)) return job ?? null;
-      await this.sleep(every);
-    }
-    return null;
-  }
+  waitIllustration(...args) { return art.waitIllustration(this, ...args); }
 
   // ---- pictures of past plots, asked for in the planner window (plotArt.mjs)
   // The request in a player's command line in the planner window ("" when it names nothing), or null.
-  artCommand(m) {
-    return this.playerSpeech(m) && this.isPlannerWindow(m.chat_window_id) && m.visibility === "window" ? artRequest(m.content) : null;
-  }
+  artCommand(...args) { return art.artCommand(this, ...args); }
 
   // A command line, the table's reply about a picture, or the picture itself, in the planner window: kept out of the
   // planner's inbox and of every context. True for such a line.
-  noteArt(m) {
-    if (!m || !this.isPlannerWindow(m.chat_window_id)) return false;
-    const art = this.artCommand(m) !== null || (!this.isHuman(m) && isArtLine(m));
-    if (art) this.artLines.add(m.id);
-    return art;
-  }
+  noteArt(...args) { return art.noteArt(this, ...args); }
 
   // A player's request: answered in the planner window at once, drawn there as soon as the platform can. One request
   // in flight per player, at most illustrations.requests_per_hour an hour each.
-  onArtCommand(m, request) {
-    if (this.artHandled.has(m.id)) return undefined;
-    this.artHandled.add(m.id);
-    const user = m.author_id;
-    const say = (key, vars) => this.post(m.chat_window_id, { kind: "ooc", content: artText(this.language, key, vars) }, { count: false, allowPaused: true });
-    if (!request) return say("usage");
-    const cap = this.cfg.illustrations?.requestsPerHour ?? 4;
-    if (this.cfg.illustrations?.enabled === false || cap <= 0 || !this.illustrationsAllowed()) return say("off");
-    if (!this.illustrationsOn()) return say("unavailable");
-    if (this.artBusy.has(user)) return say("busy");
-    const now = this.now(), times = (this.artTimes.get(user) ?? []).filter((t) => now - t < HOUR);
-    if (times.length >= cap) return say("limit", { n: times.length });
-    this.artTimes.set(user, [...times, now]);
-    this.artBusy.add(user);
-    this.log(`picture requested by ${m.author_name || "a player"} in the planner window: ${request.slice(0, 100)}`);
-    // Outside any turn (a recall rollback never touches it) and outside the pause (it is not play).
-    return this.turnScope.exit(() => this.generation.tasks.run(this.artSignal, async () => {
-      await say("searching");
-      const outcome = await this.drawPastPlot(m, request);
-      if (outcome) await say(outcome);
-    })).catch(async (e) => { this.log(`picture request: ${e.message}`); await say("failed"); }).finally(() => this.artBusy.delete(user));
-  }
+  onArtCommand(...args) { return art.onArtCommand(this, ...args); }
 
   // Finds the stretch of play the player means and has its moment drawn into the planner window. Returns the reply to
   // post when there is no picture ("notFound", "unavailable", "rateLimited", "failed"), else null.
-  async drawPastPlot(m, request) {
-    const user = m.author_id;
-    // Every window of play, other players' and co-players' scenes too (a picture of someone else's scene is fine at a
-    // casual table); never a table window (the planner window, phones, the phone log).
-    const readable = this.windows.filter((w) => !this.isTableWindow(w.id));
-    const ids = new Set(readable.map((w) => w.id));
-    if (!ids.size) return "notFound";
-    const mine = this.characters.filter((c) => c.user_id === user && this.isPc(c.id)).map((c) => c.name);
-    const cast = this.characters.filter((c) => this.isPc(c.id) || this.roster.isCoplayer(c.id) || this.roster.isNpc(c.id)).map((c) => c.name);
-    const scenes = ((await this.api.scenes(this.channelId).catch(() => [])) ?? []).filter((x) => x.title || x.summary)
-      .sort((a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0));
-    const scenarios = scenes.map((x, i) => ({ key: `S${i + 1}`, id: x.id, title: x.title, location: x.location, time: x.narrative_time, summary: x.summary }));
-    const chapters = readable.flatMap((w) => this.memory.gmChapters(w.id).map((c) => ({ windowId: w.id, window: w.name, fromSeq: c.fromSeq, toSeq: c.toSeq, text: c.text })))
-      .map((c, i) => ({ ...c, key: `C${i + 1}` }));
-    const where = await locatePlot(this.llm, { request, requester: mine, cast, scenarios, chapters });
-    this.log(`picture request: searching ${where.terms.map((t) => `"${t}"`).join(", ") || "(no terms)"}${where.scenario ? ` in ${where.scenario}` : ""}${where.chapter ? `, ${where.chapter}` : ""}`);
-    const chapter = chapters.find((c) => c.key === where.chapter) ?? null;
-    const scene = scenarios.find((x) => x.key === where.scenario) ?? null;
-    // The densest place of the matches, inside the chapter or scenario named when any match falls there.
-    const hits = await this.plotHits(where.terms, ids);
-    const inChapter = chapter ? hits.filter((h) => h.windowId === chapter.windowId && h.seq >= chapter.fromSeq && h.seq <= chapter.toSeq) : [];
-    const inScene = scene ? hits.filter((h) => h.sceneId === scene.id) : [];
-    const place = bestPlace(inChapter.length ? inChapter : inScene.length ? inScene : hits);
-    let windowId = null, lines = [];
-    if (place) { windowId = place.windowId; lines = await this.linesAround(windowId, place.seq); }
-    else if (chapter) { windowId = chapter.windowId; lines = this.history.lines(windowId, { after: chapter.fromSeq - 1, upTo: chapter.toSeq }).filter(drawable); }
-    else if (scene) {
-      const most = readable.map((w) => ({ id: w.id, lines: this.history.lines(w.id).filter((x) => x.scene_id === scene.id && drawable(x)) })).sort((a, b) => b.lines.length - a.lines.length)[0];
-      if (most?.lines.length) ({ id: windowId, lines } = most);
-    }
-    if (!lines.length) return "notFound";
-    const moment = await pickRequestedMoment(this.llm, { language: this.language, request, era: this.channel.era ?? "", cast, window: this.windowName(windowId),
-      lines: scenarioLines(lines, (id) => this.nameOf(id)) });
-    if (!moment.found) return "notFound";
-    this.log(`picture request: drawing ${moment.why || moment.text.slice(0, 80)}`);
-    this.recordPicture(moment.text, m.chat_window_id);
-    // Ahead of any scenario picture still waiting; the platform still draws one picture at a time per account.
-    const outcome = await new Promise((done) => {
-      this.illustrationQueue.unshift({ windowId: m.chat_window_id, moment, tries: 0, done });
-      this.drainIllustrations().catch((e) => this.log(`pictures: ${e.message}`));
-    });
-    if (outcome.job) return null;
-    return { unavailable: "unavailable", disabled: "off", rate_limited: "rateLimited" }[outcome.failure] ?? "failed";
-  }
+  drawPastPlot(...args) { return art.drawPastPlot(this, ...args); }
 
   // Lines containing any of `terms` in the windows `ids`, from the local copy and the platform's search of the whole
   // history: [{windowId, seq, sceneId, terms}], drawable lines only.
-  async plotHits(terms, ids) {
-    const hits = new Map();
-    const add = (m, term) => {
-      if (!m || !ids.has(m.chat_window_id) || !drawable(m)) return;
-      const h = hits.get(m.id) ?? { windowId: m.chat_window_id, seq: Number(m.seq), sceneId: m.scene_id ?? null, terms: new Set() };
-      h.terms.add(term);
-      hits.set(m.id, h);
-    };
-    const wanted = terms.map((t) => [t, t.toLowerCase()]);
-    for (const id of ids) for (const m of this.history.lines(id)) {
-      const text = String(m.content ?? "").toLowerCase();
-      for (const [t, low] of wanted) if (text.includes(low)) add(m, t);
-    }
-    for (const [t] of wanted) for (const m of (await this.api.searchMessages(this.channelId, t).catch(() => null)) ?? []) add(m, t);
-    return [...hits.values()];
-  }
+  plotHits(...args) { return art.plotHits(this, ...args); }
 
   // The drawable lines of a window around `seq`: from the local copy when it reaches back that far, else read from the
   // platform (the newest page up to the line, then a page after it found by narrowing the span).
-  async linesAround(windowId, seq, before = 60, after = 60) {
-    let all;
-    const first = this.store.firstSeq(windowId);
-    if (first !== null && first <= seq) all = this.history.lines(windowId);
-    else {
-      const get = async (beforeSeq) => ((await this.api.messages(this.channelId, windowId, 200, beforeSeq).catch(() => null)) ?? []);
-      const prior = await get(seq + 1);
-      let later = [];
-      for (let span = 400, i = 0; i < 6 && span >= 1; i++) {
-        const page = await get(seq + 1 + span);
-        if (page.length >= 200 && (page[0]?.seq ?? Infinity) > seq + 1) { span = Math.floor(span / 4); continue; }   // lines were skipped
-        later = page.filter((x) => x.seq > seq);
-        if (later.length >= after || page.length < 200) break;
-        span *= 2;
-      }
-      const seen = new Set();
-      all = [...prior, ...later].filter((x) => !x.recalled_at && !seen.has(x.id) && seen.add(x.id)).sort((a, b) => a.seq - b.seq);
-    }
-    const lines = all.filter(drawable);
-    let at = lines.findIndex((x) => x.seq >= seq);
-    if (at < 0) at = lines.length;
-    return lines.slice(Math.max(0, at - before), at + after);
-  }
+  linesAround(...args) { return art.linesAround(this, ...args); }
 
   // ---- manual commands from the CLI (applied by the run process, or by the CLI itself when no run process is up)
   async command(cmd) {
@@ -1950,814 +736,181 @@ export class Table {
 
   // ---- the story planner (planner.mjs)
   // off unless the configuration (planner.enabled) and the table (`plan on|off`) both say on.
-  plannerMode() { return this.cfg.planner && this.cfg.planner.enabled === false ? "off" : plannerModeOf(this.planner, this.improv); }
-  storyPlanSection() { return this.plannerMode() === "off" ? "" : renderStoryPlan(this.planner.arc, this.cfg.planner?.planTokens ?? 1500); }
-  plannerVerdict() {
-    const arc = this.planner.arc;
-    if (this.plannerMode() === "off") return null;
-    return { on: true, moveOn: Boolean(arc?.verdict?.moveOn && !arc.beat?.closed), beat: arc?.beat?.title ?? "", why: arc?.verdict?.why ?? "", next: arc?.next?.[0]?.what ?? "" };
-  }
-  impulseFor(coplayerId) {
-    if (this.plannerMode() !== "full") return null;
-    const i = this.planner.impulses.find((x) => x.coplayerId === coplayerId);
-    return i && this.lastSeq <= i.expiresSeq ? i : null;
-  }
+  plannerMode(...args) { return planning.plannerMode(this, ...args); }
+  storyPlanSection(...args) { return planning.storyPlanSection(this, ...args); }
+  plannerVerdict(...args) { return planning.plannerVerdict(this, ...args); }
+  impulseFor(...args) { return planning.impulseFor(this, ...args); }
 
   // After a turn: the same scenario, place, world record, truths and threads as last time means the story stood still.
-  noteStall(windowId, ctx) {
-    const scene = this.scene(windowId);
-    const sig = stallSignature({ scenarioId: this.scenario?.id, place: placeKey(scene?.location), worldVersion: ctx?.world?.version, worldChange: ctx?.world?.recent_changes?.[0]?.created_at ?? ctx?.world?.recent_changes?.[0]?.version, truths: this.improv.truths.length, threads: this.timelines.active().length });
-    const st = this.planner.stall;
-    if (st.sig === sig) st.turns++; else { st.turns = 0; st.sig = sig; }
-  }
+  noteStall(...args) { return planning.noteStall(this, ...args); }
 
   // The GM's planner_note action: a signal for the next plan (and "this beat is done").
-  async plannerNote(a) {
-    const text = String(a.text ?? "").trim();
-    if (!text) return 0;
-    this.planner.notes = [...this.planner.notes, { text: text.slice(0, 400), beatDone: a.beat_done === true || a.beat_done === "true", seq: this.lastSeq }].slice(-5);
-    this.planner.asked = { why: text.slice(0, 200), at: this.now() };
-    if (a.beat_done === true || a.beat_done === "true") this.beatClosed();
-    this.save();
-    return this.post(this.mainWindow().id, { content: `Planner note: ${text}`, kind: "narration", visibility: "gm_only" }, { count: false });
-  }
-  beatClosed() {
-    const arc = this.planner.arc;
-    if (!arc) return;
-    arc.beat.closed = true;
-    arc.verdict = { ...arc.verdict, moveOn: false };
-  }
+  plannerNote(...args) { return planning.plannerNote(this, ...args); }
+  beatClosed(...args) { return planning.beatClosed(this, ...args); }
 
-  async planCommand(action) {
-    if (action === "on" || action === "off") { this.planner.on = action === "on"; this.save(); this.log(`story planner ${action}`); return; }
-    if (action !== "now") throw new Error(`unknown plan action ${action}`);
-    if (this.generation.paused) throw new Error("hosting is paused until a player speaks");
-    if (this.overBudget()) throw new Error("the daily token budget is spent; the planner waits for tomorrow");
-    await this.runPlanner("manual");
-    await this.adoptPlan();
-  }
+  planCommand(...args) { return planning.planCommand(this, ...args); }
 
   // At a turn boundary: plan now if due (in the background, beside the turns).
-  maybePlan() {
-    const cfg = this.cfg.planner;
-    if (this.generation.signal.aborted || !cfg || this.plannerMode() === "off" || (cfg.intervalMs === 0 && !this.planner.asked && this.planner.arc)) return null;
-    const p = this.planner;
-    const reason = plannerDue({
-      on: p.on, busy: this.memory.jobs.has("planner"), overBudget: this.overBudget(), now: this.now(), lastHumanAt: this.lastHumanAt, idleMs: this.cfg.autonomyIdleMinutes * 60000,
-      runs: p.runs, lastRunAt: p.lastRunAt, lastRunSeq: p.lastRunSeq, lastSeq: this.lastSeq, arc: p.arc, asked: p.asked, scenarioId: this.scenario?.id ?? null, plannerScenarioId: p.scenarioId, stallTurns: p.stall.turns, noDate: this.calendarOn() && !this.calendar.date,
-    }, cfg);
-    if (!reason) return null;
-    return this.runPlanner(reason);
-  }
+  maybePlan(...args) { return planning.maybePlan(this, ...args); }
 
   // The planning job: the GM's context plus the planner's briefing, three model calls, the result parked for the
   // next turn boundary. One at a time; failures are logged, never thrown. With `session` it is that session's final
   // review: it reads every window's lines of the session and also prepares the next one (`between`).
-  runPlanner(reason, { session = null } = {}) {
-    if (this.generation.signal.aborted) return null;
-    if (this.memory.jobs.has("planner")) return this.memory.jobs.get("planner");
-    const p = this.planner;
-    p.runs = [...p.runs.filter((t) => this.now() - t < 3600000), this.now()];
-    p.lastRunAt = this.now();
-    const notes = [...p.notes], asked = p.asked;
-    const inbox = [...p.inbox];   // Keep these durable until the plan succeeds, including across pause/restart.
-    this.save();
-    const since = session ? Math.min(p.lastRunSeq, session.fromSeq - 1) : p.lastRunSeq;
-    return this.memory.run("planner", this.generation.task(async () => {
-      const windowId = this.primaryWindowId();
-      if (!windowId) return;
-      const ctx = await this.buildGm(windowId, { peek: true });
-      const hidden = this.hiddenLines();
-      const windows = session ? this.windows : this.windows.filter((w) => w.id === windowId);
-      const fresh = windows.flatMap((w) => this.history.lines(w.id).filter((m) => m.seq > since && !hidden.has(m.id)).map((m) => ({ m, w })))
-        .sort((x, y) => x.m.seq - y.m.seq).slice(session ? -300 : -200)
-        .map(({ m, w }) => (session && w.id !== windowId ? `[${w.name}] ${ctx.render(m)}` : ctx.render(m))).join("\n");
-      const minutes = session ? Math.max(1, Math.round((session.lastAt - session.startedAt) / 60000)) : 0;
-      const sinceText = [
-        session ? `The session that just ended: ${session.lines} player lines over ${minutes} min, from line #${session.fromSeq}. Its lines in every window follow (window named when not the Main Chat).` : `${this.lastSeq - since} lines since (the newest ${Math.min(200, this.lastSeq - since)} of this window below)`,
-        notes.length ? `The GM's notes to you: ${notes.map((n) => `"${n.text}"${n.beatDone ? " (beat done)" : ""}`).join("; ")}` : "",
-        p.scenarioId && p.scenarioId !== this.scenario?.id ? "The scenario changed since the last plan." : "",
-        fresh ? `Recent lines:\n${fresh}` : "",
-      ].filter(Boolean).join("\n");
-      const mode = this.plannerMode();
-      const out = await planStory(this.plannerLlm, {
-        language: this.language, profile: this.profile, mode, contextText: ctx.text, prev: p.arc, since: sinceText, coplayers: this.roster.coplayers, secrets: [this.improv.secrets, ...this.improv.truths.map((t) => t.text)],
-        nextId: p.nextThreadId, lastSeq: this.lastSeq, trigger: reason, now: this.now(), impulseLines: this.cfg.planner?.impulseLines ?? 60, log: this.log,
-        final: session ? { maxDays: this.cfg.planner?.finalReviewMaxDays ?? 30 } : null, calendar: this.calendarOn(),
-        table: Boolean(p.window), wishes: p.window ? renderInbox(inbox, p.table) : "",
-      });
-      this.generation.signal.throwIfAborted();
-      p.notes = p.notes.filter(n => !notes.includes(n));
-      p.inbox = p.inbox.filter(l => !inbox.includes(l));
-      if (p.asked === asked) p.asked = null;
-      p.pending = { ...out, at: this.now(), trigger: reason, answered: inbox.length, ...(session ? { session } : {}) };
-      this.save();
-      if (this.pending === 0) await this.adoptPlan();
-    }));
-  }
+  runPlanner(...args) { return planning.runPlanner(this, ...args); }
 
   // Makes a finished plan the current one (idempotent), records it and tells the GM once per version. A plan may
   // set the story's first date and change relationships; a final review also moves the calendar on and records what
   // happened off-screen.
-  async adoptPlan() {
-    const p = this.planner;
-    const pend = p.pending;
-    if (!pend || this.generation.signal.aborted) return;
-    p.pending = null;
-    p.arc = pend.arc; p.impulses = pend.impulses ?? []; p.nextThreadId = pend.nextId ?? p.nextThreadId;
-    p.lastRunSeq = this.lastSeq; p.scenarioId = this.scenario?.id ?? null; p.stall = { turns: 0, sig: null };
-    this.store.addPlan({ version: pend.arc.version, at: pend.at ?? this.now(), trigger: pend.trigger ?? pend.arc.trigger, record: pend.record ?? {} });
-    if (this.calendarOn() && pend.arc.calendar?.start && !this.calendar.date) {
-      // The first date: a real YYYY-MM-DD, its year within the channel's era.
-      const fit = fitEra(pend.arc.calendar.start, this.channel?.era);
-      if (!fit) this.log(`planner: first date "${pend.arc.calendar.start}" is not YYYY-MM-DD; the next plan chooses again`);
-      else {
-        if (fit.moved) this.log(`planner: first date ${pend.arc.calendar.start} is outside the era "${this.channel.era}"; moved to ${fit.date}`);
-        this.moveCalendar({ date: fit.date, time: pend.arc.calendar.time || undefined, why: "the story's first date", by: "planner" });
-      }
-    }
-    let bonds = 0;
-    for (const b of resolveBonds(pend.bonds, (n) => this.characterByName(n)?.id)) if (applyBond(this.bonds, b, { by: "planner", now: this.now() })) bonds++;
-    this.save();
-    const main = this.mainWindow();
-    if (p.notedVersion < pend.arc.version) {
-      p.notedVersion = pend.arc.version; this.save();
-      if (main) await this.post(main.id, { content: `${renderPlanNote(pend.arc, p.impulses)}${bonds && !pend.between ? ` Relationships: ${bonds} change(s).` : ""}`, kind: "narration", visibility: "gm_only" }, { count: false });
-    }
-    if (pend.between) await this.applyBetween(pend, bonds);
-    if (this.calendarOn()) this.applyRoutine(pend.arc.calendar);
-    await this.applyTableNotes(pend);
-  }
+  adoptPlan(...args) { return planning.adoptPlan(this, ...args); }
 
   // The planner's table notes (the players' standing wishes and corrections), and its answer in the planner window.
-  async applyTableNotes(pend) {
-    const p = this.planner;
-    const merged = mergeTableNotes(p.table, pend.tableNotes, { nextId: p.nextNoteId, now: this.now() });
-    p.table = merged.notes; p.nextNoteId = merged.nextId;
-    if (merged.changed) { this.log(`planner: ${merged.changed} change(s) to the players' wishes and corrections`); this.save(); }
-    if (!pend.answered || !p.window) return;
-    const reply = plannerReply(pend.reply || "Noted.", [this.improv.secrets, ...this.improv.truths.map((t) => t.text), ...(pend.arc.threads ?? []).map((t) => t.twist)]);
-    await this.post(p.window, { content: `🧭 ${reply}`, kind: "ooc" }, { count: false });
-  }
+  applyTableNotes(...args) { return planning.applyTableNotes(this, ...args); }
 
   // The planner's routine for the current date (after a final review: for the date the next session resumes). It is
   // common knowledge, so one that quotes a secret or a hidden truth is dropped.
-  applyRoutine(cal) {
-    if (!cal?.routine) return;
-    const secrets = [this.improv.secrets, ...this.improv.truths.map((t) => t.text)];
-    if ([cal.routine, ...(cal.upcoming ?? []).map((u) => u.what)].some((t) => leaksSecret(t, secrets))) { this.log("planner: routine dropped (it quoted a secret)"); return; }
-    setRoutine(this.calendar, { text: cal.routine, upcoming: cal.upcoming });
-    this.save();
-  }
+  applyRoutine(...args) { return planning.applyRoutine(this, ...args); }
 
   // The final review's result: the calendar moves on, off-screen developments go to the world record, and the first
   // turn of the next session is told how to open (betweenNote).
-  async applyBetween(pend, bonds = 0) {
-    const b = pend.between;
-    const calendar = this.calendarOn() ? this.moveCalendar({ days: b.advanceDays, date: b.date || undefined, time: b.time, why: b.why || "between sessions", by: "final review" }) : null;
-    let declared = 0, secret = 0;
-    for (const o of b.offscreen ?? []) if (await this.declare(o.text, o.secret)) { declared++; if (o.secret) secret++; }
-    let transition = calendar?.changed ? calendar.to : "";
-    if (!calendar && b.time && !leaksSecret(b.time, [this.improv.secrets, ...this.improv.truths.map(t => t.text)])) transition = b.time;
-    if (transition && b.time) this.timelines.relocate(MAIN, { narrativeTime: b.time });
-    this.planner.between = { transition, days: calendar?.changed ? calendar.days : 0, today: calendar ? describeCalendar(this.calendar) : "", offscreen: b.offscreen ?? [], opening: b.opening, recap: b.recap, version: pend.arc.version, at: this.now() };
-    this.planner.lastFinalAt = this.now();
-    this.save();
-    const main = this.mainWindow();
-    if (main && pend.session) await this.post(main.id, { content: renderFinalNote({ session: pend.session, between: b, calendar, declared, secret, bonds }), kind: "narration", visibility: "gm_only" }, { count: false });
-  }
-  betweenNote() { return this.planner.between ? { ...this.planner.between } : null; }
+  applyBetween(...args) { return planning.applyBetween(this, ...args); }
+  betweenNote(...args) { return planning.betweenNote(this, ...args); }
 
   // ---- sessions and the final review
   // A player's line: the session goes on, or a new one begins.
-  noteSession(m) {
-    const fresh = !this.planner.session;
-    const stale = noteSessionLine(this.planner, { at: Date.parse(m.created_at) || this.now(), seq: m.seq ?? this.lastSeq, idleMs: this.cfg.autonomyIdleMinutes * 60000 });
-    if (stale && stale.lines >= (this.cfg.planner?.finalReviewMinLines ?? 10)) this.log("final review of the last session skipped: the players came back before it ran");
-    if (fresh || stale) this.save();
-  }
+  noteSession(...args) { return planning.noteSession(this, ...args); }
 
   // On the clock (every 10 s, autonomy or not): once nobody has written for the idle time, a session with enough play
   // gets its final review. Waits while a turn or a planner run is in progress.
-  checkSessionEnd() {
-    if (this.generation.paused) return null;
-    const s = this.planner.session;
-    const end = sessionEnded(s, { now: this.now(), idleMs: this.cfg.autonomyIdleMinutes * 60000, minLines: this.cfg.planner?.finalReviewMinLines ?? 10 });
-    if (!end || this.pending > 0 || this.memory.jobs.has("planner")) return null;
-    this.planner.session = null;
-    this.save();
-    if (end === "short") { this.log(`session over (${s.lines} player line(s)): too short for a final review`); return null; }
-    return this.finalReview(s);
-  }
+  checkSessionEnd(...args) { return planning.checkSessionEnd(this, ...args); }
 
-  finalReview(session) {
-    if (!this.cfg.planner || this.cfg.planner.finalReview === false || this.plannerMode() === "off") return null;
-    if (this.overBudget()) { this.log("final review skipped: the daily token budget is spent"); return null; }
-    this.log(`final review of the session (${session.lines} player lines)`);
-    return this.runPlanner("final", { session });
-  }
+  finalReview(...args) { return planning.finalReview(this, ...args); }
 
   // When `run` is stopped: the session in progress, if long enough, gets its final review first.
-  async finishSession() {
-    await this.memoryIdle();
-    if (this.generation.paused) return false;
-    const s = this.planner.session;
-    if (!s || s.lines < (this.cfg.planner?.finalReviewMinLines ?? 10)) return false;
-    this.planner.session = null;
-    this.save();
-    const job = this.finalReview(s);
-    if (!job) return false;
-    await job;
-    await this.adoptPlan();
-    return true;
-  }
+  finishSession(...args) { return planning.finishSession(this, ...args); }
 
   // ---- the calendar and relationships
   // The GM keeps to the pace (config `calendar`); the final review has its own most days; the operator and the
   // planner's first date have neither.
-  moveCalendar({ days, date, time, why = "", by = "keeper" }) {
-    const pace = this.calendarPaceCfg();
-    const limits = by === "final review" ? { maxDays: this.cfg.planner?.finalReviewMaxDays ?? 30 }
-      : by === "keeper" ? { maxDays: pace.maxDays || MAX_ADVANCE_DAYS, pace: { minMinutes: pace.minMinutes, minLines: pace.minLines } } : {};
-    const r = advanceCalendar(this.calendar, { days, date, time, why, by, seq: this.lastSeq, now: this.now(), ...limits });
-    if (r.changed) { if (r.to) this.log(`calendar: ${r.from || "(no date)"} → ${r.to} (${changedBy(by)})${r.clipped ? `, ${r.days} of the ${r.clipped} day(s) asked` : ""}`); this.save(); }
-    else if (r.refused) this.log(`calendar unchanged: ${r.refused}`);
-    return r;
-  }
+  moveCalendar(...args) { return planning.moveCalendar(this, ...args); }
   // The GM's date move that the pace held back or cut short: a note only the GM reads, so the story can follow
   // the date that stands.
-  calendarHeld(windowId, r) {
-    const text = r.pace ? `Calendar unchanged: ${r.refused}. Keep play within the current day (only the time of day moves).`
-      : r.clipped ? `Calendar moved on ${r.days} day(s), not ${r.clipped}: at most ${r.days} at once. Tell the time that passed to match.` : "";
-    return text ? this.post(windowId, { content: text, kind: "narration", visibility: "gm_only" }, { count: false }) : 0;
-  }
-  recordBond(a, by = "keeper") {
-    const [x] = resolveBonds([a], (n) => this.characterByName(n)?.id);
-    if (!x) { this.log(`bond skipped: no characters named "${a.a}" and "${a.b}"`); return null; }
-    const r = applyBond(this.bonds, x, { by, now: this.now() });
-    if (r) { this.log(`bond ${r}: ${this.nameOf(x.a)} — ${this.nameOf(x.b)}${x.kind ? `: ${x.kind}` : ""} (${changedBy(by)})`); this.save(); }
-    return r;
-  }
+  calendarHeld(...args) { return planning.calendarHeld(this, ...args); }
+  recordBond(...args) { return planning.recordBond(this, ...args); }
 
   // ---- casual mode: phones (casual.mjs)
-  isPhone(windowId) { return Boolean(windowId) && Object.values(this.casual.phones).includes(windowId); }
-  phoneOwner(windowId) { return Object.keys(this.casual.phones).find((id) => this.casual.phones[id] === windowId) ?? null; }
+  isPhone(...args) { return social.isPhone(this, ...args); }
+  phoneOwner(...args) { return social.phoneOwner(this, ...args); }
   // On, and allowed here: a phone is private only on an isolated channel with one player per group.
-  casualOn() { return this.casual.on && !this.splitWarning; }
+  casualOn(...args) { return social.casualOn(this, ...args); }
 
-  async setCasual(on) {
-    this.casual.on = Boolean(on);
-    // A casual game keeps a date: with none yet, the next turn boundary asks the planner to choose the first one.
-    if (this.casual.on && !this.calendar.date && this.planner.arc && this.plannerMode() !== "off") this.planner.asked = { why: "casual mode is on: choose the story's first date", at: this.now() };
-    this.save();
-    this.log(`casual mode ${this.casual.on ? "on" : "off"}${this.casual.on && this.splitWarning ? `, but not here: phones would not be private (${this.splitWarning})` : ""}`);
-    if (this.casual.on) await this.ensureTableWindows();
-  }
+  setCasual(...args) { return social.setCasual(this, ...args); }
 
   // ---- the table's own windows: the planner window (wishes.mjs), the phones and the GM's phone log (casual.mjs)
-  isPlannerWindow(windowId) { return Boolean(windowId) && windowId === this.planner.window; }
+  isPlannerWindow(...args) { return social.isPlannerWindow(this, ...args); }
   // Windows that are no scene: no turn is played there and autonomy never moves them.
-  isTableWindow(windowId) { return this.isPhone(windowId) || this.isPlannerWindow(windowId) || (Boolean(windowId) && windowId === this.casual.log); }
-  plannerWindowWanted() { return this.cfg.planner?.wishWindow !== false && this.plannerMode() !== "off"; }
+  isTableWindow(...args) { return social.isTableWindow(this, ...args); }
+  plannerWindowWanted(...args) { return social.plannerWindowWanted(this, ...args); }
 
-  async ensureTableWindows() {
-    if (!this.ready || this.ensuringWindows) return;
-    this.ensuringWindows = true;
-    try {
-      if (this.plannerWindowWanted()) await this.ensurePlannerWindow();
-      if (this.casual.on) { await this.ensurePhones(); await this.ensurePhoneLog(); }
-    } finally { this.ensuringWindows = false; }
-  }
+  ensureTableWindows(...args) { return social.ensureTableWindows(this, ...args); }
 
   // The planner window: every player of the channel in it (a newcomer is added), the GM reading.
-  async ensurePlannerWindow() {
-    const { rows } = await this.channelMemberRows();
-    if (!rows) return;
-    const players = rows.filter((r) => r.role === "player").map((r) => r.id ?? r.user_id).filter(Boolean);
-    let w = this.windows.find((x) => x.id === this.planner.window);
-    if (!w) {
-      w = await this.api.createWindow(this.channelId, { name: WISH_WINDOW, kind: "private", members: players.map((user_id) => ({ user_id })) });
-      this.planner.window = w.id;
-      this.save();
-      this.windows = [...this.windows, w];
-      this.log(`planner window: opened "${w.name}"`);
-      await this.post(w.id, { content: `🧭 This window is for the story planner, out of character. Tell it where you would like the story to go, or what went against your setting ("Harriet would never leave a friend behind", "there is no magic in this world"). It reads what you write here the next time it plans, answers here, and the GM keeps to it. No scene is played here. Send /pause to pause hosting until the next player message in the channel.${this.cfg.illustrations?.enabled !== false && (this.cfg.illustrations?.requestsPerHour ?? 4) > 0 ? " Send /draw (or /画) and a moment from earlier play to have a picture of it drawn here." : ""}`, kind: "ooc" }, { count: false, allowPaused: true });
-      return;
-    }
-    const seated = new Set((w.members ?? []).map((m) => m.user_id));
-    for (const user_id of players.filter((u) => !seated.has(u))) {
-      await this.api.addWindowMember(this.channelId, w.id, { user_id });
-      this.log(`planner window: seated a new player (${rows.find((r) => (r.id ?? r.user_id) === user_id)?.display_name ?? user_id})`);
-    }
-  }
+  ensurePlannerWindow(...args) { return social.ensurePlannerWindow(this, ...args); }
 
   // Casual mode: the GM's phone log, a window with only the GM in it, for texts no player is part of.
-  async ensurePhoneLog() {
-    if (!this.casualOn() || (this.casual.log && this.windows.some((w) => w.id === this.casual.log))) return;
-    const w = await this.api.createWindow(this.channelId, { name: PHONE_LOG, kind: "private", members: [] });
-    this.casual.log = w.id;
-    this.save();
-    this.windows = [...this.windows, w];
-    this.log(`casual: opened "${w.name}"`);
-    await this.post(w.id, { content: "📒 Texts between co-players and NPCs, for the GM only. Every line is one text: the sender, then → and the recipient.", kind: "narration" }, { count: false, allowPaused: true });
-  }
+  ensurePhoneLog(...args) { return social.ensurePhoneLog(this, ...args); }
 
   // A line in the planner window: kept for the planner's next run, whatever triggers it (no run of its own).
-  onWishLine(m) {
-    if (!this.isHuman(m) || m.visibility !== "window" || !String(m.content ?? "").trim()) return undefined;
-    addToInbox(this.planner.inbox, { seq: m.seq, who: m.author_name || m.character_name || "a player", text: m.content, at: Date.parse(m.created_at) || this.now() });
-    this.save();
-    return undefined;
-  }
+  onWishLine(...args) { return social.onWishLine(this, ...args); }
 
   // New players join the current primary scene, which may now be a private fork.
-  welcomeNewcomers(list) {
-    const main = this.primaryWindowId();
-    if (!main) return;
-    for (const c of list) this.log(`new player: ${c.player_name ?? c.user_id} with ${c.name}`);
-    this.schedule(main, { mode: "arrival", delay: this.cfg.debounceMs, arrival: { names: list.map((c) => c.name), ids: list.map(c => c.id), newcomer: true } });
-  }
+  welcomeNewcomers(...args) { return social.welcomeNewcomers(this, ...args); }
 
   // Every player character with a player gets a phone: a private window with only that player in it.
-  async ensurePhones() {
-    if (!this.casual.on || !this.ready || this.ensuringPhones) return;
-    if (this.splitWarning) {
-      if (!this.casualRefusedNoted) { this.casualRefusedNoted = true; this.log(`casual mode stays off on this channel: phones would not be private (${this.splitWarning}). Use an isolated channel with one player per group.`); }
-      return;
-    }
-    this.ensuringPhones = true;
-    try {
-      const users = await this.channelUsers();
-      for (const c of this.characters.filter((x) => this.isPc(x.id) && x.user_id && (!users || users.has(x.user_id)))) {
-        const known = this.casual.phones[c.id];
-        if (known && this.windows.some((w) => w.id === known)) continue;
-        const w = await this.api.createWindow(this.channelId, { name: `${PHONE_PREFIX}${c.name}`.slice(0, 80), kind: "private", members: [{ user_id: c.user_id, character_id: c.id }] });
-        this.casual.phones[c.id] = w.id;
-        this.windows = [...this.windows, w];
-        this.save();
-        this.log(`casual: opened "${w.name}"`);
-        await this.post(w.id, { content: `📱 ${c.name}'s phone. Text anyone in the story: start with @ and their name ("@Name …"). Without @, your message goes to whoever you texted last.`, kind: "narration" }, { count: false, allowPaused: true });
-      }
-    } catch (e) { this.log(`phones: ${e.message}`); } finally { this.ensuringPhones = false; }
-  }
+  ensurePhones(...args) { return social.ensurePhones(this, ...args); }
 
   // A player's line in their own phone: a text message to someone.
-  onPhoneLine(m) {
-    if (!this.casualOn() || !this.isHuman(m) || m.visibility !== "window" || m.kind === "ooc" || !m.character_id) return undefined;
-    const from = m.character_id;
-    this.speakers.delete(m.chat_window_id);   // a text never moves anyone between scenes
-    if (from !== this.phoneOwner(m.chat_window_id)) return undefined;
-    const contacts = this.characters.filter((c) => c.id !== from && (this.isPc(c.id) || this.roster.isCoplayer(c.id) || this.roster.isNpc(c.id))).map((c) => ({ id: c.id, name: c.name }));
-    const { to: named, body, addressed } = parseAddress(m.content, contacts);
-    const to = named ?? (addressed ? null : this.casual.last[from] ?? null);
-    if (!to || !body) {
-      const hint = addressed ? "(No one by that name in your contacts. Write @ and their name: someone you have met in the story.)" : "(Who is this for? Start the message with @ and their name.)";
-      this.post(m.chat_window_id, { content: hint, kind: "narration" }, { count: false }).catch(() => {});
-      return undefined;
-    }
-    this.casual.last[from] = to;
-    this.store.addPhone({ seq: m.seq, windowId: m.chat_window_id, from, to, text: body, at: this.now() });
-    // A newer message supersedes a reply still on its way from that contact.
-    this.casual.pending = this.casual.pending.filter((p) => !(p.from === to && p.to === from));
-    this.save();
-    if (this.isPc(to)) return this.relayText(from, to, body, m.id);
-    return this.schedule(m.chat_window_id, { mode: "phone", phone: { fromId: from, toId: to } });
-  }
+  onPhoneLine(...args) { return social.onPhoneLine(this, ...args); }
 
   // Player to player: the message appears at once in the recipient's phone, as the sender's character.
-  async relayText(from, to, text, source = null) {
-    const w = this.casual.phones[to];
-    if (!w) { await this.post(this.casual.phones[from], { content: `(${this.nameOf(to)} has no phone yet.)`, kind: "narration" }, { count: false }); return 0; }
-    this.casual.last[to] = from;
-    this.save();
-    this.lastPosted = null;
-    const n = await this.post(w, { content: text, kind: "ic", character_id: from }, { count: false });
-    if (source && this.lastPosted) this.phoneCopies.set(source, [this.lastPosted.id]);
-    if (this.phoneCopies.size > 200) this.phoneCopies.delete(this.phoneCopies.keys().next().value);
-    return n;
-  }
+  relayText(...args) { return social.relayText(this, ...args); }
 
   // An NPC or a co-player reads a text and answers, after a believable delay, or leaves it unanswered.
-  async phoneTurn(windowId, { fromId, toId }) {
-    if (!this.casualOn() || !fromId || !toId) return;
-    const thread = renderThread(this.store.thread(fromId, toId, 30), (id) => this.nameOf(id));
-    const max = this.cfg.casualMaxDelayMinutes ?? 240;
-    const cp = this.roster.coplayers.find((c) => c.characterId === toId);
-    if (cp) {
-      const memories = this.memory.coplayerChapters(cp).map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`);
-      const today = this.calendarOn() ? describeCalendar(this.calendar, { time: this.timelines.of(toId)?.narrativeTime || this.calendar.time }) : "";
-      const known = new Set([...investigatorsFor(this.characters, this.roster).map((c) => c.id), fromId]);
-      const card = await this.card(toId);
-      const tableInfo = this.pbta
-        ? [JSON.stringify(playerRules(this.pbta.pack, card?.pbta?.book))]
-        : [today ? `TODAY IN THE STORY: ${today}` : "", today && describeRoutine(this.calendar) ? `${describeRoutine(this.calendar)} (common knowledge)` : "", renderBondsFor(this.bonds, toId, known, (id) => this.nameOf(id)), renderCorrectionsFor(this.planner.table, cp.name)];
-      const self = [coplayerSelf({ coplayer: cp, card, world: this.improv.on ? this.improv.world : "", profile: this.profile, attrs: this.attrs.get(toId) ?? {} }), memories.length ? `WHAT YOU REMEMBER:\n${memories.join("\n\n")}` : "", ...tableInfo].filter(Boolean).join("\n\n");
-      let r;
-      try { r = await coplayerPhoneReply(this.llm, { language: this.language, self: [self, renderImpulse(this.impulseFor(toId))].filter(Boolean).join("\n\n"), name: cp.name, from: this.nameOf(fromId), thread, maxDelay: max, pc: this.profile.vocab.pc }); }
-      catch (e) { this.log(`co-player ${cp.name} (phone): ${e.message}`); return; }
-      if (r.reply) this.queueText({ windowId, from: toId, to: fromId, text: r.reply, minutes: r.delay });
-      else this.log(`casual: ${cp.name} leaves ${this.nameOf(fromId)}'s message on read`);
-    } else {
-      const ctx = await this.buildGm(windowId);
-      const last = this.store.thread(fromId, toId, 1).at(-1);
-      let plan;
-      try { plan = await directTurn(this.llm, { language: this.language, profile: this.profile, context: ctx.parts, pbta:this.pbta, newest: null, mode: "phone", auto: this.cfg.timelineAuto, forks: this.forks, improv: this.improv.on, casual: true, phone: { from: this.nameOf(fromId), to: this.nameOf(toId), thread, text: last?.text ?? "" } }); }
-      catch (e) { this.log(`phone turn: ${e.message}`); return; }
-      // Only messages and the GM's own notes: nothing happens in a scene because of a text.
-      for (const a of plan.actions.filter((x) => ["text", "note", "truth", "world_change"].includes(x.type))) {
-        if (a.type === "note") await this.post(this.mainWindow().id, { content: a.text, kind: "narration", visibility: "gm_only" }, { count: false });
-        else await this.act(windowId, a, ctx, { mode: "phone", parent: "phone" });
-      }
-      if (!plan.actions.some((x) => x.type === "text")) this.log(`casual: ${this.nameOf(toId)} leaves ${this.nameOf(fromId)}'s message unanswered`);
-    }
-    await this.deliverDue();
-  }
+  phoneTurn(...args) { return social.phoneTurn(this, ...args); }
 
   // The GM's text action: a real NPC texts a player character, now or after a delay.
-  async sendText(a) {
-    const from = this.characterByName(a.from);
-    const to = this.characterByName(a.to);
-    if (!from || !this.roster.isNpc(from.id)) { this.log(`text from "${a.from}" skipped: the GM texts only as a real NPC`); return 0; }
-    if (to && this.roster.isCoplayer(to.id)) return this.aiText(from.id, to.id, a.text, a.delay_minutes);   // to a co-player: the phone log
-    if (!to || !this.isPc(to.id) || !this.casual.phones[to.id]) { this.log(`text to "${a.to}" skipped: not a player character with a phone`); return 0; }
-    this.queueText({ windowId: this.casual.phones[to.id], from: from.id, to: to.id, text: a.text, minutes: a.delay_minutes });
-    await this.deliverDue();
-    return 0;
-  }
+  sendText(...args) { return social.sendText(this, ...args); }
 
   // A text no player character is part of (co-player or NPC to co-player or NPC): it goes to the phone log.
-  async aiText(from, to, text, minutes = 0) {
-    if (!this.casualOn() || !this.casual.log || !String(text ?? "").trim() || from === to) return 0;
-    this.queueText({ windowId: this.casual.log, from, to, text, minutes });
-    await this.deliverDue();
-    return 0;
-  }
+  aiText(...args) { return social.aiText(this, ...args); }
   // A text delivered to an AI character in the phone log: it answers, unless the two have gone back and forth
   // CASUAL_AI_CHAIN times since a person last wrote, the hourly cap is reached, or everyone is away.
-  answerAiText(p) {
-    const key = pairKey(p.from, p.to);
-    const chain = (this.casual.chain[key] ?? 0) + 1;
-    this.casual.chain[key] = chain;
-    const now = this.now();
-    this.casual.aiTexts = this.casual.aiTexts.filter((t) => now - t < HOUR);
-    const away = now - this.lastHumanAt > this.cfg.autonomyIdleMinutes * 60000;
-    const why = chain >= (this.cfg.casualAiChain ?? 4) ? "the exchange is long enough until someone writes" : this.casual.aiTexts.length >= (this.cfg.casualAiTextsPerHour ?? 12) ? "the hourly cap on texts between AI characters" : away ? "everyone is away" : this.overBudget() ? "the daily token budget" : "";
-    if (why) { this.log(`casual: ${this.nameOf(p.to)} does not answer ${this.nameOf(p.from)} now (${why})`); return; }
-    this.casual.aiTexts.push(now);
-    this.enqueuePhone(this.casual.log, { fromId: p.from, toId: p.to });
-  }
+  answerAiText(...args) { return social.answerAiText(this, ...args); }
   // A phone turn on the turn queue without a window timer (the phone log carries several conversations at once).
-  enqueuePhone(windowId, phone) {
-    if (this.generation.signal.aborted) return;
-    this.pending++;
-    this.queue = this.queue.then(this.generation.task(() => this.phoneTurn(windowId, phone))).catch((e) => this.log(`phone turn failed: ${e.message}`)).then(() => { this.pending--; });
-    return this.queue;
-  }
+  enqueuePhone(...args) { return social.enqueuePhone(this, ...args); }
 
-  queueText({ windowId, from, to, text, minutes = 0 }) {
-    if (this.generation.signal.aborted) return;
-    const at = dueAt(this.now(), minutes, this.cfg.casualMaxDelayMinutes ?? 240);
-    this.casual.pending.push({ windowId, from, to, text: String(text).slice(0, 2000), dueAt: at });
-    this.save();
-    if (at > this.now()) this.log(`casual: ${this.nameOf(from)} → ${this.nameOf(to)} in ${Math.round((at - this.now()) / 60000)} min`);
-  }
+  queueText(...args) { return social.queueText(this, ...args); }
 
   // Delivers every text whose time has come: it appears in the recipient's phone as the sender's character.
-  async deliverDue() {
-    if (!this.casual.on || !this.casual.pending.length) return 0;
-    const now = this.now();
-    const due = this.casual.pending.filter((p) => p.dueAt <= now);
-    if (!due.length) return 0;
-    this.casual.pending = this.casual.pending.filter((p) => p.dueAt > now);
-    this.save();
-    for (const p of due) {
-      const logged = p.windowId === this.casual.log;
-      const signal = this.generation.signal;
-      await this.post(p.windowId, { content: logged ? `→ ${this.nameOf(p.to)}: ${p.text}` : p.text, kind: "ic", character_id: p.from }, { count: false, allowPaused: true });
-      this.store.addPhone({ windowId: p.windowId, from: p.from, to: p.to, text: p.text, at: now });
-      this.casual.last[p.to] = p.from;   // a reply without @ goes back to whoever texted last
-      if (logged && !signal.aborted) this.answerAiText(p);
-    }
-    this.save();
-    return due.length;
-  }
+  deliverDue(...args) { return social.deliverDue(this, ...args); }
 
   // ---- the platform's living world record
   // Declares a change to the world (off-screen, or a hidden truth) for the platform's observer to record. Best effort:
   // a platform without the world record (404) is noted once and the table carries on with its own notes.
-  async declare(text, secret = false) {
-    const t = String(text ?? "").trim();
-    if (!t || this.worldUnsupported) return false;
-    try {
-      for (const part of chunk(t, 3900)) await this.api.declareWorld(this.channelId, { text: part, secret });
-      this.log(`world ${secret ? "secret " : ""}declared: ${t.slice(0, 100)}`);
-      return true;
-    } catch (e) {
-      if (e.status === 404 || e.status === 405) { this.worldUnsupported = true; this.log("this platform keeps no world record; world changes stay in the GM's notes"); }
-      else this.log(`world declaration failed: ${e.message}`);
-      return false;
-    }
-  }
+  declare(...args) { return social.declare(this, ...args); }
 
   // ---- improvisation mode
   // The posted world setting is left out of every chat context: the GM and the co-players get it as a section of its own.
-  hiddenLines() { return new Set([...this.improv.published.ids, ...this.pauseLines, ...this.artLines]); }
+  hiddenLines(...args) { return social.hiddenLines(this, ...args); }
 
   // `world` command (and `setup` while `run` is up): turns the mode on or off and replaces the setting texts.
-  async setWorld({ on, world, secrets }) {
-    if (on !== undefined) this.improv.on = Boolean(on);
-    if (world !== undefined) this.improv.world = String(world);
-    if (secrets !== undefined) this.improv.secrets = String(secrets);
-    this.save();
-    await this.publishWorld();
-    await this.seedWorld();
-    this.log(`improvisation ${this.improv.on ? "on" : "off"}: world ${this.improv.world.length} characters, secrets ${this.improv.secrets.length}, hidden truths ${this.improv.truths.length}`);
-  }
+  setWorld(...args) { return social.setWorld(this, ...args); }
 
   // Hands the world setting (public) and the GM's secrets (secret) to the platform's world record, once per version
   // of each text, so its observer knows the places, groups and people from the start.
-  async seedWorld() {
-    const im = this.improv;
-    if (!im.on) return;
-    im.declared ??= {};
-    for (const [key, text, secret] of [["world", im.world, false], ["secrets", im.secrets, true]]) {
-      if (!text || im.declared[key] === hashText(text)) continue;
-      if (await this.declare(text, secret)) { im.declared[key] = hashText(text); this.save(); }
-    }
-  }
+  seedWorld(...args) { return social.seedWorld(this, ...args); }
 
   // Posts the world setting in the Main Chat for the human players, once per version of the text.
-  async publishWorld() {
-    const { on, world, published } = this.improv;
-    if (!on || !world || published.hash === hashText(world)) return 0;
-    const main = this.mainWindow();
-    if (!main) return 0;
-    const ids = [];
-    try {
-      for (const content of worldMessages(world)) {
-        const m = await this.api.postMessage(this.channelId, main.id, { content, kind: "narration", visibility: "window" });
-        this.botMessageIds.add(m.id);
-        this.noteLine(m);
-        ids.push(m.id);
-      }
-    } catch (e) {
-      this.log(`posting the world setting failed (${e.message}); it is posted again when run starts`);
-      this.improv.published.ids.push(...ids);
-      this.save();
-      return 0;
-    }
-    this.improv.published = { hash: hashText(world), ids: [...published.ids, ...ids].slice(-100) };
-    this.save();
-    await this.seedWorld();
-    this.log(`world setting posted in "${main.name}" (${ids.length} message${ids.length === 1 ? "" : "s"})`);
-    return ids.length;
-  }
+  publishWorld(...args) { return social.publishWorld(this, ...args); }
 
   // ---- older, model-led timelines (TIMELINE_AUTO=false)
-  coplayersNamed(list) { return names(list).map((n) => this.roster.coplayerByName(n)).filter(Boolean); }
+  coplayersNamed(...args) { return windows.coplayersNamed(this, ...args); }
 
-  async legacySplit(fromWindowId, a) {
-    const proposed = this.coplayersNamed(a.coplayers);
-    const checked = await this.checkDestinations(fromWindowId, [{ who: proposed.map(c => c.name), thread: "NEW", place: a.location || a.name, ownScene: true, time: a.narrative_time || "", span: "short", opening: a.opening || "" }], new Set(proposed.map(c => c.characterId)), [], "side");
-    const members = this.coplayersNamed(checked.reports[0]?.who || []);
-    if (!members.length) { this.log(`split "${a.name}": no co-player named; skipped`); return 0; }
-    const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: this.scene(fromWindowId) },
-      reports: checked.reports, scopeIds: new Set(members.map(c => c.characterId)), mode: "manual",
-      resolve: n => this.investigatorByName(n), isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
-      guard: this.guard, turn: this.guard.turn, now: this.now(), cfg: this.cfg });
-    await this.applyPlan(result, { windowId: fromWindowId, mode: "manual", turn: this.guard.turn });
-    return 0;
-  }
+  legacySplit(...args) { return windows.legacySplit(this, ...args); }
 
-  async legacyRejoin(a) {
-    const t = this.timelines.byName(a.timeline);
-    if (!t || t.id === MAIN || t.status !== "active") return 0;
-    const targetWindow = a.into ? this.windows.find(w => norm(w.name) === norm(a.into) || w.id === a.into) : null;
-    const target = this.scene(targetWindow?.id) ?? this.timelines.main();
-    if (target === t) return 0;
-    const companions = this.roster.coplayers.filter(c => t.members.includes(c.characterId));
-    const checked = await this.checkDestinations(t.windowId, [{ who: companions.map(c => c.name), thread: "T" + target.handle }], new Set(companions.map(c => c.characterId)), [], "side");
-    const result = planWhereabouts({ timelines: this.timelines, scene: { timeline: t }, reports: checked.reports,
-      scopeIds: new Set(companions.map(c => c.characterId)), mode: "manual", resolve: n => this.investigatorByName(n),
-      isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
-      guard: this.guard, turn: this.guard.turn, now: this.now(), cfg: this.cfg });
-    await this.applyPlan(result, { windowId: t.windowId, mode: "manual", turn: this.guard.turn });
-    return 0;
-  }
+  legacyRejoin(...args) { return windows.legacyRejoin(this, ...args); }
 
   // Time, place, span and notes of a timeline. (With TIMELINE_AUTO, membership changes only through whereabouts.)
-  updateTimeline(a) {
-    const t = this.timelines.byName(a.timeline) ?? this.timelines.main();
-    const r = this.timelines.update(t.id, { narrativeTime: a.narrative_time, location: a.location, notes: a.notes, span: a.span });
-    if (r) this.save();
-    return 0;
-  }
+  updateTimeline(...args) { return windows.updateTimeline(this, ...args); }
 
   // ---- autonomy
-  startTicker() {
-    // Pending phone replies arrive on their own clock, autonomy or not; the same clock notices a session's end.
-    if (!this.phoneTimer) {
-      this.phoneTimer = setInterval(() => {
-        this.deliverDue().catch((e) => this.log(`phones: ${e.message}`));
-        try { this.checkSessionEnd(); } catch (e) { this.log(`final review: ${e.message}`); }
-        // The platform says nothing when a player creates a character: look again now and then.
-        if (this.pending === 0 && this.now() - (this.lastRefreshAt ?? 0) > 60000) this.refresh().catch((e) => this.log(`refresh: ${e.message}`));
-      }, 10000);
-      if (this.phoneTimer.unref) this.phoneTimer.unref();
-    }
-    if (!this.cfg.autonomy || this.ticker) return;
-    this.ticker = setInterval(() => { this.tick().catch((e) => this.log(`autonomy: ${e.message}`)); }, this.cfg.autonomyTickMs);
-    if (this.ticker.unref) this.ticker.unref();
-  }
-  stopTicker() { clearInterval(this.ticker); this.ticker = null; clearInterval(this.phoneTimer); this.phoneTimer = null; }
+  startTicker(...args) { return scheduling.startTicker(this, ...args); }
+  stopTicker(...args) { return scheduling.stopTicker(this, ...args); }
 
   // Picks at most one window that should move on its own, and queues its turn.
-  async tick() {
-    if (this.generation.paused || !this.cfg.autonomy || this.pending > 0) return null;
-    if (this.overBudget()) return null;
-    const now = this.now();
-    const idle = this.cfg.autonomyIdleMinutes * 60000;
-    // Away: nobody at the table. Only co-players-only threads move, every AWAY_SIDE_INTERVAL_MS (0: not at all).
-    const away = now - this.lastHumanAt > idle;
-    if (away && !this.cfg.awaySideIntervalMs) return null;
-    this.autonomousTurns = this.autonomousTurns.filter((t) => now - t < HOUR);
-    if (this.autonomousTurns.length >= this.cfg.autonomyMaxTurnsPerHour) return null;
-    const candidates = [];
-    for (const w of this.windows) {
-      if (w.archived_at || this.timelines.retired(w.id) || this.isTableWindow(w.id) || (this.forks && !this.scene(w.id))) continue;
-      const st = this.state(w.id);
-      const scene = this.scene(w.id);
-      const isMain = w.id === this.primaryWindowId();
-      const humans = this.presentPlayers(w.id).length > 0;
-      const sinceLine = now - Math.max(st.lastLineAt, st.lastTurnAt);
-      if (scene && !isMain && !humans && this.roster.coplayersIn(w.id).length) {
-        if (sinceLine >= (away ? this.cfg.awaySideIntervalMs : this.cfg.autonomySideIntervalMs)) candidates.push({ w, mode: "side", waited: sinceLine, extra: { timeline: scene } });
-      } else if (!away && humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < this.cfg.autonomyQuietTurns) {
-        // Only a window where a human spoke recently moves on; a long-abandoned private window stays as it is.
-        const quiet = now - Math.max(st.lastHumanAt, st.lastTurnAt);
-        if (quiet >= this.cfg.autonomyQuietMs) candidates.push({ w, mode: "quiet", waited: quiet, extra: { quietMinutes: Math.round((now - st.lastHumanAt) / 60000) } });
-      }
-    }
-    if (!candidates.length) return null;
-    const pick = candidates.sort((a, b) => b.waited - a.waited)[0];
-    this.log(`autonomy: ${pick.mode} turn in "${pick.w.name}"`);
-    return this.schedule(pick.w.id, { mode: pick.mode, delay: 0, ...pick.extra });
-  }
+  tick(...args) { return scheduling.tick(this, ...args); }
 
-  async createNpc(name, brief, gmContext) {
-    if (!String(name ?? "").trim()) return null;
-    let saved;
-    if (this.pbta) {
-      saved = await this.api.createCharacter(this.channelId, { kind: "npc", name, description: brief || name });
-    } else {
-      const generated = await generateNpc(this.llm, { language: this.language, era: this.channel.era, rules: this.rules, name, brief, gmContext: gmContext.slice(-6000), profile: this.profile, pointsMode: Boolean(this.channel.point_buy), log: this.log });
-      generated.name = name;
-      generated.brief = brief || generated.persona;
-      saved = await saveCharacter(this.api, this.channelId, generated, { kind: "npc", rules: this.rules, llm: this.llm, language: this.language, pointsMode: Boolean(this.channel.point_buy), profile: this.profile, level: 1 });
-    }
-    const entry = { characterId: saved.id, name: saved.name, brief: brief || saved.persona };
-    this.roster.npcs.push(entry);
-    this.save();
-    this.log(`new NPC: ${saved.name}`);
-    await this.refresh();
-    return entry;
-  }
+  createNpc(...args) { return actions.createNpc(this, ...args); }
 
-  characterByName(name) {
-    const n = norm(name);
-    return this.characters.find((c) => norm(c.name) === n) ?? this.characters.find((c) => n && norm(c.name).split(/\s+/)[0] === n.split(/\s+/)[0]);
-  }
+  characterByName(...args) { return actions.characterByName(this, ...args); }
   // Investigators only (player characters and co-players): exact name first, then a unique first name.
-  investigatorByName(name) {
-    const n = norm(name);
-    const inv = investigatorsFor(this.characters, this.roster);
-    const exact = inv.find((c) => norm(c.name) === n);
-    if (exact) return exact.id;
-    const first = inv.filter((c) => n && norm(c.name).split(/\s+/)[0] === n.split(/\s+/)[0]);
-    return first.length === 1 ? first[0].id : null;
-  }
+  investigatorByName(...args) { return actions.investigatorByName(this, ...args); }
 
   // A character's role card, and the sheet values the dice keep (`attrs`: live HP, slots), cached until the
   // platform says the character changed.
-  async card(characterId) {
-    if (!this.cards.has(characterId)) {
-      const space = await this.api.characterSpace(this.channelId, characterId).catch(() => null);
-      this.cards.set(characterId, space?.character?.role_card ?? null);
-      this.attrs.set(characterId, space?.attrs && typeof space.attrs === "object" ? space.attrs : {});
-    }
-    return this.cards.get(characterId);
-  }
+  card(...args) { return actions.card(this, ...args); }
 
   // A co-player's move, from its own witnessed chat (every window it sat in, during its seats) and its companions'
   // profiles. Nothing from the GM's side. Lines a player wrote while their character was in another scene are not
   // something this co-player witnessed, even in a window it sits in.
-  async coplayerAct(windowId, coplayer, spotlight, { side = false } = {}) {
-    const me = coplayer.characterId;
-    const hidden = this.hiddenLines();
-    // Everything this co-player witnessed (its seats, its timeline), from the local copy of the chat.
-    const messages = [];
-    for (const w of new Set(coplayer.seats.map((s) => s.windowId))) messages.push(...this.history.lines(w));
-    const witnessed = coplayerLog(coplayer, messages.filter((m) => !hidden.has(m.id)), Infinity).filter((m) => !(m.character_id && this.isPc(m.character_id) && this.timelines.timelineAt(m.character_id, m.seq).id !== this.timelines.timelineAt(me, m.seq).id));
-    // Since its last memory chapter, within its budget (compaction catches up beside the turn).
-    const recallBudget = Math.min(this.cfg.recallTokens ?? 1200, Math.floor(this.memory.coplayerBudget * 0.05));
-    let log = this.memory.coplayerRaw(coplayer, witnessed);
-    while (log.length > CHUNK_LINES && estimateTokens(log.map((m) => this.renderForCoplayer(m)).join("\n")) > this.memory.coplayerBudget - recallBudget) log = log.slice(CHUNK_LINES);
-    const included = new Set(log.map((m) => m.seq));
-    const recalled = recall(witnessed.slice(-6).map((m) => m.content).join("\n"),
-      witnessed.filter((m) => !included.has(m.seq)).map((m) => ({ match: m.content, text: this.renderForCoplayer(m), source: this.renderForCoplayer({ ...m, content: "", dice: null }) + " " })),
-      recallBudget, { heading: "RELEVANT EARLIER LINES YOU WITNESSED" });
-    const memories = this.memory.coplayerChapters(coplayer).map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`);
-    const t = this.timelines.of(me);
-    const timeline = t ? { name: t.name, narrativeTime: t.narrativeTime, location: t.location } : null;
-    const card = await this.card(me);
-    const pbta = this.pbta && playerRules(this.pbta.pack, card?.pbta?.book);
-    let move;
-    try {
-      const companions = investigatorsFor(this.characters, this.roster, { except: me });
-      const phone = this.casualOn() ? renderThread(this.store.phoneOf(me, 12), (id) => this.nameOf(id)) : "";
-      const known = this.knownTo(me, witnessed);
-      move = await coplayerTurn(this.llm, { language: this.language, coplayer, card, pbta, profile: this.profile, attrs: this.attrs.get(me) ?? {}, companions, withYou: this.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: this.improv.on ? this.improv.world : "", improv: this.improv.on, casual: this.casualOn(), phone, impulse: renderImpulse(this.impulseFor(me)),
-        corrections: renderCorrectionsFor(this.planner.table, coplayer.name),
-        ...(this.calendarOn() ? { today: describeCalendar(this.calendar, { time: t?.narrativeTime || this.calendar.time }), routine: describeRoutine(this.calendar), timePassed: this.timePassedFor(me, witnessed) } : {}), met: this.metBy(known.met), bonds: renderBondsFor(this.bonds, me, known.all, (id) => this.nameOf(id)) });
-    } catch (e) { this.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
-    this.memory.maintainCoplayer(coplayer, witnessed, (m) => this.renderForCoplayer(m));
-    if (move.action === "text") {
-      const to = this.characterByName(move.to);
-      // To a companion co-player or an NPC: the phone log, where they answer in their own time.
-      if (to && to.id !== me && (this.roster.isCoplayer(to.id) || this.roster.isNpc(to.id))) return this.aiText(me, to.id, move.text);
-      // To a player character: it arrives in their phone at once.
-      if (!to || !this.isPc(to.id) || !this.casual.phones[to.id]) return 0;
-      this.store.addPhone({ windowId: this.casual.phones[to.id], from: me, to: to.id, text: move.text, at: this.now() });
-      this.casual.last[to.id] = me;
-      this.save();
-      return this.post(this.casual.phones[to.id], { content: move.text, kind: "ic", character_id: me }, { count: false });
-    }
-    if (move.action === "speak") return this.post(windowId, { content: move.text, kind: move.kind, character_id: me });
-    if (move.action === "roll" && this.pbta) {
-      const [, moveId, modifier] = move.command.split(" ");
-      if (/^[.。]/.test(move.text.trim())) return 0;
-      const cue = witnessed.findLast(m => m.chat_window_id === windowId && m.visibility === "window" && m.character_id !== me);
-      if (!cue) return this.post(windowId, { content: move.text, kind: "ic", character_id: me });
-      const intent = await this.api.pbtaRuling(this.channelId, windowId, {
-        op: "declare", source_id: cue.id, text: move.text, character_id: me,
-        move_id: moveId, modifier: Number(modifier ?? 0), revision: this.pbta.revision,
-      });
-      this.noteLine(intent);
-      // A retry must finish the originally declared move, even if the model now suggests another.
-      const result = await this.api.pbtaRuling(this.channelId, windowId, {
-        op: "move", character_id: me, source_id: intent.id, ...intent.declared_move,
-      });
-      this.noteLine(result);
-      return 2;
-    }
-    if (move.action === "roll") {
-      let n = 0;
-      if (move.text) n += await this.post(windowId, { content: move.text, kind: "ic", character_id: me });
-      return n + (await this.post(windowId, { content: move.command, kind: "ic", character_id: me }));
-    }
-    return 0;
-  }
+  coplayerAct(...args) { return coplayers.coplayerAct(this, ...args); }
 
   // Who a co-player knows: every investigator, and the real NPCs it has seen speak in its own scenes (newest last).
-  knownTo(me, witnessed) {
-    const npcs = new Set(this.roster.npcs.map((n) => n.characterId));
-    const met = [...new Set(witnessed.filter((m) => m.character_id && npcs.has(m.character_id)).map((m) => m.character_id).reverse())].reverse().slice(-12);
-    return { met, all: new Set([...investigatorsFor(this.characters, this.roster).map((c) => c.id), ...met]) };
-  }
+  knownTo(...args) { return coplayers.knownTo(this, ...args); }
   // What anyone would notice about the NPCs a co-player has met: gender, age, striking traits; never the GM's brief.
-  metBy(ids) {
-    const lines = ids.map((id) => { const c = this.characters.find((x) => x.id === id); return c ? `- ${c.name}${impression(c.role_card) ? ` ${impression(c.role_card)}` : ""}` : ""; }).filter(Boolean);
-    return lines.length ? `PEOPLE YOU HAVE MET (what anyone would notice about them):\n${lines.join("\n")}` : "";
-  }
+  metBy(...args) { return coplayers.metBy(this, ...args); }
   // The calendar moved on since this co-player last spoke: it lived through that time too.
-  timePassedFor(me, witnessed) {
-    const own = witnessed.filter((m) => m.character_id === me).at(-1);
-    if (!own) return "";
-    const changes = this.calendar.log.filter((e) => e.seq >= own.seq && e.days > 0);
-    if (!changes.length) return "";
-    const days = changes.reduce((n, e) => n + e.days, 0);
-    return `TIME HAS PASSED since you last spoke: ${days} day(s), ${changes[0].from || "(no date)"} → ${changes.at(-1).to}.`;
-  }
+  timePassedFor(...args) { return coplayers.timePassedFor(this, ...args); }
 
   // `count: false` marks bookkeeping lines (pointers, notes) that do not use up the turn's action budget.
-  async post(windowId, body, { count = true, allowPaused = false } = {}) {
-    if (!allowPaused && this.generation.signal.aborted) return 0;
-    if (this.pbta && /^[.。][a-z]/i.test(String(body.content).trim())) return 0;
-    try {
-      const m = await this.api.postMessage(this.channelId, windowId, { visibility: "window", ...body });
-      this.botMessageIds.add(m.id);
-      if (this.botMessageIds.size > 2000) this.botMessageIds.delete(this.botMessageIds.values().next().value);
-      const turn = this.turnScope.getStore();
-      if (turn?.running) turn.posted.push({ id: m.id, seq: m.seq, kind: m.kind, windowId });
-      this.lastPosted = m;
-      this.noteLine(m);
-      this.noteArt(m);
-      if (this.cfg.verbose) this.log(`posted ${body.kind}${body.visibility && body.visibility !== "window" ? `/${body.visibility}` : ""} in "${this.windowName(windowId)}": ${body.content.slice(0, 100)}`);
-      if (count) await this.sleep(this.cfg.postDelayMs);
-      return count ? 1 : 0;
-    } catch (e) {
-      this.log(`post failed (${e.code || e.status}): ${e.message}`);
-      return 0;
-    }
-  }
+  post(...args) { return actions.post(this, ...args); }
 }

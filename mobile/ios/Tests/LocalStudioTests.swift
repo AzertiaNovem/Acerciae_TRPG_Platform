@@ -55,11 +55,29 @@ import AcerciaeCore
     }
     func testNativePDFRendererWritesMultipleReadablePages() async throws {
         let web = WKWebView(frame:CGRect(x:0,y:0,width:420,height:595))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        controller.view.addSubview(web)
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
+        defer { web.stopLoading(); window.isHidden = true; previousWindow?.makeKeyAndVisible() }
         let loaded = expectation(description:"HTML loaded")
-        let delegate = StudioLoadDelegate { loaded.fulfill() }; web.navigationDelegate = delegate
+        var navigationError: Error?
+        let delegate = StudioLoadDelegate { error in navigationError = error; loaded.fulfill() }; web.navigationDelegate = delegate
+        // WKWebView keeps its delegate weakly, including across the asynchronous navigation wait.
+        defer { withExtendedLifetime(delegate) {} }
         let content = (0..<8).map { "<div style='page-break-after:always;height:500px'>Chapter \($0)</div>" }.joined()
         web.loadHTMLString("<html><body>\(content)</body></html>",baseURL:nil)
-        await fulfillment(of:[loaded],timeout:10)
+        // WebKit's first process launch on a new simulator can exceed ten seconds.
+        let result = await XCTWaiter().fulfillment(of: [loaded], timeout: 60)
+        guard result == .completed else { XCTFail("HTML did not finish loading before PDF export"); return }
+        if let navigationError { throw navigationError }
+        let readyState = try await web.evaluateJavaScript("document.readyState") as? String
+        XCTAssertEqual(readyState, "complete")
+        web.layoutIfNeeded()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".pdf")
         defer { try? FileManager.default.removeItem(at:url) }
         try StudioPDF.write(web:web,to:url)
@@ -68,8 +86,10 @@ import AcerciaeCore
     }
 }
 private final class StudioLoadDelegate: NSObject, WKNavigationDelegate {
-    let loaded: () -> Void; init(_ loaded:@escaping()->Void) { self.loaded = loaded }
-    func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!) { loaded() }
+    let loaded: (Error?) -> Void; init(_ loaded:@escaping(Error?)->Void) { self.loaded = loaded }
+    func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!) { loaded(nil) }
+    func webView(_ webView:WKWebView,didFail navigation:WKNavigation!,withError error:Error) { loaded(error) }
+    func webView(_ webView:WKWebView,didFailProvisionalNavigation navigation:WKNavigation!,withError error:Error) { loaded(error) }
 }
 
 private final class StudioAIProtocol: URLProtocol {

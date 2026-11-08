@@ -156,13 +156,13 @@ std::vector<TtsService::LinePlan> TtsService::plan(const ChannelAccess& a, const
         else if (kind == "narration" || kind == "dice") { for (auto& [id, v] : voiceById) if (v["character_id"].isNull()) { voice = v; break; } }
         if (voice.isNull()) continue;
         if (voice["provider"] != provider->name()) throw badRequest("voice profile belongs to a different provider; recreate it for the configured provider");
-        LinePlan l; l.eventId = e["id"].asString(); l.voiceProfileId = voice["id"].asString(); l.voiceId = voice["voice_id"].asString(); l.modelId = modelOverride.empty() ? voice["model_id"].asString() : modelOverride; l.voiceVersion = voice["version"].asInt(); l.params = voice["synthesis_parameters"]; l.language = voice["language"].asString();
+        LinePlan l; l.privateSource = p["snapshot_scope"] != "pl_public"; l.eventId = e["id"].asString(); l.voiceProfileId = voice["id"].asString(); l.voiceId = voice["voice_id"].asString(); l.modelId = modelOverride.empty() ? voice["model_id"].asString() : modelOverride; l.voiceVersion = voice["version"].asInt(); l.params = voice["synthesis_parameters"]; l.language = voice["language"].asString();
         std::string spoken = e["tts_text"].isNull() || e["tts_text"].asString().empty() ? e["display_text"].asString() : e["tts_text"].asString();
         if (!voice["pronunciation_dictionary_id"].isNull() && dicts.count(voice["pronunciation_dictionary_id"].asString())) { auto& d = dicts[voice["pronunciation_dictionary_id"].asString()]; spoken = applyDictionary(spoken, d["entries"], provider->supportsPhonemeHints()); l.dictVersion = d["version"].asInt(); pronunciationHints(l.params,d["entries"],provider->supportsPhonemeHints()); }
         l.text = spoken;
         std::string ident = voice["style_instruction"].asString() + (json::str(voice,"dialect").empty()?"":"; dialect: "+json::str(voice,"dialect")), line = e["style_instruction"].asString();
         l.instruction = ident.empty() ? line : (line.empty() ? ident : ident + "; " + line);
-        l.params["language"] = l.language; l.cacheKey = cacheKey(a.channelId + ":" + l.voiceProfileId + ":" + provider->cacheNamespace(), l.modelId, l.voiceId, l.voiceVersion, l.text, l.instruction, l.dictVersion, l.params);
+        l.params["language"] = l.language; l.cacheKey = cacheKey(a.channelId + (l.privateSource ? ":private:" : ":public:") + l.voiceProfileId + ":" + provider->cacheNamespace(), l.modelId, l.voiceId, l.voiceVersion, l.text, l.instruction, l.dictVersion, l.params);
         auto hit = db_.queryOne("SELECT id FROM tts_audio_assets WHERE cache_key=$1", {l.cacheKey});
         if (!hit.isNull()) { l.cached = true; l.cachedAudioId = hit["id"].asString(); touchAudio(l.cachedAudioId); }
         if (!force && l.cached && e["audio_asset_id"] == l.cachedAudioId) continue;
@@ -219,12 +219,13 @@ std::string TtsService::synthesizeLine(const std::string& channelId, const LineP
         db_.exec("DELETE FROM tts_usage_records WHERE id=$1", {usage["id"].asString()});
         error = res.error; retryable = res.retryable; return "";
     }
-    // Voice clips are not secret: they go to the public bucket when there is one (access is still checked per request).
-    auto key = publicObjectKey(store_, channelId, "tts", res.mime == "audio/wav" ? "wav" : "mp3");
+    // Private snapshots and previews never produce unauthenticated object URLs.
+    auto ext = res.mime == "audio/wav" ? "wav" : "mp3";
+    auto key = l.privateSource ? safeObjectKey(channelId, "tts", ext) : publicObjectKey(store_, channelId, "tts", ext);
     store_.put(key, res.audioBytes, res.mime);
     int dur = res.durationMs ? res.durationMs : (res.mime == "audio/wav" ? wavDurationMs(res.audioBytes) : 0);
-    auto row = db_.queryOne("INSERT INTO tts_audio_assets(channel_id, cache_key, provider, model_id, voice_id, voice_profile_id, voice_profile_version, spoken_text, style_instruction, dictionary_version, synthesis_parameters, object_key, mime, bytes, duration_ms, word_timestamps, is_mock, created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18) ON CONFLICT (cache_key) DO UPDATE SET bytes=EXCLUDED.bytes RETURNING id",
-        {channelId, l.cacheKey, provider->name(), l.modelId, l.voiceId, opt(l.voiceProfileId), (int64_t)l.voiceVersion, l.text, l.instruction, (int64_t)l.dictVersion, json::dump(l.params), key, res.mime, (int64_t)res.audioBytes.size(), dur ? DbParam((int64_t)dur) : dbNull(), res.wordTimestamps.isNull() ? dbNull() : DbParam(json::dump(res.wordTimestamps)), provider->isMock(), opt(userId)});
+    auto row = db_.queryOne("INSERT INTO tts_audio_assets(channel_id, cache_key, provider, model_id, voice_id, voice_profile_id, voice_profile_version, spoken_text, style_instruction, dictionary_version, synthesis_parameters, object_key, mime, bytes, duration_ms, word_timestamps, is_mock, created_by, private_source) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18,$19) ON CONFLICT (cache_key) DO UPDATE SET bytes=EXCLUDED.bytes RETURNING id",
+        {channelId, l.cacheKey, provider->name(), l.modelId, l.voiceId, opt(l.voiceProfileId), (int64_t)l.voiceVersion, l.text, l.instruction, (int64_t)l.dictVersion, json::dump(l.params), key, res.mime, (int64_t)res.audioBytes.size(), dur ? DbParam((int64_t)dur) : dbNull(), res.wordTimestamps.isNull() ? dbNull() : DbParam(json::dump(res.wordTimestamps)), provider->isMock(), opt(userId), l.privateSource});
     return row["id"].asString();
 }
 
@@ -241,7 +242,7 @@ Json::Value TtsService::preview(const ChannelAccess& a, const Json::Value& body)
     l.text = textIn;
     if (!voice["pronunciation_dictionary_id"].isNull()) { auto d = db_.queryOne("SELECT * FROM pronunciation_dictionaries WHERE id=$1", {voice["pronunciation_dictionary_id"].asString()}); if (!d.isNull()) { l.text = applyDictionary(l.text, d["entries"], provider->supportsPhonemeHints()); l.dictVersion = d["version"].asInt(); pronunciationHints(l.params,d["entries"],provider->supportsPhonemeHints()); } }
     std::string ident = voice["style_instruction"].asString() + (json::str(voice,"dialect").empty()?"":"; dialect: "+json::str(voice,"dialect")), line = json::str(body, "style_instruction"); l.instruction = ident.empty() ? line : (line.empty() ? ident : ident + "; " + line);
-    l.params["language"] = l.language; l.cacheKey = cacheKey(a.channelId + ":" + l.voiceProfileId + ":" + provider->cacheNamespace(), l.modelId, l.voiceId, l.voiceVersion, l.text, l.instruction, l.dictVersion, l.params);
+    l.params["language"] = l.language; l.cacheKey = cacheKey(a.channelId + (l.privateSource ? ":private:" : ":public:") + l.voiceProfileId + ":" + provider->cacheNamespace(), l.modelId, l.voiceId, l.voiceVersion, l.text, l.instruction, l.dictVersion, l.params);
     auto u = usage(a); if (u["used_chars"].asInt64() + (int64_t)utf8Chars(l.text) > u["budget_chars"].asInt64() && db_.queryOne("SELECT 1 AS x FROM tts_audio_assets WHERE cache_key=$1", {l.cacheKey}).isNull()) throw ApiError(429, "budget_exceeded", "channel TTS budget exhausted");
     std::string err; bool retry = false; auto id = synthesizeLine(a.channelId, l, a.userId, err, retry);
     if (id.empty()) throw ApiError(502, "tts_error", err);
@@ -281,7 +282,8 @@ Json::Value TtsService::getJob(const ChannelAccess& a, const std::string& jobId)
 Json::Value TtsService::listJobs(const ChannelAccess& a, const std::string& presentationId) { pres_.presentationRow(a,presentationId); return db_.queryJson("SELECT * FROM tts_jobs WHERE channel_id=$1 AND ($2::text = '' OR presentation_id::text=$2) ORDER BY created_at DESC LIMIT 50", {a.channelId, presentationId}); }
 Json::Value TtsService::cancelJob(const ChannelAccess& a, const std::string& jobId) { auto j=getJob(a, jobId); if (!a.isGm && j["created_by"] != a.userId) throw forbidden("not your job"); return db_.queryOne("UPDATE tts_jobs SET status=CASE WHEN status IN ('pending','running') THEN 'cancelled' ELSE status END, updated_at=now() WHERE id=$1 RETURNING *", {jobId}); }
 
-bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime, std::string* redirectUrl) {
+bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime, std::string* redirectUrl, bool* publicAudio) {
+    if (publicAudio) *publicAudio = false;
     auto row = db_.queryOne("SELECT * FROM tts_audio_assets WHERE id=$1 AND channel_id=$2", {audioId, a.channelId});
     if (row.isNull()) return false;
     if (!a.isGm) {
@@ -299,7 +301,9 @@ bool TtsService::fetchAudio(const ChannelAccess& a, const std::string& audioId, 
     }
     touchAudio(audioId);
     mime = row["mime"].asString();
-    if (redirectUrl) { *redirectUrl = store_.publicUrl(row["object_key"].asString()); if (!redirectUrl->empty()) return true; }
+    const bool shared = !row["private_source"].asBool();
+    if (publicAudio) *publicAudio = shared;
+    if (redirectUrl && shared) { *redirectUrl = store_.publicUrl(row["object_key"].asString()); if (!redirectUrl->empty()) return true; }
     auto data = store_.get(row["object_key"].asString()); if (!data) return false;
     bytes = std::move(*data); return true;
 }

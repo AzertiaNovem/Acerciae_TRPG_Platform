@@ -32,7 +32,8 @@ export async function serve(file) {
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
-  loadEnvFile(args.env ?? path.join(process.cwd(), '.env'));
+  if (args.env) loadEnvFile(args.env);
+  else if (process.env.ACERCIAE_NO_DOTENV !== '1') loadEnvFile(path.join(process.cwd(), '.env'));
   serve(args.config ?? 'gm-host.yml').then(host => {
     let closing = false;
     const stop = () => { if (closing) return; closing = true; host.close().catch(() => { process.exitCode = 1; }); };

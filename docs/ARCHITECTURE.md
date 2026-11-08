@@ -13,7 +13,7 @@
    REST /api/*                              WS /ws/chat   WS /ws/context
 ┌────────────┴──────────────────────────────────────┴─────────────────────────┐
 │                         C++20 backend (Drogon)                              │
-│  api/Api.cpp (HTTP layer)      ws/WsGateway + ws/Notifier (WS gateway)      │
+│  api/Api.cpp + domain routes      ws/WsGateway + ws/Notifier (WS gateway)      │
 │  auth/AuthService              knowledge/Visibility (SQL scope filters)     │
 │  chat/ChatService  events/EventStore  scenes/SceneManager + ScenarioService  │
 │  reminders/ReminderService      script/ScriptKnowledgeService (+ reviewer)  │
@@ -55,7 +55,23 @@
 | `api/` | Route table; each handler: parse → authorise → service → JSON | all services |
 | `app/Services` | Composition root; swapping the LLM, rule system or storage happens here | – |
 
-Planned (design only, not implemented): AI players and an AI GM as real channel members — see [AI_AGENTS_DESIGN.md](AI_AGENTS_DESIGN.md).
+The original platform-embedded AI GM/player design was abandoned before implementation. [AI_AGENTS_DESIGN.md](AI_AGENTS_DESIGN.md) is a historical design, not an implementation roadmap.
+
+The implemented [GM Agent](../gm-agent/README.md) runs as an external Node.js client. It signs in with ordinary accounts, reuses the backend HTTP API for reads and actions, and subscribes to WebSocket notifications. Its hosting, model calls, planning, state and co-player orchestration live in `gm-agent/`; it does not invoke C++ services directly or run inside the backend. The platform's own observer and assistance jobs remain separate from this external GM.
+
+The constraint and module-boundary work is implemented; [ENGINEERING_PLAN.md](ENGINEERING_PLAN.md) maps the stages to code, and [CONSTRAINTS.md](CONSTRAINTS.md) is the maintenance registry with regression entry points.
+
+`api/Api.cpp` composes Auth, Channel, Character, Knowledge, Studio and Media route registration plus CORS. `RouteSupport` owns bearer/file-token authentication, request parsing, bounded dispatch, deadlines and error translation. Route groups depend on service facades; policies do not depend on routes.
+
+`ChatService` remains the application facade. `ChannelSettings.cpp`, `CharacterProfiles.cpp`, `WindowService.cpp` and `Messages.cpp` contain cohesive use cases; `ChatQueries` shares message/history projections and server-role lookup. Rule transitions still commit channel settings and card archives together before notifications.
+
+`VnScriptService.cpp` owns jobs and the worker lifecycle. `VnScriptInputs` prepares authorized snapshots; `VnScriptTranscript` builds prompts; `VnScriptMock` and `VnScriptValidation` transform data without I/O; `VnScriptContinuation` handles ranges and continuation; `VnScriptRecovery` decides reusable chunk states and normalizes questions. `VnScriptModel` performs model calls and transactional chunk checkpoints; `VnScriptArt` schedules derived assets. Static facade methods preserve existing callers and unit-test entry points.
+
+`ContentPolicy` contains pure source/audience decisions, while `MediaService` resolves current ownership in channel-scoped queries. Metadata, file reads and offline export share the same delivery decision. Private image origins and private audio cannot redirect to public storage or acquire immutable cache eligibility. Audio cache identities distinguish public and private synthesis.
+
+The external GM's `Table` keeps turn order and shared runtime state. `gm-agent/src/table/` receives that context explicitly and separates scheduling, recovery, context construction, window movement, platform actions, art, planning, social messages and co-player actions. These modules never import the facade or open backend database connections. The injected HTTP client, model clients, clock and persistence remain replaceable in fixtures; the co-player module reads its own authorized context.
+
+On Web/desktop, `AuthPhase` and `ConnectionPhase` describe independent session and socket lifecycles. Auth operations invalidate older attempts and serialize credential writes. `openstudio/projects.ts` composes the project store with `SaveQueue` (revisioned serial writes) and `ProjectLeases` (views/tasks); task orchestration remains in `tasks.ts`. Native clients keep native storage and test the shared session-error contract.
 
 Replacing the model: implement `ILlmClient` and construct it in `Services::build` (or extend `LlmGateway`'s constructor
 to switch on `LLM_PROVIDER`). Prompts, schemas and tools are untouched.

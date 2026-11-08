@@ -15,7 +15,7 @@ function load(rel) {
 test('Log Studio access mirrors the server: maintainer switch, GM switches before the end, open to all after it', () => {
   const { studioAccess } = load('components/studio/access.ts');
   const on = { features: { log_studio: true } }, off = { features: { log_studio: false } };
-  const ch = (o) => ({ my_role: 'player', studio_visible: true, studio_player_access: true, story_status: 'ongoing', ...o });
+  const ch = (o) => ({ id: 'fixture', my_role: 'player', studio_visible: true, studio_player_access: true, story_status: 'ongoing', ...o });
   assert.equal(studioAccess(ch({}), on), 'open');
   assert.equal(studioAccess(ch({}), off), 'disabled');
   assert.equal(studioAccess(ch({ studio_visible: false }), on), 'hidden');
@@ -90,4 +90,9 @@ test('voice studio: dictionary lines carry phonetic readings only where the serv
   const f = { params: [{ key: 'rate', min: 0.5, max: 2, step: 0.05, default: 1 }, { key: 'volume', min: 0, max: 100, step: 1, default: 50 }] };
   assert.deepEqual(paramValues(f, { rate: 1.4, speed: 3 }), { rate: 1.4, volume: 50 });
   assert.deepEqual(paramValues(f, undefined), { rate: 1, volume: 50 });
+});
+
+test('shared native/web Studio access examples',()=>{
+ const {studioAccess}=load('components/studio/access.ts');
+ for(const row of require('../../mobile/contracts/fixtures/client-access.json').studio)assert.equal(studioAccess(row.channel,row.settings),row.expected);
 });

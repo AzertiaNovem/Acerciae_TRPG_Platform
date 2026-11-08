@@ -21,14 +21,17 @@ import AcerciaeCore
         let key = ChatIllustrations.key(server: model.endpoint, account: "reader", channel: "channel", message: "picture")
         let controller = UIHostingController(rootView: ChatIllustration(message: message, model: model).padding(20))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene); window.overrideUserInterfaceStyle = .dark
         window.rootViewController = controller; window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+        defer { window.isHidden = true; previousWindow?.makeKeyAndVisible() }
         model.draft = "Typing while the picture loads"
         XCTAssertFalse(model.busy)
-        let deadline = Date().addingTimeInterval(5)
+        // A fresh CI simulator initializes networking and ImageIO on the first image request.
+        let deadline = Date().addingTimeInterval(30)
         while ArtworkImages.cached(key) == nil && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertNotNil(ArtworkImages.cached(key)); XCTAssertEqual(PictureProtocol.calls, 1)
+        _ = try XCTUnwrap(ArtworkImages.cached(key), "Illustration did not finish loading; requests: \(PictureProtocol.calls), responses: \(PictureProtocol.responses)")
+        XCTAssertEqual(PictureProtocol.calls, 1)
         XCTAssertEqual(model.draft, "Typing while the picture loads"); XCTAssertFalse(model.busy)
         try await Task.sleep(for: .milliseconds(100))
         let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
@@ -48,8 +51,10 @@ private final class PictureProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private static var png = Data()
     private static var count = 0
+    private static var completed = 0
     static var calls: Int { lock.lock(); defer { lock.unlock() }; return count }
-    static func reset(_ data: Data) { lock.lock(); png = data; count = 0; lock.unlock() }
+    static var responses: Int { lock.lock(); defer { lock.unlock() }; return completed }
+    static func reset(_ data: Data) { lock.lock(); png = data; count = 0; completed = 0; lock.unlock() }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "picture-ui.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -57,6 +62,7 @@ private final class PictureProtocol: URLProtocol, @unchecked Sendable {
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { [self] in
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png", "Cache-Control": "private, max-age=86400"])!, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data); client?.urlProtocolDidFinishLoading(self)
+            Self.lock.lock(); Self.completed += 1; Self.lock.unlock()
         }
     }
     override func stopLoading() {}

@@ -1,3 +1,4 @@
+import { getToken } from '../api/client';
 import DesktopAccountPicker from './DesktopAccountPicker';
 import { t as tr } from '../i18n';
 import { useState } from 'react';
@@ -6,7 +7,7 @@ import { isDesktop, normalizeServer, serverUrl, setServerUrl } from '../lib/plat
 import { useOpenStudio } from '../openstudio/ui/state';
 
 export default function LoginScreen() {
-  const { login, register, error } = useAuth();
+  const { login, register, error, bootstrap } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [u, setU] = useState(''); const [p, setP] = useState(''); const [d, setD] = useState('');
   // The desktop app connects to a server of the user's choice (the public one by default).
@@ -32,6 +33,7 @@ export default function LoginScreen() {
         {mode === 'register' && <input placeholder={tr("display name")} value={d} onChange={(e) => setD(e.target.value)} />}
         <input placeholder={tr("password")} type="password" value={p} onChange={(e) => setP(e.target.value)} />
         {error && <div className="small" style={{ color: 'var(--danger)' }}>{tr(error)}</div>}
+        {error && getToken() && <button type="button" disabled={pending} onClick={async () => { setPending(true); try { await bootstrap(); } finally { setPending(false); } }}>{tr('Retry')}</button>}
         <button className="primary" type="submit" disabled={pending}>{mode === 'login' ? tr("Sign in") : tr("Create account")}</button>
         <button type="button" className="ghost small" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? tr("Need an account? Register") : tr("Have an account? Sign in")}</button>
         <div className="tiny muted">{tr("Demo accounts (when the server seeds them): keeper / alice / bob / carol — password “password”.")}</div>

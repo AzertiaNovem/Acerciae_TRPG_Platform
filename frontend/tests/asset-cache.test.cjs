@@ -195,3 +195,8 @@ test('nonpersistent Blob URLs survive shared consumers and are revoked after the
   assert.deepEqual(revoked, [first], 'late cleanup is harmless');
   assert.equal(c.peekSrc(url), undefined);
 });
+
+test('shared native/web retention contract always honors no-store',()=>{
+ const c=load('lib/assetCache.ts',{indexedDB:fakeIndexedDB(),fetch:async()=>response(''),location:{href:'http://app.test/'}});
+ for(const row of require('../../mobile/contracts/fixtures/client-access.json').cache)assert.equal(c.keepable(row.header),row.keep);
+});

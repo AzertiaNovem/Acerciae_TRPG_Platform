@@ -8,12 +8,12 @@ const engine = process.argv[2] || 'chromium';
 const browser = engine === 'webkit' ? await webkit.launch() : await chromium.launch({ channel: process.env.CHROME_CHANNEL });
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
-  const projects = new Map(), assets = new Map(); const mutations = [], aiCalls = []; let exported, bucketReads = 0;
+  const projects = new Map(), assets = new Map(); const mutations = [], aiCalls = []; let exported, bucketReads = 0, failSave = false;
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
   const reference = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="red"/></svg>');
   const hash = createHash('sha256').update(reference).digest('hex');
   await context.exposeBinding('hybridBridge', (_, command, args, options) => {
-    if (command === 'project_save') { projects.set(args.id, { data: args.data, meta: args.meta }); return; }
+    if (command === 'project_save') { if (failSave) throw Error('ENOSPC fixture'); projects.set(args.id, { data: args.data, meta: args.meta }); return; }
     if (command === 'project_load') return projects.get(args.id)?.data;
     if (command === 'project_list') return [...projects.values()].map(p => p.meta);
     if (command === 'project_delete') return projects.delete(args.id);
@@ -123,6 +123,17 @@ try {
   assert.ok(exported?.files.some(f => f.path === 'index.html')); assert.ok(exported.files.some(f => f.path === 'script.json'));
   assert.equal(exported.files.filter(f => f.asset).length, 4, 'existing art, new background, pose and voice are in the local export');
   assert.equal(mutations.length, 1, 'only the script is requested from the platform');
+  failSave = true;
+  await page.locator('.open-studio-title').fill('Edit retained after failed save');
+  const failure = page.getByRole('alert').filter({hasText:'Changes could not be saved'});
+  await failure.waitFor();
+  await page.getByRole('button', {name:'← Projects',exact:true}).click();
+  await failure.getByRole('button', {name:'open',exact:true}).click();
+  assert.equal(await page.locator('.open-studio-title').inputValue(),'Edit retained after failed save');
+  failSave = false;
+  await failure.getByRole('button',{name:'Retry',exact:true}).click();
+  await failure.waitFor({state:'hidden'});
+  assert.equal(JSON.parse([...projects.values()][0].data).title,'Edit retained after failed save');
   assert.deepEqual(errors, []);
   await page.screenshot({ path: `/tmp/acerciae-hybrid-${engine}.png`, fullPage: true });
   await page.getByText('Hybrid · server script ready', { exact: true }).scrollIntoViewIfNeeded();

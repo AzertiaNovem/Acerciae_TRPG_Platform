@@ -4,6 +4,7 @@
 # acerciae_e2e. The Log Studio suite needs the PDF worker and a Chromium/Chrome: set CHROMIUM_PATH, or it is looked up
 # (chromium, chromium-browser, google-chrome); without one that suite is skipped with a notice.
 set -euo pipefail
+export ACERCIAE_NO_DOTENV=1
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PG="${1:-postgresql://postgres@localhost:5432/postgres}"
 PGBASE="${PG%/*}"
@@ -19,6 +20,14 @@ echo "== database tests"; psql "$PG" -q -c "DROP DATABASE IF EXISTS acerciae_tes
 
 echo "== end-to-end (HTTP + WebSocket)"
 psql "$PG" -q -c "DROP DATABASE IF EXISTS acerciae_e2e" -c "CREATE DATABASE acerciae_e2e"
+# Provision the operator through the trusted test database before reserving its name in PLATFORM_ADMINS.
+env AUTH_SECRET="$(openssl rand -hex 32)" DATABASE_URL="$PGBASE/acerciae_e2e" MIGRATIONS_DIR="$ROOT/backend/migrations" "$ROOT/backend/build/acerciae-server" --migrate-only
+node --input-type=module -e '
+import {pbkdf2Sync, randomBytes} from "node:crypto";
+const salt=randomBytes(16).toString("hex");
+const hash=["pbkdf2",60000,salt,pbkdf2Sync("password",salt,60000,32,"sha256").toString("hex")].join("$");
+console.log("INSERT INTO users(username,display_name,password_hash) VALUES (" + ["platform_admin","Operator",hash].map(x=>String.fromCharCode(39)+x+String.fromCharCode(39)).join(",") + ");");
+' | psql "$PGBASE/acerciae_e2e" -q -v ON_ERROR_STOP=1
 WORKER_TOKEN="$(openssl rand -hex 32)"
 # Strict mode: a nested database transaction fails the request instead of risking a pool deadlock. The provider suites
 # talk to local protocol fixtures, hence private endpoints.
@@ -32,7 +41,7 @@ for i in $(seq 1 30); do curl -fsS "http://localhost:$PORT/api/health" >/dev/nul
 SUITES=$(cd "$ROOT/tests/integration" && ls *.test.mjs)
 CHROME="${CHROMIUM_PATH:-$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)}"
 if [ -n "$CHROME" ]; then
-  (cd "$ROOT/pdf-worker" && [ -d node_modules ] || npm --prefix "$ROOT/pdf-worker" ci --silent)
+  (cd "$ROOT/pdf-worker" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
   (cd "$ROOT/pdf-worker" && exec env API_BASE="http://127.0.0.1:$PORT" PDF_WORKER_TOKEN="$WORKER_TOKEN" CHROMIUM_PATH="$CHROME" \
     node src/index.mjs > "${TMPDIR:-/tmp}/acerciae-pdf-worker.log" 2>&1) &
   PIDS+=($!)
@@ -40,9 +49,9 @@ else
   echo "   no Chromium/Chrome found: skipping logstudio.test.mjs (set CHROMIUM_PATH to run it)"
   SUITES=$(echo "$SUITES" | grep -v '^logstudio.test.mjs$')
 fi
-(cd "$ROOT/tests/integration" && [ -d node_modules ] || npm --prefix "$ROOT/tests/integration" ci --silent)
+(cd "$ROOT/tests/integration" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
 # HTTP tests drive the GM agent against this backend as well.
-(cd "$ROOT/gm-agent" && { [ -d node_modules ] || npm ci --silent; })
+(cd "$ROOT/gm-agent" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
 # shellcheck disable=SC2086
 (cd "$ROOT/tests/integration" && API_BASE="http://localhost:$PORT" E2E_UPLOAD_DIR="${TMPDIR:-/tmp}/acerciae-e2e-uploads" node --test --test-concurrency=1 --test-timeout=300000 $SUITES)
 # Every server the suites built (chat, dice, Log Studio, speech, PDFs, …) must be deletable: deletion relies on the
@@ -51,8 +60,9 @@ echo "== every server deletes cleanly"
 psql "$PGBASE/acerciae_e2e" -q -v ON_ERROR_STOP=1 -c "BEGIN" -c "DELETE FROM servers" -c "SELECT 'left: ' || ((SELECT count(*) FROM channels) + (SELECT count(*) FROM messages) + (SELECT count(*) FROM media_assets))" -c "ROLLBACK"
 
 echo "== gm-agent tests"; (cd "$ROOT/gm-agent" && npm test --silent)
-echo "== pdf worker tests"; (cd "$ROOT/pdf-worker" && [ -d node_modules ] || npm ci --silent) && (cd "$ROOT/pdf-worker" && npm test --silent)
+echo "== pdf worker tests"; (cd "$ROOT/pdf-worker" && { [ -d node_modules ] || npm ci --no-audit --no-fund; }) && (cd "$ROOT/pdf-worker" && npm test --silent)
 echo "== frontend typecheck, tests and build"
-(cd "$ROOT/frontend" && [ -d node_modules ] || npm ci --silent)
+(cd "$ROOT/frontend" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
 (cd "$ROOT/frontend" && npx tsc --noEmit && npm test --silent && npm run build --silent)
+if [ "${RUN_BROWSER_TESTS:-0}" = "1" ]; then API_BASE="http://127.0.0.1:$PORT" "$ROOT/scripts/test-browser.sh"; fi
 echo "ALL GREEN"

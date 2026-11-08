@@ -44,12 +44,12 @@ public:
     Json::Value cancelJob(const ChannelAccess& a, const std::string& jobId);
     Json::Value usage(const ChannelAccess& a);
     // With `redirectUrl`, a clip in the public bucket is not read: its URL is returned there instead.
-    bool fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime, std::string* redirectUrl = nullptr);
+    bool fetchAudio(const ChannelAccess& a, const std::string& audioId, std::string& bytes, std::string& mime, std::string* redirectUrl = nullptr, bool* publicAudio = nullptr);
     static std::string cacheKey(const std::string& provider, const std::string& model, const std::string& voiceId, int voiceVersion, const std::string& text, const std::string& instruction, int dictVersion, const Json::Value& params);
     Json::Value processJobNow(const std::string& jobId);    // used by tests
     TtsProvider& provider() { return *provider_; }
 private:
-    struct LinePlan { std::string eventId; std::string text; std::string instruction; std::string voiceProfileId; std::string voiceId; std::string modelId; int voiceVersion = 1; int dictVersion = 0; Json::Value params; std::string language; std::string cacheKey; bool cached = false; std::string cachedAudioId; };
+    struct LinePlan { bool privateSource = true; std::string eventId; std::string text; std::string instruction; std::string voiceProfileId; std::string voiceId; std::string modelId; int voiceVersion = 1; int dictVersion = 0; Json::Value params; std::string language; std::string cacheKey; bool cached = false; std::string cachedAudioId; };
     std::vector<LinePlan> plan(const ChannelAccess& a, const std::string& presentationId, const Json::Value& scope, bool force, const std::string& modelOverride);
     Json::Value voiceRow(const std::string& channelId, const std::string& voiceProfileId);
     std::string synthesizeLine(const std::string& channelId, const LinePlan& l, const std::string& userId, std::string& error, bool& retryable);   // returns audio asset id
