@@ -55,6 +55,26 @@ planner:                      # the story planner: a slower model above the GM t
   final_review_min_lines: 10  # player lines a session needs to be reviewed
   final_review_max_days: 30   # casual games: the most story days one final review may move the calendar
 
+providers:                    # more endpoints, each with its key and default model (the llm section is the one called "default")
+  # fast:
+  #   provider: anthropic       # anthropic | openai_compatible | mock
+  #   api_base: ""
+  #   api_key: ""               # else ANTHROPIC_API_KEY (anthropic) or LLM_API_KEY (openai_compatible)
+  #   model: claude-haiku-5-5   # the provider's default model
+  #   effort: medium            # these take the llm section's values when left out:
+  #   max_tokens: 16000         # effort, max_tokens, timeout_ms, stream, fallbacks, cache_ttl
+
+models:                       # which function runs on which provider and model; a function left out runs on `default`
+  # director: { provider: default, model: claude-opus-5-5, effort: high }   # the GM's turns
+  # coplayers: { provider: fast }                                           # coplayer_turn, coplayer_phone
+  # planner: fast                                                           # a provider's name alone is enough
+  # memory: fast                                                            # compact, coplayer_memory
+  # readers: { provider: fast, effort: low }                                # scene_presence, movement_evidence, placement_correction, scene_handoff
+  # pictures: fast                                                          # scenario_illustration, event_illustration, plot_search, plot_illustration
+  # cards: default                                                          # coplayer_card, npc_card, coplayer_repair, coplayer_points, coplayer_build, pbta_design, pbta_card
+  # coplayer_phone: { provider: fast, model: claude-haiku-5-5 }             # one purpose, over its function
+  # default: { effort: medium }                                             # every function not named
+
 pacing:
   debounce_ms: 4000           # quiet time after a player's line before the GM answers
   post_delay_ms: 1200         # pause between the GM's posts

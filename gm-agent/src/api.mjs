@@ -95,8 +95,6 @@ export class Api {
   addWindowMember(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/members`, body); }
   messages(ch, w, limit = 60, beforeSeq = 0) { return this.get(`/api/channels/${ch}/windows/${w}/messages?limit=${limit}&include_history=false${beforeSeq > 0 ? `&before_seq=${beforeSeq}` : ""}`); }
   postMessage(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/messages`, body); }
-  // The channel's lines containing `q` (any window the account can read, the whole history), newest first, at most 100.
-  searchMessages(ch, q, limit = 100) { return this.get(`/api/channels/${ch}/messages?q=${encodeURIComponent(q)}&limit=${limit}`); }
   // The author takes a line back (two minutes; not rolls): {message: the tombstone, content: the text it had}.
   recallMessage(ch, id) { return this.post(`/api/channels/${ch}/messages/${id}/recall`, {}); }
   // Illustrations: drawn by the server's image provider, posted in the window as this account's ooc line when ready.

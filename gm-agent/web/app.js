@@ -5,6 +5,7 @@ import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
 'use strict';
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
+const FUNCTIONS = { director: '主持', coplayers: '队友', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
 let channelRequest = 0;
 let usageRange = 'today', usageDetailsOpen = false, planKey = '';
 let usageKey = '', usageNode = null;
@@ -107,7 +108,7 @@ async function refreshHost() {
   const row = (k, v) => h('div', { class: 'kv' }, h('span', { text: k }), h('span', { class: 'mono', text: v ?? '—' }));
   $('host').replaceChildren(h('h3', { text: '主机' }),
     row('平台', host.apiBase), row('账户', host.account), row('模型', [host.llm?.provider, host.llm?.model].filter(Boolean).join(' · ')),
-    row('规划模型', host.planner?.model || '同主持模型'), row('状态目录', host.stateDir), row('进程', `pid ${host.pid} · Node ${host.node}`));
+    row('规划模型', host.planner?.model || '同主持模型'), row('服务商', (host.providers ?? []).join(' · ') || 'default'), row('状态目录', host.stateDir), row('进程', `pid ${host.pid} · Node ${host.node}`));
   $('host').hidden = false;
 }
 async function refreshChannels() {
@@ -237,14 +238,19 @@ function renderPlan() {
   planKey = key;
   if (!p) { root.replaceChildren(card('当前计划', h('p', { text: '暂无已采用的 plan。剧情规划生成并采用计划后会在这里显示。' }))); return; }
   const text = (label, value) => value ? kv(label, value) : null;
+  const event = (entry, fallback) => {
+    const row = text(entry.when || fallback, entry.what);
+    row?.classList.add('plan-event');
+    return row;
+  };
   const rows = [card(`当前计划 v${p.version}`, text('规划状态', planner.on ? '已开启' : '已关闭（显示保留的计划）'), text('模式', p.mode === 'pace' ? '仅节奏规划' : '完整剧情规划'), text('生成于', time(p.updatedAt)), text('触发原因', p.trigger),
     text('贯穿主线', p.throughline), text('已发生', p.played), text('节奏判断', p.verdict?.moveOn ? '可以推进' : '继续当前'), text('判断原因', p.verdict?.why),
     planner.pendingVersion ? h('p', { class: 'warn-text', text: `v${planner.pendingVersion} 已生成，等待在回合边界采用。` }) : null,
     detail.live.stale ? h('p', { class: 'muted small', text: `这是 ${time(detail.live.at)} 的最后快照。` }) : null),
     card('当前节拍', text('标题', p.beat?.title), text('目的', p.beat?.purpose), text('退出条件', p.beat?.exit), text('状态', p.beat?.closed ? '已结束' : '进行中')),
-    card('后续安排', ...(p.next || []).map(x => text(x.when || '待触发', x.what))),
+    card('后续安排', ...(p.next || []).map(x => event(x, '待触发'))),
     card('复盘与日历', text('评审', p.review?.critique), text('本轮修改', p.review?.changed), text('日期', p.calendar?.start), text('时段', p.calendar?.time),
-      text('推进建议', p.calendar?.advice), text('日常安排', p.calendar?.routine), ...(p.calendar?.upcoming || []).map(x => text(x.when || '后续', x.what)))];
+      text('推进建议', p.calendar?.advice), text('日常安排', p.calendar?.routine), ...(p.calendar?.upcoming || []).map(x => event(x, '后续')))];
   for (const t of p.threads || []) rows.push(card(`${t.id} · ${t.title}`, text('状态', t.status), text('利害关系', t.stakes),
     text('引子', (t.hooks || []).join('；')), text('转折', t.twist), text('成熟条件', t.ripeWhen), text('交织线索', t.weaveWith)));
   const raw = h('details', { class: 'card plan-raw' }, h('summary', { text: '完整 plan JSON' }), h('pre', { text: JSON.stringify(p, null, 2) }));
@@ -269,6 +275,8 @@ function renderOverview() {
       kv('频道', c.name), kv('规则', RULES[c.rule] ?? c.rule), kv('语言', c.language), kv('GM 身份', c.gm === null ? '—' : c.gm ? '是' : '否（无法主持）', c.gm === false ? 'error-text' : ''),
       kv('知识模式', c.knowledge === 'isolated' ? '隔离' : c.knowledge === 'public' ? '公开' : c.knowledge), kv('窗口', num(cast.windows)),
       kv('模型', `${s.model ?? '—'}${s.effort ? ` · ${s.effort}` : ''}`),
+      // The functions routed to another provider or model than the default (llm/routes.mjs).
+      ...(s.models ?? []).filter(m => m.function !== 'default').map(m => kv(`模型 · ${FUNCTIONS[m.function] ?? m.function}`, `${m.model && m.model !== m.provider ? `${m.provider} ${m.model}` : m.provider}${m.effort ? ` · ${m.effort}` : ''}`)),
       c.warning ? h('p', { class: 'warn-text', text: c.warning }) : null));
     if (u) cards.push(usageCard(u));
     cards.push(card('活动',
@@ -345,7 +353,7 @@ function current(field) {
   return Array.isArray(v) ? v.join(', ') : typeof v === 'boolean' ? String(v) : String(v);
 }
 function input(field) {
-  const value = current(field), id = `f-${field.key.replace('.', '-')}`;
+  const value = current(field), id = `f-${field.key.replace(/\./g, '-')}`;
   const change = event => {
     const v = event.target.value, saved = (() => { const s = config?.values?.[field.key]?.set; return s === undefined ? '' : Array.isArray(s) ? s.join(', ') : String(s); })();
     if (v === saved) dirty.delete(field.key); else dirty.set(field.key, v);
@@ -376,7 +384,7 @@ function renderForm() {
       ...fields.map(field => {
         const v = config.values[field.key] ?? {};
         return h('div', { class: `field${v.set !== undefined ? ' set' : ''}${dirty.has(field.key) ? ' changed' : ''}` },
-          h('label', { for: `f-${field.key.replace('.', '-')}` }, h('span', { text: field.label }), h('code', { text: field.key })),
+          h('label', { for: `f-${field.key.replace(/\./g, '-')}` }, h('span', { text: field.label }), h('code', { text: field.key })),
           h('div', { class: 'control' }, input(field),
             v.set !== undefined || dirty.has(field.key) ? h('button', { type: 'button', class: 'quiet small', title: '删除这个键，使用默认值', onclick: () => {
               if (v.set === undefined) dirty.delete(field.key); else dirty.set(field.key, '');

@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ import subprocess
 import tarfile
 import time
 import urllib.request
+import private_media
 
 ROOT = Path('/srv/acerciae')
 START = ['sudo', '-n', '/usr/bin/systemctl', 'start', 'acerciae.service', 'acerciae-pdf.service']
@@ -61,6 +63,11 @@ def preflight(root):
     for name in ('cmake', 'ninja', 'node', 'npm', 'pg_restore', 'tar'):
         if not shutil.which(name):
             raise RuntimeError(f'Missing executable: {name}')
+    if private_media.armed(root):
+        if not all(shutil.which(n) for n in ('psql', 'setfacl')) or importlib.util.find_spec('boto3') is None:
+            raise RuntimeError('Prepared private-media upgrade requires psql, setfacl and Python boto3')
+        if not (root / private_media.STATE / 'manifest.json').is_file():
+            raise RuntimeError('Private-media upgrade is armed without a preparation manifest')
     for name in ('backend.env', 'pdf-worker.env'):
         with (root / name).open('rb'):
             pass  # Check access without displaying secrets.
@@ -137,21 +144,27 @@ def activate(root, release, commit, run_number):
     backup = root / 'backups' / ('before-' + release.name)
     switch_attempted = False
     start_attempted = False
+    object_cutover_attempted = False
     # Stop failures can be partial too, so include the stop inside recovery handling.
     try:
         run(STOP)
         backup_state(root, backup, old)
         switch_attempted = True
         switch(root, release)
+        # Opt-in, prepared production migration. Run while all old writers are stopped,
+        # before the new process applies 0060–0062 and starts its media migrator.
+        if private_media.armed(root):
+            object_cutover_attempted = True
+            private_media.cutover_for_deploy(root, backup)
         start_attempted = True  # Startup applies migrations, including partially failing ones.
         run(START)
         health()
     except BaseException:
-        if start_attempted and schema_changes:
+        if (start_attempted and schema_changes) or object_cutover_attempted:
             # Never silently run an old binary against a possibly changed database,
             # or restore a backup over user writes after the new process has started.
             run(STOP)
-            print(f'Deployment failed after migration startup. Services stopped. Manual recovery required; backup: {backup}', flush=True)
+            print(f'Deployment failed after schema/object cutover began. Services stopped. Manual recovery required; backup: {backup}', flush=True)
         else:
             run(STOP)
             if switch_attempted:
@@ -166,6 +179,9 @@ def activate(root, release, commit, run_number):
         'updated_at': datetime.now(timezone.utc).isoformat(),
     })
     print(f'Deployed {commit}; backup: {backup}', flush=True)
+    # Origin deletion is intentionally after health and release metadata. A cleanup
+    # failure leaves the healthy new service up and is resumable by rerunning CI.
+    private_media.retire_for_deploy(root)
 
 
 def prune_releases(root):
@@ -252,6 +268,7 @@ def main():
                 return
             if previous.get('commit') == args.commit:
                 health()
+                private_media.retire_for_deploy(ROOT)
                 prune_after_success(ROOT)
                 print('This commit is already deployed and healthy.')
                 return

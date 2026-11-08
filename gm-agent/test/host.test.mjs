@@ -12,6 +12,7 @@ import { startWeb } from '../src/host-web.mjs';
 import { acquireLock, lockPath } from '../src/state.mjs';
 import { HostManager as _M, redact, secretsOf } from '../src/host-manager.mjs';
 import { FIELDS, applyChanges, formValues, schema } from '../src/host-schema.mjs';
+import { routeFor } from '../src/llm/routes.mjs';
 import { buildConfig } from '../src/config.mjs';
 import { parseChannel } from '../src/host-config.mjs';
 import { PassThrough } from 'node:stream';
@@ -20,8 +21,11 @@ function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-host-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.writeFileSync(path.join(dir, 'a.yml'), 'table:\n  coplayers: 0\ncalendar:\n  max_days: 1\n');
-  fs.writeFileSync(path.join(dir, 'b.yml'), 'table:\n  level: 4\nautonomy:\n  enabled: false\n');
-  fs.writeFileSync(path.join(dir, 'host.yml'), JSON.stringify({ account: { username: 'fixture', password: 'password-secret' }, llm: { provider: 'mock', api_base: 'http://endpoint', api_key: 'shared-secret' }, webui: { enabled: true, token: 'test-token-longer-than-24-characters', port: 0 }, channels: [{ id: 'a', config: 'a.yml' }, { id: 'b', config: 'b.yml' }] }));
+  // Channel b routes its co-players to the shared file's gateway; the shared file routes everyone's memory to "fast".
+  fs.writeFileSync(path.join(dir, 'b.yml'), 'table:\n  level: 4\nautonomy:\n  enabled: false\nmodels:\n  coplayers:\n    provider: gw\n    model: gpt-mini\n');
+  fs.writeFileSync(path.join(dir, 'host.yml'), JSON.stringify({ account: { username: 'fixture', password: 'password-secret' }, llm: { provider: 'mock', api_base: 'http://endpoint', api_key: 'shared-secret' },
+    providers: { gw: { provider: 'openai_compatible', api_base: 'http://gateway/v1', api_key: 'gateway-secret', model: 'gpt-x' }, fast: { provider: 'mock' } }, models: { memory: 'fast' },
+    webui: { enabled: true, token: 'test-token-longer-than-24-characters', port: 0 }, channels: [{ id: 'a', config: 'a.yml' }, { id: 'b', config: 'b.yml' }] }));
   return loadHost(path.join(dir, 'host.yml'));
 }
 class FakeWorker extends EventEmitter {
@@ -39,6 +43,13 @@ test('shared credentials, independent policies, relative paths and invalid overr
   assert.throws(() => channelConfig(host, host.channels[0], 'llm:\n  api_key: override'), /shared configuration/);
   assert.throws(() => channelConfig(host, host.channels[0], 'llm:\n  api_base: http:\/\/other'), /shared configuration/);
   assert.throws(() => channelConfig(host, host.channels[0], 'mystery: true'), /unknown section/);
+  // Providers are the host's; a channel routes its functions to them by name, over the shared file's own routes.
+  assert.equal(b.providers.gw.apiKey, 'gateway-secret'); assert.equal(a.providers.gw.apiKey, 'gateway-secret');
+  assert.deepEqual([routeFor(b, 'coplayer_turn').name, routeFor(b, 'coplayer_turn').model, routeFor(b, 'compact').name, routeFor(b, 'director').name], ['gw', 'gpt-mini', 'fast', 'default']);
+  assert.deepEqual([routeFor(a, 'coplayer_turn').name, routeFor(a, 'compact').name], ['default', 'fast'], 'the shared routes hold where a channel says nothing');
+  assert.throws(() => channelConfig(host, host.channels[0], 'providers:\n  mine:\n    provider: mock\n'), /shared configuration/);
+  assert.throws(() => channelConfig(host, host.channels[0], 'models:\n  coplayers: nowhere\n'), /no provider "nowhere"/);
+  assert.ok(secretsOf(host).includes('gateway-secret'), "a provider's key is redacted like the others");
   const data = host.data; data.channels[1].id = 'a'; fs.writeFileSync(host.file, JSON.stringify(data));
   assert.throws(() => loadHost(host.file), /duplicate/);
 });
@@ -180,12 +191,22 @@ test('redaction masks known secrets and anything shaped like a credential', () =
 
 test('the settings form edits YAML in place, keeps comments, and knows every key it offers', () => {
   for (const x of FIELDS) {
-    const [section, key] = x.key.split('.');
-    const sample = { bool: true, tri: false, int: x.min ?? 1, enum: x.options?.find(Boolean), list: ['Main Chat'], string: 'value' }[x.type];
-    const data = { [section]: { [key]: sample } };
+    const sample = { bool: true, tri: false, int: x.min ?? 1, enum: x.options?.find(Boolean), list: ['Main Chat'], string: x.key.endsWith('.model') ? 'some-model' : 'value' }[x.type];
+    const data = x.key.split('.').reduceRight((inner, k) => ({ [k]: inner }), sample);
     assert.deepEqual(buildConfig({}, {}, { data }).warnings, [], x.key);
     assert.doesNotThrow(() => parseChannel(applyChanges('', { [x.key]: sample })), x.key);
   }
+  // The model of each function: keys three deep, the providers a host offers, a scalar route replaced by a mapping.
+  assert.deepEqual(schema(['gw', 'fast']).fields.find(x => x.key === 'models.coplayers.provider').options, ['', 'default', 'gw', 'fast']);
+  const routed = applyChanges('models:\n  director: fast # a bare provider\n', { 'models.director.model': 'claude-x', 'models.coplayers.provider': 'gw', 'models.coplayers.effort': 'low' }, { providers: ['gw', 'fast'] });
+  assert.deepEqual(parseChannel(routed, { gw: { provider: 'mock' }, fast: { provider: 'mock' } }).models, { director: { model: 'claude-x' }, coplayers: { provider: 'gw', effort: 'low' } });
+  assert.throws(() => parseChannel(routed), /no provider "gw"/, 'a channel file alone cannot name a provider the host does not have');
+  assert.equal(applyChanges('models:\n  coplayers:\n    provider: gw\n', { 'models.coplayers.provider': null }), '{}\n', 'an emptied function and section are removed');
+  assert.throws(() => applyChanges('', { 'models.coplayers.provider': 'elsewhere' }, { providers: ['gw'] }), /必须是 default \/ gw/);
+  const routes = { providers: { gw: { provider: 'openai_compatible', api_base: 'http://g/v1', model: 'gpt-x' } }, models: { coplayers: { provider: 'gw' } } };
+  const routeValues = formValues({ models: routes.models }, buildConfig({}, {}, { data: { llm: { provider: 'mock' }, ...routes } }), data => buildConfig({}, {}, { data: { llm: { provider: 'mock' }, providers: routes.providers, ...data } }));
+  assert.deepEqual(routeValues['models.coplayers.provider'], { set: 'gw', effective: 'gw', default: 'mock' });
+  assert.deepEqual(routeValues['models.coplayers.model'], { set: undefined, effective: 'gpt-x', default: 'gpt-x' });
   const text = '# night table\npacing:\n  debounce_ms: 4000 # wait for slow typists\n  post_delay_ms: 1200\ncalendar:\n  max_days: 2\n';
   const out = applyChanges(text, { 'pacing.debounce_ms': 2500, 'calendar.max_days': null, 'timelines.scene_forks': 'true', 'llm.effort': 'high', 'table.coplayer_windows': 'Main Chat, Docks' });
   assert.match(out, /^# night table\npacing:\n  debounce_ms: 2500 # wait for slow typists\n  post_delay_ms: 1200\n/);

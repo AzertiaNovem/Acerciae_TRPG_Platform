@@ -5,7 +5,8 @@ import YAML from 'yaml';
 import { buildConfig } from './config.mjs';
 
 export const validId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id);
-export function parseChannel(text) {
+// `providers` are the shared file's, so a channel's `models` may name them.
+export function parseChannel(text, providers = {}) {
   let data;
   try { data = YAML.parse(text); } catch { throw Error("Invalid channel YAML"); }
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw Error('Channel configuration must be a YAML mapping');
@@ -14,7 +15,9 @@ export function parseChannel(text) {
       if (['password', 'api_key', 'api_base', 'provider', 'username', 'register'].includes(field)) throw Error(`${key}.${field} belongs in the shared configuration`);
     }
   }
-  const cfg = buildConfig({}, {}, { data });
+  // Endpoints and keys are the host's; a channel only chooses among them (`models`).
+  if (data.providers !== undefined) throw Error('providers belongs in the shared configuration; choose one in models');
+  const cfg = buildConfig({}, {}, { data: { ...data, ...(providers && Object.keys(providers).length ? { providers } : {}) } });
   if (cfg.warnings.length) throw Error(cfg.warnings.join('; '));
   if (data.channel?.create) throw Error('The host attaches to existing channels; create channels with setup');
   return data;
@@ -49,8 +52,10 @@ export function loadHost(file) {
   return { file, root, data, channels, stateDir: path.resolve(root, data.state_dir ?? '.state'), web: { enabled: web.enabled === true, host, port, token: String(web.token ?? ''), allowedOrigins } };
 }
 export function channelConfig(host, entry, text = fs.readFileSync(entry.config, 'utf8')) {
-  const local = parseChannel(text), shared = host.data;
-  const data = { ...local, account: { ...local.account, ...shared.account }, llm: { ...shared.llm, ...local.llm }, planner: { ...shared.planner, ...local.planner } };
+  const shared = host.data, local = parseChannel(text, shared.providers);
+  // The shared file's `models` are every channel's defaults; a channel's own entries replace them function by function.
+  const data = { ...local, account: { ...local.account, ...shared.account }, llm: { ...shared.llm, ...local.llm }, planner: { ...shared.planner, ...local.planner },
+    ...(shared.providers ? { providers: shared.providers } : {}), ...(shared.models || local.models ? { models: { ...shared.models, ...local.models } } : {}) };
   // Secrets and transport are shared even when a table selects a different model or effort.
   const env = { GM_PASSWORD: shared.account?.password ?? process.env.GM_PASSWORD,
     LLM_API_KEY: shared.llm?.api_key ?? process.env.LLM_API_KEY ?? process.env.ANTHROPIC_API_KEY,
@@ -61,6 +66,8 @@ export function channelConfig(host, entry, text = fs.readFileSync(entry.config, 
   cfg.prepareOnStart = entry.prepareOnStart !== false;
   return cfg;
 }
+// The names a channel may give as a function's provider: the llm settings ("default") and the shared file's providers.
+export function providerNames(host) { return ['default', ...Object.keys(host.data?.providers ?? {}).filter(n => n !== 'default')]; }
 export function atomicWrite(file, text) {
   const tmp = `${file}.${crypto.randomUUID()}.tmp`;
   try { fs.writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' }); fs.renameSync(tmp, file); }

@@ -2,10 +2,12 @@
 // endpoints stay in the shared file), with its type, range, label and help, and how to read its effective value from
 // buildConfig()'s result. `applyChanges` edits the YAML in place, keeping comments and every key it does not touch.
 import YAML from "yaml";
+import { FUNCTION_NAMES, MODEL_FUNCTIONS, providerLabel, routeFor } from "./llm/routes.mjs";
 
 export const GROUPS = [
   { id: "table", title: "牌桌", help: "语言、AI 队友与开场。频道的规则系统来自平台（在 GM 工作区中修改）。" },
   { id: "llm", title: "主持模型", help: "GM、NPC 与 AI 队友所用的模型。服务商、地址与密钥在公共配置中设置。" },
+  { id: "models", title: "模型分配", help: "每项功能在哪个服务商的哪个模型上运行。服务商（地址与密钥）由公共配置的 providers 定义，这里只选择名字；留空的功能使用“主持模型”（default）。用量统计按实际回答的服务商与模型记录。" },
   { id: "planner", title: "剧情规划", help: "较慢、较深的规划模型：节拍、线索与会后总结。" },
   { id: "pacing", title: "节奏", help: "回应前的等待与每回合的动作数。" },
   { id: "context", title: "上下文与预算", help: "提示词的令牌预算与每日消耗上限。" },
@@ -19,6 +21,19 @@ export const GROUPS = [
 
 const f = (key, type, label, help, effective, extra = {}) => ({ key, group: key.split(".")[0] === "channel" ? "table" : key.split(".")[0], type, label, help, effective, ...extra });
 const minutes = (ms) => Math.round(ms / 60000);
+const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
+// One row of fields per function (llm/routes.mjs): its provider (a name from the shared file; `dynamic` fills the
+// options), model and effort. The effective values are those of the route the function's calls take.
+const FUNCTION_LABELS = { director: "主持（GM 与 NPC）", coplayers: "AI 队友", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
+const FUNCTION_HELP = { director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
+const modelFields = FUNCTION_NAMES.flatMap((fn) => {
+  const route = (c) => routeFor(c, MODEL_FUNCTIONS[fn][0]);
+  return [
+    f(`models.${fn}.provider`, "enum", `${FUNCTION_LABELS[fn]} · 服务商`, FUNCTION_HELP[fn], (c) => providerLabel(route(c)), { options: ["", "default"], dynamic: "providers" }),
+    f(`models.${fn}.model`, "string", `${FUNCTION_LABELS[fn]} · 模型`, "留空则使用该服务商的默认模型。", (c) => route(c).model),
+    f(`models.${fn}.effort`, "enum", `${FUNCTION_LABELS[fn]} · 推理强度`, "留空则使用该服务商的默认强度。", (c) => route(c).effort, { options: EFFORTS }),
+  ];
+});
 export const FIELDS = [
   f("table.language", "enum", "语言", "GM 与 AI 角色写作的语言。留空则跟随频道设置。", (c) => c.language, { options: ["", "zh-CN", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "ru", "pt", "it"] }),
   f("table.coplayers", "int", "AI 队友数量", "启动时准备的 GM 扮演队友数（已有的会被沿用）。", (c) => c.coplayers, { min: 0, max: 8 }),
@@ -35,6 +50,8 @@ export const FIELDS = [
   f("llm.stream", "bool", "流式响应", "边生成边接收模型回复。", (c) => c.llm.stream),
   f("llm.fallbacks", "bool", "失败回退", "模型拒绝或出错时使用备用策略。", (c) => c.llm.fallbacks),
   f("llm.cache_ttl", "enum", "提示词缓存", "1h 跨越短暂休息保持缓存；5m 写入更便宜；off 不缓存。", (c) => c.llm.cacheTtl, { options: ["", "1h", "5m", "off"] }),
+
+  ...modelFields,
 
   f("planner.enabled", "bool", "启用剧情规划", "关闭后不再规划节拍，也不做会后总结。", (c) => c.planner.enabled),
   f("planner.model", "string", "规划模型", "留空则与主持模型相同。", (c) => c.planner.model),
@@ -101,10 +118,20 @@ export const FIELDS = [
 ];
 const BY_KEY = new Map(FIELDS.map((x) => [x.key, x]));
 
+// A field as the form sees it: the provider fields offer the names given (the shared file's providers).
+const withOptions = (x, providers = []) => (x.dynamic === "providers" ? { ...x, options: ["", "default", ...providers.filter((n) => n && n !== "default")] } : x);
 // What the browser needs: no effective-value functions.
-export const schema = () => ({ groups: GROUPS, fields: FIELDS.map(({ effective, ...rest }) => rest) });
+export const schema = (providers = []) => ({ groups: GROUPS, fields: FIELDS.map(({ effective, ...rest }) => withOptions(rest, providers)) });
 
 const get = (obj, key) => key.split(".").reduce((o, k) => (o && typeof o === "object" ? o[k] : undefined), obj);
+// `data` without the key at `path`, mappings emptied on the way removed.
+function without(data, path) {
+  if (path.length === 1) { const { [path[0]]: _, ...rest } = data ?? {}; return rest; }
+  const [head, ...tail] = path;
+  const inner = without(data?.[head] ?? {}, tail);
+  const { [head]: _, ...rest } = data ?? {};
+  return Object.keys(inner).length ? { ...rest, [head]: inner } : rest;
+}
 
 // Each field: the value written in the channel file (undefined: not set), the value the channel runs with, and the
 // value it would run with if the key were removed (`rebuild(data)` builds the config for other file data).
@@ -115,9 +142,7 @@ export function formValues(data, cfg, rebuild = null) {
     const raw = get(data, x.key), set = raw === null ? undefined : raw, effective = read(x, cfg);
     let fallback = effective;
     if (set !== undefined && rebuild) {
-      const [section, key] = x.key.split(".");
-      const { [key]: _, ...rest } = data[section] ?? {};
-      try { fallback = read(x, rebuild({ ...data, [section]: rest })); } catch { fallback = null; }
+      try { fallback = read(x, rebuild(without(data, x.key.split(".")))); } catch { fallback = null; }
     }
     out[x.key] = { set, effective, default: fallback };
   }
@@ -155,23 +180,26 @@ function coerce(x, v) {
 }
 
 // changes: { "pacing.debounce_ms": 3000, "llm.model": null, … }. null, undefined or "" removes the key (the default
-// applies). Unknown keys are refused; sections left empty are removed.
-export function applyChanges(text, changes) {
+// applies). Unknown keys are refused; sections left empty are removed. `providers` names the shared file's providers
+// a function may be routed to.
+export function applyChanges(text, changes, { providers = [] } = {}) {
   if (!changes || typeof changes !== "object" || Array.isArray(changes)) throw new Error("changes must be an object");
   const doc = YAML.parseDocument(String(text ?? ""));
   if (doc.errors.length) throw new Error("Invalid channel YAML");
   if (doc.contents === null || doc.contents === undefined || (YAML.isScalar(doc.contents) && doc.contents.value === null)) doc.contents = doc.createNode({});
   if (!YAML.isMap(doc.contents)) throw new Error("Channel configuration must be a YAML mapping");
   for (const [key, raw] of Object.entries(changes)) {
-    const x = BY_KEY.get(key);
+    const x = BY_KEY.get(key) && withOptions(BY_KEY.get(key), providers);
     if (!x) throw Object.assign(new Error(`Unknown setting ${key}`), { code: "INVALID_SETTING" });
-    const [section, name] = key.split(".");
+    const path = key.split(".");
     const unset = raw === null || raw === undefined || (raw === "" && x.type !== "enum") || (Array.isArray(raw) && !raw.length) || (x.type === "enum" && raw === "");
-    if (unset) { if (YAML.isMap(doc.get(section, true))) doc.deleteIn([section, name]); continue; }
+    if (unset) { if (doc.hasIn(path)) doc.deleteIn(path); continue; }
     const value = coerce(x, raw);
-    if (!YAML.isMap(doc.get(section, true))) doc.set(section, doc.createNode({}));
-    doc.setIn([section, name], value);
+    // Every mapping on the way must exist and be a mapping (a scalar there, such as `models.director: fast`, is replaced).
+    for (let i = 1; i < path.length; i++) if (!YAML.isMap(doc.getIn(path.slice(0, i), true))) doc.setIn(path.slice(0, i), doc.createNode({}));
+    doc.setIn(path, value);
   }
-  for (const item of [...doc.contents.items]) if (YAML.isMap(item.value) && !item.value.items.length) doc.delete(item.key);
+  const prune = (map) => { for (const item of [...map.items]) if (YAML.isMap(item.value)) { prune(item.value); if (!item.value.items.length) map.delete(item.key); } };
+  prune(doc.contents);
   return String(doc);
 }

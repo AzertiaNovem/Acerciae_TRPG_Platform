@@ -66,6 +66,8 @@ jobs:
             libsqlite3-dev libmariadb-dev libmariadb-dev-compat postgresql-client fonts-noto-cjk
 
       - name: Test deployment failure handling
+        env:
+          PRIVATE_MEDIA_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: python3 -m unittest discover -s scripts/deploy -p 'test_*.py' -v
 
       - name: Restore compiler cache

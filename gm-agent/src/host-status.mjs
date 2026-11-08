@@ -4,6 +4,7 @@ import { openWindows } from "./roles/roster.mjs";
 import { billableTokens } from "./store.mjs";
 import { calendarPace, describeCalendar } from "./calendar.mjs";
 import { MAIN } from "./timelines.mjs";
+import { describeModels } from "./llm/routes.mjs";
 
 const HOUR = 3600000;
 const at = (ms) => (Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null);
@@ -110,6 +111,7 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
     bonds: section("bonds", () => (table.bonds ?? []).slice(0, 40).map((b) => ({ a: cname(b.a), b: cname(b.b), kind: b.kind, secret: Boolean(b.secret) }))),
     settings: section("settings", () => ({
       model: [cfg.llm.provider, cfg.llm.model].filter(Boolean).join(" "), effort: cfg.llm.effort, cacheTtl: cfg.llm.cacheTtl,
+      models: describeModels(cfg),   // which provider and model each function runs on (llm/routes.mjs)
       autonomy: cfg.autonomy, timelineAuto: cfg.timelineAuto, sceneForks: cfg.sceneForks, scenarioAuto: cfg.scenarioAuto, maxActive: cfg.timelineMaxActive,
     })),
   };

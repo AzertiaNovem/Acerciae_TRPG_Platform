@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildConfig, configPath, loadConfigFile } from "../src/config.mjs";
+import { describeModels, routeFor } from "../src/llm/routes.mjs";
 
 const file = (data, dir = "/campaign") => ({ file: path.join(dir, "gm-agent.yml"), dir, data });
 
@@ -43,6 +44,31 @@ test("the planner falls back to the GM's provider, endpoint, model and key unles
   assert.equal(keyed.planner.apiKey, "k-plan"); assert.equal(keyed.planner.model, "flag-model");
   assert.equal(buildConfig({}, {}, file({ planner: { enabled: false, interval_minutes: 45 } })).planner.enabled, false);
   assert.equal(buildConfig({}, {}, file({ planner: { interval_minutes: 45 } })).planner.intervalMs, 45 * 60000);
+});
+
+test("named providers and the model of each function: defaults, keys, routes and what is refused", () => {
+  const env = { ANTHROPIC_API_KEY: "k-anthropic", LLM_API_KEY: "k-llm" };
+  const cfg = buildConfig({}, env, file({
+    llm: { provider: "anthropic", model: "claude-opus-5-5", effort: "medium", cache_ttl: "5m" },
+    providers: { gw: { provider: "openai_compatible", api_base: "https://gw.test/v1", model: "gpt-x", max_tokens: 4000 }, fast: { provider: "anthropic", model: "claude-haiku-5-5", api_key: "k-fast", effort: "low", cache_ttl: "off" } },
+    models: { coplayers: "gw", memory: { provider: "fast" }, coplayer_phone: { provider: "fast", model: "claude-sonnet-5-5", effort: "high", max_tokens: 800 }, default: { provider: "default", effort: "high" } },
+  }));
+  assert.deepEqual(cfg.warnings, []);
+  assert.deepEqual([cfg.providers.gw.apiKey, cfg.providers.gw.maxTokens, cfg.providers.gw.cacheTtl, cfg.providers.gw.effort], ["k-llm", 4000, "5m", "medium"], "a provider takes the llm settings it does not give; its key from the environment");
+  assert.deepEqual([cfg.providers.fast.apiKey, cfg.providers.fast.cacheTtl, cfg.providers.default.apiKey], ["k-fast", "off", "k-llm"], "the llm settings read LLM_API_KEY first, as before");
+  // A purpose named directly outranks its function; a function not named runs on models.default; the planner keeps its own section.
+  assert.deepEqual([routeFor(cfg, "coplayer_turn").name, routeFor(cfg, "coplayer_turn").model, routeFor(cfg, "coplayer_phone").model, routeFor(cfg, "coplayer_phone").maxTokens], ["gw", "gpt-x", "claude-sonnet-5-5", 800]);
+  assert.deepEqual([routeFor(cfg, "compact").name, routeFor(cfg, "compact").effort, routeFor(cfg, "director").name, routeFor(cfg, "director").effort, routeFor(cfg, "planner").effort, routeFor(cfg, "planner").function], ["fast", "low", "default", "high", "high", "planner"]);
+  assert.deepEqual(describeModels(cfg).map((r) => [r.function, r.provider, r.model, r.effort]), [["coplayers", "gw", "gpt-x", "medium"], ["planner", "anthropic", "claude-opus-5-5", "high"], ["memory", "fast", "claude-haiku-5-5", "low"], ["default", "anthropic", "claude-opus-5-5", "high"]]);
+  // models.planner outranks the planner section; without either, the planner runs on the default route.
+  const planned = buildConfig({}, env, file({ llm: { provider: "anthropic" }, providers: { fast: { provider: "anthropic", model: "claude-haiku-5-5" } }, models: { planner: "fast" } }));
+  assert.deepEqual([routeFor(planned, "planner").name, routeFor(planned, "planner").model], ["fast", "claude-haiku-5-5"]);
+  assert.equal(routeFor(buildConfig({}, env, file({ llm: { provider: "anthropic" }, planner: { effort: "medium" } })), "planner").function, null, "a planner section equal to llm is no route of its own");
+  // What is refused, each with a word of help.
+  const bad = buildConfig({}, env, file({ llm: { provider: "mock" }, providers: { default: { provider: "mock" }, "bad name": { provider: "mock" }, gw: { provider: "openai_compatible" }, odd: { provider: "mock", colour: "red" }, nope: { provider: "nowhere" } },
+    models: { singer: "gw", director: "missing", coplayers: { provider: "odd", effort: "extreme", size: 1 } } }));
+  for (const re of [/"default" is the llm section/, /"bad name" is not a name/, /providers\.gw \(openai_compatible\) needs api_base/, /needs a model/, /unknown key "providers\.odd\.colour"/, /providers\.nope\.provider must be/, /unknown function "singer"/, /models\.director: no provider "missing"/, /models\.coplayers\.effort must be/, /unknown key "models\.coplayers\.size"/]) assert.ok(bad.warnings.some((w) => re.test(w)), String(re));
+  assert.equal(buildConfig({}, {}, file({ llm: { provider: "mock" } })).providers.default.name, "default");
 });
 
 test("files named in the configuration are relative to it; on the command line, to the working directory", () => {
