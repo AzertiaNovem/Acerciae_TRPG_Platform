@@ -545,6 +545,10 @@ is pending, and any human line wakes the table up. `autonomy.enabled: false` tur
   until their player is back.
 - **Pace.** A human line gives each co-player one turn. In a quiet turn that follows, a co-player who has already
   answered stays quiet, so slow human players are not drowned out by the AI side of the table.
+- **Someone is typing.** The platform tells the table which characters are being written as (`typing.changed` on the
+  chat socket). While a real person's character is typing in a window, that window's quiet turns wait: the story,
+  the co-players and the calendar do not move on while they compose their line, and once they stop the silence
+  starts over. The answer to the line they then send is not affected, nor are co-players-only side threads.
 
 **Costs.** A genuine new scene creates a fork and may rebuild the affected player group's derived memory.
 Pausing/resuming an existing member preserves accumulated memory. A split or reunion may also cost an arrival turn
