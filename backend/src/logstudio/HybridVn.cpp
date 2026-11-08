@@ -12,6 +12,7 @@ Json::Value PresentationService::hybrid(const ChannelAccess& a, const std::strin
     auto p = get(a, id); // Re-check snapshot and event visibility, including merged lines.
     const bool gmOnly = p["snapshot_scope"] == "gm_full";
     const auto availablePoses = currentStandees(a.channelId, gmOnly);
+    const auto outfitPoses = outfitStandees(a.channelId, gmOnly);
     std::set<std::string> characters, scenes, voiceIds, assetKeys;
     for (const auto& e : p["events"]) {
         if (e["hidden"].asBool()) continue;
@@ -61,12 +62,18 @@ Json::Value PresentationService::hybrid(const ChannelAccess& a, const std::strin
         e["stage"] = Json::Value(Json::arrayValue);
         if (!event["hidden"].asBool()) for (const auto& stage : event["character_asset_ids"]) {
             Json::Value s;
-            for (const auto* key : {"character_id", "expression", "position"}) s[key] = stage[key];
+            for (const auto* key : {"character_id", "expression", "position", "outfit_id"}) if (stage.isMember(key)) s[key] = stage[key];
             // get() substitutes the main portrait for a missing pose. That is a preview fallback, not an
             // existing SAY/IDLE standee; leave the slot missing so the client actually paints it.
             s["image"] = Json::Value();
             auto poses = availablePoses.find(json::str(stage, "character_id"));
             const auto expression = text::lower(text::trim(json::str(stage, "expression")));
+            // In an outfit: its own pose for the subtitle when it has one.
+            auto worn = outfitPoses.find(json::str(stage, "outfit_id"));
+            if (worn != outfitPoses.end()) {
+                auto pose = worn->second.find(expression == "default" ? "" : expression);
+                if (pose != worn->second.end()) { s["image"] = asset(pose->second["id"], pose->second["version"].asInt()); e["stage"].append(s); continue; }
+            }
             if (poses != availablePoses.end()) {
                 auto pose = poses->second.find(expression == "default" ? "" : expression);
                 if (pose != poses->second.end()) s["image"] = asset(pose->second["id"], pose->second["version"].asInt());

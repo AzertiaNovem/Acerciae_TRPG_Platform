@@ -138,6 +138,44 @@ portrait or square.
   `NSPhotoLibraryAddUsageDescription` for that. Both apps save the original bytes from their disk cache under the
   same kind of name, without the date.
 
+## Outfits
+
+A character whose look is **generated** can have up to eight outfits (`character_outfits`): a name ("Ball gown") and
+what they wear. Each outfit gets its own portrait, avatar and poses (standees by subtitle), so the same person can
+change clothes without losing their face:
+
+- **Drawn from the base look.** The outfit's portrait is generated with the character's main portrait as the identity
+  reference and an instruction to dress them in the outfit instead of the clothes in the reference
+  (`CreativeService::createForCharacter` with an outfit; the prompt is the appearance plus "Outfit (replaces any
+  clothing described above): …", `outfits::appearance`). The outfit's avatar and poses are then drawn from the
+  outfit's own portrait (the one queued in the same request, or the one it has), like the base poses are from the main
+  portrait. The character page's **Outfits** section (Appearance & images) adds, edits, generates, wears and deletes
+  them; the GM and the character's player manage them.
+- **Worn now.** `characters.outfit_id` is the outfit the character wears (none: the base look), switched on the
+  character page (web: **Wearing** in its header; Android and iOS: **Wearing** in the character page's look section).
+  The character list and `character.updated` events then report the outfit's avatar as `avatar_asset_id` (the base
+  one as `base_avatar_asset_id`), with `outfit_name` and every character's `outfits[{id, name}]`, so every client
+  shows the worn avatar without knowing about outfits.
+- **Each line remembers.** A character's line records the outfit worn as it is written (`messages.outfit_id`) and
+  shows that outfit's avatar ever after; lines from before an outfit change keep their look.
+- **Visual novels.** A stage placement may name an outfit (`outfit_id`, `""` = the base look). When no editor chose
+  one, the presentation reader fills in the outfit the character wore in their own nearest line (the latest at or
+  before the event, else their next one), marked `outfit_auto` and never stored, so a VN shows every line in the
+  clothes worn when it was written. An outfit placement shows the outfit's image for the subtitle, else its portrait
+  (the same clothes beat the right pose); only an outfit without any image falls back to the base look. The VN
+  editor's stage controls offer **As written**, **Base look** or any outfit, and `character_outfits` lists each
+  character's outfits with the subtitles they have images for. Hybrid VNs use an outfit's own pose when it has one.
+  Presentations made before outfits existed are unchanged: their lines carry no outfit.
+- **Illustrations** draw each character in the outfit they wear unless the request picks another
+  (`outfits: {character_id: outfit_id | ""}`; the Illustrate dialog shows the choice for characters that have
+  outfits). The reference is the outfit's portrait (else its avatar); an outfit without images sends the base
+  portrait for the face only, and the prompt says what they wear instead.
+- **Images and deletion.** An outfit's images carry `media_assets.outfit_id`: they never stand in for the base
+  look's (the VN's library fallback skips them), a newer one replaces the older in its slot
+  (`MediaService::adoptOutfitImage`), and storage cleanup keeps those an outfit uses. Deleting an outfit deletes its
+  images (one a live publication still shows is marked superseded until the publication is revoked); a character
+  wearing it goes back to the base look, and lines written in it show the base look.
+
 ## Image references and object inventory
 
 Image-generation jobs store reference asset IDs, versions, SHA-256 hashes and private snapshot keys. The image
