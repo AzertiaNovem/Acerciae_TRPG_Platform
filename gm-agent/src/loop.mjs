@@ -691,14 +691,6 @@ export class Table {
   // post when there is no picture ("notFound", "unavailable", "rateLimited", "failed"), else null.
   drawPastPlot(...args) { return art.drawPastPlot(this, ...args); }
 
-  // Lines containing any of `terms` in the windows `ids`, from the local copy and the platform's search of the whole
-  // history: [{windowId, seq, sceneId, terms}], drawable lines only.
-  plotHits(...args) { return art.plotHits(this, ...args); }
-
-  // The drawable lines of a window around `seq`: from the local copy when it reaches back that far, else read from the
-  // platform (the newest page up to the line, then a page after it found by narrowing the span).
-  linesAround(...args) { return art.linesAround(this, ...args); }
-
   // ---- manual commands from the CLI (applied by the run process, or by the CLI itself when no run process is up)
   async command(cmd) {
     const turnNo = this.guard.beginTurn();

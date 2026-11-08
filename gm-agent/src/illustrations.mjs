@@ -64,10 +64,15 @@ const moment = (x) => {
   return { ...n, why: clip(x.why, 300) };
 };
 
+// Lines as {who, text}: who said it (the character, "GM", or the player's name) and what, on one line; empty ones dropped.
+export function lineRows(lines, nameOf) {
+  return lines.map((m) => ({ who: m.character_id ? nameOf(m.character_id) : m.author_role === "gm" ? "GM" : (m.author_name || "a player"), text: String(m.dice?.text ?? m.content ?? "").replace(/\s+/g, " ").trim() })).filter((r) => r.text);
+}
+
 // The lines a scenario's illustration may draw on, oldest first, as compact text within `budget` characters: every
 // line is kept when they fit, otherwise each is shortened, then the oldest go.
 export function scenarioLines(lines, nameOf, budget = 40000) {
-  const rows = lines.map((m) => ({ who: m.character_id ? nameOf(m.character_id) : m.author_role === "gm" ? "GM" : (m.author_name || "a player"), text: String(m.dice?.text ?? m.content ?? "").replace(/\s+/g, " ").trim() })).filter((r) => r.text);
+  const rows = lineRows(lines, nameOf);
   let width = 600;
   const render = () => rows.map((r) => `${r.who}: ${r.text.slice(0, width)}`);
   let out = render();

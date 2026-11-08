@@ -1,7 +1,7 @@
 // art: table is the explicit runtime context supplied by Table; no service singleton.
 import { randomUUID } from "node:crypto";
-import { MAX_CHARACTERS, illustrationFailure, normalizeIllustration, pickEventMoment, pickScenarioMoment, scenarioLines } from "../illustrations.mjs";
-import { artRequest, artText, bestPlace, drawable, isArtLine, locatePlot, pickRequestedMoment } from "../plotArt.mjs";
+import { MAX_CHARACTERS, illustrationFailure, lineRows, normalizeIllustration, pickEventMoment, pickScenarioMoment, scenarioLines } from "../illustrations.mjs";
+import { PART_LINES, PICK_BUDGET, artRequest, artText, chooseEntries, drawable, isArtLine, parts, pickRequestedMoment, playLength } from "../plotArt.mjs";
 import { recall } from "../context/recall.mjs";
 import { MAIN } from "../timelines.mjs";
 import { norm, HOUR, EVENT_MIN_LINES, EVENT_MAX_LINES } from "./shared.mjs";
@@ -206,88 +206,112 @@ export function onArtCommand(table, m, request) {
     })).catch(async (e) => { table.log(`picture request: ${e.message}`); await say("failed"); }).finally(() => table.artBusy.delete(user));
   }
 
+const MARGIN = 10;          // lines kept on each side of a run of recent play or of a zoomed part
+const SCENE_PAGES = 10;     // pages of 200 lines read back from the platform for a scenario older than the local copy
+
 export async function drawPastPlot(table, m, request) {
     const user = m.author_id;
     // Every window of play, other players' and co-players' scenes too (a picture of someone else's scene is fine at a
     // casual table); never a table window (the planner window, phones, the phone log).
-    const readable = table.windows.filter((w) => !table.isTableWindow(w.id));
-    const ids = new Set(readable.map((w) => w.id));
-    if (!ids.size) return "notFound";
+    const windows = table.windows.filter((w) => !table.isTableWindow(w.id));
+    if (!windows.length) return "notFound";
+    const nameOf = (id) => table.nameOf(id);
     const mine = table.characters.filter((c) => c.user_id === user && table.isPc(c.id)).map((c) => c.name);
     const cast = table.characters.filter((c) => table.isPc(c.id) || table.roster.isCoplayer(c.id) || table.roster.isNpc(c.id)).map((c) => c.name);
+    const entries = await storyIndex(table, windows, nameOf);
+    if (!entries.length) return "notFound";
+    // By meaning: the model reads the index and names the entries that hold the moment, best first.
+    const choice = await chooseEntries(table.llm, { request, requester: mine, cast, entries });
+    table.log(`picture request: looking in ${choice.keys.join(", ") || "nothing"}${choice.why ? ` (${choice.why})` : ""}`);
+    // The best two are read in full, one after the other, until the moment is found.
+    for (const key of choice.keys.slice(0, 2)) {
+      const entry = entries.find((e) => e.key === key);
+      const found = await entryLines(table, entry, windows);
+      if (!found.lines.length) continue;
+      const lines = await zoomIn(table, { request, requester: mine, cast, lines: found.lines, nameOf });
+      const moment = await pickRequestedMoment(table.llm, { language: table.language, request, era: table.channel.era ?? "", cast, window: table.windowName(found.windowId),
+        lines: scenarioLines(lines, nameOf, PICK_BUDGET) });
+      if (!moment.found) { table.log(`picture request: not in ${key}`); continue; }
+      table.log(`picture request: drawing ${moment.why || moment.text.slice(0, 80)}`);
+      table.recordPicture(moment.text, m.chat_window_id);
+      // Ahead of any scenario picture still waiting; the platform still draws one picture at a time per account.
+      const outcome = await new Promise((done) => {
+        table.illustrationQueue.unshift({ windowId: m.chat_window_id, moment, tries: 0, done });
+        table.drainIllustrations().catch((e) => table.log(`pictures: ${e.message}`));
+      });
+      if (outcome.job) return null;
+      return { unavailable: "unavailable", disabled: "off", rate_limited: "rateLimited" }[outcome.failure] ?? "failed";
+    }
+    return "notFound";
+  }
+
+// The index of the whole story: the scenarios (S…), and for each window of play the GM's summaries of its earlier
+// play (C…) and its play since the last summary in runs of PART_LINES lines (R…).
+async function storyIndex(table, windows, nameOf) {
+    const clip = (s, n) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
     const scenes = ((await table.api.scenes(table.channelId).catch(() => [])) ?? []).filter((x) => x.title || x.summary)
       .sort((a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0));
-    const scenarios = scenes.map((x, i) => ({ key: `S${i + 1}`, id: x.id, title: x.title, location: x.location, time: x.narrative_time, summary: x.summary }));
-    const chapters = readable.flatMap((w) => table.memory.gmChapters(w.id).map((c) => ({ windowId: w.id, window: w.name, fromSeq: c.fromSeq, toSeq: c.toSeq, text: c.text })))
-      .map((c, i) => ({ ...c, key: `C${i + 1}` }));
-    const where = await locatePlot(table.llm, { request, requester: mine, cast, scenarios, chapters });
-    table.log(`picture request: searching ${where.terms.map((t) => `"${t}"`).join(", ") || "(no terms)"}${where.scenario ? ` in ${where.scenario}` : ""}${where.chapter ? `, ${where.chapter}` : ""}`);
-    const chapter = chapters.find((c) => c.key === where.chapter) ?? null;
-    const scene = scenarios.find((x) => x.key === where.scenario) ?? null;
-    // The densest place of the matches, inside the chapter or scenario named when any match falls there.
-    const hits = await table.plotHits(where.terms, ids);
-    const inChapter = chapter ? hits.filter((h) => h.windowId === chapter.windowId && h.seq >= chapter.fromSeq && h.seq <= chapter.toSeq) : [];
-    const inScene = scene ? hits.filter((h) => h.sceneId === scene.id) : [];
-    const place = bestPlace(inChapter.length ? inChapter : inScene.length ? inScene : hits);
-    let windowId = null, lines = [];
-    if (place) { windowId = place.windowId; lines = await table.linesAround(windowId, place.seq); }
-    else if (chapter) { windowId = chapter.windowId; lines = table.history.lines(windowId, { after: chapter.fromSeq - 1, upTo: chapter.toSeq }).filter(drawable); }
-    else if (scene) {
-      const most = readable.map((w) => ({ id: w.id, lines: table.history.lines(w.id).filter((x) => x.scene_id === scene.id && drawable(x)) })).sort((a, b) => b.lines.length - a.lines.length)[0];
-      if (most?.lines.length) ({ id: windowId, lines } = most);
-    }
-    if (!lines.length) return "notFound";
-    const moment = await pickRequestedMoment(table.llm, { language: table.language, request, era: table.channel.era ?? "", cast, window: table.windowName(windowId),
-      lines: scenarioLines(lines, (id) => table.nameOf(id)) });
-    if (!moment.found) return "notFound";
-    table.log(`picture request: drawing ${moment.why || moment.text.slice(0, 80)}`);
-    table.recordPicture(moment.text, m.chat_window_id);
-    // Ahead of any scenario picture still waiting; the platform still draws one picture at a time per account.
-    const outcome = await new Promise((done) => {
-      table.illustrationQueue.unshift({ windowId: m.chat_window_id, moment, tries: 0, done });
-      table.drainIllustrations().catch((e) => table.log(`pictures: ${e.message}`));
-    });
-    if (outcome.job) return null;
-    return { unavailable: "unavailable", disabled: "off", rate_limited: "rateLimited" }[outcome.failure] ?? "failed";
-  }
-
-export async function plotHits(table, terms, ids) {
-    const hits = new Map();
-    const add = (m, term) => {
-      if (!m || !ids.has(m.chat_window_id) || !drawable(m)) return;
-      const h = hits.get(m.id) ?? { windowId: m.chat_window_id, seq: Number(m.seq), sceneId: m.scene_id ?? null, terms: new Set() };
-      h.terms.add(term);
-      hits.set(m.id, h);
-    };
-    const wanted = terms.map((t) => [t, t.toLowerCase()]);
-    for (const id of ids) for (const m of table.history.lines(id)) {
-      const text = String(m.content ?? "").toLowerCase();
-      for (const [t, low] of wanted) if (text.includes(low)) add(m, t);
-    }
-    for (const [t] of wanted) for (const m of (await table.api.searchMessages(table.channelId, t).catch(() => null)) ?? []) add(m, t);
-    return [...hits.values()];
-  }
-
-export async function linesAround(table, windowId, seq, before = 60, after = 60) {
-    let all;
-    const first = table.store.firstSeq(windowId);
-    if (first !== null && first <= seq) all = table.history.lines(windowId);
-    else {
-      const get = async (beforeSeq) => ((await table.api.messages(table.channelId, windowId, 200, beforeSeq).catch(() => null)) ?? []);
-      const prior = await get(seq + 1);
-      let later = [];
-      for (let span = 400, i = 0; i < 6 && span >= 1; i++) {
-        const page = await get(seq + 1 + span);
-        if (page.length >= 200 && (page[0]?.seq ?? Infinity) > seq + 1) { span = Math.floor(span / 4); continue; }   // lines were skipped
-        later = page.filter((x) => x.seq > seq);
-        if (later.length >= after || page.length < 200) break;
-        span *= 2;
+    const entries = scenes.map((x, i) => ({ key: `S${i + 1}`, kind: "scenario", scene: x,
+      label: `scenario "${x.title || "(untitled)"}"${x.location ? ` @ ${x.location}` : ""}${x.narrative_time ? `, ${x.narrative_time}` : ""}`, text: clip(x.summary, 500) || "(no summary)" }));
+    let c = 0, r = 0;
+    for (const w of windows) {
+      const chapters = table.memory.gmChapters(w.id);
+      for (const ch of chapters) entries.push({ key: `C${++c}`, kind: "chapter", windowId: w.id, fromSeq: ch.fromSeq, toSeq: ch.toSeq, label: `summary of earlier play in "${w.name}"`, text: clip(ch.text, 900) });
+      const after = chapters.length ? Math.max(...chapters.map((x) => x.toSeq)) : 0;
+      for (const run of parts(table.history.lines(w.id, { after }).filter(drawable))) {
+        entries.push({ key: `R${++r}`, kind: "part", windowId: w.id, lines: run, rows: lineRows(run, nameOf), label: `play in "${w.name}", #${run[0].seq}–#${run.at(-1).seq}` });
       }
-      const seen = new Set();
-      all = [...prior, ...later].filter((x) => !x.recalled_at && !seen.has(x.id) && seen.add(x.id)).sort((a, b) => a.seq - b.seq);
     }
-    const lines = all.filter(drawable);
-    let at = lines.findIndex((x) => x.seq >= seq);
-    if (at < 0) at = lines.length;
-    return lines.slice(Math.max(0, at - before), at + after);
+    return entries;
+  }
+
+// The drawable lines an index entry stands for, with the window they are in: a run of recent play with a few lines on
+// each side; a summary's lines; a scenario's lines in the window that played most of it.
+async function entryLines(table, entry, windows) {
+    if (!entry) return { windowId: null, lines: [] };
+    if (entry.kind === "scenario") return sceneLines(table, entry.scene, windows);
+    const all = table.history.lines(entry.windowId).filter(drawable);
+    if (entry.kind === "chapter") return { windowId: entry.windowId, lines: all.filter((x) => x.seq >= entry.fromSeq && x.seq <= entry.toSeq) };
+    const from = all.findIndex((x) => x.seq === entry.lines[0].seq), to = all.findIndex((x) => x.seq === entry.lines.at(-1).seq);
+    return { windowId: entry.windowId, lines: from < 0 || to < 0 ? entry.lines : all.slice(Math.max(0, from - MARGIN), to + MARGIN + 1) };
+  }
+
+// A scenario's lines in the window that played most of it. Where the local copy of a window begins inside the
+// scenario, or after it, the older lines are read from the platform (at most SCENE_PAGES pages a window).
+async function sceneLines(table, scene, windows) {
+    let best = { windowId: null, lines: [] };
+    for (const w of windows) {
+      const stored = table.history.lines(w.id);
+      let lines = stored.filter((x) => x.scene_id === scene.id);
+      const first = stored[0];
+      if (first && (first.scene_id === scene.id || (!lines.length && Date.parse(first.created_at) > Date.parse(scene.created_at)))) {
+        let beforeSeq = first.seq;
+        for (let page = 0; page < SCENE_PAGES; page++) {
+          const got = ((await table.api.messages(table.channelId, w.id, 200, beforeSeq).catch(() => null)) ?? []).filter((x) => !x.recalled_at);
+          if (!got.length) break;
+          lines = [...got.filter((x) => x.scene_id === scene.id), ...lines];
+          beforeSeq = got[0].seq;
+          if (got.length < 200 || (lines.length && got[0].scene_id !== scene.id)) break;   // the window's start, or before the scenario
+        }
+      }
+      lines = lines.filter(drawable);
+      if (lines.length > best.lines.length) best = { windowId: w.id, lines };
+    }
+    return best;
+  }
+
+// Narrows a stretch of play too long for the picker: split into parts (at most 24), the model names the part that
+// holds the moment, and that part with a few lines on each side is kept; at most three rounds.
+async function zoomIn(table, { request, requester, cast, lines, nameOf }) {
+    let current = lines;
+    for (let round = 0; round < 3 && playLength(lineRows(current, nameOf)) > PICK_BUDGET; round++) {
+      const runs = parts(current, PART_LINES, 24);
+      const entries = runs.map((run, i) => ({ key: `P${i + 1}`, rows: lineRows(run, nameOf), label: `#${run[0].seq}–#${run.at(-1).seq}` }));
+      const choice = await chooseEntries(table.llm, { request, requester, cast, entries, zoom: true });
+      const i = entries.findIndex((e) => e.key === choice.keys[0]);
+      if (i < 0) break;
+      table.log(`picture request: zoomed into ${entries[i].label}`);
+      current = [...(runs[i - 1]?.slice(-MARGIN) ?? []), ...runs[i], ...(runs[i + 1]?.slice(0, MARGIN) ?? [])];
+    }
+    return current;
   }

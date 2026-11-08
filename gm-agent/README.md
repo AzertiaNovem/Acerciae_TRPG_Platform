@@ -353,14 +353,16 @@ turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`
 - **On a player's request.** A player writes `/画` (or `/插画`, `/draw`, `/illustrate`) and the moment they want in
   the planner window: `/画 我们黄昏时抵达灯塔的那一刻`, `/draw the duel on the bridge, as an ink sketch`. The request
   never reaches the story planner, and the GM does not read it either. The table answers at once ("🎨 Looking for that
-  moment…") and finds the stretch of play, however long ago it was:
-  1. a model call (`plot_search`) reads the scenarios and the GM's chapter summaries, says where the moment most
-     likely is and which words its lines will contain;
-  2. those words are looked up in the table's copy of the chat and in the platform's message search, which reaches
-     the whole history; the place where most of them meet wins;
-  3. a second call (`plot_illustration`) reads the lines around that place (fetched from the platform when they are
-     older than the table's copy), picks the moment, and follows the player's wishes about framing and style where
-     the lines allow.
+  moment…") and finds the stretch of play by meaning, not by matching words, however long ago it was:
+  1. a model call (`plot_search`) reads an index of the whole story: the scenarios with their summaries (S…), the GM's
+     summaries of each window's earlier play (C…), and the play since the last summary in runs of 30 lines (R…),
+     shortened to fit. It names the entries most likely to hold the moment, best first, judging by meaning: the
+     player may put it in other words than the play used, from another character's side, or in another language;
+  2. an entry too long to read in full (a summary of a long night, a whole scenario) is split into parts, and the
+     model names the part that holds the moment (`plot_search/zoom`, up to three rounds). A scenario older than the
+     table's copy of the chat is read back from the platform;
+  3. a second call (`plot_illustration`) reads those lines, picks the moment, and follows the player's wishes about
+     framing and style where the lines allow. If the moment is not there, the next entry named is read.
 
   The picture is drawn into the planner window as soon as the platform can (ahead of any scenario picture still
   waiting). Any window of play may be drawn on, other players' and co-players' scenes too (this is a casual table:
