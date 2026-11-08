@@ -44,7 +44,7 @@ void MediaService::probeDimensions(const std::string& b, const std::string& mime
     else if (mime == "image/jpeg") { size_t i = 2; while (i + 9 < b.size()) { if ((unsigned char)b[i] != 0xFF) { i++; continue; } unsigned char m = b[i+1]; if (m == 0xC0 || m == 0xC1 || m == 0xC2) { h = ((unsigned char)b[i+5] << 8) | (unsigned char)b[i+6]; w = ((unsigned char)b[i+7] << 8) | (unsigned char)b[i+8]; break; } size_t len = ((unsigned char)b[i+2] << 8) | (unsigned char)b[i+3]; i += 2 + len; } }
 }
 
-static const std::string ASSET_COLS = "id, channel_id, asset_type, source_type, name, mime, bytes, width, height, duration_ms, character_id, expression, outfit, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, version, content_hash, license_metadata, tags, created_by, created_at, updated_at";
+static const std::string ASSET_COLS = "id, channel_id, asset_type, source_type, name, mime, bytes, width, height, duration_ms, character_id, expression, outfit, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, version, content_hash, license_metadata, tags, created_by, created_at, updated_at, outfit_id";
 
 Json::Value MediaService::list(const ChannelAccess& a, const std::string& type, const std::string& characterId, const std::string& approval) {
     std::string sql = "SELECT " + ASSET_COLS + " FROM media_assets WHERE channel_id=$1 AND NOT (source_reference ? 'superseded_by')"; DbParams p{a.channelId};
@@ -107,11 +107,11 @@ Json::Value MediaService::storeInternal(const std::string& channelId, const std:
     auto key = contentPolicy::publicObject(sourceType, mime, meta) ? publicObjectKey(store_, channelId, assetType, ext) : safeObjectKey(channelId, assetType, ext);
     store_.put(key, bytes, mime);
     int w = 0, h = 0; probeDimensions(bytes, mime, w, h);
-    auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, license_metadata, created_by, content_hash) "
-        "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16::uuid[],$17,$18,$19,$22,$20::jsonb,$21,$23) RETURNING " + ASSET_COLS,
+    auto row = db_.queryOne("INSERT INTO media_assets(channel_id, asset_type, source_type, name, object_key, mime, bytes, width, height, character_id, expression, source_reference, generation_provider, generation_model, prompt, reference_asset_ids, style_profile_id, style_profile_version, approval_status, visibility_scope, license_metadata, created_by, content_hash, outfit_id) "
+        "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16::uuid[],$17,$18,$19,$22,$20::jsonb,$21,$23,$24) RETURNING " + ASSET_COLS,
         {channelId, assetType, sourceType, json::str(meta, "name", assetType), key, mime, (int64_t)bytes.size(), w ? DbParam((int64_t)w) : dbNull(), h ? DbParam((int64_t)h) : dbNull(), opt(json::str(meta, "character_id")), json::str(meta, "expression"),
          json::dump(meta.isMember("source_reference") ? meta["source_reference"] : Json::Value(Json::objectValue)), opt(json::str(meta, "generation_provider")), opt(json::str(meta, "generation_model")), opt(json::str(meta, "prompt")), pgArrayLiteral(json::strArray(meta["reference_asset_ids"])),
-         opt(json::str(meta, "style_profile_id")), meta["style_profile_version"].isNumeric() ? DbParam((int64_t)meta["style_profile_version"].asInt()) : dbNull(), json::str(meta, "approval_status", "candidate"), json::dump(meta.isMember("license_metadata") ? meta["license_metadata"] : Json::Value(Json::objectValue)), opt(json::str(meta, "created_by")), json::str(meta,"visibility_scope","gm"), crypto::sha256Hex(bytes)});
+         opt(json::str(meta, "style_profile_id")), meta["style_profile_version"].isNumeric() ? DbParam((int64_t)meta["style_profile_version"].asInt()) : dbNull(), json::str(meta, "approval_status", "candidate"), json::dump(meta.isMember("license_metadata") ? meta["license_metadata"] : Json::Value(Json::objectValue)), opt(json::str(meta, "created_by")), json::str(meta,"visibility_scope","gm"), crypto::sha256Hex(bytes), opt(json::str(meta, "outfit_id"))});
     db_.exec("INSERT INTO asset_versions(asset_id, version, object_key, mime, bytes, note, content_hash) VALUES($1,1,$2,$3,$4,$5,$6)", {row["id"].asString(), key, mime, (int64_t)bytes.size(), sourceType, row["content_hash"].asString()});
     return row;
 }
@@ -155,6 +155,33 @@ Json::Value MediaService::remove(const ChannelAccess& a, const std::string& id) 
     db_.exec("DELETE FROM media_assets WHERE id=$1", {id});
     Json::Value out; out["deleted"] = true; return out;
 }
+// The images a character's slot gave up: one that another slot of the character (its base look or any outfit) still
+// uses stays; generation references follow to the new image; one frozen in a publication is marked superseded; the
+// rest are deleted (their stored files are collected in `keys`, removed once the transaction is done).
+static int retireCharacterImages(pqxx::work& w, const std::string& channelId, const std::string& cid, std::set<std::string> prev, const std::string& assetId, std::vector<std::string>& keys) {
+    if (prev.empty()) return 0;
+    auto now = Db::queryOne(w, "SELECT c.avatar_asset_id, c.portrait_asset_id, cv.default_asset_id, cv.expressions FROM characters c LEFT JOIN character_visual_profiles cv ON cv.character_id=c.id WHERE c.id=$1", {cid});
+    auto keep = [&](const Json::Value& row, std::initializer_list<const char*> cols) {
+        for (auto k : cols) if (row[k].isString()) prev.erase(row[k].asString());
+        if (row["expressions"].isObject()) for (auto& k : row["expressions"].getMemberNames()) if (row["expressions"][k].isString()) prev.erase(row["expressions"][k].asString());
+    };
+    keep(now, {"avatar_asset_id", "portrait_asset_id", "default_asset_id"});
+    for (auto& o : Db::queryJson(w, "SELECT avatar_asset_id, portrait_asset_id, expressions FROM character_outfits WHERE character_id=$1", {cid})) keep(o, {"avatar_asset_id", "portrait_asset_id"});
+    int deleted = 0;
+    for (const auto& old : prev) {
+        // Generation references follow the slot to its new image.
+        Db::exec(w, "UPDATE character_visual_profiles SET reference_asset_ids=array_replace(reference_asset_ids, $2::uuid, $3::uuid) WHERE channel_id=$1 AND $2::uuid = ANY(reference_asset_ids)", {channelId, old, assetId});
+        Db::exec(w, "UPDATE visual_style_profiles SET reference_asset_ids=array_replace(reference_asset_ids, $2::uuid, $3::uuid) WHERE channel_id=$1 AND $2::uuid = ANY(reference_asset_ids)", {channelId, old, assetId});
+        if (!Db::queryOne(w, "SELECT 1 AS x FROM published_logs WHERE channel_id=$1 AND NOT revoked AND frozen_asset_versions ? $2 LIMIT 1", {channelId, old}).isNull()) {
+            Db::exec(w, "UPDATE media_assets SET source_reference=source_reference || jsonb_build_object('superseded_by', $2::text), updated_at=now() WHERE id=$1", {old, assetId});
+            continue;
+        }
+        for (auto& v : Db::queryJson(w, "SELECT object_key AS k FROM asset_versions WHERE asset_id=$1 UNION SELECT object_key FROM media_assets WHERE id=$1", {old})) keys.push_back(v["k"].asString());
+        Db::exec(w, "DELETE FROM media_assets WHERE id=$1", {old});
+        ++deleted;
+    }
+    return deleted;
+}
 int MediaService::adoptCharacterImage(const std::string& channelId, const std::string& cid, const std::string& slot, const std::string& subtitle, const std::string& assetId) {
     std::vector<std::string> keys;   // stored files to remove once the rows are gone
     int deleted = 0;
@@ -177,25 +204,37 @@ int MediaService::adoptCharacterImage(const std::string& channelId, const std::s
             next[subtitle] = assetId;
             Db::exec(w, "INSERT INTO character_visual_profiles(character_id, channel_id, expressions) VALUES($1,$2,$3::jsonb) ON CONFLICT (character_id) DO UPDATE SET expressions=$3::jsonb, version=character_visual_profiles.version+1, updated_at=now()", {cid, channelId, json::dump(next)});
         }
-        // Library images filed under the same character and slot.
-        for (auto& r : Db::queryJson(w, "SELECT id FROM media_assets WHERE channel_id=$1 AND character_id=$2 AND id<>$3 AND asset_type IN ('standee','portrait') AND upper(btrim(expression))=upper($4)", {channelId, cid, assetId, key})) prev.insert(r["id"].asString());
-        if (prev.empty()) return;
-        // An image another slot of this character still uses stays.
-        auto now = Db::queryOne(w, "SELECT c.avatar_asset_id, c.portrait_asset_id, cv.default_asset_id, cv.expressions FROM characters c LEFT JOIN character_visual_profiles cv ON cv.character_id=c.id WHERE c.id=$1", {cid});
-        for (auto k : {"avatar_asset_id", "portrait_asset_id", "default_asset_id"}) if (now[k].isString()) prev.erase(now[k].asString());
-        if (now["expressions"].isObject()) for (auto& k : now["expressions"].getMemberNames()) if (now["expressions"][k].isString()) prev.erase(now["expressions"][k].asString());
-        for (const auto& old : prev) {
-            // Generation references follow the slot to its new image.
-            Db::exec(w, "UPDATE character_visual_profiles SET reference_asset_ids=array_replace(reference_asset_ids, $2::uuid, $3::uuid) WHERE channel_id=$1 AND $2::uuid = ANY(reference_asset_ids)", {channelId, old, assetId});
-            Db::exec(w, "UPDATE visual_style_profiles SET reference_asset_ids=array_replace(reference_asset_ids, $2::uuid, $3::uuid) WHERE channel_id=$1 AND $2::uuid = ANY(reference_asset_ids)", {channelId, old, assetId});
-            if (!Db::queryOne(w, "SELECT 1 AS x FROM published_logs WHERE channel_id=$1 AND NOT revoked AND frozen_asset_versions ? $2 LIMIT 1", {channelId, old}).isNull()) {
-                Db::exec(w, "UPDATE media_assets SET source_reference=source_reference || jsonb_build_object('superseded_by', $2::text), updated_at=now() WHERE id=$1", {old, assetId});
-                continue;
-            }
-            for (auto& v : Db::queryJson(w, "SELECT object_key AS k FROM asset_versions WHERE asset_id=$1 UNION SELECT object_key FROM media_assets WHERE id=$1", {old})) keys.push_back(v["k"].asString());
-            Db::exec(w, "DELETE FROM media_assets WHERE id=$1", {old});
-            ++deleted;
+        // Library images filed under the same character and slot (an outfit's images are the outfit's).
+        for (auto& r : Db::queryJson(w, "SELECT id FROM media_assets WHERE channel_id=$1 AND character_id=$2 AND id<>$3 AND outfit_id IS NULL AND asset_type IN ('standee','portrait') AND upper(btrim(expression))=upper($4)", {channelId, cid, assetId, key})) prev.insert(r["id"].asString());
+        deleted = retireCharacterImages(w, channelId, cid, std::move(prev), assetId, keys);
+    });
+    for (const auto& k : keys) { try { store_.remove(k); } catch (const std::exception&) {} }
+    return deleted;
+}
+int MediaService::adoptOutfitImage(const std::string& channelId, const std::string& cid, const std::string& outfitId, const std::string& slot, const std::string& subtitle, const std::string& assetId) {
+    std::vector<std::string> keys;
+    int deleted = -1;   // the outfit is gone
+    db_.tx([&](pqxx::work& w) {
+        auto o = Db::queryOne(w, "SELECT avatar_asset_id, portrait_asset_id, expressions FROM character_outfits WHERE id=$1 AND character_id=$2 AND channel_id=$3 FOR UPDATE", {outfitId, cid, channelId});
+        if (o.isNull()) return;
+        std::set<std::string> prev;
+        auto held = [&](const Json::Value& v) { if (v.isString() && v.asString() != assetId) prev.insert(v.asString()); };
+        auto key = slot == "subtitle" ? text::upper(text::trim(subtitle)) : text::upper(slot);
+        if (slot == "avatar") {
+            held(o["avatar_asset_id"]);
+            Db::exec(w, "UPDATE character_outfits SET avatar_asset_id=$2, updated_at=now() WHERE id=$1", {outfitId, assetId});
+        } else if (slot == "portrait") {
+            held(o["portrait_asset_id"]);
+            Db::exec(w, "UPDATE character_outfits SET portrait_asset_id=$2, updated_at=now() WHERE id=$1", {outfitId, assetId});
+        } else {
+            Json::Value next(Json::objectValue);
+            if (o["expressions"].isObject()) for (auto& k : o["expressions"].getMemberNames()) { if (text::upper(text::trim(k)) == key) held(o["expressions"][k]); else next[k] = o["expressions"][k]; }
+            next[subtitle] = assetId;
+            Db::exec(w, "UPDATE character_outfits SET expressions=$2::jsonb, updated_at=now() WHERE id=$1", {outfitId, json::dump(next)});
         }
+        Db::exec(w, "UPDATE media_assets SET outfit_id=$2, character_id=$3 WHERE id=$1", {assetId, outfitId, cid});
+        for (auto& r : Db::queryJson(w, "SELECT id FROM media_assets WHERE channel_id=$1 AND character_id=$2 AND outfit_id=$3 AND id<>$4 AND asset_type IN ('standee','portrait') AND upper(btrim(expression))=upper($5)", {channelId, cid, outfitId, assetId, key})) prev.insert(r["id"].asString());
+        deleted = retireCharacterImages(w, channelId, cid, std::move(prev), assetId, keys);
     });
     for (const auto& k : keys) { try { store_.remove(k); } catch (const std::exception&) {} }
     return deleted;

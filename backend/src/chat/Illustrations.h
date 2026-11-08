@@ -14,7 +14,9 @@ namespace logstudio { class CreativeService; class MediaService; }
 // model to dare an unexpected viewpoint rather than a plain front view, and each character's appearance; their main
 // portraits go along as identity references. When the picture is ready it is posted in the chat window as an
 // out-of-character line of the requester, and only those who may read that line may load the picture.
-struct IllustrationCharacter { std::string name, appearance; bool hasReference = false; };
+// `redress`: the reference image shows the character in other clothes than they wear in the picture (an outfit with no
+// image of its own yet), so it is for the face and hair only and the description says what they wear.
+struct IllustrationCharacter { std::string name, appearance; bool hasReference = false; bool redress = false; };
 std::string illustrationPrompt(const std::string& scene, const std::vector<IllustrationCharacter>& characters,
                                const std::string& era, const std::string& narrativeTime);
 // Which attached image is whom, by name ("Reference image 1 is Ada. Mo has no reference image: …"). The image files

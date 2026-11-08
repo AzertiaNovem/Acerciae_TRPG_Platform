@@ -52,7 +52,9 @@ export default function VisualNovelEditor() {
   const bgAssets = assets.filter((a) => a.asset_type === 'background' && a.approval_status === 'approved');
   // The subtitles a character has an image for; a placement may also name one that has none yet (the default shows).
   const subtitles = (p: CharacterPlacement) => {
-    const have = (pres?.character_images?.[p.character_id] ?? []).filter((s) => s.toLowerCase() !== 'default');
+    // In an outfit, its own poses count too.
+    const worn = (pres?.character_outfits?.[p.character_id] ?? []).find((o) => o.id === p.outfit_id)?.images ?? [];
+    const have = [...new Set([...(pres?.character_images?.[p.character_id] ?? []), ...worn])].filter((s) => s.toLowerCase() !== 'default');
     const cur = p.expression && p.expression.toLowerCase() !== 'default' && !have.some((s) => s.toLowerCase() === p.expression!.toLowerCase()) ? [p.expression] : [];
     return { have, missing: cur };
   };
@@ -149,6 +151,13 @@ export default function VisualNovelEditor() {
                   <span style={{ minWidth: 80 }}>{names[p.character_id] ?? '?'}</span>
                   <select value={p.position} onChange={(e) => setPlacement(cur, p.character_id, { position: e.target.value })} disabled={!canEdit}><option value="left">{tr("left")}</option><option value="center">{tr("center")}</option><option value="right">{tr("right")}</option></select>
                   <select value={!p.expression || p.expression.toLowerCase() === 'default' ? 'default' : (subtitles(p).have.find((s) => s.toLowerCase() === p.expression!.toLowerCase()) ?? p.expression)} onChange={(e) => setPlacement(cur, p.character_id, { expression: e.target.value })} disabled={!canEdit} title={tr("Shows the character's current image for this subtitle")}><option value="default">{tr("default (main portrait)")}</option>{subtitles(p).have.map((s) => <option key={s} value={s}>{s}</option>)}{subtitles(p).missing.map((s) => <option key={s} value={s}>{tr("{subtitle} (no image yet)", { subtitle: s })}</option>)}</select>
+                  {(pres.character_outfits?.[p.character_id]?.length ?? 0) > 0 && (
+                    <select value={p.outfit_auto || p.outfit_id === undefined ? 'auto' : p.outfit_id} onChange={(e) => setPlacement(cur, p.character_id, e.target.value === 'auto' ? { outfit_id: undefined, outfit_auto: undefined } : { outfit_id: e.target.value, outfit_auto: false })} disabled={!canEdit} title={tr("Outfit: as written follows the outfit the character wore when the line was written")}>
+                      <option value="auto">{tr("As written")} ({p.outfit_auto ? (pres.character_outfits![p.character_id].find((o) => o.id === p.outfit_id)?.name ?? '?') : tr("Base look")})</option>
+                      <option value="">{tr("Base look")}</option>
+                      {pres.character_outfits![p.character_id].map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                  )}
                   <label><input type="checkbox" checked={!!p.flip} onChange={(e) => setPlacement(cur, p.character_id, { flip: e.target.checked })} disabled={!canEdit} />{tr(" flip")}</label>
                   <button className="ghost small" onClick={() => setPlacement(cur, p.character_id, null)} disabled={!canEdit}>✕</button>
                 </div>

@@ -2,6 +2,7 @@
 #include "../core/Config.h"
 #include "../core/Db.h"
 #include "../auth/AuthService.h"
+#include "LogModel.h"
 #include <json/json.h>
 #include <map>
 
@@ -57,8 +58,17 @@ public:
     std::map<std::string, std::map<std::string, Json::Value>> currentStandees(const std::string& channelId, bool gmOnly);
     // A stage placement names a character and a subtitle, never an image. These fill in the image each placement
     // shows now (asset_id/asset_version, the default when the subtitle has none) for reading.
-    static void resolveStage(Json::Value& events, const std::map<std::string, std::map<std::string, Json::Value>>& images);
-    // What may be stored for one placement: character, subtitle, position and display flags.
+    static void resolveStage(Json::Value& events, const std::map<std::string, std::map<std::string, Json::Value>>& images,
+                             const std::map<std::string, std::map<std::string, Json::Value>>* outfitImages = nullptr);
+    // Outfits' images, by outfit id: per subtitle (lower-cased) and under "" its portrait. A placement with an
+    // `outfit_id` shows its outfit's image for the subtitle, else the outfit's portrait; an outfit without any image
+    // falls back to the base look. Same values and visibility rule as currentStandees.
+    std::map<std::string, std::map<std::string, Json::Value>> outfitStandees(const std::string& channelId, bool gmOnly);
+    // Which outfit each placement shows when no editor chose one: the outfit its character wore in their own nearest
+    // line (the latest at or before the event, else their next one), as the chat recorded it. Marked `outfit_auto`.
+    void wearOutfits(Json::Value& events, const std::map<std::string, LogEvent>& lines);
+    // What may be stored for one placement: character, subtitle, outfit (an editor's choice; "" = the base look; an
+    // automatic one is not stored), position and display flags.
     static Json::Value placement(const Json::Value& in);
     // Bumps the version and tells viewers what changed (also used when generated art lands in a draft).
     void touch(const std::string& presentationId, const std::string& channelId, const std::string& what);

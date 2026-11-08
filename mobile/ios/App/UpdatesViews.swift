@@ -158,6 +158,24 @@ struct CharacterSpace: View {
                 ForEach(Array(space["subtitles"].array.enumerated()), id: \.offset) { _, asset in
                     Text(asset["subtitle"].text); AuthenticatedArtwork(model: model, assetId: asset["id"].text, version: asset["version"].int, hash: asset["hash"].text).frame(height: 180)
                 }
+                // Outfits: other clothes with their own images. The one worn now shows in the chat, and each line remembers it.
+                if !space["outfits"].array.isEmpty {
+                    Picker(tr("Wearing"), selection: Binding<String>(get: { space["character"]["outfit_id"].text }, set: { choice in
+                        Task { await model.run { space = try await model.get(base + ["outfit"], body: .object(["outfit_id": choice.isEmpty ? JSONValue.null : JSONValue.string(choice)]), method: "PUT") } }
+                    })) {
+                        Text(tr("Base look")).tag("")
+                        ForEach(Array(space["outfits"].array.enumerated()), id: \.offset) { _, outfit in Text(outfit["name"].text).tag(outfit["id"].text) }
+                    }.disabled(!editable || model.busy)
+                    ForEach(Array(space["outfits"].array.enumerated()), id: \.offset) { _, outfit in
+                        Text(outfit["name"].text + (outfit["id"].text == space["character"]["outfit_id"].text ? " · " + tr("Worn now") : "")).font(.headline)
+                        Text(outfit["attire"].text).font(.caption)
+                        if !outfit["portrait"]["id"].text.isEmpty {
+                            AuthenticatedArtwork(model: model, assetId: outfit["portrait"]["id"].text, version: outfit["portrait"]["version"].int, hash: outfit["portrait"]["hash"].text).frame(height: 180)
+                        } else if !outfit["avatar"]["id"].text.isEmpty {
+                            AuthenticatedArtwork(model: model, assetId: outfit["avatar"]["id"].text, version: outfit["avatar"]["version"].int, hash: outfit["avatar"]["hash"].text).frame(height: 80)
+                        }
+                    }
+                }
                 if editable {
                     Picker(tr("素材来源"), selection: $mode) { Text(tr("上传素材")).tag("uploaded"); Text(tr("生成素材")).tag("generated") }
                     TextField(tr("外观与统一画风描述"), text: $prompt, axis: .vertical)
