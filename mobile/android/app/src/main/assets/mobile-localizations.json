@@ -21516,6 +21516,18 @@
       "Traje: “como foi escrito” segue a roupa que o personagem usava quando a fala foi escrita",
       "Abito: «come scritto» segue l’abito indossato dal personaggio quando la battuta è stata scritta"
     ],
+    "typing…": [
+      "正在输入…",
+      "正在輸入…",
+      "入力中…",
+      "입력 중…",
+      "escribiendo…",
+      "écrit…",
+      "schreibt…",
+      "печатает…",
+      "digitando…",
+      "sta scrivendo…"
+    ],
     "Channel settings": [
       "频道选项",
       "頻道選項",
@@ -25545,6 +25557,7 @@
     "（当前穿着）": "(worn now)",
     "按发言时": "As written",
     "服装：“按发言时”会使用角色写下这句时所穿的服装": "Outfit: as written follows the outfit the character wore when the line was written",
+    "正在输入…": "typing…",
     "已展开": "Expanded",
     "已折叠": "Collapsed",
     "无需投骰": "Diceless",

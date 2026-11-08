@@ -51,6 +51,8 @@ class StreamSocket {
   unsubscribe(channelId: string) { this.channels.delete(channelId); if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'unsubscribe', channel_id: channelId })); }
   spectate(channelId: string) { this.spectating.add(channelId); if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'subscribe', channel_id: channelId, spectate: true })); }
   stopSpectating(channelId: string) { this.spectating.delete(channelId); if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'unsubscribe', channel_id: channelId, spectate: true })); }
+  // A client-side pack (a typing flag): dropped while the socket is down; the sender repeats what still matters.
+  send(msg: object): boolean { if (this.ws?.readyState !== WebSocket.OPEN) return false; this.ws.send(JSON.stringify(msg)); return true; }
   on(l: Listener) { this.listeners.add(l); return () => { this.listeners.delete(l); }; }
   private emit(m: any) { for (const l of this.listeners) l(m); }
   get connected() { return this.ws?.readyState === WebSocket.OPEN; }

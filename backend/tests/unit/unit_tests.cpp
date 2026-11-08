@@ -7,6 +7,7 @@
 #include "core/Text.h"
 #include "chat/Illustrations.h"
 #include "characters/Outfits.h"
+#include "characters/Vitals.h"
 #include "core/Json.h"
 #include "core/Crypto.h"
 #include "core/Db.h"
@@ -1192,6 +1193,22 @@ int main() {
         CHECK(inGown.find("- Ada: a tall reporter in a green coat. Outfit (replaces any clothing described above): an emerald silk gown (identity reference image 1 attached; it shows other clothes: dress them as described here)") != std::string::npos);
         CHECK(illustrationIdentity(dressed).find("Reference image 1 is Ada (for the face and hair only: dress them as the description says, not as in the image).") != std::string::npos);
         CHECK(outfits::appearance("", "Ball gown", "") == "Outfit (replaces any clothing described above): Ball gown");
+    });
+    test("vitals: HP, SAN and DEX for Call of Cthulhu, HP, AC and DEX for D&D, resources and marked conditions for PbtA, however the sheet spells them", [] {
+        Json::Value c; c["sheet"]["attrs"]["生命值"] = 9; c["sheet"]["attrs"]["SAN"] = 55; c["sheet"]["attrs"]["dex"] = 60; c["role_card"]["derived"]["hp_max"] = 12; c["role_card"]["derived"]["san_max"] = 0;
+        auto v = vitals::of(c, "coc7e", Json::Value());
+        CHECK(v["rule_system"] == "coc7e" && v["hp"] == 9 && v["hp_max"] == 12 && v["san"] == 55 && v["san_max"].isNull() && v["dex"] == 60);
+        Json::Value d; d["sheet"]["attrs"]["HP"] = 24; d["sheet"]["attrs"]["AC"] = 15; d["sheet"]["attrs"]["DEX"] = 14; d["role_card"]["dnd"]["hp_max"] = 30;
+        auto w = vitals::of(d, "dnd2024", Json::Value());
+        CHECK(w["hp"] == 24 && w["hp_max"] == 30 && w["ac"] == 15 && w["dex"] == 14 && !w.isMember("san"));
+        CHECK(vitals::of(Json::Value(Json::objectValue), "coc7e", Json::Value())["hp"].isNull());   // a blank sheet: nothing invented, no base value
+        Json::Value pack; Json::Value harm; harm["id"] = "harm"; harm["name"] = "Harm"; pack["resources"].append(harm);
+        Json::Value afraid; afraid["id"] = "afraid"; afraid["name"] = "Afraid"; pack["conditions"].append(afraid);
+        Json::Value calm; calm["id"] = "calm"; calm["name"] = "Calm"; pack["conditions"].append(calm);
+        Json::Value p; p["role_card"]["pbta"]["resources"]["harm"] = 2; p["role_card"]["pbta"]["conditions"]["afraid"] = true; p["role_card"]["pbta"]["conditions"]["calm"] = false;
+        auto x = vitals::of(p, "pbta", pack);
+        CHECK(x["resources"].size() == 1 && x["resources"][0]["name"] == "Harm" && x["resources"][0]["value"] == 2);
+        CHECK(x["conditions"].size() == 1 && x["conditions"][0]["name"] == "Afraid");
     });
     test("mock standees have real transparent pixels while backgrounds remain RGB", [] {
         logstudio::ImageConfig config; config.provider = "mock";

@@ -116,6 +116,8 @@ int main(int argc, char** argv) {
         .setIdleConnectionTimeout(300)
         .enableGzip(false);
     drogon::app().registerBeginningAdvice([&] { S.observer->start(); S.tts->start(); S.creative->start(); S.vnScripts->start(); S.maintenance->start();
+        // Typing flags whose heartbeats stopped fall on their own (a closed tab, a lost connection the socket has not noticed).
+        drogon::app().getLoop()->runEvery(2.0, [] { WsGateway::instance().sweepTyping(); });
         // Sends local media to object storage (and non-secret media to the public bucket) whenever that is configured.
         if (const char* m = std::getenv("MEDIA_MIGRATION"); !m || (std::string(m) != "false" && std::string(m) != "0")) S.mediaMigrator->start();
         // Deletes stored media nothing uses any more, now and once a day.
