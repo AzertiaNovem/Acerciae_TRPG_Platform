@@ -54,7 +54,7 @@ ssh -o ClearAllForwardings=yes server-sh 'bash -s' < scripts/deploy/install-serv
 实际生产 Node 版本沿用服务器配置；CI 使用 Node 22，发布时也会在服务器上运行 PDF worker 测试。
 发布时需要服务器能够访问 npm registry；Chromium 沿用现有安装。
 
-可以将 `scripts/deploy/deploy.py` 上传到服务器后，以 deploy 运行 `python3 deploy.py --check`。
+可以将 `scripts/deploy/deploy.py` 和同目录的 `private_media.py` 一起上传到服务器后，以 deploy 运行 `python3 deploy.py --check`。
 该检查仅验证依赖、配置文件访问、sudo 权限和服务状态，不编译、不备份、不重启。
 
 ## 发布步骤和记录
@@ -66,8 +66,9 @@ GitHub 上传本次通过测试的确切提交，服务器使用文件锁串行�
    编译和依赖安装期间现有服务保持运行。完整数据库、HTTP/WebSocket 和前端测试由 GitHub CI 执行。
 2. 确认历史 SQL 迁移没有被修改或删除，停止 `acerciae-pdf` 和 `acerciae`。
 3. 备份数据库、上传文件、两个 env 文件和旧版本记录，校验数据库归档可读取。
-4. 原子切换 `current`，启动后端和 PDF worker，检查本机健康接口及两个服务状态。
-5. 写入 `/srv/acerciae/release.json`，再从 GitHub runner 检查公网 HTTPS 健康接口。
+4. 原子切换 `current`；如果服务器已准备并启用下述一次性媒体迁移，在服务仍停止时切换媒体引用。
+   启动后端和 PDF worker，自动应用 SQL 迁移，检查本机健康接口及两个服务状态。
+5. 写入 `/srv/acerciae/release.json`；已启用媒体迁移时清除旧公开原件，再从 GitHub runner 检查公网 HTTPS 健康接口。
 
 切换期间有短暂停机，现有 WebSocket 会断线重连。健康检查成功后自动只保留 3 个 release：
 当前运行版本、记录中的上一运行版本，以及按目录时间排序的最新剩余版本。失败的部署不执行清理。
@@ -85,6 +86,88 @@ GitHub 上传本次通过测试的确切提交，服务器使用文件锁串行�
 手动恢复前先查看 `deploy.log` 和备份中的 `previous-release.txt`。需要回退数据库时，应由管理员
 停止服务、核对 `database.dump` / `uploads.tar.gz` / env 文件来自同一份完整备份，再恢复数据库和上传文件、
 切换 `current` 并启动服务。不要仅修改软链接来回退存在不兼容迁移的版本。
+
+## 0060–0062 升级准备与 R2 收口
+
+`scripts/deploy/private_media.py` 从服务器的 `backend.env` 读取数据库和 R2 凭据，密钥不会进入命令行、
+仓库或 CI 日志。它只处理私有回放素材、聊天插图、私有音频和旧预打包 ZIP，沿用 `IMAGE_STORE` /
+`OBJECT_STORE` 的路由；当前 server-sh 是图片进入私有 R2、音频进入本地 `uploads/objects`。
+Python 需要 boto3，数据库操作使用已有的 psql，本地文件目录通过 setfacl 保留 acerciae 服务账号的访问权限。
+其他服务器默认不启用此流程。
+
+2026-11-08 已完成 server-sh 的准备并创建 `ARMED`：657 个旧公开对象共 592,531,232 字节，
+其中 51 个图片复制到私有 R2、606 个音频复制到本地受控存储。全部原件备份通过 SHA-256 校验，
+606 个本地文件均已由 acerciae 服务账号实际读取校验。数据库备份已完整恢复到临时库并演练引用切换及
+三个迁移，私有公开键残留为 0，临时库随后删除。准备完成时正式服务仍运行原版本，schema 停留在 0059，业务引用尚未切换；
+首次启用迁移钩子的发布会再次执行增量盘点、备份和健康检查。服务器上的 `PREPARED.json` 保存当时的准备记录。
+
+同日已在 CI 部署的新版上通过 `finish` 完成实际切换，并执行 CDN 清理：657 个旧公开原件已删除，
+657 个旧 URL 逐个检查均返回 404，旧对象数据库引用为 0，平台健康检查正常。`COMPLETED.json` 保存完成核验、
+当前 release 及停机备份路径；`finish.log`、`purge.log` 保存执行日志。准备目录中的对象备份继续保留，
+后续 CI 会根据 `RETIRED` 跳过这次已完成的一次性迁移。
+
+准备目录固定为 `/srv/acerciae/upgrades/private-media-v1`，权限 700，部署账号拥有该目录。
+`before-preparation/` 保存在线准备前的数据库、上传文件、配置和版本备份；这份在线备份用于排查与演练，
+正式切换仍使用 CI 在停止服务后创建的 `backups/before-<release>/` 一致性备份。
+`objects/` 保存每个旧公开对象的原始字节，`manifest.json` 记录旧键、新键、目标存储、大小、MIME、ETag 和 SHA-256。
+不要在迁移和恢复核验结束前删除这些文件。
+
+旧版运行期间可以重复执行准备命令，它只备份并复制对象、校验内容、登记 90 天清理保护，
+不会切换业务引用、删除公开对象或重启服务。准备与 CI 共用 `.deploy.lock`：
+
+```bash
+ssh -o ClearAllForwardings=yes server-sh \
+  'runuser -u deploy -- python3 -u /srv/acerciae/upgrades/private-media-v1/private_media.py prepare'
+```
+
+确认备份和预复制完成后，在准备目录创建 `ARMED` 文件。下一次包含本次部署脚本和三个迁移的 CI 发布
+会在停机备份之后补齐新增对象，并在一个数据库事务内更新素材、版本、音频、ZIP、显式发布冻结内容及生成任务输入引用。
+只替换 JSON 的 `object_key`，不会改动用户正文。任何未覆盖的存储引用都会使事务回滚。
+新版健康检查通过后才删除旧 R2 公开对象，逐项确认原件已消失；`RETIRED` 表示源站处理结束。
+预复制的文件和私有桶对象在此之前已经完成内容校验，切换时还会再次核对本地散列和 R2 收据。
+
+引用切换失败会停止服务并保留备份，不能直接重新启动旧版迁移器。旧公开对象清理失败则保留已经健康的新服务，
+CI 报错；重新运行同一 CI job 会继续清理，也可在新版上线后以 deploy 执行脚本的 `retire` 命令。
+如果 CI 已经部署含 0060–0062 的新版，但发布时未包含本次部署钩子，`purge` 会提示
+`Purge only after origin retirement, to prevent cache refills`。这表示尚未完成源站迁移，
+不能通过手工创建 `RETIRED` 来跳过。先执行以下恢复命令：
+
+```bash
+ssh -o ClearAllForwardings=yes server-sh \
+  'runuser -u deploy -- python3 -u /srv/acerciae/upgrades/private-media-v1/private_media.py finish'
+```
+
+`finish` 要求新版和三个 SQL 迁移均已上线；它保持当前 release，先在线核验副本，再短暂停止平台服务，
+创建 `backups/before-private-media-<时间>/` 一致性备份并切换引用。随后恢复同一新版，健康检查通过后删除旧公开原件。
+即使备份或引用切换失败，也会恢复该新版服务；源站清理中断可重复执行 `finish`，已提交引用时不会再次停服。
+命令成功后再运行下面的 `purge`。
+
+恢复旧数据库时，应先按清单从 `objects/` 恢复已删除的公开对象，再按上面的停机恢复流程处理数据库和版本。
+不得只恢复旧数据库而丢弃对象备份。
+
+R2 的 access key / secret key 可以复制与删除对象，但不能替代 Cloudflare Zone 的缓存清除 API token。
+源站清理结束后，脚本生成 `cdn-purge-urls.txt`；缓存清除不自动视为已完成。为 `azertia.org` 创建仅包含
+`Zone → Cache Purge → Purge` 权限的 token，把以下内容写入服务器准备目录下权限 600 的 `cloudflare.env`，
+文件属主设为 deploy，不要把 token 粘贴到仓库或聊天里：
+
+```dotenv
+CLOUDFLARE_ZONE_ID=<azertia.org 的 Zone ID>
+CLOUDFLARE_API_TOKEN=<只用于该 Zone 的缓存清除 token>
+```
+
+CI 发布成功、`RETIRED` 文件出现之后执行：
+
+```bash
+ssh -o ClearAllForwardings=yes server-sh \
+  'runuser -u deploy -- python3 -u /srv/acerciae/upgrades/private-media-v1/private_media.py purge'
+```
+
+脚本分批清除清单中的精确 URL，失败可重复执行；`CDN_PURGE_ACCEPTED` 仅表示 Cloudflare 接受全部请求。
+也可在 Cloudflare 控制台选择 `azertia.org → Caching → Configuration → Purge Cache → Custom Purge → URL`，
+分批提交清单。若配置过自定义缓存键，需要按实际缓存键补充清除条件。清除后抽查旧 URL 不再返回文件，
+并以有权访问的账号检查新版素材和音频下载；浏览器已缓存或已下载的副本无法召回。
+参见 [R2 S3 API](https://developers.cloudflare.com/r2/api/s3/api/) 和
+[Cloudflare 单文件缓存清除](https://developers.cloudflare.com/cache/how-to/purge-cache/purge-by-single-file/)。
 
 ## Cloudflare Pages 与发布 PR
 

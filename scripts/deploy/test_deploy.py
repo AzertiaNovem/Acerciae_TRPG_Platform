@@ -75,6 +75,36 @@ class DeploymentTests(unittest.TestCase):
                 self.activate()
             run.assert_not_called()
 
+    def test_prepared_object_cutover_runs_stopped_before_new_start_and_retirement_after_health(self):
+        events = []
+        with patch.object(deploy, 'run', side_effect=lambda a, **kw: events.append(a)), \
+                patch.object(deploy, 'backup_state', side_effect=lambda *a: events.append('backup')), \
+                patch.object(deploy, 'health', side_effect=lambda: events.append('health')), \
+                patch.object(deploy.private_media, 'armed', return_value=True), \
+                patch.object(deploy.private_media, 'cutover_for_deploy', side_effect=lambda *a: events.append('cutover')), \
+                patch.object(deploy.private_media, 'retire_for_deploy', side_effect=lambda *a: events.append('retire')):
+            self.activate()
+        self.assertEqual(events, [deploy.STOP, 'backup', 'cutover', deploy.START, 'health', 'retire'])
+
+    def test_object_cutover_failure_never_restarts_old_migrator(self):
+        with patch.object(deploy, 'run', side_effect=self.command), patch.object(deploy, 'backup_state'), \
+                patch.object(deploy.private_media, 'armed', return_value=True), \
+                patch.object(deploy.private_media, 'cutover_for_deploy', side_effect=RuntimeError('partial cutover')):
+            with self.assertRaises(RuntimeError):
+                self.activate()
+        self.assertEqual(self.commands, [deploy.STOP, deploy.STOP])
+        self.assertEqual((self.root / 'current').resolve(), self.new)
+
+    def test_origin_cleanup_failure_keeps_new_healthy_service_and_release_receipt(self):
+        with patch.object(deploy, 'run', side_effect=self.command), patch.object(deploy, 'backup_state'), \
+                patch.object(deploy, 'health'), \
+                patch.object(deploy.private_media, 'retire_for_deploy', side_effect=RuntimeError('R2 unavailable')):
+            with self.assertRaises(RuntimeError):
+                self.activate()
+        self.assertEqual(self.commands, [deploy.STOP, deploy.START])
+        self.assertEqual((self.root / 'current').resolve(), self.new)
+        self.assertTrue((self.root / 'release.json').exists())
+
     def test_partial_stop_failure_still_recovers_services(self):
         def fail_first_stop(args, **kwargs):
             self.command(args)

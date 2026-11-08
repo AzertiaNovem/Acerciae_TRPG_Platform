@@ -118,7 +118,9 @@ Visual-novel scripts use independent `LLM_VN_MAX_TOKENS` (default 32768) and `LL
 
 Migrations `0060_private_script_art.sql`, `0061_private_audio.sql` and `0062_private_chat_art.sql` record private replay art, audio and chat-illustration origins. Chat images stay bound to their message audience, with authenticated delivery and no persistent cache. New private outputs use authenticated storage; the background migrator excludes them. File delivery also suppresses public redirects for legacy keys and returns `Cache-Control: private, no-store`. Prepared ZIP downloads also remain in authenticated storage and recheck current presentation access on download. Explicit publications remain available.
 
-Before upgrading a deployment with a public bucket, pause generation and the old media migrator, back up the database and storage, apply migrations, then inventory the old private keys with this read-only query:
+For the native `server-sh` deployment, follow the [prepared CI migration](ONLINE_DEPLOYMENT.md#00600062-升级准备与-r2-收口). Its preparation command can run against the old schema while the platform stays live; the CI hook performs reference cutover while services are stopped, applies the new schema at startup, and removes public originals only after health succeeds. CDN invalidation remains a separate, explicit step. No new application release is installed during preparation.
+
+For other deployments, pause generation and the old media migrator, back up the database and storage, apply migrations, then inventory the old private keys with this read-only query:
 
 ```sql
 SELECT object_key FROM media_assets
