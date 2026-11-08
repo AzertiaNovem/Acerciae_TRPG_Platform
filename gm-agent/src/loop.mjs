@@ -1825,8 +1825,9 @@ export class Table {
   // post when there is no picture ("notFound", "unavailable", "rateLimited", "failed"), else null.
   async drawPastPlot(m, request) {
     const user = m.author_id;
-    // What this player can read: the Main Chat and the windows they are a member of; never a table window.
-    const readable = this.windows.filter((w) => !this.isTableWindow(w.id) && (w.kind === "main" || (w.members ?? []).some((x) => x.user_id === user)));
+    // Every window of play, other players' and co-players' scenes too (a picture of someone else's scene is fine at a
+    // casual table); never a table window (the planner window, phones, the phone log).
+    const readable = this.windows.filter((w) => !this.isTableWindow(w.id));
     const ids = new Set(readable.map((w) => w.id));
     if (!ids.size) return "notFound";
     const mine = this.characters.filter((c) => c.user_id === user && this.isPc(c.id)).map((c) => c.name);

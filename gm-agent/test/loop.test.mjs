@@ -2851,32 +2851,30 @@ test("a picture request while the GM has illustrations off is answered at once, 
   assert.equal(api.illustrations_?.length ?? 0, 0);
 });
 
-test("a picture request: only lines the player could read, a hint when empty, one at a time and capped per hour, and no resumption of a paused table", async () => {
+test("a picture request: any scene, never a whisper; a hint when empty, one at a time and capped per hour, and no resumption of a paused table", async () => {
   const { t, api, llm } = await table({ heal: true, forks: false, bob: true, cfg: artCfg({ requestsPerHour: 2 }), before: (a) => {
     a.add({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "I find the brass astrolabe hidden behind the portrait." });
     a.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "Only you hear the violin playing under the floorboards.", visibility: "whisper", whisper_to: ["c-bob"] });
   } });
-  // Bob is no member of Alice's window; a whisper is not drawn either.
+  // Bob is no member of Alice's window, and may still have her scene drawn; a whisper is never drawn, even for him.
   await inPlanner(t, api, "/draw the astrolabe behind the portrait", "bob");
   await inPlanner(t, api, "/画", "bob");
   await inPlanner(t, api, "/draw the violin under the floorboards", "bob");
   await inPlanner(t, api, "/draw the violin once more", "bob");
-  assert.equal(api.illustrations_?.length ?? 0, 0);
-  const notFound = "🎨 I could not find that moment in the chat you can read. Add a detail or two: who was there, where it was, what happened.";
+  assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt]), [[t.planner.window, "[mock picture] I find the brass astrolabe hidden behind the portrait."]]);
+  const notFound = "🎨 I could not find that moment in the story. Add a detail or two: who was there, where it was, what happened.";
   assert.deepEqual(plannerPosts(t, api).filter((c) => !c.startsWith("🎨 Looking")), [
-    notFound,
     "🎨 Write what to draw after the command, for example: /draw the moment we reached the lighthouse at dusk",
     notFound,
     "🎨 That is 2 pictures in the last hour; please ask again a little later.",
   ], "an empty command costs nothing; the third request is over the cap");
-  assert.ok(llm.calls.filter((c) => c.purpose === "plot_illustration").every((c) => !c.messages[0].content.includes("astrolabe") && !c.messages[0].content.includes("violin")),
-    "nothing Bob could not read reached the picture");
-  // Alice may: it is her window. Asked while the table is paused, it is drawn, and play stays paused.
+  assert.ok(llm.calls.filter((c) => c.purpose === "plot_illustration").every((c) => !c.messages[0].content.includes("violin")), "the whisper reached no picture");
+  // Asked while the table is paused, a picture is drawn, and play stays paused.
   await inPlanner(t, api, "/pause");
   assert.equal(t.generation.paused, true);
   await inPlanner(t, api, "/draw the astrolabe behind the portrait");
   assert.equal(t.generation.paused, true, "a picture request is no play");
-  assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt]), [[t.planner.window, "[mock picture] I find the brass astrolabe hidden behind the portrait."]]);
+  assert.equal(api.illustrations_.length, 2);
   // While a request is on its way, the same player's next one is turned away.
   let open;
   const gate = new Promise((r) => (open = r)), complete = llm.complete.bind(llm);
@@ -2885,7 +2883,7 @@ test("a picture request: only lines the player could read, a hint when empty, on
   await inPlanner(t, api, "/draw the astrolabe behind the portrait");
   assert.equal(plannerPosts(t, api).at(-1), "🎨 Your previous picture is still on its way; ask again once it has arrived.");
   open(); await first;
-  assert.deepEqual(api.illustrations_.map((j) => j.status), ["completed", "completed"]);
+  assert.deepEqual(api.illustrations_.map((j) => j.status), ["completed", "completed", "completed"]);
   assert.equal(llm.calls.filter((c) => c.purpose === "director").length, 0, "no GM turn at any point");
 });
 
