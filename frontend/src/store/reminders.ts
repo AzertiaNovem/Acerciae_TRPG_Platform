@@ -12,6 +12,8 @@ interface ReminderState {
   add: (r: Reminder) => void;
   open: (id: string | null) => void;
   dismiss: (ch: string, id: string) => Promise<void>;
+  pin: (ch: string, messageId: string) => Promise<void>;
+  unpin: (ch: string, id: string) => Promise<void>;
   reset: () => void;
   prune: () => void;
 }
@@ -26,6 +28,8 @@ export const useReminders = create<ReminderState>((set) => ({
   add: (r) => set((s) => ({ list: s.list.some((x) => x.id === r.id) ? s.list : [r, ...s.list].slice(0, 12), pulse: { ...s.pulse, [r.id]: Date.now() } })),
   open: (id) => set({ openId: id }),
   dismiss: async (ch, id) => { const e = sessionEpoch(); await api.dismissReminder(ch, id); if (isStale(e)) return; ++requestSequence; set((s) => ({ list: s.list.filter((r) => r.id !== id), openId: s.openId === id ? null : s.openId })); },
+  pin: async (ch, messageId) => { const e = sessionEpoch(); const r = await api.pinMessage(ch, messageId); if (isStale(e)) return; set((s) => ({ list: s.list.some((x) => x.id === r.id) ? s.list : [r, ...s.list], pulse: { ...s.pulse, [r.id]: Date.now() } })); },
+  unpin: async (ch, id) => { const e = sessionEpoch(); await api.unpinReminder(ch, id); if (isStale(e)) return; ++requestSequence; set((s) => ({ list: s.list.filter((r) => r.id !== id), openId: s.openId === id ? null : s.openId })); },
   prune: () => set((s) => { const list = s.list.filter((r) => Date.parse(r.expires_at) > Date.now()); return { list, openId: list.some((r) => r.id === s.openId) ? s.openId : null }; }),
   reset: () => { ++requestSequence; set({ list: [], openId: null, pulse: {} }); },
 }));

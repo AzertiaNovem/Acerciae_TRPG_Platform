@@ -1232,6 +1232,25 @@ int main() {
         CHECK(InspirationService::diceShape("coc7e").find(".ra") == 0 && InspirationService::diceShape("pbta").find(".move") == 0 && InspirationService::diceShape("dnd2024").find("Perception") != std::string::npos);
         CHECK(InspirationService::schema()["properties"].isMember("options"));
     });
+    test("the reminder planner's prompt body lays out the lines with their ids, the newest ones, the pins and the managed reminders", [] {
+        Json::Value ctx; Json::Value e1; e1["event_id"] = "evt-1"; e1["seq"] = 7; e1["actor_role"] = "gm"; e1["content"] = "The butler\nsets down the tray."; ctx["current_log"].append(e1);
+        Json::Value e2; e2["event_id"] = "evt-2"; e2["seq"] = 8; e2["actor_role"] = "player"; e2["character_name"] = "Ada"; e2["content"] = "I watch his hands."; ctx["current_log"].append(e2); ctx["new_events"].append(e2);
+        ctx["previous_tail"] = Json::Value(Json::arrayValue);
+        Json::Value pin; pin["title"] = "The key is under the clock"; pin["pinned_by_name"] = "Sam"; Json::Value c; c["quotes"].append("the key is under the clock"); pin["citations"].append(c); ctx["pinned"].append(pin);
+        Json::Value r; r["id"] = "rem-1"; r["version"] = 3; r["status"] = "active"; r["kind"] = "needed"; r["title"] = "Ask about the tray"; r["why"] = "He never said whose it was."; ctx["managed_reminders"].append(r);
+        auto body = ReminderService::renderContext(ctx, false);
+        CHECK(body.find("[evt-1] #7 GM: The butler sets down the tray.") != std::string::npos);
+        CHECK(body.find("NEWEST LINES") != std::string::npos && body.find("[evt-2] #8 Ada: I watch his hands.") != std::string::npos);
+        CHECK(body.find("PINNED BY THE PLAYERS") != std::string::npos && body.find("\"the key is under the clock\" (pinned by Sam)") != std::string::npos);
+        CHECK(body.find("- id=rem-1 version=3 status=active kind=needed title=\"Ask about the tray\"") != std::string::npos);
+        CHECK(body.find("SCRIPT KNOWLEDGE") == std::string::npos);
+        ctx["knowledge"] = Json::Value(Json::arrayValue);
+        CHECK(ReminderService::renderContext(ctx, true).find("PINNED BY THE GM") != std::string::npos && ReminderService::renderContext(ctx, true).find("SCRIPT KNOWLEDGE") != std::string::npos);
+        CHECK(ReminderService::schema()["properties"].isMember("outlook"));
+        // The mock planner reads the newest line as the situation, so the helpers get an outlook offline too.
+        Json::Value plan = ReminderService::mockPlan(ctx);
+        CHECK(plan["outlook"]["situation"] == "I watch his hands.");
+    });
     test("mock standees have real transparent pixels while backgrounds remain RGB", [] {
         logstudio::ImageConfig config; config.provider = "mock";
         auto provider = logstudio::makeImageProvider(config);

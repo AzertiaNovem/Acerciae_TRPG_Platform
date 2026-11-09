@@ -89,6 +89,9 @@ void registerKnowledgeRoutes() {
     route1("/api/channels/{1}/reminders", {Get}, [&](auto&, auto& p, auto& a) { return S.reminders->list(access(p, a[0])); });
     route2("/api/channels/{1}/reminders/{2}/dismiss", {Post}, [&](auto&, auto& p, auto& a) { return S.reminders->dismiss(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/reminders/{2}/context", {Get}, [&](auto& req, auto& p, auto& a) { return S.reminders->context(access(p, a[0]), a[1], qint(req, "limit", 30)); });
+    // Pinned lines: a member keeps a chat line in their group's bubbles (the GM's for the GM); the pinner or the GM unpins.
+    route2("/api/channels/{1}/messages/{2}/pin", {Post}, [&](auto&, auto& p, auto& a) { return S.reminders->pin(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/reminders/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.reminders->unpin(access(p, a[0]), a[1]); });
     // ---- GM script knowledge and the pinned board ----
     route1("/api/channels/{1}/script-knowledge", {Get}, [&](auto& req, auto& p, auto& a) { return S.script->list(access(p, a[0]), req->getParameter("kind")); });
     ai1("/api/channels/{1}/script-knowledge/rebuild", {Post}, [&](auto& req, auto& p, auto& a) { return S.script->rebuild(access(p, a[0]), json::str(body(req), "module_id"), json::toBool(body(req),"async",false)); }, true);

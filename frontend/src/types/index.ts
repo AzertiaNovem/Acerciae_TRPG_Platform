@@ -146,7 +146,9 @@ export interface Revision { id: string; version: number; actor: string; actor_na
 export interface ReminderCitation { event_id: string; message_id: string | null; chat_window_id: string | null; scene_id: string | null; seq: number; quotes: string[] }
 // A reminder bubble: a short AI note anchored to verbatim quotes from chat lines the reader can see.
 export interface ReminderScriptRef { knowledge_id: string; kind: ScriptKind; title: string; page?: number; excerpt?: string }
-export interface Reminder { id: string; version?: number; status?: 'active' | 'deferred' | 'resolved' | 'dismissed' | 'expired'; updated_at?: string; status_reason?: string; review_citations?: ReminderCitation[]; kind: 'forgotten' | 'needed' | 'plan' | 'note'; title: string; why: string; citations: ReminderCitation[]; script_refs?: ReminderScriptRef[]; scene_id: string | null; priority: number; player_group_id: string | null; llm_mode: string; created_at: string; expires_at: string }
+export interface Reminder { id: string; version?: number; status?: 'active' | 'deferred' | 'resolved' | 'dismissed' | 'expired'; updated_at?: string; status_reason?: string; review_citations?: ReminderCitation[]; kind: 'forgotten' | 'needed' | 'plan' | 'note' | 'pinned'; title: string; why: string; citations: ReminderCitation[];
+  /** A pinned line: who pinned it and which message; nothing else maintains it. */
+  pinned_by?: string | null; pinned_by_name?: string | null; pinned_message_id?: string | null; script_refs?: ReminderScriptRef[]; scene_id: string | null; priority: number; player_group_id: string | null; llm_mode: string; created_at: string; expires_at: string }
 // The GM's script knowledge, built from the module and moved by reviewed changes during play.
 export type ScriptKind = 'flow' | 'relationship' | 'clue' | 'foreshadowing' | 'background';
 export type ScriptStatus = 'pending' | 'active' | 'done' | 'skipped';

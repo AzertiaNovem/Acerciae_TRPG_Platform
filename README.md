@@ -175,7 +175,10 @@ see why and jump to the original event, dismissable, swept by an independent cle
 
 **Consistency Check / Inspiration** — user-triggered only. Consistency returns a heuristic 0–100 % score (or
 *Insufficient Evidence*), rationale, conflicts, traceable evidence and temporary user-scoped highlights; it never rewrites
-or blocks the draft and never leaks GM-only facts. Inspiration offers three ways the character might play the moment, in
+or blocks the draft and never leaks GM-only facts. The reminder bubbles think ahead: the planner first works out,
+privately, where the group stands, what a thoughtful player would do next and what that move needs, then reminds only of
+what the group has lost track of; members can also **pin** any line they can read into their group's bubbles, where the
+AI keeps it in mind and never repeats it. Inspiration offers three ways the character might play the moment, in
 their own voice, built like the GM agent's co-player: it reads the persona, speaking style, role card and condition, who
 is with them, the story's date and place, what their group knows and the lines they witnessed, and keeps to the same
 tablemate rules (short lines, never narrate outcomes, support the others, a dice command when an action calls for a

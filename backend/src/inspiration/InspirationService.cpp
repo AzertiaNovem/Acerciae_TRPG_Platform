@@ -175,6 +175,25 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
         }
         parts.push_back("WHAT YOUR CHARACTER KNOWS (your group's records, most recently updated first; cite their ids in used_fact_ids):\n" + (known.empty() ? std::string("(nothing recorded yet)") : join(known, "\n")));
     }
+    if (a.isGm || Visibility::isUuid(a.playerGroupId)) {
+        // The reminder planner's private reading of this group's own chat (group_outlooks) and what the members pinned.
+        const DbParam group = a.isGm ? dbNull() : DbParam(a.playerGroupId);
+        auto o = db_.queryOne("SELECT situation, next_move, needs FROM group_outlooks WHERE channel_id=$1 AND player_group_id IS NOT DISTINCT FROM $2::uuid AND updated_at > now() - interval '2 days'", {a.channelId, group});
+        if (!o.isNull()) {
+            std::vector<std::string> needs; for (const auto& n : o["needs"]) if (n.isString() && !one(n.asString()).empty()) needs.push_back(one(n.asString()));
+            std::vector<std::string> block;
+            if (!one(json::str(o, "situation")).empty()) block.push_back("- where the table stands: " + one(json::str(o, "situation")));
+            if (!one(json::str(o, "next_move")).empty()) block.push_back("- what it seems about to do: " + one(json::str(o, "next_move")));
+            if (!needs.empty()) block.push_back("- what that depends on: " + join(needs, "; "));
+            if (!block.empty()) parts.push_back("THE TABLE'S MOMENT (the chronicler's private reading of this group's own chat; a hint about the moment, not a fact):\n" + join(block, "\n"));
+        }
+        std::vector<std::string> pinned;
+        for (const auto& p : db_.queryJson("SELECT citations, why FROM reminders WHERE channel_id=$1 AND player_group_id IS NOT DISTINCT FROM $2::uuid AND kind='pinned' AND status='active' ORDER BY created_at DESC LIMIT 8", {a.channelId, group})) {
+            std::string q = p["citations"].isArray() && !p["citations"].empty() && p["citations"][0]["quotes"].isArray() && !p["citations"][0]["quotes"].empty() ? p["citations"][0]["quotes"][0].asString() : "";
+            if (!q.empty()) pinned.push_back("- \"" + q + "\" (" + json::str(p, "why") + ")");
+        }
+        if (!pinned.empty()) parts.push_back("WHAT THE PLAYERS PINNED AS IMPORTANT (lines they marked themselves):\n" + join(pinned, "\n"));
+    }
     {
         std::vector<std::string> lines; for (auto& e : log) lines.push_back(renderLogLine(e, profile.gm));
         parts.push_back("CHAT LOG YOUR CHARACTER WITNESSED (newest last):\n" + (lines.empty() ? std::string("(nothing yet: the scene is about to begin)") : join(lines, "\n")));
