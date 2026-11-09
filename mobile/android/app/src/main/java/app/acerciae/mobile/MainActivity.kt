@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
             }, actions = {
                 if (page == 0) {
                     TextButton(onClick = { hintsOpen = !hintsOpen; model.result(null) }) { Text(tr("提示") + " ${state.reminders.size + if (state.gm) campaign?.documents.orEmpty().size + 2 else 0}") }
-                    TextButton(onClick = { hintsOpen = false; model.assistance("inspiration") }, enabled = !state.busy && state.enabled("inspiration") && state.windowId.isNotEmpty()) { Text(tr("灵感")) }
+                    TextButton(onClick = { hintsOpen = false; model.assistance("inspiration") }, enabled = !state.busy && state.enabled("inspiration") && state.windowId.isNotEmpty()) { Text("✦ " + tr("灵感")) }
                 }
             })
         },
@@ -435,7 +435,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
                         } else listOf("哈维", tr("旁白")).forEach { role -> DropdownMenuItem(text = { Text(role) }, onClick = { model.role(role); rolesOpen = false }) }
                     }
                 }
-                TextButton(onClick = { model.assistance("consistency") }, enabled = !state.busy && state.enabled("consistency") && state.draft.isNotBlank(), contentPadding = PaddingValues(6.dp)) { Text(tr("一致性"), fontSize = 12.sp) }
+                TextButton(onClick = { model.assistance("consistency") }, enabled = !state.busy && state.enabled("consistency") && state.draft.isNotBlank(), contentPadding = PaddingValues(6.dp)) { Text("⚖ " + tr("一致性"), fontSize = 12.sp) }
                 FilledTonalButton(onClick = model::sendDemo, enabled = state.draft.isNotBlank() && !state.busy, contentPadding = PaddingValues(horizontal = 14.dp)) { Text(tr("发送")) }
             }
         }

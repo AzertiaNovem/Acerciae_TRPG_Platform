@@ -6565,28 +6565,28 @@
       "Nome visualizzato: una riga, 1–200 byte"
     ],
     "⚖ Consistency check": [
-      "一致性检查",
-      "一致性檢查",
-      "整合性チェック",
-      "일관성 검사",
-      "Comprobar coherencia",
-      "Vérifier la cohérence",
-      "Konsistenzprüfung",
-      "Проверка согласованности",
-      "Verificar coerência",
-      "Verifica coerenza"
+      "⚖ 一致性检查",
+      "⚖ 一致性檢查",
+      "⚖ 整合性チェック",
+      "⚖ 일관성 검사",
+      "⚖ Comprobar coherencia",
+      "⚖ Vérifier la cohérence",
+      "⚖ Konsistenzprüfung",
+      "⚖ Проверка согласованности",
+      "⚖ Verificar coerência",
+      "⚖ Verifica coerenza"
     ],
     "✦ Inspiration": [
-      "灵感启发",
-      "靈感啟發",
-      "インスピレーション",
-      "영감",
-      "Inspiración",
-      "Inspiration",
-      "Inspiration",
-      "Вдохновение",
-      "Inspiração",
-      "Ispirazione"
+      "✦ 灵感启发",
+      "✦ 靈感啟發",
+      "✦ インスピレーション",
+      "✦ 영감",
+      "✦ Inspiración",
+      "✦ Inspiration",
+      "✦ Inspiration",
+      "✦ Вдохновение",
+      "✦ Inspiração",
+      "✦ Ispirazione"
     ],
     "▼ Collapse": [
       "收起",
@@ -6839,18 +6839,6 @@
       "Название",
       "Nome",
       "Nome"
-    ],
-    "✦ Inspiration draft": [
-      "灵感启发",
-      "靈感啟發",
-      "インスピレーション",
-      "영감",
-      "Inspiración",
-      "Inspiration",
-      "Inspiration",
-      "Вдохновение",
-      "Inspiração",
-      "Ispirazione"
     ],
     "— as logged —": [
       "默认",
@@ -21612,6 +21600,18 @@
       "Três maneiras de o seu personagem jogar este momento, a partir do que ele sabe",
       "Tre modi in cui il tuo personaggio potrebbe giocare questo momento, da ciò che sa"
     ],
+    "▣ Illustrate": [
+      "▣ 插画",
+      "▣ 插畫",
+      "▣ イラスト",
+      "▣ 그림",
+      "▣ Ilustrar",
+      "▣ Illustrer",
+      "▣ Illustrieren",
+      "▣ Иллюстрация",
+      "▣ Ilustrar",
+      "▣ Illustra"
+    ],
     "Channel settings": [
       "频道选项",
       "頻道選項",
@@ -24546,6 +24546,8 @@
     "成员可让本服务器的图像服务把一段剧情画成插画并发到聊天中。会消耗图像额度；GM 仍可按频道关闭。已发布的插画会保留。": "Members can have a moment of play drawn by this server’s image provider and posted in the chat. Uses the image budget; GMs can still turn it off per channel. Pictures already posted stay.",
     "用户名须为 3–32 个英文字母、数字或 _ . -": "username must be 3-32 chars of letters, digits, _ . -",
     "显示名称必须为单行、非空且不超过 200 字节": "display name must be 1-200 bytes on one line",
+    "⚖ 一致性检查": "⚖ Consistency check",
+    "✦ 灵感启发": "✦ Inspiration",
     "骰点": "dice",
     "+ 添加…": "+ add character to stage…",
     "自动播放 (a)": "auto-play (a)",
@@ -25649,6 +25651,7 @@
     "先发台词，再发检定。": "Send the line first, then the roll.",
     "基于 {n} 条已知事实": "grounded in {n} known facts",
     "根据角色所知，给出三种演法": "Three ways your character might play this moment, from what they know",
+    "▣ 插画": "▣ Illustrate",
     "已展开": "Expanded",
     "已折叠": "Collapsed",
     "无需投骰": "Diceless",

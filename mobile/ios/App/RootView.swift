@@ -311,7 +311,7 @@ private struct ChatView: View {
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button(tr("提示") + " \(model.reminders.count + (model.gm ? campaign.documents.count + 2 : 0))") { hintsOpen.toggle(); model.result = nil }
-                        Button(tr("灵感")) { hintsOpen = false; Task { await model.assistance("inspiration") } }.disabled(model.busy || !model.enabled("inspiration") || model.windowId.isEmpty)
+                        Button("✦ " + tr("灵感")) { hintsOpen = false; Task { await model.assistance("inspiration") } }.disabled(model.busy || !model.enabled("inspiration") || model.windowId.isEmpty)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
@@ -506,7 +506,7 @@ private struct Composer: View {
         } label: { Text(model.characterId.isEmpty ? (model.gm ? "GM" : tr("Me")) : model.role).font(.subheadline).lineLimit(1) }
     }
     private var assistance: some View {
-        Button(tr("一致性")) { Task { await model.assistance("consistency") } }.disabled(model.busy || !model.enabled("consistency") || model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).font(.subheadline).frame(minHeight: 44)
+        Button("⚖ " + tr("一致性")) { Task { await model.assistance("consistency") } }.disabled(model.busy || !model.enabled("consistency") || model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).font(.subheadline).frame(minHeight: 44)
     }
     private var sendButton: some View {
         Button(action: model.sendDemo) { Image(systemName: "arrow.up").font(.body.bold()).frame(width: 44, height: 44) }

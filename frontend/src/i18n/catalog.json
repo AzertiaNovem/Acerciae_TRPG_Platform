@@ -6564,28 +6564,28 @@
     "Nome visualizzato: una riga, 1–200 byte"
   ],
   "⚖ Consistency check": [
-    "一致性检查",
-    "一致性檢查",
-    "整合性チェック",
-    "일관성 검사",
-    "Comprobar coherencia",
-    "Vérifier la cohérence",
-    "Konsistenzprüfung",
-    "Проверка согласованности",
-    "Verificar coerência",
-    "Verifica coerenza"
+    "⚖ 一致性检查",
+    "⚖ 一致性檢查",
+    "⚖ 整合性チェック",
+    "⚖ 일관성 검사",
+    "⚖ Comprobar coherencia",
+    "⚖ Vérifier la cohérence",
+    "⚖ Konsistenzprüfung",
+    "⚖ Проверка согласованности",
+    "⚖ Verificar coerência",
+    "⚖ Verifica coerenza"
   ],
   "✦ Inspiration": [
-    "灵感启发",
-    "靈感啟發",
-    "インスピレーション",
-    "영감",
-    "Inspiración",
-    "Inspiration",
-    "Inspiration",
-    "Вдохновение",
-    "Inspiração",
-    "Ispirazione"
+    "✦ 灵感启发",
+    "✦ 靈感啟發",
+    "✦ インスピレーション",
+    "✦ 영감",
+    "✦ Inspiración",
+    "✦ Inspiration",
+    "✦ Inspiration",
+    "✦ Вдохновение",
+    "✦ Inspiração",
+    "✦ Ispirazione"
   ],
   "▼ Collapse": [
     "收起",
@@ -6838,18 +6838,6 @@
     "Название",
     "Nome",
     "Nome"
-  ],
-  "✦ Inspiration draft": [
-    "灵感启发",
-    "靈感啟發",
-    "インスピレーション",
-    "영감",
-    "Inspiración",
-    "Inspiration",
-    "Inspiration",
-    "Вдохновение",
-    "Inspiração",
-    "Ispirazione"
   ],
   "— as logged —": [
     "默认",
@@ -21610,5 +21598,17 @@
     "Три способа, как ваш персонаж мог бы отыграть этот момент, исходя из того, что он знает",
     "Três maneiras de o seu personagem jogar este momento, a partir do que ele sabe",
     "Tre modi in cui il tuo personaggio potrebbe giocare questo momento, da ciò che sa"
+  ],
+  "▣ Illustrate": [
+    "▣ 插画",
+    "▣ 插畫",
+    "▣ イラスト",
+    "▣ 그림",
+    "▣ Ilustrar",
+    "▣ Illustrer",
+    "▣ Illustrieren",
+    "▣ Иллюстрация",
+    "▣ Ilustrar",
+    "▣ Illustra"
   ]
 }
