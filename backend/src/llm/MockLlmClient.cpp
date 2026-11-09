@@ -11,8 +11,10 @@ namespace acerciae {
 using namespace text;
 
 Json::Value MockLlmClient::lastUserJson(const LlmRequest& req) {
-    // The structured context is the most recent user message that parses as a JSON object; later plain-text
-    // user turns (schema repair requests) are skipped.
+    // A prose prompt carries its structured context aside (LlmRequest::mockContext). Otherwise the context is the
+    // most recent user message that parses as a JSON object; later plain-text user turns (schema repair requests)
+    // are skipped.
+    if (req.mockContext.isObject() && !req.mockContext.empty()) return req.mockContext;
     for (auto it = req.messages.rbegin(); it != req.messages.rend(); ++it)
         if (it->role == "user") { try { auto v = json::parse(it->content); if (v.isObject()) return v; } catch (...) {} }
     Json::Value v; v["text"] = req.messages.empty() ? "" : req.messages.back().content; return v;
@@ -554,15 +556,34 @@ Json::Value MockLlmClient::inspiration(const Json::Value& ctx) {
     if (!thread.empty()) variants.push_back("I steer the conversation back to the question nobody has answered yet. \"" + truncate(thread, 90) + " That still bothers me. What do you make of it?\"");
     if (!relation.empty()) variants.push_back("I weigh what I know — " + truncate(relation, 90) + " — and decide to test it. \"I'll be straight with you if you're straight with me. What aren't you telling us?\"");
     variants.push_back("I take a slow look around " + (loc.empty() ? "the room" : loc) + ", noting exits and anything out of place, and keep my hand near my coat pocket. \"Let's not rush this. Tell me again exactly what happened here.\"");
-    auto draft = variants[seed % variants.size()];
-    if (style.find("formal") != std::string::npos) { size_t p; while ((p = draft.find("I'll")) != std::string::npos) draft.replace(p, 4, "I shall"); while ((p = draft.find("Let's")) != std::string::npos) draft.replace(p, 5, "Let us"); }
-    if (style.find("terse") != std::string::npos || style.find("blunt") != std::string::npos) {
-        // Keep the spoken line intact; trim the narration before it to one short beat.
-        auto q = draft.find('"');
-        if (q != std::string::npos && q > 60) draft = "I keep it short. " + draft.substr(q);
+    // Three options, each a different stance, the first one chosen by the seed (another take rotates them); the
+    // style tweaks apply to each. The careful look around comes with the check it calls for.
+    auto styled = [&](std::string draft) {
+        if (style.find("formal") != std::string::npos) { size_t p; while ((p = draft.find("I'll")) != std::string::npos) draft.replace(p, 4, "I shall"); while ((p = draft.find("Let's")) != std::string::npos) draft.replace(p, 5, "Let us"); }
+        if (style.find("terse") != std::string::npos || style.find("blunt") != std::string::npos) {
+            // Keep the spoken line intact; trim the narration before it to one short beat.
+            auto q = draft.find('"');
+            if (q != std::string::npos && q > 60) draft = "I keep it short. " + draft.substr(q);
+        }
+        return draft;
+    };
+    static const char* angles[] = {"probing", "measured", "pressing", "direct", "watchful"};
+    const bool coc = json::str(ctx, "rule_system", "coc7e") == "coc7e";
+    // Another take: what was shown already (ctx.avoid) is left out while anything else remains.
+    std::set<std::string> shown; for (auto& s : ctx["avoid"]) if (s.isString()) shown.insert(s.asString());
+    Json::Value options(Json::arrayValue);
+    for (int pass = 0; pass < 2 && options.empty(); ++pass) {
+        for (size_t i = 0; i < variants.size() && options.size() < 3; ++i) {
+            size_t at = (seed + i) % variants.size();
+            auto text = styled(variants[at]);
+            if (pass == 0 && shown.count(text)) continue;
+            Json::Value o; o["text"] = text; o["kind"] = "ic"; o["angle"] = angles[at % 5];
+            o["roll"] = at == variants.size() - 1 && coc ? ".ra Spot Hidden" : "";   // the look around the room
+            options.append(o);
+        }
     }
-    Json::Value out; out["draft"] = draft; out["used_fact_ids"] = json::fromStrArray(usedIds);
-    out["notes"] = "Draft uses only facts known to " + name + "; it proposes an action and a question without deciding outcomes.";
+    Json::Value out; out["options"] = options; out["draft"] = options[0]["text"]; out["used_fact_ids"] = json::fromStrArray(usedIds);
+    out["notes"] = "Options use only facts known to " + name + "; each proposes an action or a question without deciding outcomes.";
     return out;
 }
 

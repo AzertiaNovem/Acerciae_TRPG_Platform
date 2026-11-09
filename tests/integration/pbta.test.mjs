@@ -112,7 +112,7 @@ test('PbtA playbooks, private GM moves, auditable outcomes and portable packs', 
     });
     const prompt = JSON.stringify(
       requests.findLast((r) =>
-        r.instructions?.includes(task === 'inspiration' ? 'ONE possible' : 'DRAFT message'),
+        r.instructions?.includes(task === 'inspiration' ? 'fellow player' : 'DRAFT message'),
       ),
     );
     assert.ok(prompt.includes(pack.moves[0].trigger));

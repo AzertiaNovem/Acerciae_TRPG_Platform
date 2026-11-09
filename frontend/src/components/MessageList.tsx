@@ -4,6 +4,7 @@ import { useAuth } from '../store/auth';
 import { api } from '../api/client';
 import { useChat, recallDeadline } from '../store/chat';
 import { useNav } from '../store/nav';
+import { useReminders } from '../store/reminders';
 import { useUi } from '../store/ui';
 import ChatReference from './ChatReference';
 import type { Message } from '../types';
@@ -43,6 +44,12 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const draft = useChat(s=>s.recallDrafts[m.id]);
   const own = user?.id === m.author_id;
   const recallable = useRecallable(m, own && !readOnly);
+  // A pinned line sits in the group's context bubbles; its pinner (or the GM) can take it down again.
+  const pin = useReminders((s) => s.list.find((r) => r.kind === 'pinned' && r.pinned_message_id === m.id));
+  const pinLine = useReminders((s) => s.pin), unpinLine = useReminders((s) => s.unpin);
+  const isGm = useNav((s) => s.channel?.my_role === 'gm');
+  const meId = useAuth((s) => s.user?.id);
+  const toast = useUi((s) => s.toast);
   // Out of character the player speaks: their own avatar and name. Otherwise the character's avatar first, the
   // player's when the character has none.
   const ooc = m.kind === 'ooc';
@@ -73,6 +80,9 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
           {m.visibility === 'whisper' && <span className="pill ai">{tr("whisper")}</span>}
           <span className="tiny muted">{new Date(m.created_at).toLocaleTimeString(currentLocale())}</span>
           {!readOnly && <button className="ghost small" onClick={()=>addReference(m)} disabled={references.length>=5 || references.some(r=>r.id===m.id)}>{tr('Quote as reference')}</button>}
+          {!readOnly && m.kind !== 'system' && (pin
+            ? ((pin.pinned_by === meId || isGm) && <button className="ghost small" onClick={() => unpinLine(m.channel_id, pin.id).catch((e: any) => toast(e.message, 'error'))} title={tr('Remove this line from the context bubbles')}>{tr('Unpin')}</button>)
+            : <button className="ghost small" onClick={() => pinLine(m.channel_id, m.id).then(() => toast(tr('Pinned to the context bubbles'))).catch((e: any) => toast(e.message, 'error'))} title={tr('Keep this line in the context bubbles for your group')}>{tr('Pin')}</button>)}
           {recallable && <button className="ghost small" onClick={()=>recall(m)} title={tr('Take this message back from everyone in this chat')}>{tr('Recall')}</button>}
         </div>
         {!readOnly && m.reference_ids?.map(id=><ChatReference key={id} channelId={m.channel_id} messageId={id}/>)}

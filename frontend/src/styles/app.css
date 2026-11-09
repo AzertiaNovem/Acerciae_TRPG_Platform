@@ -263,6 +263,12 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .channel-sidebar .typing { color: var(--accent); flex-shrink: 0; animation: typing-pen 1.2s ease-in-out infinite; }
 .channel-sidebar .item.is-typing .name { color: var(--fg-0); }
 @keyframes typing-pen { 50% { opacity: .35; } }
+/* Inspiration: the three options as cards; the chosen one is outlined and copied into the editable field below. */
+.inspiration-options { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.inspiration-options .option { text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--bg-4); background: var(--bg-2); color: var(--fg-1); cursor: pointer; }
+.inspiration-options .option:hover { background: var(--bg-3); }
+.inspiration-options .option.on { border-color: var(--accent); color: var(--fg-0); }
+.inspiration-options .option .pill { font-size: 10px; }
 
 /* ---- dice ---- */
 .composer-input { position: relative; }

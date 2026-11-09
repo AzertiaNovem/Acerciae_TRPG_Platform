@@ -37,10 +37,10 @@ function ReminderBubble({ r }: { r: Reminder }) {
   const { open, pulse } = useReminders();
   const pulsing = !!pulse[r.id] && Date.now() - pulse[r.id] < 1500;
   const ref = useRevealOnPulse(pulsing);
-  const kind = r.kind === 'needed' ? tr('still open') : r.kind === 'plan' ? tr('plan') : r.kind === 'note' ? tr('note') : tr('you may have forgotten');
+  const kind = r.kind === 'pinned' ? tr('pinned by {name}', { name: r.pinned_by_name ?? '' }) : r.kind === 'needed' ? tr('still open') : r.kind === 'plan' ? tr('plan') : r.kind === 'note' ? tr('note') : tr('you may have forgotten');
   return (
     <div ref={ref} className={`bubble reminder ${r.kind} ${pulsing ? 'pulse' : ''}`} onClick={() => open(r.id)} title={r.why}>
-      <div className="title"><span>{r.title}</span><span className="tiny muted">{kind}</span></div>
+      <div className="title"><span>{r.kind === 'pinned' ? '📌 ' : ''}{r.title}</span><span className="tiny muted">{kind}</span></div>
       <div className="preview">{r.citations[0]?.quotes?.[0] ?? r.why}</div>
     </div>
   );
@@ -81,9 +81,12 @@ export default function ContextBubbleDock() {
   const openSlotSet = useKp((s) => s.open);
   const channel = useNav((s) => s.channel);
   const isGm = channel?.my_role === 'gm';
-  if (channel?.ai_enabled === false) return null;   // the GM switched the chronicler off: nothing feeds the bubbles
-  const docs = isGm ? list : [];
-  const count = reminders.length + docs.length + (isGm ? 2 : 0);
+  // The GM may switch the chronicler off: then nothing feeds the AI bubbles, and only the members' own pins show.
+  const aiOff = channel?.ai_enabled === false;
+  const shown = aiOff ? reminders.filter((r) => r.kind === 'pinned') : reminders;
+  if (aiOff && shown.length === 0) return null;
+  const docs = isGm && !aiOff ? list : [];
+  const count = shown.length + docs.length + (isGm && !aiOff ? 2 : 0);
   const viewerOpen = !!openReminder || (isGm && !!openSlot);
   return (
     <div className="dock">
@@ -92,10 +95,10 @@ export default function ContextBubbleDock() {
       {expandedId && !viewerOpen && !dockCollapsed && <ContextDocumentViewer documentId={expandedId} onClose={() => expand(null)} />}
       {!dockCollapsed && !expandedId && !viewerOpen && (
         <div className="bubbles">
-          {isGm && <PinnedCards />}
-          {reminders.map((r) => <ReminderBubble key={r.id} r={r} />)}
+          {isGm && !aiOff && <PinnedCards />}
+          {shown.map((r) => <ReminderBubble key={r.id} r={r} />)}
           {docs.map((d) => <Bubble key={d.id} d={d} />)}
-          {!isGm && reminders.length === 0 && <div className="bubble quiet" title={tr('Reminders appear here when the AI notices something you may have forgotten.')}><div className="preview">{tr('Nothing to remind you of yet.')}</div></div>}
+          {!isGm && !aiOff && shown.length === 0 && <div className="bubble quiet" title={tr('Reminders appear here when the AI notices something you may have forgotten.')}><div className="preview">{tr('Nothing to remind you of yet.')}</div></div>}
         </div>
       )}
       <button className="dock-toggle" onClick={toggleDock}>{dockCollapsed ? `▲ ${tr('Context')} (${count})` : tr("▼ Collapse")}</button>
