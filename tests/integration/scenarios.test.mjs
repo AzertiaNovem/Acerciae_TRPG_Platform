@@ -192,6 +192,8 @@ test('Scenario 5: inspiration — editable draft grounded in the character\'s kn
   const countBefore = (await api('GET', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, undefined, U.pl2)).length;
   const r = await api('POST', `/api/channels/${ids.channel}/inspiration`, { chat_window_id: ids.main, character_id: ids.c2 }, U.pl2);
   assert.ok(r.draft.length > 20); assert.equal(r.editable, true); assert.equal(r.auto_sent, false);
+  assert.ok(r.options.length >= 2 && r.options[0].text === r.draft, 'several options; the first is the draft');
+  assert.ok(r.options.every((o) => ['ic', 'ooc'].includes(o.kind) && typeof o.roll === 'string' && (!o.roll || o.roll.startsWith('.'))));
   assert.ok(!/Jonah|planks|harbour|lamp/i.test(r.draft), 'draft must not use facts Ben does not know (PL3 harbour-only clue or GM secrets)');
   const countAfter = (await api('GET', `/api/channels/${ids.channel}/windows/${ids.main}/messages`, undefined, U.pl2)).length;
   assert.equal(countAfter, countBefore, 'nothing was sent');

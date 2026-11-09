@@ -64,6 +64,9 @@ struct LlmRequest {
     // Ask for the model's reasoning in a replayable, sealed form (OpenAI: reasoning.encrypted_content), so the
     // turn can be continued later with the user's answers (see Replay.h).
     bool keepReasoning = false;
+    // The structured context behind a prose prompt, for the mock provider's rule-based answers only; a real provider
+    // never sees it. Unset: the mock reads the last JSON user message.
+    Json::Value mockContext;
 };
 
 struct LlmResponse {

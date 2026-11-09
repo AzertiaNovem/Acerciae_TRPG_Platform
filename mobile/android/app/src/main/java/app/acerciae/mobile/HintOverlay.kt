@@ -87,7 +87,7 @@ import kotlinx.serialization.json.*
                     item { HintCard(tr("Notes"), board?.obj("notes")?.rows("open_threads")?.firstOrNull()?.text("summary") ?: tr("Open threads, timeline and reviewed changes.")) { selection = "notes" } }
                 }
                 if (!state.gm && state.reminders.isEmpty()) item { Text(tr("Nothing to remind you of yet.")) }
-                items(state.reminders, key = { it.id }) { r -> HintCard(r.name + " · " + tr(when(r.text("kind")) { "needed" -> "still open"; "plan" -> "plan"; "note" -> "note"; else -> "you may have forgotten" }), (r.rows("citations").firstOrNull()?.get("quotes") as? JsonArray)?.firstOrNull()?.jsonPrimitive?.content ?: r.text("why")) { selection = "r:" + r.id } }
+                items(state.reminders, key = { it.id }) { r -> HintCard(r.name + " · " + tr(when(r.text("kind")) { "needed" -> "still open"; "plan" -> "plan"; "note" -> "note"; "pinned" -> "pinned"; else -> "you may have forgotten" }), (r.rows("citations").firstOrNull()?.get("quotes") as? JsonArray)?.firstOrNull()?.jsonPrimitive?.content ?: r.text("why")) { selection = "r:" + r.id } }
                 if (state.gm) items(state.campaign?.documents.orEmpty(), key = { it.id }) { d ->
                     val count = state.campaign?.highlights?.count { it.documentId == d.id } ?: 0
                     HintCard(tr(d.title) + " · v${d.version}" + if(count > 0) " · $count " + tr("active highlights") else "", d.preview.orEmpty()) { selection = "d:" + d.id }

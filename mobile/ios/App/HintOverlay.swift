@@ -83,7 +83,7 @@ struct HintOverlay: View {
             }
         }
     }
-    private func kind(_ kind: String) -> String { kind == "needed" ? "still open" : kind == "plan" ? "plan" : kind == "note" ? "note" : "you may have forgotten" }
+    private func kind(_ kind: String) -> String { kind == "needed" ? "still open" : kind == "plan" ? "plan" : kind == "note" ? "note" : kind == "pinned" ? "pinned" : "you may have forgotten" }
     private func card(_ title: String, _ preview: String, _ id: String) -> some View {
         Button { selection = id } label: {
             VStack(alignment: .leading, spacing: 6) { Text(title).font(.subheadline.bold()); Text(preview).font(.caption).lineLimit(3).foregroundStyle(.secondary) }

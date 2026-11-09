@@ -87,7 +87,8 @@ public:
     LlmResponse complete(const LlmRequest& req) override {
         LlmResponse r; r.ok = true;
         if (req.task == "scenario_outline") { r.content = R"({"outline":"Fixture outline","key_points":[]})"; return r; }
-        ++calls; context = json::parse(req.messages.back().content);
+        // The planner sends a prose prompt and its structured context aside (as the mock client reads it).
+        ++calls; context = req.mockContext.isObject() && !req.mockContext.empty() ? req.mockContext : json::parse(req.messages.back().content);
         if (beforeReturn) beforeReturn();
         r.content = json::dump(plan); return r;
     }

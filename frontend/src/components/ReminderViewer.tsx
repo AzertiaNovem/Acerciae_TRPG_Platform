@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useChat } from '../store/chat';
 import { useNav } from '../store/nav';
+import { useAuth } from '../store/auth';
 import { useReminders } from '../store/reminders';
 import { sessionEpoch, isStale } from '../store/session';
 import { useUi } from '../store/ui';
@@ -21,6 +22,9 @@ export default function ReminderViewer({ id, onClose }: { id: string; onClose: (
   const { channelId, selectWindow } = useNav();
   const { toast } = useUi();
   const dismiss = useReminders((s) => s.dismiss);
+  const unpin = useReminders((s) => s.unpin);
+  const isGm = useNav((s) => s.channel?.my_role === 'gm');
+  const meId = useAuth((s) => s.user?.id);
   const version = useReminders((s) => s.list.find((r) => r.id === id)?.version);
   const [reminder, setReminder] = useState<Reminder | null>(null);
   const [events, setEvents] = useState<ReminderContextEvent[]>([]);
@@ -37,13 +41,16 @@ export default function ReminderViewer({ id, onClose }: { id: string; onClose: (
     try { const m = await api.message(channelId, e.message_id); if (isStale(epoch)) return; if (quote) useChat.getState().addReference(m); else { useChat.getState().push(m); selectWindow(e.chat_window_id); useChat.getState().requestJump(m.id); onClose(); } }
     catch { toast(tr('Reference unavailable for your current view.'), 'error'); }
   };
-  const kindLabel = (k: Reminder['kind']) => k === 'needed' ? tr('still open') : k === 'plan' ? tr('plan') : k === 'note' ? tr('note') : tr('you may have forgotten');
+  const kindLabel = (k: Reminder['kind']) => k === 'pinned' ? tr('pinned') : k === 'needed' ? tr('still open') : k === 'plan' ? tr('plan') : k === 'note' ? tr('note') : tr('you may have forgotten');
+  const pinned = reminder?.kind === 'pinned';
   return (
     <div className="doc-viewer reminder-viewer">
       <header>
         <span className={`pill ${reminder?.kind === 'needed' ? 'ai' : ''}`}>{reminder ? kindLabel(reminder.kind) : '…'}</span>
         <h3>{reminder?.title ?? '…'}</h3>
-        <button className="ghost small" onClick={() => channelId && reminder && dismiss(channelId, reminder.id).then(onClose).catch((e) => toast(e.message, 'error'))}>{tr('Dismiss')}</button>
+        {pinned
+          ? ((reminder!.pinned_by === meId || isGm) && <button className="ghost small" onClick={() => channelId && reminder && unpin(channelId, reminder.id).then(onClose).catch((e) => toast(e.message, 'error'))}>{tr('Unpin')}</button>)
+          : <button className="ghost small" onClick={() => channelId && reminder && dismiss(channelId, reminder.id).then(onClose).catch((e) => toast(e.message, 'error'))}>{tr('Dismiss')}</button>}
         <button className="ghost small" onClick={onClose}>✕</button>
       </header>
       <div className="body">
@@ -64,7 +71,7 @@ export default function ReminderViewer({ id, onClose }: { id: string; onClose: (
             <div className="small" style={{ whiteSpace: 'pre-wrap' }}><Quoted text={e.content} quotes={e.quotes} /></div>
           </div>
         ))}
-        <div className="tiny muted" style={{ marginTop: 8 }}>{tr('The highlighted passages are quoted verbatim from the chat; the note above is the AI reminder about them.')}</div>
+        <div className="tiny muted" style={{ marginTop: 8 }}>{pinned ? tr('This line was pinned by {name}; the AI keeps it in mind too.', { name: reminder?.pinned_by_name ?? '' }) : tr('The highlighted passages are quoted verbatim from the chat; the note above is the AI reminder about them.')}</div>
       </div>
     </div>
   );
