@@ -12,6 +12,8 @@
 //   side   – a co-players-only window bound to a side timeline: its thread moves on, turn after turn;
 //   quiet  – a window with human players that has been silent for a while: the scene moves on a little without
 //            deciding anything for a player character, at most AUTONOMY_QUIET_TURNS times until a human posts again.
+//            A human writing in the window (the platform's typing flag) holds its quiet turns: the story does not
+//            move on while they compose their line, and their stopping starts the silence over.
 // Autonomy pauses when no human has posted in the channel for AUTONOMY_IDLE_MINUTES, and is capped per hour.
 //
 // The GM may also open the next scenario (campaign-wide), only from the Main Chat, never while a short split is
@@ -38,6 +40,11 @@ import { plannerState } from "./planner.mjs";
 import { calendarState } from "./calendar.mjs";
 import { bondsState } from "./bonds.mjs";
 import { rulesProfile, ruleSystemOf } from "./rules/index.mjs";
+
+// A typing flag the platform never lowered holds a window this long at most. The server lets one fall 10 s after the
+// writer's last heartbeat and a reconnect brings a fresh snapshot, so this only matters when that event was lost; it
+// is long enough that nobody composing a long paragraph is cut off.
+const TYPING_STALE_MS = 10 * 60000;
 import * as context from "./table/context.mjs";
 import * as recovery from "./table/recovery.mjs";
 import * as scheduling from "./table/scheduling.mjs";
@@ -125,7 +132,9 @@ export class Table {
     this.speakers = new Map();       // windowId → [{id, seq, content}] player lines since that window's last turn
     // Autonomy bookkeeping: when humans last spoke (channel and per window), when each window last got a turn.
     this.lastHumanAt = 0;
-    this.windowState = new Map();   // windowId → {lastLineAt, lastHumanAt, lastTurnAt, quietTurns}
+    this.windowState = new Map();   // windowId → {lastLineAt, lastHumanAt, lastTurnAt, lastTypingAt, quietTurns}
+    // The platform's typing flags (typing.changed / typing.snapshot on the chat socket), by character.
+    this.typing = new Map();        // characterId → {windowId, since}
     this.autonomousTurns = [];      // timestamps of the last hour's autonomous turns
     this.lastLineBy = new Map();    // player character id → when its player last wrote
     this.returning = new Map();     // player character id → how long its player had been away (until the next turn)
@@ -629,6 +638,25 @@ export class Table {
   scenarioVerdict(...args) { return actions.scenarioVerdict(this, ...args); }
 
   changeScenario(...args) { return actions.changeScenario(this, ...args); }
+
+  // ---- typing flags: who is writing as which character right now (the platform's, per character)
+  noteTyping(characterId, windowId, active) {
+    if (!characterId) return;
+    const was = this.typing.get(characterId);
+    if (active) { if (!was || was.windowId !== windowId) this.typing.set(characterId, { windowId, since: this.now() }); return; }
+    this.typing.delete(characterId);
+    // A person who typed and stopped is present and thinking: the window's silence starts over.
+    if (was && this.humanCharacter(characterId)) this.state(was.windowId).lastTypingAt = this.now();
+  }
+  // A player character of a real person: not one this account casts (a co-player), not an NPC.
+  humanCharacter(id) { const user = this.userOf(id); return !!user && user !== this.me?.id && this.isPc(id); }
+  // The human players writing in a window right now, by character name. A flag the platform never lowered (a lost
+  // event) counts for TYPING_STALE_MS at most.
+  humansTyping(windowId) {
+    const names = [];
+    for (const [cid, t] of this.typing) if (t.windowId === windowId && this.now() - t.since < TYPING_STALE_MS && this.humanCharacter(cid)) names.push(this.nameOf(cid));
+    return names;
+  }
 
   // ---- illustrations (illustrations.mjs)
   illustrationsOn(...args) { return art.illustrationsOn(this, ...args); }

@@ -39,7 +39,7 @@ export function sceneHistory(table, windowId) {
   }
 
 export function state(table, windowId) {
-    if (!table.windowState.has(windowId)) table.windowState.set(windowId, { lastLineAt: 0, lastHumanAt: 0, lastTurnAt: 0, quietTurns: 0 });
+    if (!table.windowState.has(windowId)) table.windowState.set(windowId, { lastLineAt: 0, lastHumanAt: 0, lastTurnAt: 0, lastTypingAt: 0, quietTurns: 0 });
     return table.windowState.get(windowId);
   }
 

@@ -62,6 +62,9 @@ export function onEvent(table, ev) {
       table.beatClosed();
       table.save();
     }
+    // Who is being written as: a human typing holds the window's quiet turns (scheduling.tick).
+    if (ev.type === "typing.changed") { table.noteTyping(ev.character_id, ev.chat_window_id, ev.active); return undefined; }
+    if (ev.type === "typing.snapshot") { table.typing.clear(); for (const x of ev.typing ?? []) table.noteTyping(x.character_id, x.chat_window_id, true); return undefined; }
     if (ev.type === "message.posted") return table.onMessage(ev.message);
     if (ev.type === "message.recalled") return table.onRecalled(ev.message);
     return undefined;
