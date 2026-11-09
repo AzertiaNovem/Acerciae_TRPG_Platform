@@ -35,7 +35,7 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
         { type: 'tool_use', id: 'call_scope_1', name: 'get_knowledge_scope', input: {} },
         { type: 'tool_use', id: 'call_scope_2', name: 'get_knowledge_scope', input: {} }
       ], usage: { input_tokens: 12, output_tokens: 6 } });
-      return send({ type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ draft: '我先核对聊天中的原始证词。', used_fact_ids: [] }) }], usage: { input_tokens: 25, output_tokens: 12 } });
+      return send({ type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ options: [{ text: '我先核对聊天中的原始证词。', kind: 'ic', roll: '.ra Library Use', angle: 'careful' }, { text: '"你说的那份证词，是谁记下的？"', kind: 'ic', roll: '', angle: 'direct' }], used_fact_ids: [] }) }], usage: { input_tokens: 25, output_tokens: 12 } });
     }
     if (req.url.endsWith('/audio/speech')) {
       if (json?.model === 'rate-limited-tts') { res.statusCode = 429; return send({ error: { message: 'fixture rate limit' } }); }
@@ -85,7 +85,8 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     await rejects(call(gm.token, 'PUT', settings, { image: { api_base: 'https://user:pass@example.com/v1' } }), 400);
     const w = (await call(gm.token, 'GET', `/api/channels/${ch}/windows`))[0].id;
     const draft = await call(pl.token, 'POST', `/api/channels/${ch}/inspiration`, { chat_window_id: w, hint: 'Check the evidence' });
-    assert.equal(draft.draft, '我先核对聊天中的原始证词。');
+    assert.equal(draft.draft, '我先核对聊天中的原始证词。', 'the first option is the draft');
+    assert.deepEqual(draft.options.map((o) => [o.text, o.roll, o.angle]), [['我先核对聊天中的原始证词。', '.ra Library Use', 'careful'], ['"你说的那份证词，是谁记下的？"', '', 'direct']]);
     assert.equal(draft.auto_sent, false);
     const anth = requests.filter(r => r.url.endsWith('/messages'));
     assert.equal(anth.length, 2); assert.equal(anth[0].headers['x-api-key'], 'anthropic-secret-A');
@@ -192,7 +193,9 @@ test('maintainer AI settings: separate image credentials, GPT images/edits, Anth
     assert.equal(otherReq.headers.authorization, 'Bearer image-secret-B'); assert.equal(otherReq.json.model, 'other-image');
 
     await call(gm.token, 'PUT', settings, { llm: { provider: 'openai_compatible', api_base: endpoint + '/openai/v1', api_key: 'openai-secret-A', model: 'fixture-openai', reasoning_effort: '' } });
-    assert.equal((await call(pl.token, 'POST', `/api/channels/${ch}/inspiration`, { chat_window_id: w })).draft, 'I check the original statement.');
+    const single = await call(pl.token, 'POST', `/api/channels/${ch}/inspiration`, { chat_window_id: w });
+    assert.equal(single.draft, 'I check the original statement.', 'an answer in the older one-draft shape still works');
+    assert.deepEqual(single.options.map((o) => o.text), ['I check the original statement.']);
     const oa = requests.filter(r => r.url === '/openai/v1/responses');
     assert.equal(oa.length, 2, 'one function call round, then the answer');
     assert.ok(!requests.some(r => r.url.endsWith('/chat/completions')), 'Chat Completions is no longer used');

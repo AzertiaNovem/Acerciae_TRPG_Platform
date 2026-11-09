@@ -8,6 +8,7 @@
 #include "chat/Illustrations.h"
 #include "characters/Outfits.h"
 #include "characters/Vitals.h"
+#include "inspiration/InspirationService.h"
 #include "core/Json.h"
 #include "core/Crypto.h"
 #include "core/Db.h"
@@ -1209,6 +1210,27 @@ int main() {
         auto x = vitals::of(p, "pbta", pack);
         CHECK(x["resources"].size() == 1 && x["resources"][0]["name"] == "Harm" && x["resources"][0]["value"] == 2);
         CHECK(x["conditions"].size() == 1 && x["conditions"][0]["name"] == "Afraid");
+    });
+    test("inspiration prompt parts: witnessed lines read like the co-player's log, the role card summarises what matters, each system has its dice shape", [] {
+        Json::Value gmLine; gmLine["seq"] = 12; gmLine["actor_role"] = "gm"; gmLine["kind"] = "narration"; gmLine["content"] = "Fog rolls  in\nover the harbour.";
+        CHECK(InspirationService::renderLogLine(gmLine, "GM") == "#12 GM (narration): Fog rolls in over the harbour.");
+        Json::Value say; say["seq"] = 13; say["character_name"] = "Ada"; say["kind"] = "ic"; say["content"] = "Who goes there?";
+        CHECK(InspirationService::renderLogLine(say, "GM") == "#13 Ada: Who goes there?");
+        Json::Value ooc; ooc["seq"] = 14; ooc["actor_role"] = "player"; ooc["kind"] = "ooc"; ooc["content"] = "brb";
+        CHECK(InspirationService::renderLogLine(ooc, "GM") == "#14 a player (out of character): brb");
+        Json::Value card; card["basic"]["occupation"] = "Reporter"; card["basic"]["age"] = "34"; card["characteristics"]["DEX"] = 60; card["characteristics"]["STR"] = 45;
+        card["skills"]["Spot Hidden"] = 70; card["skills"]["Library Use"] = 55; card["skills"]["Dodge"] = 0; card["background"]["ideology"] = "Facts first"; card["items"].append(Json::Value()); card["items"][0]["name"] = "notebook"; card["items"][0]["qty"] = 2;
+        auto summary = InspirationService::cardSummary(card, Json::Value(Json::objectValue), "coc7e");
+        CHECK(summary.find("occupation: Reporter, age 34") != std::string::npos);
+        CHECK(summary.find("characteristics: STR 45") != std::string::npos && summary.find("DEX 60") != std::string::npos);
+        CHECK(summary.find("skills: Spot Hidden 70, Library Use 55") != std::string::npos && summary.find("Dodge") == std::string::npos);   // best first, blanks left out
+        CHECK(summary.find("background: ideology: Facts first") != std::string::npos && summary.find("carrying: notebook ×2") != std::string::npos);
+        CHECK(InspirationService::cardSummary(Json::Value(Json::objectValue), Json::Value(Json::objectValue), "coc7e") == "(blank card)");
+        Json::Value dnd; dnd["dnd"]["class"] = "Rogue"; dnd["dnd"]["species"] = "Elf"; dnd["dnd"]["level"] = 3; Json::Value attrs; attrs["DEX"] = 16; attrs["STR"] = 10;
+        auto d = InspirationService::cardSummary(dnd, attrs, "dnd2024");
+        CHECK(d.find("build: Rogue, Elf, level 3") != std::string::npos && d.find("abilities: STR 10, DEX 16") != std::string::npos);
+        CHECK(InspirationService::diceShape("coc7e").find(".ra") == 0 && InspirationService::diceShape("pbta").find(".move") == 0 && InspirationService::diceShape("dnd2024").find("Perception") != std::string::npos);
+        CHECK(InspirationService::schema()["properties"].isMember("options"));
     });
     test("mock standees have real transparent pixels while backgrounds remain RGB", [] {
         logstudio::ImageConfig config; config.provider = "mock";

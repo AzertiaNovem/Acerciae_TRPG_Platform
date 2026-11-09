@@ -13,5 +13,5 @@ export default function InspirationButton({ characterId }: { characterId: string
     catch (e: any) { toast(e.message, 'error'); }
     finally { setInspirationBusy(false); }
   };
-  return <button className="ai-btn" onClick={run} disabled={inspirationBusy} title={tr("Draft a possible response from what your character knows")}>{inspirationBusy ? tr("Drafting…") : tr("✦ Inspiration")}</button>;
+  return <button className="ai-btn" onClick={run} disabled={inspirationBusy} title={tr("Three ways your character might play this moment, from what they know")}>{inspirationBusy ? tr("Drafting…") : tr("✦ Inspiration")}</button>;
 }

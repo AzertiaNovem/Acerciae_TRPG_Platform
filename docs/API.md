@@ -229,7 +229,7 @@ Both return 403 `feature_disabled` when a server maintainer turned the feature o
 
 | POST | `/channels/{id}/consistency` | `{chat_window_id, character_id?, draft}` → `{score|null, score_label, insufficient_evidence, rationale, conflicts[], evidence[], highlights[], llm_mode}` |
 | GET | `/channels/{id}/consistency/history` | my checks |
-| POST | `/channels/{id}/inspiration` | `{chat_window_id, character_id?, hint?, variant?}` → `{draft, used_fact_ids, editable: true, auto_sent: false}` |
+| POST | `/channels/{id}/inspiration` | `{chat_window_id, character_id?, hint?, variant?, avoid?: [texts already shown]}` → `{options[{text, kind: ic\|ooc, roll, angle}], draft, used_fact_ids, notes?, editable: true, auto_sent: false}`. Three ways the character might play the moment, in their own voice, built like the GM agent's co-player: the prompt lays out the persona, speaking style, role card and condition, who is with them, the story's date and place, what their group knows (facts, cited in `used_fact_ids`), the lines they witnessed and the newest one, under the same tablemate rules (short lines, never narrate outcomes, support the others, roll when an action calls for it: `roll` carries the dot command the player may send). `draft` is the first option's text (older clients); `hint` steers every option; `avoid` lists texts another take must not repeat. Never sends anything. |
 
 ## AI observer admin
 | GET | `/channels/{id}/ai/status` | scheduler status, LLM status, cursors |

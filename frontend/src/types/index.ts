@@ -162,7 +162,9 @@ export interface EventRow { id: string; kind: string; seq: number; scene_id: str
 export interface ConsistencyConflict { description: string; severity?: string; evidence_fact_ids: string[]; quote?: string }
 export interface ConsistencyEvidence { fact_id: string; entry_id: string | null; document_id: string | null; document_type: DocType | null; summary: string; status: string; scene_title: string | null; source_event_ids: string[]; role: 'conflict' | 'support' | 'recommended' }
 export interface ConsistencyResult { id: string; score: number | null; score_label: string; insufficient_evidence: boolean; rationale: string; conflicts: ConsistencyConflict[]; evidence: ConsistencyEvidence[]; highlights: Highlight[]; llm_mode: string }
-export interface InspirationResult { id: string; draft: string; used_fact_ids: string[]; notes?: string; llm_mode: string; editable: boolean; auto_sent: boolean }
+/** One way to play the moment: the line in the character's voice, its kind, a dice command the player may send with it, and its stance. */
+export interface InspirationOption { text: string; kind: 'ic' | 'ooc' | string; roll: string; angle: string }
+export interface InspirationResult { id: string; draft: string; options?: InspirationOption[]; character_id?: string; used_fact_ids: string[]; notes?: string; llm_mode: string; editable: boolean; auto_sent: boolean }
 export interface ModuleNode { id: string; module_id: string; node_type: string; name: string; description: string; data: Record<string, unknown>; citations: { page: number; excerpt?: string | null }[]; gm_edited: boolean; progress: string; pending_hints?: number }
 export interface ModuleEdge { id: string; from_node_id: string; to_node_id: string; relation: string; from_name: string; to_name: string }
 export interface ModuleInfo { import_stage?: string; completed_chunks?: number; total_chunks?: number; import_warning?: string | null; deduplicated?: boolean; id: string; title: string; file_name: string; page_count: number; status: string; error: string | null; llm_mode: string; created_at: string; node_count?: number; edge_count?: number; nodes?: ModuleNode[]; edges?: ModuleEdge[] }

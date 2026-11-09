@@ -175,8 +175,11 @@ see why and jump to the original event, dismissable, swept by an independent cle
 
 **Consistency Check / Inspiration** — user-triggered only. Consistency returns a heuristic 0–100 % score (or
 *Insufficient Evidence*), rationale, conflicts, traceable evidence and temporary user-scoped highlights; it never rewrites
-or blocks the draft and never leaks GM-only facts. Inspiration returns an editable draft grounded only in the character's
-knowledge, never auto-sent (insert / regenerate / discard).
+or blocks the draft and never leaks GM-only facts. Inspiration offers three ways the character might play the moment, in
+their own voice, built like the GM agent's co-player: it reads the persona, speaking style, role card and condition, who
+is with them, the story's date and place, what their group knows and the lines they witnessed, and keeps to the same
+tablemate rules (short lines, never narrate outcomes, support the others, a dice command when an action calls for a
+check). Editable, never auto-sent (pick / edit / insert, another take, discard).
 
 **Integrated dice (Sealdice-compatible)** — any message that starts with a dot command (`.r` `.rh` `.ra`/`.rc` `.rah` `.sc` `.st`
 `.en`; there is no separate roll option) is rolled automatically, evaluated against the
