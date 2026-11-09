@@ -427,6 +427,43 @@ test("a quiet shared window moves on a little, at most AUTONOMY_QUIET_TURNS time
   assert.equal(t.state("w-main").quietTurns, 0, "a human line resets the count");
 });
 
+test("a human typing in the window holds its quiet turns and starts the silence over; a sent line is answered as always; co-players, NPCs and other windows hold nothing", async () => {
+  const llm = new MockLlm();
+  llm.director = (user) => ({ actions: [{ type: "narrate", text: user.includes("MODE: quiet") ? "The clock strikes." : "The butler nods." }], coplayers_may_act: false });
+  const { t, api, clock } = await table({ llm, cfg: { autonomyQuietMs: 3 * MIN, autonomyQuietTurns: 2 } });
+  const typing = (active, character_id = "c-alice", chat_window_id = "w-main") => t.onEvent({ stream: "chat", type: "typing.changed", channel_id: "ch", chat_window_id, character_id, active });
+  await playerSays(t, api, "I wait."); await settle(t);
+  clock.t += 3 * MIN + 1;
+  typing(true);
+  assert.equal(await t.tick(), null, "held while Alice types");
+  clock.t += 2 * MIN;
+  assert.equal(await t.tick(), null, "still held");
+  // Her line is answered at once, as always (the composer lowers the flag as it sends); then she types on.
+  typing(false);
+  const before = api.posts.length;
+  await playerSays(t, api, "I ask the butler about the clock."); await settle(t);
+  assert.ok(api.posts.slice(before).some((p) => p.content === "The butler nods."), "the first reaction is not affected");
+  typing(true);
+  clock.t += 3 * MIN + 1;
+  assert.equal(await t.tick(), null, "her next line is being written: no quiet turn");
+  typing(false);
+  assert.equal(await t.tick(), null, "she stopped just now: the silence starts over");
+  clock.t += 3 * MIN + 1;
+  assert.notEqual(await t.tick(), null, "quiet for long enough again: the scene moves on");
+  await settle(t);
+  assert.equal(api.posts.at(-1).content, "The clock strikes.");
+  // A co-player this account casts, an NPC, or a human in another window: no hold on the Main Chat.
+  clock.t += 3 * MIN + 1;
+  typing(true, "c-harriet"); typing(true, "c-butler"); typing(true, "c-alice", "w-priv");
+  assert.notEqual(await t.tick(), null, "nothing human is typing here");
+  await settle(t);
+  // A snapshot (after a reconnect) replaces what the table knew; a flag the platform never lowered goes stale.
+  t.onEvent({ stream: "chat", type: "typing.snapshot", channel_id: "ch", typing: [{ chat_window_id: "w-main", character_id: "c-alice" }] });
+  assert.deepEqual(t.humansTyping("w-main"), ["Alice Hale"]);
+  clock.t += 10 * MIN + 1;
+  assert.deepEqual(t.humansTyping("w-main"), [], "stale after ten minutes without the platform lowering it");
+});
+
 test("autonomy pauses when nobody has posted for AUTONOMY_IDLE_MINUTES, and stops at the hourly cap", async () => {
   const llm = new MockLlm();
   llm.director = () => ({ actions: [{ type: "narrate", text: "Wind." }], coplayers_may_act: false });

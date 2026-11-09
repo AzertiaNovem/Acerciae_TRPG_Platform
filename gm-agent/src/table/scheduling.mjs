@@ -211,8 +211,13 @@ export async function tick(table) {
       if (scene && !isMain && !humans && table.roster.coplayersIn(w.id).length) {
         if (sinceLine >= (away ? table.cfg.awaySideIntervalMs : table.cfg.autonomySideIntervalMs)) candidates.push({ w, mode: "side", waited: sinceLine, extra: { timeline: scene } });
       } else if (!away && humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < table.cfg.autonomyQuietTurns) {
-        // Only a window where a human spoke recently moves on; a long-abandoned private window stays as it is.
-        const quiet = now - Math.max(st.lastHumanAt, st.lastTurnAt);
+        // Only a window where a human spoke recently moves on; a long-abandoned private window stays as it is. A human
+        // writing there now holds it: the story does not move on while they compose their line (their sent line gets
+        // its answer as always), and their stopping starts the silence over.
+        const typing = table.humansTyping(w.id);
+        if (typing.length) { const who = typing.join(", "); if (st.heldFor !== who) { st.heldFor = who; table.log(`autonomy: quiet turn in "${w.name}" waits while ${who} ${typing.length > 1 ? "are" : "is"} typing`); } continue; }
+        st.heldFor = null;
+        const quiet = now - Math.max(st.lastHumanAt, st.lastTurnAt, st.lastTypingAt ?? 0);
         if (quiet >= table.cfg.autonomyQuietMs) candidates.push({ w, mode: "quiet", waited: quiet, extra: { quietMinutes: Math.round((now - st.lastHumanAt) / 60000) } });
       }
     }
