@@ -7,7 +7,8 @@ import { useChat } from '../store/chat';
 import { useUi } from '../store/ui';
 import ConsistencyButton from './ConsistencyButton';
 import InspirationButton from './InspirationButton';
-import IllustrateButton from './IllustrateButton';
+import ImageButton, { UploadPictureDialog } from './ImageButton';
+import { pictureAmong } from '../lib/picture';
 import { useTypingSignal } from '../hooks/useTypingSignal';
 
 const DICE_PREFIX = /^\s*[.。．](move|r|ra|rc|rh|rah|rch|sc|st|en)/i;
@@ -55,6 +56,13 @@ export default function MessageComposer() {
     return () => { live = false; clearTimeout(t); };
   }, [text, isDice, channelId, windowId, activeCharacter, characters]);
 
+  // A picture to post: picked with the Image button, or pasted or dropped into the message box.
+  const [picture, setPicture] = useState<File | null>(null);
+  const takePicture = (files: FileList | null | undefined) => { const f = canPost ? pictureAmong(files) : null; if (f) setPicture(f); return !!f; };
+  const speaker = characters.find((c) => c.id === activeCharacter)?.name ?? (isGm ? tr('GM') : user?.display_name ?? '');
+  const postedAs = [speaker, tr(kind === 'narration' ? 'Narration' : kind === 'ooc' ? 'Out of character' : 'In character'),
+    visibility === 'gm_only' ? tr('GM-only note') : visibility === 'whisper' ? tr('Whisper to characters') : ''].filter(Boolean).join(' · ');
+
   const send = async () => {
     if (!canPost || !text.trim() || !channelId || !windowId || sending) return;
     setSending(true);
@@ -73,7 +81,16 @@ export default function MessageComposer() {
       <div className="composer-input">
         <textarea disabled={!canPost} ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? tr("Narrate, speak as an NPC, or adjudicate…") + (diceOn ? (channel?.rule_system === 'pbta' ? '  (.move search +1)' : dndRules ? '  (.rc stealth dc15 · .ri · .init next · .r 2d20kh1+5)' : '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)') : '') : tr("What does your character do or say?") + (diceOn ? (channel?.rule_system === 'pbta' ? '  (.move search +1)' : dndRules ? '  (.rc stealth · .ri · .ss 1)' : '  (.ra skill to roll)') : '')}
           onScroll={(e) => { if (ghost.current) ghost.current.scrollTop = e.currentTarget.scrollTop; }}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          // A pasted or dropped image opens the picture dialog. Text copied from an office document often brings a
+          // rendering of itself along as an image: with text on the clipboard, the paste stays a text paste.
+          onPaste={(e) => { if (!e.clipboardData?.getData('text/plain') && takePicture(e.clipboardData?.files)) e.preventDefault(); }}
+          onDragOver={(e) => { if (canPost && Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault(); }}
+          onDrop={(e) => {
+            if (!e.dataTransfer?.files?.length) return;
+            e.preventDefault();   // a dropped file never navigates the app away
+            if (!takePicture(e.dataTransfer.files)) toast(tr('Choose a PNG, JPEG, WebP or GIF image.'), 'error');
+          }} />
         {isDice && hint && hint.for === text && (
           <div className="composer-ghost" ref={ghost} aria-hidden><span className="ghost-text">{text}</span><span className="ghost-hint">{'  —— '}{hint.text}</span></div>
         )}
@@ -100,9 +117,16 @@ export default function MessageComposer() {
         <span className="spacer" />
         {features?.consistency !== false && channel?.consistency_enabled !== false && <ConsistencyButton draft={text} characterId={activeCharacter} />}
         {features?.inspiration !== false && channel?.inspiration_enabled !== false && <InspirationButton characterId={activeCharacter} />}
-        {serverSettings?.images_enabled && features?.illustrations !== false && channel?.illustrations_enabled !== false && canPost && <IllustrateButton />}
+        {canPost && <ImageButton canDraw={!!serverSettings?.images_enabled && features?.illustrations !== false && channel?.illustrations_enabled !== false} onPick={setPicture} />}
         <button className="primary" onClick={send} disabled={!canPost || !text.trim() || sending}>{tr("Send")}</button>
       </div>
+      {picture && channelId && windowId && (
+        <UploadPictureDialog file={picture} channelId={channelId} windowId={windowId} caption={isDice ? '' : text.trim()} postedAs={postedAs}
+          fields={{ kind, character_id: activeCharacter || undefined, visibility: isGm ? visibility : undefined, whisper_to: visibility === 'whisper' ? whisperTo : undefined }}
+          onClose={() => { setPicture(null); ta.current?.focus(); }}
+          // When the message box's text went out as the caption, it is not left behind to be sent again.
+          onPosted={(caption) => { if (caption && caption === text.trim()) setText(''); }} />
+      )}
     </div>
   );
 }

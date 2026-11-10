@@ -1185,6 +1185,11 @@ int main() {
         CHECK(illustrationFileName("\xF0\x9F\x96\xBC\xEF\xB8\x8F Ada and Mo whisper on the pier: dusk!", "2026-11-07T08:32:15Z", "image/png") == "illustration-2026-11-07-Ada-and-Mo-whisper-on-the-pier-dusk.png");
         CHECK(illustrationFileName("\xF0\x9F\x96\xBC\xEF\xB8\x8F \xE8\x89\xBE\xE8\xBE\xBE/\xE8\x8E\xAB", "2026-11-07 08:32:15+00", "image/jpeg") == "illustration-2026-11-07-\xE8\x89\xBE\xE8\xBE\xBE-\xE8\x8E\xAB.jpg");   // 艾达/莫: any script kept, '/' replaced
         CHECK(illustrationFileName("", "", "image/webp") == "illustration.webp");
+        // An uploaded picture: its own prefix, a GIF keeps its type, and a line that is the mark alone has no text part.
+        CHECK(illustrationFileName(pictureLine("A torn page"), "2026-11-10T00:00:00Z", "image/gif", "picture") == "picture-2026-11-10-A-torn-page.gif");
+        CHECK(illustrationFileName(pictureLine(""), "2026-11-10T00:00:00Z", "image/jpeg", "picture") == "picture-2026-11-10.jpg");
+        CHECK(pictureLine("") == "\xF0\x9F\x96\xBC\xEF\xB8\x8F");
+        CHECK(pictureLine(".ra Spot Hidden") == "\xF0\x9F\x96\xBC\xEF\xB8\x8F .ra Spot Hidden");   // the mark first: never a dot command
         CHECK(illustrationFileName(std::string(100, 'x'), "2026-11-07", "image/png").size() == std::string("illustration-2026-11-07-").size() + 40 + 4);   // at most 40 characters of text
         auto bare = illustrationPrompt("A lighthouse in a storm", {}, "", "");
         CHECK(bare.find("Characters in the picture") == std::string::npos && bare.find("Setting:") == std::string::npos);

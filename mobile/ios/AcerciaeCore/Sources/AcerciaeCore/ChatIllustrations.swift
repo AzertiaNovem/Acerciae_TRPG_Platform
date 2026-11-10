@@ -39,6 +39,7 @@ public enum ChatIllustrations {
         let head = [UInt8](data.prefix(12))
         if head.count >= 3, head[0] == 0xFF, head[1] == 0xD8, head[2] == 0xFF { return ".jpg" }
         if head.count >= 12, Array(head[0..<4]) == [0x52, 0x49, 0x46, 0x46], Array(head[8..<12]) == [0x57, 0x45, 0x42, 0x50] { return ".webp" }
+        if head.count >= 4, Array(head[0..<4]) == [0x47, 0x49, 0x46, 0x38] { return ".gif" }   // a member's uploaded picture may be one
         return ".png"
     }
     /// A message's picture never changes. Its endpoint explicitly allows private caching without `immutable`.

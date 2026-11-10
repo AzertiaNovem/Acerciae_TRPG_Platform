@@ -182,6 +182,13 @@ export const api = {
   illustrate: (ch: string, w: string, body: { prompt: string; character_ids: string[]; outfits?: Record<string, string>; orientation: 'landscape' | 'portrait' | 'square'; allow_cloud: boolean; request_id?: string }) =>
     post<{ id: string; status: string; kind: string; reference_count: number }>(`/api/channels/${ch}/windows/${w}/illustrations`, body),
   illustrations: (ch: string) => request<T.IllustrationJob[]>('GET', `/api/channels/${ch}/illustrations`),
+  // A picture of the member's own, posted as their line (the caption is `content`); the other fields as for a text line.
+  postPicture: (ch: string, w: string, file: File, fields: { content?: string; kind: string; character_id?: string; visibility?: string; whisper_to?: string }) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(fields)) if (v) fd.append(k, v);
+    fd.append('file', file);
+    return request<T.Message>('POST', `/api/channels/${ch}/windows/${w}/images`, undefined, fd);
+  },
   cancelIllustration: (ch: string, id: string) => post<{ id: string; status: string }>(`/api/channels/${ch}/illustrations/${id}/cancel`, {}),
   messageImageUrl: (ch: string, messageId: string) => `${apiBase()}/api/channels/${ch}/messages/${messageId}/image?token=${encodeURIComponent(fileToken())}`,
   // The same picture as a file to save, with a readable name (illustration-<date>-<description>.png).

@@ -31,6 +31,10 @@ final class ChatIllustrationsTests: XCTestCase {
         XCTAssertEqual(ChatIllustrations.fileName("🖼️ Ada and Mo whisper on the pier: dusk!", data: png), "illustration-Ada-and-Mo-whisper-on-the-pier-dusk.png")
         XCTAssertEqual(ChatIllustrations.fileName("🖼️ 艾达/莫", data: jpeg), "illustration-艾达-莫.jpg")
         XCTAssertEqual(ChatIllustrations.fileName("🖼️ ", data: webp), "illustration.webp")
+        // A picture a member uploaded: any of the four types, with or without a caption.
+        XCTAssertEqual(ChatIllustrations.fileName("🖼️", data: Data("GIF89a".utf8)), "illustration.gif")
+        XCTAssertEqual(ChatIllustrations.caption("🖼️"), "")
+        XCTAssertEqual(ChatIllustrations.caption("🖼️ A torn page"), "A torn page")
         XCTAssertEqual(ChatIllustrations.fileName(String(repeating: "x", count: 100), data: png).count, "illustration-".count + 40 + 4)
     }
     func testMessageScopedAuthenticatedFetchPersistsAndIsIsolatedByAccount() async throws {

@@ -321,6 +321,12 @@ recalls itself never start a rollback.
 
 ## Illustrations
 
+Pictures people post themselves (a handout, a map, a photo, uploaded with the platform's Image button) are chat lines
+like any other, except that no model here can see a picture. Such a line reaches the GM and the co-players as
+"posts a picture; you cannot see it, its caption says: …" (`src/pictureLines.mjs`), so a caption that says what the
+picture shows is what the table plays on. A picture posted without a caption stays on the record but starts no turn
+and is no wish in the planner window: there is nothing in it to answer.
+
 The platform can draw a moment of the story with the server's image provider: a description, up to six characters
 whose portraits guide the picture, and a frame (landscape, portrait or square). The picture is posted in the window
 as the GM's out-of-character line ("🖼️ " and the description), a little after it was asked for; it never starts a

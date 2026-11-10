@@ -6,6 +6,7 @@ import { openWindows } from "../roles/roster.mjs";
 import { MAIN } from "../timelines.mjs";
 import { noteCalendarLine } from "../calendar.mjs";
 import { TRIGGER_KINDS, HOUR } from "./shared.mjs";
+import { pictureOnly } from "../pictureLines.mjs";
 
 export function cancelTimer(table, windowId) {
     const pending = table.timers.get(windowId);
@@ -71,6 +72,13 @@ export function onMessage(table, m) {
       table.noteSeq(m.chat_window_id, m.seq ?? 0);
       const request = table.artCommand(m);
       return request === null ? undefined : table.onArtCommand(m, request);
+    }
+    // A picture a person posted without a caption: kept in the record, but it starts no turn and is no wish, since
+    // there is nothing in it the table can read. With a caption it is a line like any other.
+    if (table.isHuman(m) && pictureOnly(m)) {
+      table.history.add(m);
+      table.noteSeq(m.chat_window_id, m.seq ?? 0);
+      return undefined;
     }
     if (table.pauseCommand(m)) {
       table.history.add(m);

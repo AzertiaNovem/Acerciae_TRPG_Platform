@@ -215,3 +215,8 @@ iOS 和 Android 在聊天气泡中显示带 `media_asset_id` 的插图，保持�
 共享逻辑在两端的 core 中各有一份并使用同一份 fixture `contracts/fixtures/table-status.json`（取自真实服务端）：Android `core/Typing.kt`、`core/TableStatus.kt`，iOS `AcerciaeCore/Typing.swift`、`AcerciaeCore/TableStatus.swift`；两端 `ChatSocket` 新增 `send`。协议与测试说明见 `contracts/INTEGRATION.md` 2026-11-10 一节。
 
 验证：Android 已在本机执行 `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`（72 项单元测试通过，lint 无错误），其中 `LiveTableStatusTest` 指向本机 mock 后端，用真实的 `ChatSocket` 与 `BackendClient` 验证了输入标记的举起／回显／放下／快照／随连接关闭而放下，以及状态摘要、灵感与固定消息；没有 Android 设备或模拟器，界面未做视觉验收。iOS 代码在本环境无法编译（没有 Swift 工具链），本次没有新增 App 源文件，无需 `xcodegen generate`；`swift test --package-path mobile/ios/AcerciaeCore`（含新的 `TableStatusTests`）与 `xcodebuild ... -scheme Acerciae test` 由 CI 的 macOS 任务（`mobile/scripts/test-ios.sh`）在拉取请求上执行。
+
+### 聊天图片（2026-11-10）
+
+网页与桌面端输入框旁的「图片」按钮现在既可上传自己的图片（线索、地图、照片），也可在服务器与 GM 允许时让 AI 绘制。上传的图片和 AI 插画一样是带 `media_asset_id` 的聊天消息，正文为「🖼️」标记加可选说明，所以两端无需改动即可显示、放大和保存；没有说明的图片只显示图片本身。保存时按内容识别类型，新增 GIF（`ChatIllustrations` 两端各加一行，并有测试）。手机端目前只能查看，不能上传；上传接口为 `POST /channels/{id}/windows/{w}/images`（multipart：`file`，以及与文字消息相同的 `content`、`kind`、`character_id`）。
+
