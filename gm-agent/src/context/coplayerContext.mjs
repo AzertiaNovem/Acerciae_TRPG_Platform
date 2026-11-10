@@ -8,6 +8,8 @@
 //   * `window` lines, plus `whisper` lines addressed to the co-player's own character;
 //   * never `gm_only` lines (GM notes, hidden roll results) and never whispers to anyone else.
 
+import { pictureText } from "../pictureLines.mjs";
+
 export function visibleToCoplayer(coplayer, message) {
   if (!message) return false;
   const present = coplayer.seats.some((s) => s.windowId === message.chat_window_id && message.seq >= s.fromSeq && (s.toSeq === null || message.seq <= s.toSeq));
@@ -26,7 +28,8 @@ export function speakerOf(m, gm = "GM") {
 
 // `timeline` names the timeline the line comes from (the GM sees it; see timelines.mjs).
 export function renderLine(m, { markVisibility = false, timeline = "", gm = "GM" } = {}) {
-  const text = m.kind === "roll" && m.dice?.text ? `${m.content} → ${m.dice.text}` : m.content;
+  // A picture (uploaded or drawn) reaches the model as words only: its caption, and that there is a picture at all.
+  const text = m.media_asset_id ? pictureText(m) : m.kind === "roll" && m.dice?.text ? `${m.content} → ${m.dice.text}` : m.content;
   const who = m.kind === "narration" ? `${m.character_name ? m.character_name : gm} (narration)` : speakerOf(m, gm);
   const tag = m.kind === "ooc" ? " (out of character)" : "";
   let vis = "";

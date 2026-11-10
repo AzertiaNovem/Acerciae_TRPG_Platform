@@ -84,6 +84,13 @@ public func reconnectPause(_ failures: Int) -> Double { min(15, Double(1 << min(
     }
     public func close() { follow(nil) }
 
+    /// Sends one pack (a `typing` flag, docs/API.md) on the subscribed stream; false, and nothing sent, while there is none.
+    @discardableResult public func send(_ pack: JSONValue) -> Bool {
+        guard live, let socket = task, let data = try? JSONEncoder().encode(pack) else { return false }
+        socket.send(.string(String(decoding: data, as: UTF8.self))) { _ in }
+        return true
+    }
+
     private func setLive(_ value: Bool) { guard live != value else { return }; live = value; handlers.live(value) }
 
     private func stream(_ gen: Int, _ channelId: String) async {

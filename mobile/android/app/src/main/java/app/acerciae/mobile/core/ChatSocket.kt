@@ -78,6 +78,12 @@ class ChatSocket(
     }
     fun close() = follow(null)
 
+    /** Sends one pack (a `typing` flag, docs/API.md) on the subscribed stream; false, and nothing sent, while there is none. */
+    fun send(pack: JsonObject): Boolean {
+        val stream = synchronized(lock) { if (live) socket else null } ?: return false
+        return stream.send(pack.toString())
+    }
+
     // Under the lock.
     private fun open(gen: Int, after: Long) {
         pending = scope.launch {

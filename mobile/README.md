@@ -14,7 +14,8 @@ Android 使用 Kotlin / Jetpack Compose，iOS 使用 SwiftUI，独立于 React �
 - 原生角色空间：姓名、简介、说话风格及 CoC7 基本资料、属性、状态、技能和背景编辑，物品查看；头像、主立绘、表情素材上传与预览，外观描述与生成任务。
 - 全战役阶段管理：准备、立即开启、进入已准备阶段、摘要编辑与自动建议开关；已关闭阶段不能重新进入。切阶段同步所有聊天窗口。
 - 右上角考据／提示显示当前分组提醒及聊天出处；玩家不读取知识索引，GM 额外访问文档、GM 下一步看板、待解决线索及剧本知识状态。
-- 骰子输入防抖预览与服务端投骰，保留结构化暗骰公告；空白草稿的一致性按钮置灰，灵感需明确采用后才进入输入框。
+- 骰子输入防抖预览与服务端投骰，保留结构化暗骰公告；空白草稿的一致性按钮置灰，灵感给出几种演法供挑选，明确采用后才进入输入框。
+- 侧栏角色条目显示状态摘要（CoC：HP／SAN／DEX；D&D：HP／AC／DEX；PbtA：资源与已标记状态）和「正在输入」的笔形标记；长按消息可固定到本组提示（见「输入标记、状态摘要、灵感选项与固定消息」）。
 - 侧栏的「服务器选项」与「频道选项」为独立页面，分别只对服务器管理员和当前频道 GM 显示；服务器管理员身份不自动获得 GM 频道选项。管理员在服务器选项控制骰子／一致性／灵感／日志制作；GM 在频道选项可修改频道名称／介绍、年代、角色知识隔离、骰子回复组、频道 AI、阶段建议、日志可见性、云端许可与配音预算，也可按账号名邀请玩家。供应商密钥仍在网页管理。
 - 单一战役日志自动汇总，导出 JSON／TXT／HTML／ZIP；按聊天窗口导出 SealDice v105 JSON。已完成 PDF 可下载。
 - 成员按自身权限创建视觉小说：四种模板、可见范围、改编方向、云端确认、可选素材生成、任务进度与取消。已有演出可原生阅读、播放配音、保存阅读位置、下载独立播放 ZIP。
@@ -201,4 +202,21 @@ iOS 和 Android 在聊天气泡中显示带 `media_asset_id` 的插图，保持�
 长按自己发送 2 分钟内的消息可「撤回」：所有能看到它的人那里原消息变为「某某撤回了一条消息」，相关横幅与待发引用随之移除；作者可「重新编辑」取回原文。骰子、系统消息和 PbtA 行动记录不能撤回。协议、计时规则与测试说明见 `contracts/INTEGRATION.md` 2026-11-07 一节。
 
 验证：Android `core` 包（含 `ChatSocketTest` 的真实 WebSocket 回环与 `RecallTest`）在纯 JVM 下 51 项通过；`./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`、`xcodegen generate`（本次未新增 App 源文件）、`swift test --package-path mobile/ios/AcerciaeCore`（含新的 `RealtimeTests`）与 `xcodebuild ... -scheme Acerciae test` 需在装有 Android SDK／Xcode 的机器上运行，本次未执行。
+
+### 输入标记、状态摘要、灵感选项与固定消息（2026-11-10）
+
+跟进网页端最近的四项更新，两端行为一致：
+
+- **输入标记。** 在输入框里以某个角色书写时，客户端通过聊天 WebSocket 发送 `typing` 包举起该角色的标记，之后每 4 秒续发一次；发出消息、清空输入、停顿 8 秒，或切换角色、窗口、频道时放下。标记属于角色而不是用户，以本人（未选角色）书写时不发送。服务器在最后一个包之后 10 秒、或连接关闭时自动放下，所以切到后台不会留下「一直在输入」。桌上其他人的标记从同一连接到达：侧栏角色名旁出现 ✎，当前窗口里有别人在写时输入框上方显示「✎ 角色名 · 正在输入…」（手机侧栏平时收起，所以多这一行）。
+- **状态摘要。** 侧栏每个角色名下一行显示角色列表自带的 `vitals`：CoC 为 HP／SAN／DEX，D&D 为 HP／AC／DEX，PbtA 为规则包的资源和已标记的状态；HP 不高于上限三分之一（没有上限时为 0）标红，卡上没填的值显示「—」。
+- **灵感选项。** 「✦ 灵感」不再只给一段草稿：浮层列出几种演法（立场、OOC 标记、可随附的骰子指令），点选其一后可先修改再「插入输入框」，有骰子指令时可单独「插入检定」；「换一组」会带上已经展示过的句子，请服务器给出不同的选项。任何内容都不会替玩家发送。
+- **固定消息。** 长按一条消息可「固定」，它会作为「📌」条目排在本组提示的最前面（GM 固定的进入 GM 自己的提示），并注明由谁固定；固定者本人或 GM 可在长按菜单或提示详情里「取消固定」。被固定的消息在聊天里其名字一行带 📌。iOS 上长按菜单同时提供「复制」（菜单会取代该气泡的文字选择）。
+
+共享逻辑在两端的 core 中各有一份并使用同一份 fixture `contracts/fixtures/table-status.json`（取自真实服务端）：Android `core/Typing.kt`、`core/TableStatus.kt`，iOS `AcerciaeCore/Typing.swift`、`AcerciaeCore/TableStatus.swift`；两端 `ChatSocket` 新增 `send`。协议与测试说明见 `contracts/INTEGRATION.md` 2026-11-10 一节。
+
+验证：Android 已在本机执行 `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`（72 项单元测试通过，lint 无错误），其中 `LiveTableStatusTest` 指向本机 mock 后端，用真实的 `ChatSocket` 与 `BackendClient` 验证了输入标记的举起／回显／放下／快照／随连接关闭而放下，以及状态摘要、灵感与固定消息；没有 Android 设备或模拟器，界面未做视觉验收。iOS 代码在本环境无法编译（没有 Swift 工具链），本次没有新增 App 源文件，无需 `xcodegen generate`；`swift test --package-path mobile/ios/AcerciaeCore`（含新的 `TableStatusTests`）与 `xcodebuild ... -scheme Acerciae test` 由 CI 的 macOS 任务（`mobile/scripts/test-ios.sh`）在拉取请求上执行。
+
+### 聊天图片（2026-11-10）
+
+网页与桌面端输入框旁的「图片」按钮现在既可上传自己的图片（线索、地图、照片），也可在服务器与 GM 允许时让 AI 绘制。上传的图片和 AI 插画一样是带 `media_asset_id` 的聊天消息，正文为「🖼️」标记加可选说明，所以两端无需改动即可显示、放大和保存；没有说明的图片只显示图片本身。保存时按内容识别类型，新增 GIF（`ChatIllustrations` 两端各加一行，并有测试）。手机端目前只能查看，不能上传；上传接口为 `POST /channels/{id}/windows/{w}/images`（multipart：`file`，以及与文字消息相同的 `content`、`kind`、`character_id`）。
 

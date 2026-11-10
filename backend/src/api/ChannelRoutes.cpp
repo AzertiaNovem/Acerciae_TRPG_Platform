@@ -103,6 +103,14 @@ void registerChannelRoutes() {
         auto ac = access(p, a[0]); S.settings->requireFeature(ac.serverId, "illustrations"); S.chat->requireChannelAi(ac, "illustrations_enabled");
         return S.illustrations->request(ac, a[1], body(req));
     });
+    // A picture a member uploads into the window, posted as their line (multipart: `file`, and as for a text line
+    // `content` for the caption, `kind`, `character_id`, `visibility`, `whisper_to`). No image AI, no feature switch.
+    route2("/api/channels/{1}/windows/{2}/images", {Post}, [&](auto& req, auto& p, auto& a) {
+        auto ac = access(p, a[0]); MultiPartParser mp;
+        if (mp.parse(req) != 0 || mp.getFiles().empty()) throw badRequest("multipart upload with a 'file' field required");
+        auto& f = mp.getFiles()[0]; Json::Value fields(Json::objectValue); for (auto& [k, v] : mp.getParameters()) fields[k] = v;
+        return S.illustrations->upload(ac, a[1], f.getFileName(), std::string(f.fileContent()), fields);
+    });
     route1("/api/channels/{1}/illustrations", {Get}, [&](auto&, auto& p, auto& a) { return S.illustrations->jobs(access(p, a[0])); });
     route2("/api/channels/{1}/illustrations/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.illustrations->cancel(access(p, a[0]), a[1]); });
     // A line's picture, for <img>: only to those who may read the line (?token= since image tags cannot set headers).
@@ -127,7 +135,11 @@ void registerChannelRoutes() {
     // Deprecated alias of /scenarios/enter: scenarios are campaign-wide, the window is ignored.
     route2("/api/channels/{1}/windows/{2}/scene", {Post}, [&](auto& req, auto& p, auto& a) { return S.scenarios->enter(access(p, a[0]), json::requireStr(body(req), "scene_id")); });
     route2("/api/channels/{1}/messages/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->getMessage(access(p, a[0]), a[1]); });
-    route2("/api/channels/{1}/messages/{2}/recall", {Post}, [&](auto&, auto& p, auto& a) { return S.chat->recallMessage(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/messages/{2}/recall", {Post}, [&](auto&, auto& p, auto& a) {
+        auto ac = access(p, a[0]); auto out = S.chat->recallMessage(ac, a[1]);
+        S.illustrations->recalled(ac, out["message"]);   // an uploaded picture goes with its line
+        return out;
+    });
     route1("/api/channels/{1}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->searchMessages(access(p, a[0]), req->getParameter("q"), qint(req, "limit", 30)); });
 
 

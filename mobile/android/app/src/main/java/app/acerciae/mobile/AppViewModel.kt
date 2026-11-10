@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -39,6 +40,10 @@ data class AppState(
     /** The text of lines the user recalled in this visit, by message id, for "Re-edit". */
     val recallDrafts: Map<String, String> = emptyMap(),
     val recalledMessages: Map<String, Message> = emptyMap(),
+    /** Characters being written as right now: character id to the window they are typed in (core/Typing.kt). */
+    val typing: Map<String, String> = emptyMap(),
+    /** The Inspiration result on screen, and every option text shown so far (what "Another take" avoids). */
+    val inspiration: JsonObject? = null, val inspirationShown: List<String> = emptyList(),
 ) {
     val online get() = user != null
     val scopeKey get() = cacheRevision.toString() + channelId + channel.text("my_role") + channel.text("player_group_id") + channel["player_group_version"].toString() + channel["my_character_ids"].toString()
@@ -51,6 +56,10 @@ data class AppState(
     val serverName get() = servers.find { it.id == serverId }?.name ?: tr("服务器")
     val windowName get() = windows.find { it.id == windowId }?.name ?: tr("聊天")
     fun enabled(feature: String) = !online || FeatureAccess.enabled(feature, serverSettings, channel)
+    /** Who else is writing in the window on screen (the character being written as here needs no telling). */
+    val typingHere get() = if (windowId.isEmpty()) emptyList() else characters.filter { typing[it.id] == windowId && it.id != characterId }.map { it.name }
+    /** The pin of a chat line among this group's reminders, when it is pinned. */
+    fun pinOf(m: Message) = Pins.of(reminders, m.id)
 }
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -86,6 +95,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         override fun event(event: RealtimeEvent) { viewModelScope.launch { onPush(event) } }
         override fun live(live: Boolean) { viewModelScope.launch {
             pushConnected = live
+            if (!live) { typingFlags.clear(); showTyping() }   // the snapshot after the next subscription says who is typing
             if (live) pushPending = true
             if (state.value.online) update { copy(connection = if (live) "已连接 · 实时推送" else "已连接 · 自动刷新") }
         } }
@@ -97,10 +107,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (token != socketToken) stopRealtime()
         val stream = socket ?: ChatSocket(BackendAddress(s.endpoint, BuildConfig.DEBUG), { client.fileToken(token) }, pushListener).also { socket = it; socketToken = token }
         stream.follow(s.channelId)
+        if (typingJob == null) typingJob = viewModelScope.launch { while (true) { delay(1_000); typingSignal.tick(); if (typingFlags.prune()) showTyping() } }
     }
-    fun stopRealtime() { socket?.close(); socket = null; socketToken = null; pushConnected = false }
+    fun stopRealtime() {
+        socket?.close(); socket = null; socketToken = null; pushConnected = false
+        typingJob?.cancel(); typingJob = null; typingSignal.forget(); typingFlags.clear(); showTyping()
+    }
+    // ---- typing flags (core/Typing.kt): a pen next to a character while it is being written as. The composer raises
+    // this device's flag over the chat stream and keeps it up while the writer types; the table's flags arrive on the
+    // same stream. The flag is the character's: writing as oneself raises none.
+    private val typingFlags = TypingFlags()
+    private val typingSignal = TypingSignal({ socket?.send(it) })
+    private var typingJob: Job? = null
+    private fun typingTarget() = state.value.let { TypingTarget.of(it.channelId, it.windowId, it.characterId) }
+    private fun showTyping() { val current = typingFlags.byCharacter; if (current != state.value.typing) update { copy(typing = current) } }
     private fun onPush(e: RealtimeEvent) {
         if (e.channelId.isNotEmpty() && e.channelId != state.value.channelId) return
+        if (typingFlags.apply(e)) { showTyping(); return }   // a pen is no reason to fetch anything
         when (e.type) {
             "message.recalled" -> e.message?.let(::applyRecall)
             "character.updated", "scene.changed", "server.settings" -> metadataUpdated = 0L
@@ -204,13 +227,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: Exception) { update { copy(notice = tr("无法读取已保存的登录，请重新登录")) } }
     }
     private fun update(block: AppState.() -> AppState) { mutableState.value = state.value.block() }
-    fun draft(value: String) { update { copy(draft = value) } }
+    fun draft(value: String) { update { copy(draft = value) }; typingSignal.edited(typingTarget(), value) }
     fun speechMode(value: String) { if (value in listOf("ic", "narration", "ooc")) update { copy(speechMode = value) } }
     fun removeReference(id: String) { update { copy(references = references.filterNot { it.id == id }) } }
     fun role(value: String) { update { copy(role = value) } }
-    fun chooseRole(id: String) { update { copy(characterId = id, role = playable.find { it.id == id }?.name ?: if (gm) tr("旁白") else tr("场外"), diceHint = "") } }
+    fun chooseRole(id: String) { if (id != state.value.characterId) typingSignal.lower(); update { copy(characterId = id, role = playable.find { it.id == id }?.name ?: if (gm) tr("旁白") else tr("场外"), diceHint = "") } }
     fun notice(value: String?) { update { copy(notice = value) } }
-    fun result(value: String?) { update { copy(result = value) } }
+    fun result(value: String?) { update { copy(result = value, inspiration = if (value == null) null else inspiration) } }
     fun loadAsync(work: suspend () -> Unit) { viewModelScope.launch { load(work) } }
     fun launch(work: suspend () -> Unit) { viewModelScope.launch { run(work) } }
     suspend fun run(work: suspend () -> Unit) {
@@ -290,7 +313,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun clearChannel() {
         stopArtworkPrefetch(reset = true)
         metadataJob?.cancel(); metadataJob=null; metadataGeneration++
-        metadataUpdated=0L; failedPolls=0; nextPoll=0L; readSeq.clear(); speech.stop(); recallDeadlines.clear(); update { copy(recallDrafts=emptyMap(),chatNotices=emptyList(),initiative=emptyObject,speechMode = "ooc", references = emptyList(), jumpMessageId = null, channelId = "", windowId = "", characterId = "", channel = emptyObject, campaign = null, windows = emptyList(), characters = emptyList(), scenes = emptyList(), reminders = emptyList(), draft = "", diceHint = "", result = null, hasOlder = false) } }
+        typingSignal.lower(); typingFlags.clear()
+        metadataUpdated=0L; failedPolls=0; nextPoll=0L; readSeq.clear(); speech.stop(); recallDeadlines.clear(); update { copy(typing=emptyMap(),inspiration=null,inspirationShown=emptyList(),recallDrafts=emptyMap(),chatNotices=emptyList(),initiative=emptyObject,speechMode = "ooc", references = emptyList(), jumpMessageId = null, channelId = "", windowId = "", characterId = "", channel = emptyObject, campaign = null, windows = emptyList(), characters = emptyList(), scenes = emptyList(), reminders = emptyList(), draft = "", diceHint = "", result = null, hasOlder = false) } }
     suspend fun selectServer(id: String) {
         if (id == state.value.serverId && state.value.channels.isNotEmpty() && state.value.channelId.isNotEmpty() && state.value.campaign != null) return
         rememberHistory()
@@ -319,8 +343,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun selectWindow(id: String) {
         if (id == state.value.windowId && state.value.campaign != null) { refresh(true,metadata=false); return }
         rememberHistory()
-        rememberDraft(); epoch++
-        update { copy(speechMode = if (gm) "narration" else "ic", references = emptyList(), jumpMessageId = null, windowId = id, draft = drafts[id].orEmpty(), campaign = null, diceHint = "", result = null) }
+        rememberDraft(); epoch++; typingSignal.lower()
+        update { copy(inspiration = null, inspirationShown = emptyList(), speechMode = if (gm) "narration" else "ic", references = emptyList(), jumpMessageId = null, windowId = id, draft = drafts[id].orEmpty(), campaign = null, diceHint = "", result = null) }
         val stamp = epoch
         restoreCachedWindow(id, stamp)
         coroutineContext.ensureActive(); if (stamp != epoch) return
@@ -596,6 +620,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         get(listOf("channels", s.channelId, "windows", s.windowId, "messages"), body)
         if (stamp != epoch) return@launch
         update { copy(draft = if (draft.trim() == text) "" else draft, diceHint = "", references = emptyList()) }; refreshSoon()
+        if (state.value.draft.isBlank()) typingSignal.lower()   // the line is out: the pen goes down with it
     }
     private fun refreshSoon() {
         val stamp = epoch
@@ -611,9 +636,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val body = buildJsonObject { put("chat_window_id", s.windowId); if (s.characterId.isNotEmpty()) put("character_id", s.characterId); put(if (type == "consistency") "draft" else "hint", s.draft) }
             val v = get(listOf("channels", s.channelId, type), body)
             if (stamp != epoch) return@launch
-            val result = if (type == "inspiration") v.text("draft") else (if (v.flag("insufficient_evidence")) tr("证据不足") else v.text("score_label")) + "\n\n" + v.text("rationale") + "\n\n证据与冲突\n" + v.rows("evidence").joinToString("\n\n") { it.text("summary") + "\n" + it.text("scene_title") } + "\n" + v.rows("conflicts").joinToString("\n") { it.text("description") }
-            update { copy(result = result, resultType = type) }
+            if (type == "inspiration") { update { copy(result = v.text("draft"), resultType = type, inspiration = v, inspirationShown = Inspiration.shown(emptyList(), v)) }; return@launch }
+            val result = (if (v.flag("insufficient_evidence")) tr("证据不足") else v.text("score_label")) + "\n\n" + v.text("rationale") + "\n\n证据与冲突\n" + v.rows("evidence").joinToString("\n\n") { it.text("summary") + "\n" + it.text("scene_title") } + "\n" + v.rows("conflicts").joinToString("\n") { it.text("description") }
+            update { copy(result = result, resultType = type, inspiration = null) }
         }
+    }
+    /** Three other ways to play the moment: everything shown so far goes along as `avoid` (docs/API.md). */
+    fun anotherTake() = launch {
+        val s = state.value; val stamp = epoch; val shown = s.inspirationShown
+        val current = s.inspiration ?: return@launch
+        if (s.windowId.isEmpty() || !s.enabled("inspiration")) return@launch
+        val character = current.text("character_id").ifEmpty { s.characterId }
+        val body = buildJsonObject {
+            put("chat_window_id", s.windowId); if (character.isNotEmpty()) put("character_id", character)
+            put("hint", s.draft); put("variant", shown.size); put("avoid", JsonArray(shown.map { JsonPrimitive(it) }))
+        }
+        val v = get(listOf("channels", s.channelId, "inspiration"), body)
+        if (stamp != epoch || state.value.inspiration == null) return@launch   // closed meanwhile
+        update { copy(result = v.text("draft"), resultType = "inspiration", inspiration = v, inspirationShown = Inspiration.shown(shown, v)) }
+    }
+    /** Puts an Inspiration line, or the roll that goes with it, into the composer. Nothing is sent. */
+    fun adopt(text: String) { if (text.isBlank()) return; draft(state.value.draft + (if (state.value.draft.isEmpty()) "" else "\n") + text); result(null) }
+    // ---- pinned lines (docs/API.md): a member keeps a chat line among their group's hints until its pinner or the GM
+    // takes it down. The list is read again after either, so a new pin comes with its pinner's name.
+    fun pin(m: Message) = launch {
+        val s = state.value; val stamp = epoch
+        get(listOf("channels", s.channelId, "messages", m.id, "pin"), emptyObject)
+        reloadReminders(s, stamp)
+    }
+    fun unpin(reminderId: String) = launch {
+        val s = state.value; val stamp = epoch
+        get(listOf("channels", s.channelId, "reminders", reminderId), method = "DELETE")
+        reloadReminders(s, stamp)
+    }
+    private suspend fun reloadReminders(s: AppState, stamp: Long) {
+        val fresh = rows(listOf("channels", s.channelId, "reminders"))
+        if (stamp == epoch && s.scopeKey == state.value.scopeKey) update { copy(reminders = fresh) }
     }
     suspend fun previewDice() {
         val s = state.value; val stamp = epoch

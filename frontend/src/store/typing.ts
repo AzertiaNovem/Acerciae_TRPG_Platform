@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 
 // Who is being written as right now, per character (the flag is the character's, not the user's). Fed by the chat
-// socket's `typing.changed` and `typing.snapshot`; a flag the server never lowered (a lost event) falls here after
-// a while on its own, since the server refreshes it every few seconds while the writer keeps typing.
-const STALE_MS = 15000;
+// socket's `typing.changed` and `typing.snapshot`. The server announces a flag once when it goes up and once when it
+// falls (the writer's heartbeats are not relayed) and sends the whole list after every subscription, so a flag stays
+// up here until it is lowered; STALE_MS is only a last resort for a fall that never arrived, long enough that nobody
+// composing a long paragraph loses their pen.
+const STALE_MS = 10 * 60000;
 interface TypingState {
   byCharacter: Record<string, { windowId: string; since: number; until: number }>;
   changed: (m: { character_id: string; chat_window_id: string; active: boolean }) => void;

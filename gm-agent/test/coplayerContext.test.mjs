@@ -56,6 +56,14 @@ test("a line can carry its timeline for the GM", () => {
   assert.match(renderLine(line({ content: "We found a badge." }), { timeline: "The docks" }), /Alice \[timeline: The docks\]: We found a badge\./);
 });
 
+test("a picture line reads as words: its caption, and that it is a picture the model cannot see", () => {
+  const shown = renderLine(line({ content: "🖼️ A torn page: \"Meet me at the pier at midnight.\"", media_asset_id: "a1" }));
+  assert.match(shown, /Alice: \[posts a picture; you cannot see it, its caption says:\] A torn page: "Meet me at the pier at midnight\."$/);
+  assert.match(renderLine(line({ content: "🖼️", media_asset_id: "a2", kind: "ooc" })), /Alice \(out of character\): \[posts a picture without a caption; you cannot see pictures\]$/);
+  // The same text without a picture attached is just what someone typed.
+  assert.match(renderLine(line({ content: "🖼️ imagine a lighthouse" })), /Alice: 🖼️ imagine a lighthouse$/);
+});
+
 test("renderLine labels the GM account's lines \"GM\", in every rule system", () => {
   const m = line({ content: "The door creaks.", kind: "narration", author_role: "gm", character_name: null, visibility: "gm_only" });
   assert.match(renderLine(m, { markVisibility: true }), /^#\d+ GM \(narration\) \[GM only\]: The door creaks\.$/);

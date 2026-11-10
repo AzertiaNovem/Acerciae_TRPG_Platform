@@ -34,6 +34,10 @@ class ChatIllustrationsTest {
         assertEquals("illustration.webp", ChatIllustrations.fileName("🖼️ ", webp))
         assertEquals("illustration-".length + 40 + 4, ChatIllustrations.fileName("x".repeat(100), png).length)
         assertEquals("image/jpeg", ChatIllustrations.mime(jpeg)); assertEquals("image/webp", ChatIllustrations.mime(webp)); assertEquals("image/png", ChatIllustrations.mime(png))
+        // A picture a member uploaded: any of the four types, with or without a caption.
+        val gif = "GIF89a".toByteArray(Charsets.US_ASCII)
+        assertEquals("image/gif", ChatIllustrations.mime(gif)); assertEquals("illustration.gif", ChatIllustrations.fileName("🖼️", gif))
+        assertEquals("", ChatIllustrations.caption("🖼️")); assertEquals("A torn page", ChatIllustrations.caption("🖼️ A torn page"))
     }
     @Test fun authenticatedMessageEndpointPersistsAndSeparatesAccounts() = runBlocking {
         val root = Files.createTempDirectory("chat-images").toFile(); val server = MockWebServer(); server.start()

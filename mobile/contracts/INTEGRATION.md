@@ -120,6 +120,18 @@ Swift 的真实 WebSocket 测试可先运行 `node mobile/scripts/socket-test-se
 
 
 
+## 2026-11-10 — 输入标记、状态摘要、灵感选项与固定消息
+
+**输入标记。** 聊天流上行 `{"type":"typing","channel_id","chat_window_id","character_id","active"}`：只能为自己的角色（GM 可为任意角色）在自己所在的窗口举起；`active:true` 既是举起也是续期，服务器在最后一个包 10 秒后或该连接关闭时放下。下行 `typing.changed {chat_window_id, character_id, active}` 在举起和放下时各发一次（续期不转发，包括写的人自己也会收到），每次 `subscribed` 之后紧跟 `typing.snapshot {typing:[{chat_window_id, character_id}]}`；NPC 的标记只发给 GM。两端的 `TypingSignal` 负责上行（首次编辑举起、4 秒心跳、停顿 8 秒或文本清空时放下、目标变化时先放下旧的），`TypingFlags` 负责下行（快照整体替换；因为续期不转发，本地只保留 10 分钟的兜底超时，不能用几秒的超时判定放下）。输入标记事件不触发消息刷新。连接未订阅时 `ChatSocket.send` 不发送并返回 false，下一次心跳会重新举起。
+
+**状态摘要。** `GET /channels/{id}/characters` 每行的 `vitals`：`coc7e` 为 `{hp, hp_max, san, san_max, dex}`，`dnd2024` 为 `{hp, hp_max, ac, dex}`，`pbta` 为 `{resources:[{id,name,value}], conditions:[{id,name}]}`；数值可为 null。两端 `Vitals.parts` 输出同样的标签与文本，旧服务器没有该字段时不显示这一行。
+
+**灵感。** `POST /channels/{id}/inspiration` 的结果含 `options:[{text, kind, roll, angle}]` 与兼容用的 `draft`（等于第一个选项）；只有 `draft` 的结果按一个选项处理。「换一组」重发请求并附带 `avoid`（已展示过的句子，最多保留 12 条）与 `variant`。手机仍把输入框里的草稿作为 `hint` 发送。
+
+**固定消息。** `POST /channels/{id}/messages/{mid}/pin` 把一条可见消息固定为 `kind:"pinned"` 的提醒（重复固定返回同一条；不可见 404，已撤回 409），`DELETE /channels/{id}/reminders/{rid}` 由固定者或 GM 取消。固定与取消后客户端重新读取 `GET /channels/{id}/reminders`（列表里的行才带 `pinned_by_name`）；别的成员固定的消息随约 30 秒一次的元数据刷新出现。系统消息与已撤回的消息不提供「固定」。
+
+**测试。** `contracts/fixtures/table-status.json` 取自真实服务端（输入标记的三种帧、各规则的 `vitals` 与应显示的文本、一次灵感结果、带固定条目的提醒列表），Android `TableStatusTest` 与 iOS `TableStatusTests` 都读取它；Android `ChatSocketTest` 另外验证 `send` 在真实 WebSocket 上的行为。Android `LiveTableStatusTest` 在设置 `ACERCIAE_TEST_BASE=<本机测试服务地址>` 时用真实的 `BackendClient`／`ChatSocket` 走完举起、回显、放下、快照、连接关闭后放下，以及状态摘要、灵感和固定／取消固定；未设置时跳过。它自行注册账号并建频道，不需要种子数据，只应指向本机的 mock 服务。
+
 ## Shared session failure contract
 
 `fixtures/session-errors.json` is read by Web auth, Android core and iOS core regression tests. Only an API-shaped HTTP 401 invalidates the saved session. A gateway's HTML 401, transport loss, 403/404, rate limiting and transient 5xx errors do not revoke identity; individual resource permissions and caches are still rechecked. Each client keeps its native credential storage and retry implementation. `mobile/scripts/test-ios.sh` runs core tests and application tests in a disposable simulator; the mobile workflow and desktop workflow run on relevant pull requests.

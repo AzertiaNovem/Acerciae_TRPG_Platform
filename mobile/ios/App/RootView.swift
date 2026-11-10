@@ -189,7 +189,7 @@ private struct SidebarView: View {
                                 Button { model.result = nil; selectedCharacter = item } label: {
                                     HStack(spacing: 10) {
                                         AvatarView(model: model, name: item.name, assetId: item["avatar_asset_id"].text, version: item["avatar_asset_version"].int, hash: item["avatar_asset_hash"].text)
-                                        Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
+                                        CharacterStatusLines(item: item, typing: model.typing[item.id] != nil)
                                     }.padding(.vertical, 6)
                                 }.buttonStyle(.plain)
                             }
@@ -272,6 +272,32 @@ private struct SidebarView: View {
     }
 }
 
+/// A character's entry in the sidebar besides the avatar: the name, a pen while the character is being written as, and
+/// on a second line the numbers that matter at the table (AcerciaeCore/TableStatus.swift), hit points in red at a
+/// third or less.
+private struct CharacterStatusLines: View {
+    let item: Resource
+    let typing: Bool
+    var body: some View {
+        let parts = Vitals.of(item)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(item.name).lineLimit(1)
+                if typing { Text("✎").foregroundStyle(.yellow).accessibilityLabel(tr("typing…")) }
+            }
+            if !parts.isEmpty { vitals(parts).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func vitals(_ parts: [VitalPart]) -> Text {
+        var line = Text("")
+        for (index, part) in parts.enumerated() {
+            if index > 0 { line = line + Text(" · ") }
+            if part.low { line = line + Text(part.text).foregroundColor(.red) } else { line = line + Text(part.text) }
+        }
+        return line
+    }
+}
+
 private struct ChatView: View {
     @ObservedObject var model: AppModel
     @State private var hintsOpen = false
@@ -304,7 +330,14 @@ private struct ChatView: View {
                     }
                 }
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) { Composer(model: model) }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !model.typingLine.isEmpty {
+                            Text(model.typingLine).font(.caption2).foregroundStyle(.secondary).lineLimit(1).padding(.horizontal, 26)
+                        }
+                        Composer(model: model)
+                    }
+                }
                 .navigationTitle(model.online ? model.windowName : campaign.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
@@ -364,6 +397,14 @@ private struct MessageBubble: View {
     // Out of character the player speaks: their own avatar and name.
     private var ooc: Bool { message.kind == "ooc" }
     private var name: String { (ooc ? nil : message.characterName) ?? message.authorName }
+    // The line above the bubble: who speaks, how, and a pin while the line is pinned among the group's hints.
+    private var header: String {
+        var text = name
+        if mine { text += " · " + tr("Me") }
+        if message.kind == "narration" { text += " · " + tr("Narration") } else if message.kind == "ooc" { text += " · OOC" }
+        if model.pinOf(message) != nil { text += " · 📌" }
+        return text
+    }
     var body: some View {
         if message.recalled {
             // Taken back by its author: one quiet line in its place; the author can edit the text again.
@@ -378,9 +419,8 @@ private struct MessageBubble: View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 36) } else { avatar }
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
-                Text(name + (mine ? " · " + tr("Me") : "") + (message.kind == "narration" ? " · " + tr("Narration") : message.kind == "ooc" ? " · OOC" : ""))
-                    .font(.caption).foregroundStyle(.secondary)
-                if message.dice != nil && (message.referenceIds ?? []).isEmpty { DiceResultView(message: message) } else {
+                Text(header).font(.caption).foregroundStyle(.secondary)
+                if message.dice != nil && (message.referenceIds ?? []).isEmpty { DiceResultView(message: message).modifier(MessageMenu(message: message, model: model)) } else {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(message.referenceIds ?? [], id: \.self) { id in
                             ChatReferenceView(messageId: id, model: model)
@@ -394,7 +434,7 @@ private struct MessageBubble: View {
                     .background(mine ? Color(red: 0.21, green: 0.26, blue: 0.22) : panelColor,
                         in: UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: mine ? 18 : 5,
                                                    bottomTrailingRadius: mine ? 5 : 18, topTrailingRadius: 18))
-                    .modifier(RecallMenu(enabled: model.canRecall(message), text: message.displayText) { Task { await model.recall(message) } })
+                    .modifier(MessageMenu(message: message, model: model))
                 }
             }
             if mine { avatar } else { Spacer(minLength: 36) }
@@ -407,17 +447,23 @@ private struct MessageBubble: View {
     }
 }
 
-/// A long press on one of the user's own lines, while it can still be recalled, offers "Recall" (and "Copy", which the
-/// menu takes over from text selection). Other lines keep plain text selection.
-private struct RecallMenu: ViewModifier {
-    let enabled: Bool
-    let text: String
-    let recall: () -> Void
+/// A long press on a line offers "Copy" (the menu takes over from text selection), "Pin" to keep it among the group's
+/// hints or "Unpin" for its pinner and the GM, and on one of the user's own lines, while it can still be recalled,
+/// "Recall". A line with none of these keeps plain text selection.
+private struct MessageMenu: ViewModifier {
+    let message: Message
+    @ObservedObject var model: AppModel
     func body(content: Content) -> some View {
-        if enabled {
+        let pin = model.pinOf(message)
+        let offersPin = model.online && pin == nil && Pins.canPin(message)
+        let offersUnpin = pin.map { Pins.canUnpin($0, userId: model.session?.user.id, gm: model.gm) } ?? false
+        let offersRecall = model.canRecall(message)
+        if offersPin || offersUnpin || offersRecall {
             content.contextMenu {
-                Button { UIPasteboard.general.string = text } label: { Label(tr("Copy"), systemImage: "doc.on.doc") }
-                Button(role: .destructive, action: recall) { Label(tr("Recall"), systemImage: "arrow.uturn.backward") }
+                Button { UIPasteboard.general.string = message.displayText } label: { Label(tr("Copy"), systemImage: "doc.on.doc") }
+                if offersPin { Button { Task { await model.pin(message) } } label: { Label(tr("Pin"), systemImage: "pin") } }
+                if offersUnpin, let pin { Button { Task { await model.unpin(pin.id) } } label: { Label(tr("Unpin"), systemImage: "pin.slash") } }
+                if offersRecall { Button(role: .destructive) { Task { await model.recall(message) } } label: { Label(tr("Recall"), systemImage: "arrow.uturn.backward") } }
             }
         } else { content }
     }
@@ -473,7 +519,9 @@ private struct Composer: View {
             ForEach(model.references) { message in
                 HStack { Text(message.content).font(.caption).lineLimit(2); Spacer(); Button { model.references.removeAll { $0.id == message.id } } label: { Image(systemName: "xmark") }.accessibilityLabel(tr("Remove reference")) }
             }
-            TextField(tr("What does your character do or say?"), text: $model.draft, axis: .vertical)
+            TextField(tr("What does your character do or say?"), text: Binding(get: { model.draft }, set: { value in
+                if value != model.draft { model.draft = value; model.noteTyping() }
+            }), axis: .vertical)
                 .lineLimit(1...5).padding(.horizontal, 6).padding(.top, 6)
             if !model.diceHint.isEmpty { Text(model.diceHint).font(.caption).foregroundStyle(.secondary) }
             ViewThatFits(in: .horizontal) {

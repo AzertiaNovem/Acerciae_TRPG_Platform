@@ -103,7 +103,7 @@ Json::Value MediaService::upload(const ChannelAccess& a, const std::string& file
     return row;
 }
 Json::Value MediaService::storeInternal(const std::string& channelId, const std::string& assetType, const std::string& sourceType, const std::string& bytes, const std::string& mime, const Json::Value& meta) {
-    auto ext = mime == "image/png" ? "png" : mime == "image/jpeg" ? "jpg" : mime == "image/svg+xml" ? "svg" : mime == "audio/wav" ? "wav" : mime == "audio/mpeg" ? "mp3" : "bin";
+    auto ext = mime == "image/png" ? "png" : mime == "image/jpeg" ? "jpg" : mime == "image/webp" ? "webp" : mime == "image/gif" ? "gif" : mime == "image/svg+xml" ? "svg" : mime == "audio/wav" ? "wav" : mime == "audio/mpeg" ? "mp3" : "bin";
     auto key = contentPolicy::publicObject(sourceType, mime, meta) ? publicObjectKey(store_, channelId, assetType, ext) : safeObjectKey(channelId, assetType, ext);
     store_.put(key, bytes, mime);
     int w = 0, h = 0; probeDimensions(bytes, mime, w, h);

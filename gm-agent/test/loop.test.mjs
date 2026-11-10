@@ -232,6 +232,22 @@ test("a recalled line leaves the table: no later prompt quotes it, even after a 
   assert.ok(!t.history.lines(said.chat_window_id).some((m) => m.id === said.id));
 });
 
+test("a player's picture: with a caption it is a line the GM answers, reading the caption; without one it starts nothing", async () => {
+  const { t, api, llm } = await table();
+  const post = (over) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch",
+    message: api.add({ chat_window_id: t.primaryWindowId(), author_id: "u-alice", author_role: "player", character_id: "c-alice", ...over }) });
+  // No caption: the table cannot see pictures, so there is nothing to answer; the line is still on the record.
+  assert.equal(await post({ content: "🖼️", media_asset_id: "asset-1" }), undefined);
+  assert.equal(t.turns, 0); assert.equal(llm.calls.length, 0);
+  assert.ok(t.history.lines(t.primaryWindowId()).some((m) => m.media_asset_id === "asset-1"));
+  // With a caption: a turn, and the GM's log says a picture was posted and what its caption says.
+  await post({ content: "🖼️ The photograph from the drawer: a lighthouse at night.", media_asset_id: "asset-2" });
+  assert.equal(t.turns, 1);
+  const gmPrompt = llm.calls.find((c) => c.purpose === "director").messages[0].content;
+  assert.ok(gmPrompt.includes("[posts a picture; you cannot see it, its caption says:] The photograph from the drawer: a lighthouse at night."));
+  assert.ok(gmPrompt.includes("[posts a picture without a caption; you cannot see pictures]"), "the earlier picture is in the log as what it is");
+});
+
 test("lines the client posts never start a turn", async () => {
   const { t, api } = await table();
   await playerSays(t, api, "Hello?");

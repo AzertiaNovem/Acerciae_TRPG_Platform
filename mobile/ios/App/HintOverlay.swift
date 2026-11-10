@@ -4,20 +4,94 @@ import AcerciaeCore
 struct AssistanceOverlay: View {
     @ObservedObject var model: AppModel
     var body: some View {
+        if model.resultType == "inspiration" && model.inspiration != .null {
+            // A new result (another take) starts from its own first option.
+            InspirationOverlay(model: model, result: model.inspiration).id(model.inspiration["id"].text)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(tr("一致性检查")).font(.headline)
+                    Spacer()
+                    Button(tr("关闭")) { model.result = nil }
+                }
+                ScrollView { Text(model.result ?? "").textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+            }.padding(16)
+        }
+    }
+}
+
+/// The ways the character might play the moment, in their own voice: pick one, edit it, insert it (or the roll that
+/// goes with it). Nothing is sent for the player. "Another take" asks for three different ones.
+private struct InspirationOverlay: View {
+    @ObservedObject var model: AppModel
+    let result: JSONValue
+    private let options: [InspirationOption]
+    @State private var picked = 0
+    @State private var text: String
+    init(model: AppModel, result: JSONValue) {
+        self.model = model
+        self.result = result
+        let options = Inspiration.options(result)
+        self.options = options
+        _text = State(initialValue: options.first?.text ?? "")
+    }
+    private var roll: String { options.indices.contains(picked) ? options[picked].roll : "" }
+    private var footnote: String {
+        var note = result["notes"].text
+        if note.isEmpty { note = tr("Uses only what your character knows; it proposes, it does not decide outcomes.") }
+        let facts = result["used_fact_ids"].array.count
+        if facts > 0 { note += " · " + tr("grounded in {n} known facts").replacingOccurrences(of: "{n}", with: String(facts)) }
+        if result["llm_mode"].text == "mock" { note += " · " + tr("mock LLM") }
+        return note
+    }
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(tr(model.resultType == "inspiration" ? "灵感草稿" : "一致性检查")).font(.headline)
+                Text("✦ " + tr("灵感")).font(.headline)
                 Spacer()
                 Button(tr("关闭")) { model.result = nil }
             }
-            ScrollView { Text(model.result ?? "").textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-            if model.resultType == "inspiration" {
-                Button(tr("Insert into input")) {
-                    model.draft += (model.draft.isEmpty ? "" : "\n") + (model.result ?? ""); model.result = nil
-                }
-                Text(tr("editable · not sent")).font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(tr("Three ways to play the moment, in your character's voice. Pick one, edit it if you like, then insert it; nothing is sent for you.")).font(.caption).foregroundStyle(.secondary)
+                    ForEach(Array(options.enumerated()), id: \.offset) { index, option in card(index, option) }
+                    TextField("", text: $text, axis: .vertical).lineLimit(2...6).padding(8)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                    Text(footnote).font(.caption).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { actions }
+                VStack(alignment: .leading, spacing: 8) { actions }
+            }
+            Text(tr("Editable · not sent")).font(.caption).foregroundStyle(.secondary)
         }.padding(16)
+    }
+    private func caption(_ index: Int, _ option: InspirationOption) -> String {
+        var parts: [String] = []
+        parts.append(option.angle.isEmpty ? tr("Option {n}").replacingOccurrences(of: "{n}", with: String(index + 1)) : option.angle)
+        if option.kind == "ooc" { parts.append("OOC") }
+        if !option.roll.isEmpty { parts.append(option.roll) }
+        return parts.joined(separator: " · ")
+    }
+    private func card(_ index: Int, _ option: InspirationOption) -> some View {
+        let on = index == picked
+        return Button { picked = index; text = option.text } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(caption(index, option)).font(.caption.bold()).foregroundStyle(.tint)
+                Text(option.text).font(.subheadline).multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            .background(Color.white.opacity(on ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(on ? 0.55 : 0)))
+        }.buttonStyle(.plain).accessibilityAddTraits(on ? .isSelected : [])
+    }
+    @ViewBuilder private var actions: some View {
+        Button(tr("Insert into input")) { model.adopt(text) }
+            .buttonStyle(.borderedProminent).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        // The roll goes in after the line: send the line first, then the roll.
+        if !roll.isEmpty { Button(tr("Insert the roll") + " " + roll) { model.adopt(roll) }.buttonStyle(.bordered) }
+        Button(tr(model.busy ? "Drafting…" : "Another take")) { Task { await model.anotherTake() } }.disabled(model.busy)
     }
 }
 
@@ -73,7 +147,9 @@ struct HintOverlay: View {
             }
             if model.reminders.isEmpty && !model.gm { Text(tr("Nothing to remind you of yet.")).foregroundStyle(.secondary) }
             ForEach(model.reminders) { r in
-                card(r.name + " · " + tr(kind(r["kind"].text)), r["citations"].array.first?["quotes"].array.first?.text ?? r["why"].text, "r:" + r.id)
+                // A pinned line is its own quote: the card says who pinned it instead of repeating it.
+                if r["kind"].text == "pinned" { card("📌 " + r.name, pinnedBy(r), "r:" + r.id) }
+                else { card(r.name + " · " + tr(kind(r["kind"].text)), r["citations"].array.first?["quotes"].array.first?.text ?? r["why"].text, "r:" + r.id) }
             }
             if model.gm {
                 ForEach(model.campaign?.documents ?? []) { d in
@@ -84,6 +160,11 @@ struct HintOverlay: View {
         }
     }
     private func kind(_ kind: String) -> String { kind == "needed" ? "still open" : kind == "plan" ? "plan" : kind == "note" ? "note" : kind == "pinned" ? "pinned" : "you may have forgotten" }
+    private func pinnedBy(_ r: Resource) -> String { tr("pinned by {name}").replacingOccurrences(of: "{name}", with: r["pinned_by_name"].text) }
+    private func footer(_ r: Resource, pinned: Bool) -> String {
+        if pinned { return tr("This line was pinned by {name}; the AI keeps it in mind too.").replacingOccurrences(of: "{name}", with: r["pinned_by_name"].text) }
+        return tr("The highlighted passages are quoted verbatim from the chat; the note above is the AI reminder about them.")
+    }
     private func card(_ title: String, _ preview: String, _ id: String) -> some View {
         Button { selection = id } label: {
             VStack(alignment: .leading, spacing: 6) { Text(title).font(.subheadline.bold()); Text(preview).font(.caption).lineLimit(3).foregroundStyle(.secondary) }
@@ -91,7 +172,8 @@ struct HintOverlay: View {
         }.buttonStyle(.plain)
     }
     @ViewBuilder private func reminderBody(_ r: Resource) -> some View {
-        Text(r.name).font(.headline); Text(r["why"].text)
+        let pinned = r["kind"].text == "pinned"
+        Text((pinned ? "📌 " : "") + r.name).font(.headline); Text(pinned ? pinnedBy(r) : r["why"].text)
         if r["llm_mode"].text == "mock" { Text(tr("mock LLM")).font(.caption) }
         ForEach(Array(r["script_refs"].array.enumerated()), id: \.offset) { _, ref in
             VStack(alignment: .leading) { Text(tr("From the script") + " · " + ref["title"].text); Text(tr("Page") + " \(ref["page"].int) · " + ref["excerpt"].text).font(.caption) }
@@ -99,10 +181,14 @@ struct HintOverlay: View {
         if data["reminder"]["version"] == r["version"] {
             ForEach(Array(data["events"].array.enumerated()), id: \.offset) { _, event in HintEvent(model: model, event: event, close: close) }
         }
-        Text(tr("The highlighted passages are quoted verbatim from the chat; the note above is the AI reminder about them.")).font(.caption).foregroundStyle(.secondary)
-        Button(tr("Dismiss")) { Task { await model.run {
-            _ = try await model.get(["channels", model.channelId, "reminders", r.id, "dismiss"], body: .object([:])); try await model.refresh(); selection = ""
-        } } }.disabled(model.busy)
+        Text(footer(r, pinned: pinned)).font(.caption).foregroundStyle(.secondary)
+        if !pinned {
+            Button(tr("Dismiss")) { Task { await model.run {
+                _ = try await model.get(["channels", model.channelId, "reminders", r.id, "dismiss"], body: .object([:])); try await model.refresh(); selection = ""
+            } } }.disabled(model.busy)
+        } else if Pins.canUnpin(r, userId: model.session?.user.id, gm: model.gm) {
+            Button(tr("Unpin")) { Task { await model.unpin(r.id); selection = "" } }.disabled(model.busy)
+        }
     }
     @ViewBuilder private func documentBody(_ d: DocumentSummary) -> some View {
         Text(tr(d.title) + " · v\(d.version)").font(.headline)
