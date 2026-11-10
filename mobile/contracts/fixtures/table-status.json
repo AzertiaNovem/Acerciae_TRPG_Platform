@@ -1,0 +1,269 @@
+{
+  "_comment": "What the mobile apps decode for the table status, captured from a live server (ids shortened): typing frames on the chat stream as another member receives them (the snapshot after subscribing, a flag lowered, a flag raised), the vitals of the character list per rule system with the line each app shows, an Inspiration result (a third, out-of-character option added by hand), and the reminders with a pinned line first. Both mobile apps run their tests against this file.",
+  "typing_frames": [
+    {
+      "channel_id": "c1",
+      "type": "typing.snapshot",
+      "typing": [
+        {
+          "character_id": "ada",
+          "chat_window_id": "w1"
+        }
+      ]
+    },
+    {
+      "active": false,
+      "channel_id": "c1",
+      "character_id": "ada",
+      "chat_window_id": "w1",
+      "type": "typing.changed"
+    },
+    {
+      "active": true,
+      "channel_id": "c1",
+      "character_id": "ada",
+      "chat_window_id": "w1",
+      "type": "typing.changed"
+    }
+  ],
+  "vitals": [
+    {
+      "name": "Call of Cthulhu, wounded",
+      "vitals": {
+        "dex": 60,
+        "hp": 3,
+        "hp_max": 12,
+        "rule_system": "coc7e",
+        "san": 55,
+        "san_max": 70
+      },
+      "parts": [
+        [
+          "HP",
+          "3/12",
+          true
+        ],
+        [
+          "SAN",
+          "55/70",
+          false
+        ],
+        [
+          "DEX",
+          "60",
+          false
+        ]
+      ],
+      "line": "HP 3/12 · SAN 55/70 · DEX 60"
+    },
+    {
+      "name": "Call of Cthulhu, blank sheet",
+      "vitals": {
+        "dex": null,
+        "hp": null,
+        "hp_max": null,
+        "rule_system": "coc7e",
+        "san": null,
+        "san_max": null
+      },
+      "parts": [
+        [
+          "HP",
+          "—",
+          false
+        ],
+        [
+          "SAN",
+          "—",
+          false
+        ],
+        [
+          "DEX",
+          "—",
+          false
+        ]
+      ],
+      "line": "HP — · SAN — · DEX —"
+    },
+    {
+      "name": "Call of Cthulhu, down with no maximum on the card",
+      "vitals": {
+        "rule_system": "coc7e",
+        "hp": 0,
+        "hp_max": null,
+        "san": 40,
+        "san_max": null,
+        "dex": 50
+      },
+      "parts": [
+        [
+          "HP",
+          "0",
+          true
+        ],
+        [
+          "SAN",
+          "40",
+          false
+        ],
+        [
+          "DEX",
+          "50",
+          false
+        ]
+      ],
+      "line": "HP 0 · SAN 40 · DEX 50"
+    },
+    {
+      "name": "D&D 2024",
+      "vitals": {
+        "ac": 15,
+        "dex": 14,
+        "hp": 18,
+        "hp_max": null,
+        "rule_system": "dnd2024"
+      },
+      "parts": [
+        [
+          "HP",
+          "18",
+          false
+        ],
+        [
+          "AC",
+          "15",
+          false
+        ],
+        [
+          "DEX",
+          "14",
+          false
+        ]
+      ],
+      "line": "HP 18 · AC 15 · DEX 14"
+    },
+    {
+      "name": "PbtA: the pack's resources and the marked conditions",
+      "vitals": {
+        "rule_system": "pbta",
+        "resources": [
+          {
+            "id": "harm",
+            "name": "Harm",
+            "value": 2
+          },
+          {
+            "id": "xp",
+            "name": "XP",
+            "value": 0
+          }
+        ],
+        "conditions": [
+          {
+            "id": "afraid",
+            "name": "Afraid"
+          }
+        ]
+      },
+      "parts": [
+        [
+          "Harm",
+          "2",
+          false
+        ],
+        [
+          "XP",
+          "0",
+          false
+        ],
+        [
+          "Afraid",
+          "",
+          false
+        ]
+      ],
+      "line": "Harm 2 · XP 0 · Afraid"
+    },
+    {
+      "name": "an older server: no vitals in the row",
+      "vitals": null,
+      "parts": [],
+      "line": ""
+    }
+  ],
+  "inspiration": {
+    "id": "i1",
+    "draft": "I keep it short. \"You said, 'The master saw no one last night,' — then help me understand how that squares with what we've seen.\"",
+    "options": [
+      {
+        "angle": "probing",
+        "kind": "ic",
+        "roll": "",
+        "text": "I keep it short. \"You said, 'The master saw no one last night,' — then help me understand how that squares with what we've seen.\""
+      },
+      {
+        "angle": "measured",
+        "kind": "ic",
+        "roll": ".ra Spot Hidden",
+        "text": "I keep it short. \"Let's not rush this. Tell me again exactly what happened here.\""
+      },
+      {
+        "angle": "aside to the table",
+        "kind": "ooc",
+        "roll": "",
+        "text": "(OOC) Can I get a moment alone with the butler before we move on?"
+      }
+    ],
+    "character_id": "ada",
+    "used_fact_ids": [],
+    "notes": "Options use only facts known to Ada; each proposes an action or a question without deciding outcomes.",
+    "llm_mode": "mock",
+    "editable": true,
+    "auto_sent": false
+  },
+  "reminders": [
+    {
+      "id": "r-pin",
+      "kind": "pinned",
+      "title": "The butler sets down the tray. \"The master saw no one last night,\" he says, not meeting your eyes.",
+      "why": "Pinned by Sam",
+      "status": "active",
+      "version": 1,
+      "priority": 4,
+      "llm_mode": "user",
+      "pinned_by": "u-sam",
+      "pinned_by_name": "Sam",
+      "pinned_message_id": "m1",
+      "citations": [
+        {
+          "chat_window_id": "w1",
+          "message_id": "m1",
+          "quotes": [
+            "The butler sets down the tray. \"The master saw no one last night,\" he says, not meeting your eyes."
+          ],
+          "seq": 1
+        }
+      ],
+      "script_refs": []
+    },
+    {
+      "id": "r-ai",
+      "kind": "needed",
+      "title": "The butler avoided your eyes",
+      "why": "He may be hiding who visited last night.",
+      "status": "active",
+      "version": 2,
+      "priority": 2,
+      "llm_mode": "mock",
+      "pinned_by": null,
+      "pinned_by_name": null,
+      "pinned_message_id": null,
+      "citations": [],
+      "script_refs": []
+    }
+  ],
+  "viewer": {
+    "id": "u-sam",
+    "other": "u-mo"
+  }
+}

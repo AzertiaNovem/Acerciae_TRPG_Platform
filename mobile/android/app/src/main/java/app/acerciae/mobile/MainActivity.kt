@@ -26,7 +26,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -224,7 +227,7 @@ class MainActivity : ComponentActivity() {
                 if (windowsExpanded) items(state.windows, key = { "window:" + it.id }) { window -> SidebarRow(window.name + (if(window.number("unread") > 0) " · " + if(window.number("unread")>99) "99+" else window.number("unread").toString() else ""), window.id == state.windowId) { select(0); model.navigate { model.selectWindow(window.id) } } }
                 item { TextButton(onClick = { charactersExpanded = !charactersExpanded }) { Text(tr("Characters") + if (charactersExpanded) " −" else " +") } }
                 if (charactersExpanded && state.channelId.isNotEmpty()) item { TextButton(onClick = { showDetail("create-character") }, enabled = !state.busy) { Text(tr("添加角色")) } }
-                if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> TextButton(onClick = { showDetail("character:" + item.id) }) { ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.number("avatar_asset_version"), hash = item.text("avatar_asset_hash")); Spacer(Modifier.width(10.dp)); Text(item.name, Modifier.weight(1f)) } }
+                if (charactersExpanded) items(state.characters, key = { "character:" + it.id }) { item -> CharacterRow(item, state, model) { showDetail("character:" + item.id) } }
                 item { TextButton(onClick = { stagesExpanded = !stagesExpanded }) { Text(tr("Scenarios") + if (stagesExpanded) " −" else " +") } }
                 if (stagesExpanded) items(state.scenes, key = { "scene:" + it.id }) { item -> SidebarRow(item.name) { showDetail("scene:" + item.id) } }
                 if (state.windows.isEmpty()) item { Text(tr("Pick a server and channel, or create one from the left.")) }
@@ -252,6 +255,30 @@ class MainActivity : ComponentActivity() {
         SidebarRow(tr("Open Log Studio"), false) { select(6) }
         SidebarRow(tr("设置"), page == 2) { select(2) }
         Text(if (state.online) "${state.user?.displayName} · ${if (state.gm) "GM" else tr("Player")}" else "本地演示 · 内容不上传", Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * A character's entry in the drawer: the name, a pen while the character is being written as, and on a second line the
+ * numbers that matter at the table (core/TableStatus.kt), hit points in red at a third or less.
+ */
+@Composable private fun CharacterRow(item: JsonObject, state: AppState, model: AppViewModel, open: () -> Unit) {
+    val parts = remember(item["vitals"]) { Vitals.of(item) }
+    TextButton(onClick = open) {
+        ProfileAvatar(item.name, state, model, item.text("avatar_asset_id"), item.number("avatar_asset_version"), hash = item.text("avatar_asset_hash"))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(item.name, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (state.typing.containsKey(item.id)) Text(" ✎", Modifier.semantics { contentDescription = tr("typing…") }, color = MaterialTheme.colorScheme.secondary)
+            }
+            if (parts.isNotEmpty()) Text(buildAnnotatedString {
+                parts.forEachIndexed { i, part ->
+                    if (i > 0) append(" · ")
+                    if (part.low) withStyle(SpanStyle(color = Color(0xFFE5837B))) { append(part.text) } else append(part.text)
+                }
+            }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -299,6 +326,9 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
             else AssistanceOverlay(state, model)
         }
         }
+        val writers = state.typingHere
+        if (writers.isNotEmpty()) Text("✎ " + writers.joinToString(", ") + " · " + tr("typing…"), Modifier.padding(horizontal = 26.dp),
+            style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Composer(state, model)
     }
     }
@@ -323,17 +353,23 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         }
     } else {
     var menu by remember(message.id) { mutableStateOf(false) }
+    // A pinned line sits among the group's hints; its pinner (or the GM) can take it down again.
+    val pin = if (state.online) state.pinOf(message) else null
+    val offersPin = state.online && pin == null && Pins.canPin(message)
+    val offersUnpin = pin != null && Pins.canUnpin(pin, state.user?.id, state.gm)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {
         if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()); Spacer(Modifier.width(8.dp)) }
         Column(Modifier.widthIn(max = 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-            Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else ""),
+            Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else "") + (if (pin != null) " · 📌" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
             Spacer(Modifier.height(6.dp))
-            // A long press on one of the user's own lines, while it can still be recalled, offers "Recall".
-            Box(Modifier.pointerInput(message.id) { detectTapGestures(onLongPress = { if (model.canRecall(message)) menu = true }) }) {
+            // A long press offers "Pin" (or "Unpin"), and on one of the user's own lines, while it can still be recalled, "Recall".
+            Box(Modifier.pointerInput(message.id, offersPin, offersUnpin) { detectTapGestures(onLongPress = { if (offersPin || offersUnpin || model.canRecall(message)) menu = true }) }) {
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text(tr("Recall")) }, onClick = { menu = false; model.recall(message) })
+                if (offersPin) DropdownMenuItem(text = { Text(tr("Pin")) }, onClick = { menu = false; model.pin(message) }, enabled = !state.busy)
+                if (offersUnpin && pin != null) DropdownMenuItem(text = { Text(tr("Unpin")) }, onClick = { menu = false; model.unpin(pin.id) }, enabled = !state.busy)
+                if (model.canRecall(message)) DropdownMenuItem(text = { Text(tr("Recall")) }, onClick = { menu = false; model.recall(message) })
             }
             if (message.dice != null && message.referenceIds.isNullOrEmpty()) DiceResult(message) else Surface(shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
                 bottomEnd = if (mine) 5.dp else 18.dp, bottomStart = if (mine) 18.dp else 5.dp),

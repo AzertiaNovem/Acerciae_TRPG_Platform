@@ -38,8 +38,8 @@ class ChatSocketTest {
             override fun onOpen(webSocket: WebSocket, response: Response) { serverSockets.add(webSocket); webSocket.send("""{"type":"hello","stream":"chat"}""") }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 received.add(text)
-                val channel = Json.parseToJsonElement(text).jsonObject.text("channel_id")
-                webSocket.send("""{"type":"subscribed","channel_id":"$channel"}""")
+                val pack = Json.parseToJsonElement(text).jsonObject
+                if (pack.text("type") == "subscribe") webSocket.send("""{"type":"subscribed","channel_id":"${pack.text("channel_id")}"}""")   // a typing pack gets no reply
             }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
         })
@@ -53,12 +53,17 @@ class ChatSocketTest {
             override fun resync() { resyncs.incrementAndGet() }
         }, pause = { 50L })
         try {
+            val typing = TypingTarget("c1", "w1", "ada")
+            assertFalse("nothing is sent before the stream is subscribed", socket.send(typing.pack(true)))
             socket.follow("c1")
             assertEquals("/ws/chat?token=f1.token1", server.takeRequest(5, SECONDS)!!.path)   // a file token, never the session's
             assertEquals("""{"type":"subscribe","channel_id":"c1"}""", received.poll(5, SECONDS))
             assertEquals(true, states.poll(5, SECONDS)); assertTrue(socket.live)
             socket.follow("c1")   // the same channel again: nothing new
             val stream = serverSockets.poll(5, SECONDS)!!
+            // A typing flag goes up on the same stream, as the pack docs/API.md describes.
+            assertTrue(socket.send(typing.pack(true)))
+            assertEquals("""{"type":"typing","channel_id":"c1","chat_window_id":"w1","character_id":"ada","active":true}""", received.poll(5, SECONDS))
             stream.send(fixture()[3])
             val recall = events.poll(5, SECONDS)!!
             assertEquals("message.recalled", recall.type); assertTrue(recall.message!!.recalled)
@@ -81,6 +86,7 @@ class ChatSocketTest {
             assertEquals("a new channel's first subscription is not a resync", 1, resyncs.get())
             socket.close()
             assertEquals(false, states.poll(5, SECONDS)); assertFalse(socket.live)
+            assertFalse(socket.send(typing.pack(false)))
             assertNull(received.poll(300, java.util.concurrent.TimeUnit.MILLISECONDS))
         } finally { socket.close(); server.shutdown() }
     }

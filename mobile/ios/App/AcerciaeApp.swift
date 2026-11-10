@@ -34,6 +34,7 @@ import AcerciaeCore
                 event: { [weak self] event in self?.onPush(event) },
                 live: { [weak self] live in
                     self?.pushConnected = live
+                    if !live { self?.typingFlags.clear(); self?.showTyping() }   // the snapshot after the next subscription says who is typing
                     if live { self?.pushPending = true }
                     if self?.online == true { self?.connection = live ? "已连接 · 实时推送" : "已连接 · 自动刷新" }
                 },
@@ -41,10 +42,48 @@ import AcerciaeCore
             socket = stream; socketToken = token
         }
         stream.follow(channelId)
+        if typingTask == nil {
+            typingTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    guard let self else { return }
+                    self.sendTyping(self.typingSignal.tick())
+                    if self.typingFlags.prune() { self.showTyping() }
+                }
+            }
+        }
     }
-    func stopRealtime() { socket?.close(); socket = nil; socketToken = nil; pushConnected = false }
+    func stopRealtime() {
+        socket?.close(); socket = nil; socketToken = nil; pushConnected = false
+        typingTask?.cancel(); typingTask = nil; typingSignal.forget(); typingFlags.clear(); showTyping()
+    }
+    // ---- typing flags (AcerciaeCore/Typing.swift): a pen next to a character while it is being written as. The
+    // composer raises this device's flag over the chat stream and keeps it up while the writer types; the table's flags
+    // arrive on the same stream. The flag is the character's: writing as oneself raises none.
+    /// Characters being written as right now: character id to the window they are typed in.
+    @Published private(set) var typing: [String: String] = [:]
+    private var typingFlags = TypingFlags()
+    private var typingSignal = TypingSignal()
+    private var typingTask: Task<Void, Never>?
+    private func showTyping() { let current = typingFlags.byCharacter; if current != typing { typing = current } }
+    private func sendTyping(_ packs: [JSONValue]) { for pack in packs { socket?.send(pack) } }
+    private func lowerTyping() { sendTyping(typingSignal.lower()) }
+    /// The writer changed the composer's text (the composer calls this; restoring a saved draft does not).
+    func noteTyping() { sendTyping(typingSignal.edited(TypingTarget(channelId: channelId, windowId: windowId, characterId: characterId), text: draft)) }
+    /// Who else is writing in the window on screen (the character being written as here needs no telling).
+    var typingHere: [String] {
+        if windowId.isEmpty { return [] }
+        return characters.filter { typing[$0.id] == windowId && $0.id != characterId }.map { $0.name }
+    }
+    /// The line above the composer while someone else writes here; empty when nobody does.
+    var typingLine: String {
+        let names = typingHere
+        if names.isEmpty { return "" }
+        return "✎ " + names.joined(separator: ", ") + " · " + tr("typing…")
+    }
     func onPush(_ e: RealtimeEvent) {
         guard e.channelId.isEmpty || e.channelId == channelId else { return }
+        if typingFlags.apply(e) { showTyping(); return }   // a pen is no reason to fetch anything
         switch e.type {
         case "message.recalled": if let tombstone = e.message { applyRecall(tombstone) }
         case "character.updated", "scene.changed", "server.settings": metadataUpdated = .distantPast
@@ -134,6 +173,9 @@ import AcerciaeCore
     @Published var hasOlder = false
     @Published var diceHint = ""
     @Published var result: String?
+    /// The Inspiration result on screen (`.null`: none), and every option text shown so far (what "Another take" avoids).
+    @Published private(set) var inspiration: JSONValue = .null
+    private var inspirationShown: [String] = []
     private var client: BackendClient?
     private var epoch = UUID()
     private var drafts: [String: String] = [:]
@@ -262,6 +304,7 @@ import AcerciaeCore
         onAccountChanged()
     }
     private func clearChannel() {
+        lowerTyping(); typingFlags.clear(); showTyping(); inspiration = .null; inspirationShown = []
         stopArtworkPrefetch(reset: true)
         metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID()
         metadataUpdated = .distantPast; failedPolls = 0; nextPoll = .distantPast
@@ -303,6 +346,7 @@ import AcerciaeCore
         if id == windowId, campaign != nil { try await refresh(merge: true, metadata: false); return }
         rememberHistory()
         if !windowId.isEmpty { drafts[windowId] = draft }
+        lowerTyping(); inspiration = .null; inspirationShown = []
         epoch = UUID(); references = []; jumpMessageId = nil; speechMode = gm ? "narration" : "ic"; windowId = id; draft = drafts[id] ?? ""; campaign = nil; diceHint = ""; result = nil
         let stamp = epoch
         await restoreCachedWindow(id, stamp: stamp)
@@ -650,7 +694,7 @@ import AcerciaeCore
             jumpMessageId = message.id
         }
     }
-    func chooseRole(_ id: String) { characterId = id; role = playable.first { $0.id == id }?.name ?? (gm ? tr("旁白") : tr("场外")); diceHint = "" }
+    func chooseRole(_ id: String) { if id != characterId { lowerTyping() }; characterId = id; role = playable.first { $0.id == id }?.name ?? (gm ? tr("旁白") : tr("场外")); diceHint = "" }
     func sendDemo() { guard online else { return }; Task { await send() } }
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -663,6 +707,7 @@ import AcerciaeCore
             _ = try await self.get(["channels", self.channelId, "windows", self.windowId, "messages"], body: .object(body))
             guard stamp == self.epoch else { return }
             if self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
+            if self.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { self.lowerTyping() }   // the line is out: the pen goes down with it
             self.diceHint = ""; self.references = []
             self.refreshSoon()
         }
@@ -681,11 +726,57 @@ import AcerciaeCore
             self.resultType = type
             if type == "inspiration" {
                 // Keep existing typing intact; the sheet requires explicit adoption.
+                self.inspiration = value; self.inspirationShown = Inspiration.shown([], value)
                 self.result = value["draft"].text
             } else {
+                self.inspiration = .null
                 self.result = (value["insufficient_evidence"].bool ? tr("证据不足") : value["score_label"].text) + "\n\n" + value["rationale"].text + "\n\n证据与冲突\n" + value["evidence"].array.map { $0["summary"].text + "\n" + $0["scene_title"].text }.joined(separator: "\n\n") + "\n" + value["conflicts"].array.map { $0["description"].text }.joined(separator: "\n")
             }
         }
+    }
+    /// Three other ways to play the moment: everything shown so far goes along as `avoid` (docs/API.md).
+    func anotherTake() async {
+        guard enabled("inspiration"), !windowId.isEmpty, inspiration != .null else { return }
+        await run {
+            let stamp = self.epoch; let shown = self.inspirationShown
+            let asked = self.inspiration["character_id"].text
+            let character = asked.isEmpty ? self.characterId : asked
+            var body: [String: JSONValue] = ["chat_window_id": .string(self.windowId), "hint": .string(self.draft), "variant": .number(Double(shown.count))]
+            body["avoid"] = .array(shown.map { JSONValue.string($0) })
+            if !character.isEmpty { body["character_id"] = .string(character) }
+            let value = try await self.get(["channels", self.channelId, "inspiration"], body: .object(body))
+            guard stamp == self.epoch, self.result != nil, self.resultType == "inspiration" else { return }   // closed meanwhile
+            self.inspiration = value; self.inspirationShown = Inspiration.shown(shown, value)
+            self.result = value["draft"].text
+        }
+    }
+    /// Puts an Inspiration line, or the roll that goes with it, into the composer. Nothing is sent.
+    func adopt(_ text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        draft += (draft.isEmpty ? "" : "\n") + text
+        result = nil
+        noteTyping()
+    }
+    // ---- pinned lines (docs/API.md): a member keeps a chat line among their group's hints until its pinner or the GM
+    // takes it down. The list is read again after either, so a new pin comes with its pinner's name.
+    func pinOf(_ m: Message) -> Resource? { Pins.of(reminders, messageId: m.id) }
+    func pin(_ m: Message) async {
+        await run {
+            let stamp = self.epoch; let scope = self.scopeKey; let channel = self.channelId
+            _ = try await self.get(["channels", channel, "messages", m.id, "pin"], body: .object([:]))
+            try await self.reloadReminders(channel: channel, stamp: stamp, scope: scope)
+        }
+    }
+    func unpin(_ reminderId: String) async {
+        await run {
+            let stamp = self.epoch; let scope = self.scopeKey; let channel = self.channelId
+            _ = try await self.get(["channels", channel, "reminders", reminderId], method: "DELETE")
+            try await self.reloadReminders(channel: channel, stamp: stamp, scope: scope)
+        }
+    }
+    private func reloadReminders(channel: String, stamp: UUID, scope: String) async throws {
+        let fresh: [Resource] = try await typed(["channels", channel, "reminders"])
+        if stamp == epoch && scope == scopeKey { reminders = fresh }
     }
     func previewDice() async {
         guard online, enabled("dice"), !windowId.isEmpty, draft.trimmingCharacters(in: .whitespaces).hasPrefix(".") else { diceHint = ""; return }
