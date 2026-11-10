@@ -1,9 +1,11 @@
 package app.acerciae.mobile
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
@@ -24,16 +26,60 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 
 @Composable fun AssistanceOverlay(state: AppState, model: AppViewModel) {
+    val inspiration = state.inspiration
+    if (state.resultType == "inspiration" && inspiration != null) { InspirationOverlay(inspiration, state, model); return }
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(tr(if (state.resultType == "inspiration") "灵感草稿" else "一致性检查"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            Text(tr("一致性检查"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
             TextButton(onClick = { model.result(null) }) { Text(tr("关闭")) }
         }
         LazyColumn(Modifier.weight(1f)) { item { SelectionContainer { Text(state.result.orEmpty()) } } }
-        if (state.resultType == "inspiration") {
-            TextButton(onClick = { model.draft(state.draft + (if (state.draft.isEmpty()) "" else "\n") + state.result.orEmpty()); model.result(null) }) { Text(tr("Insert into input")) }
-            Text(tr("editable · not sent"), style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/**
+ * The ways the character might play the moment, in their own voice: pick one, edit it, insert it (or the roll that
+ * goes with it). Nothing is sent for the player. "Another take" asks for three different ones.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable private fun InspirationOverlay(result: JsonObject, state: AppState, model: AppViewModel) {
+    val options = remember(result) { Inspiration.options(result) }
+    var picked by remember(result) { mutableIntStateOf(0) }
+    var text by remember(result) { mutableStateOf(options.firstOrNull()?.text.orEmpty()) }
+    val roll = options.getOrNull(picked)?.roll.orEmpty()
+    val facts = (result["used_fact_ids"] as? JsonArray)?.size ?: 0
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("✦ " + tr("灵感"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = { model.result(null) }) { Text(tr("关闭")) }
         }
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { Text(tr("Three ways to play the moment, in your character's voice. Pick one, edit it if you like, then insert it; nothing is sent for you."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            itemsIndexed(options) { index, option ->
+                val on = index == picked
+                Surface(onClick = { picked = index; text = option.text }, shape = RoundedCornerShape(14.dp),
+                    color = if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.06f),
+                    border = if (on) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(listOfNotNull(option.angle.ifEmpty { tr("Option {n}").replace("{n}", (index + 1).toString()) }, "OOC".takeIf { option.kind == "ooc" }, option.roll.takeIf { it.isNotEmpty() }).joinToString(" · "),
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        Text(option.text, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            item { OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), minLines = 2, maxLines = 6, textStyle = MaterialTheme.typography.bodyMedium) }
+            item {
+                Text(result.text("notes").ifEmpty { tr("Uses only what your character knows; it proposes, it does not decide outcomes.") } + (if (facts > 0) " · " + tr("grounded in {n} known facts").replace("{n}", facts.toString()) else "") + (if (result.text("llm_mode") == "mock") " · " + tr("mock LLM") else ""),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { model.adopt(text) }, enabled = text.isNotBlank()) { Text(tr("Insert into input")) }
+            // The roll goes in after the line: send the line first, then the roll.
+            if (roll.isNotEmpty()) OutlinedButton(onClick = { model.adopt(roll) }) { Text(tr("Insert the roll") + " " + roll) }
+            TextButton(onClick = { model.anotherTake() }, enabled = !state.busy) { Text(tr(if (state.busy) "Drafting…" else "Another take")) }
+        }
+        Text(tr("Editable · not sent"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -87,7 +133,11 @@ import kotlinx.serialization.json.*
                     item { HintCard(tr("Notes"), board?.obj("notes")?.rows("open_threads")?.firstOrNull()?.text("summary") ?: tr("Open threads, timeline and reviewed changes.")) { selection = "notes" } }
                 }
                 if (!state.gm && state.reminders.isEmpty()) item { Text(tr("Nothing to remind you of yet.")) }
-                items(state.reminders, key = { it.id }) { r -> HintCard(r.name + " · " + tr(when(r.text("kind")) { "needed" -> "still open"; "plan" -> "plan"; "note" -> "note"; "pinned" -> "pinned"; else -> "you may have forgotten" }), (r.rows("citations").firstOrNull()?.get("quotes") as? JsonArray)?.firstOrNull()?.jsonPrimitive?.content ?: r.text("why")) { selection = "r:" + r.id } }
+                items(state.reminders, key = { it.id }) { r ->
+                    // A pinned line is its own quote: the card says who pinned it instead of repeating it.
+                    if (r.text("kind") == "pinned") HintCard("📌 " + r.name, pinnedBy(r)) { selection = "r:" + r.id }
+                    else HintCard(r.name + " · " + tr(when(r.text("kind")) { "needed" -> "still open"; "plan" -> "plan"; "note" -> "note"; else -> "you may have forgotten" }), (r.rows("citations").firstOrNull()?.get("quotes") as? JsonArray)?.firstOrNull()?.jsonPrimitive?.content ?: r.text("why")) { selection = "r:" + r.id }
+                }
                 if (state.gm) items(state.campaign?.documents.orEmpty(), key = { it.id }) { d ->
                     val count = state.campaign?.highlights?.count { it.documentId == d.id } ?: 0
                     HintCard(tr(d.title) + " · v${d.version}" + if(count > 0) " · $count " + tr("active highlights") else "", d.preview.orEmpty()) { selection = "d:" + d.id }
@@ -95,11 +145,13 @@ import kotlinx.serialization.json.*
             } else if (selection in listOf("next", "notes")) item { KeeperHintBody(board ?: JsonObject(emptyMap()), selection) }
             else if (loading) item { CircularProgressIndicator() }
             else if (reminder != null) {
-                item { Text(reminder.name, style = MaterialTheme.typography.titleMedium); Text(reminder.text("why")); if(reminder.text("llm_mode") == "mock") Text(tr("mock LLM")) }
+                val pinned = reminder.text("kind") == "pinned"
+                item { Text((if (pinned) "📌 " else "") + reminder.name, style = MaterialTheme.typography.titleMedium); Text(if (pinned) pinnedBy(reminder) else reminder.text("why")); if(reminder.text("llm_mode") == "mock") Text(tr("mock LLM")) }
                 items(reminder.rows("script_refs")) { ref -> Text(tr("From the script") + " · " + ref.text("title")); Text(tr("Page") + " ${ref.number("page")} · " + ref.text("excerpt")) }
                 if (data?.obj("reminder")?.number("version") == reminder.number("version")) items(data?.rows("events").orEmpty()) { event -> HintEvent(event, model, close) }
-                item { Text(tr("The highlighted passages are quoted verbatim from the chat; the note above is the AI reminder about them."), style = MaterialTheme.typography.bodySmall) }
-                item { TextButton(onClick = { model.launch { model.get(base + listOf("reminders", reminder.id, "dismiss"), JsonObject(emptyMap())); model.refresh(); selection = "" } }, enabled = !state.busy) { Text(tr("Dismiss")) } }
+                item { Text(if (pinned) tr("This line was pinned by {name}; the AI keeps it in mind too.").replace("{name}", reminder.text("pinned_by_name")) else tr("The highlighted passages are quoted verbatim from the chat; the note above is the AI reminder about them."), style = MaterialTheme.typography.bodySmall) }
+                if (!pinned) item { TextButton(onClick = { model.launch { model.get(base + listOf("reminders", reminder.id, "dismiss"), JsonObject(emptyMap())); model.refresh(); selection = "" } }, enabled = !state.busy) { Text(tr("Dismiss")) } }
+                else if (Pins.canUnpin(reminder, state.user?.id, state.gm)) item { TextButton(onClick = { model.unpin(reminder.id); selection = "" }, enabled = !state.busy) { Text(tr("Unpin")) } }
             } else if (document != null && state.gm) {
                 item { Text(tr(document.title) + " · v${document.version}", style = MaterialTheme.typography.titleMedium) }
                 if (data?.rows("entries").isNullOrEmpty()) item { Text(tr("Nothing recorded yet")) }
@@ -116,6 +168,7 @@ import kotlinx.serialization.json.*
         }
     }
 }
+private fun pinnedBy(reminder: JsonObject) = tr("pinned by {name}").replace("{name}", reminder.text("pinned_by_name"))
 @Composable private fun HintCard(title: String, preview: String, click: () -> Unit) {
     Surface(onClick = click, color = Color.White.copy(alpha = 0.06f), shape = RoundedCornerShape(14.dp)) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(title, style = MaterialTheme.typography.titleSmall); Text(preview, maxLines = 3, style = MaterialTheme.typography.bodySmall) }

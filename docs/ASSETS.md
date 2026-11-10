@@ -96,12 +96,42 @@ on the same browser it is emptied first. Personal settings show its size with a 
 
 
 
-## Illustrations in chat
+## Pictures in chat
 
-**Illustrate** in the chat composer (shown when the server has an image provider and illustrations are on) lets any
-member who may post in the window draw a moment of the story: they pick up to six characters as visual references
-(players: player characters; the GM: NPCs too), describe the pose, action, place and light, and choose landscape,
-portrait or square.
+**Image**, beside Send in the chat composer, posts a picture in the window. A member either uploads one of their own
+or, where the server and the GM allow it, has the image AI draw a moment; with drawing unavailable the button opens
+the file picker at once. Either way the picture is a chat line with `messages.media_asset_id`, shown with its caption
+and a Download button, and only those who may read the line may load it.
+
+### Uploaded pictures
+
+A handout, a map, a photo of a prop: anything that helps show a clue or a situation.
+
+- **Posting**: picked with the Image button, or pasted or dropped into the message box. A dialog shows the picture,
+  takes an optional caption (the message box's text is offered as the caption and leaves the box when the picture is
+  posted) and says how it will be posted: as the message box is set, in character, as narration or out of character,
+  as which character, and for the GM as a note or a whisper. `POST …/windows/{w}/images` (`IllustrationService::upload`).
+- **What is taken**: PNG, JPEG, WebP or GIF, decided by the file's content, never its name; at most 10 MB; 60 an hour
+  per person and channel. No image AI is involved, so the illustration switches do not apply and nothing is sent to
+  a provider.
+- **The line**: its text is the "🖼️" mark and then the caption. The AI chronicler, Inspiration, the GM agent and the
+  logs cannot see pictures: they read the caption, so a caption that says what the picture shows ("A torn page: meet
+  me at the pier at midnight") is what makes a picture a clue for them. The GM agent reads such a line as "posts a
+  picture; its caption says …" and takes no turn for a picture posted without a caption.
+- **Storage**: private chat art like a drawn illustration (`asset_type = 'illustration'`, `source_type = 'upload'`,
+  `source_reference.private_chat_window_id`), in the private bucket, listed in the GM's media library only and
+  usable from there like any other asset. A picture that could not be posted leaves no file. When its author recalls
+  the line, the file is deleted with it.
+- **Photos**: before a JPEG leaves the browser the web and desktop app draws it again (upright, at most 2560 px on
+  its longer side), which leaves out the camera's data such as where and when it was taken. Other formats, and
+  uploads made through the API directly, are stored as sent.
+
+### Illustrations drawn by the image AI
+
+**Draw with AI** under the Image button (offered when the server has an image provider and illustrations are on)
+lets any member who may post in the window draw a moment of the story: they pick up to six characters as visual
+references (players: player characters; the GM: NPCs too), describe the pose, action, place and light, and choose
+landscape, portrait or square.
 
 - **The prompt** (`chat/Illustrations.cpp`, `illustrationPrompt`) keeps the requester's description and adds the
   platform's direction: each named character with their appearance description, the channel's era and the current
@@ -128,11 +158,12 @@ portrait or square.
   art and lives in the public bucket under an unguessable key, as other generated art does.
 - **Optional, on by default**: the server's maintainers switch illustrations for the whole server (Server settings →
   Features → Illustrations, `features.illustrations`), and the GM for their channel under it (GM workspace → AI in this
-  channel → Illustrations, `illustrations_enabled`; greyed out while the server has it off). Off hides the button and
+  channel → Illustrations, `illustrations_enabled`; greyed out while the server has it off). Off leaves only uploading under the Image button and
   the server refuses new drawings with 403 `feature_disabled`, the GM and the GM agent included; pictures already
   posted stay, as do the job list and cancelling. The mobile apps carry both switches in their server and GM settings.
-- **Saving a picture**: the web app shows **Download** under each picture: a browser downloads it (the server names
-  the file `illustration-<date>-<description>.png`), and the desktop app asks where with its own "Save as". On
+- **Saving a picture** (drawn or uploaded): the web app shows **Download** under each picture: a browser downloads
+  it (the server names the file `illustration-<date>-<description>.png`, or `picture-<date>-<caption>` with the
+  picture's own extension for an uploaded one), and the desktop app asks where with its own "Save as". On
   Android, **Save** in the full-screen picture opens the system's file picker (no storage permission). On iOS it opens
   the share sheet ("Save Image" to Photos, "Save to Files", AirDrop); the app declares
   `NSPhotoLibraryAddUsageDescription` for that. Both apps save the original bytes from their disk cache under the

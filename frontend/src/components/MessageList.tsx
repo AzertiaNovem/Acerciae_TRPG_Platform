@@ -97,7 +97,8 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   );
 }
 
-// An illustration drawn on request: the picture (loaded through its line) and the description as its caption.
+// A line's picture, drawn on request or uploaded by its author: the picture (loaded through its line) and, when it
+// has one, the description or caption under it.
 function Illustration({ m, jumped }: { m: Message; jumped: boolean }) {
   const [failed, setFailed] = useState(false);
   const url = api.messageImageUrl(m.channel_id, m.id);
@@ -105,8 +106,8 @@ function Illustration({ m, jumped }: { m: Message; jumped: boolean }) {
   return (
     <figure className={`message-illustration ${jumped ? 'jumped' : ''}`}>
       {failed ? <div className="muted small">{tr('The picture could not be loaded.')}</div>
-        : <a href={url} target="_blank" rel="noopener noreferrer"><img src={url} alt={caption} loading="lazy" onError={() => setFailed(true)} /></a>}
-      <figcaption className="content">{caption}</figcaption>
+        : <a href={url} target="_blank" rel="noopener noreferrer"><img src={url} alt={caption || tr('Picture')} loading="lazy" onError={() => setFailed(true)} /></a>}
+      {caption && <figcaption className="content">{caption}</figcaption>}
       {!failed && <div className="row"><DownloadPicture m={m} /></div>}
     </figure>
   );
@@ -164,6 +165,15 @@ export default function MessageList() {
     else { setStick(true); el.scrollTop = el.scrollHeight; }
   }, [windowId]);
   useEffect(() => { if (stick && ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [messages.length, stick, windowId]);
+  // A picture that finishes loading after its line arrived makes the line taller: stay at the newest line. (`load`
+  // does not bubble, so it is caught on the way down.)
+  const sticking = useRef(true); sticking.current = stick;
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const settle = () => { if (sticking.current) el.scrollTop = el.scrollHeight; };
+    el.addEventListener('load', settle, true);
+    return () => el.removeEventListener('load', settle, true);
+  }, [windowId]);
   useEffect(() => {
     if (!jumpTo) return;
     const el = document.getElementById(`msg-${jumpTo.messageId}`);

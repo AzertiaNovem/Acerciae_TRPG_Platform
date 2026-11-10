@@ -462,7 +462,13 @@ fieldset legend { font-size: 12px; color: var(--fg-1); padding: 0 6px; }
 .message-illustration { margin: 4px 0 0; display: flex; flex-direction: column; gap: 4px; max-width: min(520px, 100%); }
 .message-illustration img { display: block; max-width: 100%; max-height: 420px; border-radius: 10px; border: 1px solid var(--bg-4); object-fit: contain; background: var(--bg-3); }
 .message-illustration figcaption { font-size: .9em; opacity: .85; }
-.modal.illustrate textarea { width: 100%; resize: vertical; }
+.modal.illustrate textarea, .modal.upload-picture textarea { width: 100%; resize: vertical; }
+.image-button { position: relative; display: inline-flex; }
+.image-menu { position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 40; display: flex; flex-direction: column; gap: 2px; min-width: 250px; padding: 6px; background: var(--bg-2); border: 1px solid var(--bg-4); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+.image-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 8px; white-space: normal; }
+.image-menu button:hover { background: var(--bg-3); }
+.image-menu button b { color: var(--fg-0); font-weight: 600; }
+.upload-preview { display: block; max-width: 100%; max-height: 320px; margin: 0 auto; border-radius: 10px; border: 1px solid var(--bg-4); object-fit: contain; background: var(--bg-3); }
 .illustrate-cast { display: flex; flex-wrap: wrap; gap: 6px; }
 .illustrate-who { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--bg-4); border-radius: 999px; cursor: pointer; }
 .illustrate-who.on { border-color: var(--accent, #7aa2f7); background: var(--bg-3); }

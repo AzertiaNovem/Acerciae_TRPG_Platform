@@ -22,10 +22,11 @@ object ChatIllustrations {
         val name = slug.toString().trim('-')
         return "illustration" + (if (name.isEmpty()) "" else "-$name") + extension(bytes)
     }
-    fun extension(bytes: ByteArray): String = when (mime(bytes)) { "image/jpeg" -> ".jpg"; "image/webp" -> ".webp"; else -> ".png" }
+    fun extension(bytes: ByteArray): String = when (mime(bytes)) { "image/jpeg" -> ".jpg"; "image/webp" -> ".webp"; "image/gif" -> ".gif"; else -> ".png" }
     fun mime(bytes: ByteArray): String = when {
         bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte() -> "image/jpeg"
         bytes.size >= 12 && String(bytes, 0, 4, Charsets.US_ASCII) == "RIFF" && String(bytes, 8, 4, Charsets.US_ASCII) == "WEBP" -> "image/webp"
+        bytes.size >= 4 && String(bytes, 0, 4, Charsets.US_ASCII) == "GIF8" -> "image/gif"   // a member's uploaded picture may be one
         else -> "image/png"
     }
     /** A message's picture never changes; its endpoint permits private caching without immutable. */

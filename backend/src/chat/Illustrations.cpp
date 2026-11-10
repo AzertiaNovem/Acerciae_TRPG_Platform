@@ -7,6 +7,7 @@
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
+#include "../core/Log.h"
 #include "../characters/Outfits.h"
 #include <set>
 
@@ -14,7 +15,10 @@ namespace acerciae {
 namespace {
 size_t utf8Chars(const std::string& s) { size_t n = 0; for (unsigned char c : s) if ((c & 0xC0) != 0x80) ++n; return n; }
 constexpr size_t kReferenceBytes = 20u * 1024 * 1024;   // the image provider's limit for all references together
+const std::string kPictureMark = "\xF0\x9F\x96\xBC\xEF\xB8\x8F";   // 🖼️
 }
+
+std::string pictureLine(const std::string& caption) { return caption.empty() ? kPictureMark : kPictureMark + " " + caption; }
 
 // The platform's direction around the requester's description. The image model is asked to dare an unexpected
 // viewpoint instead of the plain front-facing portrait it would draw by default, while keeping every named character
@@ -62,7 +66,7 @@ std::string illustrationIdentity(const std::vector<IllustrationCharacter>& chara
            "characters; pose, expression, framing and viewpoint are free.";
 }
 
-std::string illustrationFileName(const std::string& content, const std::string& createdAt, const std::string& mime) {
+std::string illustrationFileName(const std::string& content, const std::string& createdAt, const std::string& mime, const std::string& prefix) {
     std::string text = content;
     for (const std::string mark : {std::string("\xF0\x9F\x96\xBC\xEF\xB8\x8F"), std::string("\xF0\x9F\x96\xBC")})   // 🖼️ / 🖼
         if (text.rfind(mark, 0) == 0) { text = text.substr(mark.size()); break; }
@@ -81,11 +85,11 @@ std::string illustrationFileName(const std::string& content, const std::string& 
     while (!slug.empty() && slug.back() == '-') slug.pop_back();
     while (!slug.empty() && slug.front() == '-') slug.erase(slug.begin());
     std::string date = createdAt.size() >= 10 ? createdAt.substr(0, 10) : "";
-    std::string ext = mime == "image/jpeg" ? ".jpg" : mime == "image/webp" ? ".webp" : ".png";
-    return "illustration" + (date.empty() ? "" : "-" + date) + (slug.empty() ? "" : "-" + slug) + ext;
+    std::string ext = mime == "image/jpeg" ? ".jpg" : mime == "image/webp" ? ".webp" : mime == "image/gif" ? ".gif" : ".png";
+    return prefix + (date.empty() ? "" : "-" + date) + (slug.empty() ? "" : "-" + slug) + ext;
 }
 
-Json::Value IllustrationService::request(const ChannelAccess& a, const std::string& windowId, const Json::Value& body) {
+void IllustrationService::requireOpenWindow(const ChannelAccess& a, const std::string& windowId) {
     if (!Visibility::isUuid(windowId)) throw notFound("window not found");
     auth_.requireWindowMember(a, windowId);
     auto win = db_.queryOne("SELECT archived_at FROM chat_windows WHERE id=$1 AND channel_id=$2", {windowId, a.channelId});
@@ -93,6 +97,10 @@ Json::Value IllustrationService::request(const ChannelAccess& a, const std::stri
     if (!win["archived_at"].isNull()) throw conflict("This window is archived. Restore it or fork it to continue.");
     if (!a.isGm && !db_.queryOne("SELECT 1 AS paused FROM chat_window_members WHERE chat_window_id=$1 AND user_id=$2 AND visibility_paused", {windowId, a.userId}).isNull())
         throw forbidden("Your participation in this window is paused");
+}
+
+Json::Value IllustrationService::request(const ChannelAccess& a, const std::string& windowId, const Json::Value& body) {
+    requireOpenWindow(a, windowId);
 
     auto scene = text::trim(json::str(body, "prompt"));
     if (scene.empty()) throw badRequest("describe the picture: who does what, and where");
@@ -205,7 +213,7 @@ void IllustrationService::posted(const Json::Value& job, const Json::Value& asse
     auto a = auth_.channelAccess(job["created_by"].asString(), job["channel_id"].asString());
     Json::Value body;
     body["kind"] = "ooc";
-    body["content"] = "\xF0\x9F\x96\xBC\xEF\xB8\x8F " + json::str(at, "user_prompt");   // "🖼️ " and the description
+    body["content"] = pictureLine(json::str(at, "user_prompt"));   // "🖼️ " and the description
     auto msg = chat_.postMessage(a, json::str(at, "window_id"), body, Json::Value(), asset["id"].asString());
     db_.exec("UPDATE asset_generation_jobs SET params=jsonb_set(params, '{attach,message_id}', to_jsonb($2::text)) WHERE id=$1", {job["id"].asString(), msg["id"].asString()});
 }
@@ -218,7 +226,65 @@ bool IllustrationService::image(const ChannelAccess& a, const std::string& messa
     ChannelAccess reader = a; reader.isGm = true;   // the picture follows its line, not the media library's scope
     std::string name;
     if (!media_.fetch(reader, id, 0, bytes, mime, name, redirectUrl)) return false;
-    if (fileName) *fileName = illustrationFileName(m["content"].asString(), m["created_at"].asString(), mime);
+    if (fileName) {
+        const bool uploaded = !db_.queryOne("SELECT 1 AS x FROM media_assets WHERE id=$1 AND source_type='upload'", {id}).isNull();
+        *fileName = illustrationFileName(m["content"].asString(), m["created_at"].asString(), mime, uploaded ? "picture" : "illustration");
+    }
     return true;
+}
+
+Json::Value IllustrationService::upload(const ChannelAccess& a, const std::string& windowId, const std::string& fileName, const std::string& bytes, const Json::Value& fields) {
+    requireOpenWindow(a, windowId);
+    auto kind = json::str(fields, "kind", "ic");
+    if (kind != "ic" && kind != "ooc" && kind != "narration") throw badRequest("a picture is posted in character, as narration or out of character");
+    auto caption = text::trim(json::str(fields, "content"));
+    if (utf8Chars(caption) > (size_t)kMaxCaptionChars) throw badRequest("the caption is too long (at most " + std::to_string(kMaxCaptionChars) + " characters)");
+    if (bytes.empty()) throw badRequest("the file is empty");
+    if (bytes.size() > (size_t)kMaxUploadBytes) throw ApiError(413, "too_large", "the picture is too large (at most " + std::to_string(kMaxUploadBytes / (1024 * 1024)) + " MB)");
+    // The content decides what it is, never the name or the declared type; nothing but a raster image is taken.
+    auto mime = logstudio::MediaService::sniffMime(bytes, "");
+    if (mime != "image/png" && mime != "image/jpeg" && mime != "image/webp" && mime != "image/gif") throw badRequest("upload a PNG, JPEG, WebP or GIF image");
+    if (db_.queryOne("SELECT count(*) AS n FROM media_assets WHERE channel_id=$1 AND created_by=$2 AND source_type='upload' AND source_reference ? 'private_chat_window_id' AND created_at > now() - interval '1 hour'",
+                     {a.channelId, a.userId})["n"].asInt() >= kUploadsPerHour)
+        throw ApiError(429, "rate_limited", "at most " + std::to_string(kUploadsPerHour) + " pictures an hour; try again later");
+
+    // Private chat art, like a drawn illustration: served only through its line, listed for the GM alone.
+    Json::Value meta;
+    meta["name"] = "Picture · " + text::utf8Prefix(caption.empty() ? fileName : caption, 80);
+    meta["approval_status"] = "approved"; meta["visibility_scope"] = "gm"; meta["created_by"] = a.userId;
+    meta["source_reference"]["private_chat_window_id"] = windowId;
+    meta["source_reference"]["file_name"] = text::utf8Prefix(fileName, 200);
+    meta["source_reference"]["uploaded_by"] = a.userId;
+    auto asset = media_.storeInternal(a.channelId, "illustration", "upload", bytes, mime, meta);
+
+    Json::Value body;
+    body["kind"] = kind;
+    body["content"] = pictureLine(caption);   // the mark first: a caption is never read as a dice command
+    for (const char* key : {"character_id", "visibility"}) if (!json::str(fields, key).empty()) body[key] = json::str(fields, key);
+    Json::Value to(Json::arrayValue);   // a form field carries the list comma-separated
+    const auto list = json::str(fields, "whisper_to");
+    for (size_t from = 0; from <= list.size(); ) {
+        auto comma = list.find(',', from);
+        auto id = text::trim(list.substr(from, comma == std::string::npos ? std::string::npos : comma - from));
+        if (!id.empty()) to.append(id);
+        if (comma == std::string::npos) break;
+        from = comma + 1;
+    }
+    if (to.size()) body["whisper_to"] = to;
+    try { return chat_.postMessage(a, windowId, body, Json::Value(), asset["id"].asString()); }
+    catch (...) {
+        // Not posted (not their character, a whisper without a reader, …): nothing of the file is kept.
+        ChannelAccess sys = a; sys.isGm = true;
+        try { media_.remove(sys, asset["id"].asString()); } catch (const std::exception& e) { ALOG_WARN << "could not drop an unposted picture: " << e.what(); }
+        throw;
+    }
+}
+
+void IllustrationService::recalled(const ChannelAccess& a, const Json::Value& tombstone) {
+    auto id = json::str(tombstone, "media_asset_id");
+    if (id.empty() || tombstone["recalled_at"].isNull()) return;
+    if (db_.queryOne("SELECT 1 AS x FROM media_assets WHERE id=$1 AND channel_id=$2 AND source_type='upload' AND source_reference ? 'private_chat_window_id'", {id, a.channelId}).isNull()) return;
+    ChannelAccess sys = a; sys.isGm = true;
+    try { media_.remove(sys, id); } catch (const std::exception& e) { ALOG_WARN << "recall: the picture of " << json::str(tombstone, "id") << " was not deleted: " << e.what(); }
 }
 } // namespace acerciae

@@ -6,20 +6,24 @@ import { useChat } from '../store/chat';
 import { useUi } from '../store/ui';
 import { useEscape } from '../hooks/useEscape';
 import CachedImg from './CachedImg';
+import { MAX_PICTURE_BYTES, PICTURE_ACCEPT, PICTURE_TYPES, preparePicture } from '../lib/picture';
 import type { IllustrationJob } from '../types';
 
 const MAX_CHARACTERS = 6, MAX_PROMPT = 1500;
 
-// Illustrate a moment: pick characters as visual references (their main portraits), describe the pose, action and
-// place, and the server's image AI draws it. The platform asks it to dare an unexpected viewpoint. The picture is
-// posted in this window as the requester's out-of-character line.
-export default function IllustrateButton() {
+// The picture button beside Send. A member posts an image of their own (a handout, a map, a photo of a prop: picked
+// here, or pasted or dropped into the message box) or, where the server and the GM allow it, has the image AI draw a
+// moment. With drawing unavailable the button opens the file picker at once.
+export default function ImageButton({ canDraw, onPick }: { canDraw: boolean; onPick: (file: File) => void }) {
   const { channelId, windowId, characters } = useNav();
   const toast = useUi((s) => s.toast);
-  const [open, setOpen] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [drawing, setDrawing] = useState(false);
   const [jobs, setJobs] = useState<IllustrationJob[]>([]);
   const reported = useRef(new Set<string>());
-  const busy = jobs.find((j) => j.status === 'pending' || j.status === 'running');
+  const picker = useRef<HTMLInputElement>(null);
+  const wrap = useRef<HTMLSpanElement>(null);
+  const busy = canDraw ? jobs.find((j) => j.status === 'pending' || j.status === 'running') : undefined;
 
   const refresh = async () => {
     if (!channelId) return;
@@ -34,25 +38,97 @@ export default function IllustrateButton() {
     } catch { /* the list is only a progress view */ }
   };
   // Earlier failures are not announced again; while a picture is being drawn, the list is checked every few seconds.
-  useEffect(() => { reported.current = new Set(); if (channelId) api.illustrations(channelId).then((mine) => { mine.forEach((j) => reported.current.add(j.id)); setJobs(mine); }).catch(() => undefined); }, [channelId]);
+  useEffect(() => { reported.current = new Set(); setJobs([]); if (channelId && canDraw) api.illustrations(channelId).then((mine) => { mine.forEach((j) => reported.current.add(j.id)); setJobs(mine); }).catch(() => undefined); }, [channelId, canDraw]);
   useEffect(() => { if (!busy) return; const t = setInterval(refresh, 3000); return () => clearInterval(t); }, [busy?.id, channelId]);
   // The picture arrives as a new line over the live socket: check at once instead of at the next tick.
   const latest = useChat((s) => { const list = windowId ? s.byWindow[windowId] : undefined; return list?.length ? list[list.length - 1].id : undefined; });
   useEffect(() => { if (busy) refresh(); }, [latest]);
+  // The menu closes on a click elsewhere and on Escape.
+  useEffect(() => {
+    if (!menu) return;
+    const away = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setMenu(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(false); };
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key); };
+  }, [menu]);
 
+  const choose = () => { setMenu(false); picker.current?.click(); };
   return (
-    <>
-      <button className="ai-btn" onClick={() => setOpen(true)} title={tr('Draw a picture of this moment and post it here')}>
-        {busy ? tr('Drawing…') : tr('▣ Illustrate')}
+    <span className="image-button" ref={wrap}>
+      <button onClick={() => (canDraw ? setMenu((m) => !m) : choose())} aria-haspopup={canDraw ? 'menu' : undefined} aria-expanded={canDraw ? menu : undefined}
+        title={canDraw ? tr('Post a picture: upload one, or have the AI draw this moment') : tr('Post a picture: a handout, a map, a photo')}>
+        {busy ? tr('Drawing…') : tr('▣ Image')}
       </button>
-      {open && channelId && windowId && (
-        <IllustrateDialog channelId={channelId} windowId={windowId} characters={characters} jobs={jobs} busy={!!busy}
-          onClose={() => setOpen(false)} onQueued={refresh} />
+      <input ref={picker} type="file" accept={PICTURE_ACCEPT} hidden data-testid="picture-file"
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onPick(f); }} />
+      {menu && (
+        <div className="image-menu" role="menu">
+          <button role="menuitem" className="ghost" onClick={choose}>
+            <b>{tr('Upload an image…')}</b><span className="tiny muted">{tr('A handout, a map, a photo: posted here as your line')}</span>
+          </button>
+          <button role="menuitem" className="ghost" onClick={() => { setMenu(false); setDrawing(true); }}>
+            <b>{tr('Draw with AI…')}</b><span className="tiny muted">{tr('Draw a picture of this moment and post it here')}</span>
+          </button>
+        </div>
       )}
-    </>
+      {drawing && channelId && windowId && (
+        <IllustrateDialog channelId={channelId} windowId={windowId} characters={characters} jobs={jobs} busy={!!busy}
+          onClose={() => setDrawing(false)} onQueued={refresh} />
+      )}
+    </span>
   );
 }
 
+// A picture of the member's own, about to be posted: a preview, an optional caption, and how it will be posted (as
+// the message box is set: in character, as narration or out of character, as which character, to whom).
+export function UploadPictureDialog({ file, channelId, windowId, caption: initial, fields, postedAs, onClose, onPosted }: {
+  file: File; channelId: string; windowId: string; caption: string;
+  fields: { kind: string; character_id?: string; visibility?: string; whisper_to?: string };
+  postedAs: string; onClose: () => void; onPosted: (caption: string) => void;
+}) {
+  useEscape(onClose);
+  const toast = useUi((s) => s.toast);
+  const [caption, setCaption] = useState(initial);
+  const [sending, setSending] = useState(false);
+  const [preview, setPreview] = useState('');
+  useEffect(() => { const url = URL.createObjectURL(file); setPreview(url); return () => URL.revokeObjectURL(url); }, [file]);
+  const known = !file.type || PICTURE_TYPES.includes(file.type);
+  const post = async () => {
+    setSending(true);
+    try {
+      const ready = await preparePicture(file);
+      if (ready.size > MAX_PICTURE_BYTES) { toast(tr('The picture is too large (at most {n} MB).', { n: MAX_PICTURE_BYTES / (1024 * 1024) }), 'error'); return; }
+      await api.postPicture(channelId, windowId, ready, { ...fields, content: caption.trim() });
+      onPosted(caption.trim()); onClose();
+    } catch (e: any) { toast(e.message, 'error'); }
+    finally { setSending(false); }
+  };
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal col upload-picture" role="dialog" aria-modal="true" aria-label={tr('Post a picture')} onClick={(e) => e.stopPropagation()}>
+        <h3>{tr('Post a picture')}</h3>
+        {known ? <img className="upload-preview" src={preview} alt="" /> : <div className="muted small">{tr('Choose a PNG, JPEG, WebP or GIF image.')}</div>}
+        <div className="tiny muted">{file.name} · {(file.size / 1024 / 1024).toFixed(file.size < 1024 * 1024 ? 2 : 1)} MB</div>
+        <label className="col" style={{ gap: 4 }}>
+          <span className="section-label">{tr('Caption (optional)')}</span>
+          <textarea rows={3} maxLength={2000} value={caption} onChange={(e) => setCaption(e.target.value)} autoFocus
+            placeholder={tr('What the picture shows: a clue, a place, a handout…')}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && known && !sending) { e.preventDefault(); post(); } }} />
+        </label>
+        <p className="tiny muted">{tr('The AI helpers cannot see pictures: they read the caption.')}{file.type === 'image/jpeg' ? ' ' + tr('A photo is redrawn in your browser first, which leaves out where and when it was taken.') : ''}</p>
+        <div className="row" style={{ justifyContent: 'flex-end', gap: 8, alignItems: 'center' }}>
+          <span className="tiny muted grow">{tr('Posted as {who}', { who: postedAs })}</span>
+          <button onClick={onClose}>{tr('Cancel')}</button>
+          <button className="primary" onClick={post} disabled={sending || !known}>{sending ? tr('Sending…') : tr('Post')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Illustrate a moment: pick characters as visual references (their main portraits), describe the pose, action and
+// place, and the server's image AI draws it. The platform asks it to dare an unexpected viewpoint. The picture is
+// posted in this window as the requester's out-of-character line.
 function IllustrateDialog({ channelId, windowId, characters, jobs, busy, onClose, onQueued }: {
   channelId: string; windowId: string; characters: ReturnType<typeof useNav.getState>['characters']; jobs: IllustrationJob[]; busy: boolean; onClose: () => void; onQueued: () => void;
 }) {
