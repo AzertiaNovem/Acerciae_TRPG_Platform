@@ -84,7 +84,9 @@ class BackendClient(
         val url = cacheKey(path, query)
         val key = AssetDiskCache.key(hash, url)
         val task = transferLock.withLock {
-            transfers[key] ?: transferScope.async(start = CoroutineStart.LAZY) {
+            // Join a download of the same thing that is still under way. One that has finished is removed a moment
+            // later; until then it must not answer a new request (that would skip the server, no-store included).
+            transfers[key]?.takeUnless { it.isCompleted } ?: transferScope.async(start = CoroutineStart.LAZY) {
                 val cache = assets; val generation = cache?.generation()
                 cache?.get(key)?.let { return@async it }
                 val fetched = sendFetched(Request.Builder().url(url).header("Authorization", "Bearer $token").build())
