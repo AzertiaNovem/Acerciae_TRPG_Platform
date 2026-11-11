@@ -413,20 +413,28 @@ private struct MessageBubble: View {
                     .font(.caption).italic().foregroundStyle(.secondary)
                 if mine && model.recallDrafts[message.id] != nil { Button(tr("Re-edit")) { model.reedit(message.id) }.font(.caption) }
             }.frame(maxWidth: .infinity)
+        } else if separate && message.diceTone == .notice {
+            // A hidden roll's public notice is the dice's own announcement.
+            DiceBotRow(message: message, model: model)
+        } else if separate {
+            VStack(spacing: 12) { bubble; DiceBotRow(message: message, model: model) }
         } else { bubble }
     }
+    // Dice results follow the account's choice: a separate message from the dice (default) or under the command.
+    private var separate: Bool { message.dice != nil && DiceDisplay.isSeparate(model.session?.user) }
     private var bubble: some View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 36) } else { avatar }
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
                 Text(header).font(.caption).foregroundStyle(.secondary)
-                if message.dice != nil && (message.referenceIds ?? []).isEmpty { DiceResultView(message: message).modifier(MessageMenu(message: message, model: model)) } else {
+                if message.dice != nil && (message.referenceIds ?? []).isEmpty && !separate { DiceResultView(message: message).modifier(MessageMenu(message: message, model: model)) } else {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(message.referenceIds ?? [], id: \.self) { id in
                             ChatReferenceView(messageId: id, model: model)
                                 .id("\(model.session?.user.id ?? ""):\(model.scopeKey):\(model.windowId):\(id)")
                         }
-                        if message.dice != nil { DiceResultView(message: message) }
+                        if message.dice != nil && separate { Text(message.content).font(.system(.body, design: .monospaced)).textSelection(.enabled) }
+                        else if message.dice != nil { DiceResultView(message: message) }
                         else if message.hasIllustration { ChatIllustration(message: message, model: model) }
                         else { Text(message.displayText).textSelection(.enabled) }
                     }
@@ -610,6 +618,12 @@ private struct SettingsView: View {
                 Button(tr("退出登录"), role: .destructive) { model.logout() }.disabled(model.busy)
             }
             Section { LanguagePicker(model: model); Text(tr("This changes your interface only. Server AI output language stays unchanged.")).font(.caption) }
+            Section(tr("Dice results")) {
+                Picker(tr("Dice results"), selection: Binding(get: { model.session?.user.diceDisplay ?? DiceDisplay.separate }, set: { value in Task { await model.changeDiceDisplay(value) } })) {
+                    Text(tr("As a separate message from the dice")).tag(DiceDisplay.separate)
+                    Text(tr("Under the roll command")).tag(DiceDisplay.inline)
+                }.disabled(model.busy)
+            }
             Section(tr("Channel atmosphere backgrounds")) {
                 Toggle(tr("Show channel atmosphere backgrounds"), isOn: Binding(get: { model.session?.user.atmosphereEnabled == true }, set: { value in Task { await model.changeAtmosphere(value) } })).disabled(model.busy)
                 Text(tr("Backgrounds follow the app theme and screen orientation. The server must also enable this feature.")).font(.caption)

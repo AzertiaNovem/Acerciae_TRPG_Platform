@@ -285,6 +285,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!))
         }
     }
+    fun changeDiceDisplay(display: String) = launch {
+        val auth = session ?: return@launch
+        val value = get(listOf("auth", "me"), payload("dice_display" to display), "PUT")
+        if (session?.token != auth.token) return@launch
+        val user = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<User>(value)
+        session = Session(auth.token, user); update { copy(user = user) }
+        sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!))
+    }
     fun changeAtmosphere(enabled: Boolean) = launch {
         val auth = session ?: return@launch
         val value = get(listOf("auth", "me"), buildJsonObject { put("atmosphere_enabled", enabled) }, "PUT")
@@ -543,7 +551,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val servers = rows(listOf("servers"))
         if (stamp != epoch) return
         val auth = session
-        if (auth != null && profile.uiLanguage != null && (profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.hasAvatar != auth.user.hasAvatar || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled)) {
+        if (auth != null && profile.uiLanguage != null && (profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.hasAvatar != auth.user.hasAvatar || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled || profile.diceDisplay != auth.user.diceDisplay)) {
             session = Session(auth.token, profile); update { copy(user = profile) }; MobileLocale.set(profile.uiLanguage)
             runCatching { sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!)) }
         }

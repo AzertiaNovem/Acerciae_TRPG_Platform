@@ -28,6 +28,29 @@ class PresentationTest {
         assertEquals("A made a hidden roll.", hidden.displayText)
         assertEquals("", message("""{"type":"hidden_notice"}""").displayText)
     }
+    @Test fun everyOutcomeHasItsToneAndRepeatedChecksColourEachLine() {
+        listOf("critical" to DiceTone.CRITICAL, "extreme" to DiceTone.EXTREME, "hard" to DiceTone.HARD, "regular" to DiceTone.SUCCESS, "failure" to DiceTone.FAILURE, "fumble" to DiceTone.FUMBLE).forEach { (level, tone) ->
+            assertEquals(tone, message("""{"type":"check","rolls":[{"level":"$level"}]}""").diceTone)
+        }
+        assertEquals(DiceTone.ROLL, message("""{"type":"roll","text":"2d6=8","rolls":[{"total":8}]}""").diceTone)
+        assertEquals(DiceTone.NEUTRAL, message("""{"type":"st","text":"STR 50"}""").diceTone)
+        val repeated = message("""{"type":"check","text":"one\ntwo\nthree","rolls":[{"level":"hard"},{"level":"fumble"},{"level":"regular"}]}""")
+        assertEquals(listOf("one" to DiceTone.HARD, "two" to DiceTone.FUMBLE, "three" to DiceTone.SUCCESS), repeated.diceLines)
+        assertEquals(listOf("only" to DiceTone.CRITICAL), message("""{"type":"check","text":"only","rolls":[{"level":"critical"}]}""").diceLines)
+        // Dice notation stays plain; the numbers that fell stand out.
+        assertEquals(listOf("96", "99", "6", "4", "14"), diceNumberPattern.findAll("D100=96/99, 3d6=[6+4]=14").map { it.value }.toList())
+    }
+    @Test fun dicePersonaAndDisplayPreference() {
+        val bot = message("""{"type":"roll","text":"x","bot":{"name":"Madame Fortune","group_id":"g1","avatar_version":2}}""").diceBot!!
+        assertEquals(DiceBot("Madame Fortune", "g1", 2), bot)
+        assertNull(message("""{"type":"roll","text":"x"}""").diceBot)
+        assertEquals(DiceBot("Dice", "", 0), message("""{"type":"roll","text":"x","bot":{"name":"Dice","avatar_version":0}}""").diceBot)
+        fun user(display: String?) = Json.decodeFromString<User>("""{"id":"u","username":"u","display_name":"A"${display?.let { ""","dice_display":"$it"""" } ?: ""}}""")
+        assertTrue(DiceDisplay.separate(user(null)))
+        assertTrue(DiceDisplay.separate(user("separate")))
+        assertFalse(DiceDisplay.separate(user("inline")))
+        assertTrue(DiceDisplay.separate(null))
+    }
     @Test fun packagedLanguagesAndContentBoundary() {
         val catalog = Json.decodeFromString<TranslationCatalog>(File("src/main/assets/mobile-localizations.json").readText())
         assertEquals(11, InterfaceLanguage.codes.size)

@@ -256,6 +256,16 @@ import AcerciaeCore
             try self.sessionStore.save(SavedLogin(endpoint: self.endpoint, session: updated))
         }
     }
+    func changeDiceDisplay(_ display: String) async {
+        await run {
+            guard let api = self.client, let auth = self.session else { return }
+            let user: User = try await api.request(["auth", "me"], token: auth.token, body: JSONEncoder().encode(["dice_display": display]), method: "PUT")
+            guard self.session?.token == auth.token else { return }
+            let updated = Session(token: auth.token, user: user)
+            self.session = updated
+            try self.sessionStore.save(SavedLogin(endpoint: self.endpoint, session: updated))
+        }
+    }
     func changeAtmosphere(_ enabled: Bool) async {
         await run {
             guard let api = self.client, let auth = self.session else { return }
@@ -586,7 +596,7 @@ import AcerciaeCore
         let profile: User = try await typed(["auth", "me"])
         let fetched: [Resource] = try await typed(["servers"])
         guard stamp == epoch else { return }
-        if let auth = session, profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.hasAvatar != auth.user.hasAvatar || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled {
+        if let auth = session, profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.hasAvatar != auth.user.hasAvatar || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled || profile.diceDisplay != auth.user.diceDisplay {
             session = Session(token: auth.token, user: profile); if let code = profile.uiLanguage { MobileLocale.shared.set(code) }
             try? sessionStore.save(SavedLogin(endpoint: endpoint, session: session!))
         }

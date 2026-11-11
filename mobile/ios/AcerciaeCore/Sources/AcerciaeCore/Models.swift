@@ -22,6 +22,8 @@ public struct User: Codable, Sendable {
     public let avatarData: String?
     public let avatarVersion: Int?
     public var avatarHash: String? = nil
+    /// "separate" (default) or "inline": how this account sees dice results.
+    public var diceDisplay: String? = nil
 }
 public struct Session: Codable, Sendable, CustomStringConvertible {
     public let token: String
