@@ -21886,5 +21886,17 @@
     "Картинка",
     "Imagem",
     "Immagine"
+  ],
+  "That page is not available to this account.": [
+    "此账号无法打开该页面。",
+    "此帳號無法開啟該頁面。",
+    "このアカウントではそのページを開けません。",
+    "이 계정으로는 그 페이지를 열 수 없습니다.",
+    "Esa página no está disponible para esta cuenta.",
+    "Cette page n’est pas accessible avec ce compte.",
+    "Diese Seite ist für dieses Konto nicht verfügbar.",
+    "Эта страница недоступна для этой учётной записи.",
+    "Essa página não está disponível para esta conta.",
+    "Questa pagina non è disponibile per questo account."
   ]
 }
