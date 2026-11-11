@@ -29,6 +29,9 @@ public:
     };
     // Runs inside the caller's transaction; attribute changes commit together with the message.
     Result execute(pqxx::work& w, const ChannelAccess& a, const std::string& windowId, const std::string& characterId, const dice::Command& cmd);
+    // Who the dice speak as in this channel, kept on every roll as dice.bot: {name, group_id?, avatar_version}. The
+    // channel's text group names it and may give it an avatar; otherwise "Dice" / "骰子" in the server language.
+    Json::Value persona(pqxx::work& w, const std::string& channelId);
     // The channel's rule system (channels.rule_system): which commands apply and how attribute names read.
     std::string ruleSystem(const std::string& channelId);
     // Initiative (D&D): a window's order, highest first, with the current turn and round. Members of the window read it;
@@ -51,6 +54,7 @@ public:
     void setRng(std::unique_ptr<dice::Rng> rng) { rng_ = std::move(rng); }   // tests
     dice::Rng& rng() { return *rng_; }                                        // shared with the growth check
 private:
+    Result run(pqxx::work& w, const ChannelAccess& a, const std::string& windowId, const std::string& characterId, const dice::Command& cmd);
     Json::Value characterFor(const ChannelAccess& a, const std::string& characterId, bool forWrite);
     std::string displayName(const std::string& userId);
     Db& db_; AuthService& auth_; ServerSettingsService& settings_; Notifier& notifier_;

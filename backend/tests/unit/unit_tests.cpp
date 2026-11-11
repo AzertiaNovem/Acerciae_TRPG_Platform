@@ -637,6 +637,13 @@ int main() {
         Json::Value custom; custom["check.result"] = "{name} → {attr}: {roll} vs {target} = {level}"; custom["level.hard"] = "HARD!";
         dice::TextSet group("en", custom); dice::SeqRng r11({20});
         CHECK(dice::execute(*dice::parseCommand(".ra research"), ctx, group, r11).text == "Alice → research: 20 vs 53 = HARD!");
+        // Several templates for one text: the picker chooses; empty ones are never used.
+        Json::Value many; many["roll.result"].append("first {result}"); many["roll.result"].append(""); many["roll.result"].append("second {result}");
+        dice::TextSet variants("en", many); std::size_t pick = 0; variants.setPicker([&](std::size_t n) { CHECK(n == 2); return pick; });
+        dice::SeqRng r12({3}); CHECK(dice::execute(*dice::parseCommand(".r 1d6"), ctx, variants, r12).text == "first 3");
+        pick = 1; dice::SeqRng r13({5}); CHECK(dice::execute(*dice::parseCommand(".r 1d6"), ctx, variants, r13).text == "second 5");
+        Json::Value blank; blank["level.hard"] = Json::Value(Json::arrayValue); blank["level.hard"].append("");
+        CHECK(dice::TextSet("en", blank).get("level.hard") == dice::TextSet().get("level.hard"));
     });
     test("studio render configuration rejects injection and preserves bounded settings", [] {
         Json::Value c;c["base"]="novel";auto safe=logstudio::PublicationService::validateConfig(c);CHECK(safe["page_size"]=="A5");

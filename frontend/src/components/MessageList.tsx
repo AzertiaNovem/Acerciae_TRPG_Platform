@@ -11,16 +11,64 @@ import type { Message } from '../types';
 import { CachedImg } from './CachedImg';
 import { isDesktop } from '../lib/platform';
 
-// Colour a check by its (last) outcome so successes and failures read at a glance.
-function diceTone(m: Message): string {
-  const rolls = (m.dice?.rolls as { level?: string; success?: boolean }[] | undefined) ?? [];
-  const last = rolls[rolls.length - 1];
-  const level = (last?.level ?? (m.dice?.level as string | undefined)) || '';
-  if (level === 'critical') return 'crit';
-  if (level === 'fumble') return 'fumble';
-  if (last?.success === true || m.dice?.success === true) return 'ok';
-  if (last?.success === false || m.dice?.success === false) return 'fail';
-  return '';
+// Colour a roll by its outcome so successes and failures read at a glance: every success level has its own colour.
+type Tone = 'crit' | 'extreme' | 'hard' | 'ok' | 'fail' | 'fumble' | 'roll' | 'info';
+type RollDetail = { level?: string; success?: boolean };
+function toneOf(r: RollDetail | undefined, fallback: Tone): Tone {
+  switch (r?.level) {
+    case 'critical': return 'crit';
+    case 'extreme': return 'extreme';
+    case 'hard': return 'hard';
+    case 'regular': return 'ok';
+    case 'failure': return 'fail';
+    case 'fumble': return 'fumble';
+  }
+  if (r?.success === true) return 'ok';
+  if (r?.success === false) return 'fail';
+  return fallback;
+}
+function diceTones(m: Message): { card: Tone; lines: Tone[] } {
+  const d = m.dice!;
+  const rolls = (d.rolls as RollDetail[] | undefined) ?? [];
+  const neutral: Tone = d.type === 'roll' ? 'roll' : 'info';
+  const card = toneOf(rolls[rolls.length - 1] ?? (d as RollDetail), neutral);
+  const lines = d.text.split('\n');
+  // One line per roll (".ra" with a repeat count, ".r 3#1d6"): each line takes its own roll's colour.
+  return { card, lines: lines.map((_, i) => rolls.length === lines.length ? toneOf(rolls[i], neutral) : card) };
+}
+// Numbers stand out in a result: totals, targets, the dice that fell. Dice notation (D100, 3d6) stays plain.
+function withNumbers(line: string) {
+  return line.split(/((?<![A-Za-z\d])\d+(?![A-Za-z\d]))/).map((part, i) => (i % 2 ? <b key={i} className="dice-num">{part}</b> : part));
+}
+function DiceCard({ m }: { m: Message }) {
+  const { card, lines: tones } = diceTones(m);
+  if (m.dice!.type === 'hidden_notice') return <div className="dice-result info notice"><span className="dice-icon" aria-hidden>🎲</span><span>{m.dice!.text}</span></div>;
+  const lines = m.dice!.text.split('\n');
+  return (
+    <div className={`dice-result ${card}`}>
+      <span className="dice-icon" aria-hidden>🎲</span>
+      <span className="dice-lines">{lines.map((line, i) => <span key={i} className={`dice-line ${lines.length > 1 ? tones[i] : ''}`}>{withNumbers(line)}</span>)}</span>
+    </div>
+  );
+}
+// The dice speaking for themselves (separate display): the persona's avatar and name, then the result.
+function DiceBotRow({ m }: { m: Message }) {
+  const bot = m.dice?.bot;
+  const name = bot?.name || tr('Dice');
+  const src = bot?.group_id && bot.avatar_version ? api.diceAvatarUrl(bot.group_id, bot.avatar_version) : '';
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className={`message dice-bot ${diceTones(m).card}`} id={m.dice?.type === 'hidden_notice' ? `msg-${m.id}` : undefined}>
+      <div className="avatar dice">{src && !failed ? <img src={src} alt="" onError={() => setFailed(true)} /> : <span aria-hidden>🎲</span>}</div>
+      <div>
+        <div className="meta"><span className="author">{name}</span>
+          {m.dice?.hidden && <span className="pill ai">{tr("hidden roll")}</span>}
+          <span className="tiny muted">{new Date(m.created_at).toLocaleTimeString(currentLocale())}</span>
+        </div>
+        <DiceCard m={m} />
+      </div>
+    </div>
+  );
 }
 
 // True while the author may still recall the line; re-renders when that time runs out.
@@ -60,6 +108,10 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const author = own ? user.display_name : m.author_name;
   const speaker = ooc ? null : m.character_name;
   const name = speaker ?? (m.author_role === 'gm' ? `${author} (GM)` : author);
+  // Each reader picks how dice results show: a separate message from the dice (default) or under the command.
+  const separateDice = !!m.dice && (user?.dice_display ?? 'separate') === 'separate';
+  // A hidden roll's public notice is the dice's own announcement: in separate display only the dice speak.
+  if (separateDice && m.dice?.type === 'hidden_notice' && !m.recalled_at) return <DiceBotRow m={m} />;
   if (m.recalled_at) {
     const reedit = () => { useUi.getState().insertIntoComposer(draft!); useChat.setState((s) => { const rest = { ...s.recallDrafts }; delete rest[m.id]; return { recallDrafts: rest }; }); };
     return (
@@ -69,7 +121,7 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
       </div>
     );
   }
-  return (
+  return (<>
     <div className={`message ${m.kind} ${m.visibility}`} id={`msg-${m.id}`}>
       <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <CachedImg src={avatar} hash={avatarHash} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
@@ -86,15 +138,16 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
           {recallable && <button className="ghost small" onClick={()=>recall(m)} title={tr('Take this message back from everyone in this chat')}>{tr('Recall')}</button>}
         </div>
         {!readOnly && m.reference_ids?.map(id=><ChatReference key={id} channelId={m.channel_id} messageId={id}/>)}
-        {m.dice?.type === 'hidden_notice' ? <div className="dice-result notice">🎲 {m.dice.text}</div>
+        {m.dice?.type === 'hidden_notice' ? <DiceCard m={m} />
           : m.dice ? (<>
             <div className={`content dice-command ${jumped ? 'jumped' : ''}`}>{m.content}</div>
-            <div className={`dice-result ${diceTone(m)}`}>🎲 {m.dice.text}</div>
+            {!separateDice && <DiceCard m={m} />}
           </>) : m.media_asset_id ? <Illustration m={m} jumped={jumped} />
           : <div className={`content ${jumped ? 'jumped' : ''}`}>{m.content}</div>}
       </div>
     </div>
-  );
+    {separateDice && <DiceBotRow m={m} />}
+  </>);
 }
 
 // A line's picture, drawn on request or uploaded by its author: the picture (loaded through its line) and, when it

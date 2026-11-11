@@ -152,7 +152,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         Db::exec(w,"UPDATE messages SET reference_ids=$2::uuid[] WHERE id=$1",{messageId,pgArrayLiteral(references)});
         if (!mediaAssetId.empty()) Db::exec(w, "UPDATE messages SET media_asset_id=$2 WHERE id=$1", {messageId, mediaAssetId});
         if (diceCmd && diceResult.hidden) {
-            Json::Value nd; nd["type"] = "hidden_notice"; nd["command"] = diceCmd->raw; nd["text"] = diceResult.hiddenNotice;
+            Json::Value nd; nd["type"] = "hidden_notice"; nd["command"] = diceCmd->raw; nd["text"] = diceResult.hiddenNotice; nd["bot"] = diceResult.dice["bot"];
             notice = Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {insert("window", {}, diceCmd->raw, nd)});
         }
         // Sheet maintenance (.st/.en) is bookkeeping, not something that happened in the story.

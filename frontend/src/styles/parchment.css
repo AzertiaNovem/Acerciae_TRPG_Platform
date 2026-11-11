@@ -70,8 +70,8 @@
 }
 :root[data-theme="parchment"] :is(.ai-btn, .pill.ai) { background: color-mix(in srgb, var(--accent-2) 9%, var(--bg-2)); border-color: var(--accent-2); }
 :root[data-theme="parchment"] .ai-btn:hover { background: color-mix(in srgb, var(--accent-2) 17%, var(--bg-2)); }
-:root[data-theme="parchment"] :is(.dice-result.ok, .dice-result.crit, .pill.ok) { background: color-mix(in srgb, var(--ok) 10%, var(--bg-2)); border-color: var(--ok); }
-:root[data-theme="parchment"] :is(.dice-result.fail, .dice-result.fumble, .pill.danger, button.danger) { background: color-mix(in srgb, var(--danger) 9%, var(--bg-2)); border-color: var(--danger); }
+:root[data-theme="parchment"] :is(.pill.ok) { background: color-mix(in srgb, var(--ok) 10%, var(--bg-2)); border-color: var(--ok); }
+:root[data-theme="parchment"] :is(.pill.danger, button.danger) { background: color-mix(in srgb, var(--danger) 9%, var(--bg-2)); border-color: var(--danger); }
 :root[data-theme="parchment"] :is(.chip, .pick.on) { background: color-mix(in srgb, var(--accent) 8%, var(--bg-2)); border-color: var(--bg-4); }
 :root[data-theme="parchment"] .status-hypothesis { color: #785075; }
 
@@ -84,3 +84,5 @@
 @media (prefers-contrast: more), (forced-colors: active) {
   :root[data-theme="parchment"] { --paper-texture: linear-gradient(transparent, transparent); --paper-shadow: none; }
 }
+/* Dice outcomes in deeper inks that read on paper. */
+:root[data-theme="parchment"] { --dice-crit: #a8740a; --dice-extreme: #7b3fb8; --dice-hard: #1f63b0; --dice-ok: #2a7d4a; --dice-fail: #b85a14; --dice-fumble: #b3262f; --dice-roll: #1f7f7f; --dice-info: #6b6255; }

@@ -96,7 +96,8 @@ export const api = {
   atmosphere: (ch: string) => get<{ enabled: boolean; id?: string; mock?: boolean; assets?: Record<string,string>; hashes?: Record<string,string> }>(`/api/channels/${ch}/atmosphere`),
   atmosphereHistory: (ch: string) => get<{ id: string; scene_label: string; reason: string; created_at: string; prompts: Record<string,string>; variants: { variant: string; status: string; error?: string }[] }[]>(`/api/channels/${ch}/atmosphere/history`),
   atmosphereImage: (ch: string, id: string) => `${apiBase()}/api/channels/${ch}/atmosphere/assets/${id}?token=${encodeURIComponent(fileToken())}`,
-  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'ui_theme' | 'avatar_data' | 'atmosphere_enabled'>>) => put<T.User>('/api/auth/me', body),
+  updateMe: (body: Partial<Pick<T.User, 'username' | 'display_name' | 'ui_language' | 'ui_theme' | 'avatar_data' | 'atmosphere_enabled' | 'dice_display'>>) => put<T.User>('/api/auth/me', body),
+  diceAvatarUrl: (groupId: string, version: number) => `${apiBase()}/api/dice-avatars/${encodeURIComponent(groupId)}?v=${version}&token=${encodeURIComponent(fileToken())}`,
   avatarUrl: (id: string, version: number) => `${apiBase()}/api/users/${encodeURIComponent(id)}/avatar?v=${version}&token=${encodeURIComponent(fileToken())}`,
   // The signed-in user's avatar: an inline data URI from older servers, otherwise the avatar route (which may redirect
   // to the public media bucket).
@@ -129,8 +130,8 @@ export const api = {
   serverSettings: (id: string) => get<T.ServerSettings>(`/api/servers/${id}/settings`),
   updateServerSettings: (id: string, body: unknown) => put<T.ServerSettings>(`/api/servers/${id}/settings`, body),
   diceTextGroups: (id: string) => get<T.DiceTextGroup[]>(`/api/servers/${id}/dice-texts`),
-  createDiceTextGroup: (id: string, body: { name: string; base: string; texts: Record<string, string> }) => post<T.DiceTextGroup>(`/api/servers/${id}/dice-texts`, body),
-  updateDiceTextGroup: (id: string, gid: string, body: { name?: string; base?: string; texts?: Record<string, string> }) => put<T.DiceTextGroup>(`/api/servers/${id}/dice-texts/${gid}`, body),
+  createDiceTextGroup: (id: string, body: { name: string; base: string; texts: T.DiceTexts; dice_name?: string; avatar_data?: string }) => post<T.DiceTextGroup>(`/api/servers/${id}/dice-texts`, body),
+  updateDiceTextGroup: (id: string, gid: string, body: { name?: string; base?: string; texts?: T.DiceTexts; dice_name?: string; avatar_data?: string }) => put<T.DiceTextGroup>(`/api/servers/${id}/dice-texts/${gid}`, body),
   deleteDiceTextGroup: (id: string, gid: string) => del(`/api/servers/${id}/dice-texts/${gid}`),
   builtinDiceTexts: () => get<T.BuiltinDiceTexts>('/api/dice/texts'),
   searchUsers: (query: string) => get<T.UserLite[]>(`/api/users/search${q({ q: query })}`),

@@ -277,12 +277,30 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .ghost-text { color: transparent; }
 .ghost-hint { color: var(--fg-3); }
 .message .content.dice-command { font-family: var(--mono); font-size: 12px; color: var(--fg-2); }
-.dice-result { margin-top: 3px; padding: 4px 10px; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--bg-4); white-space: pre-wrap; display: inline-block; max-width: 100%; }
-.dice-result.ok { border-color: #22503a; background: #13261b; }
-.dice-result.fail { border-color: #4a2d31; background: #23171a; }
-.dice-result.crit { border-color: var(--ok); background: #163222; font-weight: 600; }
-.dice-result.fumble { border-color: var(--danger); background: #331a1e; font-weight: 600; }
+/* Every outcome has its colour (--tone); themes may retune the palette. Text mixes the tone with the foreground so it
+   stays readable on dark and light backgrounds alike. */
+:root { --dice-crit: #f2b72f; --dice-extreme: #b77cf2; --dice-hard: #4fa3f7; --dice-ok: #3fbf74; --dice-fail: #ef8a3c; --dice-fumble: #ef4b5b; --dice-roll: #36c2c2; --dice-info: #8b97a8; }
+:is(.dice-bot, .dice-line).crit { --tone: var(--dice-crit); } :is(.dice-bot, .dice-line).extreme { --tone: var(--dice-extreme); } :is(.dice-bot, .dice-line).hard { --tone: var(--dice-hard); }
+:is(.dice-bot, .dice-line).ok { --tone: var(--dice-ok); } :is(.dice-bot, .dice-line).fail { --tone: var(--dice-fail); } :is(.dice-bot, .dice-line).fumble { --tone: var(--dice-fumble); }
+:is(.dice-bot, .dice-line).roll { --tone: var(--dice-roll); } :is(.dice-bot, .dice-line).info { --tone: var(--dice-info); }
+.dice-result { --tone: var(--dice-info); margin-top: 3px; padding: 5px 12px 5px 8px; border-radius: 10px; white-space: pre-wrap; display: inline-flex; gap: 8px; align-items: flex-start; max-width: 100%;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 22%, var(--bg-2)), color-mix(in srgb, var(--tone) 8%, var(--bg-2)));
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--bg-4)); border-left: 4px solid var(--tone); }
+.dice-result.crit { --tone: var(--dice-crit); } .dice-result.extreme { --tone: var(--dice-extreme); } .dice-result.hard { --tone: var(--dice-hard); } .dice-result.ok { --tone: var(--dice-ok); }
+.dice-result.fail { --tone: var(--dice-fail); } .dice-result.fumble { --tone: var(--dice-fumble); } .dice-result.roll { --tone: var(--dice-roll); }
+.dice-result .dice-icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; font-size: 13px; background: color-mix(in srgb, var(--tone) 35%, transparent); }
+.dice-result .dice-lines { display: flex; flex-direction: column; gap: 2px; min-width: 0; word-break: break-word; }
+.dice-result .dice-line.crit, .dice-result .dice-line.extreme, .dice-result .dice-line.hard, .dice-result .dice-line.ok, .dice-result .dice-line.fail, .dice-result .dice-line.fumble { padding-left: 6px; border-left: 2px solid var(--tone); }
+.dice-result .dice-num { color: color-mix(in srgb, var(--tone) 70%, var(--fg-0)); font-weight: 700; font-variant-numeric: tabular-nums; }
+.dice-result.crit, .dice-result.fumble { font-weight: 600; box-shadow: 0 0 0 1px color-mix(in srgb, var(--tone) 30%, transparent), 0 0 14px color-mix(in srgb, var(--tone) 25%, transparent); }
+.dice-result.crit .dice-icon { animation: dice-glint 1.6s ease-out 1; }
+@keyframes dice-glint { 0% { transform: rotate(-30deg) scale(.6); } 60% { transform: rotate(12deg) scale(1.15); } 100% { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .dice-result.crit .dice-icon { animation: none; } }
 .dice-result.notice { color: var(--fg-2); font-style: italic; }
+/* The dice speaking as their own message (separate display). */
+.message.dice-bot { padding-top: 2px; }
+.message.dice-bot .author { color: color-mix(in srgb, var(--tone, var(--dice-info)) 70%, var(--fg-0)); }
+.avatar.dice { background: color-mix(in srgb, var(--tone, var(--dice-info)) 30%, var(--bg-3)); font-size: 18px; }
 
 .publication-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:16px 0}.publication-fields label {display:flex;flex-direction:column;gap:6px}.publication-fields input,.publication-fields select {width:100%}.studio-publishing {display:grid;gap:18px}.shared-publication {max-width:1100px;margin:32px auto;padding:20px}.published-reading article {padding:12px 0;border-bottom:1px solid var(--border)}
 
@@ -474,3 +492,10 @@ fieldset legend { font-size: 12px; color: var(--fg-1); padding: 0 6px; }
 .illustrate-who.on { border-color: var(--accent, #7aa2f7); background: var(--bg-3); }
 .illustrate-who .avatar.small { width: 22px; height: 22px; font-size: 10px; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; }
 .illustrate-who .avatar.small img { width: 100%; height: 100%; object-fit: cover; }
+/* Text group editor: the dice persona and a text's several templates. */
+.avatar.dice.small { width: 26px; height: 26px; border-radius: 7px; font-size: 14px; }
+.dice-persona { align-items: flex-end; flex-wrap: wrap; }
+.dice-persona .avatar.dice { width: 44px; height: 44px; border-radius: 12px; font-size: 22px; }
+.dice-templates { gap: 4px; padding: 6px; border-radius: 8px; background: var(--bg-2); }
+.dice-templates > span { display: flex; gap: 6px; align-items: center; }
+.dice-templates .dice-add-template { align-self: flex-start; }

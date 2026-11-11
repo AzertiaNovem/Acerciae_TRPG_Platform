@@ -1,6 +1,7 @@
 // Shared API types (mirrors backend JSON shapes).
 export type InterfaceTheme = 'classic' | 'glass' | 'parchment';
-export interface User { ui_theme?: InterfaceTheme; atmosphere_enabled?: boolean; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; avatar_hash?: string | null; languages?: string[]; is_admin?: boolean }
+export type DiceDisplay = 'separate' | 'inline';
+export interface User { ui_theme?: InterfaceTheme; atmosphere_enabled?: boolean; dice_display?: DiceDisplay; id: string; username: string; display_name: string; ui_language: string; avatar_data: string; has_avatar?: boolean; avatar_version: number; avatar_hash?: string | null; languages?: string[]; is_admin?: boolean }
 export interface Server { id: string; name: string; owner_id: string; my_role: 'owner' | 'admin' | 'member' | 'guest'; suspended?: boolean; suspended_reason?: string }
 // Platform administration (/api/admin): what the deployment holds and who uses it; suspensions.
 export interface AdminPage<R> { rows: R[]; total: number; limit: number; offset: number }
@@ -127,7 +128,9 @@ export interface Message {
 }
 // An illustration asked for in chat (POST …/windows/{w}/illustrations), as its requester sees it.
 export interface IllustrationJob { id: string; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; error: string | null; created_at: string; finished_at: string | null; window_id: string; prompt: string; character_ids: string[]; orientation: 'landscape' | 'portrait' | 'square'; message_id: string | null; reference_count: number }
-export interface DiceResult { type: string; command: string; text: string; hidden?: boolean; [k: string]: unknown }
+// bot: who the dice spoke as when the roll was made (the channel's text group persona).
+export interface DiceBot { name: string; group_id?: string; avatar_version?: number }
+export interface DiceResult { type: string; command: string; text: string; hidden?: boolean; bot?: DiceBot; [k: string]: unknown }
 export interface Scene { id: string; title: string; location: string; narrative_time: string; status: 'active' | 'closed'; summary: string; off_module: boolean; sequence: number; event_count?: number; windows?: { chat_window_id: string; name: string }[] | null; auto_detected?: boolean; stage_reason?: string; summary_status?: 'none' | 'pending' | 'ready' | 'gm_edited'; summary_llm_mode?: string; key_points?: string[]; created_at?: string; closed_at?: string | null }
 export type DocType = 'current_scene' | 'clue_journal' | 'relationships' | 'open_threads' | 'timeline' | 'module_progress';
 export interface DocumentSummary { id: string; doc_type: DocType; title: string; version: number; gm_only: boolean; updated_at: string; entry_count: number; recent_changes: number; preview: string | null }
@@ -231,7 +234,9 @@ export interface ServerSettings {
   policy?: ServerPolicy; ai_policy?: AiPolicyUsage; private_endpoints_allowed?: boolean;
   languages?: string[];
 }
-export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: Record<string, string>; updated_at: string; created_by_name?: string | null }
+// A text may hold several templates (one is picked at random per reply). dice_name and the avatar are the dice persona.
+export type DiceTexts = Record<string, string | string[]>;
+export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: DiceTexts; dice_name: string; avatar_version: number; updated_at: string; created_by_name?: string | null }
 export interface BuiltinDiceTexts { keys: string[]; en: Record<string, string>; zh: Record<string, string> }
 export interface CharacterAttributes { character_id: string; name: string; kind: 'pc' | 'npc'; attrs: Record<string, number>; editable: boolean }
 
