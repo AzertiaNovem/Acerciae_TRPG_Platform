@@ -3,6 +3,7 @@ import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
+import { GM_TABS, type GmTab } from '../lib/route';
 import { useUi } from '../store/ui';
 import ModuleImportPanel from './ModuleImportPanel';
 import SceneManager from './SceneManager';
@@ -12,7 +13,7 @@ import type { Proposal, ModuleHint, AiJob, ChannelMember, DiceTextGroup } from '
 import { useAuth } from '../store/auth';
 import { LANGUAGE_LABELS } from './ServerSettingsModal';
 
-type Tab = 'overview' | 'module' | 'script' | 'scenes' | 'knowledge' | 'settings';
+type Tab = GmTab;
 
 function Overview() {
   const { channelId } = useNav();
@@ -204,12 +205,13 @@ function ChannelSettings() {
 }
 
 export default function GMWorkspace() {
-  const [tab, setTab] = useState<Tab>('overview');
+  // The open tab is the store's, so it is in the URL (…/gm/settings) and Back returns to the one before.
+  const tab = useNav((s) => s.gmTab), setTab = useNav((s) => s.setGmTab);
   const setOpen = useNav((s) => s.setGmWorkspaceOpen);
   return (
     <div className="workspace">
       <div className="tabs">
-        {(['overview', 'module', 'script', 'scenes', 'knowledge', 'settings'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t === 'scenes' ? 'Scenarios' : t === 'script' ? 'Script' : t[0].toUpperCase() + t.slice(1))}</button>)}
+        {GM_TABS.map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t === 'scenes' ? 'Scenarios' : t === 'script' ? 'Script' : t[0].toUpperCase() + t.slice(1))}</button>)}
         <span className="grow" /><button className="ghost" onClick={() => setOpen(false)}>{tr("← back to chat")}</button>
       </div>
       <div className="content">

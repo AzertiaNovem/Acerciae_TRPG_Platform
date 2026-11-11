@@ -101,6 +101,22 @@ free-form JSONB (`characters.sheet`) so BRP variants need no schema change.
 Multiple instances: schedulers coordinate through PostgreSQL (`ai_jobs` partial unique index as the task lock,
 `ai_processing_cursors` as progress); HTTP is stateless (token lookup). WebSocket fan-out is per instance.
 
+Addresses in the web and desktop client (`frontend/src/lib/route.ts`, `hooks/useRouteSync.ts`): every place the user
+opens has its own path, kept in the address bar as they move: `/servers/{server}/channels/{channel}/windows/{window}`
+for a chat window, `…/characters/{id}/{card|look|background|items}` for a character's space, `…/gm/{overview|module|
+script|scenes|knowledge|settings}` for the GM workspace, `…/studio/{log|vn|pdf|voice|assets|published}` for the Log
+Studio, `/servers/{server}/watch/{channel}` for a channel read without membership, `/servers/{server}` for a server with
+no channel open and `/admin` for the admin panel. Moving somewhere adds a history entry, so Back and Forward walk the
+places in order; a server or channel switch writes the address once it is done, so its steps never become entries of
+their own, and a place the app leaves on its own (the open window or channel was deleted) replaces the entry. Opening an
+address (a reload, a shared link, signing in from one) goes straight there; whatever this account may not open (another
+server, a GM page for a player, a deleted window) falls back to the remembered place, with a notice when it came from
+a link. The page title names the place. The tab of the GM workspace and of the character space lives in the
+navigation store for this; the Studio's view in its own store. Invitation (`/?invite=`) and publication
+(`/?publication=`) links stay at the root. Any host must serve `index.html` for unknown paths: the bundled nginx
+(`try_files … /index.html`), Cloudflare Pages (no `404.html`, so it serves the app), the Vite dev server and the desktop
+shell all do.
+
 Chat history in the web client (`frontend/src/store/chat.ts`, `lib/chatHistory.ts`): each window's lines are kept for
 the visit and on the device (IndexedDB, per account and server, at most 1,500 lines per window and 150 windows, removed
 on sign-out, discarded unread when the viewer's role or player group changed). Lines pushed on the chat stream are
