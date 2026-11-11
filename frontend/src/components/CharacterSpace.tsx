@@ -3,6 +3,7 @@ import { t as tr } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useNav } from '../store/nav';
+import { CHARACTER_TABS, type CharacterTab } from '../lib/route';
 import { useUi } from '../store/ui';
 import type { CardArchive, CharacterSpace as Space, Coc7Rules, DndCard, DndRules, PointsReport, RoleCard } from '../types';
 import DndSheet, { EMPTY_DND } from './DndSheet';
@@ -23,7 +24,7 @@ const BG_LABEL: Record<string, string> = { personal_description: 'Personal descr
 const COC_SKILLS = ['Accounting', 'Anthropology', 'Appraise', 'Archaeology', 'Art/Craft', 'Charm', 'Climb', 'Credit Rating', 'Cthulhu Mythos', 'Disguise', 'Dodge', 'Drive Auto', 'Electrical Repair', 'Fast Talk', 'Fighting (Brawl)', 'Firearms (Handgun)', 'Firearms (Rifle/Shotgun)', 'First Aid', 'History', 'Intimidate', 'Jump', 'Language (Other)', 'Language (Own)', 'Law', 'Library Use', 'Listen', 'Locksmith', 'Mechanical Repair', 'Medicine', 'Natural World', 'Navigate', 'Occult', 'Operate Heavy Machinery', 'Persuade', 'Pilot', 'Psychoanalysis', 'Psychology', 'Ride', 'Science', 'Sleight of Hand', 'Spot Hidden', 'Stealth', 'Survival', 'Swim', 'Throw', 'Track'];
 const DEFAULT_SUBTITLES = ['IDLE', 'SAY', 'HAPPY', 'SAD', 'ANGRY', 'SCARED', 'FIGHT'];
 
-type Tab = 'card' | 'look' | 'background' | 'items';
+type Tab = CharacterTab;
 const half = (v?: number) => (v === undefined ? '' : `${Math.floor(v / 2)} / ${Math.floor(v / 5)}`);
 const systemName = (rs?: string) => (rs === 'dnd2024' ? tr('D&D 2024') : rs === 'pbta' ? 'PbtA' : tr('Call of Cthulhu 7e'));
 
@@ -94,7 +95,8 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const busyRef = useRef(false);
   const setDirty = (value: boolean) => { dirtyRef.current = value; if (value) { ++revision.current; setSaveError(''); } setDirtyState(value); };
   const validResponse = () => { const epoch = sessionEpoch(), response = responseEpoch.current; return () => mounted.current && epoch === sessionEpoch() && response === responseEpoch.current; };
-  const [tab, setTab] = useState<Tab>('card');
+  // The open tab is the store's, so it is in the URL (…/characters/{id}/look).
+  const tab = useNav((s) => s.characterTab), setTab = useNav((s) => s.setCharacterTab);
   const [look, setLook] = useState({ asset_mode: 'uploaded' as 'uploaded' | 'generated', appearance_prompt: '' });
   const [newSkill, setNewSkill] = useState('');
   const [newItem, setNewItem] = useState({ name: '', note: '' });
@@ -178,7 +180,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
     <div className="workspace character-space">
       <input ref={fileInput} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => onFile(e.target.files?.[0])} />
       <div className="tabs">
-        {(['card', 'look', 'background', 'items'] as Tab[]).map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t === 'card' ? 'Role card' : t === 'look' ? 'Appearance & images' : t === 'background' ? 'Background' : 'Items')}</button>)}
+        {CHARACTER_TABS.map((t) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{tr(t === 'card' ? 'Role card' : t === 'look' ? 'Appearance & images' : t === 'background' ? 'Background' : 'Items')}</button>)}
         <span className="grow" />
         <button className="ghost" onClick={back}>{tr('← back to chat')}</button>
       </div>

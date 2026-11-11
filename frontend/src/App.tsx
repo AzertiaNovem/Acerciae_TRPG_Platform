@@ -7,6 +7,7 @@ import { useUi } from './store/ui';
 import { useRealtime } from './hooks/useRealtime';
 import { useOpenStudio } from './openstudio/ui/state';
 import { useReadTracking } from './hooks/useUnread';
+import { useRouteSync } from './hooks/useRouteSync';
 import MessageNotifications from './components/MessageNotifications';
 import LoginScreen from './components/LoginScreen';
 import ServerSidebar from './components/ServerSidebar';
@@ -28,12 +29,12 @@ const OpenLogStudio = lazy(() => import('./openstudio/ui/OpenLogStudio'));
 function Shell() {
   useRealtime();
   useReadTracking();
-  const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, loadServers, spectateChannelId, adminOpen } = useNav();
+  useRouteSync();   // opens the place the URL names, and keeps the URL on the place shown
+  const { channelId, windowId, gmWorkspaceOpen, studioOpen, characterSpaceId, channel, spectateChannelId, adminOpen } = useNav();
   const toasts = useUi((s) => s.toasts);
   const aiActivity = useUi((s) => s.aiActivity);
   const llmMode = useNav((s) => s.serverSettings?.llm_mode);   // AI belongs to each server; there is no platform key
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  useEffect(() => { loadServers().catch(() => undefined); }, [loadServers]);
   return (
     <div className="app">
       <ServerSidebar onPick={() => setSidebarOpen(true)} />
