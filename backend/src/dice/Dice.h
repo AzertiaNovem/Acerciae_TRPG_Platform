@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <json/json.h>
 #include <map>
 #include <optional>
@@ -84,9 +85,12 @@ public:
     std::string get(const std::string& key) const;
     std::string render(const std::string& key, const std::map<std::string, std::string>& vars) const;
     const std::string& base() const { return base_; }
+    // A text may hold several templates (a JSON array): one is picked at random each time. Tests pass a picker.
+    void setPicker(std::function<std::size_t(std::size_t)> pick) { pick_ = std::move(pick); }
 private:
     std::string base_;
     Json::Value overrides_;
+    std::function<std::size_t(std::size_t)> pick_;
 };
 
 // ---- commands -------------------------------------------------------------------------------------

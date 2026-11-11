@@ -8,6 +8,7 @@ import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 import UserPicker, { userCandidate } from './UserPicker';
 import TypedConfirm from './TypedConfirm';
+import { avatarFromFile } from './UserSettingsModal';
 import type { BuiltinDiceTexts, DiceTextGroup, Feature, ServerInvite, ServerMember, ServerPolicy, ServerSettings } from '../types';
 
 type Tab = 'general' | 'access' | 'ai' | 'features' | 'members' | 'channels' | 'dice';
@@ -334,11 +335,32 @@ function Members({ serverId, myRole }: { serverId: string; myRole: string }) {
   );
 }
 
+// One reply text's templates: a single string, or several the dice pick from at random.
+const templatesOf = (v: string | string[] | undefined): string[] => (Array.isArray(v) ? (v.length ? v : ['']) : [v ?? '']);
+type EditingGroup = DiceTextGroup & { avatar_data?: string };
+
+function TextTemplates({ k, value, placeholder, onChange }: { k: string; value: string | string[] | undefined; placeholder: string; onChange: (v: string | string[]) => void }) {
+  const list = templatesOf(value);
+  const set = (next: string[]) => onChange(next.length === 1 ? next[0] : next);
+  return (
+    <div className="field dice-templates"><span className="mono tiny">{k}{list.length > 1 && <span className="pill">{tr('{n} templates, one at random', { n: list.length })}</span>}</span>
+      {list.map((text, i) => (
+        <div className="row" key={i}>
+          <input className="grow" value={text} placeholder={i === 0 ? placeholder : tr('Another template')} onChange={(e) => set(list.map((x, j) => (j === i ? e.target.value : x)))} />
+          {list.length > 1 && <button type="button" className="ghost small" title={tr('Remove this template')} onClick={() => set(list.filter((_, j) => j !== i))}>✕</button>}
+        </div>
+      ))}
+      {list.length < 20 && <button type="button" className="ghost small dice-add-template" onClick={() => set([...list, ''])}>{tr('+ Template')}</button>}
+    </div>
+  );
+}
+
 function DiceTexts({ serverId }: { serverId: string }) {
   const toast = useUi((s) => s.toast);
   const [groups, setGroups] = useState<DiceTextGroup[]>([]);
   const [builtin, setBuiltin] = useState<BuiltinDiceTexts | null>(null);
-  const [editing, setEditing] = useState<DiceTextGroup | null>(null);
+  const [editing, setEditing] = useState<EditingGroup | null>(null);
+  const [filter, setFilter] = useState('');
   const [newName, setNewName] = useState('');
   const [newBase, setNewBase] = useState<'en' | 'zh'>('en');
   const load = useCallback(() => { api.diceTextGroups(serverId).then(setGroups).catch(() => undefined); }, [serverId]);
@@ -351,16 +373,25 @@ function DiceTexts({ serverId }: { serverId: string }) {
   };
   const save = async () => {
     if (!editing) return;
-    try { await api.updateDiceTextGroup(serverId, editing.id, { name: editing.name, base: editing.base, texts: editing.texts }); toast('Text group saved'); setEditing(null); load(); }
-    catch (e: any) { toast(e.message, 'error'); }
+    try {
+      await api.updateDiceTextGroup(serverId, editing.id, { name: editing.name, base: editing.base, texts: editing.texts, dice_name: editing.dice_name ?? '', ...(editing.avatar_data !== undefined ? { avatar_data: editing.avatar_data } : {}) });
+      toast('Text group saved'); setEditing(null); load();
+    } catch (e: any) { toast(e.message, 'error'); }
   };
   const remove = async (g: DiceTextGroup) => {
     if (!confirm(tr('Delete text group “{name}”? Channels using it fall back to the server language.', { name: g.name }))) return;
     try { await api.deleteDiceTextGroup(serverId, g.id); load(); } catch (e: any) { toast(e.message, 'error'); }
   };
+  const pickAvatar = async (file: File | undefined) => {
+    if (!file || !editing) return;
+    try { setEditing({ ...editing, avatar_data: await avatarFromFile(file) }); } catch (e: any) { toast(e.message, 'error'); }
+  };
 
   if (editing && builtin) {
     const defaults = builtin[editing.base];
+    // The avatar as it will be after saving: a newly chosen picture, none, or the stored one.
+    const avatar = editing.avatar_data !== undefined ? editing.avatar_data : editing.avatar_version ? api.diceAvatarUrl(editing.id, editing.avatar_version) : '';
+    const keys = builtin.keys.filter((k) => !filter.trim() || k.includes(filter.trim()) || templatesOf(editing.texts[k]).some((x) => x.includes(filter.trim())) || (defaults[k] ?? '').includes(filter.trim()));
     return (
       <div className="col">
         <div className="row">
@@ -369,25 +400,34 @@ function DiceTexts({ serverId }: { serverId: string }) {
             <option value="en">{tr("based on English")}</option><option value="zh">{tr("based on 中文")}</option>
           </select>
         </div>
-        <div className="tiny muted">{tr("Leave a field empty to keep the built-in text. Placeholders in braces, e.g. ")}<code>{tr("{name}")}</code>, <code>{tr("{attr}")}</code>, <code>{tr("{roll}")}</code>, <code>{tr("{target}")}</code>, <code>{tr("{level}")}</code>{tr(", are filled in by the dice.")}</div>
+        <div className="section-label">{tr('The dice')}</div>
+        <div className="row dice-persona">
+          <div className="avatar dice">{avatar ? <img src={avatar} alt="" /> : <span aria-hidden>🎲</span>}</div>
+          <label className="field grow"><span>{tr('Nickname')}</span>
+            <input maxLength={60} value={editing.dice_name ?? ''} placeholder={editing.base === 'zh' ? '骰子' : 'Dice'} onChange={(e) => setEditing({ ...editing, dice_name: e.target.value })} /></label>
+          <label className="button ghost small">{tr('Choose avatar…')}<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { void pickAvatar(e.target.files?.[0]); e.target.value = ''; }} /></label>
+          {avatar && <button type="button" className="ghost small" onClick={() => setEditing({ ...editing, avatar_data: '' })}>{tr('Remove avatar')}</button>}
+        </div>
+        <div className="tiny muted">{tr('Rolls in channels using this group show this name and avatar. Each roll keeps the name it was made with.')}</div>
+        <div className="section-label">{tr('Reply texts')}</div>
+        <div className="tiny muted">{tr("Leave a field empty to keep the built-in text. Placeholders in braces, e.g. ")}<code>{tr("{name}")}</code>, <code>{tr("{attr}")}</code>, <code>{tr("{roll}")}</code>, <code>{tr("{target}")}</code>, <code>{tr("{level}")}</code>{tr(", are filled in by the dice.")} {tr('Give a text several templates and the dice pick one at random for each reply.')}</div>
+        <input placeholder={tr('Filter texts…')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         <div className="text-keys">
-          {builtin.keys.map((k) => (
-            <label key={k} className="field"><span className="mono tiny">{k}</span>
-              <input value={editing.texts[k] ?? ''} placeholder={defaults[k]} onChange={(e) => setEditing({ ...editing, texts: { ...editing.texts, [k]: e.target.value } })} />
-            </label>
-          ))}
+          {keys.map((k) => <TextTemplates key={k} k={k} value={editing.texts[k]} placeholder={defaults[k]} onChange={(v) => setEditing({ ...editing, texts: { ...editing.texts, [k]: v } })} />)}
         </div>
         <div className="row"><span className="grow" /><button className="ghost" onClick={() => setEditing(null)}>{tr("Cancel")}</button><button className="primary" onClick={save}>{tr("Save group")}</button></div>
       </div>
     );
   }
+  const customCount = (g: DiceTextGroup) => Object.values(g.texts).filter((v) => templatesOf(v).some((x) => x)).length;
   return (
     <div className="col">
-      <div className="tiny muted">{tr("Text groups change how dice replies are worded (Sealdice “custom texts”). Each channel’s GM picks the group their channel uses in the GM workspace → Settings.")}</div>
+      <div className="tiny muted">{tr("Text groups change how dice replies are worded (Sealdice “custom texts”). Each channel’s GM picks the group their channel uses in the GM workspace → Settings.")} {tr('A group can also give the dice a nickname and an avatar.')}</div>
       {groups.length === 0 && <div className="muted small">{tr("No custom groups yet — channels use the built-in English or 中文 texts.")}</div>}
       {groups.map((g) => (
         <div key={g.id} className="pick-row">
-          <span className="grow">{g.name} <span className="tiny muted">{g.base === 'zh' ? '中文' : tr("English")}{tr(" base · ")}{Object.keys(g.texts).length}{tr(" custom text(s)")}</span></span>
+          <div className="avatar dice small">{g.avatar_version ? <img src={api.diceAvatarUrl(g.id, g.avatar_version)} alt="" /> : <span aria-hidden>🎲</span>}</div>
+          <span className="grow">{g.name}{g.dice_name && <> · <b>{g.dice_name}</b></>} <span className="tiny muted">{g.base === 'zh' ? '中文' : tr("English")}{tr(" base · ")}{customCount(g)}{tr(" custom text(s)")}</span></span>
           <button className="small" onClick={() => setEditing({ ...g, texts: { ...g.texts } })}>{tr("Edit")}</button>
           <button className="small" onClick={() => remove(g)}>{tr("Delete")}</button>
         </div>

@@ -41,6 +41,27 @@ void registerChannelRoutes() {
     route1("/api/servers/{1}/dice-texts", {Post}, [&](auto& req, auto& p, auto& a) { return S.settings->createTextGroup(p, a[0], body(req)); });
     route2("/api/servers/{1}/dice-texts/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.settings->updateTextGroup(p, a[0], a[1], body(req)); });
     route2("/api/servers/{1}/dice-texts/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.settings->deleteTextGroup(p, a[0], a[1]); });
+    // The dice persona's avatar (a text group's), for members of its server. ?v= is the avatar version a roll recorded.
+    app().registerHandler("/api/dice-avatars/{1}", [](const HttpRequestPtr& req, Cb&& cb, std::string groupId) {
+        try {
+            auto principal = fileAuth(req);
+            if (!principal) throw unauthorized("missing or invalid token");
+            auto av = services().settings->diceAvatar(*principal, groupId);
+            auto etag = "\"dice-" + groupId + "-" + std::to_string(av.version) + "\"";
+            // A roll keeps the version it was made with; an older version is answered with the current picture, uncached.
+            bool current = req->getParameter("v") == std::to_string(av.version);
+            std::string cc = current ? kKeep : "private, no-cache";
+            if (notModified(req, etag)) { cb(notModifiedResponse(etag, cc)); return; }
+            auto response = HttpResponse::newHttpResponse();
+            response->setContentTypeString(av.mime);
+            response->setBody(std::move(av.bytes));
+            response->addHeader("X-Content-Type-Options", "nosniff");
+            response->addHeader("ETag", etag);
+            response->addHeader("Cache-Control", cc);
+            cb(response);
+        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
+          catch (const std::exception&) { cb(errResp(400, "bad_request", "invalid avatar request")); }
+    }, {Get});
     route0("/api/dice/texts", {Get}, [&](auto&, auto&, auto&) { return ServerSettingsService::builtinTexts(); });
     route0("/api/users/search", {Get}, [&](auto& req, auto& p, auto&) { return S.chat->searchUsers(p, req->getParameter("q"), qint(req, "limit", 15)); });
     route1("/api/servers/{1}/all-channels", {Get}, [&](auto&, auto& p, auto& a) { return S.chat->allChannels(p, a[0]); });

@@ -43,6 +43,9 @@ public:
     Json::Value createTextGroup(const Principal& p, const std::string& serverId, const Json::Value& body);
     Json::Value updateTextGroup(const Principal& p, const std::string& serverId, const std::string& groupId, const Json::Value& body);
     Json::Value deleteTextGroup(const Principal& p, const std::string& serverId, const std::string& groupId);
+    // A text group's dice avatar for a member of its server; throws 404 when there is none.
+    struct DiceAvatar { std::string mime, bytes; int version = 0; };
+    DiceAvatar diceAvatar(const Principal& p, const std::string& groupId);
     static Json::Value builtinTexts();   // {keys:[...], en:{...}, zh:{...}}
 
     static const std::vector<std::string>& languages();

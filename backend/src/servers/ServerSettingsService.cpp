@@ -10,6 +10,8 @@
 #include <algorithm>
 #include "../core/NetGuard.h"
 #include "AiPolicyService.h"
+#include "../logstudio/MediaService.h"
+#include <drogon/utils/Utilities.h>
 
 namespace acerciae {
 
@@ -255,20 +257,58 @@ Json::Value ServerSettingsService::builtinTexts() {
 void ServerSettingsService::validateTexts(const Json::Value& texts) {
     if (!texts.isObject()) throw badRequest("texts must be an object of key -> template");
     auto keys = dice::textKeys();
+    auto checkOne = [](const std::string& k, const Json::Value& v) {
+        if (!v.isString()) throw badRequest("text for " + k + " must be a string or a list of strings");
+        if (v.asString().size() > 500) throw badRequest("text for " + k + " is too long (max 500)");
+    };
     for (auto& k : texts.getMemberNames()) {
         if (std::find(keys.begin(), keys.end(), k) == keys.end()) throw badRequest("unknown text key: " + k);
-        if (!texts[k].isString()) throw badRequest("text for " + k + " must be a string");
-        if (texts[k].asString().size() > 500) throw badRequest("text for " + k + " is too long (max 500)");
+        const auto& v = texts[k];
+        if (v.isArray()) {
+            // Several templates for one reply: the dice pick one at random each time.
+            if (v.size() > 20) throw badRequest("text for " + k + " has too many templates (max 20)");
+            for (const auto& item : v) checkOne(k, item);
+        } else checkOne(k, v);
     }
 }
+// Empty templates are dropped; a list left with one template is stored as that template.
 static Json::Value cleanTexts(const Json::Value& texts) {
     Json::Value out(Json::objectValue);
-    for (auto& k : texts.getMemberNames()) if (!texts[k].asString().empty()) out[k] = texts[k];
+    for (auto& k : texts.getMemberNames()) {
+        const auto& v = texts[k];
+        if (v.isArray()) {
+            Json::Value list(Json::arrayValue);
+            for (const auto& item : v) if (!item.asString().empty()) list.append(item);
+            if (list.size() == 1) out[k] = list[0]; else if (!list.empty()) out[k] = list;
+        } else if (!v.asString().empty()) out[k] = v;
+    }
     return out;
 }
+static std::string diceName(const Json::Value& b, const std::string& current) {
+    auto name = text::trim(json::str(b, "dice_name", current));
+    if (name.size() > 60 || name.find_first_of("\r\n\t") != std::string::npos) throw badRequest("the dice name must be at most 60 bytes on one line");
+    return name;
+}
+// The dice avatar, sent like a user avatar: a PNG or JPEG data URL of at most 128 KiB and 512 x 512 pixels.
+static void parseDiceAvatar(const std::string& data, std::string& base64, std::string& mime) {
+    auto comma = data.find(',');
+    auto prefix = data.substr(0, comma);
+    if (data.size() > 180000 || comma == std::string::npos || (prefix != "data:image/png;base64" && prefix != "data:image/jpeg;base64"))
+        throw badRequest("the dice avatar must be a PNG or JPEG under 128 KiB");
+    auto encoded = data.substr(comma + 1);
+    auto bytes = drogon::utils::base64Decode(encoded);
+    if (bytes.empty() || bytes.size() > 131072 || drogon::utils::base64Encode(bytes) != encoded) throw badRequest("invalid dice avatar encoding");
+    mime = logstudio::MediaService::sniffMime(bytes, "avatar");
+    int width = 0, height = 0;
+    logstudio::MediaService::probeDimensions(bytes, mime, width, height);
+    if (prefix != "data:" + mime + ";base64" || width < 1 || height < 1 || width > 512 || height > 512) throw badRequest("the dice avatar must be at most 512 by 512 pixels");
+    base64 = encoded;
+}
+static const char* kGroupColumns = "id, name, base, texts, dice_name, avatar_version, updated_at";
+
 Json::Value ServerSettingsService::listTextGroups(const Principal& p, const std::string& serverId) {
     auth_.requireServerMember(p.userId, serverId);
-    return db_.queryJson("SELECT g.id, g.name, g.base, g.texts, g.updated_at, u.display_name AS created_by_name FROM dice_text_groups g LEFT JOIN users u ON u.id=g.created_by WHERE g.server_id=$1 ORDER BY g.created_at", {serverId});
+    return db_.queryJson("SELECT g.id, g.name, g.base, g.texts, g.dice_name, g.avatar_version, g.updated_at, u.display_name AS created_by_name FROM dice_text_groups g LEFT JOIN users u ON u.id=g.created_by WHERE g.server_id=$1 ORDER BY g.created_at", {serverId});
 }
 Json::Value ServerSettingsService::createTextGroup(const Principal& p, const std::string& serverId, const Json::Value& b) {
     auth_.requireServerAdmin(p.userId, serverId);
@@ -277,11 +317,15 @@ Json::Value ServerSettingsService::createTextGroup(const Principal& p, const std
     auto base = json::str(b, "base", "en"); if (base != "en" && base != "zh") throw badRequest("base must be en or zh");
     Json::Value texts = b.isMember("texts") ? b["texts"] : Json::Value(Json::objectValue);
     validateTexts(texts);
+    auto dname = diceName(b, "");
+    std::string avatar, mime;
+    if (!json::str(b, "avatar_data", "").empty()) parseDiceAvatar(b["avatar_data"].asString(), avatar, mime);
     auto n = db_.queryOne("SELECT count(*) AS n FROM dice_text_groups WHERE server_id=$1", {serverId});
     if (n["n"].asInt() >= 50) throw badRequest("at most 50 text groups per server");
     try {
-        return db_.queryOne("INSERT INTO dice_text_groups(server_id, name, base, texts, created_by) VALUES($1,$2,$3,$4::jsonb,$5) RETURNING id, name, base, texts, updated_at",
-            {serverId, name, base, json::dump(cleanTexts(texts)), p.userId});
+        return db_.queryOne(std::string("INSERT INTO dice_text_groups(server_id, name, base, texts, created_by, dice_name, avatar_data, avatar_mime, avatar_version) "
+            "VALUES($1,$2,$3,$4::jsonb,$5,$6,NULLIF($7,''),NULLIF($8,''),CASE WHEN $7='' THEN 0 ELSE 1 END) RETURNING ") + kGroupColumns,
+            {serverId, name, base, json::dump(cleanTexts(texts)), p.userId, dname, avatar, mime});
     } catch (const pqxx::unique_violation&) { throw conflict("a text group with that name already exists"); }
 }
 Json::Value ServerSettingsService::updateTextGroup(const Principal& p, const std::string& serverId, const std::string& groupId, const Json::Value& b) {
@@ -294,10 +338,25 @@ Json::Value ServerSettingsService::updateTextGroup(const Principal& p, const std
     auto base = json::str(b, "base", cur["base"].asString()); if (base != "en" && base != "zh") throw badRequest("base must be en or zh");
     Json::Value texts = b.isMember("texts") ? b["texts"] : cur["texts"];
     validateTexts(texts);
+    auto dname = diceName(b, cur["dice_name"].asString());
+    // avatar_data: a data URL replaces the avatar, "" removes it, absent leaves it as it is.
+    bool avatarChange = b.isMember("avatar_data");
+    std::string avatar, mime;
+    if (avatarChange && !b["avatar_data"].asString().empty()) parseDiceAvatar(b["avatar_data"].asString(), avatar, mime);
     try {
-        return db_.queryOne("UPDATE dice_text_groups SET name=$3, base=$4, texts=$5::jsonb, updated_at=now() WHERE id=$1 AND server_id=$2 RETURNING id, name, base, texts, updated_at",
-            {groupId, serverId, name, base, json::dump(cleanTexts(texts))});
+        return db_.queryOne(std::string("UPDATE dice_text_groups SET name=$3, base=$4, texts=$5::jsonb, dice_name=$6, updated_at=now()") +
+            (avatarChange ? ", avatar_data=NULLIF($7,''), avatar_mime=NULLIF($8,''), avatar_version=avatar_version+1" : "") +
+            " WHERE id=$1 AND server_id=$2 RETURNING " + kGroupColumns,
+            avatarChange ? DbParams{groupId, serverId, name, base, json::dump(cleanTexts(texts)), dname, avatar, mime}
+                         : DbParams{groupId, serverId, name, base, json::dump(cleanTexts(texts)), dname});
     } catch (const pqxx::unique_violation&) { throw conflict("a text group with that name already exists"); }
+}
+ServerSettingsService::DiceAvatar ServerSettingsService::diceAvatar(const Principal& p, const std::string& groupId) {
+    if (!Visibility::isUuid(groupId)) throw notFound("no dice avatar");
+    auto r = db_.queryOne("SELECT g.avatar_data, g.avatar_mime, g.avatar_version FROM dice_text_groups g "
+        "JOIN server_members m ON m.server_id=g.server_id AND m.user_id=$2 WHERE g.id=$1 AND g.avatar_data IS NOT NULL", {groupId, p.userId});
+    if (r.isNull()) throw notFound("no dice avatar");
+    return {r["avatar_mime"].asString(), drogon::utils::base64Decode(r["avatar_data"].asString()), r["avatar_version"].asInt()};
 }
 Json::Value ServerSettingsService::deleteTextGroup(const Principal& p, const std::string& serverId, const std::string& groupId) {
     auth_.requireServerAdmin(p.userId, serverId);

@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import type { DiceDisplay } from '../types';
 import { cacheStats, clearAssetCache, formatCacheSize } from '../lib/assetCache';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
@@ -10,7 +11,7 @@ import { sessionEpoch } from '../store/session';
 import { LANGUAGE_LABELS, t, useLocale } from '../i18n';
 
 // Normalize user-selected raster images locally; no remote URLs, SVG or embedded metadata are stored.
-async function avatarFromFile(file: File): Promise<string> {
+export async function avatarFromFile(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) throw Error(t('Choose a PNG, JPEG or WebP image under 5 MB.'));
   const bitmap = await createImageBitmap(file);
   try {
@@ -31,6 +32,7 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const theme = useUi(s => s.themePreview) ?? user.ui_theme ?? 'classic';
   useLayoutEffect(() => () => useUi.setState({ themePreview: null }), []);
   const [atmosphere, setAtmosphere] = useState(!!user.atmosphere_enabled);
+  const [diceDisplay, setDiceDisplay] = useState<DiceDisplay>(user.dice_display ?? 'separate');
   const notifyOn = useNotifications((s) => s.enabled);
   const setNotify = useNotifications((s) => s.setEnabled);
   const [avatar, setAvatarState] = useState(api.ownAvatarUrl(user));
@@ -51,7 +53,7 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); const epoch = sessionEpoch();
     try {
-      const updated = await api.updateMe({ username, display_name: name.trim(), ui_language: language, ...(theme !== (user.ui_theme ?? 'classic') ? { ui_theme: theme } : {}), ...(avatarChanged ? { avatar_data: avatar } : {}), atmosphere_enabled: atmosphere });
+      const updated = await api.updateMe({ username, display_name: name.trim(), ui_language: language, ...(theme !== (user.ui_theme ?? 'classic') ? { ui_theme: theme } : {}), ...(avatarChanged ? { avatar_data: avatar } : {}), atmosphere_enabled: atmosphere, dice_display: diceDisplay });
       if (epoch !== sessionEpoch()) return;
       useAuth.setState({ user: updated }); useLocale.getState().setLanguage(updated.ui_language);
       useUi.getState().toast(t('User settings saved')); onClose();
@@ -111,6 +113,10 @@ export default function UserSettingsModal({ onClose }: { onClose: () => void }) 
             </fieldset>
             <label className="row"><input type="checkbox" checked={atmosphere} onChange={e => setAtmosphere(e.target.checked)} />{t('Show channel atmosphere backgrounds')}</label>
             <p className="tiny muted">{t('Requires the server atmosphere feature. Follows your device’s light/dark theme and screen orientation; displayed translucently.')}</p>
+            <label className="field"><span>{t('Dice results')}</span><select value={diceDisplay} onChange={(e) => setDiceDisplay(e.target.value as DiceDisplay)}>
+              <option value="separate">{t('As a separate message from the dice')}</option>
+              <option value="inline">{t('Under the roll command')}</option>
+            </select></label>
             <label className="row"><input type="checkbox" checked={notifyOn} onChange={e => setNotify(e.target.checked)} />{t('Show message notifications')}</label>
             <p className="tiny muted">{t('A banner in the top-right corner when someone posts in another window you joined in the channel you are viewing. Applies on this device at once.')}{isDesktop ? ' ' + t('In the background, the desktop app shows a system notification instead.') : ''}</p>
             <div className="row"><span className="small grow">{t('Media kept on this device: {n} files, {size}', { n: cache?.entries ?? 0, size: formatCacheSize(cache?.bytes ?? 0) })}</span><button type="button" className="ghost small" disabled={!cache?.entries} onClick={clearCache}>{t('Clear')}</button></div>

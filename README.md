@@ -184,7 +184,7 @@ is with them, the story's date and place, what their group knows and the lines t
 tablemate rules (short lines, never narrate outcomes, support the others, a dice command when an action calls for a
 check). Editable, never auto-sent (pick / edit / insert, another take, discard).
 
-**Integrated dice (Sealdice-compatible)** — any message that starts with a dot command (`.r` `.rh` `.ra`/`.rc` `.rah` `.sc` `.st`
+**Integrated dice (Sealdice-compatible)** — results are coloured by outcome (critical, extreme, hard, success, failure, fumble) and, by default, come as a separate message from the dice; each player can show them under the command instead (personal settings). A server's dice text groups give the dice a nickname, an avatar and several templates per reply, picked at random. Also: any message that starts with a dot command (`.r` `.rh` `.ra`/`.rc` `.rah` `.sc` `.st`
 `.en`; there is no separate roll option) is rolled automatically, evaluated against the
 speaking character's attributes (`characters.sheet.attrs`, CoC 7e base values, English and 中文 aliases): hard/extreme
 difficulty, bonus/penalty dice, sanity loss written back to SAN, hidden rolls whispered to the roller and the GM. While typing,
