@@ -91,7 +91,29 @@ Json::Value advance(pqxx::work& w, const std::string& windowId) {
 }
 }
 
+Json::Value DiceService::persona(pqxx::work& w, const std::string& channelId) {
+    auto r = Db::queryOne(w,
+        "SELECT g.id, g.dice_name, g.avatar_version, (g.avatar_data IS NOT NULL) AS has_avatar, coalesce(ss.language, 'en') AS language, c.dice_text_group FROM channels c "
+        "LEFT JOIN server_settings ss ON ss.server_id=c.server_id "
+        "LEFT JOIN dice_text_groups g ON g.id::text=c.dice_text_group AND g.server_id=c.server_id WHERE c.id=$1", {channelId});
+    Json::Value bot(Json::objectValue);
+    bool zh = !r.isNull() && (r["dice_text_group"].asString() == "builtin:zh" || (r["dice_text_group"].asString() != "builtin:en" && r["language"].asString().rfind("zh", 0) == 0));
+    std::string name = r.isNull() ? "" : r["dice_name"].asString();
+    bot["name"] = name.empty() ? (zh ? "骰子" : "Dice") : name;
+    if (!r.isNull() && r["id"].isString()) {
+        bot["group_id"] = r["id"];
+        bot["avatar_version"] = r["has_avatar"].asBool() ? r["avatar_version"].asInt() : 0;
+    } else bot["avatar_version"] = 0;
+    return bot;
+}
+
 DiceService::Result DiceService::execute(pqxx::work& w, const ChannelAccess& a, const std::string& windowId, const std::string& characterId, const dice::Command& cmd) {
+    auto r = run(w, a, windowId, characterId, cmd);
+    r.dice["bot"] = persona(w, a.channelId);
+    return r;
+}
+
+DiceService::Result DiceService::run(pqxx::work& w, const ChannelAccess& a, const std::string& windowId, const std::string& characterId, const dice::Command& cmd) {
     dice::Context ctx;
     auto texts = textsForChannel(w, a.channelId, &ctx.language);   // inside the caller's transaction: no second connection
     auto ch = Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId});

@@ -23,6 +23,9 @@ const { DatabaseSync } = await import("node:sqlite");
 process.emitWarning = emitWarning;
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS day_summaries (character_id TEXT NOT NULL, date TEXT NOT NULL, text TEXT NOT NULL, from_seq INTEGER NOT NULL, to_seq INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY(character_id, date));
+CREATE TABLE IF NOT EXISTS daily_derived_lines (message_id TEXT PRIMARY KEY, to_seq INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS context_omissions (message_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS lines (seq INTEGER PRIMARY KEY, id TEXT NOT NULL, window_id TEXT NOT NULL, json TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS lines_window ON lines(window_id, seq);
 CREATE TABLE IF NOT EXISTS chapters (
@@ -65,7 +68,7 @@ export class Store {
     } catch (e) { this.db.exec("ROLLBACK"); throw e; }
     this.q = {
       putLine: this.db.prepare("INSERT INTO lines(seq, id, window_id, json) VALUES(?, ?, ?, ?) ON CONFLICT(seq) DO UPDATE SET json = excluded.json, window_id = excluded.window_id, id = excluded.id"),
-      lines: this.db.prepare("SELECT json FROM lines WHERE window_id = ? AND seq > ? AND seq <= ? ORDER BY seq"),
+      lines: this.db.prepare("SELECT json FROM lines WHERE window_id = ? AND seq > ? AND seq <= ? AND id NOT IN (SELECT message_id FROM context_omissions) ORDER BY seq"),
       firstSeq: this.db.prepare("SELECT min(seq) AS s FROM lines WHERE window_id = ?"),
       lastSeq: this.db.prepare("SELECT max(seq) AS s FROM lines WHERE window_id = ?"),
       addChapter: this.db.prepare("INSERT INTO chapters(scope, window_id, from_seq, to_seq, level, text, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)"),
@@ -96,6 +99,7 @@ export class Store {
   putLines(rows) {
     if (!rows?.length) return;
     this.tx(() => { for (const m of rows) if (Number.isFinite(m?.seq) && m.chat_window_id) this.q.putLine.run(m.seq, String(m.id ?? ""), m.chat_window_id, JSON.stringify(m)); });
+    for (const m of rows) if (Number.isFinite(m?.seq) && m.stand_in && m.recalled_at) this.forgetStandin(m.seq);
   }
   // Lines of a window with fromSeq < seq <= toSeq, oldest first. A recalled line is kept as its tombstone (so a sync
   // never brings the text back) but is never returned: it was not said.
@@ -148,6 +152,21 @@ export class Store {
   }
 
   // ---- phone (casual mode)
+  addDaySummary({ characterId, date, text, fromSeq, toSeq, at }) { this.db.prepare("INSERT INTO day_summaries VALUES(?,?,?,?,?,?) ON CONFLICT(character_id,date) DO UPDATE SET text=excluded.text, from_seq=excluded.from_seq, to_seq=excluded.to_seq, at=excluded.at").run(characterId, date, text, fromSeq, toSeq, at); }
+  daySummaries(characterId, since = 0) { return this.db.prepare("SELECT character_id AS characterId, date, text, from_seq AS fromSeq, to_seq AS toSeq, at FROM day_summaries WHERE character_id=? AND at>=? ORDER BY at,date").all(characterId, since); }
+  addDailyDerivedLine(id, toSeq) { this.db.prepare("INSERT OR REPLACE INTO daily_derived_lines VALUES(?,?)").run(id, toSeq); }
+  // Stand-ins can be recalled long after compaction. Later chapters may depend on the affected chapter;
+  // discard derived context conservatively, retaining the transcript and all world state.
+  forgetStandin(seq) {
+    if (this.get(`standin-recalled:${seq}`)) return;
+    this.tx(() => {
+      this.set(`standin-recalled:${seq}`, true);
+      this.set('context-revision', this.get('context-revision', 0) + 1);
+      this.db.prepare("DELETE FROM chapters WHERE to_seq >= ?").run(seq);
+      this.db.prepare("DELETE FROM day_summaries WHERE to_seq >= ?").run(seq);
+      this.db.prepare("INSERT OR IGNORE INTO context_omissions SELECT message_id FROM daily_derived_lines WHERE to_seq >= ?").run(seq);
+    });
+  }
   addPhone({ seq = 0, windowId, from, to, text, at = Date.now() }) { this.q.addPhone.run(seq | 0, windowId, from, to, String(text), at); }
   // A text its sender recalled.
   removePhone(seq) { if (seq) this.db.prepare("DELETE FROM phone WHERE seq = ?").run(seq | 0); }

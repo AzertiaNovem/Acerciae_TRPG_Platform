@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
+import { DAILY_DEFAULTS } from "./daily.mjs";
 import { DEFAULT_PROVIDER, FUNCTION_NAMES, PROVIDER_TYPES, PURPOSES } from "./llm/routes.mjs";
 
 // Loads KEY=VALUE lines from a .env file without overriding variables already set in the environment.
@@ -63,6 +64,8 @@ const get = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o =
 // Every setting: flag, file key, and (for the few that still come from the environment) its variable. Older variable
 // names map to file keys for the warning.
 const SETTINGS = [
+  ...Object.keys(DAILY_DEFAULTS).map(k => [`daily-${k.replaceAll("_", "-")}`, null, `daily.${k}`]),
+  ["standin-context-tokens", null, "context.standin_tokens"],
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
   ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rule_system"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
   ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"],
@@ -99,7 +102,7 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
-const SECTIONS = ["account", "channel", "table", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
+const SECTIONS = ["daily", "account", "channel", "table", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
 // Named endpoints (`providers`) and the model of each function (`models`) have keys of their own (llm/routes.mjs).
 const FREE_SECTIONS = ["providers", "models"];
 const PROVIDER_KEYS = ["provider", "api_base", "api_key", "model", "effort", "max_tokens", "fallbacks", "timeout_ms", "stream", "cache_ttl"];
@@ -249,6 +252,12 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     recallTokens: Math.max(0, Math.min(4000, int(pick("context-recall-tokens", 1200), 1200))),
     historyBackfillLines: Math.max(0, int(pick("history-backfill-lines", 1000), 1000)),
     // Billable-equivalent tokens a day (cache reads count a tenth); spent, the table stops its own autonomous turns.
+    daily: Object.fromEntries(Object.entries(DAILY_DEFAULTS).map(([k, d]) => {
+      const v = pick(`daily-${k.replaceAll("_", "-")}`, d);
+      return [k, typeof d === "boolean" ? bool(v, d) : typeof d === "string" ? (/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(v)) ? String(v) : d) :
+        Math.min(k === "day_hours" ? 168 : Number.MAX_SAFE_INTEGER, Math.max(["day_hours", "pause_days", "spark_max_lines"].includes(k) ? 1 : 0, int(v, d)))];
+    })),
+    standinContextTokens: Math.max(1000, int(pick("standin-context-tokens", 12000), 12000)),
     dailyTokenBudget: Math.max(0, int(pick("llm-daily-token-budget", 0), 0)),
     kickoff: bool(pick("kickoff"), false),
     // Autonomy: the table moves on its own clock (side timelines, quiet shared windows) while humans are around.

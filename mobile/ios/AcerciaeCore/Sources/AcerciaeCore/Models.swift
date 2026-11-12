@@ -22,6 +22,8 @@ public struct User: Codable, Sendable {
     public let avatarData: String?
     public let avatarVersion: Int?
     public var avatarHash: String? = nil
+    /// "separate" (default) or "inline": how this account sees dice results.
+    public var diceDisplay: String? = nil
 }
 public struct Session: Codable, Sendable, CustomStringConvertible {
     public let token: String
@@ -55,6 +57,7 @@ public struct Message: Codable, Identifiable, Sendable, Equatable {
     public var recalledAt: String? = nil
     /// Seconds left, when the message arrived, for its author to recall it; nil when it cannot be recalled.
     public var recallSecondsLeft: Int? = nil
+    public var standIn: Bool? = nil
     public var recalled: Bool { recalledAt != nil }
     public var hasIllustration: Bool { !recalled && !(mediaAssetId ?? "").isEmpty }
     public var illustrationCaption: String { ChatIllustrations.caption(content) }

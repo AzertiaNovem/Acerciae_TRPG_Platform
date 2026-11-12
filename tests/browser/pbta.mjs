@@ -58,7 +58,10 @@ try {
   const msg = await reply.json();
   assert.equal(msg.dice.type, 'pbta_move');
   await page.getByRole('button', { name: /back to chat/i }).click();
-  await page.getByText(msg.dice.text, { exact: false }).first().waitFor();
+  // The dice persona renders each result line separately, with numbers in nested spans.
+  const result = page.locator(`#msg-${msg.id} + .dice-bot .dice-lines`);
+  await result.waitFor();
+  assert.deepEqual(await result.locator('.dice-line').allTextContents(), msg.dice.text.split('\n'));
   await page.getByText('GM workspace', { exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.locator('summary').filter({ hasText: 'Rule pack' }).click();

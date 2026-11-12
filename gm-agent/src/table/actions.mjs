@@ -10,11 +10,16 @@ import { norm } from "./shared.mjs";
 
 export async function act(table, windowId, a, ctx, { mode, parent = mode, scope = null, evidenceThrough } = {}) {
     table.generation.signal.throwIfAborted();
+    if (mode === "spark" && !["narrate", "npc", "note", "text"].includes(a.type)) return 0;
     switch (a.type) {
+      case "question_done":
+        if (table.dailyOn()) { table.daily.questions = table.daily.questions.filter(q => q.id !== a.id); table.save(); }
+        return 0;
       case "time_skip": {
         const scene = table.scene(windowId);
         const time = typeof a.time === "string" && a.time.trim().slice(0, 120);
         if (!scene || !time || scene.narrativeTime === time) return 0;
+        if (!await table.readClock(windowId, time)) return 0;
         table.timelines.relocate(scene.id, { narrativeTime: time });
         table.save();
         return table.postHandoff(windowId, time, evidenceThrough);
@@ -31,6 +36,7 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
         // While the planner is on, the story's first date is its to choose (from the era, the world and its plots).
         const first = !table.calendar.date && a.date && table.plannerMode() !== "off";
         if (first) table.log(`calendar: the GM's first date "${a.date}" left to the story planner`);
+        if (a.time && !await table.readClock(windowId, a.time, { newDay: Number(a.advance_days) > 0 || a.date > table.calendar.date, apply: false })) a = { ...a, time: undefined };
         const change = table.moveCalendar({ days: a.advance_days, date: first ? undefined : a.date, time: a.time, why: a.reason ?? a.text, by: "keeper" });
         const held = await table.calendarHeld(windowId, change);
         if (change.changed && change.from && change.to) {
@@ -109,6 +115,7 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
       case "rejoin": return table.cfg.timelineAuto ? 0 : table.legacyRejoin(a);
       case "timeline": {
         const t = table.timelines.byName(a.timeline) ?? table.timelines.main();
+        if (a.narrative_time && !await table.readClock(table.windowOf(t), a.narrative_time)) a = { ...a, narrative_time: undefined };
         const changed = a.narrative_time && a.narrative_time !== t.narrativeTime;
         table.updateTimeline(a);
         const w = table.windowOf(t);
@@ -178,6 +185,7 @@ export async function changeScenario(table, windowId, a, mode, parent = mode, ev
       const p = calendarPace(table.calendar, { now: table.now(), minMinutes, minLines });
       if (!p.ok) return table.post(windowId, { content: `Scenario change refused: the date moved on too recently to jump ahead again (${p.wait} first). Change the scenario within the same day (advance_days 0), or let the day play out.`, kind: "narration", visibility: "gm_only" });
     }
+    if (a.narrative_time && !await table.readClock(windowId, a.narrative_time, { newDay: Number(a.advance_days) > 0, apply: false })) a = { ...a, narrative_time: undefined };
     // The scenario that ends here, for its pictures: the timelines a player is in, read before anything moves.
     const ending = table.endingScenario(v.scenes);
     try {
@@ -196,6 +204,7 @@ export async function changeScenario(table, windowId, a, mode, parent = mode, ev
       const oldTime = table.timelines.main().narrativeTime;
       table.timelines.relocate(MAIN, { location: scene?.location || a.location, narrativeTime: scene?.narrative_time || a.narrative_time });
       const moved = Number(a.advance_days) > 0 && table.calendarOn() ? table.moveCalendar({ days: a.advance_days, why: `scenario: ${scene?.title ?? a.title ?? a.scenario ?? ""}`, by: "keeper" }) : null;
+      if (a.narrative_time) await table.readClock(windowId, a.narrative_time);
       const held = moved ? await table.calendarHeld(windowId, moved) : 0;
       table.beatClosed();   // the planner's "move on" is spent; the next plan opens the next beat
       table.save();
@@ -257,9 +266,12 @@ export async function card(table, characterId) {
 
 export async function post(table, windowId, body, { count = true, allowPaused = false } = {}) {
     if (!allowPaused && table.generation.signal.aborted) return 0;
+    const spark = table.turnScope.getStore();
+    if (spark?.mode === "spark" && (table.sparkCancelled() || spark.dailyPosted >= spark.lineLimit)) return 0;
     if (table.pbta && /^[.。][a-z]/i.test(String(body.content).trim())) return 0;
     try {
       const m = await table.api.postMessage(table.channelId, windowId, { visibility: "window", ...body });
+      if (spark?.mode === "spark") spark.dailyPosted++;
       table.botMessageIds.add(m.id);
       if (table.botMessageIds.size > 2000) table.botMessageIds.delete(table.botMessageIds.values().next().value);
       const turn = table.turnScope.getStore();

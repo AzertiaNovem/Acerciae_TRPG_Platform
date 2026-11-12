@@ -137,7 +137,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val recallDeadlines = RecallDeadlines()
     private val recalledMessages get() = state.value.recalledMessages
     private fun wasRecalled(id: String) = recalledMessages.containsKey(id)
-    fun canRecall(m: Message) = state.value.user?.id != null && m.authorId == state.value.user?.id && recallDeadlines.open(m)
+    fun canRecall(m: Message) = state.value.user?.id != null && !m.recalled && ((m.authorId == state.value.user?.id && recallDeadlines.open(m)) || (m.standIn && state.value.characters.any { it.id == m.characterId && it.text("user_id") == state.value.user?.id }))
     private fun applyRecall(tombstone: Message) {
         if (!tombstone.recalled) return
         if (!wasRecalled(tombstone.id)) {
@@ -284,6 +284,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             session = Session(auth.token, user); update { copy(user = user) }; MobileLocale.set(user.uiLanguage ?: code)
             sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!))
         }
+    }
+    fun changeDiceDisplay(display: String) = launch {
+        val auth = session ?: return@launch
+        val value = get(listOf("auth", "me"), payload("dice_display" to display), "PUT")
+        if (session?.token != auth.token) return@launch
+        val user = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<User>(value)
+        session = Session(auth.token, user); update { copy(user = user) }
+        sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!))
     }
     fun changeAtmosphere(enabled: Boolean) = launch {
         val auth = session ?: return@launch
@@ -543,7 +551,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val servers = rows(listOf("servers"))
         if (stamp != epoch) return
         val auth = session
-        if (auth != null && profile.uiLanguage != null && (profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.hasAvatar != auth.user.hasAvatar || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled)) {
+        if (auth != null && profile.uiLanguage != null && (profile.uiLanguage != auth.user.uiLanguage || profile.avatarVersion != auth.user.avatarVersion || profile.hasAvatar != auth.user.hasAvatar || profile.displayName != auth.user.displayName || profile.atmosphereEnabled != auth.user.atmosphereEnabled || profile.diceDisplay != auth.user.diceDisplay)) {
             session = Session(auth.token, profile); update { copy(user = profile) }; MobileLocale.set(profile.uiLanguage)
             runCatching { sessionStore.save(SavedLogin(ServiceConfiguration.BACKEND_ROOT, session!!)) }
         }

@@ -270,6 +270,7 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(item.name, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (item.text("passive_since").isNotEmpty()) Text(" · " + tr("passive"), Modifier.semantics { contentDescription = tr("Player away: passively present") }, style = MaterialTheme.typography.labelSmall)
                 if (state.typing.containsKey(item.id)) Text(" ✎", Modifier.semantics { contentDescription = tr("typing…") }, color = MaterialTheme.colorScheme.secondary)
             }
             if (parts.isNotEmpty()) Text(buildAnnotatedString {
@@ -334,11 +335,22 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     }
 }
 
+// Dice results follow the account's choice: a separate message from the dice (default) or under the command.
 @Composable private fun MessageBubble(message: Message, state: AppState, model: AppViewModel) {
+    val separate = message.dice != null && !message.recalled && DiceDisplay.separate(state.user)
+    when {
+        // A hidden roll's public notice is the dice's own announcement.
+        separate && message.diceTone == DiceTone.NOTICE -> DiceBotRow(message, model)
+        separate -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { MessageBody(message, state, model, commandOnly = true); DiceBotRow(message, model) }
+        else -> MessageBody(message, state, model, commandOnly = false)
+    }
+}
+
+@Composable private fun MessageBody(message: Message, state: AppState, model: AppViewModel, commandOnly: Boolean) {
     val mine = state.user?.id != null && message.authorId == state.user?.id
     val character = state.characters.find { it.id == message.characterId }
     // Out of character the player speaks: their own avatar and name.
-    val ooc = message.kind == "ooc"
+    val ooc = message.kind == "ooc" && !message.standIn
     val picture = if (ooc) null else CharacterArtwork.avatar(character, message)
     val asset = picture?.id.orEmpty()
     val revision = picture?.version ?: 0
@@ -361,7 +373,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         verticalAlignment = Alignment.Top) {
         if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()); Spacer(Modifier.width(8.dp)) }
         Column(Modifier.widthIn(max = 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-            Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else "") + (if (pin != null) " · 📌" else ""),
+            Text(name + (if (message.standIn) " · " + tr("stand-in") else "") + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else "") + (if (pin != null) " · 📌" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
             Spacer(Modifier.height(6.dp))
             // A long press offers "Pin" (or "Unpin"), and on one of the user's own lines, while it can still be recalled, "Recall".
@@ -371,14 +383,15 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
                 if (offersUnpin && pin != null) DropdownMenuItem(text = { Text(tr("Unpin")) }, onClick = { menu = false; model.unpin(pin.id) }, enabled = !state.busy)
                 if (model.canRecall(message)) DropdownMenuItem(text = { Text(tr("Recall")) }, onClick = { menu = false; model.recall(message) })
             }
-            if (message.dice != null && message.referenceIds.isNullOrEmpty()) DiceResult(message) else Surface(shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
+            if (message.dice != null && message.referenceIds.isNullOrEmpty() && !commandOnly) DiceResult(message) else Surface(shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
                 bottomEnd = if (mine) 5.dp else 18.dp, bottomStart = if (mine) 18.dp else 5.dp),
                 color = if (mine) Color(0xFF354337) else Panel) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     message.referenceIds.orEmpty().distinct().forEach { id ->
                         key(state.user?.id, state.scopeKey, state.windowId, id) { ChatReference(id, state, model) }
                     }
-                    if (message.dice != null) DiceResult(message)
+                    if (message.dice != null && commandOnly) SelectionContainer { Text(message.content, style = MaterialTheme.typography.bodyMedium, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
+                    else if (message.dice != null) DiceResult(message)
                     else if (message.hasIllustration) ChatIllustration(message, state, model)
                     else Text(message.displayText, style = MaterialTheme.typography.bodyLarge)
                 }
@@ -513,6 +526,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         item { Button(onClick = model::logout, enabled = !state.busy) { Text(tr("退出登录")) } }
         item { LanguagePicker(state, model); Text(tr("This changes your interface only. Server AI output language stays unchanged."), style = MaterialTheme.typography.bodySmall) }
         item { Row(verticalAlignment = Alignment.CenterVertically) { Text(tr("Show channel atmosphere backgrounds"), Modifier.weight(1f)); Switch(state.user?.atmosphereEnabled == true, model::changeAtmosphere, enabled = !state.busy) }; Text(tr("Backgrounds follow the app theme and screen orientation. The server must also enable this feature."), style = MaterialTheme.typography.bodySmall) }
+        item { Choice(tr("Dice results"), state.user?.diceDisplay ?: DiceDisplay.SEPARATE, listOf(DiceDisplay.SEPARATE to tr("As a separate message from the dice"), DiceDisplay.INLINE to tr("Under the roll command")), !state.busy) { model.changeDiceDisplay(it) } }
         item { SettingToggle(tr("Message banners"),state.bannersEnabled,true,model::setBanners); SettingToggle(tr("Read aloud"),state.readAloud,true,model::setReadAloud); Text(tr("Uses this phone’s speech voices. Only new messages in the visible chat are read.")); TextButton(onClick=model::stopSpeech) { Text(tr("Stop reading")) } }
         item { Text(tr("内容同步"), style = MaterialTheme.typography.titleMedium) }
         item { TextButton(onClick = { scope.launch { model.poll(forceCatalog = true) } }, enabled = !state.busy) { Text(tr("立即刷新")) } }

@@ -84,7 +84,7 @@ export class GmContext {
   // `storyPlan` is the planner's rendered section (planner.mjs) for part C; `peek` leaves the live tips for the GM (the
   // planner reads the context too, in the background). `calendar` and `bonds` are the rendered calendar.mjs and
   // bonds.mjs sections, and `table` the players' wishes and corrections (wishes.mjs), also for part C.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "", initiative = null }) {
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, daily = null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "", initiative = null }) {
     const ch = this.channelId;
     const candidates = [];
     const P = this.profile;
@@ -152,16 +152,16 @@ export class GmContext {
     const win = windows.find((w) => w.id === windowId);
 
     // ---- C: changes every few turns
-    const c = [];
+    const c = [], dailyVolatile = [];
     if (hiddenSection) c.push(hiddenSection);
     if (table) c.push(table);
-    if (storyPlan) c.push(storyPlan);
-    if (calendar) c.push(calendar);
+    if (storyPlan && !daily) c.push(storyPlan);
+    if (calendar && !daily) c.push(calendar);
     if (bonds) c.push(bonds);
     if (timelines) {
       // Every active thread, always; then the most recent merged ones for context.
       const listed = [...timelines.active(), ...timelines.list.filter((t) => t.status !== "active" && t.mergedInto).slice(-6)];
-      c.push([
+      (daily ? dailyVolatile : c).push([
         "## Timelines",
         `${pcs.charAt(0).toUpperCase()}${pcs.slice(1)} may be living different threads of the story. A line is tagged with the timeline it comes from: a character telling the table about events speaks from its own timeline, so those events happened there, not now in this scene. Knowledge crosses timelines only when a character who was there tells it.`,
         ...listed.map((t) => `- T${t.handle ?? "?"} ${t.name} [${t.status}${t.mergedInto ? ` into ${timelines.get(t.mergedInto)?.name ?? t.mergedInto}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span} split` : ""}]${t.windowId ? ` in window "${windowName(t.windowId)}"` : ""}: ${t.members.map(nameOf).join(", ") || "(no one now)"}${t.narrativeTime ? `; time: ${t.narrativeTime}` : ""}${t.location ? `; place: ${t.location}` : ""}${t.notes ? `\n    notes: ${clip(t.notes, 600)}` : ""}`),
@@ -178,7 +178,9 @@ export class GmContext {
     if (docs.length) c.push(`## ${gm} documents (platform AI)\n${docs.join("\n\n")}`);
 
     // ---- D: every turn
-    const d = [];
+    const d = [...dailyVolatile];
+    if (daily && storyPlan) d.push(storyPlan);
+    if (daily && calendar) d.push(calendar);
     if (current) d.push(`## Now\nThe current scenario "${current.title}" has ${current.event_count ?? 0} events so far.`);
     if (reminders?.length) d.push(`## ${gm} reminders (platform AI)\n${reminders.slice(0, 8).map((r) => `- [${r.kind}] ${r.title}: ${clip(r.why, 300)}`).join("\n")}`);
     if (highlights?.length) d.push(`## Highlights (platform AI)\n${highlights.slice(0, 10).map((h) => `- ${clip(h.reason, 200)}`).join("\n")}`);
@@ -186,7 +188,7 @@ export class GmContext {
     if (proposals?.length) d.push(`## Pending memory proposals\n${proposals.length} waiting for the ${gm}'s review in the web app.`);
     if (tips.length) d.push(`## Just pushed by the platform\n${tips.map((t) => `- ${clip(t, 300)}`).join("\n")}`);
     // Who is really in each window's scene, who is a member but elsewhere, and which windows' scenes are over.
-    const who = (id) => { const ms = awayOf(id); return ms ? `${nameOf(id)} (player away ${duration(ms)})` : nameOf(id); };
+    const who = (id) => { const ms = awayOf(id); return ms ? `${nameOf(id)} (${daily ? "passive, " : ""}player away ${duration(ms)})` : nameOf(id); };
     const describe = (w) => {
       if (timelines?.retired(w.id)) return "(scene over: merged into another thread)";
       const scene = sceneOf(w.id);
@@ -197,6 +199,7 @@ export class GmContext {
       return `${here.join(", ") || "(no one)"}${away.length ? `; members elsewhere: ${away.join(", ")}` : ""}`;
     };
     d.push(`## Chat windows\n${windows.map((w) => `- ${w.name} (${w.kind})${w.id === windowId ? " ← this turn" : ""}: ${describe(w)}`).join("\n")}`);
+    if (daily?.questions?.length) d.push(`## Waiting for a player's answer\n${daily.questions.map(q => `${q.id}: ${nameOf(q.pc)} — ${q.text}`).join("\n")}`);
     // D&D: this window's Initiative order, when a fight is on (the platform keeps it; the dice action moves it).
     if (initiative?.entries?.length) {
       const turn = Number(initiative.turn) || 0;

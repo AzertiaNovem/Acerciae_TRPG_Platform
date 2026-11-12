@@ -69,6 +69,18 @@ class ChatIllustrationsTest {
             assertNull(cache.get(server.url("/api/channels/channel/messages/line/image").toString()))
         } finally { server.shutdown(); root.deleteRecursively() }
     }
+    @Test fun aFinishedDownloadIsNeverHandedToTheNextRequest() = runBlocking {
+        // Only a download still under way is shared; one that has finished is not reused, even in the moment before it
+        // is cleared away, so a picture the server marks no-store is fetched each time it is asked for.
+        val server = MockWebServer(); server.start()
+        try {
+            val client = BackendClient(BackendAddress(server.url("/").toString(), true))
+            val path = ChatIllustrations.path("channel", "line")
+            repeat(300) { server.enqueue(MockResponse().setBody("picture").setHeader("Cache-Control", "private, no-store")) }
+            repeat(300) { client.bytes(path, "fixture-session") }
+            assertEquals(300, server.requestCount)
+        } finally { server.shutdown() }
+    }
     @Test fun onlyExplicitlyCacheableMessagePicturesUseTheException() = runBlocking {
         val root = Files.createTempDirectory("chat-private").toFile(); val server = MockWebServer(); server.start()
         try {

@@ -94,8 +94,8 @@
 :root[data-theme="glass"] :is(.mode-banner, .avatar.gm, .notice-icon.gm, .pill.gm) { background: color-mix(in srgb, var(--warn) 11%, var(--bg-2)); border-color: color-mix(in srgb, var(--warn) 34%, var(--bg-2)); }
 :root[data-theme="glass"] :is(.ai-btn, .pill.ai) { background: color-mix(in srgb, var(--accent-2) 10%, var(--bg-2)); border-color: color-mix(in srgb, var(--accent-2) 40%, var(--bg-2)); }
 :root[data-theme="glass"] .ai-btn:hover { background: color-mix(in srgb, var(--accent-2) 18%, var(--bg-2)); }
-:root[data-theme="glass"] :is(.dice-result.ok, .dice-result.crit, .pill.ok) { background: color-mix(in srgb, var(--ok) 12%, var(--bg-2)); border-color: var(--ok); }
-:root[data-theme="glass"] :is(.dice-result.fail, .dice-result.fumble, .pill.danger, button.danger) { background: color-mix(in srgb, var(--danger) 11%, var(--bg-2)); border-color: var(--danger); }
+:root[data-theme="glass"] :is(.pill.ok) { background: color-mix(in srgb, var(--ok) 12%, var(--bg-2)); border-color: var(--ok); }
+:root[data-theme="glass"] :is(.pill.danger, button.danger) { background: color-mix(in srgb, var(--danger) 11%, var(--bg-2)); border-color: var(--danger); }
 :root[data-theme="glass"] :is(.chip, .pick.on) { background: color-mix(in srgb, var(--accent) 12%, var(--bg-2)); border-color: var(--bg-4); }
 :root[data-theme="glass"] .status-hypothesis { color: var(--violet); }
 

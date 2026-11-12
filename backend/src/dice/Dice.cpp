@@ -1,3 +1,4 @@
+#include <random>
 #include "Dice.h"
 #include "Dnd.h"
 #include "../core/Json.h"
@@ -493,7 +494,22 @@ const Json::Value& builtinTexts(const std::string& lang) {
 std::vector<std::string> textKeys() { return builtinTexts("en").getMemberNames(); }
 
 std::string TextSet::get(const std::string& key) const {
-    if (overrides_.isObject() && overrides_[key].isString() && !overrides_[key].asString().empty()) return overrides_[key].asString();
+    if (overrides_.isObject() && overrides_.isMember(key)) {
+        const auto& v = overrides_[key];
+        if (v.isString() && !v.asString().empty()) return v.asString();
+        // Several templates: one of the non-empty ones, at random, every time the text is used.
+        if (v.isArray()) {
+            std::vector<std::string> options;
+            for (const auto& o : v) if (o.isString() && !o.asString().empty()) options.push_back(o.asString());
+            if (!options.empty()) {
+                if (options.size() == 1 || !pick_) {
+                    static thread_local std::mt19937 gen{std::random_device{}()};
+                    return options[std::uniform_int_distribution<std::size_t>(0, options.size() - 1)(gen)];
+                }
+                return options[pick_(options.size()) % options.size()];
+            }
+        }
+    }
     auto& b = builtinTexts(base_);
     if (b[key].isString()) return b[key].asString();
     auto& en = builtinTexts("en");

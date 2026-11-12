@@ -96,7 +96,7 @@ function cardSummary(card, { stable = false, profile = COC7E, attrs = {} } = {})
 // `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
 // `today` is the story's date as this co-player lives it (calendar.mjs), `timePassed` a line when the calendar moved
 // on since it last acted; `met` the NPCs it has met (rendered), `bonds` the relationships it knows (bonds.mjs).
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null, profile = COC7E, attrs = {} }) {
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, spark = false, whistle = false, dailyNote = "", world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null, profile = COC7E, attrs = {} }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -109,6 +109,8 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     memories.length ? `WHAT YOU REMEMBER (your own memories of earlier play, oldest first):\n${memories.join("\n\n")}` : "",
   ].filter(Boolean).join("\n\n");
   const now = [
+    spark ? "SPARK: Nobody has spoken for a while. Start a small daily-life topic fitting this hour, place and routine. Never advance a plot, reveal a secret, start danger, change relationships or move anyone. Speak one short line only; no roll or text." : whistle ? "WHISTLE: Reply once to this small daily-life topic, or pass. No plot development, secrets, danger, relationship changes, movement, rolls or texts." : "",
+    dailyNote,
     `YOUR CURRENT CONDITION AND INVENTORY:\n${cardState(card, profile, attrs)}`,
     recalled,
     phone ? `YOUR PHONE (recent text messages, oldest first):\n${phone}` : "",

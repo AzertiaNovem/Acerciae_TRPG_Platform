@@ -25,7 +25,7 @@ User objects now include `ui_language`, `avatar_data` (empty once the avatar is 
 
 | Method | Path | Notes |
 |---|---|---|
-| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?,atmosphere_enabled?}`. A data URI replaces the avatar, `""` removes it, an absent `avatar_data` keeps it; duplicate username returns 409. |
+| PUT | `/auth/me` | Atomic partial update of the current user's `{username?,display_name?,ui_language?,avatar_data?,atmosphere_enabled?,dice_display?}` (`dice_display`: `separate`, the default, shows a roll's result as its own message from the dice; `inline` shows it under the command). A data URI replaces the avatar, `""` removes it, an absent `avatar_data` keeps it; duplicate username returns 409. |
 | GET | `/users/{user_id}/avatar` | Raster image bytes, authenticated owner/shared-server members only. With `?token=` (browsers) an avatar in the public media bucket is answered with a `302` to its public URL. |
 | POST | `/auth/register` | `{username, password, display_name}` → `{token, user}` |
 | POST | `/auth/login` | `{username, password}` → `{token, user}`; a suspended account answers `403 account_suspended` with the reason in the message |
@@ -63,8 +63,9 @@ delivered with `Cache-Control: private, max-age=31536000, immutable`.
 | GET | `/servers/{id}/all-channels` | (maintainers) every channel of the server, member or not: `{id, name, description, created_at, member_count, message_count}` |
 | DELETE | `/channels/{id}` | (server maintainers; a channel GM is not enough) deletes the channel with its chat, characters, documents, media, scenarios and logs. Body `{"confirm": "Delete Channel"}`, else 400 `confirmation_required`. Server members get `channel.deleted {server_id, channel_id}`. Returns `{ok, files}`. |
 | GET/PUT | `/servers/{id}/settings` | members get `{name, language, features{consistency,dice,inspiration,log_studio,atmosphere,illustrations}, policy{join_policy: open|invite|closed, channel_creation: members|maintainers, guest_invites, main_chat_spectators}, llm_mode, images_enabled, is_maintainer}`; PUT (maintainer) accepts the same `policy` object; maintainers also get `llm{provider: mock|openai_compatible|anthropic, api_base, model, reasoning_effort, embedding_model, api_key_set, api_key_hint}`, `image{provider: disabled|mock|gpt_image, api_base, model, size, quality, api_key_set, api_key_hint}`, `tts{provider: disabled|mock|qwen|openai, api_base, model, voice, api_key_set, api_key_hint}`, `ai_policy{token_budget, image_budget, period: month|total, max_concurrent, period_start, tokens_used, cached_tokens_used, images_used, running}` and `private_endpoints_allowed`. PUT (maintainer) takes the same objects plus `api_key` / `clear_api_key` per provider and `ai_policy{token_budget, image_budget, period, max_concurrent, reset_usage}`. A live provider needs its own key; keys are sealed (AES-256-GCM) and never returned. Endpoints must be https on a public address unless the deployment sets `AI_ALLOW_PRIVATE_ENDPOINTS`. Budgets of 0 mean no limit; a spent budget answers AI requests with 429 `ai_budget_exhausted`, and a server already running `max_concurrent` AI tasks makes new ones wait (503 `ai_busy` after two minutes). |
-| GET/POST | `/servers/{id}/dice-texts` | dice reply text groups; create `{name, base: en|zh, texts:{key: template}}` (maintainer) |
-| PUT/DELETE | `/servers/{id}/dice-texts/{gid}` | (maintainer); deleting resets channels that used it |
+| GET/POST | `/servers/{id}/dice-texts` | dice reply text groups `{id, name, base, texts, dice_name, avatar_version}`; create `{name, base: en|zh, texts:{key: template | [template…]}, dice_name?, avatar_data?}` (maintainer). A text given as a list (up to 20) is answered with one of its templates at random; empty templates are dropped. `dice_name` (up to 60 bytes, one line) and `avatar_data` (a PNG or JPEG data URI, at most 128 KiB and 512×512) make the dice persona: every roll in a channel using the group stores `dice.bot {name, group_id, avatar_version}` (without a group: `{name: "Dice" or "骰子", avatar_version: 0}`) |
+| PUT/DELETE | `/servers/{id}/dice-texts/{gid}` | (maintainer); PUT takes the same fields, `avatar_data: ""` removes the avatar and an absent one keeps it; deleting resets channels that used it |
+| GET | `/dice-avatars/{gid}?v=` | the dice persona's picture, for members of the group's server (session or file token); 404 when there is none |
 | GET | `/dice/texts` | built-in texts `{keys, en, zh}` (template placeholders such as `{name}`, `{attr}`, `{roll}`, `{target}`, `{level}`) |
 | GET | `/users/search?q=` | `[{id, username, display_name}]` for the member pickers |
 | GET/POST | `/servers/{id}/channels` | create `{name, description?, knowledge_mode: public|isolated, rule_system?: coc7e|dnd2024|pbta, point_buy?}` — creator becomes GM; Main Chat + 6 documents created |
@@ -100,6 +101,11 @@ delivered with `Cache-Control: private, max-age=31536000, immutable`.
 
 Chat messages carry `character_avatar_asset_id` and `character_avatar_version`; `PUT /channels/{id}` accepts `era`.
 
+Character rows additionally carry `passive_since: timestamp | null`. GM-only
+`PUT /api/channels/{id}/characters/{cid}/presence` accepts `{passive: boolean}` for a PC in that channel,
+returns the updated character and broadcasts `character.updated`. Repeating `true` preserves the original timestamp;
+`false` clears it. A non-GM receives 403; a non-PC or malformed boolean receives 400.
+
 ## Chat windows & messages
 | GET/POST | `/channels/{id}/windows` | create `{name, kind: group|private, members:[{user_id, character_id?}]}` (GM); a new window joins the campaign's current scenario |
 | PUT | `/channels/{id}/windows/{w}` | GM rename `{name}` and/or archive/restore `{archived: boolean}`. Archived windows remain readable; posting and new membership return 409 until restored. Main Chat cannot be archived. |
@@ -125,6 +131,17 @@ membership intervals. Resume opens a new interval; it never reveals the gap. For
 original source permissions. Archiving only hides a window from the default active list and makes it read-only.
 `GET /windows` returns `fork_parent_id`, `fork_seq`, `archived_at` and each member’s `visibility_paused`.
 On `window.changed`, clients should refresh windows and the current history instead of treating pause as removal.
+
+Messages additionally carry `stand_in: boolean` (default `false`). The message POST body may set `stand_in: true`
+only for the GM speaking as another user's PC, with an explicit `character_id`, kind `ic` or `ooc`, and `window`
+visibility. Dice commands are not allowed. Invalid stand-in requests receive 400. The author remains the GM account,
+but the associated event has `actor_role: player`; REST and `message.posted` retain the flag. Log Studio copies it to
+`metadata.stand_in` and native JSON export messages expose `stand_in: true`.
+
+The owner of a stand-in line's character can recall it without a time limit, in addition to the author's existing
+120-second permission. Readability, archived-window and move-record restrictions still apply. Clients determine this
+owner permission from `stand_in` and the character's `user_id`, independently of `recall_seconds_left`. Clients talking
+to older servers should treat an absent flag as false and an absent `passive_since` as null.
 
 ## Scenes & events
 | GET/POST | `/channels/{id}/scenes` | Scenarios (stages of the story; a campaign-wide state, one current scenario for every window; POST prepares one without entering it). GM rows carry `summary`, `key_points`, `summary_status: none|pending|ready|gm_edited`, `auto_detected`, `stage_reason`, `boundary_event_id`; players get neutral `Scene N` labels. POST `{title, location?, narrative_time?, summary?}` (GM) |

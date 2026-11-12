@@ -181,6 +181,10 @@ VITE_API_BASE=https://trpg.missazertia.com
 
 建议关闭其他分支的 Preview builds，正式域名沿用 `trpg-platform.azertia.org`。无需在 GitHub 配置 CF token。
 
+前端的每个页面都有自己的路径（如 `/servers/…/channels/…/windows/…`、`…/gm/settings`，见 `docs/ARCHITECTURE.md`）。
+Pages 在 `dist` 顶层没有 `404.html` 时会对未知路径返回 `index.html`，刷新和分享的链接因此可用；不要在 `frontend/public`
+里加入 `404.html`。换用其他静态托管时同样需要「未知路径回退到 `index.html`」（自带 nginx 的 `try_files` 已配置）。
+
 给 `online` 设置分支保护：要求 PR、要求 CI 的 `test` 检查成功、禁止强推和删除。
 不要把 `Deploy backend` 设为合并前必需检查，因为它只在合并后运行。
 GitHub 新建 PR 时选择 **base: online、compare: main**，检查通过后合并；

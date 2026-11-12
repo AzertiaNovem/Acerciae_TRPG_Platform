@@ -9,7 +9,8 @@
 // adopted at the next turn boundary. The compact plan lives in the state file (key `planner`); every version's full
 // record (draft, critique, final) is in the store's `plans` table.
 //
-// The planner never runs on its own while nobody is at the table (plannerDue), with one exception: the final review.
+// The full planner does not run periodically while nobody is at the table (plannerDue). Exceptions are the final
+// review and daily mode's separate lightweight routine/topic call (daily-planner.mjs), which never edits this plan.
 // When a session of human play ends (no human line for the idle time, or the operator stops `run`), it reviews the
 // whole session once and prepares the next one, more boldly than mid-session: it moves the calendar on, records what
 // the world did off-screen meanwhile, and says how the next session should open (`between`, read by the GM at the
@@ -148,7 +149,7 @@ export function validateCritique(x) {
 
 // The plan the GM will read: clipped, capped, ids kept across versions. Throws only when the shape is unusable (no
 // object, no beat), so completeJson's one repair round fires; everything else is dropped or clipped.
-export function validateStoryPlan(x, { mode = "full", prev = null, nextId = 1, seq = 0, trigger = "", now = Date.now() } = {}) {
+export function validateStoryPlan(x, { mode = "full", daily = false, prev = null, nextId = 1, seq = 0, trigger = "", now = Date.now() } = {}) {
   if (!x || typeof x !== "object") throw new Error("expected an object");
   const beatTitle = clip(x.beat?.title, 80);
   if (!beatTitle) throw new Error("beat.title is required");
@@ -165,7 +166,7 @@ export function validateStoryPlan(x, { mode = "full", prev = null, nextId = 1, s
       if (!tid || !known.has(tid)) tid = `P${id++}`;
       if (threads.some((o) => o.id === tid)) continue;
       const status = STATUSES.has(t.status) ? t.status : "live";
-      threads.push({ id: tid, title, status, stakes: clip(t.stakes, 200), hooks: (Array.isArray(t.hooks) ? t.hooks : []).map((h) => clip(h, 120)).filter(Boolean).slice(0, MAX_HOOKS), twist: clip(t.twist, 300), ripeWhen: clip(t.ripe_when ?? t.ripeWhen, 160), weaveWith: /^P\d+$/.test(String(t.weave_with ?? t.weaveWith ?? "")) ? String(t.weave_with ?? t.weaveWith) : null });
+      threads.push({ id: tid, title, status, ...(daily ? { owners: [...new Set((Array.isArray(t.owners) ? t.owners : []).map(n => clip(n, 100)).filter(Boolean))], needs: t.needs === "all" ? "all" : "one" } : {}), stakes: clip(t.stakes, 200), hooks: (Array.isArray(t.hooks) ? t.hooks : []).map((h) => clip(h, 120)).filter(Boolean).slice(0, MAX_HOOKS), twist: clip(t.twist, 300), ripeWhen: clip(t.ripe_when ?? t.ripeWhen, 160), weaveWith: /^P\d+$/.test(String(t.weave_with ?? t.weaveWith ?? "")) ? String(t.weave_with ?? t.weaveWith) : null });
     }
     // Open threads first; the cap keeps the compact plan compact.
     const open = threads.filter((t) => !["resolved", "dropped"].includes(t.status)).slice(0, MAX_THREADS);
@@ -180,7 +181,7 @@ export function validateStoryPlan(x, { mode = "full", prev = null, nextId = 1, s
     throughline: mode === "full" ? clip(x.throughline, 300) : "",
     threads, beat, next, verdict,
     played: clip(x.played, 400), review: { critique: clip(prev?.pendingCritique ?? x.critique, 600), changed: clip(x.changed, 400) },
-    calendar: { start: clip(x.calendar?.start, 80), time: clip(x.calendar?.time, 80), advice: clip(x.calendar?.advice, 200), routine: clip(x.calendar?.routine, 400), upcoming: (Array.isArray(x.calendar?.upcoming) ? x.calendar.upcoming : []).map((u) => ({ when: clip(u?.when, 80), what: clip(u?.what, 200) })).filter((u) => u.what).slice(0, 3) },
+    calendar: { ...(daily ? { week: Object.fromEntries(Object.entries(x.calendar?.week ?? {}).filter(([k,v]) => /^[0-6]$/.test(k) && typeof v === "string").map(([k,v]) => [k, clip(v, 400)])) } : {}), start: clip(x.calendar?.start, 80), time: clip(x.calendar?.time, 80), advice: clip(x.calendar?.advice, 200), routine: clip(x.calendar?.routine, 400), upcoming: (Array.isArray(x.calendar?.upcoming) ? x.calendar.upcoming : []).map((u) => ({ when: clip(u?.when, 80), what: clip(u?.what, 200) })).filter((u) => u.what).slice(0, 3) },
   };
   return { arc, nextId: id, rawImpulses: Array.isArray(x.impulses) ? x.impulses : [], rawBonds: mode === "full" && Array.isArray(x.bonds) ? x.bonds.slice(0, 12) : [] };
 }
@@ -213,7 +214,7 @@ export function renderFinalNote({ session, between, calendar, declared = 0, secr
 }
 
 // The GM's section, within `budget` tokens: resolved and dropped threads go first, then seeds.
-export function renderStoryPlan(arc, budget = 1500) {
+export function renderStoryPlan(arc, budget = 1500, { ownerStatus = null } = {}) {
   if (!arc) return "";
   const pace = arc.mode === "pace";
   const head = pace
@@ -226,7 +227,7 @@ export function renderStoryPlan(arc, budget = 1500) {
     `Current beat: "${arc.beat.title}"${arc.beat.purpose ? ` — purpose: ${arc.beat.purpose}` : ""}${arc.beat.exit ? ` — exit: ${arc.beat.exit}` : ""}${arc.beat.closed ? " (closed)" : ""}`,
     `Verdict: ${verdict}`,
     arc.next?.length ? `Next twists: ${arc.next.map((n, i) => `${i + 1}. ${n.what}${n.when ? ` (when ${n.when})` : ""}`).join(" ")}` : "",
-    threads.length ? `Threads to weave:\n${threads.map((t) => `- ${t.id} "${t.title}" [${t.status}]${t.stakes ? ` stakes: ${t.stakes}` : ""}${t.hooks?.length ? ` hooks: ${t.hooks.join("; ")}` : ""}${t.twist ? ` twist: ${t.twist}` : ""}${t.ripeWhen ? ` ripe when: ${t.ripeWhen}` : ""}${t.weaveWith ? ` weave with ${t.weaveWith}` : ""}`).join("\n")}` : "",
+    threads.length ? `Threads to weave:\n${threads.map((t) => `- ${t.id} "${t.title}" [${t.status}]${t.stakes ? ` stakes: ${t.stakes}` : ""}${t.hooks?.length ? ` hooks: ${t.hooks.join("; ")}` : ""}${t.twist ? ` twist: ${t.twist}` : ""}${t.ripeWhen ? ` ripe when: ${t.ripeWhen}` : ""}${t.weaveWith ? ` weave with ${t.weaveWith}` : ""}${ownerStatus ? ` owners: ${(t.owners ?? []).join(", ") || "world"}; ${ownerStatus(t)}` : ""}`).join("\n")}` : "",
     arc.calendar?.advice ? `Calendar: ${arc.calendar.advice}` : "",
     arc.review?.changed ? `Planner's last review: ${arc.review.changed}` : "",
   ].filter(Boolean).join("\n");
@@ -309,9 +310,9 @@ You are now a second GM, a harsh script editor who did not write the draft above
 // `table`: the planner window is open; `wishes` the players' new words and the standing notes (wishes.mjs renderInbox).
 // `profile` is the rules profile: its words (the game, the player characters) replace the CoC ones in the planner's
 // prompts (adaptPrompt).
-export async function planStory(llm, { language, mode, contextText, prev, since, coplayers, secrets, nextId, lastSeq, trigger, now, impulseLines, final = null, calendar = false, table = false, wishes = "", profile = null, log = () => {} }) {
+export async function planStory(llm, { language, mode, contextText, prev, since, coplayers, secrets, nextId, lastSeq, trigger, now, impulseLines, final = null, calendar = false, daily = false, table = false, wishes = "", profile = null, log = () => {} }) {
   const adapt = (t) => adaptPrompt(profile, t);
-  const system = adapt(plannerSystem(language, { mode, final: Boolean(final), calendar, table }));
+  const system = adapt(plannerSystem(language, { mode, final: Boolean(final), calendar, table })) + (daily ? "\nDaily life: write times as HH:MM. The final review must not move the date or time; set between.advance_days to 0 and omit between.date/time. The timetable owns unattended time. Record off-screen changes and the opening only. Supply calendar.week with keys 0 (Sunday) through 6 (Saturday), each a public routine line. Give every thread owners (PC names; empty means world) and needs (one or all). Turning points and endings require all owners. Plan around present players; never place a turning point or ending while an owner is away. A player asking to join or leave a thread in the planner window changes its owners." : "");
   const briefing = [
     `## Previous story plan${prev ? ` (v${prev.version}, ${prev.trigger})` : ""}\n${prev ? renderStoryPlan(prev, 4000).split("\n").slice(1).join("\n") : "(none yet: this is the first plan)"}`,
     `## Since the last plan\n${since || "(nothing recorded)"}`,
@@ -327,7 +328,7 @@ export async function planStory(llm, { language, mode, contextText, prev, since,
   const reviseAsk = adapt(`STEP: revise\nRevise the draft: fix every must_fix, keep thread ids and titles unless a fault names them, change the beat only if beat_done is true or the GM closed it, keep impulses in character and free of secrets. Replace unnecessary proposed newcomers with suitable existing NPCs and follow through on their relationships; do not merge or rewrite already established people. Let peripheral subplots rest. Fill "changed" with what you changed and why${critique.must_fix.length ? "" : " (nothing, if the critique found no fault)"}. Reply with only the same JSON shape as the draft.`);
   const finalJson = await completeJson(llm, { system, messages: [{ role: "user", content: [...context, { text: draftAsk }] }, { role: "assistant", content: draftText }, { role: "user", content: [{ text: critiqueAsk, cache: true }] }, { role: "assistant", content: JSON.stringify(critique) }, { role: "user", content: reviseAsk }], purpose: "planner", phase: final ? "final_revise" : "revise" }, (x) => { if (!x || typeof x !== "object") throw new Error("expected an object"); return x; });
   const summary = [...critique.must_fix, ...critique.boring, ...critique.contradictions, ...critique.stale].slice(0, 6).join("; ");
-  const { arc, nextId: next, rawImpulses, rawBonds } = validateStoryPlan({ ...finalJson, critique: summary }, { mode, prev, nextId, seq: lastSeq, trigger, now });
+  const { arc, nextId: next, rawImpulses, rawBonds } = validateStoryPlan({ ...finalJson, critique: summary }, { mode, daily, prev, nextId, seq: lastSeq, trigger, now });
   if (!calendar) arc.calendar = null;   // a solemn game keeps no date
   if (critique.beat_done === true && finalJson.beat?.title === prev?.beat?.title) arc.verdict = { ...arc.verdict, moveOn: true, why: arc.verdict.why || "the review judged this event done" };
   const impulses = mode === "full" ? validateImpulses(rawImpulses, { coplayers, secrets, version: arc.version, lastSeq, lifetime: impulseLines }) : [];

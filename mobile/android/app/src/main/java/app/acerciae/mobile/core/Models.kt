@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
 @Serializable data class Health(val status: String, @SerialName("llm_mode") val llmMode: String = "", val db: String = "")
-@Serializable data class User(val id: String, val username: String, @SerialName("display_name") val displayName: String, @SerialName("ui_language") val uiLanguage: String? = null, @SerialName("atmosphere_enabled") val atmosphereEnabled: Boolean = false, @SerialName("has_avatar") val hasAvatar: Boolean? = null, @SerialName("avatar_data") val avatarData: String? = null, @SerialName("avatar_version") val avatarVersion: Int? = null, @SerialName("avatar_hash") val avatarHash: String? = null)
+@Serializable data class User(val id: String, val username: String, @SerialName("display_name") val displayName: String, @SerialName("ui_language") val uiLanguage: String? = null, @SerialName("atmosphere_enabled") val atmosphereEnabled: Boolean = false, @SerialName("has_avatar") val hasAvatar: Boolean? = null, @SerialName("avatar_data") val avatarData: String? = null, @SerialName("avatar_version") val avatarVersion: Int? = null, @SerialName("avatar_hash") val avatarHash: String? = null, @SerialName("dice_display") val diceDisplay: String? = null)
 // Deliberately not a data class: never include a token in generated toString() output.
 @Serializable class Session(val token: String, val user: User)
 @Serializable data class Server(val id: String, val name: String)
@@ -39,6 +39,7 @@ import kotlinx.serialization.json.*
     @SerialName("recalled_at") val recalledAt: String? = null,
     /** Seconds left, when the message arrived, for its author to recall it; null when it cannot be recalled. */
     @SerialName("recall_seconds_left") val recallSecondsLeft: Int? = null,
+    @SerialName("stand_in") val standIn: Boolean = false,
 )
 @Serializable data class DocumentSummary(
     val id: String,
