@@ -115,6 +115,7 @@ public:
             auto time = json::str(m, "time"); if (!time.empty() && time.back() == 'Z') time.pop_back();
             if (auto ts = parseTime(time)) e.occurredAtUnix = ts; else e.timeText = json::str(m, "time_text");
             if (m["scenario"].isNumeric()) { e.sceneKey = "scenario-" + std::to_string(m["scenario"].asInt()); e.sceneTitle = scenario.count(m["scenario"].asInt()) ? scenario[m["scenario"].asInt()] : ""; }
+            if (m["stand_in"].asBool()) e.metadata["stand_in"] = true;
             if (m["window"].isString()) e.metadata["window"] = m["window"];
             if (!player.empty()) e.sourceReference["player"] = player;
             auto vis = json::str(m, "visibility", "public"); e.visibilityScope = vis == "gm" ? "gm" : vis == "private" ? "character" : "public";

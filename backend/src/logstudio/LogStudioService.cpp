@@ -219,7 +219,7 @@ void LogStudioService::insertEvents(pqxx::work& w, const std::string& projectId,
 Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std::string& projectId, const Json::Value& sel) {
     auto proj = projectRow(a, projectId);
     std::string sql = "SELECT e.id, e.seq, e.kind, e.payload, e.visibility, e.audience, e.actor_role, e.character_id, e.message_id, e.chat_window_id, e.scene_id, e.created_at, extract(epoch from e.created_at)::bigint AS ts, "
-                      "c.name AS character_name, c.kind AS character_kind, u.display_name AS actor_name, s.title AS scene_title, m.content AS message_content, m.kind AS message_kind FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN users u ON u.id=e.actor_user_id LEFT JOIN scenes s ON s.id=e.scene_id LEFT JOIN messages m ON m.id=e.message_id "
+                      "c.name AS character_name, c.kind AS character_kind, u.display_name AS actor_name, s.title AS scene_title, m.content AS message_content, m.kind AS message_kind, m.stand_in FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN users u ON u.id=e.actor_user_id LEFT JOIN scenes s ON s.id=e.scene_id LEFT JOIN messages m ON m.id=e.message_id "
                       "WHERE e.channel_id=$1 AND e.kind IN ('message.posted','scene.entered','scene.created') AND " + Visibility::eventFilter(a) +
                       " AND NOT EXISTS (SELECT 1 FROM log_events le WHERE le.project_id=$2 AND le.source_event_id=e.id)";
     DbParams p{a.channelId, projectId};
@@ -236,7 +236,7 @@ Json::Value LogStudioService::syncFromChannel(const ChannelAccess& a, const std:
     Db::exec(w, "SELECT id FROM log_projects WHERE id=$1 FOR UPDATE", {projectId});
     auto rows = Db::queryJson(w, sql, p);
     for (auto& r : rows) {
-        LogEvent e; e.sourceKind = "channel_event"; e.sourceEventId = r["id"].asString(); e.sourceMessageId = r["message_id"].isNull() ? "" : r["message_id"].asString();
+        LogEvent e; if (r["stand_in"].asBool()) e.metadata["stand_in"] = true; e.sourceKind = "channel_event"; e.sourceEventId = r["id"].asString(); e.sourceMessageId = r["message_id"].isNull() ? "" : r["message_id"].asString();
         e.chatWindowId = r["chat_window_id"].isNull() ? "" : r["chat_window_id"].asString(); e.sceneId = r["scene_id"].isNull() ? "" : r["scene_id"].asString();
         e.sceneKey = e.sceneId.empty() ? "unscened" : e.sceneId; e.sceneTitle = r["scene_title"].isNull() ? "" : r["scene_title"].asString();
         e.occurredAtUnix = r["ts"].asInt64();
@@ -591,6 +591,7 @@ Json::Value LogStudioService::nativeExport(const ChannelAccess& a, const std::ve
         m["speaker"] = e.speakerDisplayName;
         m["character"] = characterName.count(e.speakerCharacterId) ? Json::Value(characterName[e.speakerCharacterId]) : Json::Value();
         m["player"] = authorOf.count(e.sourceMessageId) ? Json::Value(authorOf[e.sourceMessageId]) : Json::Value();
+        if (e.metadata["stand_in"].asBool()) m["stand_in"] = true;
         m["role"] = e.speakerRole; m["type"] = e.eventType; m["content"] = e.content;
         if (e.dice) { Json::Value d; d["expression"] = e.dice->expression; d["total"] = e.dice->total ? Json::Value(*e.dice->total) : Json::Value(); d["outcome"] = e.dice->outcome; d["check_name"] = e.dice->checkName; d["text"] = e.dice->raw; m["dice"] = d; }
         else m["dice"] = Json::Value();

@@ -31,3 +31,7 @@ export function CharacterVitals({ vitals }: { vitals: Vitals | undefined }) {
   const parts = vitalParts(vitals);
   return <span className="char-vitals" data-testid="character-vitals">{parts.length === 0 ? '—' : parts.map((p, i) => <span key={p.label + i} className={`vital ${p.low ? 'low' : ''}`}>{p.label}{p.value ? ' ' + p.value : ''}</span>)}</span>;
 }
+
+export function PassiveMark({ since }: { since?: string | null }) {
+  return since ? <span className="pill passive" title={tr('Player away: passively present')}>{tr('passive')}</span> : null;
+}
