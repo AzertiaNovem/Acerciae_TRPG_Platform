@@ -84,6 +84,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .list li { padding: 5px 0; border-bottom: 1px solid #1f2a38; overflow-wrap: anywhere; }
 .list li:last-child { border-bottom: 0; }
 .timelines .tag { margin: 0 6px 0 0; }
+.coplayer-locations > li { padding: 10px 0; }
+.coplayer-heading { display: flex; align-items: baseline; gap: 8px; }
+.coplayer-heading strong { min-width: 0; overflow-wrap: anywhere; }
+.coplayer-heading .tag { flex: none; }
+.coplayer-windows { list-style: none; margin: 6px 0 0; padding: 0; }
+.coplayer-windows li { display: flex; flex-wrap: wrap; gap: 4px 8px; border: 0; padding: 3px 0; }
+.coplayer-window-name { color: var(--accent); overflow-wrap: anywhere; min-width: 0; }
 .budget { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12.5px; }
 progress { flex: 1; height: 8px; appearance: none; border: 0; border-radius: 4px; background: #24344a; overflow: hidden; }
 progress::-webkit-progress-bar { background: #24344a; }

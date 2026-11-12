@@ -14,6 +14,12 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gm-host-ui-')));
 const token = 'fixture-access-token-longer-than-24';
 const stores = new Map();
+let currentWindow = { id: 'harbour', name: '港口茶馆', status: 'active' };
+const cast = id => ({ coplayers: id === 'a' ? [
+  { characterId: 'lin', name: '林岚 <队友>', timeline: 0, windowDetails: [currentWindow] },
+  { characterId: 'zhou', name: '周宁', timeline: null, windowDetails: [] },
+  { characterId: 'anna', name: '安娜', timeline: 2, windowDetails: [{ id: 'archive', name: '旧码头', status: 'archived' }] },
+] : [] });
 const plan = { version: 7, updatedAt: new Date().toISOString(), trigger: 'interval', mode: 'full', throughline: '找到失踪的地图', played: '调查员到达港口',
   beat: { title: '港口的密信', purpose: '建立与船长的关系', exit: '船长提供线索', closed: false }, verdict: { moveOn: true, why: '调查员已找到突破口' },
   threads: [{ id: 'P1', title: '旧日航线', status: 'live', stakes: '失去船员的信任', hooks: ['一张潮湿的地图'], twist: '船长其实是竞争者', ripeWhen: '玩家提出航线问题', weaveWith: null }],
@@ -37,7 +43,7 @@ class FakeWorker extends EventEmitter {
     if (msg === 'stop') return setTimeout(() => this.emit('exit', 0), 150);
     if (msg?.type === 'status') queueMicrotask(() => this.emit('message', { type: 'status', id: msg.id,
       snapshot: { at: new Date().toISOString(), channel: { name: `主持 ${this.cfg.channelId.toUpperCase()}`, rule: 'coc7e', gm: true, knowledge: 'public', language: 'zh' },
-        usage: usage(this.cfg.channelId), planner: { on: true, plan, version: 7, pendingVersion: 8, mode: 'full', updatedAt: plan.updatedAt, moveOn: true } } }));
+        cast: cast(this.cfg.channelId), usage: usage(this.cfg.channelId), planner: { on: true, plan, version: 7, pendingVersion: 8, mode: 'full', updatedAt: plan.updatedAt, moveOn: true } } }));
   }
   terminate() { this.emit('exit', 1); }
 }
@@ -79,6 +85,17 @@ try {
   assert.ok((await context.cookies()).some(c => c.name === cookie.name));
   await page.unroute(base + '/api/session'); await page.reload(); await page.locator('#session').waitFor({ state: 'visible' });
   await page.locator('#host-usage').getByRole('button', { name: '主持 A', exact: true }).click();
+  const locations = page.locator('#coplayer-locations'), lin = locations.locator('[data-character-id=lin]');
+  await lin.getByText('港口茶馆', { exact: true }).waitFor();
+  assert.equal(await lin.locator('strong').innerText(), '林岚 <队友>', 'names are rendered as text');
+  assert.equal(await lin.getByText('T0', { exact: true }).count(), 1);
+  assert.equal(await lin.getByText('港口茶馆', { exact: true }).getAttribute('title'), '窗口 ID：harbour');
+  assert.equal(await locations.getByText('当前不在任何对话窗口', { exact: true }).count(), 1);
+  assert.equal(await locations.getByText('窗口已归档', { exact: true }).count(), 1);
+  currentWindow = { id: 'library', name: '图书馆阅览室', status: 'active' };
+  await lin.getByText('图书馆阅览室', { exact: true }).waitFor();
+  assert.equal(await lin.getByText('港口茶馆', { exact: true }).count(), 0, 'polling replaces the previous location');
+  await locations.screenshot({ path: '/tmp/gm-host-coplayer-locations.png' });
   const usageCard = page.locator('#usage-card'); await usageCard.waitFor();
   assert.ok((await usageCard.locator('[data-usage-id=planner]').innerText()).includes('6,200'));
   assert.equal(await usageCard.locator('[data-usage-id=planner] svg rect.usage-fill').count(), 3);
@@ -105,6 +122,11 @@ try {
   assert.equal(await usageCard.locator('details').getAttribute('open'), '', 'chart detail remains expanded across polls');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await locations.screenshot({ path: '/tmp/gm-host-coplayer-locations-mobile.png' });
+  await manager.action('a', 'stop');
+  await locations.getByText(/上次记录/).waitFor();
+  await manager.action('a', 'start');
+  await page.waitForFunction(() => !document.querySelector('#coplayer-locations')?.textContent.includes('上次记录'));
   await page.screenshot({ path: '/tmp/gm-host-token-charts-mobile.png', fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('button', { name: '删除主持任务', exact: true }).waitFor();
@@ -130,6 +152,7 @@ try {
   assert.ok(manager.entry('b')); assert.equal(await page.locator('#channel').isVisible(), true);
   await page.unroute(base + '/api/channels/b/remove');
   await page.getByRole('tab', { name: '概览', exact: true }).click();
+  await page.locator('#coplayer-locations').getByText('暂无 AI 队友', { exact: true }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: '/tmp/gm-host-webui-mobile.png', fullPage: true });
@@ -139,5 +162,5 @@ try {
   assert.equal(await page.locator('#session').isVisible(), false);
   assert.ok(!(await context.cookies()).some(c => c.name === cookie.name));
   assert.deepEqual(errors, []);
-  console.log('GM WebUI: token charts, date ranges, stage/model details, full plan, persistent login and hosting task controls passed');
+  console.log('GM WebUI: live co-player windows, stale locations, token charts, full plan, persistent login and hosting task controls passed');
 } finally { await context?.close(); await stop(); for (const s of stores.values()) s.close(); fs.rmSync(dir, { recursive: true, force: true }); }
