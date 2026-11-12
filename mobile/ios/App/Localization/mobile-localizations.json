@@ -22092,6 +22092,42 @@
       "Essa página não está disponível para esta conta.",
       "Questa pagina non è disponibile per questo account."
     ],
+    "stand-in": [
+      "代答",
+      "代答",
+      "代行",
+      "대리 응답",
+      "Suplente",
+      "Remplaçant",
+      "Stellvertretung",
+      "Замещение",
+      "Substituto",
+      "Sostituto"
+    ],
+    "passive": [
+      "被动在场",
+      "被動在場",
+      "受動的に参加",
+      "수동 참여",
+      "Presencia pasiva",
+      "Présence passive",
+      "Passiv anwesend",
+      "Пассивное присутствие",
+      "Presença passiva",
+      "Presenza passiva"
+    ],
+    "Player away: passively present": [
+      "玩家离开：角色被动在场",
+      "玩家離開：角色被動在場",
+      "プレイヤー不在：キャラクターは受動的に参加",
+      "플레이어 부재: 캐릭터는 수동 참여 중",
+      "Jugador ausente: presencia pasiva",
+      "Joueur absent : présence passive",
+      "Spieler abwesend: passiv anwesend",
+      "Игрок отсутствует: пассивное присутствие",
+      "Jogador ausente: presença passiva",
+      "Giocatore assente: presenza passiva"
+    ],
     "Channel settings": [
       "频道选项",
       "頻道選項",
@@ -26169,6 +26205,9 @@
     "作为骰子发出的单独消息": "As a separate message from the dice",
     "显示在掷骰指令下方": "Under the roll command",
     "此账号无法打开该页面。": "That page is not available to this account.",
+    "代答": "stand-in",
+    "被动在场": "passive",
+    "玩家离开：角色被动在场": "Player away: passively present",
     "已展开": "Expanded",
     "已折叠": "Collapsed",
     "无需投骰": "Diceless",

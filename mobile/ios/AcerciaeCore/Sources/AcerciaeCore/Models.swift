@@ -57,6 +57,7 @@ public struct Message: Codable, Identifiable, Sendable, Equatable {
     public var recalledAt: String? = nil
     /// Seconds left, when the message arrived, for its author to recall it; nil when it cannot be recalled.
     public var recallSecondsLeft: Int? = nil
+    public var standIn: Bool? = nil
     public var recalled: Bool { recalledAt != nil }
     public var hasIllustration: Bool { !recalled && !(mediaAssetId ?? "").isEmpty }
     public var illustrationCaption: String { ChatIllustrations.caption(content) }

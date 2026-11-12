@@ -97,7 +97,7 @@ import AcerciaeCore
     private var recallDeadlines = RecallDeadlines()
     @Published var recallDrafts: [String: String] = [:]
     @Published private(set) var recalledMessages: [String: Message] = [:]
-    func canRecall(_ m: Message) -> Bool { m.authorId != nil && m.authorId == session?.user.id && recallDeadlines.open(m) }
+    func canRecall(_ m: Message) -> Bool { session?.user.id != nil && !m.recalled && ((m.authorId == session?.user.id && recallDeadlines.open(m)) || (m.standIn == true && characters.contains { $0.id == m.characterId && $0["user_id"].string == session?.user.id })) }
     private func applyRecall(_ tombstone: Message) {
         guard tombstone.recalled else { return }
         if recalledMessages[tombstone.id] == nil {

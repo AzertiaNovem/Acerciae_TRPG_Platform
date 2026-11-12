@@ -137,7 +137,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val recallDeadlines = RecallDeadlines()
     private val recalledMessages get() = state.value.recalledMessages
     private fun wasRecalled(id: String) = recalledMessages.containsKey(id)
-    fun canRecall(m: Message) = state.value.user?.id != null && m.authorId == state.value.user?.id && recallDeadlines.open(m)
+    fun canRecall(m: Message) = state.value.user?.id != null && !m.recalled && ((m.authorId == state.value.user?.id && recallDeadlines.open(m)) || (m.standIn && state.value.characters.any { it.id == m.characterId && it.text("user_id") == state.value.user?.id }))
     private fun applyRecall(tombstone: Message) {
         if (!tombstone.recalled) return
         if (!wasRecalled(tombstone.id)) {

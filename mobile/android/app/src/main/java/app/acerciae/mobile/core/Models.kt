@@ -39,6 +39,7 @@ import kotlinx.serialization.json.*
     @SerialName("recalled_at") val recalledAt: String? = null,
     /** Seconds left, when the message arrived, for its author to recall it; null when it cannot be recalled. */
     @SerialName("recall_seconds_left") val recallSecondsLeft: Int? = null,
+    @SerialName("stand_in") val standIn: Boolean = false,
 )
 @Serializable data class DocumentSummary(
     val id: String,

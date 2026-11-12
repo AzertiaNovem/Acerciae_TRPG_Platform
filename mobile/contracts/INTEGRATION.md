@@ -137,3 +137,13 @@ Swift 的真实 WebSocket 测试可先运行 `node mobile/scripts/socket-test-se
 `fixtures/session-errors.json` is read by Web auth, Android core and iOS core regression tests. Only an API-shaped HTTP 401 invalidates the saved session. A gateway's HTML 401, transport loss, 403/404, rate limiting and transient 5xx errors do not revoke identity; individual resource permissions and caches are still rechecked. Each client keeps its native credential storage and retry implementation. `mobile/scripts/test-ios.sh` runs core tests and application tests in a disposable simulator; the mobile workflow and desktop workflow run on relevant pull requests.
 
 `fixtures/client-access.json` is also consumed by all three clients: Studio access (GM/player, feature disabled, hidden, locked, story ended) and persistent-cache eligibility. `no-store` takes precedence over `immutable`; native storage implementations remain independent.
+
+
+## 2026-11-12 — Daily life passive presence
+
+Messages optionally carry `stand_in`; character rows optionally carry `passive_since`. Android and iOS render a
+stand-in label on the character's line (including OOC stand-ins) and a passive-presence label beside the typing mark.
+The character owner sees Recall for a stand-in regardless of its author or `recall_seconds_left`; the server retains
+its readability, archived-window and move-record checks. `character.updated` refreshes the character list as before.
+Absent fields on older servers show neither mark and retain ordinary recall rules. Localizations come from
+`localization/mobile.tsv`; `fixtures/passive-presence.json` describes both modern and legacy rows.

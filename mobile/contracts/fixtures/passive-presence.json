@@ -1,0 +1,7 @@
+{
+  "description": "Daily life contract fixture; synthetic identifiers, not a live capture",
+  "character": {"id":"pc","name":"Alice","kind":"pc","user_id":"alice","passive_since":"2026-11-12T10:00:00Z"},
+  "message": {"id":"line","content":"Let me think about it.","author_name":"Host","author_id":"gm","character_id":"pc","character_name":"Alice","kind":"ic","seq":10,"stand_in":true,"recall_seconds_left":null},
+  "legacy_message": {"id":"old","content":"Hello.","author_name":"Alice","author_id":"alice","character_id":"pc","kind":"ic","seq":1},
+  "cleared_character": {"id":"pc","name":"Alice","kind":"pc","user_id":"alice","passive_since":null}
+}
