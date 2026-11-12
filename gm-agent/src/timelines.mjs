@@ -25,7 +25,7 @@ export class Timelines {
   constructor(data = [], { now = Date.now } = {}) {
     this.now = now;
     const src = Array.isArray(data) ? { list: data } : (data ?? {});
-    this.list = (src.list ?? []).map((t) => ({ span: "short", opened: true, handle: null, ...t, members: [...(t.members ?? [])] }));
+    this.list = (src.list ?? []).map((t) => ({ clock: null, span: "short", opened: true, handle: null, ...t, members: [...(t.members ?? [])] }));
     this.log = Array.isArray(src.log) ? src.log.map((e) => ({ ...e })) : [];
     this.pastWindows = Array.isArray(src.pastWindows) ? src.pastWindows.map(e => ({ ...e })) : [];
     if (!this.get(MAIN)) this.list.unshift(this.blank(MAIN, "Main story"));
@@ -35,7 +35,7 @@ export class Timelines {
   }
 
   blank(id, name) {
-    return { id, name, status: "active", members: [], windowId: null, returnTo: [], narrativeTime: "", location: "", notes: "", span: "short", opened: true, handle: null, createdAt: new Date(this.now()).toISOString(), mergedInto: null };
+    return { id, name, status: "active", members: [], windowId: null, returnTo: [], clock: null, narrativeTime: "", location: "", notes: "", span: "short", opened: true, handle: null, createdAt: new Date(this.now()).toISOString(), mergedInto: null };
   }
 
   toJSON() { return { list: this.list, log: this.log, nextHandle: this.nextHandle, pastWindows: this.pastWindows }; }
@@ -135,9 +135,10 @@ export class Timelines {
     return into;
   }
 
-  relocate(id, { location, narrativeTime } = {}) {
+  relocate(id, { location, narrativeTime, clock } = {}) {
     const t = this.get(id);
     if (!t || t.status !== "active") return null;
+    if (clock !== undefined) t.clock = clock;
     if (location) t.location = String(location).slice(0, 120);
     if (narrativeTime) t.narrativeTime = String(narrativeTime).slice(0, 120);
     return t;

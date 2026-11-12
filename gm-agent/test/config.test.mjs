@@ -63,6 +63,11 @@ test("named providers and the model of each function: defaults, keys, routes and
   // models.planner outranks the planner section; without either, the planner runs on the default route.
   const planned = buildConfig({}, env, file({ llm: { provider: "anthropic" }, providers: { fast: { provider: "anthropic", model: "claude-haiku-5-5" } }, models: { planner: "fast" } }));
   assert.deepEqual([routeFor(planned, "planner").name, routeFor(planned, "planner").model], ["fast", "claude-haiku-5-5"]);
+  assert.deepEqual(routeFor(planned, 'planner_daily'), routeFor(planned, 'planner'));
+  const dailyRoute = buildConfig({}, env, file({ llm: { provider: 'mock' }, models: { planner_daily: { model: 'small-planner', max_tokens: 800 } } }));
+  assert.deepEqual(dailyRoute.warnings, []);
+  assert.equal(routeFor(dailyRoute, 'planner_daily').maxTokens, 800);
+  assert.equal(routeFor(dailyRoute, 'planner_daily').model, 'small-planner');
   assert.equal(routeFor(buildConfig({}, env, file({ llm: { provider: "anthropic" }, planner: { effort: "medium" } })), "planner").function, null, "a planner section equal to llm is no route of its own");
   // What is refused, each with a word of help.
   const bad = buildConfig({}, env, file({ llm: { provider: "mock" }, providers: { default: { provider: "mock" }, "bad name": { provider: "mock" }, gw: { provider: "openai_compatible" }, odd: { provider: "mock", colour: "red" }, nope: { provider: "nowhere" } },

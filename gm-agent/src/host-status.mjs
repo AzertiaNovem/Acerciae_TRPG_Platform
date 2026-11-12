@@ -95,6 +95,7 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
         plan: arc ?? null, pendingVersion: p.pending?.arc?.version ?? null,
       };
     }),
+    daily: section("daily", () => table.dailyStatus?.() ?? { on: false }),
     calendar: section("calendar", () => {
       if (!table.calendarOn?.()) return { on: false };
       const pace = table.calendarPaceCfg(), held = calendarPace(table.calendar, { minMinutes: pace.minMinutes, minLines: pace.minLines, now });

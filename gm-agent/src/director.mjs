@@ -51,17 +51,17 @@ const CASUAL_RULES = `- Casual mode: light, everyday and slice-of-life play is w
 const PBTA_PLAY = `- Start with the fiction. Only an explicit action that satisfies an available move triggers it. If ambiguous, ask. To act on a declaration in this window use move with its precise source_id and character_id. Use the server for both rolled and diceless moves. For an NPC whose own declared action triggers a player move, include move_id and optionally modifier on its npc or new_npc action. NPCs otherwise need no playbook. Stop after requesting a move and read the posted result before narrating. Use its frozen outcome, even if the current pack differs. A low roll is not a generic failure.
 - If the outcome gives the player a choice, use ask, quote the options and wait for their actual reply; do not choose for them. Narrate only the GM's own decisions. Use mark for mandatory effects or after the player chooses. Copy expected from initial_card (absent means 0 or false), and give the absolute resulting value. Include the reply's answer_id for a choice. Do not repeat paid costs. No dice commands inside free speech. Never take a new action on behalf of a silent human.
 `;
-export function directorSystem(language, { auto = true, forks = false, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
+export function directorSystem(language, { auto = true, forks = false, improv = false, casual = false, planner = false, calendar = false, daily = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
   return adaptPrompt(profile, `You are ${pbta ? "the GM (Game master) of a Powered by the Apocalypse campaign" : profile.framing(improv)} on an online table. Human players play their investigators; some investigators are AI co-players that act on their own turn after you. You voice the world and every real NPC.
 
 How to keep the table:
 ${COMMON_RULES}
 ${pbta ? PBTA_PLAY : DICE_RULE(profile)}
-${AWAY_RULE}
+${daily ? "- Passive player characters stay present: friends greet them, save seats and remember their close relations. Never aim confessions, quarrels, accusations, secrets or twists at them; never press for decisions, cause harm, change relationships or make scenes wait on them. Never speak for a player character; only its separate stand-in may answer. A plot thread marked WAITS stays visible only as a reminder: do not develop, reveal or resolve it. spotlight may name a passive PC. When a deferred question is answered or irrelevant, use question_done with its id." : AWAY_RULE}
 ${NPC_CONTINUITY_RULES}
 - Voicing people: npc speaks for someone in the cast; only new_npc creates a character. Check the cast first: if someone there fits the part, they take it. A new person who passes the three tests for new people enters with new_npc (name, a brief for their role card, their first line) and speaks with npc after that; never put a real NPC's words inside narrate, and never sum up their conversation in narration. If someone first met in narration turns out to pass the tests (they keep talking, or a player seeks them out), make them a real NPC with new_npc then, consistent with what narration already said about them.
 ${WORLD_RULE}
-${calendar ? `${TIME_RULE(planner)}
+${calendar ? `${TIME_RULE(planner)}${daily ? "\n- Daily clock: write every time and narrative_time in date, time_skip, timeline, advance_scenario and whereabouts starting with HH:MM. Time moves forward only. Move the date at most one day, only when Calendar permits." : ""}
 ` : ""}${PEOPLE_RULE}
 ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
 ${SCENARIO_RULES(forks)}${improv ? `\n${IMPROV_RULES}` : ""}${casual ? `\n${CASUAL_RULES}` : ""}${planner ? `\n${PLANNER_RULE}` : ""}${illustrate ? `\n${ILLUSTRATE_RULE}` : ""}
@@ -72,7 +72,7 @@ ${profile.combatRule ? `${profile.combatRule}
 
 Reply with only one JSON object:
 {"actions": [
-  {"type": "narrate", "text": "..."},
+${daily ? '  {"type": "question_done", "id": "<open question id>"},\n' : ""}  {"type": "narrate", "text": "..."},
   {"type": "npc", "name": "<a real NPC from the cast>", "text": "<what they say or do>"},
   {"type": "new_npc", "name": "<new NPC name>", "brief": "<who they are, for their role card>", "text": "<their first line>"},
   {"type": "whisper", "to": "<character name>", "text": "..."},
@@ -100,25 +100,27 @@ ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for yo
  "whereabouts": [{"who": ["<investigator names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": "<first narration there>"}]` : ""}}`);
 }
 
-export function validateDirector(x, { auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
+export function validateDirector(x, { mode = "human", daily = false, auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
   if (!x || typeof x !== "object" || !Array.isArray(x.actions)) throw new Error("actions must be an array");
-  const allowed = [...(!pbta && profile.gmDice ? ["dice"] : []), ...(pbta ? ["move","ask","mark"] : []), ...BASE_ACTIONS.filter(t => (calendar || t !== "date") && (!pbta || t !== "request_roll")), ...(auto ? [] : LEGACY_ACTIONS), ...(improv ? ["truth"] : []), ...(casual ? ["text"] : []), ...(planner ? ["planner_note"] : [])];
+  const allowed = [...(daily ? ["question_done"] : []), ...(!pbta && profile.gmDice ? ["dice"] : []), ...(pbta ? ["move","ask","mark"] : []), ...BASE_ACTIONS.filter(t => (calendar || t !== "date") && (!pbta || t !== "request_roll")), ...(auto ? [] : LEGACY_ACTIONS), ...(improv ? ["truth"] : []), ...(casual ? ["text"] : []), ...(planner ? ["planner_note"] : [])];
   if (illustrate) allowed.push("illustrate", "event_done");
   const actions = x.actions
-    .filter((a) => a && allowed.includes(a.type))
+    .filter((a) => a && allowed.includes(a.type) && (mode !== "spark" || ["narrate", "npc", "note", "text"].includes(a.type)))
     .map((a) => (a.type === "illustrate" ? { ...a, ...normalizeIllustration(a) } : a))
     .map((a) => ({ ...a, text: String(a.text ?? "").trim() }))
-    .filter((a) => a.text || (pbta && ["move","mark"].includes(a.type)) || NO_TEXT_NEEDED.has(a.type));
+    .filter((a) => a.text || (daily && a.type === "question_done" && a.id) || (pbta && ["move","mark"].includes(a.type)) || NO_TEXT_NEEDED.has(a.type));
   return {
     actions,
     coplayersMayAct: x.coplayers_may_act !== false,
     spotlight: Array.isArray(x.spotlight) ? x.spotlight.map(String) : [],
-    whereabouts: auto ? validateWhereabouts(x.whereabouts) : [],
+    whereabouts: auto && mode !== "spark" ? validateWhereabouts(x.whereabouts) : [],
+    ...(mode === "spark" ? { topic: { state: x.topic?.state === "open" ? "open" : "ended", title: String(x.topic?.title ?? "").slice(0, 100) } } : {}),
   };
 }
 
 const list = (names) => (names ?? []).join(", ");
 const MODE_NOTES = {
+  spark: () => 'MODE: spark — no human is here. Narrate briefly as the world and existing NPCs: small daily-life talk only. Never advance a plot, reveal a secret, start danger, change any relationship, move anyone or change the scenario. Passive characters are present; never speak or decide for them. Only narrate, npc, note and text actions. Do not offer illustrations. Also return "topic": {"state": "open" | "ended", "title": "a few words"} to say whether the topic ended.',
   kickoff: ({ pcs = "investigators" }) => `KICKOFF: yes — open the session: set the scene for the ${pcs} in the current scenario and invite them to act.`,
   followup: () => "MODE: followup — the co-players just acted (the lines after your last ones). Answer each of their choices now and push the story forward.",
   quiet: ({ quietMinutes }) => `MODE: quiet — the human players in this window have been silent for ${quietMinutes} minutes. Move the scene forward a little on your own: the world, the NPCs, or a question to a named player. Co-players may act. Never decide, speak or roll for a player character, and never resolve a roll a player still owes.`,
@@ -132,13 +134,13 @@ const MODE_NOTES = {
 // `whereabouts` is the brief from whereabouts.mjs; `scenario` says whether a scenario change is possible this turn.
 // `planner` is {on, moveOn, beat, why, next}: the planner's verdict, a turn note when it says the event is over.
 // `between` is what the last final review left for the first turn of a new session: {days, today, offscreen, opening}.
-export async function directTurn(llm, { language, context, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, forks = false, improv = false, casual = false, planner = null, between = null, calendar = false, pbta = null, illustrate = false, profile = COC7E, ...extra }) {
+export async function directTurn(llm, { language, context, newest, mode = "human", kickoff = false, whereabouts = "", scenario = "", auto = true, forks = false, improv = false, casual = false, planner = null, between = null, calendar = false, daily = false, pbta = null, illustrate = false, profile = COC7E, ...extra }) {
   const v = profile.vocab;
   if (kickoff) mode = "kickoff";
   const note = MODE_NOTES[mode]?.({ ...extra, pcs: v.pcs }) ?? "";
   const arrivalNote = mode !== "arrival" && extra.arrival ? MODE_NOTES.arrival(extra) : "";   // an arrival folded into another turn
   const back = (extra.returning ?? []).map((r) => `${r.name}'s player is back after ${r.away} away.`).join(" ");
-  const returningNote = back ? `RETURNING: ${back} Welcome them back into the story: where their character is now and what has moved on meanwhile, if anything, then hand them the scene.` : "";
+  const returningNote = daily && back ? `RETURNING: ${JSON.stringify(extra.returning)} Welcome the player in one or two sentences and hand them the scene. Their phone already holds summaries; do not recap at length. Raise at most one open question if it comes up naturally.` : back ? `RETURNING: ${back} Welcome them back into the story: where their character is now and what has moved on meanwhile, if anything, then hand them the scene.` : "";
   const plannerNote = planner?.moveOn ? `PLANNER: the story planner judges the current event ("${planner.beat}") has run its course${planner.why ? ` (${planner.why})` : ""}. Bring it to a close now or next turn and open the next beat${planner.next ? ` (${planner.next})` : ""}. The scenario pace guard is lifted while this stands.` : "";
   const betweenNote = between ? `BETWEEN SESSIONS: this is the first turn of a new session.${between.today ? ` ${between.days ? `Since the last one, ${between.days} day(s) passed in the story` : "The story resumes where it stopped"} (now: ${between.today}).` : ""}${between.offscreen?.length ? ` Meanwhile, off-screen: ${between.offscreen.map((o) => `${o.text}${o.secret ? ` [secret: show only what the ${v.pcs} would notice]` : ""}`).join("; ")}.` : ""}${between.opening ? ` The story planner suggests opening with: ${between.opening}` : ""} Use the public handoff: previously proposed activities remain plans unless play confirmed them. Open the session from there: where the ${v.pcs} are, ${between.today ? "what day and time it is, " : ""}what changed that they would notice; then hand them the scene.` : "";
   const turn = [
@@ -150,11 +152,12 @@ export async function directTurn(llm, { language, context, newest, mode = "human
     note,
     arrivalNote,
     returningNote,
+    extra.dailyNote ?? "",
     plannerNote,
     newest ? `NEWEST LINE: ${newest.character_name || newest.author_name || "someone"}: ${newest.content}` : "",
     `Decide the ${v.gm}'s actions for this turn.`,
   ].filter(Boolean).join("\n");
   const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
   const on = Boolean(planner?.on);
-  return completeJson(llm, { system: directorSystem(language, { auto, forks, improv, casual, planner: on, calendar, pbta: !!pbta, illustrate, profile }), user, purpose: "director", phase: mode }, (x) => validateDirector(x, { auto, improv, casual, planner: on, calendar, pbta: !!pbta, illustrate, profile }));
+  return completeJson(llm, { system: directorSystem(language, { auto, forks, improv, casual, planner: on, calendar, daily, pbta: !!pbta, illustrate, profile }), user, purpose: "director", phase: mode }, (x) => validateDirector(x, { mode, daily, auto, improv, casual, planner: on, calendar, pbta: !!pbta, illustrate, profile }));
 }

@@ -7,6 +7,7 @@ import { MAIN } from "../timelines.mjs";
 import { noteCalendarLine } from "../calendar.mjs";
 import { TRIGGER_KINDS, HOUR } from "./shared.mjs";
 import { pictureOnly } from "../pictureLines.mjs";
+import { timetableAt } from "../daily.mjs";
 
 export function cancelTimer(table, windowId) {
     const pending = table.timers.get(windowId);
@@ -65,6 +66,22 @@ export function updatePause(table, m, { historical = false } = {}) {
   }
 
 export function onMessage(table, m) {
+    if (!m || m.channel_id !== table.channelId || !table.dailyOn() || !table.isHuman(m)) return dispatchMessage(table, m);
+    if (m.seq && table.history.lines(m.chat_window_id, { after: m.seq - 1, upTo: m.seq }).some(line => line.id === m.id)) return;
+    if (table.pauseCommand(m)) {
+      const now = Math.max(table.daily.lastHumanAt, Date.parse(m.created_at) || table.now());
+      table.daily.frozen = table.daily.anchor ? timetableAt(table.daily.anchor, now, table.cfg.daily.day_hours) : table.daily.frozen ?? table.dailyStatus().clock;
+      table.daily.anchor = null;
+      // Pause immediately, even while the serial queue is waiting for a model response.
+      Promise.resolve(table.updatePause(m)).catch(e => table.log(`pause: ${e.message}`));
+    }
+    if (table.isTrigger(m) && !table.isTableWindow(m.chat_window_id)) table.dailyInterrupt = (table.dailyInterrupt ?? 0) + 1;
+    const ready = table.queue.then(() => table.beforeDailyMessage(m));
+    table.queue = ready.catch(e => table.log(`daily message: ${e.message}`));
+    return ready.then(() => dispatchMessage(table, m));
+  }
+
+function dispatchMessage(table, m) {
     if (!m || m.channel_id !== table.channelId) return;
     // A picture request in the planner window: handled here, never the planner's, and never a resumption of play.
     if (table.noteArt(m)) {
@@ -164,6 +181,13 @@ export function overBudget(table) {
     return true;
   }
 
+export function budgetPressure(table) {
+    if (!table.cfg.dailyTokenBudget) return "none";
+    if (table.overBudget()) return "spent";
+    const day = new Date(table.now()); day.setHours(0, 0, 0, 0);
+    return billableTokens(table.store.usageSince(day.getTime())) >= table.cfg.dailyTokenBudget * .6 ? "tight" : "none";
+  }
+
 export function checkInvariants(table) {
     const ids = investigatorsFor(table.characters, table.roster).map((c) => c.id);
     const counts = new Map(ids.map((id) => [id, 0]));
@@ -184,6 +208,10 @@ export function startTicker(table) {
     // Pending phone replies arrive on their own clock, autonomy or not; the same clock notices a session's end.
     if (!table.phoneTimer) {
       table.phoneTimer = setInterval(() => {
+        if (table.dailyOn() && !table.dailyTickPending) {
+          table.dailyTickPending = true;
+          table.queue = table.queue.then(() => table.clockTick()).catch(e => table.log(`daily: ${e.message}`)).finally(() => { table.dailyTickPending = false; });
+        }
         table.deliverDue().catch((e) => table.log(`phones: ${e.message}`));
         try { table.checkSessionEnd(); } catch (e) { table.log(`final review: ${e.message}`); }
         // The platform says nothing when a player creates a character: look again now and then.
@@ -201,11 +229,12 @@ export function stopTicker(table) { clearInterval(table.ticker); table.ticker = 
 export async function tick(table) {
     if (table.generation.paused || !table.cfg.autonomy || table.pending > 0) return null;
     if (table.overBudget()) return null;
+    if (table.dailyOn() && table.dailyMode() !== "attended") return null;
     const now = table.now();
     const idle = table.cfg.autonomyIdleMinutes * 60000;
     // Away: nobody at the table. Only co-players-only threads move, every AWAY_SIDE_INTERVAL_MS (0: not at all).
     const away = now - table.lastHumanAt > idle;
-    if (away && !table.cfg.awaySideIntervalMs) return null;
+    if (away && (table.dailyOn() || !table.cfg.awaySideIntervalMs)) return null;
     table.autonomousTurns = table.autonomousTurns.filter((t) => now - t < HOUR);
     if (table.autonomousTurns.length >= table.cfg.autonomyMaxTurnsPerHour) return null;
     const candidates = [];

@@ -73,6 +73,7 @@ export class Api {
   // ---- characters
   characters(ch) { return this.get(`/api/channels/${ch}/characters`); }
   createCharacter(ch, body) { return this.post(`/api/channels/${ch}/characters`, body); }
+  setCharacterPresence(ch, cid, passive) { return this.put(`/api/channels/${ch}/characters/${cid}/presence`, { passive }); }
   characterSpace(ch, cid) { return this.get(`/api/channels/${ch}/characters/${cid}/space`); }
   pbtaRules(ch) { return this.get(`/api/channels/${ch}/pbta`); }
   pbtaDraft(ch) { return this.get(`/api/channels/${ch}/pbta/draft`); }

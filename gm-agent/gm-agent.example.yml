@@ -86,6 +86,7 @@ context:
   recall_tokens: 1200         # local relevant excerpts per turn; capped at 5% of the role budget, 0 disables
   page_lines: 100             # lines fetched per page when syncing the local copy of the chat
   backfill_lines: 1000        # how far back the first sync goes
+  standin_tokens: 12000      # witnessed context for a passive character's separate stand-in call
   daily_token_budget: 0       # billable-equivalent tokens a day for autonomous turns and plans (0: no limit)
 
 autonomy:
@@ -113,6 +114,22 @@ scenarios:
   auto: true                  # the GM opens the next scenario itself, from the Main Chat only
   min_minutes: 20             # ... after at least this long and this many lines (lifted when the planner says move on)
   min_lines: 30
+
+daily:                        # opt-in; requires casual + improvisation, without a module
+  # With planner.enabled, unattended play refreshes routine/topics once per story day within the token budget.
+  enabled: false
+  day_hours: 17                # real hours per unattended story day (1–168)
+  min_day_minutes: 180         # attended date changes: at least this many real minutes
+  silence_minutes: 120         # only human scene lines restart this clock
+  night_start: "23:00"
+  night_end: "07:00"           # no sparks during story night; joining jumps to morning
+  pause_days: 7                # no human messages of any kind: freeze time
+  sparks_per_day: 8            # rolling 24-hour cap; 0 still lets time pass
+  spark_max_lines: 6
+  max_lag_minutes: 120         # finish/carry an open topic once it falls this far behind
+  pc_sparks: false             # also requires that player's /away permission
+  passive_minutes: 30
+  summaries: true              # personal day summaries in each passive character's phone
 
 calendar:                     # casual games: how fast the GM may move the story's date (0 = no limit)
   min_minutes: 30             # after the date moves, the GM moves it on again only after this long

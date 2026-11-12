@@ -1,13 +1,18 @@
+import { threadPermission, addStoryDays, DAY } from "../daily.mjs";
 // planning: table is the explicit runtime context supplied by Table; no service singleton.
 import { MAIN, placeKey } from "../timelines.mjs";
 import { mergeTableNotes, plannerReply, renderInbox } from "../wishes.mjs";
 import { leaksSecret, noteSessionLine, planStory, plannerDue, plannerModeOf, renderFinalNote, renderPlanNote, renderStoryPlan, sessionEnded, stallSignature } from "../planner.mjs";
-import { MAX_ADVANCE_DAYS, advanceCalendar, changedBy, describeCalendar, fitEra, setRoutine } from "../calendar.mjs";
+import { MAX_ADVANCE_DAYS, parseClock, formatClock, advanceCalendar, changedBy, describeCalendar, fitEra, setRoutine } from "../calendar.mjs";
 import { applyBond, resolveBonds } from "../bonds.mjs";
 
 export function plannerMode(table) { return table.cfg.planner && table.cfg.planner.enabled === false ? "off" : plannerModeOf(table.planner, table.improv); }
 
-export function storyPlanSection(table) { return table.plannerMode() === "off" ? "" : renderStoryPlan(table.planner.arc, table.cfg.planner?.planTokens ?? 1500); }
+export function storyPlanSection(table) { return table.plannerMode() === "off" ? "" : renderStoryPlan(table.planner.arc, table.cfg.planner?.planTokens ?? 1500, table.dailyOn() ? { ownerStatus: thread => {
+    const owners = (thread.owners ?? []).map(name => { const id = table.investigatorByName(name); return { name, passive: !id || table.isPassive(id), expired: !!id && table.isPassive(id) && table.now() - (table.daily.lastSceneLineBy[id] ?? table.daily.lastSceneLineAt) >= table.cfg.daily.pause_days * DAY }; });
+    const status = threadPermission(thread, owners, { spark: table.turnScope.getStore()?.mode === "spark" });
+    return status.mayAdvance ? "may advance" : `WAITS for ${status.waiting.join(", ") || "human participation"}`;
+  } } : {}); }
 
 export function plannerVerdict(table) {
     const arc = table.planner.arc;
@@ -56,6 +61,7 @@ export async function planCommand(table, action) {
 
 export function maybePlan(table) {
     const cfg = table.cfg.planner;
+    if (table.dailyOn() && table.dailyMode() !== 'attended') return null;
     if (table.generation.signal.aborted || !cfg || table.plannerMode() === "off" || (cfg.intervalMs === 0 && !table.planner.asked && table.planner.arc)) return null;
     const p = table.planner;
     const reason = plannerDue({
@@ -90,13 +96,14 @@ export function runPlanner(table, reason, { session = null } = {}) {
         session ? `The session that just ended: ${session.lines} player lines over ${minutes} min, from line #${session.fromSeq}. Its lines in every window follow (window named when not the Main Chat).` : `${table.lastSeq - since} lines since (the newest ${Math.min(200, table.lastSeq - since)} of this window below)`,
         notes.length ? `The GM's notes to you: ${notes.map((n) => `"${n.text}"${n.beatDone ? " (beat done)" : ""}`).join("; ")}` : "",
         p.scenarioId && p.scenarioId !== table.scenario?.id ? "The scenario changed since the last plan." : "",
+        table.dailyOn() ? `Player availability: ${table.characters.filter(c => table.isPc(c.id)).map(c => `${c.name}: ${table.isPassive(c.id) ? `passive for ${Math.round((table.now() - (table.daily.lastSceneLineBy[c.id] ?? table.daily.lastSceneLineAt)) / 60000)} real minutes` : "present"}`).join("; ")}` : "",
         fresh ? `Recent lines:\n${fresh}` : "",
       ].filter(Boolean).join("\n");
       const mode = table.plannerMode();
       const out = await planStory(table.plannerLlm, {
         language: table.language, profile: table.profile, mode, contextText: ctx.text, prev: p.arc, since: sinceText, coplayers: table.roster.coplayers, secrets: [table.improv.secrets, ...table.improv.truths.map((t) => t.text)],
         nextId: p.nextThreadId, lastSeq: table.lastSeq, trigger: reason, now: table.now(), impulseLines: table.cfg.planner?.impulseLines ?? 60, log: table.log,
-        final: session ? { maxDays: table.cfg.planner?.finalReviewMaxDays ?? 30 } : null, calendar: table.calendarOn(),
+        final: session ? { maxDays: table.cfg.planner?.finalReviewMaxDays ?? 30 } : null, calendar: table.calendarOn(), daily: table.dailyOn(),
         table: Boolean(p.window), wishes: p.window ? renderInbox(inbox, p.table) : "",
       });
       table.generation.signal.throwIfAborted();
@@ -127,7 +134,7 @@ export async function adoptPlan(table) {
       }
     }
     let bonds = 0;
-    for (const b of resolveBonds(pend.bonds, (n) => table.characterByName(n)?.id)) if (applyBond(table.bonds, b, { by: "planner", now: table.now() })) bonds++;
+    for (const b of resolveBonds(pend.bonds, (n) => table.characterByName(n)?.id)) if (!(table.dailyOn() && [b.a, b.b].some(id => table.isPassive(id))) && applyBond(table.bonds, b, { by: "planner", now: table.now() })) bonds++;
     table.save();
     const main = table.mainWindow();
     if (p.notedVersion < pend.arc.version) {
@@ -150,6 +157,11 @@ export async function applyTableNotes(table, pend) {
   }
 
 export function applyRoutine(table, cal) {
+    if (table.dailyOn() && cal?.week) {
+      const secrets = [table.improv.secrets, ...table.improv.truths.map(t => t.text)];
+      table.daily.week = Object.fromEntries(Object.entries(cal.week).filter(([k, v]) => /^[0-6]$/.test(k) && typeof v === "string" && !leaksSecret(v, secrets)));
+      table.save();
+    }
     if (!cal?.routine) return;
     const secrets = [table.improv.secrets, ...table.improv.truths.map((t) => t.text)];
     if ([cal.routine, ...(cal.upcoming ?? []).map((u) => u.what)].some((t) => leaksSecret(t, secrets))) { table.log("planner: routine dropped (it quoted a secret)"); return; }
@@ -159,11 +171,11 @@ export function applyRoutine(table, cal) {
 
 export async function applyBetween(table, pend, bonds = 0) {
     const b = pend.between;
-    const calendar = table.calendarOn() ? table.moveCalendar({ days: b.advanceDays, date: b.date || undefined, time: b.time, why: b.why || "between sessions", by: "final review" }) : null;
+    const calendar = table.calendarOn() && !table.dailyOn() ? table.moveCalendar({ days: b.advanceDays, date: b.date || undefined, time: b.time, why: b.why || "between sessions", by: "final review" }) : null;
     let declared = 0, secret = 0;
     for (const o of b.offscreen ?? []) if (await table.declare(o.text, o.secret)) { declared++; if (o.secret) secret++; }
     let transition = calendar?.changed ? calendar.to : "";
-    if (!calendar && b.time && !leaksSecret(b.time, [table.improv.secrets, ...table.improv.truths.map(t => t.text)])) transition = b.time;
+    if (!table.dailyOn() && !calendar && b.time && !leaksSecret(b.time, [table.improv.secrets, ...table.improv.truths.map(t => t.text)])) transition = b.time;
     if (transition && b.time) table.timelines.relocate(MAIN, { narrativeTime: b.time });
     table.planner.between = { transition, days: calendar?.changed ? calendar.days : 0, today: calendar ? describeCalendar(table.calendar) : "", offscreen: b.offscreen ?? [], opening: b.opening, recap: b.recap, version: pend.arc.version, at: table.now() };
     table.planner.lastFinalAt = table.now();
@@ -214,17 +226,36 @@ export async function finishSession(table) {
   }
 
 export function moveCalendar(table, { days, date, time, why = "", by = "keeper" }) {
+    const previousDate = table.calendar.date;
+    const daily = table.dailyOn();
+    const minute = parseClock(time);
+    if (daily && by === "final review") return { changed: false };
+    if (daily && minute !== null && !(Number(days) > 0 || (date && date > previousDate)) && table.calendar.clock !== null && minute < table.calendar.clock) return { changed: false, refused: "the clock never runs backwards" };
+    if (daily && time && minute === null) time = undefined;
     const pace = table.calendarPaceCfg();
     const limits = by === "final review" ? { maxDays: table.cfg.planner?.finalReviewMaxDays ?? 30 }
       : by === "keeper" ? { maxDays: pace.maxDays || MAX_ADVANCE_DAYS, pace: { minMinutes: pace.minMinutes, minLines: pace.minLines } } : {};
-    const r = advanceCalendar(table.calendar, { days, date, time, why, by, seq: table.lastSeq, now: table.now(), ...limits });
+    const r = advanceCalendar(table.calendar, { days, date, time, ...(daily ? { clock: minute ?? ((Number(days) > 0 || date > previousDate) ? 0 : table.calendar.clock) } : {}), why, by, seq: table.lastSeq, now: table.now(), ...limits });
+    if (daily && !r.refused) {
+      if (previousDate && table.calendar.date !== previousDate) {
+        for (const t of table.timelines.active()) { t.clock = 0; t.narrativeTime = "00:00"; }
+        table.calendar.clock = 0;
+        if (by !== "timetable") for (let day = previousDate; day < table.calendar.date; day = addStoryDays(day, 1)) {
+          table.daily.pendingDays.push({ endedDate: day, date: addStoryDays(day, 1), timetable: false });
+        }
+      }
+      if (minute !== null) {
+        table.calendar.clock = minute; table.calendar.time = formatClock(minute);
+        table.timelines.relocate(MAIN, { clock: minute, narrativeTime: formatClock(minute) });
+      }
+    }
     if (r.changed) { if (r.to) table.log(`calendar: ${r.from || "(no date)"} → ${r.to} (${changedBy(by)})${r.clipped ? `, ${r.days} of the ${r.clipped} day(s) asked` : ""}`); table.save(); }
     else if (r.refused) table.log(`calendar unchanged: ${r.refused}`);
     return r;
   }
 
 export function calendarHeld(table, windowId, r) {
-    const text = r.pace ? `Calendar unchanged: ${r.refused}. Keep play within the current day (only the time of day moves).`
+    const text = r.refused && table.dailyOn() ? `Calendar unchanged: ${r.refused}.` : r.pace ? `Calendar unchanged: ${r.refused}. Keep play within the current day (only the time of day moves).`
       : r.clipped ? `Calendar moved on ${r.days} day(s), not ${r.clipped}: at most ${r.days} at once. Tell the time that passed to match.` : "";
     return text ? table.post(windowId, { content: text, kind: "narration", visibility: "gm_only" }, { count: false }) : 0;
   }
@@ -232,6 +263,11 @@ export function calendarHeld(table, windowId, r) {
 export function recordBond(table, a, by = "keeper") {
     const [x] = resolveBonds([a], (n) => table.characterByName(n)?.id);
     if (!x) { table.log(`bond skipped: no characters named "${a.a}" and "${a.b}"`); return null; }
+    if (table.dailyOn() && [x.a, x.b].some(id => table.isPassive(id))) {
+      table.log("bond refused: a player character is passive");
+      if (by === "keeper") table.post(table.primaryWindowId(), { kind: "narration", visibility: "gm_only", content: "Relationship change refused: a player character is passively present; relationships stay frozen in both directions." }, { count: false }).catch(() => {});
+      return null;
+    }
     const r = applyBond(table.bonds, x, { by, now: table.now() });
     if (r) { table.log(`bond ${r}: ${table.nameOf(x.a)} — ${table.nameOf(x.b)}${x.kind ? `: ${x.kind}` : ""} (${changedBy(by)})`); table.save(); }
     return r;
