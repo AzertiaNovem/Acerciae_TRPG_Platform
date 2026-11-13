@@ -3,7 +3,7 @@ export const languageName = (code) => LANGUAGES[code] ?? LANGUAGES[String(code ?
 
 export const TRIGGER_KINDS = new Set(["ic", "ooc", "roll", "narration"]);
 export const SPEAKER_KINDS = new Set(["ic", "roll", "narration"]);       // lines that let a player's character move (not OOC)
-export const MOVE_MODES = new Set(["human", "followup", "side", "relay", "manual"]);
+export const MOVE_MODES = new Set(["human", "followup", "side", "relay", "attention", "manual"]);
 export const norm = (s) => String(s ?? "").trim().toLowerCase();
 export const names = (v) => (Array.isArray(v) ? v : [v]).map((x) => String(x ?? "").trim()).filter(Boolean);
 // Splits text at paragraph or line breaks into pieces of at most `max` characters.

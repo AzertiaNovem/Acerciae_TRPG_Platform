@@ -93,6 +93,52 @@ test('sparks: character first, GM last, unsafe actions dropped, bounded and inte
   llm.coplayer = () => { t.dailyInterrupt=(t.dailyInterrupt??0)+1; return {action:'speak',text:'Must not post'}; };
   const n=api.posts.length; await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}}); assert.equal(api.posts.length,n);
 });
+
+const settleAttention = async t => { for (let i = 0; i < 30 && t.pending; i++) { await new Promise(r => setTimeout(r, 2)); await t.queue; } assert.equal(t.pending, 0); };
+const neglect = (t, api) => { for (let i = 0; i < 12; i++) t.noteLine(api.add({ chat_window_id: 'w-main', author_id: 'u-bot', author_role: 'gm', kind: 'narration', content: `Other people's conversation ${i}.` })); };
+
+test('an unattended review uses one daily slot, opens only the co-player scene and keeps arrivals within the same safety and line budget', async () => {
+  const { t, llm, api, clock } = await setup(); t.cfg.autonomy = true;
+  neglect(t, api); clock.t += 2 * H; await t.clockTick({ sparks: false });
+  t.timelines.main().location = 'Bookshop';
+  const unsafe = [{ type: 'date', advance_days: 1 }, { type: 'bond', a: 'Alice Hale', b: 'Harriet Vance', kind: 'love', text: 'no' }, { type: 'world_change', text: 'no' }];
+  llm.director = user => ({ actions: [...unsafe, ...(user.includes('MODE: attention') ? [{ type: 'narrate', text: 'Harriet has some photographs she wanted to develop.' }] : user.includes('MODE: arrival') ? [{ type: 'narrate', text: 'The developing tray is ready.' }] : [])],
+    coplayers_may_act: false, whereabouts: user.includes('MODE: followup') ? [{ who: ['Alice Hale', 'Harriet Vance'], thread: 'new', place: 'Darkroom', own_scene: true }] : [] });
+  let spoke = false;
+  llm.coplayer = () => !spoke && (spoke = true) ? { action: 'speak', text: 'I go to Darkroom now.', needs_reply_from: ['Alice Hale'] } : { action: 'pass' };
+  llm.movements = ({ actors, lines, destinations }) => ({ moves: actors.flatMap(a => {
+    const own = lines.find(l => a.sources.includes(l.seq) && l.text === 'I go to Darkroom now.');
+    return own ? [{ id: a.id, seq: own.seq, destination: destinations.find(d => d.place === 'Darkroom')?.key ?? 'NEW', place: 'Darkroom', own_scene: true }] : [];
+  }) });
+  const before = api.posts.length, date = t.calendar.date, slots = t.daily.sparks.length;
+  t.sparkTick(); await settleAttention(t);
+  assert.equal(t.daily.sparks.length, slots + 1);
+  const scene = t.timelines.of('c-harriet'); assert.equal(scene.location, 'Darkroom');
+  assert.deepEqual(scene.members, ['c-harriet']); assert.equal(t.timelines.of('c-alice').id, 'main');
+  assert.ok(api.posts.slice(before).some(p => p.window === scene.windowId && p.content === 'The developing tray is ready.'));
+  assert.ok(api.posts.length - before <= t.cfg.daily.spark_max_lines);
+  assert.equal(t.calendar.date, date); assert.equal(t.bonds.length, 0);
+  assert.ok(!llm.calls.some(c => c.purpose === 'standin_turn'));
+  const arrival = llm.calls.find(c => c.purpose === 'director' && c.messages.at(-1).content.includes('MODE: arrival'));
+  assert.match(arrival.messages.at(-1).content, /UNATTENDED PERSONAL SCENE/);
+  assert.equal(t.daily.topics.main.open, false);
+});
+
+test('an unattended review discards a late GM response after player activity or budget exhaustion', async () => {
+  for (const interrupt of ['human', 'budget']) {
+    const { t, llm, api, clock } = await setup(); t.cfg.autonomy = true;
+    neglect(t, api); clock.t += 2 * H; await t.clockTick({ sparks: false });
+    llm.director = () => {
+      if (interrupt === 'human') t.dailyInterrupt = (t.dailyInterrupt ?? 0) + 1;
+      else t.overBudget = () => true;
+      return { actions: [{ type: 'narrate', text: 'Late opportunity must not appear.' }] };
+    };
+    const before = api.posts.length;
+    await t.turn('w-main', { mode: 'attention', gentle: true });
+    assert.equal(api.posts.length, before);
+    assert.equal(t.roster.coplayers[0].attention, undefined);
+  }
+});
 test('unattended chatter uses at most two co-players and name mentions never summon a stand-in', async () => {
   const api=new FakeApi();
   for (const [i,name] of ['Tomas Leclerc','Mei Okada','Arthur Penhallow'].entries()) api.characters_.push({...structuredClone(api.characters_[1]),id:`c-peer${i}`,name});
@@ -171,6 +217,43 @@ test('a passive PC can still start small talk only with explicit permission', as
   assert.equal(llm.calls.filter(c=>c.purpose==='standin_turn').length,1);
   assert.equal(api.posts[start].character_id,'c-alice'); assert.equal(api.posts[start].stand_in,true);
   assert.equal(api.posts.at(-1).kind,'narration');
+});
+test('spark placement repair moves an already-departed co-player out before it can speak in the wrong scene', async () => {
+  const {t,api,llm,clock}=await setup(); clock.t+=2*H; await t.clockTick({sparks:false});
+  t.timelines.main().location='Bookshop';
+  await t.post('w-main',{kind:'ic',character_id:'c-harriet',content:'I went home and am staying there for tea.'});
+  const own=api.lines.at(-1);
+  await t.post('w-main',{kind:'narration',content:'Harriet has returned to Hale house. Alice remains at the Bookshop.'});
+  const confirmed=api.lines.at(-1);
+  llm.presence=()=>({placements:[],departures:[{id:'c-harriet',actor_seq:own.seq,confirmation_seq:confirmed.seq,place:'Hale house',span:'long'}]});
+  llm.coplayer=()=>({action:'speak',text:'GHOST-AT-BOOKSHOP'});
+  await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}});
+  assert.notEqual(t.timelines.of('c-harriet').id,'main');
+  assert.equal(t.timelines.of('c-harriet').location,'Hale house');
+  assert.equal(llm.calls.filter(c=>c.purpose==='coplayer_turn').length,0);
+  assert.ok(!api.posts.some(m=>m.content==='GHOST-AT-BOOKSHOP'));
+});
+test('spark presence checking respects token exhaustion and discards results when interrupted', async () => {
+  for(const interrupt of [false,true]) {
+    const {t,api,llm,clock}=await setup(); clock.t+=2*H; await t.clockTick({sparks:false});
+    t.timelines.main().location='Bookshop';
+    await t.post('w-main',{kind:'ic',character_id:'c-harriet',content:'I returned to Hale house.'}); const own=api.lines.at(-1);
+    await t.post('w-main',{kind:'narration',content:'Harriet is at Hale house; Alice is at the Bookshop.'}); const confirmed=api.lines.at(-1);
+    llm.presence=()=>{
+      if(interrupt) t.dailyInterrupt=(t.dailyInterrupt??0)+1;
+      return {placements:[],departures:[{id:'c-harriet',actor_seq:own.seq,confirmation_seq:confirmed.seq,place:'Hale house'}]};
+    };
+    if(!interrupt) t.cfg.dailyTokenBudget=1;
+    await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}});
+    assert.equal(llm.calls.filter(c=>c.purpose==='scene_presence').length,1);
+    assert.equal(llm.calls.filter(c=>['coplayer_turn','director','standin_turn'].includes(c.purpose)).length,0);
+    if(interrupt) assert.equal(t.timelines.of('c-harriet').id,'main');
+    else {
+      assert.ok(t.overBudget()); const calls=llm.calls.length;
+      await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}});
+      assert.equal(llm.calls.length,calls);
+    }
+  }
 });
 test('day summaries: only witnessed lines, phone GM posts, open questions not repeated, weekly routine', async () => {
   const {t,api,clock,llm} = await setup(); clock.t+=H; await t.reconcilePassive();

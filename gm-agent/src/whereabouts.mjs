@@ -7,7 +7,7 @@
 //
 //   * authority  – a player character moves only because its own player said so in this turn's lines in this window;
 //                  co-players move only after their own lines (followup and side rounds). The GM decides for no one;
-//   * guard      – a change that would undo a recent one needs two agreeing turns (players' own moves are exempt);
+//   * guard      – an unsupported reversal needs two agreeing turns; a fresh verified choice is never deferred;
 //   * places     – "new" at the place you already are is no move; "new" at another thread's place joins that thread;
 //   * the scene  – a thread is never emptied by a split: if everyone in it leaves for one place it simply relocates;
 //                  the main timeline keeps the players (co-players left behind get a side window of their own);
@@ -72,13 +72,14 @@ export function whereaboutsBrief({ timelines, scene, nameOf, windowName, isPc, m
     lines.push(`- T${t.handle} "${t.name}"${here} ${where}${t.location ? `, at ${t.location}` : ""}${t.id === MAIN ? "" : `, ${t.span} split`}: ${who}`);
   }
   lines.push(`May move this turn: ${mayMove.map(nameOf).join(", ") || "(no one)"}.`);
+  lines.push("Open a separate scene promptly when a character clearly chooses an independent destination. Their own departure is enough; do not wait for repeated confirmation or narrate arrival first. Check each traveller and agreed companion individually. Different classrooms, homes and independent activities can be separate scenes even nearby; a shared corridor on the same journey is not. Unclear company never cancels another character's clear solo departure.");
   if (capReached) lines.push("No new independent scene can open now (too many threads at once). Still report reunions and the whole party moving together: these do not need another thread.");
   return lines.join("\n");
 }
 
 // reports: validated whereabouts. scene: {timeline, windowId} (timeline null outside any thread's window).
 // scopeIds: who may be reported this round. speakers: player characters whose player posted in this turn's lines here.
-export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers = new Set(), verifiedCompanions = false, passiveFollowers = new Set(), mode, resolve, isPc, userOf = () => null, windowUsers = () => [], guard, turn, now, cfg }) {
+export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers = new Set(), verifiedCompanions = false, decisionSeqs = new Map(), passiveFollowers = new Set(), mode, resolve, isPc, userOf = () => null, windowUsers = () => [], guard, turn, now, cfg }) {
   const forks = Boolean(cfg?.sceneForks);
   const ignored = [];
   const updates = {};
@@ -126,7 +127,8 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
         const r = rec(id);
         const key = target.kind === "tl" ? `tl:${target.id}` : target.key;
         const recent = r.changedTurn !== null && (r.obs < cfg.timelineGuardTurns || now - r.changedAt < cfg.timelineGuardMs);
-        if (recent) {
+        const explicit = Number.isFinite(decisionSeqs.get(id)) && decisionSeqs.get(id) > r.changedSeq;
+        if (recent && !explicit) {
           const agreed = r.pending && r.pending.key === key && r.pending.turn > r.changedTurn && r.pending.turn < turn;
           if (!agreed) {
             updates[id] = { ...r, pending: r.pending?.key === key && r.pending.turn > r.changedTurn ? r.pending : { key, turn } };

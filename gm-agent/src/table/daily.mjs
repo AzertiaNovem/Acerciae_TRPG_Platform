@@ -1,5 +1,6 @@
 import { dailyLabels } from "../daily-locale.mjs";
 import { planDailyLife } from '../daily-planner.mjs';
+import { attentionCandidates } from './attention.mjs';
 // Daily-life effects share Table's serial queue and state writer.
 import { completeJson } from '../llm/index.mjs';
 import { setRoutine, parseIso } from '../calendar.mjs';
@@ -177,7 +178,7 @@ export { dailyState };
 
 export function sparkCancelled(table) {
   const turn = table.turnScope.getStore();
-  return turn?.mode === 'spark' && (turn.dailyEpoch !== (table.dailyInterrupt ?? 0) || table.dailyMode() !== 'unattended' || table.generation.paused);
+  return (turn?.mode === 'spark' || turn?.gentle) && (turn.dailyEpoch !== (table.dailyInterrupt ?? 0) || table.dailyMode() !== 'unattended' || table.generation.paused);
 }
 export function sparkTick(table) {
   if (!table.dailyOn() || table.pending || table.generation.paused) return;
@@ -190,12 +191,14 @@ export function sparkTick(table) {
     for (const cp of table.roster.coplayersIn(windowId)) candidates.push({ id: cp.characterId, windowId, coplayer: cp });
     if (!table.standinOff && table.cfg.daily.pc_sparks && table.isPassive) for (const id of t.members) if (table.isPc(id) && table.isPassive(id) && s.rules[id]?.maySpark) candidates.push({ id, windowId });
   }
-  const pick = pickSpark(candidates, s.lastSparker, table.random);
+  const neglected = table.cfg.autonomy && table.cfg.maxActionsPerTurn >= 2 && table.autonomousTurns.filter(at => now - at < 3600000).length < table.cfg.autonomyMaxTurnsPerHour
+    ? table.timelines.active().flatMap(t => attentionCandidates(table, table.windowOf(t))).sort((a, b) => b.lines - a.lines)[0] : null;
+  const pick = (neglected && candidates.find(c => c.id === neglected.id && c.windowId === neglected.windowId)) || pickSpark(candidates, s.lastSparker, table.random);
   if (!pick) return;
   s.sparks = [...s.sparks.filter(at => now - at < DAY), now];
   s.nextSparkAt = nextSparkAt(now, table.cfg, pressure, table.random); s.lastSparker = pick.id;
   table.save();
-  table.schedule(pick.windowId, { mode: 'spark', delay: 0, sparker: pick, dailyEpoch: table.dailyInterrupt ?? 0 });
+  table.schedule(pick.windowId, { mode: neglected && pick.id === neglected.id ? 'attention' : 'spark', gentle: Boolean(neglected && pick.id === neglected.id), delay: 0, sparker: pick, dailyEpoch: table.dailyInterrupt ?? 0 });
 }
 export function sparkNote(table, windowId) {
   const thread = table.scene(windowId), c = dailyConfig(table.cfg), s = table.daily;

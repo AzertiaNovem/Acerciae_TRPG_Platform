@@ -44,3 +44,43 @@ test("no automatic reunion from room labels alone, conflicting targets or circul
   const back = { id: "su", thread: "T1", with: "xie", actor_seq: 11, target_seq: 13, place: "507" };
   assert.deepEqual(await readPresence(decide([placement, back]), { current: "T0", threads }), []);
 });
+
+const shared = [{ key: "T0", location: "晚风书店", time: "14:15", members: [
+  { id: "su", name: "苏婉", coplayer: false, since: 0 },
+  { id: "zhou", name: "周见微", coplayer: true, since: 5 },
+], lines: [
+  { seq: 10, actor: "zhou", kind: "ic", text: "（回后街家里吃过午饭，留下陪奶奶。）奶奶，我陪你听会儿广播。" },
+  { seq: 11, keeper: true, kind: "narration", text: "周见微留在后街奶奶家，陪她听广播，没有去书店。苏婉仍在晚风书店。" },
+  { seq: 12, actor: "su", kind: "ic", text: "我看看书。" },
+] }];
+const departure = { id: "zhou", actor_seq: 10, confirmation_seq: 11, place: "后街奶奶家", span: "long" };
+const separate = departures => ({ complete: async () => JSON.stringify({ placements: [], departures }) });
+
+test("a co-player's confirmed departure creates a separate scene even when everyone is still recorded in one window", async () => {
+  const result = await readPresence(separate([departure]), { current: "T0", threads: shared });
+  assert.deepEqual(result, [{ id: "zhou", thread: "NEW", actorSeq: 10, confirmationSeq: 11, place: "后街奶奶家", span: "long" }]);
+});
+
+test("separation requires the co-player's own recent action and a later public GM confirmation", async () => {
+  for (const change of [
+    { id: "su", actor_seq: 12 }, { id: "nobody" }, { actor_seq: 12 }, { actor_seq: 999 },
+    { confirmation_seq: 10 }, { confirmation_seq: 12 }, { confirmation_seq: 999 }, { place: "别人的家" }, { place: "晚风书店" },
+  ]) assert.deepEqual(await readPresence(separate([{ ...departure, ...change }]), { current: "T0", threads: shared }), [], JSON.stringify(change));
+  for (const mutate of [
+    t => { t[0].lines[0].standIn = true; },
+    t => { t[0].lines[0].kind = "ooc"; },
+    t => { t[0].members[1].since = 10; },
+    t => { t[0].lines[1].keeper = false; },
+  ]) {
+    const copy = structuredClone(shared); mutate(copy);
+    assert.deepEqual(await readPresence(separate([departure]), { current: "T0", threads: copy }), []);
+  }
+});
+
+test("conflicting separations are discarded, and a lone occupant cannot split from themself", async () => {
+  assert.deepEqual(await readPresence(separate([departure, departure]), { current: "T0", threads: shared }), []);
+  const copy = structuredClone(shared); copy[0].members.shift();
+  let called = false;
+  assert.deepEqual(await readPresence({ complete: async () => { called = true; throw Error("not needed"); } }, { current: "T0", threads: copy }), []);
+  assert.equal(called, false);
+});

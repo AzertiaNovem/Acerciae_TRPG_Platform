@@ -18,7 +18,8 @@ export function threadOwnerIds(table, thread) {
 
 export function storyPlanSection(table) { return table.plannerMode() === "off" ? "" : renderStoryPlan(table.planner.arc, table.cfg.planner?.planTokens ?? 1500, table.dailyOn() ? { ownerStatus: thread => {
     const owners = threadOwnerIds(table, thread).map(id => { const passive = table.isPassive(id); return { name: table.nameOf(id), passive, expired: passive && table.now() - (table.daily.lastSceneLineBy[id] ?? table.daily.lastSceneLineAt) >= table.cfg.daily.pause_days * DAY }; });
-    const status = threadPermission(thread, owners, { spark: table.turnScope.getStore()?.mode === "spark" });
+    const turn = table.turnScope.getStore();
+    const status = threadPermission(thread, owners, { spark: turn?.mode === "spark" || turn?.gentle });
     return `${owners.map(o => o.name).join(", ") || "world"}; ${status.mayAdvance ? "may advance" : `WAITS for ${status.waiting.join(", ") || "human participation"}`}`;
   } } : {}); }
 

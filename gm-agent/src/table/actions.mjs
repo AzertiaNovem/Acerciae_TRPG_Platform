@@ -10,7 +10,7 @@ import { norm } from "./shared.mjs";
 
 export async function act(table, windowId, a, ctx, { mode, parent = mode, scope = null, evidenceThrough } = {}) {
     table.generation.signal.throwIfAborted();
-    if (mode === "spark" && !["narrate", "npc", "note", "text"].includes(a.type)) return 0;
+    if ((mode === "spark" || table.turnScope.getStore()?.gentle) && !["narrate", "npc", "note", "text"].includes(a.type)) return 0;
     switch (a.type) {
       case "question_done":
         if (table.dailyOn()) { table.daily.questions = table.daily.questions.filter(q => q.id !== a.id); table.save(); }
@@ -278,11 +278,13 @@ export async function post(table, windowId, body, { count = true, allowPaused = 
 export async function sendLine(table, windowId, body, { allowPaused = false } = {}) {
     if (!allowPaused && table.generation.signal.aborted) return null;
     const spark = table.turnScope.getStore();
+    if (spark?.gentle && (table.sparkCancelled() || table.overBudget() || spark.dailyBudget.posted >= spark.dailyBudget.limit)) return null;
     if (spark?.mode === "spark" && (table.sparkCancelled() || spark.dailyPosted >= spark.lineLimit)) return null;
     if (table.pbta && /^[.。][a-z]/i.test(String(body.content).trim())) return null;
     try {
       const m = await table.api.postMessage(table.channelId, windowId, { visibility: "window", ...body });
       if (spark?.mode === "spark") spark.dailyPosted++;
+      if (spark?.gentle) spark.dailyBudget.posted++;
       table.botMessageIds.add(m.id);
       if (table.botMessageIds.size > 2000) table.botMessageIds.delete(table.botMessageIds.values().next().value);
       const turn = table.turnScope.getStore();

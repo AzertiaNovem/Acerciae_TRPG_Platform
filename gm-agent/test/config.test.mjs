@@ -28,6 +28,12 @@ test("old environment variables are ignored, with a warning naming the file key"
   assert.equal(cfg.warnings.length, 3);
 });
 
+test('co-player participation thresholds are configurable and the check can be disabled', () => {
+  const cfg = buildConfig({}, {}, file({ autonomy: { coplayer_idle_lines: 0, coplayer_idle_minutes: 45 } }));
+  assert.equal(cfg.coplayerIdleLines, 0); assert.equal(cfg.coplayerIdleMinutes, 45);
+  assert.deepEqual(cfg.warnings, []);
+});
+
 test("unknown sections and keys in the file are reported, known ones are not", () => {
   const cfg = buildConfig({}, {}, file({ table: { coplayers: 3, colour: "red" }, misc: { a: 1 } }));
   assert.equal(cfg.coplayers, 3);
