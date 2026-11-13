@@ -596,7 +596,7 @@ Json::Value CreativeService::suggest(const ChannelAccess &a,
   if (!a.isGm)
     throw forbidden("GM reviews suggestions");
   auto p = pres_.get(a, pid);
-  if (!llm_.isMock(a.channelId) && !json::toBool(b, "allow_cloud"))
+  if (!llm_.isMock(a.channelId, "log_performance") && !json::toBool(b, "allow_cloud"))
     throw badRequest("confirm cloud processing for selected lines");
   auto ids = json::strArray(b["event_ids"]);
   if (ids.empty() || ids.size() > 30)
@@ -614,7 +614,7 @@ Json::Value CreativeService::suggest(const ChannelAccess &a,
   if (context["events"].size() != ids.size())
     throw badRequest("events not in this presentation");
   Json::Value suggestions(Json::arrayValue);
-  if (llm_.isMock(a.channelId)) {
+  if (llm_.isMock(a.channelId, "log_performance")) {
     for (auto &e : context["events"]) {
       Json::Value s;
       s["event_id"] = e["id"];
@@ -653,7 +653,7 @@ Json::Value CreativeService::suggest(const ChannelAccess &a,
     candidate["style_instruction"] =
         text::utf8Prefix(json::str(s, "style_instruction"), 1200);
     candidate["reason"] = text::utf8Prefix(json::str(s, "reason"), 1200);
-    candidate["source"] = llm_.mode(a.channelId);
+    candidate["source"] = llm_.mode(a.channelId, "log_performance");
     db_.exec("UPDATE presentation_events SET ai_suggestion=$2::jsonb WHERE "
              "id=$1 AND presentation_id=$3",
              {id, json::dump(candidate), pid});

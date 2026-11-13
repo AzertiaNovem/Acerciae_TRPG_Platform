@@ -81,7 +81,7 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
   int waiting = 0;
   Json::Value known = in.knownBackgrounds;   // a continuation starts with the scenes still waiting for a picture
   Json::Value identity;
-  identity["model"] = llm_.status(a.channelId);
+  identity["model"] = llm_.status(a.channelId, "vn_script");
   identity["cast"] = in.cast;
   identity["assets"] = in.assets;
   identity["system"] = system;
@@ -148,7 +148,7 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
         // valid for this endpoint (Replay.h). A provider that rejects the replay gets the answers without it.
         LlmRequest again = req;
         LlmMessage asst; asst.role = "assistant"; asst.content = json::str((*row)["exchange"], "content");
-        asst.providerContent = llm::replayableAssistant((*row)["exchange"], llm_.status(a.channelId)["provider"].asString(), llm_.modelName(a.channelId));
+        asst.providerContent = llm::replayableAssistant((*row)["exchange"], llm_.status(a.channelId, "vn_script")["protocol"].asString(), llm_.modelName(a.channelId, "vn_script"));
         LlmMessage follow; follow.role = "user"; follow.content = answersPrompt(q, answers);
         LlmGateway::Outcome out;
         bool replayed = !asst.content.empty();
@@ -223,7 +223,7 @@ Json::Value VnScriptService::planWithModel(const ChannelAccess &a, const ScriptI
     progress(a.channelId, id, p["progress"], "waiting");
     return Json::Value();
   }
-  auto script = normalize(in, {fromFlat(in, flats)}, llm_.mode(a.channelId));
+  auto script = normalize(in, {fromFlat(in, flats)}, llm_.mode(a.channelId, "vn_script"));
   for (const auto &n : notes) script["notes"].append(n);
   return script;
 }

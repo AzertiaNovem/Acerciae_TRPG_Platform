@@ -4,6 +4,7 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include "../ai/AiConfig.h"
 
 namespace acerciae {
 
@@ -26,7 +27,9 @@ struct LlmToolSpec {
 
 // Where and how to reach a model: a server's own provider settings (there is no platform-wide default).
 struct LlmEndpoint {
-    std::string provider = "mock";  // mock | openai_compatible | anthropic
+    // mock | disabled | a provider kind (ai/ProviderCatalog.h): openai, anthropic, responses, alibaba, openrouter,
+    // volcengine for text; openai, responses, google, aws, alibaba, openrouter for embeddings.
+    std::string provider = "mock";
     std::string apiBase;
     std::string apiKey;            // empty => mock mode
     std::string model;
@@ -34,6 +37,7 @@ struct LlmEndpoint {
     std::string embeddingModel;
     int timeoutMs = 60000;
     int maxTokens = 2048;
+    ai::ProviderAccess access;     // the whole provider: plain fields and further secrets (AWS signing, …)
 };
 // What a channel's server asks for: its endpoint and the language human-readable output should be written in.
 struct LlmProfile {
@@ -99,7 +103,6 @@ public:
     virtual LlmResponse complete(const LlmRequest& req) = 0;
     virtual std::string mode() const = 0;      // "live" | "mock"
     virtual std::string modelName() const = 0;
-    virtual std::vector<float> embed(const std::string& text) { (void)text; return {}; }
 };
 
 } // namespace acerciae

@@ -26,7 +26,7 @@ Json::Value ObserverScheduler::processPlayerGroup(const std::string& channelId,c
     if(batch.empty()) return Json::Value();
     auto to=batch[batch.size()-1]["seq"].asInt64();
     Json::Value job;
-    try {job=db_.queryOne("INSERT INTO ai_jobs(channel_id,kind,group_key,from_seq,to_seq,event_count,llm_mode) VALUES($1,'observe',$2,$3,$4,$5,$6) RETURNING id",{channelId,key,last,to,(int64_t)batch.size(),llm_.mode(channelId)});}
+    try {job=db_.queryOne("INSERT INTO ai_jobs(channel_id,kind,group_key,from_seq,to_seq,event_count,llm_mode) VALUES($1,'observe',$2,$3,$4,$5,$6) RETURNING id",{channelId,key,last,to,(int64_t)batch.size(),llm_.mode(channelId, "observer_extract")});}
     catch(const pqxx::unique_violation&) {return Json::Value();}
     auto jobId=job["id"].asString();
     Json::Value result; result["job_id"]=jobId; result["group_key"]=key; result["documents"]=Json::Value(Json::arrayValue);

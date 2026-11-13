@@ -29,8 +29,10 @@ std::shared_ptr<TtsProvider> TtsService::providerFor(const std::string& channelI
     if(ch.isNull()) throw notFound("channel not found");
     auto c=settings_.ttsConfig(ch["server_id"].asString());
     if(c.provider=="disabled") throw ApiError(403,"tts_disabled","Speech is turned off on this server (Server settings → AI)");
-    if(c.provider!="qwen"&&c.provider!="openai") return provider_;
+    if(c.provider=="mock") return provider_;
+    // The speech use's provider: its key, endpoint, model, default voice, and the kind's other fields.
     Json::Value v; v["provider"]=c.provider; v["api_key"]=c.apiKey; if(!c.apiBase.empty())v["api_base"]=c.apiBase; if(!c.model.empty())v["model"]=c.model; if(!c.voice.empty())v["voice"]=c.voice;
+    v["options"]=c.access.options; for(const auto& [k,secret]:c.access.secrets) v["secrets"][k]=secret;
     auto key=crypto::sha256Hex(json::dump(v));std::lock_guard<std::mutex> guard(providersMu_);
     auto it=providers_.find(key);if(it!=providers_.end())return it->second;
     auto made=std::shared_ptr<TtsProvider>(makeTtsProvider(v));if(providers_.size()>32)providers_.clear();providers_[key]=made;return made;

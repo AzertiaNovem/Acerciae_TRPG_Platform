@@ -152,7 +152,7 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
     Json::Value job;
     int64_t lastSeq = 0;
     try {
-        const auto llmMode = llm_.mode(channelId);   // resolved before the transaction: it reads server settings
+        const auto llmMode = llm_.mode(channelId, "observer_extract");   // resolved before the transaction: it reads server settings
         job = db_.tx([&](pqxx::work& w) {
             auto c = Db::queryOne(w, "SELECT last_seq FROM ai_processing_cursors WHERE channel_id=$1 AND kind='observe' AND group_key=$2", {channelId, groupKey});
             lastSeq = c.isNull() ? 0 : c["last_seq"].asInt64();
@@ -192,7 +192,7 @@ Json::Value ObserverScheduler::processGroup(const std::string& channelId, const 
         req.tools = ContextRetrievalService::toolSpecs(true); req.temperature = cfg_.llmTemperature; req.maxTokens = cfg_.llmMaxTokens;
         req.cache = LlmCache::conversation;   // up to four rounds over the same context; batches follow each other closely
         // The GM's knowledge index comes first: script knowledge, then the GM's own records.
-        if (!llm_.isMock(channelId)) for (auto& k : retrieval_.knowledgeMessages(sys, "GM KNOWLEDGE INDEX (a shortcut for searching, not a source to cite):")) req.messages.push_back(k);
+        if (!llm_.isMock(channelId, "observer_extract")) for (auto& k : retrieval_.knowledgeMessages(sys, "GM KNOWLEDGE INDEX (a shortcut for searching, not a source to cite):")) req.messages.push_back(k);
         LlmMessage u; u.role = "user"; u.content = json::dump(ctx); req.messages.push_back(u);
         auto outcome = llm_.runStructured(req, [&](const std::string& name, const Json::Value& args) { return retrieval_.executeTool(sys, name, args); }, 4);
         llmCalls_ += outcome.llmCalls;
@@ -433,7 +433,7 @@ Json::Value ObserverScheduler::consolidateChannel(const std::string& channelId) 
     lastSeq = c.isNull() ? 0 : c["last_seq"].asInt64();
     if (maxSeq <= lastSeq) return Json::Value();           // nothing new since last consolidation → no LLM call
     if (backingOff(channelId, "consolidate", "")) return Json::Value();
-    try { job = db_.queryOne("INSERT INTO ai_jobs(channel_id, kind, group_key, from_seq, llm_mode) VALUES($1,'consolidate','',$2,$3) RETURNING id", {channelId, lastSeq, llm_.mode(channelId)}); }
+    try { job = db_.queryOne("INSERT INTO ai_jobs(channel_id, kind, group_key, from_seq, llm_mode) VALUES($1,'consolidate','',$2,$3) RETURNING id", {channelId, lastSeq, llm_.mode(channelId, "observer_extract")}); }
     catch (const pqxx::unique_violation&) { return Json::Value(); }
     auto jobId = job["id"].asString();
     Json::Value summary; summary["job_id"] = jobId; summary["kind"] = "consolidate"; summary["documents"] = Json::Value(Json::arrayValue);

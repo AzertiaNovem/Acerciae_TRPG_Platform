@@ -113,7 +113,9 @@ LlmResponse AnthropicClient::complete(const LlmRequest& req) {
     auto body = json::dump(requestBody(req, ep_));
     auto url = ep_.apiBase; while (!url.empty() && url.back() == '/') url.pop_back();
     url += "/messages";
-    auto res = llm::postJson(url, {"Content-Type: application/json", "anthropic-version: 2023-06-01", "x-api-key: " + ep_.apiKey}, body, ep_.timeoutMs);
+    // OpenRouter's Messages endpoint takes its own key as a bearer token.
+    auto auth = ep_.provider == "openrouter" ? "Authorization: Bearer " + ep_.apiKey : "x-api-key: " + ep_.apiKey;
+    auto res = llm::postJson(url, {"Content-Type: application/json", "anthropic-version: 2023-06-01", auth}, body, ep_.timeoutMs);
     result.providerStatus = res.status;
     if (!res.error.empty()) { result.error = res.error; return result; }
     if (res.status < 200 || res.status >= 300) {

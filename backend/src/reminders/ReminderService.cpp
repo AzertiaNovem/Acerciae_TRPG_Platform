@@ -204,7 +204,7 @@ void ReminderService::updateOutlines(const ChannelAccess& view, const std::strin
         auto log = readableLines(view, sceneId, 300, false);
         if (log.empty()) continue;
         std::string outline; Json::Value points(Json::arrayValue);
-        if (llm_.isMock(view.channelId)) {
+        if (llm_.isMock(view.channelId, "reminders")) {
             std::vector<std::string> gm; std::set<std::string> who; std::vector<std::string> people;
             for (const auto& e : log) { auto c = json::str(e, "content"); if (json::str(e, "actor_role") == "gm") gm.push_back(c); else if (e["character_name"].isString() && who.insert(e["character_name"].asString()).second) people.push_back(e["character_name"].asString()); }
             if (!people.empty()) outline += "Present: " + text::join(people, ", ") + ". ";
@@ -223,7 +223,7 @@ void ReminderService::updateOutlines(const ChannelAccess& view, const std::strin
         std::vector<std::string> src; for (const auto& e : log) src.push_back(e["event_id"].asString());
         db_.exec("INSERT INTO player_scenario_outlines(group_id, scene_id, outline, key_points, source_event_ids, through_seq, group_version, llm_mode, updated_at) VALUES($1,$2,$3,$4::jsonb,$5::uuid[],$6,$7,$8,now()) "
                  "ON CONFLICT (group_id, scene_id) DO UPDATE SET outline=EXCLUDED.outline, key_points=EXCLUDED.key_points, source_event_ids=EXCLUDED.source_event_ids, through_seq=EXCLUDED.through_seq, group_version=EXCLUDED.group_version, llm_mode=EXCLUDED.llm_mode, updated_at=now()",
-                 {view.playerGroupId, sceneId, outline, json::dump(points), pgArrayLiteral(src), last["s"].asInt64(), (int64_t)view.playerGroupVersion, llm_.mode(view.channelId)});
+                 {view.playerGroupId, sceneId, outline, json::dump(points), pgArrayLiteral(src), last["s"].asInt64(), (int64_t)view.playerGroupVersion, llm_.mode(view.channelId, "reminders")});
     }
 }
 
@@ -249,7 +249,7 @@ Json::Value ReminderService::buildContext(const ChannelAccess& view, const std::
 // Apply one reviewed plan atomically; both new and old citations are checked against the caller's view.
 Json::Value ReminderService::store(const ChannelAccess& view, const Json::Value& plan, const Json::Value& ctx, const std::string& currentScene, const std::string& aiJobId, int maxNew) {
     const bool kp = view.isGm;
-    const auto mode = llm_.mode(view.channelId);
+    const auto mode = llm_.mode(view.channelId, "reminders");
     const DbParam group = kp ? dbNull() : DbParam(view.playerGroupId);
     std::set<std::string> ids, freshIds;
     int64_t through = 0;
@@ -347,7 +347,7 @@ Json::Value ReminderService::afterBatch(const ChannelAccess& view, const Json::V
     auto ctx = buildContext(view, currentScene, batch, "player_group_id='" + view.playerGroupId + "'::uuid");
     if (ctx["new_events"].empty()) return out;
     Json::Value plan;
-    if (llm_.isMock(view.channelId)) plan = mockPlan(ctx);
+    if (llm_.isMock(view.channelId, "reminders")) plan = mockPlan(ctx);
     else {
         LlmRequest req; req.channelId = view.channelId; req.task = "reminders"; req.responseSchema = schema(); req.temperature = 0.2; req.maxTokens = 3600;
         req.system = playerPlannerPrompt; req.system += lifecyclePrompt;
@@ -378,7 +378,7 @@ Json::Value ReminderService::afterBatchKp(const ChannelAccess& sys, const Json::
     if (ctx["new_events"].empty()) return out;
     ctx["knowledge"] = knowledge;
     Json::Value plan;
-    if (llm_.isMock(sys.channelId)) plan = mockPlanKp(ctx);
+    if (llm_.isMock(sys.channelId, "reminders")) plan = mockPlanKp(ctx);
     else {
         LlmRequest req; req.channelId = sys.channelId; req.task = "kp_reminders"; req.responseSchema = schema(); req.temperature = 0.2; req.maxTokens = 3600;
         req.system = gmPlannerPrompt; req.system += lifecyclePrompt;
@@ -498,7 +498,7 @@ void ReminderService::saveOutlook(const ChannelAccess& view, const Json::Value& 
     const DbParam group = view.isGm ? dbNull() : DbParam(view.playerGroupId);
     db_.exec("INSERT INTO group_outlooks(channel_id, player_group_id, situation, next_move, needs, through_seq, llm_mode, updated_at) VALUES($1,$2::uuid,$3,$4,$5::jsonb,$6,$7,now()) "
              "ON CONFLICT (channel_id, coalesce(player_group_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO UPDATE SET situation=EXCLUDED.situation, next_move=EXCLUDED.next_move, needs=EXCLUDED.needs, through_seq=EXCLUDED.through_seq, llm_mode=EXCLUDED.llm_mode, updated_at=now()",
-             {view.channelId, group, situation, next, json::dump(needs), through, llm_.mode(view.channelId)});
+             {view.channelId, group, situation, next, json::dump(needs), through, llm_.mode(view.channelId, "reminders")});
 }
 
 Json::Value ReminderService::outlook(const ChannelAccess& a) {

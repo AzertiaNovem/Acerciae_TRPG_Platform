@@ -132,15 +132,4 @@ LlmResponse OpenAiCompatClient::complete(const LlmRequest& req) {
     return r;
 }
 
-std::vector<float> OpenAiCompatClient::embed(const std::string& text) {
-    if (ep_.embeddingModel.empty()) return {};
-    Json::Value body; body["model"] = ep_.embeddingModel; body["input"] = text;
-    long status = 0; std::string err;
-    auto out = post("/embeddings", json::dump(body), status, err);
-    if (!err.empty() || status < 200 || status >= 300) { ALOG_WARN << "embedding failed: " << err << " status " << status; return {}; }
-    std::vector<float> v;
-    try { auto j = json::parse(out); for (auto& x : j["data"][0]["embedding"]) v.push_back(x.asFloat()); } catch (...) {}
-    return v;
-}
-
 } // namespace acerciae

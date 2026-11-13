@@ -234,7 +234,18 @@ export interface ServerSettings {
   image?: { provider: 'disabled' | 'mock' | 'gpt_image'; api_base: string; model: string; size: string; quality: string; api_key_set: boolean; api_key_hint: string };
   policy?: ServerPolicy; ai_policy?: AiPolicyUsage; private_endpoints_allowed?: boolean;
   languages?: string[];
+  ai?: AiSettings;   // maintainers: providers and model uses
 }
+// AI providers and model uses (Server settings → AI services).
+export type AiCapability = 'text' | 'embedding' | 'image_generation' | 'image_edit' | 'tts';
+export interface AiKindField { key: string; label: string; type: 'secret' | 'text' | 'url'; required: boolean; placeholder?: string }
+export interface AiKind { id: string; label: string; capabilities: AiCapability[]; default_api_base: string; protocol: string; fields: AiKindField[]; models: Partial<Record<AiCapability, string[]>>; notes?: string; api_base_hint?: string }
+export interface AiUseInfo { id: string; capability: AiCapability; modes: ('provider' | 'mock' | 'disabled' | 'inherit')[]; default: string; label: string; tasks?: string[] }
+export interface AiCatalog { kinds: AiKind[]; uses: AiUseInfo[] }
+export interface AiProvider { id: string; name: string; kind: string; api_base: string; api_key_set: boolean; api_key_hint: string; options: Record<string, string>; secrets: Record<string, { set: boolean; hint: string }>; used_by: string[]; updated_at: string }
+// provider: a provider id, or mock | disabled | inherit.
+export interface AiUse { provider: string; model: string; options: Record<string, string> }
+export interface AiSettings { providers: AiProvider[]; uses: Record<string, AiUse> }
 // A text may hold several templates (one is picked at random per reply). dice_name and the avatar are the dice persona.
 export type DiceTexts = Record<string, string | string[]>;
 export interface DiceTextGroup { id: string; name: string; base: 'en' | 'zh'; texts: DiceTexts; dice_name: string; avatar_version: number; updated_at: string; created_by_name?: string | null }

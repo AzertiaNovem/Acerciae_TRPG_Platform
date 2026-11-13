@@ -810,11 +810,12 @@ int main() {
         b["tts"]["api_key"] = "tts-secret-key-9999"; b["tts"]["voice"] = "alloy"; b["features"]["consistency"] = false; b["features"]["dice"] = false;
         auto full = S.settings->update(gmP, sid, b);
         CHECK(json::dump(full).find("sk-test") == std::string::npos); CHECK(full["llm"]["api_key_set"].asBool()); CHECK(full["llm"]["api_key_hint"].asString() == "…abcd");
-        auto stored = S.db->queryOne("SELECT llm_api_key_sealed FROM server_settings WHERE server_id=$1", {sid});
-        CHECK(stored["llm_api_key_sealed"].asString().rfind("v1:", 0) == 0); CHECK(stored["llm_api_key_sealed"].asString().find("sk-test") == std::string::npos);
+        auto stored = S.db->queryOne("SELECT p.api_key_sealed, p.kind FROM server_ai_uses u JOIN server_ai_providers p ON p.id=u.provider_id WHERE u.server_id=$1 AND u.use='text'", {sid});
+        CHECK(stored["kind"].asString() == "responses");
+        CHECK(stored["api_key_sealed"].asString().rfind("v1:", 0) == 0); CHECK(stored["api_key_sealed"].asString().find("sk-test") == std::string::npos);
         auto prof = S.settings->profileForChannel(channelId);
         CHECK(prof && prof->endpoint.apiKey == "sk-test-1234567890abcd" && prof->endpoint.model == "my-model" && prof->endpoint.reasoningEffort == "high" && prof->endpoint.apiBase == "https://llm.example/v1" && prof->language == "zh-CN");
-        CHECK(S.llm->mode(channelId) == "live"); CHECK(S.llm->status(channelId)["provider"].asString() == "openai_compatible");
+        CHECK(S.llm->mode(channelId) == "live"); CHECK(S.llm->status(channelId)["provider"].asString() == "responses");
         CHECK(S.settings->ttsConfig(sid).apiKey == "tts-secret-key-9999");
         Json::Value imageSettings; imageSettings["llm"]["provider"]="anthropic";
         imageSettings["image"]["provider"]="gpt_image"; imageSettings["image"]["api_base"]="https://images.example/v1";
@@ -822,9 +823,9 @@ int main() {
         auto configured=S.settings->update(gmP,sid,imageSettings);
         CHECK(configured["llm"]["provider"]=="anthropic"); CHECK(configured["image"]["api_key_set"].asBool());
         CHECK(json::dump(configured).find("independent-image-key")==std::string::npos);
-        auto imageStored=S.db->queryOne("SELECT image_api_key_sealed FROM server_settings WHERE server_id=$1",{sid});
-        CHECK(imageStored["image_api_key_sealed"].asString().rfind("v1:",0)==0);
-        CHECK(imageStored["image_api_key_sealed"].asString().find("independent-image-key")==std::string::npos);
+        auto imageStored=S.db->queryOne("SELECT p.api_key_sealed FROM server_ai_uses u JOIN server_ai_providers p ON p.id=u.provider_id WHERE u.server_id=$1 AND u.use='image_generation'",{sid});
+        CHECK(imageStored["api_key_sealed"].asString().rfind("v1:",0)==0);
+        CHECK(imageStored["api_key_sealed"].asString().find("independent-image-key")==std::string::npos);
         auto imageConfig=S.settings->imageConfigForChannel(channelId);
         CHECK(imageConfig.apiKey=="independent-image-key"); CHECK(imageConfig.apiBase=="https://images.example/v1");
         CHECK(S.settings->profileForChannel(channelId)->endpoint.apiKey=="sk-test-1234567890abcd");

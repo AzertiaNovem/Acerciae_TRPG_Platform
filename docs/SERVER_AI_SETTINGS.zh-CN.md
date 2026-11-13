@@ -4,29 +4,37 @@
 
 平台不再提供任何 AI 密钥：每个服务器只使用维护者在这里填写的服务商和密钥，未配置时以模拟（Mock）模式运行。部署方只能通过环境变量调整超时、最大 token 等调用参数。
 
-## 语言模型
+## 服务商与模型用途
 
-API 协议可以选“OpenAI 兼容”或“Anthropic 兼容”。“OpenAI 兼容”使用 OpenAI Responses API（`POST {基础地址}/responses`），服务商或中转服务必须实现该接口；只支持 Chat Completions 的服务无法使用。基础地址需包含 `/v1`，例如 `https://api.openai.com/v1` 或 `https://api.anthropic.com/v1`；使用中转服务时填写该服务提供的基础地址，不附加 `/responses` 或 `/messages`。模型名填写服务商实际提供的模型 ID。
+AI 配置分两步：先在“服务商”中添加本服务器使用的服务，再在“模型用途”中为每个用途指定服务商和模型。
 
-选择 OpenAI 或 Anthropic 协议时必须填写本服务器自己的密钥和模型；选择“模拟（无模型）”则不发出任何请求。已有密钥不会返回浏览器；留空表示保留，勾选移除才会删除。
+**服务商**是某类已知接口的一个连接：接口地址（留空使用该类默认地址，可改为任意中转地址）、密钥，以及该类需要的其他字段。同一类可以添加多个（例如两个不同的中转商）。可选的类型：
 
-服务地址必须是 https 的公网地址；后端解析一次域名并固定连接到该地址，不跟随重定向，也不会把服务商的错误正文回显给浏览器。部署方为可信的内网自建模型设置 `AI_ALLOW_PRIVATE_ENDPOINTS=true` 后，才允许内网地址或 http。
+| 类型 | 文本 | 向量嵌入 | 图像生成 | 图像编辑 | 语音 |
+|---|:-:|:-:|:-:|:-:|:-:|
+| OpenAI 兼容（Chat Completions 等全套接口） | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Anthropic 兼容（Messages API） | ✓ | | | | |
+| Responses API 兼容 | ✓ | ✓ | | | |
+| Google（Gemini Interactions） | | ✓ | ✓ | ✓ | ✓ |
+| AWS（Bedrock 与 Polly，SigV4 签名；需填区域和访问密钥 ID） | | ✓ | ✓ | ✓ | ✓ |
+| 阿里云百炼（文本、嵌入走兼容模式；Qwen-Image、Qwen 语音） | ✓ | ✓ | ✓ | ✓ | ✓ |
+| OpenRouter（anthropic/* 模型走 Messages，其他走 Chat Completions） | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 火山引擎（方舟文本、Seedream 图像、豆包语音；语音另需语音 API Key 或 App ID + Access Token） | ✓ | | ✓ | ✓ | ✓ |
+| Stability AI | | | ✓ | ✓ | |
 
-OpenAI 模式调用 Responses API（流式、`store: false`，思考力度以 `reasoning.effort` 发送）；Anthropic 模式调用 Messages。两者都支持多轮工具调用及 JSON 结果校验，原有知识权限检查继续生效。Anthropic 模式不发送 OpenAI 的 `reasoning.effort`，也不启用扩展思考参数。OpenAI 兼容模式可另填嵌入模型，用于聊天记录的语义检索；留空则只按关键词检索。Anthropic Messages 不提供该项目的 embedding 调用。
+**模型用途**：文本（所有文本任务）；可选的文本覆盖——“记录员与守秘人”“玩家辅助”（一致性检查、灵感）“长篇写作”（视觉小说剧本、模组导入等），未设置时与“文本”相同；向量嵌入；图像生成；图像编辑（未设置时与图像生成相同）；语音。每个用途只会列出能胜任它的服务商，例如 Stability AI 不能用于文本或嵌入。文本可以选“模拟（无模型）”；图像、语音可以选模拟或关闭。
 
-## 独立的图像服务
+接口地址必须是 https 的公网地址；后端解析一次域名并固定连接，不跟随重定向，也不会把服务商的错误正文回显给浏览器。部署方设置 `AI_ALLOW_PRIVATE_ENDPOINTS=true` 后才允许内网地址或 http。密钥加密保存，永不返回浏览器；留空表示保留。
 
-图像服务可选择关闭、Mock 测试图案或 GPT Image 兼容。GPT Image 模式使用自己的基础地址、密钥和图像模型，与文本模型及语音配置完全分开。即使三个服务来自同一家中转商，也需要分别明确配置。
+需要注意：
 
-模型 ID 不固定为某个版本；填写服务商实际支持的 GPT Image 兼容模型。尺寸可选服务商默认、1024×1024、1536×1024、1024×1536，质量可选默认、低、中、高。并非每个模型都支持全部参数，不确定时保持默认。
+- 向量统一为 1536 维：能指定维数的服务按 1536 请求；AWS Titan v2（最多 1024 维）补零，不影响相似度。
+- 只有 OpenAI 兼容（GPT Image）能直接生成透明背景的立绘；Stability AI 生成后再调用去背景；其他服务的立绘为纯色背景。
+- AWS 自家的图像模型（Nova Canvas、Titan Image）已停止服务，AWS 图像请使用 Bedrock 上的 Stability 模型。
+- 更换服务商、地址、密钥或模型时，尚未执行的旧图像任务会失败并提示重新提交。
+- 旧版客户端（包括移动端的服务器选项页）仍按原来的“语言模型 / 图像 / 语音”三项读写设置，后端会自动换算为服务商和用途；原样回传的项目不会改动任何配置。
 
-纯文字生成调用 `/images/generations`。提供参考图时，后端把已授权图片的真实内容作为文件提交到 `/images/edits`。请求不使用 GPT Image 不支持的旧 `response_format` 参数；返回须包含 `data[0].b64_json`。仅返回远程图片 URL 的旧接口不属于这个兼容模式。
-
-角色空间的立绘、头像和姿势图只需要服务器配置好图像服务，并由使用者确认发送外貌描述，不需要开启 Log Studio 云端处理。Log Studio 中的背景、立绘和视觉小说美术仍需由 GM 在战役制作设置中允许云端处理，并由使用者确认本次发送的内容。关闭图像服务不影响已有图片和手动上传。更换地址、密钥、模型或图像参数时，尚未执行的旧任务会失败并提示重新提交；已经发出的请求可能完成。
-
-## 文字转语音
-
-语音服务可选择关闭、Mock 语音或通义千问（Qwen）语音。Qwen 需要本服务器自己的地址、密钥和模型；音色和试听模型等公共参数仍由部署方的环境变量提供。Log Studio 的配音同样需要 GM 允许云端处理。
+详细字段与接口见 [AI_PROVIDERS.md](AI_PROVIDERS.md)。
 
 ## AI 策略
 
@@ -47,6 +55,4 @@ Mock 服务不计入预算。预算用完后，新的 AI 请求返回 429 `ai_bu
 
 ## 测试范围
 
-Mock 图像仍为明确标注的测试图案。本次自动检查用本地协议模拟服务验证了独立密钥、维护者权限、跨服务器隔离、Anthropic 工具往返、GPT Image 生成与参考图编辑、主立绘任务依赖、配置变更、限流重试及无效图片处理，没有使用真实付费服务凭据。
-
-接口依据：[OpenAI 图片生成](https://developers.openai.com/api/reference/resources/images/methods/generate)、[参考图编辑](https://developers.openai.com/api/reference/resources/images/methods/edit)、[Anthropic Messages](https://platform.claude.com/docs/en/api/messages/create)。本实现使用 `anthropic-version: 2023-06-01` 作为兼容协议版本。
+Mock 图像仍为明确标注的测试图案。自动检查只使用本地协议模拟服务，没有调用真实付费服务：覆盖 Responses API、Anthropic、Chat Completions（流式与工具往返）、GPT Image 生成与编辑、Stability、OpenRouter、Seedream、Bedrock 上的 Stability（核对 SigV4 签名头）、Gemini 图像编辑与语音、Polly、豆包语音、OpenAI 语音，以及维护者权限、能力限制、配置变更和限流重试。向量嵌入、Qwen-Image 和 OpenRouter 的 Messages 接口未做端到端验证。

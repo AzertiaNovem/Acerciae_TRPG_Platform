@@ -252,8 +252,8 @@ Json::Value InspirationService::draft(const ChannelAccess& a, const std::string&
     result["options"] = options; result["draft"] = options[0]["text"]; result["used_fact_ids"] = json::fromStrArray(used);
     if (!json::str(out, "notes").empty()) result["notes"] = text::utf8Prefix(json::str(out, "notes"), 400);
     auto row = db_.queryOne("INSERT INTO inspiration_drafts(channel_id, chat_window_id, user_id, character_id, hint, draft, used_fact_ids, llm_mode) VALUES($1,$2,$3,$4,$5,$6,$7::uuid[],$8) RETURNING id, created_at",
-        {a.channelId, chatWindowId.empty() ? dbNull() : DbParam(chatWindowId), a.userId, characterId.empty() ? dbNull() : DbParam(characterId), hint, result["draft"].asString(), pgArrayLiteral(used), llm_.mode(a.channelId)});
-    result["id"] = row["id"]; result["created_at"] = row["created_at"]; result["llm_mode"] = llm_.mode(a.channelId); result["character_id"] = characterId; result["editable"] = true; result["auto_sent"] = false;
+        {a.channelId, chatWindowId.empty() ? dbNull() : DbParam(chatWindowId), a.userId, characterId.empty() ? dbNull() : DbParam(characterId), hint, result["draft"].asString(), pgArrayLiteral(used), llm_.mode(a.channelId, "inspiration")});
+    result["id"] = row["id"]; result["created_at"] = row["created_at"]; result["llm_mode"] = llm_.mode(a.channelId, "inspiration"); result["character_id"] = characterId; result["editable"] = true; result["auto_sent"] = false;
     return result;
 }
 
