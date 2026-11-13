@@ -54,7 +54,7 @@ export interface ChatWindow {
   scene_title?: string | null; members: WindowMember[] | null; last_seq: number | null; unread?: number;
   fork_parent_id?: string | null; fork_seq?: number | null; archived_at?: string | null;
 }
-export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; avatar_asset_version?: number | null; avatar_asset_hash?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean; card_pending?: boolean;
+export interface Character { passive_since?: string | null; id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; avatar_asset_version?: number | null; avatar_asset_hash?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean; card_pending?: boolean;
   /** The outfit worn now (null = the base look); avatar_asset_id is then the outfit's avatar, base_avatar_asset_id the base one. */
   outfit_id?: string | null; outfit_name?: string | null; base_avatar_asset_id?: string | null; outfits?: { id: string; name: string }[];
   /** The numbers shown next to the name (see Vitals), by the channel's rule system. */
@@ -114,6 +114,7 @@ export interface RuleTransition { from: string; to: string; archived: number; pe
 export interface CharacterSpace { pbta_rules?: import('../components/pbta/types').Rules; character: Character & { role_card: RoleCard; editable: boolean }; avatar: CharacterAssetRef | null; portrait: CharacterAssetRef | null; subtitles: CharacterAssetRef[]; jobs: { id: string; kind: string; status: string; error: string | null; attach: { slot: string; subtitle: string; outfit_id?: string } | null; created_at: string; finished_at: string | null }[]; era: string; narrative_time: string | null; attrs: Record<string, number>; generation_available: boolean; points: PointsReport; rule_system?: 'coc7e' | 'dnd2024' | string; card_archives?: CardArchive[]; outfits?: Outfit[]; max_outfits?: number }
 export interface PlayerGroup { id: string; channel_id: string; name: string; version: number; members: {user_id: string; display_name: string}[] }
 export interface Message {
+  stand_in?: boolean;
   reference_ids?: string[];
   id: string; channel_id: string; chat_window_id: string; scene_id: string | null; author_id: string; author_role: 'gm' | 'player';
   character_id: string | null; character_name: string | null; character_avatar_asset_id?: string | null; character_avatar_version?: number | null; character_avatar_hash?: string | null; author_name: string; author_avatar_version?: number; author_avatar_hash?: string | null; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';

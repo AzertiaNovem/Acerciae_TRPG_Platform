@@ -12,10 +12,11 @@ export function noteLine(table, m) {
     st.lastLineAt = Math.max(st.lastLineAt, at);
     table.noteSeq(m.chat_window_id, m.seq ?? 0);
     if (table.isHuman(m)) {
+      table.noteDailyLine(m);
       st.lastHumanAt = Math.max(st.lastHumanAt, at);
       st.quietTurns = 0;
       st.coplayersActed = new Set();       // every human line gives each co-player one more go
-      if (m.character_id) {
+      if (m.character_id && (!table.dailyOn() || (table.isTrigger(m) && !table.isTableWindow(m.chat_window_id)))) {
         // A player back after being away (AUTONOMY_IDLE_MINUTES) is welcomed back by the next turn.
         const prev = table.lastLineBy.get(m.character_id);
         if (prev !== undefined && at - prev > table.cfg.autonomyIdleMinutes * 60000) table.returning.set(m.character_id, at - prev);
@@ -73,6 +74,11 @@ export function onEvent(table, ev) {
 export function onRecalled(table, m) {
     if (!m || m.channel_id !== table.channelId || !m.recalled_at) return undefined;
     table.history.add(m);
+    if (table.dailyOn() && m.stand_in) {
+      table.daily.questions = table.daily.questions.filter(q => q.seq !== m.seq);
+      table.save();
+      return table.post(m.chat_window_id, { kind: "narration", visibility: "gm_only", content: "The character's owner took back this stand-in line. Disregard it and its deferred question; no rollback." }, { count: false });
+    }
     if (!table.isHuman(m)) return undefined;              // this client's own recalls (a rollback), or its account's
     const windowId = m.chat_window_id;
     if (table.isPlannerWindow(windowId)) {                // a wish or correction withdrawn before the planner read it

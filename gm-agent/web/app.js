@@ -278,7 +278,33 @@ function renderOverview() {
       // The functions routed to another provider or model than the default (llm/routes.mjs).
       ...(s.models ?? []).filter(m => m.function !== 'default').map(m => kv(`模型 · ${FUNCTIONS[m.function] ?? m.function}`, `${m.model && m.model !== m.provider ? `${m.provider} ${m.model}` : m.provider}${m.effort ? ` · ${m.effort}` : ''}`)),
       c.warning ? h('p', { class: 'warn-text', text: c.warning }) : null));
+    const coplayerLocations = card(`AI 队友所在窗口（${cast.coplayers?.length ?? 0}）`,
+      live.stale ? h('p', { class: 'warn-text', text: `上次记录 · ${time(live.at)}` }) : null,
+      cast.coplayers?.length ? h('ul', { class: 'list coplayer-locations' }, ...cast.coplayers.map(cp => {
+        const windows = cp.windowDetails ?? (cp.windows ?? []).map(name => ({ name, status: 'active' }));
+        const timeline = live.timelines?.find(t => t.handle === `T${cp.timeline}`);
+        return h('li', { 'data-character-id': cp.characterId },
+          h('div', { class: 'coplayer-heading' }, h('strong', { text: cp.name }),
+            cp.timeline != null ? h('span', { class: 'tag', text: `T${cp.timeline}`, title: timeline?.name }) : null),
+          windows.length ? h('ul', { class: 'coplayer-windows', 'aria-label': `${cp.name}的当前窗口` }, ...windows.map(w => h('li', {},
+            h('span', { class: 'coplayer-window-name', text: w.name, title: w.id ? `窗口 ID：${w.id}` : undefined }),
+            w.status !== 'active' ? h('span', { class: 'warn-text small', text: { archived: '窗口已归档', ended: '场景已结束', missing: '窗口暂不可用' }[w.status] ?? '状态未知' }) : null)))
+            : h('p', { class: 'muted', text: '当前不在任何对话窗口' }));
+      })) : h('p', { class: 'muted', text: '暂无 AI 队友' }));
+    coplayerLocations.id = 'coplayer-locations'; cards.push(coplayerLocations);
     if (u) cards.push(usageCard(u));
+    if (live.daily?.on) {
+      const daily = live.daily;
+      const storyTime = value => value ? `${value.date ?? '尚无日期'} · ${String(Math.floor(value.minute / 60)).padStart(2, '0')}:${String(value.minute % 60).padStart(2, '0')}` : '—';
+      cards.push(card('日常推进',
+        kv('状态', { attended: '玩家在场', unattended: '无人值守', paused: '已暂停' }[daily.mode] ?? daily.mode),
+        kv('故事时间', storyTime(daily.clock)),
+        daily.anchor ? kv('时间表起点', `${storyTime(daily.anchor)}（现实 ${time(daily.anchor.realAt)}）`) : null,
+        daily.frozen ? kv('冻结于', storyTime(daily.frozen)) : null,
+        daily.planning ? kv('轻量规划', `${daily.planning.date} · ${{ running: '规划中', ready: '已更新', failed: '失败，沿用作息', discarded: '场景已变化，未采用' }[daily.planning.status] ?? daily.planning.status}`) : null,
+        daily.plan?.date === daily.clock?.date && daily.plan.topics?.length ? kv('今日闲聊话题', daily.plan.topics.join('；')) : null,
+        kv('无人发言时暂停于', time(daily.pauseAt))));
+    }
     cards.push(card('活动',
       kv('状态', a.paused ? '主持已暂停（玩家 /pause）' : a.away ? '玩家离开（共享窗口暂停）' : '玩家在场', a.paused ? 'warn-text' : ''),
       kv('GM 回合', num(a.turns)), kv('排队中的回合', num(a.pendingTurns)),
@@ -289,8 +315,6 @@ function renderOverview() {
     cards.push(card('角色',
       h('h4', { text: `玩家角色（${cast.players?.length ?? 0}）` }),
       cast.players?.length ? h('ul', { class: 'list' }, ...cast.players.map(x => h('li', {}, h('strong', { text: x.name }), x.player ? ` · ${x.player}` : '', x.timeline !== null ? h('span', { class: 'tag', text: `T${x.timeline}` }) : null))) : h('p', { class: 'muted', text: '暂无' }),
-      h('h4', { text: `AI 队友（${cast.coplayers?.length ?? 0}）` }),
-      cast.coplayers?.length ? h('ul', { class: 'list' }, ...cast.coplayers.map(x => h('li', {}, h('strong', { text: x.name }), ` · ${x.windows.join('、') || '不在任何窗口'}`, x.timeline !== null ? h('span', { class: 'tag', text: `T${x.timeline}` }) : null))) : h('p', { class: 'muted', text: '暂无' }),
       h('h4', { text: `NPC（${cast.npcCount ?? 0}）` }),
       cast.npcs?.length ? h('p', { class: 'muted', text: cast.npcs.join('、') }) : h('p', { class: 'muted', text: '暂无' })));
     cards.push(card('时间线',

@@ -59,7 +59,14 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
     realtime: realtime ? { streams: [...(realtime.streams ?? [])], connected: [...(realtime.connected ?? [])] } : null,
     cast: section("cast", () => ({
       players: (table.characters ?? []).filter((c) => table.isPc?.(c.id)).map((c) => ({ name: c.name, player: c.player_name ?? null, timeline: table.timelines?.of(c.id)?.handle ?? null })),
-      coplayers: (table.roster?.coplayers ?? []).map((c) => ({ name: c.name, windows: openWindows(c).map(wname), seats: c.seats?.length ?? 0, timeline: table.timelines?.of(c.characterId)?.handle ?? null })),
+      coplayers: (table.roster?.coplayers ?? []).map((c) => {
+        const windowDetails = [...new Set(openWindows(c))].map(id => {
+          const window = windows.find(w => w.id === id);
+          return { id, name: window?.name ?? id, status: !window ? "missing" : window.archived_at ? "archived" : table.timelines?.retired?.(id) ? "ended" : "active" };
+        });
+        return { characterId: c.characterId, name: c.name, windows: windowDetails.map(w => w.name), windowDetails,
+          seats: c.seats?.length ?? 0, timeline: table.timelines?.of(c.characterId)?.handle ?? null };
+      }),
       npcs: (table.roster?.npcs ?? []).map((n) => n.name).slice(0, 60), npcCount: table.roster?.npcs?.length ?? 0,
       windows: windows.filter((w) => !w.archived_at).length,
     })),
@@ -95,6 +102,7 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
         plan: arc ?? null, pendingVersion: p.pending?.arc?.version ?? null,
       };
     }),
+    daily: section("daily", () => table.dailyStatus?.() ?? { on: false }),
     calendar: section("calendar", () => {
       if (!table.calendarOn?.()) return { on: false };
       const pace = table.calendarPaceCfg(), held = calendarPace(table.calendar, { minMinutes: pace.minMinutes, minLines: pace.minLines, now });

@@ -43,6 +43,7 @@ export function calendarState(x) {
   return {
     date: parseIso(c.date) ? String(c.date).trim() : "",
     time: clip(c.time, 80),
+    clock: Number.isInteger(c.clock) && c.clock >= 0 && c.clock < 1440 ? c.clock : null,
     log: Array.isArray(c.log) ? c.log.filter((e) => e && e.to).slice(-LOG_KEPT) : [],
     routine: routineState(c.routine),
     since: sinceState(c.since),
@@ -68,7 +69,7 @@ export function dateLabel(date) {
 }
 
 // "1923-10-02 (Tuesday), morning"; "" until the first date is set.
-export function describeCalendar(cal, { time = cal?.time } = {}) {
+export function describeCalendar(cal, { time = cal?.clock == null ? cal?.time : formatClock(cal.clock) } = {}) {
   if (!cal?.date) return "";
   return `${dateLabel(cal.date)}${time ? `, ${time}` : ""}`;
 }
@@ -99,7 +100,8 @@ export function fitEra(date, era) {
 // much real time and that many player lines have gone by since the date last moved (calendarPace). Returns {changed,
 // days, from, to} (and `clipped`, the days asked for, when fewer passed) or {changed: false, refused} (`pace: true`
 // when the pace held it back).
-export function advanceCalendar(cal, { days, date, time, by = "keeper", why = "", seq = 0, now = Date.now(), maxDays = MAX_ADVANCE_DAYS, pace = null } = {}) {
+export function advanceCalendar(cal, { days, date, time, clock, by = "keeper", why = "", seq = 0, now = Date.now(), maxDays = MAX_ADVANCE_DAYS, pace = null } = {}) {
+  if (by === "timetable") { maxDays = Infinity; pace = null; }
   const before = describeCalendar(cal);
   let n = Number(days);
   n = Number.isFinite(n) ? Math.round(n) : 0;
@@ -127,6 +129,7 @@ export function advanceCalendar(cal, { days, date, time, by = "keeper", why = ""
   if (next) cal.date = isoOf(next);
   if (time !== undefined && time !== null && String(time).trim()) cal.time = clip(time, 80);
   else if (n) cal.time = "";
+  if (clock !== undefined) cal.clock = clock;
   const after = describeCalendar(cal);
   if (after === before && (cal.date || !time)) return { changed: false };
   if (!cal.date) return { changed: true, days: 0, from: "", to: "" };   // a time of day before the first date
@@ -190,3 +193,11 @@ export function renderCalendar(cal, { pace = null, now = Date.now() } = {}) {
     ...(recent.length ? ["Latest changes:", ...recent] : []),
   ].join("\n");
 }
+
+// A time prefix is accepted so narrative fields may keep a short description after HH:MM.
+export function parseClock(text) {
+  const m = String(text ?? "").trim().match(/^(\d{2})[:：](\d{2})(?:$|\s|[，,])/);
+  return m && +m[1] < 24 && +m[2] < 60 ? +m[1] * 60 + +m[2] : null;
+}
+export function formatClock(minute) { return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`; }
+export function compareInstants(a, b) { return Math.sign((parseIso(a.date) - parseIso(b.date)) || (a.minute - b.minute)); }

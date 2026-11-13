@@ -84,6 +84,7 @@ export class Memory {
 
   // Compacts a window when it has grown past its thresholds. `render` turns a line into the text the GM reads.
   maintainGm(windowId, lines, render, { windowName = "this window", whole = false } = {}) {
+    const revision = this.store.get('context-revision', 0);
     return this.run(`gm:${windowId}`, async () => {
       const raw = this.gmRaw(windowId, lines);
       const rawTokens = estimateTokens(raw.map(render).join("\n"));
@@ -94,6 +95,7 @@ export class Memory {
           prev ? `PREVIOUS CHAPTER (for continuity; do not repeat it):\n${prev.text}` : "",
           `LINES:\n${take.map(render).join("\n")}`,
         ]);
+        if (this.store.get('context-revision', 0) !== revision) return;
         this.store.addChapter({ scope: "gm", windowId, fromSeq: take[0].seq, toSeq: take.at(-1).seq, level: 0, text: summary });
         this.log(`memory: "${windowName}" lines #${take[0].seq}–#${take.at(-1).seq} compacted into a chapter`);
       }
@@ -112,6 +114,7 @@ export class Memory {
 
   maintainCoplayer(coplayer, witnessed, render) {
     const scope = this.coplayerScope(coplayer);
+    const revision = this.store.get('context-revision', 0);
     return this.run(scope, async () => {
       const raw = this.coplayerRaw(coplayer, witnessed);
       if (raw.length && estimateTokens(raw.map(render).join("\n")) > this.coplayerBudget * 0.6) {
@@ -121,6 +124,7 @@ export class Memory {
           prev ? `WHAT YOU ALREADY REMEMBER (for continuity; do not repeat it):\n${prev.text}` : "",
           `LINES:\n${take.map(render).join("\n")}`,
         ]);
+        if (this.store.get('context-revision', 0) !== revision) return;
         this.store.addChapter({ scope, fromSeq: take[0].seq, toSeq: take.at(-1).seq, level: 0, text: summary });
         this.log(`memory: ${coplayer.name} remembers lines #${take[0].seq}–#${take.at(-1).seq} as a chapter`);
       }
@@ -130,11 +134,13 @@ export class Memory {
 
   // Chapters past ~25% of the budget: the oldest half merge into one chapter a level up.
   async mergeIfLong(scope, windowId, budget, label, firstPerson = null) {
+    const revision = this.store.get('context-revision', 0);
     const chapters = this.store.chapters(scope, windowId);
     if (chapters.length < 2 || estimateTokens(chapters.map(chapterText).join("\n")) <= budget * 0.25) return;
     const take = chapters.slice(0, Math.max(2, Math.floor(chapters.length / 2)));
     const system = firstPerson ? coplayerSystem(this.language, firstPerson, words(budget * 0.08), true, this.vocab) : gmSystem(this.language, words(budget * 0.08), label, true, this.vocab);
     const summary = await this.summarise(firstPerson ? "coplayer_memory" : "compact", system, [`CHAPTERS:\n${take.map((c) => `[#${c.fromSeq}–#${c.toSeq}]\n${c.text}`).join("\n\n")}`]);
+    if (this.store.get('context-revision', 0) !== revision) return;
     this.store.mergeChapters(take.map((c) => c.id), { scope, windowId, fromSeq: take[0].fromSeq, toSeq: take.at(-1).toSeq, level: Math.max(...take.map((c) => c.level)) + 1, text: summary });
     this.log(`memory: ${label}: ${take.length} chapters merged`);
   }

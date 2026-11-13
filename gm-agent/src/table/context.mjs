@@ -69,11 +69,11 @@ export async function observeHistory(table, { controlsOnly = false } = {}) {
 
 export function calendarOn(table) { return Boolean(table.casual.on); }
 
-export function calendarPaceCfg(table) { return { minMinutes: table.cfg.calendarMinMinutes ?? 0, minLines: table.cfg.calendarMinLines ?? 0, maxDays: table.cfg.calendarMaxDays ?? 0 }; }
+export function calendarPaceCfg(table) { if (table.dailyOn()) return { minMinutes: table.cfg.daily.min_day_minutes, minLines: 0, maxDays: 1 }; return { minMinutes: table.cfg.calendarMinMinutes ?? 0, minLines: table.cfg.calendarMinLines ?? 0, maxDays: table.cfg.calendarMaxDays ?? 0 }; }
 
 export async function buildGm(table, windowId, extra = {}) {
     const initiative = await table.initiativeOf(windowId);
-    return table.gm.build({ windowId, initiative, roster: table.roster, characters: table.characters, windows: table.windows, timelines: table.timelines, sceneOf: (w) => table.scene(w), improv: table.improv, hide: table.hiddenLines(), awayOf: (id) => table.awayOf(id), calendar: table.calendarOn() ? renderCalendar(table.calendar, { pace: table.calendarPaceCfg(), now: table.now() }) : "", bonds: renderBonds(table.bonds, (id) => table.nameOf(id)), table: renderTableNotes(table.planner.table), ...extra });
+    return table.gm.build({ windowId, initiative, roster: table.roster, characters: table.characters, windows: table.windows, timelines: table.timelines, sceneOf: (w) => table.scene(w), improv: table.improv, hide: table.hiddenLines(), awayOf: (id) => table.awayOf(id), daily: table.dailyOn() ? { questions: table.daily.questions } : null, calendar: table.calendarOn() ? renderCalendar(table.calendar, { pace: table.calendarPaceCfg(), now: table.now() }) : "", bonds: renderBonds(table.bonds, (id) => table.nameOf(id)), table: renderTableNotes(table.planner.table), ...extra });
   }
 
 export function renderForGm(table, m) { return renderLine({ ...m, whisper_to_names: (m.whisper_to ?? []).map((id) => table.nameOf(id)) }, { markVisibility: true, timeline: table.timelines.ofLine(m).name, gm: table.profile?.vocab.gm }); }
@@ -87,6 +87,7 @@ export async function initiativeOf(table, windowId) {
   }
 
 export function awayOf(table, id) {
+    if (table.dailyOn()) return table.isPassive(id) ? Math.max(1, table.now() - (table.daily.lastSceneLineBy[id] ?? table.daily.lastSceneLineAt)) : null;
     if (!table.isPc(id)) return null;
     const last = table.lastLineBy.get(id);
     const gap = table.now() - (last ?? 0);

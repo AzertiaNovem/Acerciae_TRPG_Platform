@@ -12,7 +12,7 @@ import { describeCalendar, describeRoutine } from "../calendar.mjs";
 import { renderBondsFor } from "../bonds.mjs";
 import { impression } from "../context/traits.mjs";
 
-export async function coplayerAct(table, windowId, coplayer, spotlight, { side = false } = {}) {
+export async function coplayerAct(table, windowId, coplayer, spotlight, { side = false, spark = false, whistle = false, dailyNote = "" } = {}) {
     const me = coplayer.characterId;
     const hidden = table.hiddenLines();
     // Everything this co-player witnessed (its seats, its timeline), from the local copy of the chat.
@@ -37,11 +37,13 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       const companions = investigatorsFor(table.characters, table.roster, { except: me });
       const phone = table.casualOn() ? renderThread(table.store.phoneOf(me, 12), (id) => table.nameOf(id)) : "";
       const known = table.knownTo(me, witnessed);
+      if ((spark || whistle) && (table.sparkCancelled() || table.overBudget())) return 0;
       move = await coplayerTurn(table.llm, { language: table.language, coplayer, card, pbta, profile: table.profile, attrs: table.attrs.get(me) ?? {}, companions, withYou: table.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: table.improv.on ? table.improv.world : "", improv: table.improv.on, casual: table.casualOn(), phone, impulse: renderImpulse(table.impulseFor(me)),
-        corrections: renderCorrectionsFor(table.planner.table, coplayer.name),
+        spark, whistle, daily: table.dailyOn(), dailyNote: [dailyNote, table.passiveNote(windowId)].filter(Boolean).join("\n"), corrections: renderCorrectionsFor(table.planner.table, coplayer.name),
         ...(table.calendarOn() ? { today: describeCalendar(table.calendar, { time: t?.narrativeTime || table.calendar.time }), routine: describeRoutine(table.calendar), timePassed: table.timePassedFor(me, witnessed) } : {}), met: table.metBy(known.met), bonds: renderBondsFor(table.bonds, me, known.all, (id) => table.nameOf(id)) });
     } catch (e) { table.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
-    table.memory.maintainCoplayer(coplayer, witnessed, (m) => table.renderForCoplayer(m));
+    if ((spark || whistle) && (table.sparkCancelled() || !["pass", "speak"].includes(move.action))) return 0;
+    if (!spark && !whistle) table.memory.maintainCoplayer(coplayer, witnessed, (m) => table.renderForCoplayer(m));
     if (move.action === "text") {
       const to = table.characterByName(move.to);
       // To a companion co-player or an NPC: the phone log, where they answer in their own time.
@@ -53,7 +55,15 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       table.save();
       return table.post(table.casual.phones[to.id], { content: move.text, kind: "ic", character_id: me }, { count: false });
     }
-    if (move.action === "speak") return table.post(windowId, { content: move.text, kind: move.kind, character_id: me });
+    if (move.action === "speak") {
+      const n = await table.post(windowId, { content: move.text, kind: move.kind, character_id: me });
+      const turn = table.turnScope.getStore();
+      if (n && move.kind === "ic" && turn && table.dailyOn()) for (const name of move.needsReplyFrom ?? []) {
+        const target = (table.scene(windowId)?.members ?? []).find(id => id !== me && table.isPassive(id) && table.nameOf(id) === name);
+        if (target) (turn.standinRequests ??= new Map()).set(target, { from: coplayer.name, text: move.text });
+      }
+      return n;
+    }
     if (move.action === "roll" && table.pbta) {
       const [, moveId, modifier] = move.command.split(" ");
       if (/^[.。]/.test(move.text.trim())) return 0;

@@ -22,6 +22,15 @@
 #include "ChatQueries.h"
 namespace acerciae {
 using namespace chatQueries;
+Json::Value ChatService::setCharacterPresence(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
+    auth_.requireGm(a);
+    if (!body["passive"].isBool()) throw badRequest("passive must be a boolean");
+    auto c = db_.queryOne("UPDATE characters SET passive_since=CASE WHEN $3::boolean THEN COALESCE(passive_since, now()) ELSE NULL END WHERE id=$1 AND channel_id=$2 AND kind='pc' RETURNING *",
+        {characterId, a.channelId, body["passive"].asBool()});
+    if (c.isNull()) throw badRequest("presence requires a PC in this channel");
+    notifier_.characterUpdated(a.channelId, c);
+    return c;
+}
 Json::Value ChatService::listCharacters(const ChannelAccess& a) {
     // Players see all PC names (table knowledge) but GM-only NPC sheets stay hidden.
     std::string sql = "SELECT c.*, u.display_name AS player_name, av.version AS avatar_asset_version, av.content_hash AS avatar_asset_hash FROM characters c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN media_assets av ON av.id=c.avatar_asset_id WHERE c.channel_id=$1";

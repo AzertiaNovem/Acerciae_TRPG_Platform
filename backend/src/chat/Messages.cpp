@@ -67,6 +67,9 @@ Json::Value ChatService::postSystemMessage(pqxx::work& w, const std::string& cha
 }
 Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling, const std::string& mediaAssetId) {
     auth_.requireWindowMember(a, windowId);
+    if (body.isMember("stand_in") && !body["stand_in"].isBool()) throw badRequest("stand_in must be a boolean");
+    const bool standIn = body.get("stand_in", false).asBool();
+    if (standIn && (!a.isGm || !ruling.isNull())) throw badRequest("stand_in requires the GM speaking as another player's PC");
     if (!ruling.isNull()) auth_.requireGm(a);
     auto content = json::str(body, "content");
     if (content.empty()) throw badRequest("content required");
@@ -75,6 +78,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     if (kind != "ic" && kind != "ooc" && kind != "narration" && kind != "roll") throw badRequest("invalid message kind");
     auto visibility = json::str(body, "visibility", "window");
     if (visibility != "window" && visibility != "gm_only" && visibility != "whisper") throw badRequest("invalid visibility");
+    if (standIn && (visibility != "window" || (kind != "ic" && kind != "ooc"))) throw badRequest("stand_in requires ic or ooc with window visibility");
     if (visibility != "window" && !a.isGm) throw forbidden("only the GM can post gm_only or whisper messages");
     if(body.isMember("reference_ids") && !body["reference_ids"].isArray()) throw badRequest("reference_ids must be an array");
     if(body["reference_ids"].size()>5) throw badRequest("At most five chat references");
@@ -86,6 +90,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     if (visibility == "whisper" && whisperTo.empty()) throw badRequest("whisper_to required for whisper");
 
     std::string characterId = json::str(body, "character_id");
+    if (standIn && characterId.empty()) throw badRequest("stand_in requires character_id");
     if (characterId.empty()) { auto wc = auth_.windowCharacter(a.userId, windowId); if (wc) characterId = *wc; }
     std::string characterKind;
     if (!characterId.empty()) {
@@ -93,10 +98,12 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         if (c.isNull()) throw badRequest("character not in this channel");
         if (!a.isGm && (c["user_id"].isNull() || c["user_id"].asString() != a.userId)) throw forbidden("not your character");
         characterKind = c["kind"].asString();
+        if (standIn && (characterKind != "pc" || c["user_id"].isNull() || c["user_id"].asString() == a.userId)) throw badRequest("stand_in requires another user's PC");
     }
     // Sealdice-style commands (.r .ra .sc .st .en ...) are evaluated by the dice service and stored as roll messages.
     auto diceCmd = dice_.recognise(a, content);
     if (!ruling.isNull() && ruling["op"]=="move" && (!diceCmd || diceCmd->name!="move")) throw badRequest("PbtA dice are disabled");
+    if (standIn && diceCmd) throw badRequest("stand-in lines cannot roll dice");
     if (diceCmd) kind = "roll";
     else if (kind == "roll") throw badRequest("roll messages come from dice commands: start the message with a dot command such as .ra or .r");
 
@@ -141,10 +148,10 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         auto insert = [&](const std::string& vis, const std::vector<std::string>& to, const std::string& text, const Json::Value& dice) {
             return Db::queryOne(w,
                 // A character's line keeps the outfit the character wears as it is written (a visual novel shows it so).
-                "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, character_id, kind, content, visibility, whisper_to, dice, outfit_id) "
-                "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid[],$11::jsonb,(SELECT outfit_id FROM characters WHERE id=$6::uuid)) RETURNING id",
+                "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, character_id, kind, content, visibility, whisper_to, dice, outfit_id, stand_in) "
+                "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid[],$11::jsonb,(SELECT outfit_id FROM characters WHERE id=$6::uuid),$12) RETURNING id",
                 {a.channelId, windowId, sceneId, a.userId, a.isGm ? "gm" : "player", characterId.empty() ? dbNull() : DbParam(characterId), kind, text, vis,
-                 pgArrayLiteral(to), dice.isNull() ? dbNull() : DbParam(json::dump(dice))})["id"].asString();
+                 pgArrayLiteral(to), dice.isNull() ? dbNull() : DbParam(json::dump(dice)), standIn})["id"].asString();
         };
         auto messageId = insert(visibility, whisperTo, content, diceJson);
         audit.finish(w,messageId,characterId);
@@ -166,9 +173,10 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
             } else if (visibility == "whisper") { audience = whisperTo; evVis = "whisper"; }
             else evVis = "gm_only";
             NewEvent e; e.channelId = a.channelId; e.chatWindowId = windowId; e.sceneId = sceneId; e.messageId = messageId;
-            e.actorUserId = a.userId; e.actorRole = a.isGm ? "gm" : "player"; e.characterId = characterId; e.kind = "message.posted";
+            e.actorUserId = a.userId; e.actorRole = a.isGm && !standIn ? "gm" : "player"; e.characterId = characterId; e.kind = "message.posted";
             e.visibility = evVis; e.audience = audience;
             e.payload["content"] = eventText; e.payload["message_kind"] = kind; e.payload["reference_message_ids"]=json::fromStrArray(references);
+            if (standIn) e.payload["stand_in"] = true;
             if (!mediaAssetId.empty()) e.payload["media_asset_id"] = mediaAssetId;
             if (diceCmd) { e.payload["command"] = content; e.payload["dice"] = diceJson; }
             events_.append(w, e);
@@ -191,17 +199,18 @@ Json::Value ChatService::recallMessage(const ChannelAccess& a, const std::string
     std::vector<std::string> eventIds;
     bool repeated = false;
     auto tombstone = db_.tx([&](pqxx::work& w) {
-        auto m = Db::queryOne(w, "SELECT m.author_id, m.kind, m.content, m.recalled_at, m.created_at > now() - " + RECALL_WINDOW + " AS recent, " + ON_MOVE_RECORD + " AS on_record, "
+        auto m = Db::queryOne(w, "SELECT m.author_id, m.stand_in, (SELECT c.user_id FROM characters c WHERE c.id=m.character_id) AS character_owner, m.kind, m.content, m.recalled_at, m.created_at > now() - " + RECALL_WINDOW + " AS recent, " + ON_MOVE_RECORD + " AS on_record, "
             "w.archived_at, " + Visibility::messageFilter(a) + " AS readable FROM messages m JOIN chat_windows w ON w.id=m.chat_window_id WHERE m.id=$1 AND m.channel_id=$2 FOR UPDATE OF m",
             {messageId, a.channelId});
         if (m.isNull() || !m["readable"].asBool()) throw notFound("message not found");
-        if (json::str(m, "author_id") != a.userId) throw forbidden("Only the author can recall a message");
+        const bool standInOwner = m["stand_in"].asBool() && json::str(m, "character_owner") == a.userId;
+        if (!standInOwner && json::str(m, "author_id") != a.userId) throw forbidden("Only the author can recall a message");
         if (!m["recalled_at"].isNull()) { repeated = true; return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {messageId}); }
         auto kind = json::str(m, "kind");
         if (kind == "roll") throw ApiError(409, "not_recallable", "Dice rolls cannot be recalled: their results stay on the record");
         if (kind == "system") throw ApiError(409, "not_recallable", "System lines cannot be recalled");
         if (m["on_record"].asBool()) throw ApiError(409, "not_recallable", "This line is part of a move's record and cannot be recalled");
-        if (!m["recent"].asBool()) throw ApiError(409, "recall_expired", "Messages can only be recalled within " + std::to_string(kRecallSeconds / 60) + " minutes of sending");
+        if (!standInOwner && !m["recent"].asBool()) throw ApiError(409, "recall_expired", "Messages can only be recalled within " + std::to_string(kRecallSeconds / 60) + " minutes of sending");
         if (!m["archived_at"].isNull()) throw conflict("This window is archived. Restore it or fork it to continue.");
         original = json::str(m, "content");
         for (const auto& e : Db::queryJson(w, "SELECT id FROM events WHERE message_id=$1", {messageId})) eventIds.push_back(e["id"].asString());

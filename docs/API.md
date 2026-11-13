@@ -101,6 +101,11 @@ delivered with `Cache-Control: private, max-age=31536000, immutable`.
 
 Chat messages carry `character_avatar_asset_id` and `character_avatar_version`; `PUT /channels/{id}` accepts `era`.
 
+Character rows additionally carry `passive_since: timestamp | null`. GM-only
+`PUT /api/channels/{id}/characters/{cid}/presence` accepts `{passive: boolean}` for a PC in that channel,
+returns the updated character and broadcasts `character.updated`. Repeating `true` preserves the original timestamp;
+`false` clears it. A non-GM receives 403; a non-PC or malformed boolean receives 400.
+
 ## Chat windows & messages
 | GET/POST | `/channels/{id}/windows` | create `{name, kind: group|private, members:[{user_id, character_id?}]}` (GM); a new window joins the campaign's current scenario |
 | PUT | `/channels/{id}/windows/{w}` | GM rename `{name}` and/or archive/restore `{archived: boolean}`. Archived windows remain readable; posting and new membership return 409 until restored. Main Chat cannot be archived. |
@@ -126,6 +131,17 @@ membership intervals. Resume opens a new interval; it never reveals the gap. For
 original source permissions. Archiving only hides a window from the default active list and makes it read-only.
 `GET /windows` returns `fork_parent_id`, `fork_seq`, `archived_at` and each member’s `visibility_paused`.
 On `window.changed`, clients should refresh windows and the current history instead of treating pause as removal.
+
+Messages additionally carry `stand_in: boolean` (default `false`). The message POST body may set `stand_in: true`
+only for the GM speaking as another user's PC, with an explicit `character_id`, kind `ic` or `ooc`, and `window`
+visibility. Dice commands are not allowed. Invalid stand-in requests receive 400. The author remains the GM account,
+but the associated event has `actor_role: player`; REST and `message.posted` retain the flag. Log Studio copies it to
+`metadata.stand_in` and native JSON export messages expose `stand_in: true`.
+
+The owner of a stand-in line's character can recall it without a time limit, in addition to the author's existing
+120-second permission. Readability, archived-window and move-record restrictions still apply. Clients determine this
+owner permission from `stand_in` and the character's `user_id`, independently of `recall_seconds_left`. Clients talking
+to older servers should treat an absent flag as false and an absent `passive_since` as null.
 
 ## Scenes & events
 | GET/POST | `/channels/{id}/scenes` | Scenarios (stages of the story; a campaign-wide state, one current scenario for every window; POST prepares one without entering it). GM rows carry `summary`, `key_points`, `summary_status: none|pending|ready|gm_edited`, `auto_detected`, `stage_reason`, `boundary_event_id`; players get neutral `Scene N` labels. POST `{title, location?, narrative_time?, summary?}` (GM) |

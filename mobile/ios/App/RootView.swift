@@ -283,6 +283,7 @@ private struct CharacterStatusLines: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
                 Text(item.name).lineLimit(1)
+                if !(item["passive_since"].string ?? "").isEmpty { Text(tr("passive")).font(.caption2).accessibilityLabel(tr("Player away: passively present")) }
                 if typing { Text("✎").foregroundStyle(.yellow).accessibilityLabel(tr("typing…")) }
             }
             if !parts.isEmpty { vitals(parts).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
@@ -395,11 +396,12 @@ private struct MessageBubble: View {
     @ObservedObject var model: AppModel
     private var mine: Bool { message.authorId != nil && message.authorId == model.session?.user.id }
     // Out of character the player speaks: their own avatar and name.
-    private var ooc: Bool { message.kind == "ooc" }
+    private var ooc: Bool { message.kind == "ooc" && message.standIn != true }
     private var name: String { (ooc ? nil : message.characterName) ?? message.authorName }
     // The line above the bubble: who speaks, how, and a pin while the line is pinned among the group's hints.
     private var header: String {
         var text = name
+        if message.standIn == true { text += " · " + tr("stand-in") }
         if mine { text += " · " + tr("Me") }
         if message.kind == "narration" { text += " · " + tr("Narration") } else if message.kind == "ooc" { text += " · OOC" }
         if model.pinOf(message) != nil { text += " · 📌" }

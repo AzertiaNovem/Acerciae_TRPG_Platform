@@ -36,7 +36,7 @@ export function renderLine(m, { markVisibility = false, timeline = "", gm = "GM"
   if (markVisibility && m.visibility === "gm_only") vis = ` [${gm} only]`;
   if (markVisibility && m.visibility === "whisper") vis = ` [whisper to ${(m.whisper_to_names ?? m.whisper_to ?? []).join(", ")}]`;
   const tl = timeline ? ` [timeline: ${timeline}]` : "";
-  return `#${m.seq} ${who}${tag}${vis}${tl}: ${String(text).replace(/\s+/g, " ").trim()}`;
+  return `#${m.seq} ${who}${tag}${m.stand_in ? " [stand-in]" : ""}${vis}${tl}: ${String(text).replace(/\s+/g, " ").trim()}`;
 }
 
 // The co-player's whole context: its own lines and everyone else's, oldest first, limited to the newest `limit`.

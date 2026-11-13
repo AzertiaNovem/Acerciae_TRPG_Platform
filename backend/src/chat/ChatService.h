@@ -60,6 +60,7 @@ public:
     Json::Value spectate(const Principal& p, const std::string& channelId, int limit, int64_t beforeSeq);
     static Json::Value spectatorMessage(Json::Value m);   // what a spectator may see of a public Main Chat line
     // characters
+    Json::Value setCharacterPresence(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);
     Json::Value listCharacters(const ChannelAccess& a);
     Json::Value createCharacter(const ChannelAccess& a, const Json::Value& body);
     Json::Value updateCharacter(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);

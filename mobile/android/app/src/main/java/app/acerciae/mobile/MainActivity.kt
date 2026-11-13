@@ -270,6 +270,7 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(item.name, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (item.text("passive_since").isNotEmpty()) Text(" · " + tr("passive"), Modifier.semantics { contentDescription = tr("Player away: passively present") }, style = MaterialTheme.typography.labelSmall)
                 if (state.typing.containsKey(item.id)) Text(" ✎", Modifier.semantics { contentDescription = tr("typing…") }, color = MaterialTheme.colorScheme.secondary)
             }
             if (parts.isNotEmpty()) Text(buildAnnotatedString {
@@ -349,7 +350,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     val mine = state.user?.id != null && message.authorId == state.user?.id
     val character = state.characters.find { it.id == message.characterId }
     // Out of character the player speaks: their own avatar and name.
-    val ooc = message.kind == "ooc"
+    val ooc = message.kind == "ooc" && !message.standIn
     val picture = if (ooc) null else CharacterArtwork.avatar(character, message)
     val asset = picture?.id.orEmpty()
     val revision = picture?.version ?: 0
@@ -372,7 +373,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         verticalAlignment = Alignment.Top) {
         if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()); Spacer(Modifier.width(8.dp)) }
         Column(Modifier.widthIn(max = 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-            Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else "") + (if (pin != null) " · 📌" else ""),
+            Text(name + (if (message.standIn) " · " + tr("stand-in") else "") + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else "") + (if (pin != null) " · 📌" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
             Spacer(Modifier.height(6.dp))
             // A long press offers "Pin" (or "Unpin"), and on one of the user's own lines, while it can still be recalled, "Recall".
