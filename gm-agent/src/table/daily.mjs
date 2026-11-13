@@ -309,10 +309,10 @@ export async function standinAct(table, windowId, id, { spark = false, autonomou
   } catch (e) { table.log(`stand-in ${c.name}: ${e.message}`); return 0; }
   if (reply.action !== 'speak' || !table.isPassive(id) || table.sparkCancelled() || table.typing.get(id)?.windowId === windowId) return 0;
   (table.turnScope.getStore()?.standinActed ?? new Set()).add(id);
-  const n = await table.post(windowId, { character_id: id, content: reply.text, kind: 'ic', stand_in: true });
-  if (!n) return 0;
-  const posted = table.lastPosted;
-  if (posted?.stand_in !== true) {
+  // Check the line this call posted, not the table's latest post: a phone text may be delivered in between.
+  const posted = await table.sendLine(windowId, { character_id: id, content: reply.text, kind: 'ic', stand_in: true });
+  if (!posted) return 0;
+  if (posted.stand_in !== true) {
     table.standinOff = true; table.log('daily life: platform did not mark a stand-in; recalled and disabled stand-ins');
     try { const r = await table.api.recallMessage(table.channelId, posted.id); if (r?.message) table.history.add(r.message); } catch (e) { table.log(`unmarked stand-in recall: ${e.message}`); }
     return 0;
@@ -323,11 +323,12 @@ export async function standinAct(table, windowId, id, { spark = false, autonomou
     table.daily.questions = [...table.daily.questions.filter(q => q.pc !== id), ...own]; table.save();
     const phone = table.casual.phones[id];
     if (phone) {
-      await table.post(phone, { kind: 'narration', content: `${dailyLabels(table.language).waiting}: ${q.text}` }, { count: false });
-      if (table.lastPosted?.id !== posted.id) table.store.addDailyDerivedLine(table.lastPosted.id, posted.seq);
+      const note = await table.sendLine(phone, { kind: 'narration', content: `${dailyLabels(table.language).waiting}: ${q.text}` });
+      if (note) table.store.addDailyDerivedLine(note.id, posted.seq);
     }
   }
-  return n;
+  await table.sleep(table.cfg.postDelayMs);   // the usual pause after a counted line
+  return 1;
 }
 export async function standinReplies(table, windowId, spotlight, after, budget, { spark = false, autonomous = false, except = null } = {}) {
   if (!table.dailyOn()) return 0;
@@ -365,12 +366,11 @@ export async function writeDaySummary(table, id, date, fromSeq, toSeq, { returni
   } catch (e) { table.log(`day summary: ${e.message}`); return null; }
   if (!summary || table.store.get('context-revision', 0) !== revision) return null;
   const content = [`${date}${returning ? ` · ${dailyLabels(table.language).recap}` : ''}`, summary, ...questions.map((q,i) => `${i + 1}. ${q.text}`)].join('\n');
-  const before = table.lastPosted?.id;
-  await table.post(phone, { kind: 'narration', content }, { count: false });
-  if (table.lastPosted?.id === before) return null;
+  const message = await table.sendLine(phone, { kind: 'narration', content });
+  if (!message) return null;
   const record = { characterId: id, date, text: summary, fromSeq, toSeq, at: table.now() };
   table.store.addDaySummary(record);
-  table.store.addDailyDerivedLine(table.lastPosted.id, toSeq);
+  table.store.addDailyDerivedLine(message.id, toSeq);
   return record;
 }
 export async function dayTurn(table, endedDate, { timetable = false, date = table.calendar.date } = {}) {

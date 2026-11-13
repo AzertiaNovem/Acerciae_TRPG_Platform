@@ -6,6 +6,7 @@ import { MockLlm } from '../src/llm/mock.mjs';
 import { buildConfig } from '../src/config.mjs';
 import { FakeApi } from './fixtures/platform.mjs';
 import { witnessedBy } from '../src/context/standinContext.mjs';
+import { writeDaySummary } from '../src/table/daily.mjs';
 import { timetableAt, DAY } from '../src/daily.mjs';
 const H = 3600000, START = 1700000000000;
 async function setup({ state, clock = { t: START }, llm = new MockLlm(), daily = {}, api = new FakeApi() } = {}) {
@@ -424,4 +425,37 @@ test('a scene line the GM context already fetched is answered, a repeated event 
   t.beforeDailyMessage = async () => { throw Error('bookkeeping broke'); };
   before = directors(); await t.onMessage(say('Anyone there?')); await t.queue;
   assert.ok(directors() > before, 'the line was still answered'); assert.ok(logs.includes('daily message: bookkeeping broke'));
+});
+test('a phone text delivered in the pause after a stand-in line is left alone', async () => {
+  const {t,api,llm,clock} = await setup(); clock.t += H; await t.reconcilePassive();
+  llm.standin = () => ({action:'speak',text:'Let me think about it.',defer:{question:'Join the club?',asked_by:'Harriet'}});
+  let text = null;
+  // In production the pause is pacing.post_delay_ms, and phone texts are delivered on their own timer meanwhile.
+  t.sleep = async () => { if (text) return; text = await t.sendLine(t.casual.phones['c-alice'], {content:'See you at lunch.',kind:'ic',character_id:'c-harriet'}, {allowPaused:true}); };
+  assert.equal(await t.standinAct('w-main','c-alice'), 1);
+  assert.ok(text); assert.ok(!(api.recalled ?? []).includes(text.id), 'the phone text was not taken back');
+  assert.ok(!t.standinOff); assert.deepEqual(t.daily.questions.map(q => q.text), ['Join the club?']);
+});
+test('a platform that ignores the stand-in mark gets its own stand-in line taken back', async () => {
+  const {t,api,llm,clock} = await setup(); clock.t += H; await t.reconcilePassive();
+  llm.standin = () => ({action:'speak',text:'Sure.',defer:{question:'Lend your notes?',asked_by:'Harriet'}});
+  const postMessage = api.postMessage.bind(api);
+  api.postMessage = async (ch, w, { stand_in, ...body }) => postMessage(ch, w, body);
+  assert.equal(await t.standinAct('w-main','c-alice'), 0);
+  const recalled = api.lines.find(m => m.id === api.recalled?.at(-1));
+  assert.equal(recalled?.character_id, 'c-alice'); assert.equal(recalled.chat_window_id, 'w-main');
+  assert.ok(t.standinOff); assert.equal(t.daily.questions.length, 0);
+});
+test('a day summary whose post fails is not recorded against another line', async () => {
+  const {t,api,clock} = await setup(); clock.t += H; await t.reconcilePassive();
+  t.noteLine(api.add({author_id:'u-bot',author_role:'gm',chat_window_id:'w-main',content:'A seat was saved for Alice.',kind:'narration'}));
+  const phone = t.casual.phones['c-alice'], postMessage = api.postMessage.bind(api);
+  api.postMessage = async (ch, w, body) => {
+    if (w !== phone) return postMessage(ch, w, body);
+    await t.sendLine('w-main', {content:'Meanwhile, the bell rings.',kind:'narration'});
+    throw Object.assign(Error('refused'), {status: 500});
+  };
+  assert.equal(await writeDaySummary(t, 'c-alice', t.calendar.date, 0, api.seq), null);
+  assert.equal(t.store.daySummaries('c-alice').length, 0);
+  assert.equal(t.store.db.prepare('SELECT count(*) AS n FROM daily_derived_lines').get().n, 0);
 });

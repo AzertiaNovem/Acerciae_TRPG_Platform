@@ -1010,4 +1010,5 @@ export class Table {
 
   // `count: false` marks bookkeeping lines (pointers, notes) that do not use up the turn's action budget.
   post(...args) { return actions.post(this, ...args); }
+  sendLine(...args) { return actions.sendLine(this, ...args); }
 }
