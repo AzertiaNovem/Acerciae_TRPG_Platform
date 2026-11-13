@@ -98,6 +98,7 @@ export class Table {
     this.memory = new Memory({ store: this.store, llm: this.llm, gmBudget: cfg.gmContextTokens ?? 60000, coplayerBudget: cfg.coplayerContextTokens ?? 24000, log });
     this.gm = new GmContext(api, channelId, { history: this.history, memory: this.memory, budget: cfg.gmContextTokens ?? 60000, recallTokens: cfg.recallTokens ?? 1200, log });
     this.botMessageIds = new Set();
+    this.handledMessages = new Set();   // daily life: ids of human chat events already taken in, so a repeat is skipped
     // Recall rollback (rollback.mjs): each turn's checkpoint, the turn a post belongs to, and the copies a player's
     // text left in another player's phone.
     this.checkpoints = [];
@@ -1049,4 +1050,5 @@ export class Table {
 
   // `count: false` marks bookkeeping lines (pointers, notes) that do not use up the turn's action budget.
   post(...args) { return actions.post(this, ...args); }
+  sendLine(...args) { return actions.sendLine(this, ...args); }
 }

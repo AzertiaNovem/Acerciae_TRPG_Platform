@@ -8,11 +8,19 @@ import { applyBond, resolveBonds } from "../bonds.mjs";
 
 export function plannerMode(table) { return table.cfg.planner && table.cfg.planner.enabled === false ? "off" : plannerModeOf(table.planner, table.improv); }
 
+// A plot thread's owners are player characters, kept by id so a rename keeps them. The planner names them; a name that
+// is not a player character (an NPC, a co-player, a misspelling) owns nothing. A plan adopted before ids were kept
+// resolves its names here. A thread with no player-character owner belongs to the world and never waits.
+export function threadOwnerIds(table, thread) {
+  const ids = Array.isArray(thread.ownerIds) ? thread.ownerIds : (thread.owners ?? []).map((name) => table.investigatorByName(name));
+  return [...new Set(ids.filter((id) => id && table.isPc(id)))];
+}
+
 export function storyPlanSection(table) { return table.plannerMode() === "off" ? "" : renderStoryPlan(table.planner.arc, table.cfg.planner?.planTokens ?? 1500, table.dailyOn() ? { ownerStatus: thread => {
-    const owners = (thread.owners ?? []).map(name => { const id = table.investigatorByName(name); return { name, passive: !id || table.isPassive(id), expired: !!id && table.isPassive(id) && table.now() - (table.daily.lastSceneLineBy[id] ?? table.daily.lastSceneLineAt) >= table.cfg.daily.pause_days * DAY }; });
+    const owners = threadOwnerIds(table, thread).map(id => { const passive = table.isPassive(id); return { name: table.nameOf(id), passive, expired: passive && table.now() - (table.daily.lastSceneLineBy[id] ?? table.daily.lastSceneLineAt) >= table.cfg.daily.pause_days * DAY }; });
     const turn = table.turnScope.getStore();
     const status = threadPermission(thread, owners, { spark: turn?.mode === "spark" || turn?.gentle });
-    return status.mayAdvance ? "may advance" : `WAITS for ${status.waiting.join(", ") || "human participation"}`;
+    return `${owners.map(o => o.name).join(", ") || "world"}; ${status.mayAdvance ? "may advance" : `WAITS for ${status.waiting.join(", ") || "human participation"}`}`;
   } } : {}); }
 
 export function plannerVerdict(table) {
@@ -123,6 +131,12 @@ export async function adoptPlan(table) {
     if (!pend || table.generation.signal.aborted) return;
     p.pending = null;
     p.arc = pend.arc; p.impulses = pend.impulses ?? []; p.nextThreadId = pend.nextId ?? p.nextThreadId;
+    for (const t of p.arc.threads ?? []) {
+      if (!Array.isArray(t.owners)) continue;
+      t.ownerIds = threadOwnerIds(table, { owners: t.owners });
+      const ignored = t.owners.filter((name) => !table.isPc(table.investigatorByName(name)));
+      if (ignored.length) table.log(`planner: ${t.id} owner(s) ${ignored.map((n) => `"${n}"`).join(", ")} not a player character; ignored`);
+    }
     p.lastRunSeq = table.lastSeq; p.scenarioId = table.scenario?.id ?? null; p.stall = { turns: 0, sig: null };
     table.store.addPlan({ version: pend.arc.version, at: pend.at ?? table.now(), trigger: pend.trigger ?? pend.arc.trigger, record: pend.record ?? {} });
     if (table.calendarOn() && pend.arc.calendar?.start && !table.calendar.date) {

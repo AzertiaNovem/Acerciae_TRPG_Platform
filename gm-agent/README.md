@@ -663,14 +663,20 @@ support log once and disable marks and stand-ins; the clock and sparks continue.
 recalled and further stand-ins are disabled. A clean shutdown clears platform marks; a crash leaves them until restart.
 
 On each date change, PCs who were passive and witnessed something receive a GM summary in their phone, from only
-their own perspective, followed by the exact outstanding questions. Summaries are stored in local SQLite. The planner
-supplies a public weekly routine as the fallback for the daily refresh. Timetable day turns rejoin short splits without arrival
-turns and retain long splits. On return, a missing substantial recap is sent privately; the GM receives the newest
-three summaries, open questions and stand-in count, and welcomes the player in one or two sentences.
+their own perspective. Something means a scene line or a phone text; the table's own notices in the phone do not
+count, and a day with nothing witnessed costs no model call. A summary does not repeat open questions: each one is
+posted to the phone once, when it is asked. Summaries are stored in local SQLite. The planner supplies a public weekly
+routine as the fallback for the daily refresh. Timetable day turns rejoin short splits without arrival turns and retain
+long splits. On return, the phone gets a recap: a summary of what the character witnessed, when enough happened and no
+day summary covers it, and every open question together, listed by the table without a model call. The GM receives
+the newest three summaries, open questions and stand-in count, and welcomes the player in one or two sentences.
 
 Plot threads name their PC owners and require `one` or `all` to be present. Turning points and endings require all.
-A request in the planner window to join or leave a plot updates its owners in the next plan. The GM sees `WAITS`
-until the requirement is met; owners absent seven real days stop blocking. Sparks never advance any plot.
+Only player characters own a thread: a name that is not one (an NPC, a co-player, a misspelling) is logged and
+ignored, and a thread with no player-character owner belongs to the world and never waits. Owners are kept by
+character id when a plan is adopted, so renaming a character keeps the gate. A request in the planner window to join
+or leave a plot updates its owners in the next plan. The GM sees `WAITS` until the requirement is met; owners absent
+seven real days stop blocking. Sparks never advance any plot.
 
 Deploy migration `0065_passive_presence.sql` and the backend first, then the web/mobile clients, then manually update
 the GM agent. Platform deployment does not deploy the agent. The host's 日常推进 settings group controls the feature,

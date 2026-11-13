@@ -6,7 +6,9 @@ import { MockLlm } from '../src/llm/mock.mjs';
 import { buildConfig } from '../src/config.mjs';
 import { FakeApi } from './fixtures/platform.mjs';
 import { witnessedBy } from '../src/context/standinContext.mjs';
+import { writeDaySummary } from '../src/table/daily.mjs';
 import { timetableAt, DAY } from '../src/daily.mjs';
+import { validateStoryPlan } from '../src/planner.mjs';
 const H = 3600000, START = 1700000000000;
 async function setup({ state, clock = { t: START }, llm = new MockLlm(), daily = {}, api = new FakeApi() } = {}) {
   api.knowledgeMode = 'isolated';
@@ -253,7 +255,7 @@ test('spark presence checking respects token exhaustion and discards results whe
     }
   }
 });
-test('day summaries: only witnessed lines, phone GM posts, exact open questions and weekly routine', async () => {
+test('day summaries: only witnessed lines, phone GM posts, open questions not repeated, weekly routine', async () => {
   const {t,api,clock,llm} = await setup(); clock.t+=H; await t.reconcilePassive();
   t.noteLine(api.add({author_id:'u-bot',author_role:'gm',chat_window_id:'w-main',content:'A seat was saved for Alice.',kind:'narration'}));
   t.noteLine(api.add({author_id:'u-bot',author_role:'gm',chat_window_id:'w-main',content:'SECRET-SUMMARY',kind:'narration',visibility:'gm_only'}));
@@ -261,7 +263,7 @@ test('day summaries: only witnessed lines, phone GM posts, exact open questions 
   t.daily.week[3]='Wednesday classes';
   t.moveCalendar({days:1,time:'07:00',by:'operator'}); await t.flushDayTurns();
   const summaries=t.store.daySummaries('c-alice'); assert.equal(summaries.length,1);
-  const last=api.posts.at(-1); assert.equal(last.window,t.casual.phones['c-alice']); assert.ok(last.content.endsWith('1. Tea tomorrow?')); assert.equal(last.character_id,undefined);
+  const last=api.posts.at(-1); assert.equal(last.window,t.casual.phones['c-alice']); assert.ok(!last.content.includes('Tea tomorrow?')); assert.equal(last.character_id,undefined);
   assert.ok(!JSON.stringify(llm.calls.find(c=>c.purpose==='day_summary')).includes('SECRET-SUMMARY'));
   assert.equal(t.calendar.routine.text,'Wednesday classes');
 });
@@ -491,4 +493,87 @@ test('daily planner defers to an active full plan and does not trigger full plan
   await t.clockTick({sparks:false}); assert.equal(t.daily.planAttempt.status,'ready');
   t.lastHumanAt=clock.t; t.planner.asked={why:'phone',at:clock.t};
   assert.equal(t.maybePlan(),null); assert.equal(llm.calls.filter(c=>c.purpose==='planner').length,0);
+});
+test('a scene line the GM context already fetched is answered, a repeated event is not, and failed bookkeeping loses nothing', async () => {
+  const {t,api,llm,clock} = await setup(); const logs = []; t.log = s => logs.push(s);
+  clock.t += H; await t.reconcilePassive(); assert.ok(t.isPassive('c-alice'));
+  const directors = () => llm.calls.filter(c => c.purpose === 'director').length;
+  const say = content => api.add({author_id:'u-alice',author_role:'player',character_id:'c-alice',chat_window_id:'w-main',content,kind:'ic'});
+  const line = say('Can someone pass the salt?');
+  t.history.add(line);   // a GM context build fetched it from the platform before its live event arrived
+  let before = directors(); await t.onMessage(line); await t.queue;
+  assert.ok(directors() > before, 'the line was answered'); assert.ok(!t.isPassive('c-alice'), 'its daily bookkeeping ran');
+  const lines = t.calendar.since.lines; before = directors();
+  await t.onMessage(line); await t.queue;
+  assert.equal(directors(), before, 'a repeated event starts no turn'); assert.equal(t.calendar.since.lines, lines);
+  t.beforeDailyMessage = async () => { throw Error('bookkeeping broke'); };
+  before = directors(); await t.onMessage(say('Anyone there?')); await t.queue;
+  assert.ok(directors() > before, 'the line was still answered'); assert.ok(logs.includes('daily message: bookkeeping broke'));
+});
+test('a phone text delivered in the pause after a stand-in line is left alone', async () => {
+  const {t,api,llm,clock} = await setup(); clock.t += H; await t.reconcilePassive();
+  llm.standin = () => ({action:'speak',text:'Let me think about it.',defer:{question:'Join the club?',asked_by:'Harriet'}});
+  let text = null;
+  // In production the pause is pacing.post_delay_ms, and phone texts are delivered on their own timer meanwhile.
+  t.sleep = async () => { if (text) return; text = await t.sendLine(t.casual.phones['c-alice'], {content:'See you at lunch.',kind:'ic',character_id:'c-harriet'}, {allowPaused:true}); };
+  assert.equal(await t.standinAct('w-main','c-alice'), 1);
+  assert.ok(text); assert.ok(!(api.recalled ?? []).includes(text.id), 'the phone text was not taken back');
+  assert.ok(!t.standinOff); assert.deepEqual(t.daily.questions.map(q => q.text), ['Join the club?']);
+});
+test('a platform that ignores the stand-in mark gets its own stand-in line taken back', async () => {
+  const {t,api,llm,clock} = await setup(); clock.t += H; await t.reconcilePassive();
+  llm.standin = () => ({action:'speak',text:'Sure.',defer:{question:'Lend your notes?',asked_by:'Harriet'}});
+  const postMessage = api.postMessage.bind(api);
+  api.postMessage = async (ch, w, { stand_in, ...body }) => postMessage(ch, w, body);
+  assert.equal(await t.standinAct('w-main','c-alice'), 0);
+  const recalled = api.lines.find(m => m.id === api.recalled?.at(-1));
+  assert.equal(recalled?.character_id, 'c-alice'); assert.equal(recalled.chat_window_id, 'w-main');
+  assert.ok(t.standinOff); assert.equal(t.daily.questions.length, 0);
+});
+test('a day summary whose post fails is not recorded against another line', async () => {
+  const {t,api,clock} = await setup(); clock.t += H; await t.reconcilePassive();
+  t.noteLine(api.add({author_id:'u-bot',author_role:'gm',chat_window_id:'w-main',content:'A seat was saved for Alice.',kind:'narration'}));
+  const phone = t.casual.phones['c-alice'], postMessage = api.postMessage.bind(api);
+  api.postMessage = async (ch, w, body) => {
+    if (w !== phone) return postMessage(ch, w, body);
+    await t.sendLine('w-main', {content:'Meanwhile, the bell rings.',kind:'narration'});
+    throw Object.assign(Error('refused'), {status: 500});
+  };
+  assert.equal(await writeDaySummary(t, 'c-alice', t.calendar.date, 0, api.seq), null);
+  assert.equal(t.store.daySummaries('c-alice').length, 0);
+  assert.equal(t.store.db.prepare('SELECT count(*) AS n FROM daily_derived_lines').get().n, 0);
+});
+test('thread owners are player characters kept by id: other names own nothing, and a rename keeps the gate', async () => {
+  const {t,clock} = await setup(); t.cfg.planner.enabled = true; const logs = []; t.log = s => logs.push(s);
+  const { arc, nextId } = validateStoryPlan({ beat:{title:'Club'}, verdict:{move_on:false}, threads:[
+    {id:'new', title:'The butler', status:'live', owners:['Mr. Grimsby'], needs:'one'},
+    {id:'new', title:'The debate', status:'live', owners:['Alice Hale','Mr. Grimsby','Harriet Vance'], needs:'all'},
+  ] }, { mode:'full', daily:true, nextId:1, now:clock.t });
+  t.planner.pending = { arc, nextId, impulses:[], at:clock.t, trigger:'test' }; await t.adoptPlan();
+  assert.deepEqual(t.planner.arc.threads.map(x => x.ownerIds), [[], ['c-alice']]);
+  assert.ok(logs.some(s => s.includes('"Mr. Grimsby"') && s.includes('not a player character')));
+  clock.t += H; await t.reconcilePassive(); assert.ok(t.isPassive('c-alice'));
+  const plan = () => t.storyPlanSection();
+  assert.match(plan(), /The butler" \[live\].* owners: world; may advance/);
+  assert.match(plan(), /The debate" \[live\].* owners: Alice Hale; WAITS for Alice Hale/);
+  t.characters.find(c => c.id === 'c-alice').name = 'Alice Ward';
+  assert.match(plan(), /The debate" \[live\].* owners: Alice Ward; WAITS for Alice Ward/);
+  clock.t += 7 * DAY; assert.match(plan(), /The debate" \[live\].* owners: Alice Ward; may advance/);
+});
+test('a day with nothing witnessed costs no summary; the return recap lists every open question, written by code', async () => {
+  const {t,api,llm,clock} = await setup(); clock.t += H; await t.reconcilePassive(); assert.ok(t.isPassive('c-alice'));
+  t.daily.questions = [
+    {id:'q1',pc:'c-alice',text:'Tea tomorrow?',date:t.calendar.date,seq:api.seq,at:clock.t},
+    {id:'q2',pc:'c-alice',text:'Join the club?',date:t.calendar.date,seq:api.seq,at:clock.t},
+  ];
+  const summaries = () => llm.calls.filter(c => c.purpose === 'day_summary').length, phone = t.casual.phones['c-alice'];
+  const posts = api.posts.length;
+  for (let day = 0; day < 2; day++) { t.moveCalendar({days:1,time:'07:00',by:'operator'}); await t.flushDayTurns(); }
+  assert.equal(summaries(), 0); assert.equal(api.posts.slice(posts).filter(p => p.window === phone).length, 0);
+  await t.onMessage(api.add({author_id:'u-alice',author_role:'player',character_id:'c-alice',chat_window_id:'w-main',content:'Morning, everyone.',kind:'ic'}));
+  await t.queue;
+  const recap = api.posts.slice(posts).find(p => p.window === phone);
+  assert.ok(recap, 'the return recap reached the phone'); assert.equal(summaries(), 0);
+  assert.ok(recap.content.endsWith('1. Tea tomorrow?\n2. Join the club?'));
+  assert.equal(recap.content.split('\n')[0], `${t.calendar.date} · Recap`);
 });

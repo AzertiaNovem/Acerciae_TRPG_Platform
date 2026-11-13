@@ -264,12 +264,23 @@ export async function card(table, characterId) {
     return table.cards.get(characterId);
   }
 
+// Posts one line and counts it (1) after the pause between lines; 0 when nothing was posted, or with `count: false`.
 export async function post(table, windowId, body, { count = true, allowPaused = false } = {}) {
-    if (!allowPaused && table.generation.signal.aborted) return 0;
+    const m = await sendLine(table, windowId, body, { allowPaused });
+    if (!m || !count) return 0;
+    await table.sleep(table.cfg.postDelayMs);
+    return 1;
+  }
+
+// Posts one line and returns the platform's message, or null when nothing was posted (hosting paused, a spark's line
+// limit, PbtA dice text, a refused request). No pause after it. Use the returned message rather than `lastPosted`:
+// phone texts are delivered on their own timer and may be posted in between.
+export async function sendLine(table, windowId, body, { allowPaused = false } = {}) {
+    if (!allowPaused && table.generation.signal.aborted) return null;
     const spark = table.turnScope.getStore();
-    if (spark?.gentle && (table.sparkCancelled() || table.overBudget() || spark.dailyBudget.posted >= spark.dailyBudget.limit)) return 0;
-    if (spark?.mode === "spark" && (table.sparkCancelled() || spark.dailyPosted >= spark.lineLimit)) return 0;
-    if (table.pbta && /^[.。][a-z]/i.test(String(body.content).trim())) return 0;
+    if (spark?.gentle && (table.sparkCancelled() || table.overBudget() || spark.dailyBudget.posted >= spark.dailyBudget.limit)) return null;
+    if (spark?.mode === "spark" && (table.sparkCancelled() || spark.dailyPosted >= spark.lineLimit)) return null;
+    if (table.pbta && /^[.。][a-z]/i.test(String(body.content).trim())) return null;
     try {
       const m = await table.api.postMessage(table.channelId, windowId, { visibility: "window", ...body });
       if (spark?.mode === "spark") spark.dailyPosted++;
@@ -282,10 +293,9 @@ export async function post(table, windowId, body, { count = true, allowPaused = 
       table.noteLine(m);
       table.noteArt(m);
       if (table.cfg.verbose) table.log(`posted ${body.kind}${body.visibility && body.visibility !== "window" ? `/${body.visibility}` : ""} in "${table.windowName(windowId)}": ${body.content.slice(0, 100)}`);
-      if (count) await table.sleep(table.cfg.postDelayMs);
-      return count ? 1 : 0;
+      return m;
     } catch (e) {
       table.log(`post failed (${e.code || e.status}): ${e.message}`);
-      return 0;
+      return null;
     }
   }
