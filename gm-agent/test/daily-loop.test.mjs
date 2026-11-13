@@ -409,3 +409,19 @@ test('daily planner defers to an active full plan and does not trigger full plan
   t.lastHumanAt=clock.t; t.planner.asked={why:'phone',at:clock.t};
   assert.equal(t.maybePlan(),null); assert.equal(llm.calls.filter(c=>c.purpose==='planner').length,0);
 });
+test('a scene line the GM context already fetched is answered, a repeated event is not, and failed bookkeeping loses nothing', async () => {
+  const {t,api,llm,clock} = await setup(); const logs = []; t.log = s => logs.push(s);
+  clock.t += H; await t.reconcilePassive(); assert.ok(t.isPassive('c-alice'));
+  const directors = () => llm.calls.filter(c => c.purpose === 'director').length;
+  const say = content => api.add({author_id:'u-alice',author_role:'player',character_id:'c-alice',chat_window_id:'w-main',content,kind:'ic'});
+  const line = say('Can someone pass the salt?');
+  t.history.add(line);   // a GM context build fetched it from the platform before its live event arrived
+  let before = directors(); await t.onMessage(line); await t.queue;
+  assert.ok(directors() > before, 'the line was answered'); assert.ok(!t.isPassive('c-alice'), 'its daily bookkeeping ran');
+  const lines = t.calendar.since.lines; before = directors();
+  await t.onMessage(line); await t.queue;
+  assert.equal(directors(), before, 'a repeated event starts no turn'); assert.equal(t.calendar.since.lines, lines);
+  t.beforeDailyMessage = async () => { throw Error('bookkeeping broke'); };
+  before = directors(); await t.onMessage(say('Anyone there?')); await t.queue;
+  assert.ok(directors() > before, 'the line was still answered'); assert.ok(logs.includes('daily message: bookkeeping broke'));
+});

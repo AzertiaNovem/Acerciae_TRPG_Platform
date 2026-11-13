@@ -67,7 +67,13 @@ export function updatePause(table, m, { historical = false } = {}) {
 
 export function onMessage(table, m) {
     if (!m || m.channel_id !== table.channelId || !table.dailyOn() || !table.isHuman(m)) return dispatchMessage(table, m);
-    if (m.seq && table.history.lines(m.chat_window_id, { after: m.seq - 1, upTo: m.seq }).some(line => line.id === m.id)) return;
+    // The same live event twice is handled once. The local chat copy is no guide: a GM context build may already have
+    // fetched this line from the platform before its event arrived, and the line still needs its answer.
+    if (m.id) {
+      if (table.handledMessages.has(m.id)) return;
+      table.handledMessages.add(m.id);
+      if (table.handledMessages.size > 2000) table.handledMessages.delete(table.handledMessages.values().next().value);
+    }
     if (table.pauseCommand(m)) {
       const now = Math.max(table.daily.lastHumanAt, Date.parse(m.created_at) || table.now());
       table.daily.frozen = table.daily.anchor ? timetableAt(table.daily.anchor, now, table.cfg.daily.day_hours) : table.daily.frozen ?? table.dailyStatus().clock;
@@ -76,8 +82,9 @@ export function onMessage(table, m) {
       Promise.resolve(table.updatePause(m)).catch(e => table.log(`pause: ${e.message}`));
     }
     if (table.isTrigger(m) && !table.isTableWindow(m.chat_window_id)) table.dailyInterrupt = (table.dailyInterrupt ?? 0) + 1;
-    const ready = table.queue.then(() => table.beforeDailyMessage(m));
-    table.queue = ready.catch(e => table.log(`daily message: ${e.message}`));
+    // A failure in the daily bookkeeping is logged; the line is still answered.
+    const ready = table.queue.then(() => table.beforeDailyMessage(m)).catch(e => table.log(`daily message: ${e.message}`));
+    table.queue = ready;
     return ready.then(() => dispatchMessage(table, m));
   }
 
