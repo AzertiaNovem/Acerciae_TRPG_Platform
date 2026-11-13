@@ -520,7 +520,7 @@ export class Table {
       // A public handoff or seat correction just posted by the table must not replace the player's question.
       const newest = roundMode === "human" && ctx.newest && !this.isHuman(ctx.newest)
         ? ctx.lines(windowId).findLast(m => this.isTrigger(m)) ?? ctx.newest : ctx.newest;
-      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), daily: this.dailyOn(), dailyNote: this.passiveNote(windowId), ...roundExtra };
+      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), daily: this.dailyOn(), ...roundExtra, dailyNote: [this.passiveNote(windowId), roundExtra.dailyNote].filter(Boolean).join("\n") };
       if (this.sparkCancelled() || (mode === "spark" && this.overBudget())) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       let plan = await directTurn(this.llm, request);
       if (this.sparkCancelled()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
@@ -593,15 +593,19 @@ export class Table {
       const note = this.sparkNote(windowId);
       const sparker = extra.sparker;
       if (!sparker || this.sparkCancelled() || this.overBudget()) return;
-      const n = sparker.coplayer ? await this.coplayerAct(windowId, sparker.coplayer, true, { spark: true, dailyNote: note.text }) : this.standinAct ? await this.standinAct(windowId, sparker.id, { spark: true }) : 0;
+      const peers = this.roster.coplayersIn(windowId).filter(c => c.characterId !== sparker.id);
+      const peer = peers[Math.floor(this.random() * peers.length)];
+      const dailyNote = [note.text, `THIS SMALL EXCHANGE: ${this.nameOf(sparker.id)}${peer ? ` and ${peer.name}` : ''}. Follow their own ordinary interests with each other or an already-present NPC; do not invent someone being here. Other characters need not join in. A passive character is not the default listener. Passing or ending the conversation is fine.`].filter(Boolean).join("\n");
+      const n = sparker.coplayer ? await this.coplayerAct(windowId, sparker.coplayer, true, { spark: true, dailyNote }) : this.standinAct ? await this.standinAct(windowId, sparker.id, { spark: true }) : 0;
       budget -= n;
-      for (const c of this.roster.coplayersIn(windowId).filter(c => c.characterId !== sparker.id)) {
-        if (budget <= 1 || this.sparkCancelled() || this.overBudget()) break;
-        budget -= await this.coplayerAct(windowId, c, false, { whistle: true, dailyNote: note.text });
+      if (!n) {
+        if (!this.sparkCancelled()) await this.finishSpark(windowId, { state: "ended", title: "" }, note.urge);
+        return;
       }
+      if (peer && budget > 1 && !this.sparkCancelled() && !this.overBudget()) budget -= await this.coplayerAct(windowId, peer, false, { whistle: true, dailyNote });
       if (this.standinReplies && budget > 1 && !this.sparkCancelled()) budget -= await this.standinReplies(windowId, [], checkpoint.startSeq, budget - 1, { spark: true, except: sparker.id });
       if (this.sparkCancelled() || this.overBudget()) return;
-      const plan = budget > 0 ? await round("spark", { dailyNote: note.text }) : null;
+      const plan = budget > 0 ? await round("spark", { dailyNote }) : null;
       await this.finishSpark(windowId, plan?.topic, note.urge);
       return;
     }

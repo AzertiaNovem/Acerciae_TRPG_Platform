@@ -253,7 +253,7 @@ export async function reconcilePassive(table, { force = false, clear = false } =
 export function passiveNote(table, windowId) {
   if (!table.dailyOn()) return '';
   const ids = (table.scene(windowId)?.members ?? table.characters.map(c => c.id)).filter(id => table.isPassive(id));
-  return ids.length ? `PASSIVE CHARACTERS: ${ids.map(id => table.nameOf(id)).join(', ')} are here. Be warm, include them, remember close relations; never press for decisions, aim secrets, accusations, confessions, quarrels or plot twists at them, let them be harmed or make a scene wait on them. No important relationship begins or ends. Only their separate stand-in may speak for them.` : '';
+  return ids.length ? `PASSIVE CHARACTERS: ${ids.map(id => table.nameOf(id)).join(', ')} remain quietly present, not the conversation's default audience. Their silence is comfortable: no repeated greetings, name checks, questions or invitations to participate. Co-players and NPCs have their own interests and relationships; let them talk to each other and let conversations end. Remember existing closeness without turning it into repeated attention. Never press for decisions, aim secrets, accusations, confessions, quarrels or plot twists at passive characters, let them be harmed or make a scene wait on them. No important relationship begins or ends. Only their separate stand-in may speak for them.` : '';
 }
 
 export async function onAwayCommand(table, m, command) {
@@ -285,7 +285,7 @@ export async function onAwayCommand(table, m, command) {
   table.save();
   await table.post(m.chat_window_id, { kind: 'narration', content }, { count: false });
 }
-export async function standinAct(table, windowId, id, { spark = false, autonomous = false } = {}) {
+export async function standinAct(table, windowId, id, { spark = false, autonomous = false, request = null } = {}) {
   if (!table.dailyOn() || table.standinOff || !table.isPassive(id) || table.sparkCancelled() || ((spark || autonomous) && table.overBudget())) return 0;
   if (spark && (!table.cfg.daily.pc_sparks || !table.daily.rules[id]?.maySpark)) return 0;
   const typing = table.typing.get(id);
@@ -305,7 +305,7 @@ export async function standinAct(table, windowId, id, { spark = false, autonomou
   let reply;
   try {
     reply = await standinTurn(table.llm, { language: table.language, self: `YOU ARE ${c.name}\nPERSONA: ${c.bio ?? ''}\nSPEAKING STYLE: ${c.speaking_style ?? ''}\nYOUR CARD: ${JSON.stringify(card ?? c.role_card ?? {})}`, log: raw.map(m => table.renderForCoplayer(m)).join('\n'), recalled,
-      phone: renderThread(table.store.phoneOf(id, 20), x => table.nameOf(x)), bonds: renderBondsFor(table.bonds, id, known.all, x => table.nameOf(x)), today: describeCalendar(table.calendar, { time: table.timelines.of(id).narrativeTime }), routine: describeRoutine(table.calendar), rule: table.daily.rules[id], questions, spark, dailyNote: spark ? table.sparkNote(windowId).text : '' });
+      phone: renderThread(table.store.phoneOf(id, 20), x => table.nameOf(x)), bonds: renderBondsFor(table.bonds, id, known.all, x => table.nameOf(x)), today: describeCalendar(table.calendar, { time: table.timelines.of(id).narrativeTime }), routine: describeRoutine(table.calendar), rule: table.daily.rules[id], questions, spark, request, dailyNote: spark ? table.sparkNote(windowId).text : '' });
   } catch (e) { table.log(`stand-in ${c.name}: ${e.message}`); return 0; }
   if (reply.action !== 'speak' || !table.isPassive(id) || table.sparkCancelled() || table.typing.get(id)?.windowId === windowId) return 0;
   (table.turnScope.getStore()?.standinActed ?? new Set()).add(id);
@@ -335,8 +335,15 @@ export async function standinReplies(table, windowId, spotlight, after, budget, 
   for (const id of table.scene(windowId)?.members ?? []) {
     if (count >= budget || id === except || table.turnScope.getStore()?.standinActed?.has(id) || !table.isPassive(id) || table.sparkCancelled()) continue;
     const name = table.nameOf(id), first = name.split(/\s+/)[0];
-    const addressed = spotlight.some(n => n === name || n === first) || table.history.lines(windowId, { after }).some(m => m.character_id !== id && m.visibility === 'window' && [name, first].some(n => String(m.content).includes(n)));
-    if (addressed) count += await table.standinAct(windowId, id, { autonomous: autonomous || spark });
+    const requests = table.turnScope.getStore()?.standinRequests;
+    const request = requests?.get(id);
+    // AI prose mentioning a name is not a request for the absent player to reply.
+    // Co-players explicitly identify a direct question; the GM uses spotlight.
+    const addressed = request || spotlight.some(n => n === name || n === first) || table.history.lines(windowId, { after }).some(m => table.isHuman(m) && m.character_id !== id && m.visibility === 'window' && [name, first].some(n => String(m.content).includes(n)));
+    if (addressed) {
+      requests?.delete(id);
+      count += await table.standinAct(windowId, id, { autonomous: autonomous || spark, request });
+    }
   }
   return count;
 }

@@ -577,8 +577,10 @@ from that instant. `/pause` freezes it too. All timestamps and anchors survive a
 While attended, the GM may advance one date after at least 180 real minutes, with no player-line requirement.
 The final review records developments and the next opening but moves neither date nor time.
 
-An unattended spark is a small topic from one randomly chosen co-player and scene. Other characters reply once,
-then the GM narrates briefly. Only narration, existing NPC speech, private GM notes and NPC phone texts are accepted;
+An unattended spark is a small topic from one randomly chosen co-player and scene, with at most one other co-player
+invited to reply. They follow their own interests and relationships; passive PCs are not the default audience.
+If the starter passes, the exchange ends without calling other characters or the GM. Otherwise the GM may briefly
+voice an existing, present NPC or let the exchange end. Only narration, existing NPC speech, private GM notes and NPC phone texts are accepted;
 no plot developments, secrets, danger, relationship changes, movement, new NPCs or scenario changes. The exchange
 is capped by `daily.spark_max_lines`. A topic can stay open with its local clock held; after
 `daily.max_lag_minutes` the GM must close it or carry it into the next routine period. A human scene line interrupts
@@ -605,11 +607,14 @@ rule, and `/back` clears declared absence. `/离开` and `/回来` are aliases. 
 commands, including as OOC lines. A phone text does not end passive presence; a scene line does. Rule-reading failures
 retain the original text and grant no optional permissions.
 
-The character stays with friends and daily routines. A separate `standin_turn` call may answer when addressed,
+The character stays quietly with friends and daily routines. AI dialogue mentioning their name alone never triggers
+a reply. Co-players may mark a genuine direct question/request with `needs_reply_from` (full names); the GM uses
+`spotlight`. Only passive PCs in the same scene can receive a co-player request, and it lasts for the current turn.
+A separate `standin_turn` call may answer that request or pass,
 using only that character's witnessed scenes, own card, known bonds, phone and rule. It cannot roll, text, go alone,
 reveal secrets, suffer serious harm or change a relationship with another PC. Important decisions become open
-questions (five per PC, expiring after 14 story days). The GM, NPCs and co-players must include passive characters
-without pressing them; bond mutations are refused. Typing holds stand-ins, as does a previous unanswered stand-in
+questions (five per PC, expiring after 14 story days). The GM, NPCs and co-players remember existing closeness without
+repeatedly greeting, naming or questioning passive characters; bond mutations are refused. Typing holds stand-ins, as does a previous unanswered stand-in
 line; there are at most 12 per character per real hour. `daily.pc_sparks` additionally permits a passive PC to start
 small talk only when its own rule explicitly permits it.
 

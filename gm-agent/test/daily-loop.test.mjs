@@ -91,6 +91,85 @@ test('sparks: character first, GM last, unsafe actions dropped, bounded and inte
   llm.coplayer = () => { t.dailyInterrupt=(t.dailyInterrupt??0)+1; return {action:'speak',text:'Must not post'}; };
   const n=api.posts.length; await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}}); assert.equal(api.posts.length,n);
 });
+test('unattended chatter uses at most two co-players and name mentions never summon a stand-in', async () => {
+  const api=new FakeApi();
+  for (const [i,name] of ['Tomas Leclerc','Mei Okada','Arthur Penhallow'].entries()) api.characters_.push({...structuredClone(api.characters_[1]),id:`c-peer${i}`,name});
+  const {t,llm,clock}=await setup({api}); clock.t+=2*H; await t.clockTick({sparks:false});
+  assert.equal(t.roster.coplayersIn('w-main').length,4);
+  llm.coplayer=()=>({action:'speak',text:'Alice Hale once mentioned this recipe.'});
+  llm.director=()=>({actions:[{type:'npc',name:'Mr. Grimsby',text:'Alice has tried it, too.'}],topic:{state:'ended'}});
+  llm.standin=()=>({action:'speak',text:'This unsolicited agreement must never post.'});
+  // A full story plan must not pressure an unattended exchange to open its next beat.
+  t.plannerVerdict=()=>({on:true,moveOn:true,beat:'Lunch',next:'A secret revelation'});
+  t.impulseFor=()=>({text:'PLOT-IMPULSE: press Alice to make a serious decision.'});
+  const start=api.posts.length;
+  await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}});
+  const coplayers=llm.calls.filter(c=>c.purpose==='coplayer_turn');
+  assert.equal(coplayers.length,2); assert.equal(llm.calls.filter(c=>c.purpose==='standin_turn').length,0);
+  assert.equal(api.posts.slice(start).filter(m=>m.stand_in).length,0);
+  assert.equal(api.posts.at(-1).character_id,'c-butler');
+  for(const call of coplayers) {
+    assert.match(call.system,/own ordinary interests/);
+    assert.doesNotMatch(call.messages[0].content,/PLOT-IMPULSE/);
+  }
+  const gm=llm.calls.find(c=>c.purpose==='director');
+  assert.match(gm.messages[0].content,/PASSIVE CHARACTERS: Alice Hale remain quietly present/);
+  assert.match(gm.messages[0].content,/THIS SMALL EXCHANGE: Harriet Vance and Mei Okada/);
+  assert.match(gm.system,/No automatic response to every line/);
+  assert.doesNotMatch(JSON.stringify(gm),/Bring it to a close now|open the next beat|Steer toward the current beat/);
+});
+test('a co-player direct request gets one stand-in answer and is not replayed next spark', async () => {
+  const {t,llm,api,clock}=await setup(); clock.t+=2*H; await t.clockTick({sparks:false});
+  llm.coplayer=()=>({action:'speak',text:'Alice, would you like a little tea?',needs_reply_from:['Alice Hale','Alice Hale']});
+  llm.standin=()=>({action:'speak',text:'Just a little, thanks.'});
+  llm.director=()=>({actions:[{type:'npc',name:'Mr. Grimsby',text:'I will pour it.'}],topic:{state:'ended'}});
+  const start=api.posts.length;
+  await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}});
+  assert.deepEqual(api.posts.slice(start).map(m=>m.character_id),['c-harriet','c-alice','c-butler']);
+  assert.equal(api.posts.filter(m=>m.stand_in).length,1);
+  const request=llm.calls.find(c=>c.purpose==='standin_turn');
+  assert.match(request.messages[0].content,/CURRENT DIRECT REQUEST:\n\{"from":"Harriet Vance","text":"Alice, would you like a little tea\?"\}/);
+  assert.match(request.system,/Quiet presence is the default/);
+  llm.coplayer=()=>({action:'speak',text:'Alice likes this blend.'});
+  await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}});
+  assert.equal(llm.calls.filter(c=>c.purpose==='standin_turn').length,1);
+});
+test('co-player requests cannot summon NPCs, co-players, unknown names or an off-scene passive PC', async () => {
+  const {t,llm,api,clock}=await setup(); clock.t+=2*H; await t.clockTick({sparks:false});
+  llm.director=()=>({actions:[],topic:{state:'ended'}});
+  llm.coplayer=()=>({action:'speak',text:'Tea?',needs_reply_from:['Harriet Vance','Mr. Grimsby','Unknown','Alice',42]});
+  const sparker={id:'c-harriet',coplayer:t.roster.coplayers[0]};
+  await t.turn('w-main',{mode:'spark',sparker});
+  const w=await api.createWindow('ch',{kind:'group',name:'Elsewhere',members:[{user_id:'u-alice',character_id:'c-alice'}]});
+  t.timelines.split({name:'Elsewhere',members:['c-alice'],windowId:w.id,span:'long',fromSeq:api.seq+1});
+  await t.refresh(); assert.ok(t.isPassive('c-alice')); assert.ok(!t.scene('w-main').members.includes('c-alice'));
+  llm.coplayer=()=>({action:'speak',text:'Alice, tea?',needs_reply_from:['Alice Hale']});
+  await t.turn('w-main',{mode:'spark',sparker});
+  assert.equal(llm.calls.filter(c=>c.purpose==='standin_turn').length,0);
+});
+test('a passing spark starter ends quietly without other co-player, stand-in or GM calls', async () => {
+  const api=new FakeApi(); api.characters_.push({...structuredClone(api.characters_[1]),id:'c-peer',name:'Tomas Leclerc'});
+  const {t,llm,clock}=await setup({api}); clock.t+=2*H; await t.clockTick({sparks:false});
+  llm.coplayer=()=>({action:'pass'}); const start=api.posts.length;
+  await t.turn('w-main',{mode:'spark',sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}});
+  assert.equal(llm.calls.filter(c=>c.purpose==='coplayer_turn').length,1);
+  assert.equal(llm.calls.filter(c=>['standin_turn','director'].includes(c.purpose)).length,0);
+  assert.equal(api.posts.length,start); assert.equal(t.daily.topics[t.timelines.main().id].open,false);
+});
+test('a passive PC can still start small talk only with explicit permission', async () => {
+  const {t,llm,api,clock}=await setup({daily:{pc_sparks:true}}); clock.t+=2*H; await t.clockTick({sparks:false});
+  llm.standin=()=>({action:'speak',text:'The garden is lovely today.'});
+  llm.coplayer=()=>({action:'speak',text:'The roses have opened.'});
+  llm.director=()=>({actions:[{type:'narrate',text:'A breeze passes through the garden.'}],topic:{state:'ended'}});
+  const sparker={id:'c-alice'};
+  await t.turn('w-main',{mode:'spark',sparker});
+  assert.equal(llm.calls.filter(c=>c.purpose==='standin_turn').length,0);
+  t.daily.rules['c-alice']={maySpark:true,allow:['small talk'],forbid:[]}; const start=api.posts.length;
+  await t.turn('w-main',{mode:'spark',sparker});
+  assert.equal(llm.calls.filter(c=>c.purpose==='standin_turn').length,1);
+  assert.equal(api.posts[start].character_id,'c-alice'); assert.equal(api.posts[start].stand_in,true);
+  assert.equal(api.posts.at(-1).kind,'narration');
+});
 test('day summaries: only witnessed lines, phone GM posts, exact open questions and weekly routine', async () => {
   const {t,api,clock,llm} = await setup(); clock.t+=H; await t.reconcilePassive();
   t.noteLine(api.add({author_id:'u-bot',author_role:'gm',chat_window_id:'w-main',content:'A seat was saved for Alice.',kind:'narration'}));
