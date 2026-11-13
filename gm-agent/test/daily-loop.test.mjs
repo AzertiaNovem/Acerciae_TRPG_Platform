@@ -8,6 +8,7 @@ import { FakeApi } from './fixtures/platform.mjs';
 import { witnessedBy } from '../src/context/standinContext.mjs';
 import { writeDaySummary } from '../src/table/daily.mjs';
 import { timetableAt, DAY } from '../src/daily.mjs';
+import { validateStoryPlan } from '../src/planner.mjs';
 const H = 3600000, START = 1700000000000;
 async function setup({ state, clock = { t: START }, llm = new MockLlm(), daily = {}, api = new FakeApi() } = {}) {
   api.knowledgeMode = 'isolated';
@@ -458,4 +459,21 @@ test('a day summary whose post fails is not recorded against another line', asyn
   assert.equal(await writeDaySummary(t, 'c-alice', t.calendar.date, 0, api.seq), null);
   assert.equal(t.store.daySummaries('c-alice').length, 0);
   assert.equal(t.store.db.prepare('SELECT count(*) AS n FROM daily_derived_lines').get().n, 0);
+});
+test('thread owners are player characters kept by id: other names own nothing, and a rename keeps the gate', async () => {
+  const {t,clock} = await setup(); t.cfg.planner.enabled = true; const logs = []; t.log = s => logs.push(s);
+  const { arc, nextId } = validateStoryPlan({ beat:{title:'Club'}, verdict:{move_on:false}, threads:[
+    {id:'new', title:'The butler', status:'live', owners:['Mr. Grimsby'], needs:'one'},
+    {id:'new', title:'The debate', status:'live', owners:['Alice Hale','Mr. Grimsby','Harriet Vance'], needs:'all'},
+  ] }, { mode:'full', daily:true, nextId:1, now:clock.t });
+  t.planner.pending = { arc, nextId, impulses:[], at:clock.t, trigger:'test' }; await t.adoptPlan();
+  assert.deepEqual(t.planner.arc.threads.map(x => x.ownerIds), [[], ['c-alice']]);
+  assert.ok(logs.some(s => s.includes('"Mr. Grimsby"') && s.includes('not a player character')));
+  clock.t += H; await t.reconcilePassive(); assert.ok(t.isPassive('c-alice'));
+  const plan = () => t.storyPlanSection();
+  assert.match(plan(), /The butler" \[live\].* owners: world; may advance/);
+  assert.match(plan(), /The debate" \[live\].* owners: Alice Hale; WAITS for Alice Hale/);
+  t.characters.find(c => c.id === 'c-alice').name = 'Alice Ward';
+  assert.match(plan(), /The debate" \[live\].* owners: Alice Ward; WAITS for Alice Ward/);
+  clock.t += 7 * DAY; assert.match(plan(), /The debate" \[live\].* owners: Alice Ward; may advance/);
 });

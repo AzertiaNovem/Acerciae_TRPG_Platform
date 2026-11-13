@@ -631,8 +631,11 @@ turns and retain long splits. On return, a missing substantial recap is sent pri
 three summaries, open questions and stand-in count, and welcomes the player in one or two sentences.
 
 Plot threads name their PC owners and require `one` or `all` to be present. Turning points and endings require all.
-A request in the planner window to join or leave a plot updates its owners in the next plan. The GM sees `WAITS`
-until the requirement is met; owners absent seven real days stop blocking. Sparks never advance any plot.
+Only player characters own a thread: a name that is not one (an NPC, a co-player, a misspelling) is logged and
+ignored, and a thread with no player-character owner belongs to the world and never waits. Owners are kept by
+character id when a plan is adopted, so renaming a character keeps the gate. A request in the planner window to join
+or leave a plot updates its owners in the next plan. The GM sees `WAITS` until the requirement is met; owners absent
+seven real days stop blocking. Sparks never advance any plot.
 
 Deploy migration `0065_passive_presence.sql` and the backend first, then the web/mobile clients, then manually update
 the GM agent. Platform deployment does not deploy the agent. The host's 日常推进 settings group controls the feature,
