@@ -44,17 +44,19 @@ export function presenceThreads(table) {
         .filter(m => m.visibility === "window" && !hidden.has(m.id) && ["ic", "narration", "ooc"].includes(m.kind) &&
           (!m.character_id || table.timelines.timelineAt(m.character_id, m.seq).id === t.id))
         .slice(-40).map(m => ({ seq: m.seq, actor: m.character_id || null, kind: m.kind,
-          keeper: m.author_role === "gm" && !m.character_id && m.kind === "narration",
+          keeper: m.author_role === "gm" && !m.character_id && m.kind === "narration", standIn: Boolean(m.stand_in),
           speaker: m.character_name || m.author_name || "GM", text: m.content }));
       return { key: "T" + t.handle, location: t.location, time: t.narrativeTime,
-        members: t.members.map(id => ({ id, name: table.nameOf(id) })), lines };
+        members: t.members.map(id => ({ id, name: table.nameOf(id), coplayer: table.roster.isCoplayer(id), since: table.guard.rec(id).changedSeq })), lines };
     });
   }
 
 export async function reconcilePresence(table, windowId, turn) {
+    const activeTurn = table.turnScope.getStore();
+    if (table.generation.paused || table.sparkCancelled() || ((["spark", "quiet", "side", "attention"].includes(activeTurn?.mode) || activeTurn?.gentle) && table.overBudget())) return;
     const scene = table.scene(windowId);
     const threads = table.presenceThreads();
-    if (!scene || threads.length < 2) return;
+    if (!scene || !threads.length) return;
     const current = "T" + scene.handle;
     const digest = hashText(JSON.stringify(threads));
     if (table.presenceChecked?.get(current) === digest) return;
@@ -62,17 +64,24 @@ export async function reconcilePresence(table, windowId, turn) {
     try { placements = await readPresence(table.llm, { current, threads }); }
     catch (e) { table.generation.signal.throwIfAborted(); table.log("scene presence: " + e.message); return; }
     table.generation.signal.throwIfAborted();
+    if (table.sparkCancelled() || ((["spark", "quiet", "side", "attention"].includes(activeTurn?.mode) || activeTurn?.gentle) && table.overBudget())) return;
     // A newer correction/departure received while the model was thinking invalidates its snapshot.
     if (hashText(JSON.stringify(table.presenceThreads())) !== digest) return;
     (table.presenceChecked ??= new Map()).set(current, digest);
     if (!placements.length) return;
     const result = planWhereabouts({ timelines: table.timelines, scene: { timeline: scene, windowId },
-      reports: placements.map(p => ({ who: [table.nameOf(p.id)], thread: p.thread })),
+      reports: placements.map(p => ({ who: [table.nameOf(p.id)], thread: p.thread, ...(p.thread === "NEW" ? { place: p.place, ownScene: true, span: p.span, time: scene.narrativeTime } : {}) })),
       scopeIds: new Set(placements.map(p => p.id)), mode: "presence", resolve: n => table.investigatorByName(n),
       isPc: id => table.isPc(id), userOf: id => table.userOf(id), windowUsers: w => table.windowUsers(w),
       guard: table.guard, turn, now: table.now(), cfg: table.cfg });
     // If an entire thread is folded into the Main Chat, keep the confirmed room instead of its stale label.
     for (const p of placements) {
+      if (p.thread === "NEW") {
+        const split = result.ops.find(o => o.op === "split" && o.ids.includes(p.id));
+        const confirmed = threads.find(t => t.key === current)?.lines.find(l => l.seq === p.confirmationSeq);
+        if (split && confirmed) split.notes = [split.notes, `Already established in public play: ${JSON.stringify(confirmed.text)}. Continue after this; do not replay the arrival or assume the other room is here.`].filter(Boolean).join("\n");
+        continue;
+      }
       const destination = table.timelines.byHandle(p.thread);
       const regroup = result.ops.find(o => o.op === "split" && o.replaces === destination.id && o.ids.includes(p.id));
       if (regroup) { regroup.place = p.place; continue; }
@@ -83,19 +92,20 @@ export async function reconcilePresence(table, windowId, turn) {
       else if (result.ops.some(o => o.op === "move" && o.to === final && o.ids.includes(p.id)))
         result.ops.push({ op: "relocate", timeline: final, location: p.place });
     }
-    table.log("scene presence: " + placements.map(p => `${table.nameOf(p.id)} joins ${table.nameOf(p.with)} at ${p.place} (#${p.actorSeq}, #${p.targetSeq})`).join("; "));
+    table.log("scene presence: " + placements.map(p => p.thread === "NEW" ? `${table.nameOf(p.id)} already left for ${p.place} (#${p.actorSeq}, #${p.confirmationSeq})` : `${table.nameOf(p.id)} joins ${table.nameOf(p.with)} at ${p.place} (#${p.actorSeq}, #${p.targetSeq})`).join("; "));
     await table.applyPlan(result, { windowId, mode: "presence", turn });
   }
 
 export async function checkDestinations(table, windowId, reports, scope, batch, mode) {
-    const messages = table.history.lines(windowId).filter(m => m.visibility === "window");
+    const hidden = table.hiddenLines();
+    const messages = table.history.lines(windowId).filter(m => m.visibility === "window" && !hidden.has(m.id));
     const lines = publicLines(messages);
     const actors = [];
     for (const id of scope) {
       const pc = table.isPc(id);
       if (pc && !["relay", "human"].includes(mode)) continue;
       const sources = pc ? batch.filter(l => l.id === id).map(l => l.seq) : messages.filter(m =>
-        m.character_id === id && m.kind === "ic" && m.seq > table.guard.rec(id).changedSeq &&
+        m.character_id === id && m.kind === "ic" && !m.stand_in && m.seq > table.guard.rec(id).changedSeq &&
         table.timelines.timelineAt(id, m.seq).id === table.timelines.of(id).id).map(m => m.seq);
       for (const l of batch.filter(l => l.id === id)) {
         if (!lines.some(m => m.seq === l.seq)) lines.push({ seq: l.seq, speaker: table.nameOf(id), text: l.content, kind: "ic" });
@@ -117,19 +127,31 @@ export async function checkDestinations(table, windowId, reports, scope, batch, 
       const key = report.thread === "NEW" ? "new:" + placeKey(report.place) : report.thread;
       if (!options.has(key)) options.set(key, report);
     }
+    // The GM's proposal is not an exhaustive menu. Reuse an existing scene when an actor
+    // explicitly goes there, or let the reader identify a new place from that actor's line.
+    for (const t of table.timelines.active()) {
+      const key = "T" + t.handle;
+      if (!options.has(key)) options.set(key, { thread: key, place: t.location, who: [], span: t.span });
+    }
     const destinations = [...options].map(([key, r]) => {
       const t = table.timelines.byHandle(key);
       return { key, place: t?.location || r.place || t?.name, companions: t?.members.map(id => table.nameOf(id)),
         recent: t ? publicLines(table.history.lines(table.windowOf(t)).filter(m => !table.hiddenLines().has(m.id))).slice(-16) : [] };
     });
     let decisions = [];
-    try { decisions = await readDestinations(table.llm, { lines, actors, destinations }); }
+    try { decisions = await readDestinations(table.llm, { lines, actors, destinations, discover: true }); }
     catch (e) { table.log("movement evidence: " + e.message); }
+    decisions = decisions.map(d => {
+      if (d.destination !== "NEW") return d;
+      const key = "new:" + placeKey(d.place);
+      if (!options.has(key)) options.set(key, { thread: "NEW", place: d.place, who: [], ownScene: true, span: d.span, time: table.scene(windowId)?.narrativeTime, opening: "" });
+      return { ...d, destination: key };
+    });
     const checked = [], ignored = [];
     let disputed = false;
     for (const [key, r] of options) {
       const who = decisions.filter(m => m.destination === key).map(m => table.nameOf(m.id));
-      if (table.dailyOn()) {
+      if (table.dailyOn() && table.turnScope.getStore()?.mode !== "attention" && !table.turnScope.getStore()?.gentle) {
         for (const name of r.who ?? []) {
           const id = table.investigatorByName(name);
           if (id && table.isPassive(id) && who.some(n => { const companion = table.investigatorByName(n); return companion !== id && !table.isPassive(companion) && table.timelines.of(companion).id === table.timelines.of(id).id; })) who.push(table.nameOf(id));
@@ -142,9 +164,9 @@ export async function checkDestinations(table, windowId, reports, scope, batch, 
       const changed = missing.length > 0 || who.some(name => !proposed.some(n => table.investigatorByName(n) === table.investigatorByName(name)));
       disputed ||= changed;
       for (const id of missing) ignored.push({ id, why: "their own latest decision does not support this destination" });
-      if (who.length) checked.push({ ...r, who, opening: changed ? "" : r.opening });
+      if (who.length) checked.push({ ...r, who, ownScene: r.ownScene || decisions.some(d => d.destination === key && d.own_scene === true), opening: changed ? "" : r.opening });
     }
-    return { reports: checked, ignored, disputed };
+    return { reports: checked, ignored, disputed, decisionSeqs: new Map(decisions.map(d => [d.id, d.seq])) };
   }
 
 export async function correctPlacement(table, message) {
@@ -313,7 +335,7 @@ export async function applyPlan(table, result, { windowId, mode, turn, autonomou
         table.timelines.bind(MAIN, windowFor.get(o));
         table.timelines.relocate(MAIN, { location: o.place, narrativeTime: o.time });
         t.opened = reconciling;
-      } else t = table.timelines.split({ name: o.place, members: o.ids, windowId: windowFor.get(o), returnTo: [windowId], location: o.place, narrativeTime: o.time ?? "", span: o.span, opened: reconciling, fromSeq });
+      } else t = table.timelines.split({ name: o.place, members: o.ids, windowId: windowFor.get(o), returnTo: [windowId], location: o.place, narrativeTime: o.time ?? "", notes: o.notes ?? "", span: o.span, opened: reconciling, fromSeq });
       if (o.replaces) table.timelines.merge(o.replaces, t.id, fromSeq);
       created.push({ op: o, timeline: t });
     }

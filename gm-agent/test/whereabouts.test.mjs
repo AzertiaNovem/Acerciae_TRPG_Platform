@@ -16,12 +16,12 @@ function world({ main = ["alice", "bob", "harriet", "tomas"], threads = [] } = {
   return { tl, windows };
 }
 
-function plan(w, reports, { scene = MAIN, mode = "human", speakers = [], guard = new Guard(), turn = 1, now = 10_000_000, scope, cfg = CFG } = {}) {
+function plan(w, reports, { scene = MAIN, mode = "human", speakers = [], guard = new Guard(), turn = 1, now = 10_000_000, scope, cfg = CFG, decisionSeqs } = {}) {
   const sceneTl = w.tl.get(scene) ?? w.tl.byName(scene);
   return planWhereabouts({
     timelines: w.tl, scene: { timeline: sceneTl }, reports: validateWhereabouts(reports), scopeIds: new Set(scope ?? sceneTl.members), speakers: new Set(speakers), mode,
     resolve: (n) => (PEOPLE[n.toLowerCase()] ? n.toLowerCase() : null), isPc: (id) => PEOPLE[id]?.pc, userOf: (id) => PEOPLE[id]?.user, windowUsers: (win) => w.windows[win] ?? [],
-    guard, turn, now, cfg,
+    guard, turn, now, cfg, decisionSeqs,
   });
 }
 const OLD_CFG = { ...CFG, sceneForks: false };
@@ -126,6 +126,18 @@ test("a player gets a new window at most once per cooldown", () => {
   const guard = new Guard(); guard.by.alice = { ...guard.rec("alice"), windowAt: 10_000_000 };
   const r = plan(world({ main: ["alice", "bob"] }), [{ who: ["alice"], thread: "new", place: "Docks", own_scene: true }], { speakers: ["alice"], guard, now: 10_000_000 + 1000 });
   assert.deepEqual(r.ops, []); assert.match(r.ignored[0].why, /moments ago/);
+});
+
+test("a fresh verified co-player choice bypasses the reversal guard only for that actor", () => {
+  const w = world(), guard = new Guard();
+  guard.commit(["harriet", "tomas"], { turn: 5, now: 10_000_000, seq: 20, prevOf: () => "t-old" });
+  const reports = [{ who: ["harriet", "tomas"], thread: "new", place: "Cellar", own_scene: true }];
+  const r = plan(w, reports, { mode: "followup", guard, turn: 6, decisionSeqs: new Map([["harriet", 21], ["tomas", 20]]) });
+  assert.deepEqual(r.ops.find(o => o.op === "split")?.ids, ["harriet"]);
+  assert.deepEqual(r.ignored.map(i => i.id), ["tomas"], "the friend's fresh decision cannot bypass Tomas's own guard");
+  const capped = plan(w, reports, { mode: "followup", guard, turn: 6, decisionSeqs: new Map([["harriet", 21]]), cfg: { ...CFG, timelineMaxActive: 1 } });
+  assert.deepEqual(capped.ops, []);
+  assert.ok(capped.ignored.some(i => i.id === "harriet" && /too many/.test(i.why)), "a fresh decision still obeys the active scene cap");
 });
 
 test("a player leaving does not fork the stayers scene; visibility is paused by the harness", () => {

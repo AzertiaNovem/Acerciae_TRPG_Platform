@@ -97,7 +97,7 @@ function cardSummary(card, { stable = false, profile = COC7E, attrs = {} } = {})
 // `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
 // `today` is the story's date as this co-player lives it (calendar.mjs), `timePassed` a line when the calendar moved
 // on since it last acted; `met` the NPCs it has met (rendered), `bonds` the relationships it knows (bonds.mjs).
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, spark = false, whistle = false, daily = false, dailyNote = "", world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null, profile = COC7E, attrs = {} }) {
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, spark = false, whistle = false, gentle = false, attentionNote = "", daily = false, dailyNote = "", world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null, profile = COC7E, attrs = {} }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -112,6 +112,8 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
   const now = [
     spark ? "SPARK: Nobody has spoken for a while. Start a small daily-life topic fitting this hour, place and routine. Never advance a plot, reveal a secret, start danger, change relationships or move anyone. Speak one short line only; no roll or text." : whistle ? "WHISTLE: Reply once to this small daily-life topic, or pass. No plot development, secrets, danger, relationship changes, movement, rolls or texts." : "",
     dailyNote,
+    attentionNote,
+    gentle ? 'UNATTENDED PERSONAL SCENE: choose only ordinary daily-life activities for yourself. You may explicitly leave for your own routine or accept an immediate invitation. No player-dependent plot, secrets, danger, relationship escalation, rolls or phone texts. Do not move, summon or demand a response from passive humans. Speak briefly or pass.' : '',
     `YOUR CURRENT CONDITION AND INVENTORY:\n${cardState(card, profile, attrs)}`,
     recalled,
     phone ? `YOUR PHONE (recent text messages, oldest first):\n${phone}` : "",
@@ -124,7 +126,7 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
     `THE OTHER ${PCS} (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map(c => pbta ? c.name : renderProfile(c, "", profile)).join("\n") || "(none)"}`,
     away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map(c => pbta ? c.name : renderProfile(c, "", profile)).join("\n")}` : "",
-    ...(!pbta ? [met, bonds, corrections, spark || whistle ? '' : impulse] : []),
+    ...(!pbta ? [met, bonds, corrections, spark || whistle || gentle ? '' : impulse] : []),
     "",
     `CHAT LOG YOUR CHARACTER WITNESSED${frozen.length ? ", latest part" : ""} (newest last):\n${recent.map(line).join("\n") || (frozen.length ? "(see above)" : "(nothing yet)")}`,
     newest ? `NEWEST LINE: ${line(newest)}` : "",
@@ -132,5 +134,5 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     "Your move?",
   ].filter(Boolean).join("\n");
   const user = [{ text: `${self}\n\n`, cache: true }, ...(past ? [{ text: `${past}\n\n`, cache: true }] : []), ...historyParts(frozen, line, "CHAT LOG YOUR CHARACTER WITNESSED, earlier part (oldest first):", CHUNK_LINES), { text: now }];
-  return completeJson(llm, { system: coplayerSystem(language, { improv, casual, pbta, profile, daily, unattended: spark || whistle }), user, purpose: "coplayer_turn" }, (x) => validateCoplayer(x, { casual, pbta, roll: profile.roll, daily }));
+  return completeJson(llm, { system: coplayerSystem(language, { improv, casual, pbta, profile, daily, unattended: spark || whistle || gentle }), user, purpose: "coplayer_turn" }, (x) => validateCoplayer(x, { casual, pbta, roll: profile.roll, daily }));
 }

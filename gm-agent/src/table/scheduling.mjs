@@ -8,6 +8,7 @@ import { noteCalendarLine } from "../calendar.mjs";
 import { TRIGGER_KINDS, HOUR } from "./shared.mjs";
 import { pictureOnly } from "../pictureLines.mjs";
 import { timetableAt } from "../daily.mjs";
+import { attentionCandidates } from './attention.mjs';
 
 export function cancelTimer(table, windowId) {
     const pending = table.timers.get(windowId);
@@ -160,16 +161,17 @@ export function noteIgnored(table, windowId, ignored) {
 export function scheduleArrival(table, windowId, arrival, { autonomous = false, force = false } = {}) {
     if (table.deferArrivals) { table.owedArrivals.push({ windowId, arrival }); return null; }
     const now = table.now();
+    const parent = table.turnScope.getStore();
     table.arrivalTimes = table.arrivalTimes.filter((t) => now - t < HOUR);
     if (!force) {
       if (table.arrivalTimes.length >= table.cfg.timelineMaxArrivalsPerHour) { table.log(`arrival in "${table.windowName(windowId)}" skipped: hourly arrival cap`); return null; }
       if (autonomous) {
         table.autonomousTurns = table.autonomousTurns.filter((t) => now - t < HOUR);
-        if (now - table.lastHumanAt > table.cfg.autonomyIdleMinutes * 60000 || table.autonomousTurns.length >= table.cfg.autonomyMaxTurnsPerHour || table.overBudget()) { table.log("arrival skipped: autonomy paused"); return null; }
+        if ((!parent?.gentle && now - table.lastHumanAt > table.cfg.autonomyIdleMinutes * 60000) || table.autonomousTurns.length >= table.cfg.autonomyMaxTurnsPerHour || table.overBudget() || (parent?.gentle && (table.sparkCancelled() || parent.dailyBudget.posted >= parent.dailyBudget.limit))) { table.log("arrival skipped: autonomy paused"); return null; }
       }
     }
     table.arrivalTimes.push(now);
-    return table.schedule(windowId, { mode: "arrival", delay: 0, arrival, autonomous });
+    return table.schedule(windowId, { mode: "arrival", delay: 0, arrival, autonomous, ...(parent?.gentle ? { gentle: true, dailyEpoch: parent.dailyEpoch } : {}) });
   }
 
 export function overBudget(table) {
@@ -242,10 +244,15 @@ export async function tick(table) {
       if (w.archived_at || table.timelines.retired(w.id) || table.isTableWindow(w.id) || (table.forks && !table.scene(w.id))) continue;
       const st = table.state(w.id);
       const scene = table.scene(w.id);
-      const isMain = w.id === table.primaryWindowId();
       const humans = table.presentPlayers(w.id).length > 0;
       const sinceLine = now - Math.max(st.lastLineAt, st.lastTurnAt);
-      if (scene && !isMain && !humans && table.roster.coplayersIn(w.id).length) {
+      // A neglected co-player gets a bounded review even when the shared window has used
+      // its ordinary quiet turns. It still waits for typing, the idle gate and hourly cap.
+      if (!away && (!humans || (st.lastHumanAt && now - st.lastHumanAt <= idle)) && table.cfg.maxActionsPerTurn >= 2 && sinceLine >= table.cfg.autonomyQuietMs && !table.humansTyping(w.id).length && attentionCandidates(table, w.id).length) {
+        candidates.push({ w, mode: "attention", waited: sinceLine, extra: {} });
+        continue;
+      }
+      if (scene && !humans && table.roster.coplayersIn(w.id).length) {
         if (sinceLine >= (away ? table.cfg.awaySideIntervalMs : table.cfg.autonomySideIntervalMs)) candidates.push({ w, mode: "side", waited: sinceLine, extra: { timeline: scene } });
       } else if (!away && humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < table.cfg.autonomyQuietTurns) {
         // Only a window where a human spoke recently moves on; a long-abandoned private window stays as it is. A human
