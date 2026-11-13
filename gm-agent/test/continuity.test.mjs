@@ -13,6 +13,66 @@ test("newest deciding line wins, including a cancellation; borrowed evidence can
   assert.deepEqual(await readDestinations(llm, input), []);
 });
 
+test("discovery separates immediate individual destinations even without a GM proposal or arrival narration", async () => {
+  const input = { discover: true, destinations: [], actors: [
+    { id: "zhou", sources: [2] }, { id: "xie", sources: [3] }, { id: "cheng", sources: [4] }, { id: "su", sources: [5] },
+  ], lines: [
+    { seq: 1, kind: "narration", text: "周见微在三班，程叙白在四班。" },
+    { seq: 2, kind: "ic", text: "我回三班了。谢遥，你要和我一起吗？" },
+    { seq: 3, kind: "ic", text: "好，我跟你回班。" },
+    { seq: 4, kind: "ic", text: "我回自己班里去。" },
+    { seq: 5, kind: "ic", text: "那我留在食堂，明天再去书店。" },
+  ] };
+  const moves = [
+    { id: "zhou", seq: 2, destination: "NEW", own_scene: true, place: "三班", place_seq: 2, span: "long" },
+    { id: "xie", seq: 3, destination: "NEW", own_scene: true, place: "三班", place_seq: 2, span: "long" },
+    { id: "cheng", seq: 4, destination: "NEW", own_scene: true, place: "四班", place_seq: 1, span: "long" },
+    { id: "su", seq: 5, destination: null },
+  ];
+  const llm = { complete: async request => {
+    assert.equal(JSON.parse(request.messages[0].content).discover, true);
+    return JSON.stringify({ moves });
+  } };
+  assert.deepEqual(await readDestinations(llm, input), moves.slice(0, 3));
+});
+
+test("discovery rejects borrowed decisions, invented places, uncertain destinations and later cancellations", async () => {
+  const input = { discover: true, destinations: [], actors: [{ id: "zhou", sources: [2, 3] }], lines: [
+    { seq: 1, kind: "ic", text: "我现在去书店。" },
+    { seq: 2, kind: "ic", text: "我回三班。" },
+    { seq: 3, kind: "ic", text: "算了，我先留在这里。" },
+    { seq: 4, kind: "ooc", text: "以后安排去暗房。" },
+  ] };
+  const go = { id: "zhou", seq: 2, destination: "NEW", own_scene: true, place: "三班", place_seq: 2 };
+  for (const moves of [
+    [{ ...go, seq: 1, place: "书店", place_seq: 1 }],
+    [{ ...go, place: "四班" }],
+    [{ ...go, place: "暗房", place_seq: 4 }],
+    [{ ...go, own_scene: false }],
+    [go, { ...go, place: "书店", place_seq: 1 }],
+    [go, { id: "zhou", seq: 3, destination: null }],
+  ]) {
+    assert.deepEqual(await readDestinations({ complete: async () => JSON.stringify({ moves }) }, input), []);
+  }
+});
+
+test("relative destinations distinguish separate homes while keeping an accepted companion with the right host", async () => {
+  const input = { discover: true, destinations: [], actors: [
+    { id: "zhou", name: "周见微", sources: [1] }, { id: "xie", name: "谢遥", sources: [2] }, { id: "cheng", name: "程叙白", sources: [3] },
+  ], lines: [
+    { seq: 1, kind: "ic", text: "我回家了，谢遥要来玩吗？" },
+    { seq: 2, kind: "ic", text: "好，我跟你回家。" },
+    { seq: 3, kind: "ic", text: "我也回家，明天学校见。" },
+  ] };
+  const moves = input.actors.map((a, i) => ({ id: a.id, seq: i + 1, destination: "NEW", own_scene: true, place: "家", place_seq: i + 1, place_owner: a.id === "xie" ? "zhou" : a.id }));
+  const llm = { complete: async () => JSON.stringify({ moves }) };
+  assert.deepEqual((await readDestinations(llm, input)).map(d => d.place), ["周见微 · 家", "周见微 · 家", "程叙白 · 家"]);
+  moves.push({ ...moves[0], place_owner: "cheng" });
+  assert.ok(!(await readDestinations(llm, input)).some(d => d.id === "zhou"), "conflicting owners cannot select an arbitrary group");
+  moves[1].place_owner = "unknown";
+  assert.ok(!(await readDestinations(llm, input)).some(d => d.id === "xie"), "an invented host cannot define the destination");
+});
+
 test("a sentence can establish lunch and propose dinner without counting an unconfirmed meal twice", async () => {
   const text = "苏婉中午吃了牛肉面；晚饭我想去二食堂。";
   const messages = [{ id: "msg", seq: 12, visibility: "window", kind: "ic", character_name: "苏婉", content: text }];

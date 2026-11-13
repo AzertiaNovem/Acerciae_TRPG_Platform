@@ -222,10 +222,11 @@ public:
         while (!base_.empty() && base_.back() == '/') base_.pop_back();
         model_ = json::str(config, "model", ""); if (model_.empty()) model_ = "gpt-4o-mini-tts";
         voice_ = json::str(config, "voice", ""); if (voice_.empty()) voice_ = "alloy";
+        kind_ = json::str(config, "provider", "openai") == "openrouter" ? "openrouter" : "openai";
         pricePer10k_ = std::atof(env("TTS_PRICE_PER_10K_CHARS", "0").c_str()); timeoutMs_ = std::atol(env("OPENAI_TTS_TIMEOUT_MS", "60000").c_str());
     }
-    std::string name() const override { return "openai"; }
-    std::string cacheNamespace() const override { return "openai:" + crypto::sha256Hex(base_ + apiKey_); }
+    std::string name() const override { return kind_; }
+    std::string cacheNamespace() const override { return kind_ + ":" + crypto::sha256Hex(base_ + apiKey_); }
     bool isMock() const override { return false; }
     std::string officialModel() const override { return model_; }
     std::string previewModel() const override { return model_; }
@@ -267,7 +268,7 @@ public:
     }
     double estimateSynthesisCost(const std::string&, int chars) override { return pricePer10k_ * chars / 10000.0; }
     Json::Value features() const override {
-        Json::Value f; f["label"] = "OpenAI"; f["voice_design"] = false; f["voice_clone"] = false;
+        Json::Value f; f["label"] = kind_ == "openrouter" ? "OpenRouter" : "OpenAI"; f["voice_design"] = false; f["voice_clone"] = false;
         f["languages"] = languages({{"auto", "Follow the text"}, {"zh", "Mandarin Chinese"}, {"en", "English"}, {"ja", "Japanese"}, {"ko", "Korean"}, {"es", "Spanish"}, {"fr", "French"}, {"de", "German"}, {"ru", "Russian"}, {"pt", "Portuguese"}, {"it", "Italian"}});
         f["language_note"] = "Asked for in the instructions; the model reads the language from the text otherwise.";
         Json::Value d; d["label"] = "Accent"; d["placeholder"] = "e.g. soft Scottish, Boston, Taiwanese Mandarin"; f["dialect"] = d;
@@ -279,12 +280,16 @@ public:
     }
     Json::Value capabilities() const override { Json::Value c; c["word_timestamps"] = false; c["voice_design"] = false; c["voice_clone"] = false; c["phoneme_hints"] = false; c["instructions"] = model_.rfind("tts-1", 0) != 0; c["api_base"] = base_; c["model"] = model_; c["note"] = "OpenAI /audio/speech: preset voices, delivery instructions on gpt-*-tts models, 24 kHz PCM wrapped as WAV."; return c; }
 private:
-    std::string apiKey_, base_, model_, voice_; double pricePer10k_ = 0; long timeoutMs_ = 60000;
+    std::string apiKey_, base_, model_, voice_, kind_ = "openai"; double pricePer10k_ = 0; long timeoutMs_ = 60000;
 };
 
+std::unique_ptr<TtsProvider> makeExtraTtsProvider(const Json::Value& config);   // TtsProviders.cpp
+
 std::unique_ptr<TtsProvider> makeTtsProvider(const Json::Value& config) {
-    if (json::str(config, "provider") == "qwen") return std::make_unique<QwenTtsProvider>(config);
-    if (json::str(config, "provider") == "openai") return std::make_unique<OpenAiTtsProvider>(config);
+    auto kind = json::str(config, "provider");
+    if (kind == "qwen" || kind == "alibaba") return std::make_unique<QwenTtsProvider>(config);
+    if (kind == "openai" || kind == "openrouter") return std::make_unique<OpenAiTtsProvider>(config);
+    if (auto extra = makeExtraTtsProvider(config)) return extra;
     return std::make_unique<MockTtsProvider>();
 }
 

@@ -499,3 +499,11 @@ fieldset legend { font-size: 12px; color: var(--fg-1); padding: 0 6px; }
 .dice-templates { gap: 4px; padding: 6px; border-radius: 8px; background: var(--bg-2); }
 .dice-templates > span { display: flex; gap: 6px; align-items: center; }
 .dice-templates .dice-add-template { align-self: flex-start; }
+/* Server settings → AI services: providers and model uses. */
+.ai-providers .ai-provider { align-items: flex-start; }
+.ai-providers .ai-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.ai-provider-form { padding: 10px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--bg-4); }
+.ai-uses { display: flex; flex-direction: column; gap: 8px; }
+.ai-use { display: grid; grid-template-columns: minmax(120px, 30%) 1fr; gap: 10px; align-items: start; padding: 8px; border-radius: 8px; background: var(--bg-2); }
+.ai-use-label { font-weight: 600; font-size: 13px; padding-top: 6px; }
+@media (max-width: 560px) { .ai-use { grid-template-columns: 1fr; } }

@@ -42,6 +42,8 @@ Set `webui.enabled: true` in the shared file and supply a random `webui.token` o
 
 A save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active.
 
+The Overview's “AI 队友所在窗口” card lists each co-player's current conversation windows and timeline, updating with the live status. Closed historical seats are excluded; archived, ended or unavailable windows are labelled explicitly. Hover over a window name to see its ID when names repeat. A stopped or unresponsive worker's retained locations are marked as the last record rather than a live position.
+
 **Token charts.** “全部任务用量” compares each hosted channel’s recorded input + output for today; click a task to inspect it. In Overview, stacked bars group calls by purpose (GM/director, planner, co-player turns/cards, memory, etc.) and show ordinary input, cached input reads/writes and output. Switch between today (the host’s local midnight) and the rolling last seven days; expand the table for every phase/provider/model, call count, failures, unreported usage, estimates and average output. Cached tokens are already included in input and are not counted twice. Shares refer to the recorded total, and missing provider usage is shown as unknown rather than free. Budget-equivalent token counts remain separate from the raw chart totals and do not represent a monetary price. Statistics use two indexed grouped queries, shared for 15 seconds, and reuse the same chart while its data is unchanged. No per-call history is downloaded by polling. Stopped workers show their last snapshot; missing or previous-day snapshots are excluded from today’s cross-task comparison and listed as unavailable, never zero.
 
 **New hosting tasks.** "＋ 新建主持任务" adds a channel to the running host, without a restart. Either pick a channel the shared account is already GM of (listed from the platform; channels this host keeps are marked), or create one on the platform the way `setup --create` does: on an existing server or a new one (which also returns an invite code for the players), with its name, rule system and era; casual mode makes it an isolated channel so phones stay private. The form takes the first settings (language, co-players, D&D level, casual mode, scene forks, autonomy, planner) and whether the channel starts with the host, is prepared on start, and starts now. The host writes `channels/<channel id>.yml` next to the other channel files and adds the entry to the shared file's `channels:` list, in place: comments and credentials stay, and the file is written atomically with mode 600. Each channel's Settings tab switches auto-start and prepare-on-start (written to the shared file, used at the next start). “删除主持任务” in the channel header confirms deletion, stops that worker, then removes its registry entry and refreshes the list; other workers keep running. Its channel file, state and platform channel stay, so it can be attached again (a new file is written; the old one is never overwritten). A failed deletion keeps the task visible. A host can start with an empty `channels: []` and get every channel from the UI. Stopped channels stay stopped. Unsaved edits are not replaced by status refreshes. Shared credentials are never returned to the browser. To change shared connections or the UI listener, edit the shared file and restart the host; the channel list can also be changed from the UI. Changes made directly to channel files take effect on the next channel restart.
@@ -452,6 +454,14 @@ The rules that keep this safe:
   suggestion). Before applying a proposed split, the agent independently reads each character's own decisions
   in that scene. A later change of mind takes precedence. A companion can follow a player on the strength of
   an earlier commitment even if someone else spoke last.
+- **Clear departures open scenes promptly.** The decision reader also runs on new character actions when the GM
+  omitted whereabouts. It can find a new destination in that character's own line or its public context, or reuse
+  an existing thread. Each traveller needs their own decision; uncertainty about a companion does not hold back
+  a clear solo departure. An accepted immediate journey counts; an unanswered invitation or future plan does not.
+  Independent classes, home visits and routines are long splits even when nearby. Shared corridors on the same
+  journey stay together. Relative places such as "home" are qualified by whose place it is, so separate homes
+  cannot be combined merely because they share a label. The actual window opens through the usual arrival scheduler,
+  within the existing caps.
 - A player can correct a misplaced companion in the scene chat or the planner window. Once the correction
   identifies the character and thread, the agent updates the actual seat before answering and bypasses the
   ordinary move cooldown. Players can also correct their own character.
@@ -468,9 +478,17 @@ The rules that keep this safe:
   player-group access still apply. These checks use the configured LLM; the offline provider reports
   no inferred reunion unless a test supplies a fixture. Shared journeys through intermediate corridors or lobbies
   are narrated together instead of opened as separate adventures at each waypoint.
-- **No flip-flopping.** A co-player's move that would undo a recent change needs two agreeing turns after it
-  (`timelines.guard_turns`, `timelines.guard_ms`). Players' own moves and reconciliation of established presence
-  are never deferred.
+- **Already apart must get separate seats.** The same reader checks a shared window for missed co-player
+  departures, even when it is the only active thread. A co-player's own recent in-character action and a later
+  public GM narration must both establish the separate place. A rejected or omitted movement proposal therefore
+  cannot leave someone who went home listening to the human's bookshop scene. The repair creates or joins the
+  appropriate thread without replaying travel, carries the confirming public context into the new thread's GM
+  notes, and lets its normal scheduler continue it. Independent classes, errands and visits persist until a reunion.
+  Invitations, future plans and planner wishes alone do not move anyone. Before an unattended spark, the same
+  check repairs established placement only; cancellation and the daily token budget still apply.
+- **No flip-flopping.** A co-player's proposed reversal without a verified decision newer than the last move needs
+  two agreeing turns (`timelines.guard_turns`, `timelines.guard_ms`). A fresh explicit choice takes effect immediately;
+  players' own moves and reconciliation of established presence are also never deferred by this guard.
 - **No history leaks** (scene forks). The server enforces membership intervals for reads, search, references, exports and live
   delivery. Pause/resume never fills the absence with old messages. Same-group players still share the union of
   their readable perspectives. Fork ancestry does not widen any reader's original permissions.
@@ -529,12 +547,34 @@ Each turn the GM is told whether a change is possible now. `scenarios.auto: fals
 
 On its own clock (`autonomy.tick_ms`) the table also runs:
 
-- **side** turns: a co-players-only window moves on, turn after turn, every `autonomy.side_interval_ms`, with no human
+- **side** turns: a co-players-only scene moves on, turn after turn, every `autonomy.side_interval_ms`, with no human
   line. The co-players drive the thread; the GM runs the world and answers them at once;
 - **quiet** turns: a scene with human players that has been silent for `autonomy.quiet_ms` moves on a little: the
   world, the NPCs, a question to a named player, the co-players. The GM is told never to decide, speak or roll for a
   player character; the client enforces it too. After `autonomy.quiet_turns` quiet turns the window waits for a human
-  again. Only windows where a human spoke recently are moved; the Main Chat never runs side turns.
+  again. Only shared windows where a human spoke recently are moved. A primary scene containing only co-players
+  is eligible for side turns too; an empty Main Chat lobby is not.
+
+Within the GM's spotlight groups, co-players who have gone longest without a scene line act first, so a small
+`pacing.max_actions_per_turn` budget does not always spend its remaining slots on the first roster entry.
+
+The table also checks for co-players left without participation in their current window. By default, twelve public
+story lines without their own action trigger a review; twenty real minutes also qualify after at least four story
+lines. Private notes, OOC chat, recalled lines and other windows do not count. Joining a new seat resets the scope.
+Each GM turn reviews at most one co-player, reconsiders whether their recorded location fits their actual actions,
+and offers a concrete personal activity, relationship moment or independent scene. A reserved action slot lets that
+co-player choose, with room for a GM follow-up when the turn budget permits. Their own decision still determines any
+split and companions. Pending rolls and player choices take precedence. The GM can record a grounded reason to rest
+or wait; the same co-player is not reviewed again for twenty minutes. Review state survives restart and rolls back
+with a recalled turn. Human players and NPCs are not selected by this co-player check.
+
+A review can ride on a normal turn, or run autonomously in a recently active scene after its quiet interval even if
+ordinary quiet turns have been used. Typing, hosting pause, idle and hourly limits still hold. In unattended daily
+life it replaces one scheduled daily spark, including that slot's day/night and token limits; it adds no extra daily
+slots. Only ordinary personal activities may develop, with no player-dependent plot, secrets, danger or relationship
+escalation. New arrival turns inherit those restrictions and share the same line allowance. Passive humans are not
+summoned or moved along. A budget of at least two actions is needed for a review. Set `autonomy.coplayer_idle_lines`
+to `0` to disable the check; both thresholds are configurable in the GM-agent web settings.
 
 Autonomy is capped at `autonomy.max_turns_per_hour` (and by `context.daily_token_budget`), never runs while another turn
 is pending, and any human line wakes the table up. `autonomy.enabled: false` turns it off.
@@ -575,8 +615,10 @@ from that instant. `/pause` freezes it too. All timestamps and anchors survive a
 While attended, the GM may advance one date after at least 180 real minutes, with no player-line requirement.
 The final review records developments and the next opening but moves neither date nor time.
 
-An unattended spark is a small topic from one randomly chosen co-player and scene. Other characters reply once,
-then the GM narrates briefly. Only narration, existing NPC speech, private GM notes and NPC phone texts are accepted;
+An unattended spark is a small topic from one randomly chosen co-player and scene, with at most one other co-player
+invited to reply. They follow their own interests and relationships; passive PCs are not the default audience.
+If the starter passes, the exchange ends without calling other characters or the GM. Otherwise the GM may briefly
+voice an existing, present NPC or let the exchange end. Only narration, existing NPC speech, private GM notes and NPC phone texts are accepted;
 no plot developments, secrets, danger, relationship changes, movement, new NPCs or scenario changes. The exchange
 is capped by `daily.spark_max_lines`. A topic can stay open with its local clock held; after
 `daily.max_lag_minutes` the GM must close it or carry it into the next routine period. A human scene line interrupts
@@ -603,11 +645,14 @@ rule, and `/back` clears declared absence. `/离开` and `/回来` are aliases. 
 commands, including as OOC lines. A phone text does not end passive presence; a scene line does. Rule-reading failures
 retain the original text and grant no optional permissions.
 
-The character stays with friends and daily routines. A separate `standin_turn` call may answer when addressed,
+The character stays quietly with friends and daily routines. AI dialogue mentioning their name alone never triggers
+a reply. Co-players may mark a genuine direct question/request with `needs_reply_from` (full names); the GM uses
+`spotlight`. Only passive PCs in the same scene can receive a co-player request, and it lasts for the current turn.
+A separate `standin_turn` call may answer that request or pass,
 using only that character's witnessed scenes, own card, known bonds, phone and rule. It cannot roll, text, go alone,
 reveal secrets, suffer serious harm or change a relationship with another PC. Important decisions become open
-questions (five per PC, expiring after 14 story days). The GM, NPCs and co-players must include passive characters
-without pressing them; bond mutations are refused. Typing holds stand-ins, as does a previous unanswered stand-in
+questions (five per PC, expiring after 14 story days). The GM, NPCs and co-players remember existing closeness without
+repeatedly greeting, naming or questioning passive characters; bond mutations are refused. Typing holds stand-ins, as does a previous unanswered stand-in
 line; there are at most 12 per character per real hour. `daily.pc_sparks` additionally permits a passive PC to start
 small talk only when its own rule explicitly permits it.
 
@@ -618,14 +663,20 @@ support log once and disable marks and stand-ins; the clock and sparks continue.
 recalled and further stand-ins are disabled. A clean shutdown clears platform marks; a crash leaves them until restart.
 
 On each date change, PCs who were passive and witnessed something receive a GM summary in their phone, from only
-their own perspective, followed by the exact outstanding questions. Summaries are stored in local SQLite. The planner
-supplies a public weekly routine as the fallback for the daily refresh. Timetable day turns rejoin short splits without arrival
-turns and retain long splits. On return, a missing substantial recap is sent privately; the GM receives the newest
-three summaries, open questions and stand-in count, and welcomes the player in one or two sentences.
+their own perspective. Something means a scene line or a phone text; the table's own notices in the phone do not
+count, and a day with nothing witnessed costs no model call. A summary does not repeat open questions: each one is
+posted to the phone once, when it is asked. Summaries are stored in local SQLite. The planner supplies a public weekly
+routine as the fallback for the daily refresh. Timetable day turns rejoin short splits without arrival turns and retain
+long splits. On return, the phone gets a recap: a summary of what the character witnessed, when enough happened and no
+day summary covers it, and every open question together, listed by the table without a model call. The GM receives
+the newest three summaries, open questions and stand-in count, and welcomes the player in one or two sentences.
 
 Plot threads name their PC owners and require `one` or `all` to be present. Turning points and endings require all.
-A request in the planner window to join or leave a plot updates its owners in the next plan. The GM sees `WAITS`
-until the requirement is met; owners absent seven real days stop blocking. Sparks never advance any plot.
+Only player characters own a thread: a name that is not one (an NPC, a co-player, a misspelling) is logged and
+ignored, and a thread with no player-character owner belongs to the world and never waits. Owners are kept by
+character id when a plan is adopted, so renaming a character keeps the gate. A request in the planner window to join
+or leave a plot updates its owners in the next plan. The GM sees `WAITS` until the requirement is met; owners absent
+seven real days stop blocking. Sparks never advance any plot.
 
 Deploy migration `0065_passive_presence.sql` and the backend first, then the web/mobile clients, then manually update
 the GM agent. Platform deployment does not deploy the agent. The host's 日常推进 settings group controls the feature,
@@ -1036,13 +1087,15 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `context.daily_token_budget` | | `0` (off) | billable-equivalent tokens a day; once spent, no autonomous turns or plans until tomorrow |
 | `autonomy.enabled` | `--autonomy` | `true` | side timelines and quiet windows move on the table's own clock |
 | `autonomy.tick_ms` | | `30000` | how often the table looks for a window that should move |
+| `autonomy.coplayer_idle_lines` | `--coplayer-idle-lines` | `12` | public story lines without co-player participation before reviewing their place and opportunity; `0` disables |
+| `autonomy.coplayer_idle_minutes` | `--coplayer-idle-minutes` | `20` | elapsed trigger after four story lines; minimum interval between reviews of the same co-player |
 | `autonomy.side_interval_ms` | | `90000` | pause between turns in a side window |
 | `autonomy.quiet_ms`, `autonomy.quiet_turns` | | `180000`, `2` | silence before a shared window moves on, and how many such turns until a human posts again |
 | `autonomy.max_turns_per_hour`, `autonomy.idle_minutes` | | `20`, `30` | hourly cap on autonomous turns; "away" once nobody has posted for this long |
 | `autonomy.away_side_interval_ms` | | `21600000` (6 h) | while away, how often a co-players-only thread moves (0: never) |
 | `timelines.auto` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: model-led co-player splits |
 | `timelines.scene_forks` | `--scene-forks` | `false` | `true`: after the first split the main story moves to a private fork and the Main Chat becomes a lobby the GM never narrates in; `false`: the main story stays in the Main Chat with the players (see Timelines) |
-| `timelines.guard_turns`, `timelines.guard_ms` | | `2`, `180000` | a co-player's move that undoes a recent change waits for two agreeing turns within this window |
+| `timelines.guard_turns`, `timelines.guard_ms` | | `2`, `180000` | a co-player reversal without a fresh verified decision waits for two agreeing turns within this window |
 | `timelines.max_active` | | `4` | at most this many threads at once (the main one included) |
 | `timelines.pc_cooldown_ms` | | `300000` | a player gets a new window at most this often |
 | `timelines.max_arrivals_per_hour` | | `12` | arrival turns (opening a new or changed scene) per hour |

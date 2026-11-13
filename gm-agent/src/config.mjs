@@ -82,6 +82,7 @@ const SETTINGS = [
   ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
   ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-side-interval-ms", null, "autonomy.side_interval_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
   ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"], ["away-side-interval-ms", null, "autonomy.away_side_interval_ms"],
+  ["coplayer-idle-lines", null, "autonomy.coplayer_idle_lines"], ["coplayer-idle-minutes", null, "autonomy.coplayer_idle_minutes"],
   ["timeline-auto", null, "timelines.auto"], ["scene-forks", null, "timelines.scene_forks"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
   ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
@@ -265,6 +266,8 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     autonomyTickMs: Math.max(1000, int(pick("autonomy-tick-ms", 30000), 30000)),
     autonomySideIntervalMs: int(pick("autonomy-side-interval-ms", 90000), 90000),
     autonomyQuietMs: int(pick("autonomy-quiet-ms", 180000), 180000),
+    coplayerIdleLines: Math.max(0, int(pick("coplayer-idle-lines", 12), 12)),
+    coplayerIdleMinutes: Math.max(1, int(pick("coplayer-idle-minutes", 20), 20)),
     // Away mode: once nobody has posted for idle_minutes, co-players-only threads still move, this rarely (0 = they
     // wait too). Fragmented play keeps going between visits without spending much.
     awaySideIntervalMs: Math.max(0, int(pick("away-side-interval-ms", 21600000), 21600000)),

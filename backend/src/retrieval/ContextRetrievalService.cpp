@@ -262,7 +262,7 @@ void ContextRetrievalService::indexEmbedding(const std::string& channelId, const
     if (!embeddingsEnabled(channelId)) return;
     auto v = llm_.embed(channelId, textual);
     if (v.size() != 1536) return;
-    try { db_.exec("INSERT INTO fact_embeddings(fact_id, model, embedding) VALUES($1,$2,$3::vector) ON CONFLICT (fact_id) DO UPDATE SET embedding=EXCLUDED.embedding, model=EXCLUDED.model", {factId, llm_.modelName(channelId), vecLiteral(v)}); }
+    try { db_.exec("INSERT INTO fact_embeddings(fact_id, model, embedding) VALUES($1,$2,$3::vector) ON CONFLICT (fact_id) DO UPDATE SET embedding=EXCLUDED.embedding, model=EXCLUDED.model", {factId, llm_.embeddingModel(channelId), vecLiteral(v)}); }
     catch (const std::exception& e) { ALOG_WARN << "embedding index failed: " << e.what(); }
 }
 Json::Value ContextRetrievalService::semanticSearch(const ChannelAccess& a, const std::string& query, int limit) {

@@ -16,7 +16,7 @@ bool AtmosphereService::enabled(const std::string &ch) {
   return !db_.queryOne("SELECT 1 FROM channels c JOIN server_settings s ON "
                        "s.server_id=c.server_id WHERE c.id=$1 AND "
                        "c.atmosphere_enabled AND "
-                       "s.feature_atmosphere AND s.image_provider<>'disabled' "
+                       "s.feature_atmosphere AND coalesce((SELECT u.mode FROM server_ai_uses u WHERE u.server_id=c.server_id AND u.use='image_generation' AND (u.mode<>'provider' OR u.provider_id IS NOT NULL)), 'disabled')<>'disabled' "
                        "AND EXISTS(SELECT 1 FROM channel_members m JOIN users "
                        "u ON u.id=m.user_id WHERE m.channel_id=c.id AND "
                        "u.atmosphere_enabled)",
@@ -102,7 +102,7 @@ void AtmosphereService::afterBatch(const std::string &ch,
   // Mock mode never guesses a location from unstructured chatter. Explicit
   // public scene markers exercise the flow.
   Json::Value plan;
-  if (llm_.isMock(ch)) {
+  if (llm_.isMock(ch, "channel_atmosphere")) {
     for (const auto &e : lines) {
       if (e["seq"].asInt64() <= state["last_review_seq"].asInt64())
         continue;

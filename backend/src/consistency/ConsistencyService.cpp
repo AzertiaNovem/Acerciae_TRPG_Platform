@@ -91,14 +91,14 @@ Json::Value ConsistencyService::check(const ChannelAccess& a, const std::string&
     bool insufficient = json::toBool(result, "insufficient_evidence");
     if (insufficient) result["score"] = Json::Value();
     result["score_label"] = insufficient ? "Insufficient Evidence" : (std::to_string(result["score"].asInt()) + "%");
-    result["llm_mode"] = llm_.mode(a.channelId);
+    result["llm_mode"] = llm_.mode(a.channelId, "consistency");
     result["character_id"] = characterId;
     // Persist and create user-scoped temporary highlights on the cited entries.
     auto row = db_.queryOne(
         "INSERT INTO consistency_checks(channel_id, chat_window_id, user_id, character_id, draft, score, insufficient_evidence, rationale, conflicts, evidence, recommended_entry_ids, llm_mode) "
         "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::uuid[],$12) RETURNING id, created_at",
         {a.channelId, chatWindowId.empty() ? dbNull() : DbParam(chatWindowId), a.userId, characterId.empty() ? dbNull() : DbParam(characterId), draft,
-         result["score"].isNull() ? dbNull() : DbParam((int64_t)result["score"].asInt()), insufficient, json::str(result, "rationale"), json::dump(result["conflicts"]), json::dump(evidence), pgArrayLiteral(recEntries), llm_.mode(a.channelId)});
+         result["score"].isNull() ? dbNull() : DbParam((int64_t)result["score"].asInt()), insufficient, json::str(result, "rationale"), json::dump(result["conflicts"]), json::dump(evidence), pgArrayLiteral(recEntries), llm_.mode(a.channelId, "consistency")});
     db_.exec("UPDATE consistency_checks SET player_group_id=$2::uuid,player_group_version=$3 WHERE id=$1",{row["id"].asString(),a.playerGroupId.empty()?dbNull():DbParam(a.playerGroupId),(int64_t)a.playerGroupVersion});
     result["id"] = row["id"]; result["created_at"] = row["created_at"];
     Json::Value hls(Json::arrayValue);

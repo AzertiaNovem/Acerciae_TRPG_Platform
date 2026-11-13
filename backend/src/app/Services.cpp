@@ -66,7 +66,7 @@ Services& Services::build(const Config& cfg) {
     s.dice = std::make_unique<DiceService>(*s.db, *s.auth, *s.settings, *s.notifier);
     s.chat = std::make_unique<ChatService>(*s.db, *s.auth, *s.events, *s.scenes, *s.notifier, *s.documents, *s.dice);
     s.llm = std::make_unique<LlmGateway>(s.cfg);
-    s.llm->setProfileResolver([&s](const std::string& channelId) { return s.settings->profileForChannel(channelId); });
+    s.llm->setProfileResolver([&s](const std::string& channelId, const std::string& use) { return s.settings->profileForChannel(channelId, use); });
     s.llm->setMeter(s.aiPolicy.get());
     llm::configureTransport(cfg.llmMaxConnections, cfg.llmQueueLimit);
     s.apiRequests = std::make_unique<WorkPool>("api-requests", cfg.apiWorkers, cfg.apiQueueLimit);

@@ -2,15 +2,14 @@
 #include "Llm.h"
 
 namespace acerciae {
-// Talks to any endpoint implementing the OpenAI Responses API (POST {api_base}/responses), streamed. Embeddings use
-// {api_base}/embeddings. Tool results stay in the permission-checked gateway loop.
+// Talks to any endpoint implementing the OpenAI Responses API (POST {api_base}/responses), streamed. Tool results stay
+// in the permission-checked gateway loop. (Embeddings: ai/Embeddings.h.)
 class OpenAiCompatClient : public ILlmClient {
 public:
     explicit OpenAiCompatClient(LlmEndpoint ep) : ep_(std::move(ep)) {}
     LlmResponse complete(const LlmRequest& req) override;
     std::string mode() const override { return "live"; }
     std::string modelName() const override { return ep_.model; }
-    std::vector<float> embed(const std::string& text) override;
     static Json::Value requestBody(const LlmRequest& req, const LlmEndpoint& ep);
     // Whether an API base is OpenAI's own API (which takes prompt_cache_key).
     static bool officialOpenAi(const std::string& apiBase);

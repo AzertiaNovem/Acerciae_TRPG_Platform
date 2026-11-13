@@ -1,5 +1,6 @@
 import { dailyLabels } from "../daily-locale.mjs";
 import { planDailyLife } from '../daily-planner.mjs';
+import { attentionCandidates } from './attention.mjs';
 // Daily-life effects share Table's serial queue and state writer.
 import { completeJson } from '../llm/index.mjs';
 import { setRoutine, parseIso } from '../calendar.mjs';
@@ -177,7 +178,7 @@ export { dailyState };
 
 export function sparkCancelled(table) {
   const turn = table.turnScope.getStore();
-  return turn?.mode === 'spark' && (turn.dailyEpoch !== (table.dailyInterrupt ?? 0) || table.dailyMode() !== 'unattended' || table.generation.paused);
+  return (turn?.mode === 'spark' || turn?.gentle) && (turn.dailyEpoch !== (table.dailyInterrupt ?? 0) || table.dailyMode() !== 'unattended' || table.generation.paused);
 }
 export function sparkTick(table) {
   if (!table.dailyOn() || table.pending || table.generation.paused) return;
@@ -190,12 +191,14 @@ export function sparkTick(table) {
     for (const cp of table.roster.coplayersIn(windowId)) candidates.push({ id: cp.characterId, windowId, coplayer: cp });
     if (!table.standinOff && table.cfg.daily.pc_sparks && table.isPassive) for (const id of t.members) if (table.isPc(id) && table.isPassive(id) && s.rules[id]?.maySpark) candidates.push({ id, windowId });
   }
-  const pick = pickSpark(candidates, s.lastSparker, table.random);
+  const neglected = table.cfg.autonomy && table.cfg.maxActionsPerTurn >= 2 && table.autonomousTurns.filter(at => now - at < 3600000).length < table.cfg.autonomyMaxTurnsPerHour
+    ? table.timelines.active().flatMap(t => attentionCandidates(table, table.windowOf(t))).sort((a, b) => b.lines - a.lines)[0] : null;
+  const pick = (neglected && candidates.find(c => c.id === neglected.id && c.windowId === neglected.windowId)) || pickSpark(candidates, s.lastSparker, table.random);
   if (!pick) return;
   s.sparks = [...s.sparks.filter(at => now - at < DAY), now];
   s.nextSparkAt = nextSparkAt(now, table.cfg, pressure, table.random); s.lastSparker = pick.id;
   table.save();
-  table.schedule(pick.windowId, { mode: 'spark', delay: 0, sparker: pick, dailyEpoch: table.dailyInterrupt ?? 0 });
+  table.schedule(pick.windowId, { mode: neglected && pick.id === neglected.id ? 'attention' : 'spark', gentle: Boolean(neglected && pick.id === neglected.id), delay: 0, sparker: pick, dailyEpoch: table.dailyInterrupt ?? 0 });
 }
 export function sparkNote(table, windowId) {
   const thread = table.scene(windowId), c = dailyConfig(table.cfg), s = table.daily;
@@ -253,7 +256,7 @@ export async function reconcilePassive(table, { force = false, clear = false } =
 export function passiveNote(table, windowId) {
   if (!table.dailyOn()) return '';
   const ids = (table.scene(windowId)?.members ?? table.characters.map(c => c.id)).filter(id => table.isPassive(id));
-  return ids.length ? `PASSIVE CHARACTERS: ${ids.map(id => table.nameOf(id)).join(', ')} are here. Be warm, include them, remember close relations; never press for decisions, aim secrets, accusations, confessions, quarrels or plot twists at them, let them be harmed or make a scene wait on them. No important relationship begins or ends. Only their separate stand-in may speak for them.` : '';
+  return ids.length ? `PASSIVE CHARACTERS: ${ids.map(id => table.nameOf(id)).join(', ')} remain quietly present, not the conversation's default audience. Their silence is comfortable: no repeated greetings, name checks, questions or invitations to participate. Co-players and NPCs have their own interests and relationships; let them talk to each other and let conversations end. Remember existing closeness without turning it into repeated attention. Never press for decisions, aim secrets, accusations, confessions, quarrels or plot twists at passive characters, let them be harmed or make a scene wait on them. No important relationship begins or ends. Only their separate stand-in may speak for them.` : '';
 }
 
 export async function onAwayCommand(table, m, command) {
@@ -285,7 +288,7 @@ export async function onAwayCommand(table, m, command) {
   table.save();
   await table.post(m.chat_window_id, { kind: 'narration', content }, { count: false });
 }
-export async function standinAct(table, windowId, id, { spark = false, autonomous = false } = {}) {
+export async function standinAct(table, windowId, id, { spark = false, autonomous = false, request = null } = {}) {
   if (!table.dailyOn() || table.standinOff || !table.isPassive(id) || table.sparkCancelled() || ((spark || autonomous) && table.overBudget())) return 0;
   if (spark && (!table.cfg.daily.pc_sparks || !table.daily.rules[id]?.maySpark)) return 0;
   const typing = table.typing.get(id);
@@ -305,14 +308,14 @@ export async function standinAct(table, windowId, id, { spark = false, autonomou
   let reply;
   try {
     reply = await standinTurn(table.llm, { language: table.language, self: `YOU ARE ${c.name}\nPERSONA: ${c.bio ?? ''}\nSPEAKING STYLE: ${c.speaking_style ?? ''}\nYOUR CARD: ${JSON.stringify(card ?? c.role_card ?? {})}`, log: raw.map(m => table.renderForCoplayer(m)).join('\n'), recalled,
-      phone: renderThread(table.store.phoneOf(id, 20), x => table.nameOf(x)), bonds: renderBondsFor(table.bonds, id, known.all, x => table.nameOf(x)), today: describeCalendar(table.calendar, { time: table.timelines.of(id).narrativeTime }), routine: describeRoutine(table.calendar), rule: table.daily.rules[id], questions, spark, dailyNote: spark ? table.sparkNote(windowId).text : '' });
+      phone: renderThread(table.store.phoneOf(id, 20), x => table.nameOf(x)), bonds: renderBondsFor(table.bonds, id, known.all, x => table.nameOf(x)), today: describeCalendar(table.calendar, { time: table.timelines.of(id).narrativeTime }), routine: describeRoutine(table.calendar), rule: table.daily.rules[id], questions, spark, request, dailyNote: spark ? table.sparkNote(windowId).text : '' });
   } catch (e) { table.log(`stand-in ${c.name}: ${e.message}`); return 0; }
   if (reply.action !== 'speak' || !table.isPassive(id) || table.sparkCancelled() || table.typing.get(id)?.windowId === windowId) return 0;
   (table.turnScope.getStore()?.standinActed ?? new Set()).add(id);
-  const n = await table.post(windowId, { character_id: id, content: reply.text, kind: 'ic', stand_in: true });
-  if (!n) return 0;
-  const posted = table.lastPosted;
-  if (posted?.stand_in !== true) {
+  // Check the line this call posted, not the table's latest post: a phone text may be delivered in between.
+  const posted = await table.sendLine(windowId, { character_id: id, content: reply.text, kind: 'ic', stand_in: true });
+  if (!posted) return 0;
+  if (posted.stand_in !== true) {
     table.standinOff = true; table.log('daily life: platform did not mark a stand-in; recalled and disabled stand-ins');
     try { const r = await table.api.recallMessage(table.channelId, posted.id); if (r?.message) table.history.add(r.message); } catch (e) { table.log(`unmarked stand-in recall: ${e.message}`); }
     return 0;
@@ -323,11 +326,12 @@ export async function standinAct(table, windowId, id, { spark = false, autonomou
     table.daily.questions = [...table.daily.questions.filter(q => q.pc !== id), ...own]; table.save();
     const phone = table.casual.phones[id];
     if (phone) {
-      await table.post(phone, { kind: 'narration', content: `${dailyLabels(table.language).waiting}: ${q.text}` }, { count: false });
-      if (table.lastPosted?.id !== posted.id) table.store.addDailyDerivedLine(table.lastPosted.id, posted.seq);
+      const note = await table.sendLine(phone, { kind: 'narration', content: `${dailyLabels(table.language).waiting}: ${q.text}` });
+      if (note) table.store.addDailyDerivedLine(note.id, posted.seq);
     }
   }
-  return n;
+  await table.sleep(table.cfg.postDelayMs);   // the usual pause after a counted line
+  return 1;
 }
 export async function standinReplies(table, windowId, spotlight, after, budget, { spark = false, autonomous = false, except = null } = {}) {
   if (!table.dailyOn()) return 0;
@@ -335,20 +339,31 @@ export async function standinReplies(table, windowId, spotlight, after, budget, 
   for (const id of table.scene(windowId)?.members ?? []) {
     if (count >= budget || id === except || table.turnScope.getStore()?.standinActed?.has(id) || !table.isPassive(id) || table.sparkCancelled()) continue;
     const name = table.nameOf(id), first = name.split(/\s+/)[0];
-    const addressed = spotlight.some(n => n === name || n === first) || table.history.lines(windowId, { after }).some(m => m.character_id !== id && m.visibility === 'window' && [name, first].some(n => String(m.content).includes(n)));
-    if (addressed) count += await table.standinAct(windowId, id, { autonomous: autonomous || spark });
+    const requests = table.turnScope.getStore()?.standinRequests;
+    const request = requests?.get(id);
+    // AI prose mentioning a name is not a request for the absent player to reply.
+    // Co-players explicitly identify a direct question; the GM uses spotlight.
+    const addressed = request || spotlight.some(n => n === name || n === first) || table.history.lines(windowId, { after }).some(m => table.isHuman(m) && m.character_id !== id && m.visibility === 'window' && [name, first].some(n => String(m.content).includes(n)));
+    if (addressed) {
+      requests?.delete(id);
+      count += await table.standinAct(windowId, id, { autonomous: autonomous || spark, request });
+    }
   }
   return count;
 }
 export { awayCommand };
 
-export async function writeDaySummary(table, id, date, fromSeq, toSeq, { returning = false } = {}) {
+// A summary is written only from lines the character witnessed: with none, there is nothing to summarise and no model
+// call. A day's summary does not repeat the open questions (each was posted once, when it was asked); a return recap
+// lists the ones given in `questions`, written by code.
+export async function writeDaySummary(table, id, date, fromSeq, toSeq, { returning = false, questions = [] } = {}) {
   if (!table.cfg.daily.summaries || (!returning && table.overBudget())) return null;
   const phone = table.casual.phones[id];
   if (!phone) return null;
-  const lines = witnessedBy(table, id, { after: fromSeq, upTo: toSeq });
-  const questions = table.daily.questions.filter(q => q.pc === id);
-  if (!lines.length && !questions.length) return null;
+  // The table's own notices in the phone (its welcome line, rule replies, waiting questions, earlier summaries) carry no
+  // character and are not something the character lived through; phone texts carry their sender.
+  const lines = witnessedBy(table, id, { after: fromSeq, upTo: toSeq }).filter(m => m.chat_window_id !== phone || m.character_id);
+  if (!lines.length) return null;
   const log = lines.map(m => table.renderForCoplayer(m)).join('\n');
   const revision = table.store.get('context-revision', 0);
   let summary;
@@ -357,13 +372,12 @@ export async function writeDaySummary(table, id, date, fromSeq, toSeq, { returni
       system: `Write a personal day summary for ${table.nameOf(id)} from only their witnessed log, including their own phone messages. Address them in the second person in ${table.language}, 2 to 5 sentences. Distinguish stand-in lines from the player's decisions. Do not invent unseen events. Return {"text":"..."}. Do not list open questions; code adds them.`, user: `Story date: ${date}\n${log}` }, x => typeof x?.text === 'string' ? x.text.trim().slice(0, 2500) : '');
   } catch (e) { table.log(`day summary: ${e.message}`); return null; }
   if (!summary || table.store.get('context-revision', 0) !== revision) return null;
-  const content = [`${date}${returning ? ` · ${dailyLabels(table.language).recap}` : ''}`, summary, ...questions.map((q,i) => `${i + 1}. ${q.text}`)].join('\n');
-  const before = table.lastPosted?.id;
-  await table.post(phone, { kind: 'narration', content }, { count: false });
-  if (table.lastPosted?.id === before) return null;
+  const content = [`${date}${returning ? ` · ${dailyLabels(table.language).recap}` : ''}`, summary, ...questionList(table, questions)].join('\n');
+  const message = await table.sendLine(phone, { kind: 'narration', content });
+  if (!message) return null;
   const record = { characterId: id, date, text: summary, fromSeq, toSeq, at: table.now() };
   table.store.addDaySummary(record);
-  table.store.addDailyDerivedLine(table.lastPosted.id, toSeq);
+  table.store.addDailyDerivedLine(message.id, toSeq);
   return record;
 }
 export async function dayTurn(table, endedDate, { timetable = false, date = table.calendar.date } = {}) {
@@ -395,13 +409,27 @@ export async function flushDayTurns(table) {
     pending.shift(); table.save();
   }
 }
+// "Waiting for your answer:" and the numbered questions; nothing when there are none.
+function questionList(table, questions) {
+  return questions.length ? [`${dailyLabels(table.language).waiting}:`, ...questions.map((q, i) => `${i + 1}. ${q.text}`)] : [];
+}
+// On return, the player's phone gets the recap: a summary of what their character witnessed, when enough happened
+// and no day summary covers it, and every open question together.
 export async function returnRecap(table, id, prior) {
   const lines = witnessedBy(table, id, { after: prior.seq ?? 0 });
   const standins = lines.filter(m => m.stand_in && m.character_id === id).length;
+  const questions = table.daily.questions.filter(q => q.pc === id);
   let summaries = table.store.daySummaries(id, prior.since);
-  if (!summaries.some(s => s.toSeq >= (prior.seq ?? 0)) && (standins || table.daily.questions.some(q => q.pc === id) || lines.length >= 20)) {
-    const r = await writeDaySummary(table, id, table.calendar.date, prior.seq ?? 0, table.lastSeq, { returning: true });
-    if (r) summaries.push(r);
+  let listed = false;
+  if (!summaries.some(s => s.toSeq >= (prior.seq ?? 0)) && (standins || lines.length >= 20)) {
+    const r = await writeDaySummary(table, id, table.calendar.date, prior.seq ?? 0, table.lastSeq, { returning: true, questions });
+    if (r) { summaries.push(r); listed = true; }
+  }
+  const phone = table.casual.phones[id];
+  if (questions.length && !listed && phone) {
+    const message = await table.sendLine(phone, { kind: 'narration', content: [`${table.calendar.date} · ${dailyLabels(table.language).recap}`, ...questionList(table, questions)].join('\n') });
+    // Derived from the stand-in lines that deferred them: taking one of those back drops this list from contexts.
+    if (message) table.store.addDailyDerivedLine(message.id, Math.max(...questions.map(q => q.seq ?? 0)));
   }
   return { name: table.nameOf(id), away: `${Math.max(0, Math.round((table.now() - prior.since) / 60000))} min`, storyDays: Math.max(0, Math.round((parseIso(table.calendar.date) - parseIso(prior.date || table.calendar.date)) / DAY)), summaries: summaries.slice(-3).map(s => ({ date: s.date, text: s.text })), questions: table.daily.questions.filter(q => q.pc === id), standins };
 }

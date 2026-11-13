@@ -10,7 +10,7 @@ A multiplayer online table for Call of Cthulhu and other Basic Roleplaying games
 | Backend | C++20, [Drogon](https://github.com/drogonframework/drogon) (HTTP + WebSocket), [libpqxx](https://github.com/jtv/libpqxx), jsoncpp, libcurl, poppler-cpp |
 | Database | PostgreSQL 16 with full-text search, `pg_trgm`, optional `pgvector` |
 | Frontend | React 18 + TypeScript + Vite, zustand, react-markdown |
-| AI | Per-server LLM gateway (OpenAI Responses API or Anthropic Messages API), image and speech providers set by each server's maintainers, or a clearly labelled **Mock mode** |
+| AI | Per-server providers (OpenAI-compatible, Anthropic-compatible, Responses API, Google, AWS, Alibaba, OpenRouter, Volcano Engine, Stability AI) assigned to model uses (text and per-task overrides, embedding, image generation and editing, speech) by each server's maintainers, or a clearly labelled **Mock mode** — see [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md) |
 | Deployment | Docker Compose (db / backend / frontend / PDF worker; optional MinIO) |
 
 Screenshots (taken from the running app in mock mode):
@@ -87,7 +87,8 @@ Everything is read from environment variables; see [`.env.example`](.env.example
 | `AUTH_REGISTER_PER_HOUR`, `RETENTION_AI_JOB_DAYS`, `RETENTION_AUDIT_DAYS` | registration throttle and retention of old rows |
 | `PLATFORM_ADMINS` | comma-separated usernames of existing, verified operator accounts (configured names are reserved): the 🛡 admin panel (storage, database and account use per server and user) and the power to suspend servers and accounts. See [docs/ADMIN.md](docs/ADMIN.md) |
 
-There are no platform AI keys. Each server's maintainers set its language model, embedding model, image and speech providers
+There are no platform AI keys. Each server's maintainers add providers and assign a provider and model to each use (text,
+optional text overrides, embedding, image generation, image editing, speech; see [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md))
 with the server's own keys (sealed at rest, never sent to browsers); a server without a provider runs in **Mock mode** (banner in
 the UI, `llm_mode: "mock"` in the server settings). Provider endpoints must be https on a public address unless
 `AI_ALLOW_PRIVATE_ENDPOINTS` is set; DNS is resolved once and pinned, and redirects are not followed.
@@ -335,6 +336,7 @@ reproduce it by hand with the demo campaign.
 * [docs/ACCEPTANCE_SCENARIOS.md](docs/ACCEPTANCE_SCENARIOS.md) — the seven scenarios
 * [docs/OPERATIONS.md](docs/OPERATIONS.md) — deployment checklist, TLS, backups and restore, upgrades, housekeeping
 * [docs/ADMIN.md](docs/ADMIN.md) — platform administration: inspecting storage, database and account use; suspending servers and accounts
+* [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md) — provider kinds, model uses and their API
 * [docs/SERVER_AI_SETTINGS.zh-CN.md](docs/SERVER_AI_SETTINGS.zh-CN.md) — server AI providers and AI policy
 * [gm-agent/README.md](gm-agent/README.md) — the AI GM client: roles, what each role sees, configuration
 

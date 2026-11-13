@@ -178,7 +178,7 @@ Json::Value ModuleImporter::importPdf(const ChannelAccess &a,
                        "CONFLICT(channel_id,source_hash) WHERE source_hash IS "
                        "NOT NULL DO NOTHING RETURNING id",
                        {a.channelId, title.empty() ? fileName : title,
-                        text::utf8Prefix(fileName, 200), path, llm_.mode(a.channelId),
+                        text::utf8Prefix(fileName, 200), path, llm_.mode(a.channelId, "module_structure"),
                         a.userId, hash});
   } catch (...) {
     std::filesystem::remove(path);
@@ -219,7 +219,7 @@ Json::Value ModuleImporter::importText(const ChannelAccess &a,
   if (bytes > cfg_.maxUploadMb * 1024 * 1024)
     throw badRequest("text exceeds upload limit");
   auto hash = crypto::sha256Hex("text:" + json::dump(input));
-  const auto mode = llm_.mode(a.channelId);
+  const auto mode = llm_.mode(a.channelId, "module_structure");
   bool duplicate = false;
   auto id = db_.tx([&](pqxx::work &w) {
     auto r = Db::queryOne(

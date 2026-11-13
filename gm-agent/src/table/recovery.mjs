@@ -115,6 +115,7 @@ export function slices(table) {
       placement: stable({ timelines: table.timelines.toJSON(), seats: Object.fromEntries(table.roster.coplayers.map((c) => [c.characterId, c.seats])) }),
       calendar: stable({ date: table.calendar.date, time: table.calendar.time, log: table.calendar.log, routine: table.calendar.routine }),
       bonds: stable(table.bonds),
+      attention: stable(Object.fromEntries(table.roster.coplayers.map(c => [c.characterId, c.attention ?? null]))),
       truths: stable(table.improv.truths ?? []),
       pending: stable(table.casual.pending ?? []),
     };
@@ -172,6 +173,10 @@ export async function rollback(table, m, undo, copies = []) {
     for (const cp of [...undo].reverse()) {
       if (!cp.after) continue;
       const now = table.slices();
+      if (cp.after.attention !== cp.before.attention && now.attention === cp.after.attention) {
+        const before = JSON.parse(cp.before.attention);
+        for (const c of table.roster.coplayers) { if (before[c.characterId]) c.attention = before[c.characterId]; else delete c.attention; }
+      }
       let placed = true;
       if (cp.after.placement !== cp.before.placement) {
         placed = now.placement === cp.after.placement;

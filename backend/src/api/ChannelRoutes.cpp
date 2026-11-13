@@ -8,6 +8,7 @@
 #include "../servers/ServerSettingsService.h"
 #include "../servers/DeletionService.h"
 #include "../dice/DiceService.h"
+#include "../ai/ProviderCatalog.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include <drogon/drogon.h>
@@ -37,6 +38,13 @@ void registerChannelRoutes() {
     route2("/api/servers/{1}/members/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.chat->removeServerMember(p, a[0], a[1]); });
     route1("/api/servers/{1}/settings", {Get}, [&](auto&, auto& p, auto& a) { return S.settings->get(p, a[0]); });
     route1("/api/servers/{1}/settings", {Put}, [&](auto& req, auto& p, auto& a) { return S.settings->update(p, a[0], body(req)); });
+    // AI providers and model uses (maintainers); the catalog of provider kinds and uses for any signed-in user.
+    route0("/api/ai/catalog", {Get}, [&](auto&, auto&, auto&) { Json::Value v; v["kinds"] = ai::catalog::kinds(); v["uses"] = ai::catalog::uses(); return v; });
+    route1("/api/servers/{1}/ai", {Get}, [&](auto&, auto& p, auto& a) { S.auth->requireServerAdmin(p.userId, a[0]); return S.settings->aiView(a[0]); });
+    route1("/api/servers/{1}/ai/providers", {Post}, [&](auto& req, auto& p, auto& a) { return S.settings->createProvider(p, a[0], body(req)); });
+    route2("/api/servers/{1}/ai/providers/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.settings->updateProvider(p, a[0], a[1], body(req)); });
+    route2("/api/servers/{1}/ai/providers/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.settings->deleteProvider(p, a[0], a[1]); });
+    route1("/api/servers/{1}/ai/uses", {Put}, [&](auto& req, auto& p, auto& a) { return S.settings->updateUses(p, a[0], body(req)); });
     route1("/api/servers/{1}/dice-texts", {Get}, [&](auto&, auto& p, auto& a) { return S.settings->listTextGroups(p, a[0]); });
     route1("/api/servers/{1}/dice-texts", {Post}, [&](auto& req, auto& p, auto& a) { return S.settings->createTextGroup(p, a[0], body(req)); });
     route2("/api/servers/{1}/dice-texts/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.settings->updateTextGroup(p, a[0], a[1], body(req)); });

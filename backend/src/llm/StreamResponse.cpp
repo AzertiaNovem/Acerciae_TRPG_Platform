@@ -69,4 +69,36 @@ Json::Value anthropicResponse(const std::string& body) {
     for(auto& [i,b]:blocks){if(!stopped[i])throw std::runtime_error("AI content block was interrupted");if(inputs.count(i))b["input"]=json::parse(inputs[i]);out["content"].append(b);}
     return out;
 }
+Json::Value chatCompletionsResponse(const std::string& body) {
+    if(isJson(body))return json::parse(body);
+    Json::Value out,message;message["role"]="assistant";std::string content;
+    std::map<int,Json::Value> calls;std::string finish;bool any=false,done=false;
+    for(const auto& data:events(body)) {
+        if(data=="[DONE]"){done=true;continue;}
+        auto e=json::parse(data);
+        if(e["error"].isObject())throw std::runtime_error("AI provider returned a stream error");
+        if(e["usage"].isObject())out["usage"]=e["usage"];
+        if(e["model"].isString())out["model"]=e["model"];
+        if(!e["choices"].isArray()||e["choices"].empty())continue;
+        const auto& c=e["choices"][0];any=true;
+        const auto& d=c["delta"];
+        if(d["content"].isString())content+=d["content"].asString();
+        if(d["refusal"].isString()&&!d["refusal"].asString().empty())message["refusal"]=(message["refusal"].isString()?message["refusal"].asString():"")+d["refusal"].asString();
+        for(const auto& tc:d["tool_calls"]) {
+            int i=tc["index"].isInt()?index(tc["index"]):(int)calls.size();
+            auto& call=calls[i];
+            if(tc["id"].isString()&&!tc["id"].asString().empty())call["id"]=tc["id"];
+            call["type"]="function";
+            if(tc["function"]["name"].isString())append(call["function"]["name"],tc["function"]["name"]);
+            if(tc["function"]["arguments"].isString())append(call["function"]["arguments"],tc["function"]["arguments"]);
+        }
+        if(c["finish_reason"].isString())finish=c["finish_reason"].asString();
+    }
+    if(!any)throw std::runtime_error("AI stream carried no answer");
+    if(!done&&finish.empty())throw std::runtime_error("AI stream ended before completion");
+    message["content"]=content;
+    if(!calls.empty()){message["tool_calls"]=Json::Value(Json::arrayValue);for(auto& [i,c]:calls)message["tool_calls"].append(c);}
+    out["choices"][0]["message"]=message;out["choices"][0]["finish_reason"]=finish;
+    return out;
+}
 }

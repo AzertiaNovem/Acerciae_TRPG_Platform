@@ -23,8 +23,8 @@ using namespace vnscript;
 
 Json::Value VnScriptService::status(const ChannelAccess &a) {
   Json::Value v;
-  v["mock"] = llm_.isMock(a.channelId);
-  v["model"] = llm_.modelName(a.channelId);
+  v["mock"] = llm_.isMock(a.channelId, "vn_script");
+  v["model"] = llm_.modelName(a.channelId, "vn_script");
   auto row = db_.queryOne("SELECT studio_cloud_allowed FROM channels WHERE id=$1", {a.channelId});
   v["cloud_allowed"] = !row.isNull() && row["studio_cloud_allowed"].asBool();
   v["max_lines"] = (Json::UInt64)kMaxLines;
@@ -129,7 +129,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
   if (events.empty()) throw badRequest(someWindows ? "the chosen chat windows have no lines in this point of view yet"
                                        : json::str(b, "scope") == "pl_public" ? "no line of the log is public to every player yet; choose a character's point of view" : "the log has no lines in your scope yet");
   if (events.size() > kMaxLines) throw badRequest("the log has more than " + std::to_string(kMaxLines) + " lines; snapshot a range or a set of scenes");
-  bool mock = llm_.isMock(a.channelId);
+  bool mock = llm_.isMock(a.channelId, "vn_script");
   if (!mock) {
     if (!json::toBool(b, "allow_cloud")) throw badRequest("confirm that the log's lines may be sent to the configured model");
     requireCloudPermission(db_, a.channelId);
@@ -150,7 +150,7 @@ Json::Value VnScriptService::create(const ChannelAccess &a, const Json::Value &b
   params["generate_art"] = params["media_mode"] != "hybrid" && json::toBool(b, "generate_art", true);
   params["retry_failed_chunks"] = json::toBool(b, "retry_failed_chunks", llm_.retryFailedVnChunks());
   auto j = db_.queryOne("INSERT INTO vn_script_jobs(channel_id, project_id, snapshot_id, provider, model, params, created_by) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING id, status, provider, snapshot_id, created_at, params",
-                        {a.channelId, snap["project_id"].asString(), snapshotId, mock ? "mock" : llm_.mode(a.channelId), llm_.modelName(a.channelId), json::dump(params), a.userId});
+                        {a.channelId, snap["project_id"].asString(), snapshotId, mock ? "mock" : llm_.mode(a.channelId, "vn_script"), llm_.modelName(a.channelId, "vn_script"), json::dump(params), a.userId});
   logs_.audit(a, "vnscript.request", j);
   cv_.notify_all();
   return j;

@@ -94,6 +94,8 @@ autonomy:
   tick_ms: 30000
   side_interval_ms: 90000     # a co-players-only thread moves this often
   quiet_ms: 180000            # a silent shared window moves after this
+  coplayer_idle_lines: 12     # public play without this co-player: review their place and personal opportunity (0: off)
+  coplayer_idle_minutes: 20   # also review after this much silence with scene activity; minimum gap between reviews
   quiet_turns: 2              # ... at most this many times
   max_turns_per_hour: 20
   idle_minutes: 30            # "away" once nobody has posted for this long: shared windows wait

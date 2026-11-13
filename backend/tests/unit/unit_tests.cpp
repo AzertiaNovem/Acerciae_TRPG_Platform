@@ -43,6 +43,11 @@
 #include <filesystem>
 #include <cstdlib>
 #include <zlib.h>
+#include "../../src/ai/AwsSigV4.h"
+#include "../../src/ai/ProviderCatalog.h"
+#include "../../src/ai/Embeddings.h"
+#include "../../src/llm/ChatCompletionsClient.h"
+#include "../../src/llm/StreamResponse.h"
 #include <iostream>
 #include <map>
 #include <functional>
@@ -644,6 +649,90 @@ int main() {
         pick = 1; dice::SeqRng r13({5}); CHECK(dice::execute(*dice::parseCommand(".r 1d6"), ctx, variants, r13).text == "second 5");
         Json::Value blank; blank["level.hard"] = Json::Value(Json::arrayValue); blank["level.hard"].append("");
         CHECK(dice::TextSet("en", blank).get("level.hard") == dice::TextSet().get("level.hard"));
+    });
+    test("AWS Signature Version 4 matches the official test suite", [] {
+        namespace aws = ai::aws;
+        aws::Credentials c{"AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "", "us-east-1"};
+        // post-vanilla: POST / with no body, signing host and x-amz-date.
+        aws::Request vanilla; vanilla.host = "example.amazonaws.com";
+        std::string names;
+        auto canonical = aws::canonicalRequest(vanilla, {{"Host", "example.amazonaws.com"}, {"X-Amz-Date", "20150830T123600Z"}}, &names);
+        CHECK(names == "host;x-amz-date");
+        CHECK(crypto::sha256Hex(canonical) == "553f88c9e4d10fc9e109e2aeb65f030801b70c2f6468faca261d401ae622fc87");
+        auto headers = aws::sign(vanilla, c, "service", "20150830T123600Z");
+        bool found = false;
+        for (const auto& h : headers) if (h.find("Signature=5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b") != std::string::npos &&
+                                          h.find("Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request") != std::string::npos) found = true;
+        CHECK(found);
+        // post-x-www-form-urlencoded: a body and extra signed headers.
+        aws::Request form; form.host = "example.amazonaws.com"; form.body = "Param1=value1";
+        form.headers = {{"Content-Type", "application/x-www-form-urlencoded"}, {"Content-Length", "13"}, {"x-amz-content-sha256", "9095672bbd1f56dfc5b65f3e153adc8731a4a654192329106275f4c7b24d0b6e"}};
+        auto formHeaders = aws::sign(form, c, "service", "20150830T123600Z");
+        found = false;
+        for (const auto& h : formHeaders) if (h.find("SignedHeaders=content-length;content-type;host;x-amz-content-sha256;x-amz-date, Signature=d3875051da38690788ef43de4db0d8f280229d82040bfac253562e56c3f20e0b") != std::string::npos) found = true;
+        CHECK(found);
+        // Bedrock model ids: ':' encoded once on the wire and again in the canonical path; temporary credentials signed.
+        CHECK(aws::uriEncode("amazon.titan-embed-text-v2:0") == "amazon.titan-embed-text-v2%3A0");
+        CHECK(aws::canonicalPath("/model/amazon.titan-embed-text-v2%3A0/invoke") == "/model/amazon.titan-embed-text-v2%253A0/invoke");
+        c.sessionToken = "token";
+        found = false;
+        for (const auto& h : aws::sign(vanilla, c, "bedrock", "20150830T123600Z")) if (h.find("SignedHeaders=host;x-amz-date;x-amz-security-token") != std::string::npos) found = true;
+        CHECK(found);
+    });
+    test("AI provider catalog: capabilities decide which uses a provider can take", [] {
+        namespace cat = ai::catalog;
+        CHECK(cat::supports("stability", "image_generation") && cat::supports("stability", "image_edit"));
+        CHECK(!cat::supports("stability", "text") && !cat::supports("stability", "embedding"));
+        CHECK(cat::supports("anthropic", "text") && !cat::supports("anthropic", "embedding"));
+        CHECK(!cat::supports("google", "text") && cat::supports("google", "tts"));
+        CHECK(cat::supports("responses", "embedding") && !cat::supports("responses", "image_generation"));
+        CHECK(!cat::supports("volcengine", "embedding") && cat::supports("volcengine", "tts"));
+        for (auto* k : {"openai", "anthropic", "responses", "google", "aws", "alibaba", "openrouter", "volcengine", "stability"}) CHECK(cat::kind(k) != nullptr);
+        CHECK(cat::kind("nope") == nullptr);
+        CHECK(cat::textUseFor("observer_extract") == "text_chronicle");
+        CHECK(cat::textUseFor("inspiration") == "text_assist");
+        CHECK(cat::textUseFor("vn_script") == "text_writing");
+        CHECK(cat::textUseFor("something_new") == "text");
+        CHECK(cat::capabilityOf("image_edit") == "image_edit" && cat::capabilityOf("text_writing") == "text");
+        CHECK(cat::defaultApiBase("aws").find("{region}") != std::string::npos);
+    });
+    test("Chat Completions: request shape, streamed tool calls and usage", [] {
+        LlmEndpoint ep; ep.provider = "openai"; ep.model = "m"; ep.maxTokens = 100; ep.reasoningEffort = "low";
+        LlmRequest req; req.system = "sys"; req.responseSchema["type"] = "object"; req.maxTokens = 50;
+        LlmMessage user; user.role = "user"; user.content = "hi"; req.messages.push_back(user);
+        LlmMessage assistant; assistant.role = "assistant"; Json::Value call; call["id"] = "c1"; call["name"] = "tool"; call["arguments"] = "{}"; assistant.toolCalls.append(call); req.messages.push_back(assistant);
+        LlmMessage result; result.role = "tool"; result.toolCallId = "c1"; result.content = "{\"ok\":true}"; req.messages.push_back(result);
+        LlmToolSpec t; t.name = "tool"; t.parameters["type"] = "object"; req.tools.push_back(t);
+        auto b = ChatCompletionsClient::requestBody(req, ep);
+        CHECK(b["max_completion_tokens"].asInt() == 50 && b["reasoning_effort"] == "low" && !b.isMember("temperature"));
+        CHECK(b["messages"][0]["role"] == "system" && b["messages"][2]["tool_calls"][0]["function"]["name"] == "tool" && b["messages"][3]["tool_call_id"] == "c1");
+        CHECK(b["response_format"]["type"] == "json_object" && b["tools"][0]["function"]["name"] == "tool");
+        ep.provider = "alibaba"; ep.reasoningEffort.clear(); ep.apiBase = "https://dashscope.aliyuncs.com";
+        auto a = ChatCompletionsClient::requestBody(req, ep);
+        CHECK(a["max_tokens"].asInt() == 50 && a.isMember("temperature"));
+        CHECK(ChatCompletionsClient::baseUrl(ep) == "https://dashscope.aliyuncs.com/compatible-mode/v1");
+        std::string stream =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo\",\"tool_calls\":[{\"index\":0,\"id\":\"x\",\"function\":{\"name\":\"look\",\"arguments\":\"{\\\"a\\\":\"}}]}}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"1}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"prompt_tokens_details\":{\"cached_tokens\":4}}}\n\n"
+            "data: [DONE]\n\n";
+        auto r = ChatCompletionsClient::parseResponse(llm::chatCompletionsResponse(stream));
+        CHECK(r.ok && r.content == "Hello" && r.toolCalls.size() == 1 && r.toolCalls[0]["arguments"] == "{\"a\":1}" && r.toolCalls[0]["name"] == "look");
+        CHECK(r.promptTokens == 7 && r.completionTokens == 3 && r.cacheReadTokens == 4);
+        auto cut = ChatCompletionsClient::parseResponse(json::parse(R"({"choices":[{"message":{"content":"par"},"finish_reason":"length"}]})"));
+        CHECK(!cut.ok && cut.error.find("token limit") != std::string::npos);
+        bool threw = false; try { llm::chatCompletionsResponse("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"); } catch (...) { threw = true; }
+        CHECK(threw);   // ended without [DONE] or a finish reason
+    });
+    test("embeddings are fitted to the 1536-dimension vector column", [] {
+        CHECK(ai::fitDimensions(std::vector<float>(1024, 0.5f)).size() == 1536);
+        auto padded = ai::fitDimensions(std::vector<float>(1024, 0.5f));
+        CHECK(padded[1023] == 0.5f && padded[1024] == 0.f);
+        auto cut = ai::fitDimensions(std::vector<float>(3072, 1.f));
+        double norm = 0; for (float x : cut) norm += double(x) * x;
+        CHECK(cut.size() == 1536 && std::abs(norm - 1.0) < 1e-4);
+        CHECK(ai::fitDimensions({}).empty());
     });
     test("studio render configuration rejects injection and preserves bounded settings", [] {
         Json::Value c;c["base"]="novel";auto safe=logstudio::PublicationService::validateConfig(c);CHECK(safe["page_size"]=="A5");
