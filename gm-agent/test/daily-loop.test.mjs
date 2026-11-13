@@ -172,7 +172,7 @@ test('a passive PC can still start small talk only with explicit permission', as
   assert.equal(api.posts[start].character_id,'c-alice'); assert.equal(api.posts[start].stand_in,true);
   assert.equal(api.posts.at(-1).kind,'narration');
 });
-test('day summaries: only witnessed lines, phone GM posts, exact open questions and weekly routine', async () => {
+test('day summaries: only witnessed lines, phone GM posts, open questions not repeated, weekly routine', async () => {
   const {t,api,clock,llm} = await setup(); clock.t+=H; await t.reconcilePassive();
   t.noteLine(api.add({author_id:'u-bot',author_role:'gm',chat_window_id:'w-main',content:'A seat was saved for Alice.',kind:'narration'}));
   t.noteLine(api.add({author_id:'u-bot',author_role:'gm',chat_window_id:'w-main',content:'SECRET-SUMMARY',kind:'narration',visibility:'gm_only'}));
@@ -180,7 +180,7 @@ test('day summaries: only witnessed lines, phone GM posts, exact open questions 
   t.daily.week[3]='Wednesday classes';
   t.moveCalendar({days:1,time:'07:00',by:'operator'}); await t.flushDayTurns();
   const summaries=t.store.daySummaries('c-alice'); assert.equal(summaries.length,1);
-  const last=api.posts.at(-1); assert.equal(last.window,t.casual.phones['c-alice']); assert.ok(last.content.endsWith('1. Tea tomorrow?')); assert.equal(last.character_id,undefined);
+  const last=api.posts.at(-1); assert.equal(last.window,t.casual.phones['c-alice']); assert.ok(!last.content.includes('Tea tomorrow?')); assert.equal(last.character_id,undefined);
   assert.ok(!JSON.stringify(llm.calls.find(c=>c.purpose==='day_summary')).includes('SECRET-SUMMARY'));
   assert.equal(t.calendar.routine.text,'Wednesday classes');
 });
@@ -476,4 +476,21 @@ test('thread owners are player characters kept by id: other names own nothing, a
   t.characters.find(c => c.id === 'c-alice').name = 'Alice Ward';
   assert.match(plan(), /The debate" \[live\].* owners: Alice Ward; WAITS for Alice Ward/);
   clock.t += 7 * DAY; assert.match(plan(), /The debate" \[live\].* owners: Alice Ward; may advance/);
+});
+test('a day with nothing witnessed costs no summary; the return recap lists every open question, written by code', async () => {
+  const {t,api,llm,clock} = await setup(); clock.t += H; await t.reconcilePassive(); assert.ok(t.isPassive('c-alice'));
+  t.daily.questions = [
+    {id:'q1',pc:'c-alice',text:'Tea tomorrow?',date:t.calendar.date,seq:api.seq,at:clock.t},
+    {id:'q2',pc:'c-alice',text:'Join the club?',date:t.calendar.date,seq:api.seq,at:clock.t},
+  ];
+  const summaries = () => llm.calls.filter(c => c.purpose === 'day_summary').length, phone = t.casual.phones['c-alice'];
+  const posts = api.posts.length;
+  for (let day = 0; day < 2; day++) { t.moveCalendar({days:1,time:'07:00',by:'operator'}); await t.flushDayTurns(); }
+  assert.equal(summaries(), 0); assert.equal(api.posts.slice(posts).filter(p => p.window === phone).length, 0);
+  await t.onMessage(api.add({author_id:'u-alice',author_role:'player',character_id:'c-alice',chat_window_id:'w-main',content:'Morning, everyone.',kind:'ic'}));
+  await t.queue;
+  const recap = api.posts.slice(posts).find(p => p.window === phone);
+  assert.ok(recap, 'the return recap reached the phone'); assert.equal(summaries(), 0);
+  assert.ok(recap.content.endsWith('1. Tea tomorrow?\n2. Join the club?'));
+  assert.equal(recap.content.split('\n')[0], `${t.calendar.date} · Recap`);
 });
