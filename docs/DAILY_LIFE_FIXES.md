@@ -3,8 +3,16 @@
 Fix plan for two bugs found while reviewing the daily-life implementation (`docs/DAILY_LIFE_PLAN.md`) on `main` at
 `6adfc154`. Both are in the GM agent only. Line numbers are as of that commit.
 
-Two related findings are design questions still open with the owner and are **not** part of this plan:
-non-player names as thread owners, and day summaries written when nothing was witnessed.
+**Status: implemented** on branch `claude/bold-einstein-q5nnxa`, one commit per change, with the two design
+decisions below:
+
+- Fix 1, Fix 2: as planned here.
+- **Thread owners** (decided with the owner): only player characters own a plot thread. Owner names resolve to
+  character ids when a plan is adopted; other names are logged and ignored, and a thread with no player-character
+  owner belongs to the world and never waits. Ids keep the gate through a rename.
+- **Day summaries** (decided with the owner): a summary is written only when the character witnessed a scene line or a
+  phone text (the table's own notices in the phone do not count). Summaries no longer list open questions; each is
+  posted once when asked, and the return recap lists them all, written by code.
 
 Do the two fixes as two separate commits, each with its tests. Run `npm test` in `gm-agent` after each.
 
