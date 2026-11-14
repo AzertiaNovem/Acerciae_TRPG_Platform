@@ -1,0 +1,5 @@
+# Cloudflare Pages response headers. The interactive-message engine worker (src/hypertext/hypertext-worker.ts) only
+# loads its own chunks and the QuickJS WASM from this origin and compiles that WASM; nothing else (frontend/nginx.conf
+# sends the same policy).
+/assets/hypertext-worker-*
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'

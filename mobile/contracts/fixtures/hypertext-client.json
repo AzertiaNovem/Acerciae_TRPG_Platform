@@ -1,0 +1,5025 @@
+{
+  "about": [
+    "Client-side cases for interactive messages (kind hypertext): the pure card logic (frontend/src/hypertext/bindings.ts, ported to Kotlin core/Hypertext.kt and Swift AcerciaeCore/Hypertext.swift) and the script engine with its host validation (engine.ts + effects.ts, the mobile bundle mobile/contracts/hypertext/hypertext-engine.js). The cases shared with the C++ backend (defaults, state_validation, conditions, interpolation, dice_policy) live in hypertext.json.",
+    "A case's \"doc\" names an entry of \"docs\" (the public document as stored in messages.hypertext). For \"runs\", \"script\" replaces the doc's script (null: no script), and \"prev\" (default: \"state\") is the state before the binding change.",
+    "bindings: applyAction(doc, state, node, action) gives expect {state, event}, or null when the action does not apply.",
+    "resolve: resolve(doc, state, lock) lists every node in document order, projected as {type, id (null without one), text?, label?, caption?, value?, options?, visible, disabled}.",
+    "act: act(doc, state, node) gives expect {state, effects}, or null.",
+    "runs: the engine output after host validation. expect.ok true compares only the fields given (state, effects, notices, logs, confirm, changed); expect.ok false gives the error code (and line or logs when given).",
+    "parseDoc fills in what the server's normalize fills in (title \"\", label = value, text style body and tone neutral, choice display list, button style primary, enum default null, script and actors null, runs_per_viewer 1, closes_at null, replies [], a stub's slots {}, audience card, group null) and keeps act.say ASCII-trimmed; so a post body reads like the stored card. Shared hypertext.json cases are read as the C++ tests read them: a state_decl case is {v:1, state: state_decl, body:[{type:divider}]} (conditions put cond in its show_if), and state_validation and conditions use the case's state as given (missing keys take their defaults).",
+    "bindings: a case may give \"lock\" (default {reason: null}); action commit (an input's draft on blur) gives event null. resolve also disables a button whose act replies while a slot cannot be filled from the state.",
+    "runs: a runner passes prev = state when the case gives none (prev is required by MobileHypertext and client.ts). The engine's deadline_ms is checked at each interrupt poll (code timeout); the hosts end a run that does not answer within timeout_ms (cold_timeout_ms for a new worker).",
+    "Location: these sections (engine limits for the client, bindings, resolve, act, runs) are planned for hypertext.json; they live here while the backend phase writes that file, so that the two phases do not edit one file. Merge them into hypertext.json then, and reconcile its engine section with this one (stack_bytes 131072, deadline_ms, the version string)."
+  ],
+  "engine": {
+    "version": "hypertext-1 quickjs-emscripten-0.32.0",
+    "packages": {
+      "quickjs-emscripten-core": "0.32.0",
+      "@jitl/quickjs-wasmfile-release-sync": "0.32.0"
+    },
+    "wasm_sha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232",
+    "wasm_bytes": 503134,
+    "max_bundle_bytes": 800000,
+    "limits": {
+      "interrupt_polls": 50,
+      "memory_bytes": 8388608,
+      "stack_bytes": 131072,
+      "output_bytes": 16384,
+      "timeout_ms": 1000,
+      "cold_timeout_ms": 5000,
+      "deadline_ms": 500
+    }
+  },
+  "docs": {
+    "study": {
+      "v": 1,
+      "title": "The study",
+      "state": {
+        "done": {
+          "type": "bool"
+        },
+        "lamp": {
+          "type": "bool"
+        },
+        "count": {
+          "type": "int",
+          "min": 0,
+          "max": 5,
+          "default": 2
+        },
+        "path": {
+          "type": "enum",
+          "values": [
+            {
+              "value": "door",
+              "label": "The door"
+            },
+            {
+              "value": "window",
+              "label": "The window"
+            },
+            {
+              "value": "stair",
+              "label": "The stair"
+            }
+          ]
+        },
+        "tools": {
+          "type": "set",
+          "values": [
+            {
+              "value": "rope",
+              "label": "Rope"
+            },
+            {
+              "value": "lamp",
+              "label": "Lamp"
+            },
+            {
+              "value": "key",
+              "label": "Key"
+            }
+          ],
+          "max": 2
+        },
+        "note": {
+          "type": "text",
+          "max": 20
+        }
+      },
+      "body": [
+        {
+          "type": "text",
+          "id": "intro",
+          "text": "Path: {{path}}. Tools: {{tools}}. Count: {{count}}. Note: {{note}}",
+          "style": "heading"
+        },
+        {
+          "type": "checkbox",
+          "id": "lamp_box",
+          "label": "Light the lamp",
+          "bind": "lamp"
+        },
+        {
+          "type": "group",
+          "id": "gear",
+          "title": "Gear for {{path}}",
+          "show_if": {
+            "key": "lamp",
+            "eq": true
+          },
+          "children": [
+            {
+              "type": "choice",
+              "id": "tool_pick",
+              "label": "Take",
+              "bind": "tools",
+              "display": "buttons"
+            },
+            {
+              "type": "row",
+              "id": "jot",
+              "children": [
+                {
+                  "type": "input",
+                  "id": "note_in",
+                  "label": "Note",
+                  "placeholder": "What you see",
+                  "bind": "note",
+                  "submit_label": "Save"
+                },
+                {
+                  "type": "text",
+                  "text": "{{note}}",
+                  "style": "muted",
+                  "show_if": {
+                    "key": "note",
+                    "empty": false
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "choice",
+          "id": "path_pick",
+          "label": "Path",
+          "bind": "path",
+          "display": "list",
+          "options": [
+            "stair",
+            "door"
+          ],
+          "enable_if": {
+            "key": "done",
+            "eq": false
+          }
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "button",
+          "id": "go",
+          "label": "Search ({{count}})",
+          "style": "primary",
+          "act": {
+            "say": ".ra Spot Hidden",
+            "set": {
+              "done": true
+            }
+          },
+          "enable_if": {
+            "not": {
+              "key": "done",
+              "eq": true
+            }
+          }
+        },
+        {
+          "type": "button",
+          "id": "tell",
+          "label": "Tell",
+          "act": {
+            "say": "I take {{path}} ({{count}}) with {{tools}}",
+            "say_kind": "ooc",
+            "set": {
+              "count": 5
+            }
+          }
+        },
+        {
+          "type": "button",
+          "id": "ask",
+          "label": "Ask",
+          "act": {
+            "reply": "hint"
+          },
+          "show_if": {
+            "any": [
+              {
+                "key": "path",
+                "in": [
+                  "door",
+                  "stair"
+                ]
+              },
+              {
+                "key": "count",
+                "gte": 4
+              }
+            ]
+          }
+        },
+        {
+          "type": "button",
+          "id": "scripted",
+          "label": "Think",
+          "on": "think",
+          "style": "secondary"
+        }
+      ],
+      "replies": [
+        {
+          "id": "hint",
+          "slots": {
+            "path": {
+              "type": "enum",
+              "values": [
+                "door",
+                "window",
+                "stair"
+              ]
+            },
+            "count": {
+              "type": "int",
+              "min": 0,
+              "max": 5
+            }
+          },
+          "audience": "viewer",
+          "group": null
+        }
+      ]
+    },
+    "small": {
+      "v": 1,
+      "title": "Small",
+      "state": {
+        "seen": {
+          "type": "bool"
+        }
+      },
+      "body": [
+        {
+          "type": "text",
+          "text": "A door."
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "bind": "seen"
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "act": {
+            "say": "I knock."
+          }
+        }
+      ]
+    },
+    "run": {
+      "v": 1,
+      "title": "Run",
+      "state": {
+        "done": {
+          "type": "bool"
+        },
+        "n": {
+          "type": "int",
+          "min": 0,
+          "max": 10
+        },
+        "pick": {
+          "type": "enum",
+          "values": [
+            {
+              "value": "a",
+              "label": "A"
+            },
+            {
+              "value": "b",
+              "label": "B"
+            }
+          ]
+        },
+        "tags": {
+          "type": "set",
+          "values": [
+            {
+              "value": "x",
+              "label": "X"
+            },
+            {
+              "value": "y",
+              "label": "Y"
+            }
+          ],
+          "max": 2
+        },
+        "t": {
+          "type": "text",
+          "max": 50
+        }
+      },
+      "body": [
+        {
+          "type": "button",
+          "id": "go",
+          "label": "Go",
+          "on": "go"
+        },
+        {
+          "type": "choice",
+          "id": "pick_it",
+          "bind": "pick",
+          "on": "picked"
+        },
+        {
+          "type": "input",
+          "id": "t_in",
+          "bind": "t",
+          "on": "typed"
+        }
+      ],
+      "replies": [
+        {
+          "id": "door",
+          "slots": {},
+          "audience": "card",
+          "group": null
+        },
+        {
+          "id": "clue",
+          "slots": {
+            "mark": {
+              "type": "enum",
+              "values": [
+                "13",
+                "31"
+              ]
+            }
+          },
+          "audience": "viewer",
+          "group": "portrait"
+        },
+        {
+          "id": "num",
+          "slots": {
+            "n": {
+              "type": "int",
+              "min": 1,
+              "max": 4
+            }
+          },
+          "audience": "gm",
+          "group": null
+        }
+      ]
+    }
+  },
+  "bindings": [
+    {
+      "name": "checkbox toggles on",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "lamp_box",
+      "action": {
+        "type": "toggle"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": true,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": ""
+        },
+        "event": {
+          "type": "change",
+          "node": "lamp_box",
+          "value": true
+        }
+      }
+    },
+    {
+      "name": "checkbox toggles off",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "lamp_box",
+      "action": {
+        "type": "toggle"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": false,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": ""
+        },
+        "event": {
+          "type": "change",
+          "node": "lamp_box",
+          "value": false
+        }
+      }
+    },
+    {
+      "name": "enum select from null",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "path_pick",
+      "action": {
+        "type": "select",
+        "value": "door"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": false,
+          "count": 2,
+          "path": "door",
+          "tools": [],
+          "note": ""
+        },
+        "event": {
+          "type": "change",
+          "node": "path_pick",
+          "value": "door"
+        }
+      }
+    },
+    {
+      "name": "enum select another value",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": "door",
+        "tools": [],
+        "note": ""
+      },
+      "node": "path_pick",
+      "action": {
+        "type": "select",
+        "value": "stair"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": false,
+          "count": 2,
+          "path": "stair",
+          "tools": [],
+          "note": ""
+        },
+        "event": {
+          "type": "change",
+          "node": "path_pick",
+          "value": "stair"
+        }
+      }
+    },
+    {
+      "name": "enum has no deselect",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": "door",
+        "tools": [],
+        "note": ""
+      },
+      "node": "path_pick",
+      "action": {
+        "type": "select",
+        "value": "door"
+      },
+      "expect": null
+    },
+    {
+      "name": "enum value outside the displayed options",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "path_pick",
+      "action": {
+        "type": "select",
+        "value": "window"
+      },
+      "expect": null
+    },
+    {
+      "name": "enum value not declared",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "path_pick",
+      "action": {
+        "type": "select",
+        "value": "constructor"
+      },
+      "expect": null
+    },
+    {
+      "name": "disabled by enable_if",
+      "doc": "study",
+      "state": {
+        "done": true,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "path_pick",
+      "action": {
+        "type": "select",
+        "value": "door"
+      },
+      "expect": null
+    },
+    {
+      "name": "hidden inside a group whose show_if is false",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "tool_pick",
+      "action": {
+        "type": "select",
+        "value": "rope"
+      },
+      "expect": null
+    },
+    {
+      "name": "set adds a value",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "tool_pick",
+      "action": {
+        "type": "select",
+        "value": "key"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": true,
+          "count": 2,
+          "path": null,
+          "tools": [
+            "key"
+          ],
+          "note": ""
+        },
+        "event": {
+          "type": "change",
+          "node": "tool_pick",
+          "value": [
+            "key"
+          ]
+        }
+      }
+    },
+    {
+      "name": "set keeps schema order",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [
+          "key"
+        ],
+        "note": ""
+      },
+      "node": "tool_pick",
+      "action": {
+        "type": "select",
+        "value": "rope"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": true,
+          "count": 2,
+          "path": null,
+          "tools": [
+            "rope",
+            "key"
+          ],
+          "note": ""
+        },
+        "event": {
+          "type": "change",
+          "node": "tool_pick",
+          "value": [
+            "rope",
+            "key"
+          ]
+        }
+      }
+    },
+    {
+      "name": "set refuses a value beyond max",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [
+          "rope",
+          "key"
+        ],
+        "note": ""
+      },
+      "node": "tool_pick",
+      "action": {
+        "type": "select",
+        "value": "lamp"
+      },
+      "expect": null
+    },
+    {
+      "name": "set removes a value at max",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [
+          "rope",
+          "key"
+        ],
+        "note": ""
+      },
+      "node": "tool_pick",
+      "action": {
+        "type": "select",
+        "value": "rope"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": true,
+          "count": 2,
+          "path": null,
+          "tools": [
+            "key"
+          ],
+          "note": ""
+        },
+        "event": {
+          "type": "change",
+          "node": "tool_pick",
+          "value": [
+            "key"
+          ]
+        }
+      }
+    },
+    {
+      "name": "input submit writes the text",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "note_in",
+      "action": {
+        "type": "submit",
+        "value": "Up the stair"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": true,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": "Up the stair"
+        },
+        "event": {
+          "type": "submit",
+          "node": "note_in",
+          "value": "Up the stair"
+        }
+      }
+    },
+    {
+      "name": "input submit counts code points",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "note_in",
+      "action": {
+        "type": "submit",
+        "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": true,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        },
+        "event": {
+          "type": "submit",
+          "node": "note_in",
+          "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      }
+    },
+    {
+      "name": "input submit over max",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "note_in",
+      "action": {
+        "type": "submit",
+        "value": "xxxxxxxxxxxxxxxxxxxxx"
+      },
+      "expect": null
+    },
+    {
+      "name": "input submit with a newline",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "note_in",
+      "action": {
+        "type": "submit",
+        "value": "a\nb"
+      },
+      "expect": null
+    },
+    {
+      "name": "input submit with a bidi override",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "note_in",
+      "action": {
+        "type": "submit",
+        "value": "a‮b"
+      },
+      "expect": null
+    },
+    {
+      "name": "input submit of the same text still fires",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": "same"
+      },
+      "node": "note_in",
+      "action": {
+        "type": "submit",
+        "value": "same"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": true,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": "same"
+        },
+        "event": {
+          "type": "submit",
+          "node": "note_in",
+          "value": "same"
+        }
+      }
+    },
+    {
+      "name": "button click changes nothing",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "scripted",
+      "action": {
+        "type": "click"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": false,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": ""
+        },
+        "event": {
+          "type": "click",
+          "node": "scripted",
+          "value": null
+        }
+      }
+    },
+    {
+      "name": "wrong action for the control",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "lamp_box",
+      "action": {
+        "type": "select",
+        "value": "door"
+      },
+      "expect": null
+    },
+    {
+      "name": "unknown node",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "nope",
+      "action": {
+        "type": "click"
+      },
+      "expect": null
+    },
+    {
+      "name": "a node without an id",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "intro",
+      "action": {
+        "type": "click"
+      },
+      "expect": null
+    },
+    {
+      "name": "a locked control does not apply",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "lamp_box",
+      "action": {
+        "type": "toggle"
+      },
+      "lock": {
+        "reason": "closed"
+      },
+      "expect": null
+    },
+    {
+      "name": "commit writes an input draft and fires no handler",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "note_in",
+      "action": {
+        "type": "commit",
+        "value": "a clue"
+      },
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": true,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": "a clue"
+        },
+        "event": null
+      }
+    },
+    {
+      "name": "commit only applies to an input",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "lamp_box",
+      "action": {
+        "type": "commit",
+        "value": "x"
+      },
+      "expect": null
+    }
+  ],
+  "resolve": [
+    {
+      "name": "small, lock none",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": null
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "small, lock closed",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": "closed"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "small, lock recalled",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": "recalled"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "small, lock not_actor",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": "not_actor"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "small, lock spectator",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": "spectator"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "small, lock history",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": "history"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "small, lock archived",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": "archived"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "small, lock paused",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": "paused"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "small, lock loading",
+      "doc": "small",
+      "state": {
+        "seen": true
+      },
+      "lock": {
+        "reason": "loading"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": null,
+          "text": "A door.",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "seen_box",
+          "label": "Seen",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "knock",
+          "label": "Knock",
+          "caption": "I knock.",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "study, defaults",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "lock": {
+        "reason": null
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": "intro",
+          "text": "Path: . Tools: . Count: 2. Note: ",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "lamp_box",
+          "label": "Light the lamp",
+          "value": false,
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "group",
+          "id": "gear",
+          "label": "Gear for ",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "choice",
+          "id": "tool_pick",
+          "label": "Take",
+          "value": [],
+          "options": [
+            {
+              "value": "rope",
+              "label": "Rope",
+              "selected": false,
+              "disabled": false
+            },
+            {
+              "value": "lamp",
+              "label": "Lamp",
+              "selected": false,
+              "disabled": false
+            },
+            {
+              "value": "key",
+              "label": "Key",
+              "selected": false,
+              "disabled": false
+            }
+          ],
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "row",
+          "id": "jot",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "input",
+          "id": "note_in",
+          "label": "Note",
+          "value": "",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "text",
+          "id": null,
+          "text": "",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "choice",
+          "id": "path_pick",
+          "label": "Path",
+          "value": null,
+          "options": [
+            {
+              "value": "stair",
+              "label": "The stair",
+              "selected": false,
+              "disabled": false
+            },
+            {
+              "value": "door",
+              "label": "The door",
+              "selected": false,
+              "disabled": false
+            }
+          ],
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "divider",
+          "id": null,
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "go",
+          "label": "Search (2)",
+          "caption": ".ra Spot Hidden",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "tell",
+          "label": "Tell",
+          "caption": "I take  (5) with ",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "ask",
+          "label": "Ask",
+          "visible": false,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "scripted",
+          "label": "Think",
+          "visible": true,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "study, an ask whose reply slot is a null enum",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 4,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "lock": {
+        "reason": null
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": "intro",
+          "text": "Path: . Tools: . Count: 4. Note: ",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "lamp_box",
+          "label": "Light the lamp",
+          "value": false,
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "group",
+          "id": "gear",
+          "label": "Gear for ",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "choice",
+          "id": "tool_pick",
+          "label": "Take",
+          "value": [],
+          "options": [
+            {
+              "value": "rope",
+              "label": "Rope",
+              "selected": false,
+              "disabled": false
+            },
+            {
+              "value": "lamp",
+              "label": "Lamp",
+              "selected": false,
+              "disabled": false
+            },
+            {
+              "value": "key",
+              "label": "Key",
+              "selected": false,
+              "disabled": false
+            }
+          ],
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "row",
+          "id": "jot",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "input",
+          "id": "note_in",
+          "label": "Note",
+          "value": "",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "text",
+          "id": null,
+          "text": "",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "choice",
+          "id": "path_pick",
+          "label": "Path",
+          "value": null,
+          "options": [
+            {
+              "value": "stair",
+              "label": "The stair",
+              "selected": false,
+              "disabled": false
+            },
+            {
+              "value": "door",
+              "label": "The door",
+              "selected": false,
+              "disabled": false
+            }
+          ],
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "divider",
+          "id": null,
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "go",
+          "label": "Search (4)",
+          "caption": ".ra Spot Hidden",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "tell",
+          "label": "Tell",
+          "caption": "I take  (5) with ",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "ask",
+          "label": "Ask",
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "scripted",
+          "label": "Think",
+          "visible": true,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "study, lamp lit, set at max, note written, done",
+      "doc": "study",
+      "state": {
+        "done": true,
+        "lamp": true,
+        "count": 4,
+        "path": "window",
+        "tools": [
+          "rope",
+          "key"
+        ],
+        "note": "A 🐙 here"
+      },
+      "lock": {
+        "reason": null
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": "intro",
+          "text": "Path: The window. Tools: Rope, Key. Count: 4. Note: A 🐙 here",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "lamp_box",
+          "label": "Light the lamp",
+          "value": true,
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "group",
+          "id": "gear",
+          "label": "Gear for The window",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "choice",
+          "id": "tool_pick",
+          "label": "Take",
+          "value": [
+            "rope",
+            "key"
+          ],
+          "options": [
+            {
+              "value": "rope",
+              "label": "Rope",
+              "selected": true,
+              "disabled": false
+            },
+            {
+              "value": "lamp",
+              "label": "Lamp",
+              "selected": false,
+              "disabled": true
+            },
+            {
+              "value": "key",
+              "label": "Key",
+              "selected": true,
+              "disabled": false
+            }
+          ],
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "row",
+          "id": "jot",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "input",
+          "id": "note_in",
+          "label": "Note",
+          "value": "A 🐙 here",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "text",
+          "id": null,
+          "text": "A 🐙 here",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "choice",
+          "id": "path_pick",
+          "label": "Path",
+          "value": "window",
+          "options": [
+            {
+              "value": "stair",
+              "label": "The stair",
+              "selected": false,
+              "disabled": true
+            },
+            {
+              "value": "door",
+              "label": "The door",
+              "selected": false,
+              "disabled": true
+            }
+          ],
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "divider",
+          "id": null,
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "go",
+          "label": "Search (4)",
+          "caption": ".ra Spot Hidden",
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "tell",
+          "label": "Tell",
+          "caption": "I take The window (5) with Rope, Key",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "ask",
+          "label": "Ask",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "scripted",
+          "label": "Think",
+          "visible": true,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "study, everything shown but closed",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": true,
+        "count": 0,
+        "path": "stair",
+        "tools": [
+          "lamp"
+        ],
+        "note": ""
+      },
+      "lock": {
+        "reason": "closed"
+      },
+      "expect": [
+        {
+          "type": "text",
+          "id": "intro",
+          "text": "Path: The stair. Tools: Lamp. Count: 0. Note: ",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "checkbox",
+          "id": "lamp_box",
+          "label": "Light the lamp",
+          "value": true,
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "group",
+          "id": "gear",
+          "label": "Gear for The stair",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "choice",
+          "id": "tool_pick",
+          "label": "Take",
+          "value": [
+            "lamp"
+          ],
+          "options": [
+            {
+              "value": "rope",
+              "label": "Rope",
+              "selected": false,
+              "disabled": true
+            },
+            {
+              "value": "lamp",
+              "label": "Lamp",
+              "selected": true,
+              "disabled": true
+            },
+            {
+              "value": "key",
+              "label": "Key",
+              "selected": false,
+              "disabled": true
+            }
+          ],
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "row",
+          "id": "jot",
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "input",
+          "id": "note_in",
+          "label": "Note",
+          "value": "",
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "text",
+          "id": null,
+          "text": "",
+          "visible": false,
+          "disabled": false
+        },
+        {
+          "type": "choice",
+          "id": "path_pick",
+          "label": "Path",
+          "value": "stair",
+          "options": [
+            {
+              "value": "stair",
+              "label": "The stair",
+              "selected": true,
+              "disabled": true
+            },
+            {
+              "value": "door",
+              "label": "The door",
+              "selected": false,
+              "disabled": true
+            }
+          ],
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "divider",
+          "id": null,
+          "visible": true,
+          "disabled": false
+        },
+        {
+          "type": "button",
+          "id": "go",
+          "label": "Search (0)",
+          "caption": ".ra Spot Hidden",
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "tell",
+          "label": "Tell",
+          "caption": "I take The stair (5) with Lamp",
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "ask",
+          "label": "Ask",
+          "visible": true,
+          "disabled": true
+        },
+        {
+          "type": "button",
+          "id": "scripted",
+          "label": "Think",
+          "visible": true,
+          "disabled": true
+        }
+      ]
+    }
+  ],
+  "act": [
+    {
+      "name": "set then say from the new state",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "go",
+      "expect": {
+        "state": {
+          "done": true,
+          "lamp": false,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": ""
+        },
+        "effects": [
+          {
+            "type": "say",
+            "text": ".ra Spot Hidden",
+            "kind": "ic"
+          }
+        ]
+      }
+    },
+    {
+      "name": "say interpolates enum and set labels and the new int",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": "stair",
+        "tools": [
+          "rope",
+          "key"
+        ],
+        "note": ""
+      },
+      "node": "tell",
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": false,
+          "count": 5,
+          "path": "stair",
+          "tools": [
+            "rope",
+            "key"
+          ],
+          "note": ""
+        },
+        "effects": [
+          {
+            "type": "say",
+            "text": "I take The stair (5) with Rope, Key",
+            "kind": "ooc"
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty enum and set interpolate as \"\"",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "tell",
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": false,
+          "count": 5,
+          "path": null,
+          "tools": [],
+          "note": ""
+        },
+        "effects": [
+          {
+            "type": "say",
+            "text": "I take  (5) with ",
+            "kind": "ooc"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply slots come from same-name state keys",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 3,
+        "path": "door",
+        "tools": [],
+        "note": ""
+      },
+      "node": "ask",
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": false,
+          "count": 3,
+          "path": "door",
+          "tools": [],
+          "note": ""
+        },
+        "effects": [
+          {
+            "type": "reply",
+            "id": "hint",
+            "slots": {
+              "path": "door",
+              "count": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a null enum fills a null slot (refused when checked)",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "ask",
+      "expect": {
+        "state": {
+          "done": false,
+          "lamp": false,
+          "count": 2,
+          "path": null,
+          "tools": [],
+          "note": ""
+        },
+        "effects": [
+          {
+            "type": "reply",
+            "id": "hint",
+            "slots": {
+              "path": null,
+              "count": 2
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a literal say without set",
+      "doc": "small",
+      "state": {
+        "seen": false
+      },
+      "node": "knock",
+      "expect": {
+        "state": {
+          "seen": false
+        },
+        "effects": [
+          {
+            "type": "say",
+            "text": "I knock.",
+            "kind": "ic"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a script button has no act",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "scripted",
+      "expect": null
+    },
+    {
+      "name": "a checkbox has no act",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "lamp_box",
+      "expect": null
+    },
+    {
+      "name": "unknown node",
+      "doc": "study",
+      "state": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      },
+      "node": "nope",
+      "expect": null
+    }
+  ],
+  "runs": [
+    {
+      "name": "say an allowed roll and set state",
+      "doc": "run",
+      "script": "on('go', () => { say('.ra Spot Hidden'); state.done = true; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "state": {
+          "done": true,
+          "n": 0,
+          "pick": null,
+          "tags": [],
+          "t": ""
+        },
+        "effects": [
+          {
+            "type": "say",
+            "text": ".ra Spot Hidden",
+            "kind": "ic"
+          }
+        ],
+        "notices": [],
+        "logs": [],
+        "confirm": null,
+        "changed": true
+      }
+    },
+    {
+      "name": "say .rah needs no confirmation",
+      "doc": "run",
+      "script": "on('go', () => say('.rah Listen'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "say",
+            "text": ".rah Listen",
+            "kind": "ic"
+          }
+        ],
+        "confirm": null,
+        "changed": false
+      }
+    },
+    {
+      "name": "say .ri with modifiers only",
+      "doc": "run",
+      "script": "on('go', () => say('.ri +2'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": null
+      }
+    },
+    {
+      "name": "say .ri with a name is refused",
+      "doc": "run",
+      "script": "on('go', () => say('.ri Bob'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "say free text needs confirmation",
+      "doc": "run",
+      "script": "on('go', () => say('I open the door.'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "say",
+            "text": "I open the door.",
+            "kind": "ic"
+          }
+        ],
+        "confirm": {
+          "text": "I open the door.",
+          "kind": "ic"
+        }
+      }
+    },
+    {
+      "name": "say ooc free text",
+      "doc": "run",
+      "script": "on('go', () => say('brb', 'ooc'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": {
+          "text": "brb",
+          "kind": "ooc"
+        }
+      }
+    },
+    {
+      "name": "say .sc needs confirmation with a sheet warning",
+      "doc": "run",
+      "script": "on('go', () => say('.sc 1/1d6'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "say",
+            "text": ".sc 1/1d6",
+            "kind": "ic"
+          }
+        ],
+        "confirm": {
+          "text": ".sc 1/1d6",
+          "kind": "ic",
+          "sheet": true
+        }
+      }
+    },
+    {
+      "name": "say full-width .ds needs confirmation",
+      "doc": "run",
+      "script": "on('go', () => say('。ds'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": {
+          "text": "。ds",
+          "kind": "ic",
+          "sheet": true
+        }
+      }
+    },
+    {
+      "name": "say .st is refused",
+      "doc": "run",
+      "script": "on('go', () => say('.st STR 50'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "say .en is refused",
+      "doc": "run",
+      "script": "on('go', () => say('.EN Library Use'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "say is trimmed as the server trims",
+      "doc": "run",
+      "script": "on('go', () => say('  .r 1d6  '));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "say",
+            "text": ".r 1d6",
+            "kind": "ic"
+          }
+        ],
+        "confirm": null
+      }
+    },
+    {
+      "name": "say over 500 code points",
+      "doc": "run",
+      "script": "on('go', () => say('x'.repeat(501)));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "say of 500 emoji is allowed",
+      "doc": "run",
+      "script": "on('go', () => say('🎲'.repeat(500)));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": {
+          "text": "🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲",
+          "kind": "ic"
+        }
+      }
+    },
+    {
+      "name": "say of six lines",
+      "doc": "run",
+      "script": "on('go', () => say('a\\nb\\nc\\nd\\ne\\nf'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "a roll with a reason needs confirmation",
+      "doc": "run",
+      "script": "on('go', () => say('.r 1d6 for the clue'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "say",
+            "text": ".r 1d6 for the clue",
+            "kind": "ic"
+          }
+        ],
+        "confirm": {
+          "text": ".r 1d6 for the clue",
+          "kind": "ic"
+        }
+      }
+    },
+    {
+      "name": "a roll with a second line needs confirmation",
+      "doc": "run",
+      "script": "on('go', () => say('.r I hand all my gold to the GM\\nSigned, me'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": {
+          "text": ".r I hand all my gold to the GM\nSigned, me",
+          "kind": "ic"
+        }
+      }
+    },
+    {
+      "name": "a check longer than 32 characters needs confirmation",
+      "doc": "run",
+      "script": "on('go', () => say('.ra I hand all my gold to the GM and confess'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": {
+          "text": ".ra I hand all my gold to the GM and confess",
+          "kind": "ic"
+        }
+      }
+    },
+    {
+      "name": "a check of a skill, a value and a modifier runs directly",
+      "doc": "run",
+      "script": "on('go', () => say('.ra Fighting (Brawl) 50 +10'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "say",
+            "text": ".ra Fighting (Brawl) 50 +10",
+            "kind": "ic"
+          }
+        ],
+        "confirm": null
+      }
+    },
+    {
+      "name": "a repeated roll expression runs directly",
+      "doc": "run",
+      "script": "on('go', () => say('.r 3#1d6+2'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": null
+      }
+    },
+    {
+      "name": ".ri adv runs directly",
+      "doc": "run",
+      "script": "on('go', () => say('.ri adv'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "say",
+            "text": ".ri adv",
+            "kind": "ic"
+          }
+        ],
+        "confirm": null
+      }
+    },
+    {
+      "name": "a multi-line .ri needs confirmation",
+      "doc": "run",
+      "script": "on('go', () => say('.ri +2\\nadv'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": {
+          "text": ".ri +2\nadv",
+          "kind": "ic"
+        }
+      }
+    },
+    {
+      "name": "U+2028 breaks lines: six are refused",
+      "doc": "run",
+      "script": "on('go', () => say(['a', 'b', 'c', 'd', 'e', 'f'].join('\\u2028')));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "U+0085 breaks lines: six are refused",
+      "doc": "run",
+      "script": "on('go', () => say(['a', 'b', 'c', 'd', 'e', 'f'].join('\\u0085')));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "five lines joined by U+2029 are free text",
+      "doc": "run",
+      "script": "on('go', () => say(['a', 'b', 'c', 'd', 'e'].join('\\u2029')));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "confirm": {
+          "text": "a\u2029b\u2029c\u2029d\u2029e",
+          "kind": "ic"
+        }
+      }
+    },
+    {
+      "name": "say with a bidi override",
+      "doc": "run",
+      "script": "on('go', () => say('hi \\u202e there'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "say of only spaces",
+      "doc": "run",
+      "script": "on('go', () => say('   '));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "say with kind narration",
+      "doc": "run",
+      "script": "on('go', () => say('x', 'narration'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "two says are refused by the prelude",
+      "doc": "run",
+      "script": "on('go', () => { say('a'); say('b'); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "two says forged past the prelude are refused",
+      "doc": "run",
+      "script": "Object.prototype.toJSON = function (k) { return k === '' && this.ok === true ? { ok: true, state: state, effects: [{ type: 'say', text: '.r 1d6', kind: 'ic' }, { type: 'say', text: '.r 1d6', kind: 'ic' }], notices: [], logs: [] } : this; }; on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "a forged state outside its range is refused",
+      "doc": "run",
+      "script": "Object.prototype.toJSON = function (k) { return k === '' && this.ok === true ? { ok: true, state: { done: false, n: 99, pick: null, tags: [], t: '' }, effects: [], notices: [], logs: [] } : this; }; on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_state"
+      }
+    },
+    {
+      "name": "a forged output field is refused",
+      "doc": "run",
+      "script": "Object.prototype.toJSON = function (k) { return k === '' && this.ok === true ? { ok: true, state: state, effects: [], notices: [], logs: [], token: 'x' } : this; }; on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "a forged output over 16 KiB is refused",
+      "doc": "run",
+      "script": "Object.prototype.toJSON = function (k) { return k === '' && this.ok === true ? { ok: true, state: state, effects: [], notices: [], logs: ['x'.repeat(17000)] } : this; }; on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "a forged output nested deeper than 16 is refused",
+      "doc": "run",
+      "script": "Object.prototype.toJSON = function (k) { return k === '' && this.ok === true ? { ok: true, state: state, effects: [], notices: [], logs: [], deep: JSON.parse('['.repeat(20) + ']'.repeat(20)) } : this; }; on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "redeclaring __run is a syntax error",
+      "doc": "run",
+      "script": "let __run = () => '{\"ok\":true}'; on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "reply with an enum slot",
+      "doc": "run",
+      "script": "on('go', () => reply('clue', { mark: '13' }));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "reply",
+            "id": "clue",
+            "slots": {
+              "mark": "13"
+            }
+          }
+        ],
+        "confirm": null
+      }
+    },
+    {
+      "name": "reply without slots",
+      "doc": "run",
+      "script": "on('go', () => reply('door'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "reply",
+            "id": "door",
+            "slots": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply with a value not declared",
+      "doc": "run",
+      "script": "on('go', () => reply('clue', { mark: '99' }));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "reply missing a slot",
+      "doc": "run",
+      "script": "on('go', () => reply('clue'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "reply with an extra slot",
+      "doc": "run",
+      "script": "on('go', () => reply('door', { x: 1 }));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "reply with a fractional int",
+      "doc": "run",
+      "script": "on('go', () => reply('num', { n: 1.5 }));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "reply with an int out of range",
+      "doc": "run",
+      "script": "on('go', () => reply('num', { n: 5 }));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "reply with an int given as a string",
+      "doc": "run",
+      "script": "on('go', () => reply('num', { n: '2' }));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "reply to an id that is not declared",
+      "doc": "run",
+      "script": "on('go', () => reply('nope'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "say and reply in one action",
+      "doc": "run",
+      "script": "on('go', () => { reply('num', { n: 4 }); say('.r 1d4'); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "reply",
+            "id": "num",
+            "slots": {
+              "n": 4
+            }
+          },
+          {
+            "type": "say",
+            "text": ".r 1d4",
+            "kind": "ic"
+          }
+        ]
+      }
+    },
+    {
+      "name": "notices",
+      "doc": "run",
+      "script": "on('go', () => { notify('one'); notify('two\\nlines'); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "notices": [
+          "one",
+          "two\nlines"
+        ],
+        "effects": []
+      }
+    },
+    {
+      "name": "a fourth notice throws",
+      "doc": "run",
+      "script": "on('go', () => { for (let i = 0; i < 4; i++) notify('n' + i); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "an oversized notice",
+      "doc": "run",
+      "script": "on('go', () => notify('x'.repeat(201)));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "an empty notice",
+      "doc": "run",
+      "script": "on('go', () => notify(''));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_effect"
+      }
+    },
+    {
+      "name": "logs are stringified",
+      "doc": "run",
+      "script": "on('go', () => log('a', 1, { b: 2 }, [1], null, undefined, true));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "logs": [
+          "a 1 {\"b\":2} [1] null undefined true"
+        ]
+      }
+    },
+    {
+      "name": "logs keep 20 entries of 200 code points",
+      "doc": "run",
+      "script": "for (let i = 0; i < 25; i++) log(String(i)); on('go', () => log('é'.repeat(300)));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "logs": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16",
+          "17",
+          "18",
+          "19"
+        ]
+      }
+    },
+    {
+      "name": "a long log is cut to 200 code points",
+      "doc": "run",
+      "script": "on('go', () => log('😀'.repeat(300)));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "logs": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        ]
+      }
+    },
+    {
+      "name": "logs survive a script error",
+      "doc": "run",
+      "script": "on('go', () => { log('before'); null.x; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error",
+        "logs": [
+          "before"
+        ]
+      }
+    },
+    {
+      "name": "while(1) runs out of budget",
+      "doc": "run",
+      "script": "on('go', () => { while (1) {} });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "budget"
+      }
+    },
+    {
+      "name": "a top-level loop runs out of budget",
+      "doc": "run",
+      "script": "for (;;) {}",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "budget"
+      }
+    },
+    {
+      "name": "catastrophic regex runs out of budget",
+      "doc": "run",
+      "script": "on('go', () => /(a+)+$/.test('a'.repeat(40) + 'b'));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "budget"
+      }
+    },
+    {
+      "name": "a memory bomb",
+      "doc": "run",
+      "script": "on('go', () => { let s = 'x'; for (let i = 0; i < 24; i++) s += s; state.t = s.slice(0, 3); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory"
+      }
+    },
+    {
+      "name": "a huge array",
+      "doc": "run",
+      "script": "on('go', () => { Array.from({ length: 1e7 }); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory"
+      }
+    },
+    {
+      "name": "deep recursion",
+      "doc": "run",
+      "script": "on('go', () => { function f(n) { return f(n + 1) + 1; } f(0); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "stack"
+      }
+    },
+    {
+      "name": "the sandbox has no clock, promises, proxies, network or eval",
+      "doc": "run",
+      "script": "on('go', () => notify([typeof Date, typeof Promise, typeof Proxy, typeof fetch, typeof XMLHttpRequest, typeof eval, typeof WeakRef, typeof FinalizationRegistry, typeof setTimeout, typeof Intl, typeof console, typeof WebAssembly].join(' ')));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "notices": [
+          "undefined undefined undefined undefined undefined undefined undefined undefined undefined undefined undefined undefined"
+        ]
+      }
+    },
+    {
+      "name": "the Function constructor stays in the same sandbox",
+      "doc": "run",
+      "script": "on('go', () => notify(Function('return typeof fetch + typeof eval')()));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "notices": [
+          "undefinedundefined"
+        ]
+      }
+    },
+    {
+      "name": "Math.random throws",
+      "doc": "run",
+      "script": "on('go', () => { state.n = Math.floor(Math.random() * 10); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "Math.random cannot be replaced",
+      "doc": "run",
+      "script": "on('go', () => { Math.random = () => 0.5; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "import is a syntax error",
+      "doc": "run",
+      "script": "import x from 'y';\non('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "a syntax error",
+      "doc": "run",
+      "script": "on('go', () => {\n\n  oops(;\n});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error",
+        "line": 3
+      }
+    },
+    {
+      "name": "a runtime error reports its line",
+      "doc": "run",
+      "script": "on('go', () => {\n  const a = 1;\n  null.x;\n});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error",
+        "line": 3
+      }
+    },
+    {
+      "name": "no handler for the control",
+      "doc": "run",
+      "script": "on('other', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "no_handler"
+      }
+    },
+    {
+      "name": "no script at all",
+      "doc": "run",
+      "script": null,
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "no_handler"
+      }
+    },
+    {
+      "name": "a handler returning a thenable",
+      "doc": "run",
+      "script": "on('go', () => ({ then() {} }));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "an async handler",
+      "doc": "run",
+      "script": "on('go', async () => { say('.r 1d6'); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "on() inside a handler",
+      "doc": "run",
+      "script": "on('go', () => { on('later', () => {}); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "on() twice for a name",
+      "doc": "run",
+      "script": "on('go', () => {}); on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "say() at the top level",
+      "doc": "run",
+      "script": "say('.r 1d6'); on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "state cannot be rebound",
+      "doc": "run",
+      "script": "on('go', () => { state = { done: true }; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "state outside its range",
+      "doc": "run",
+      "script": "on('go', () => { state.n = 11; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_state"
+      }
+    },
+    {
+      "name": "an undeclared state key",
+      "doc": "run",
+      "script": "on('go', () => { state.extra = 1; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_state"
+      }
+    },
+    {
+      "name": "a deleted state key",
+      "doc": "run",
+      "script": "on('go', () => { delete state.done; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_state"
+      }
+    },
+    {
+      "name": "an enum value not declared",
+      "doc": "run",
+      "script": "on('go', () => { state.pick = 'z'; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_state"
+      }
+    },
+    {
+      "name": "a set over max or with duplicates",
+      "doc": "run",
+      "script": "on('go', () => { state.tags = ['x', 'x']; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "invalid_state"
+      }
+    },
+    {
+      "name": "state changes without effects",
+      "doc": "run",
+      "script": "on('go', () => { state.n = 3; state.tags.push('y'); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "state": {
+          "done": false,
+          "n": 3,
+          "pick": null,
+          "tags": [
+            "y"
+          ],
+          "t": ""
+        },
+        "effects": [],
+        "confirm": null,
+        "changed": true
+      }
+    },
+    {
+      "name": "viewer and card are readable and frozen",
+      "doc": "run",
+      "script": "on('go', () => { notify([viewer.gm, viewer.actor, viewer.character, card.title, card.replies.join(','), Object.isFrozen(viewer)].join('|')); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "notices": [
+          "false|true|Ada|Run|door,clue,num|true"
+        ]
+      }
+    },
+    {
+      "name": "viewer cannot be changed",
+      "doc": "run",
+      "script": "on('go', () => { viewer.gm = true; });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "the event carries the new value",
+      "doc": "run",
+      "script": "on('picked', (ev) => { state.n = ev.value === 'b' ? 2 : 1; notify(ev.type + ' ' + ev.node + ' ' + ev.value); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": "b",
+        "tags": [],
+        "t": ""
+      },
+      "handler": "picked",
+      "event": {
+        "type": "change",
+        "node": "pick_it",
+        "value": "b"
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "state": {
+          "done": false,
+          "n": 2,
+          "pick": "b",
+          "tags": [],
+          "t": ""
+        },
+        "notices": [
+          "change pick_it b"
+        ]
+      }
+    },
+    {
+      "name": "a submit event with its text",
+      "doc": "run",
+      "script": "on('typed', (ev) => say(ev.value));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": "hello there"
+      },
+      "handler": "typed",
+      "event": {
+        "type": "submit",
+        "node": "t_in",
+        "value": "hello there"
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "effects": [
+          {
+            "type": "say",
+            "text": "hello there",
+            "kind": "ic"
+          }
+        ],
+        "confirm": {
+          "text": "hello there",
+          "kind": "ic"
+        }
+      }
+    },
+    {
+      "name": "the binding change counts as a change against prev",
+      "doc": "run",
+      "script": "on('picked', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": "a",
+        "tags": [],
+        "t": ""
+      },
+      "handler": "picked",
+      "event": {
+        "type": "change",
+        "node": "pick_it",
+        "value": "a"
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "prev": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "expect": {
+        "ok": true,
+        "state": {
+          "done": false,
+          "n": 0,
+          "pick": "a",
+          "tags": [],
+          "t": ""
+        },
+        "changed": true
+      }
+    },
+    {
+      "name": "a GM viewer",
+      "doc": "run",
+      "script": "on('go', () => notify(String(viewer.gm) + ' ' + String(viewer.character)));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": true,
+        "actor": true,
+        "character": null
+      },
+      "expect": {
+        "ok": true,
+        "notices": [
+          "true null"
+        ]
+      }
+    },
+    {
+      "name": "a generic Array method over a huge length is refused",
+      "doc": "run",
+      "script": "on('go', () => { [].lastIndexOf.call({ length: 2 ** 53 - 1 }, 1); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "a sparse array's huge length is refused",
+      "doc": "run",
+      "script": "on('go', () => { new Array(2 ** 32 - 1).indexOf(1); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "an array-like with an accessor length is refused",
+      "doc": "run",
+      "script": "on('go', () => { [].includes.call({ get length() { return 1; } }, 1); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "a quadratic substring search is refused",
+      "doc": "run",
+      "script": "on('go', () => { const h = 'a'.repeat(4e5), n = 'a'.repeat(2e5) + 'b'; h.indexOf(n); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "metered calls share one budget per run",
+      "doc": "run",
+      "script": "on('go', () => { const a = Array.from({ length: 1000 }, (_, i) => i); for (let i = 0; i < 10000; i++) a.indexOf(-1); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "a refused call can be caught, and its work is not done",
+      "doc": "run",
+      "script": "on('go', () => { try { [].indexOf.call({ length: 2 ** 40 }, 1); } catch (e) { notify(e.name); } });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "notices": [
+          "RangeError"
+        ]
+      }
+    },
+    {
+      "name": "metered built-ins keep their results",
+      "doc": "run",
+      "script": "on('go', () => notify([[3, 1, 2].sort().join(), 'a-b-c'.split('-').length, 'abc'.indexOf('c'), 'abc'.includes('b'), 'aXbX'.replace('X', 'y'), 'aXbX'.replaceAll('X', 'y'), 'ab'.repeat(2), '7'.padStart(3, '0'), JSON.stringify({ a: [1] }), JSON.parse('[1]')[0], [1, [2, [3]]].flat(2).length, [1, 2, 3].lastIndexOf(3), 'aXbX'.replace(/X/g, 'z'), 'a1b2'.split(/\\d/).length, String([1, 2]), [1, 2].concat([3], 4).length, [3, 1, 2].toSorted().join(''), ''.indexOf.length, [].indexOf.name].join('|')));",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": true,
+        "notices": [
+          "1,2,3|3|2|true|aybX|ayby|abab|007|{\"a\":[1]}|1|3|2|azbz|3|1,2|4|123|1|indexOf"
+        ]
+      }
+    },
+    {
+      "name": "a repeat past the work budget is refused",
+      "doc": "run",
+      "script": "on('go', () => { 'x'.repeat(1 << 24); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "caught stack overflows end at the deadline",
+      "doc": "run",
+      "script": "on('go', () => { function f() { try { return f(); } catch (e) { return f(); } } f(); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "a forged engine_unavailable is a script error",
+      "doc": "run",
+      "script": "Object.prototype.toJSON = function () { delete Object.prototype.toJSON; return { ok: false, error: { code: 'engine_unavailable', message: 'WebAssembly is not available on this device' } }; }; on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "a forged timeout is a script error",
+      "doc": "run",
+      "script": "Object.prototype.toJSON = function () { delete Object.prototype.toJSON; return { ok: false, error: { code: 'timeout', message: 'x' } }; }; on('go', () => {});",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error"
+      }
+    },
+    {
+      "name": "forged logs on the error path are capped to 20 of 200",
+      "doc": "run",
+      "script": "Array.prototype.toJSON = function () { delete Array.prototype.toJSON; const a = []; for (let i = 0; i < 30; i++) a.push('x'.repeat(300)); return a; }; on('go', () => { throw new Error('boom'); });",
+      "state": {
+        "done": false,
+        "n": 0,
+        "pick": null,
+        "tags": [],
+        "t": ""
+      },
+      "handler": "go",
+      "event": {
+        "type": "click",
+        "node": "go",
+        "value": null
+      },
+      "viewer": {
+        "gm": false,
+        "actor": true,
+        "character": "Ada"
+      },
+      "expect": {
+        "ok": false,
+        "code": "script_error",
+        "logs": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]
+      }
+    }
+  ]
+}

@@ -66,5 +66,10 @@ echo "== pdf worker tests"; (cd "$ROOT/pdf-worker" && { [ -d node_modules ] || n
 echo "== frontend typecheck, tests and build"
 (cd "$ROOT/frontend" && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
 (cd "$ROOT/frontend" && npx tsc --noEmit && npm test --silent && npm run build --silent)
+# The committed WebView bundles of the apps: the card engine must be the build of frontend/src/hypertext (and within its
+# size cap); both run in bare contexts like the WebViews.
+echo "== mobile engine bundles"
+node "$ROOT/mobile/scripts/build-hypertext.mjs" --check
+node --test "$ROOT/mobile/hypertext/engine.test.mjs" "$ROOT/mobile/openstudio/engine.test.mjs"
 if [ "${RUN_BROWSER_TESTS:-0}" = "1" ]; then API_BASE="http://127.0.0.1:$PORT" "$ROOT/scripts/test-browser.sh"; fi
 echo "ALL GREEN"
