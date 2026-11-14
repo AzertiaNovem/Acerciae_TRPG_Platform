@@ -47,6 +47,14 @@ test('the engine is pinned: exact packages, lockfile, WASM bytes and limits', ()
   for (const f of ['engine.ts', 'prelude.ts', 'hypertext-worker.ts']) assert.ok(!/\.new\w*Function\s*\(/.test(fs.readFileSync(path.join(__dirname, '../src/hypertext', f), 'utf8')), f);
 });
 
+test('the web worker carries the engine\'s MIT notice, the same as the app bundle', () => {
+  // A `/*!` comment survives the build, so the worker asset ships the notice (the mobile bundle keeps its own copy).
+  const notice = (file) => { const s = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n'), i = s.search(/^\/\*!/m); return i < 0 ? '' : s.slice(i, s.indexOf('*/', i) + 2); };
+  const web = notice(path.join(__dirname, '../src/hypertext/hypertext-worker.ts'));
+  assert.ok(web.includes('Fabrice Bellard') && web.includes('Jake Teton-Landis') && web.includes('Permission is hereby granted'), 'the worker holds the MIT notice');
+  assert.equal(web, notice(path.join(__dirname, '../../mobile/hypertext/engine.ts')));
+});
+
 // The shared fixture's engine section (backend phase) must describe the same engine as the client fixture: Android
 // and iOS read it. A mismatch here is a contract conflict to settle in hypertext.json, not in a reader.
 test('the shared engine section agrees with the client one', (t) => {

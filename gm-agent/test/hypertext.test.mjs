@@ -51,12 +51,37 @@ test("a roll card: the narration, one button posting the command as the player's
   assert.equal(bare.hypertext.title, "Ada 的检定");
   assert.equal(bare.hypertext.body[0].label, "检定：侦查");
   assert.equal(rollRequest({ command: ".r 1d100", pcId: "x", language: "zh-TW" }).hypertext.body[0].label, "檢定：1d100");
-  assert.equal(rollRequest({ command: ".ri +2", pcId: "x", language: "Japanese" }).hypertext.body[0].label, "Roll initiative", "English for other languages");
+  assert.equal(rollRequest({ command: ".ri +2", pcId: "x", language: "Japanese" }).hypertext.body[0].label, "イニシアチブを振る");
+  assert.equal(rollRequest({ command: ".ri +2", pcId: "x", language: "Klingon" }).hypertext.body[0].label, "Roll initiative", "English for other languages");
   assert.equal(rollRequest({ command: ".sc 1/1d6", pcId: "x" }).hypertext.body[0].label, "Sanity check 1/1d6");
   assert.equal(rollRequest({ command: ".ds", pcId: "x" }).hypertext.body[0].label, "Death saving throw");
   assert.equal(cardStrings("zh-Hant"), cardStrings("Traditional Chinese"));
   assert.equal(cardStrings("zh"), cardStrings("Simplified Chinese"));
   assert.equal(cardStrings(undefined), cardStrings("English"));
+});
+
+test("every table language has its own card strings, and every card builds in it", () => {
+  const languages = ["English", "Simplified Chinese", "Traditional Chinese", "Japanese", "Korean", "Spanish", "French", "German", "Russian", "Portuguese", "Italian"];
+  const keys = ["rollTitle", "check", "roll", "initiative", "sanity", "deathSave", "choiceTitle", "choose", "chose", "checklistTitle", "allDone"];
+  const seen = new Set();
+  for (const language of languages) {
+    const L = cardStrings(language);
+    assert.ok(!seen.has(L), `${language} has its own row`); seen.add(L);
+    assert.deepEqual(Object.keys(L).sort(), [...keys].sort(), language);
+    for (const k of keys) {
+      const v = typeof L[k] === "function" ? L[k]("x") : L[k];
+      assert.ok(typeof v === "string" && v.trim(), `${language}.${k}`);
+    }
+    for (const k of ["rollTitle", "sanity"]) assert.ok(L[k]("").trim(), `${language}.${k} without an argument`);
+    assert.ok(L.chose.includes("{{pick}}"), `${language}.chose keeps {{pick}}`);
+    assert.equal(diceVerdict(L.chose.replace("{{pick}}", "the inn")), "none", `${language}.chose is never a command`);
+    assert.ok(rollRequest({ command: ".ra Spot Hidden", pcId: "c-ada", name: "Ada", language }), language);
+    for (const command of [".ri", ".sc 1/1d6", ".ds", ".r 1d100"]) assert.ok(rollRequest({ command, pcId: "c-ada", language }), `${language} ${command}`);
+    assert.ok(choice({ prompt: "Where now?", options: ["the lighthouse", "the inn"], language }), language);
+    assert.ok(checklist({ items: ["Lamp oil", "Rope"], language }), language);
+  }
+  assert.equal(cardStrings("ja"), cardStrings("Japanese"));
+  assert.equal(cardStrings("pt-BR"), cardStrings("Portuguese"));
 });
 
 test("a roll card is only made for a command a card may post as the clicker", () => {

@@ -315,7 +315,7 @@ test('say: the clicker\'s own line with the card\'s mark; rolls run, sheet chang
   await request(t.gm.token, 'PUT', `/api/servers/${t.server.id}/settings`, { features: { dice: true } });
   assert.equal((await t.act(t.ann, m.id, { say: { text: '.sc 1/1d6' } }, 428)).sheet, true, 'with dice on, sc changes the sheet');
   // The shape of a say.
-  for (const say of [{ text: 'x'.repeat(501) }, { text: 'Hi', kind: 'narration' }, { text: 'a\nb\nc\nd\ne\nf' }, { text: '   ' }, { text: 'Hi‮' }, { text: 'Hi', colour: 'red' }]) {
+  for (const say of [{ text: 'x'.repeat(501) }, { text: 'Hi', kind: 'narration' }, { text: 'a\nb\nc\nd\ne\nf' }, { text: '   ' }, { text: 'Hi\u202e' }, { text: 'Hi', colour: 'red' }]) {
     assert.equal((await t.act(t.ann, m.id, { say }, 400)).error, 'invalid_effect', JSON.stringify(say));
   }
   assert.equal((await t.act(t.ann, m.id, {}, 400)).error, 'invalid_effect', 'an action posts something');
@@ -410,11 +410,21 @@ test('failures: a failing first effect posts nothing and saves nothing but still
   for (let i = 1; i < 10; i++) await t.act(dan, m.id, { say: { text: '.rh 1d6' } }, 400);
   const limited = await t.act(dan, m.id, { say: { text: 'Hello.' } }, 429);
   assert.equal(limited.error, 'rate_limited'); assert.ok(limited.retry_after >= 1 && limited.retry_after <= 60);
+  // A reply's error keeps its code, never the template: a dice error would quote its expression.
+  const secret = (body) => assert.ok(!JSON.stringify(body).includes('1d1000'), `the template's expression stays private: ${JSON.stringify(body)}`);
+  const alone = uuid();
+  const lone = await t.act(t.bob, m.id, { interaction_id: alone, reply: { id: 'boom' } }, 400);
+  assert.equal(lone.error, 'dice_error'); secret(lone);
+  secret(await t.act(t.bob, m.id, { interaction_id: alone, reply: { id: 'boom' } }, 400));
   // The say posts, the reply's roll fails: partial, the run and the state kept, the reply free to try again.
-  const partial = await t.act(t.ann, m.id, { node: 'go', say: { text: 'I try the door.' }, reply: { id: 'boom' }, state: { done: true } });
+  const pid = uuid();
+  const partial = await t.act(t.ann, m.id, { interaction_id: pid, node: 'go', say: { text: 'I try the door.' }, reply: { id: 'boom' }, state: { done: true } });
   assert.equal(partial.partial, true);
   assert.equal(partial.results[0].ok, true); assert.equal(partial.results[0].message.content, 'I try the door.');
   assert.equal(partial.results[1].ok, false); assert.equal(partial.results[1].message, null); assert.equal(partial.results[1].error.error, 'dice_error');
+  secret(partial);
+  const again = await t.act(t.ann, m.id, { interaction_id: pid, node: 'go', say: { text: 'I try the door.' }, reply: { id: 'boom' }, state: { done: true } });
+  assert.equal(again.replayed, true); assert.equal(again.results[1].error.error, 'dice_error'); secret(again);
   assert.deepEqual(partial.state, { state: { done: true }, version: 1 });
   const after = (await t.status(t.ann, [m.id])).items[0];
   assert.equal(after.runs_left, 2); assert.equal(after.version, 1);

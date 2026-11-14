@@ -34,3 +34,48 @@ test('static UI copy is catalogued; technical literals stay literal',()=>{
  ts.forEachChild(node,visit);}visit(ast);
  }}}walk(path.join(__dirname,'../src'));
 });
+test('interactive-message sentences that reach tr() through a table or a component prop are catalogued',()=>{
+ // HX_TEXT and ERRORS (store/hypertext.ts) and REASONS (HypertextCard.tsx) are shown through tr(entry.error) and
+ // tr(REASONS[reason]); Isolated translates its `text` prop. A string literal, or either side of a ?: of them.
+ const literals=node=>{
+  if(!node)return null;
+  if(ts.isStringLiteral(node)||ts.isNoSubstitutionTemplateLiteral(node))return [node.text];
+  if(ts.isParenthesizedExpression(node)||ts.isAsExpression(node)||ts.isJsxExpression(node))return literals(node.expression);
+  if(ts.isConditionalExpression(node)){const a=literals(node.whenTrue),b=literals(node.whenFalse);return a&&b?[...a,...b]:null;}
+  return null;
+ };
+ const tables=new Map([['store/hypertext.ts',['HX_TEXT','ERRORS']],['components/HypertextCard.tsx',['REASONS']]]);
+ const sentences=[];
+ for(const [file,names] of tables){
+  const ast=ts.createSourceFile(file,fs.readFileSync(path.join(__dirname,'../src',file),'utf8'),99,true,file.endsWith('.tsx')?ts.ScriptKind.TSX:ts.ScriptKind.TS);
+  const found=new Set();
+  (function visit(node){
+   if(ts.isVariableDeclaration(node)&&ts.isIdentifier(node.name)&&names.includes(node.name.text)){
+    let init=node.initializer;while(init&&(ts.isAsExpression(init)||ts.isParenthesizedExpression(init)))init=init.expression;
+    assert.ok(init&&ts.isObjectLiteralExpression(init),`${file}: ${node.name.text} is an object of sentences`);
+    for(const p of init.properties){const v=ts.isPropertyAssignment(p)&&literals(p.initializer);assert.ok(v,`${file}: ${node.name.text}.${p.name?.getText(ast)} is a sentence`);sentences.push(...v.map(s=>[`${file} ${node.name.text}`,s]));}
+    found.add(node.name.text);
+   }
+   ts.forEachChild(node,visit);
+  })(ast);
+  assert.deepEqual([...found].sort(),[...names].sort(),file);
+ }
+ const isolated=[];
+ (function walk(dir){for(const name of fs.readdirSync(dir)){const file=path.join(dir,name);if(fs.statSync(file).isDirectory())walk(file);else if(file.endsWith('.tsx')){
+  const ast=ts.createSourceFile(file,fs.readFileSync(file,'utf8'),99,true,ts.ScriptKind.TSX);
+  (function visit(node){
+   if((ts.isJsxSelfClosingElement(node)||ts.isJsxOpeningElement(node))&&node.tagName.getText(ast)==='Isolated'){
+    const text=node.attributes.properties.find(a=>ts.isJsxAttribute(a)&&a.name.getText(ast)==='text');
+    const v=text&&literals(text.initializer);assert.ok(v,`${file}: Isolated text is a literal`);
+    isolated.push(...v.map(s=>[file,s]));
+   }
+   ts.forEachChild(node,visit);
+  })(ast);
+ }}})(path.join(__dirname,'../src'));
+ assert.ok(isolated.length>=3,'the confirm row and the via pill');
+ for(const [where,s] of [...sentences,...isolated]){
+  const row=catalog[s];
+  assert.ok(Array.isArray(row)&&row.length===10&&row.every(v=>typeof v==='string'&&v.trim()),`${where}: "${s}" has 10 translations in catalog.json`);
+  if(/\{\w+\}/.test(s))for(const v of row)assert.deepEqual(v.match(/\{\w+\}/g).sort(),s.match(/\{\w+\}/g).sort(),`${where}: "${s}" keeps its placeholders`);
+ }
+});

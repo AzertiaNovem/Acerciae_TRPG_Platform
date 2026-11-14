@@ -5,7 +5,19 @@
 // and stays: the worker loads its own chunks with it, which that CSP limits to 'self'. It never receives a token:
 // requests and replies are JSON strings of at most 64 KiB, {id, input} in and {id, out, reload?} back, where `out` is
 // the engine's output for effects.ts to validate on the main thread, and `reload` says the engine could not be loaded
-// (the worker cannot fetch it again, so client.ts replaces it).
+// (the worker cannot fetch it again, so client.ts replaces it). The `/*!` comment below is the engine's MIT notice; the
+// build keeps it in the worker asset (mobile/hypertext/engine.ts has the same one for the app bundle).
+/*! quickjs-emscripten: The MIT License. quickjs-emscripten copyright (c) 2019-2024 Jake Teton-Landis.
+ *  QuickJS Javascript Engine: The MIT License. Copyright (c) 2017-2021 Fabrice Bellard, Copyright (c) 2017-2021 Charlie Gordon.
+ *  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+ *  documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+ *  rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+ *  persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice
+ *  and this permission notice shall be included in all copies or substantial portions of the Software.
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+ *  WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ *  COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ *  OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 import wasmUrl from '@jitl/quickjs-wasmfile-release-sync/wasm?url';
 import { runAction } from './engine';
 import type { EngineInput } from './types';

@@ -5,11 +5,12 @@
     "bindings: applyAction(doc, state, node, action) gives expect {state, event}, or null when the action does not apply.",
     "resolve: resolve(doc, state, lock) lists every node in document order, projected as {type, id (null without one), text?, label?, caption?, value?, options?, visible, disabled}.",
     "act: act(doc, state, node) gives expect {state, effects}, or null.",
+    "overlay: overlay(doc, stored) gives expect, the state a stored copy (GET /channels/{c}/hypertext) is drawn with: each declared key's stored value when it is valid for its declaration, else its default; anything else in stored is ignored, and a stored value that is not an object gives the defaults.",
     "runs: the engine output after host validation. expect.ok true compares only the fields given (state, effects, notices, logs, confirm, changed); expect.ok false gives the error code (and line or logs when given).",
     "parseDoc fills in what the server's normalize fills in (title \"\", label = value, text style body and tone neutral, choice display list, button style primary, enum default null, script and actors null, runs_per_viewer 1, closes_at null, replies [], a stub's slots {}, audience card, group null) and keeps act.say ASCII-trimmed; so a post body reads like the stored card. Shared hypertext.json cases are read as the C++ tests read them: a state_decl case is {v:1, state: state_decl, body:[{type:divider}]} (conditions put cond in its show_if), and state_validation and conditions use the case's state as given (missing keys take their defaults).",
     "bindings: a case may give \"lock\" (default {reason: null}); action commit (an input's draft on blur) gives event null. resolve also disables a button whose act replies while a slot cannot be filled from the state.",
     "runs: a runner passes prev = state when the case gives none (prev is required by MobileHypertext and client.ts). The engine's deadline_ms is checked at each interrupt poll (code timeout); the hosts end a run that does not answer within timeout_ms (cold_timeout_ms for a new worker).",
-    "Location: these sections (engine limits for the client, bindings, resolve, act, runs) are planned for hypertext.json; they live here while the backend phase writes that file, so that the two phases do not edit one file. Merge them into hypertext.json then, and reconcile its engine section with this one (stack_bytes 131072, deadline_ms, the version string)."
+    "Location: the server reads none of these sections, so they stay here; hypertext.json holds the cases shared with the C++ server. Its engine section repeats wasm_sha256, max_bundle_bytes and the interrupt_polls, memory_bytes and stack_bytes limits of this one (its version is the format's, 1), and frontend/tests/hypertext-engine.test.cjs checks that the two agree."
   ],
   "engine": {
     "version": "hypertext-1 quickjs-emscripten-0.32.0",
@@ -839,7 +840,7 @@
       "node": "note_in",
       "action": {
         "type": "submit",
-        "value": "a‮b"
+        "value": "a\u202eb"
       },
       "expect": null
     },
@@ -2160,6 +2161,384 @@
       },
       "node": "nope",
       "expect": null
+    }
+  ],
+  "overlay": [
+    {
+      "name": "no stored state keeps the defaults",
+      "doc": "study",
+      "stored": null,
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "an array is not a stored state",
+      "doc": "study",
+      "stored": [],
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a string is not a stored state",
+      "doc": "study",
+      "stored": "x",
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "valid values are kept",
+      "doc": "study",
+      "stored": {
+        "done": true,
+        "lamp": true,
+        "count": 5,
+        "path": "stair",
+        "tools": [
+          "rope",
+          "key"
+        ],
+        "note": "hi"
+      },
+      "expect": {
+        "done": true,
+        "lamp": true,
+        "count": 5,
+        "path": "stair",
+        "tools": [
+          "rope",
+          "key"
+        ],
+        "note": "hi"
+      }
+    },
+    {
+      "name": "missing keys take their defaults",
+      "doc": "study",
+      "stored": {
+        "path": "door"
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": "door",
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "undeclared keys are ignored",
+      "doc": "study",
+      "stored": {
+        "other": 1,
+        "done": true
+      },
+      "expect": {
+        "done": true,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "wrong types fall back to the default",
+      "doc": "study",
+      "stored": {
+        "done": 1,
+        "lamp": "yes",
+        "count": "3",
+        "path": 1,
+        "tools": "rope",
+        "note": 5
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a bool is never a number and a number never a bool",
+      "doc": "study",
+      "stored": {
+        "count": true,
+        "lamp": 0
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "null is no value of a bool, an int, a set or a text",
+      "doc": "study",
+      "stored": {
+        "done": null,
+        "count": null,
+        "tools": null,
+        "note": null
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "an int above its max",
+      "doc": "study",
+      "stored": {
+        "count": 9
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "an int below its min",
+      "doc": "study",
+      "stored": {
+        "count": -1
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a fractional int",
+      "doc": "study",
+      "stored": {
+        "count": 1.5
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a set with a duplicate",
+      "doc": "study",
+      "stored": {
+        "tools": [
+          "key",
+          "key"
+        ]
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a set with an undeclared value",
+      "doc": "study",
+      "stored": {
+        "tools": [
+          "rope",
+          "saw"
+        ]
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a set over its max",
+      "doc": "study",
+      "stored": {
+        "tools": [
+          "rope",
+          "lamp",
+          "key"
+        ]
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a set may be empty",
+      "doc": "study",
+      "stored": {
+        "tools": [],
+        "done": true
+      },
+      "expect": {
+        "done": true,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "an enum value that is not declared",
+      "doc": "study",
+      "stored": {
+        "path": "roof"
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "an enum label is not its value",
+      "doc": "study",
+      "stored": {
+        "path": "The door"
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "an enum may be null",
+      "doc": "study",
+      "stored": {
+        "path": null,
+        "done": true
+      },
+      "expect": {
+        "done": true,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a text over its max",
+      "doc": "study",
+      "stored": {
+        "note": "xxxxxxxxxxxxxxxxxxxxx"
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "a text's max counts code points",
+      "doc": "study",
+      "stored": {
+        "note": "\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2"
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": "\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2\ud83c\udfb2"
+      }
+    },
+    {
+      "name": "a text with a bidi isolate",
+      "doc": "study",
+      "stored": {
+        "note": "\u2066x"
+      },
+      "expect": {
+        "done": false,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
+    },
+    {
+      "name": "prototype names are plain keys",
+      "doc": "study",
+      "stored": {
+        "__proto__": {
+          "lamp": true
+        },
+        "constructor": 1,
+        "done": true
+      },
+      "expect": {
+        "done": true,
+        "lamp": false,
+        "count": 2,
+        "path": null,
+        "tools": [],
+        "note": ""
+      }
     }
   ],
   "runs": [

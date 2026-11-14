@@ -192,15 +192,16 @@ GM-only). A reply rolls dice only when its template itself is a `.r`/`.rh` roll.
 posted, no state is saved, its error is returned (for example 400 `dice_error`, as in chat, or 409 `hypertext_closed`
 when the card was recalled meanwhile) and a replay returns it again; the action uses no run and no reply but still
 counts for the rates. If a later effect fails, the response is 200 with `partial: true` and that result `{ok: false,
-message: null, error: {error, message}}`; the run is used, the failed reply is not. When at least one line was posted
-and `state` was sent, the state is saved at the next version and pushed as `hypertext.state` (never on a card recalled
-meanwhile). The action ends from the lines that are there, so its result names exactly the lines it posted. Every
-result's `message` is the line re-read for the caller, first time and on every replay: a line the caller may not read (a
-GM-only reply, the result of a hidden-roll template) is `null`. A card closed while an action on it is being posted lets
-that action finish; a recalled one does not (its remaining lines fail with 409 `hypertext_closed`). An action abandoned
-midway is finished by the server within a few minutes without posting anything more and without saving its state: done
-with the lines it had posted (`partial` when one it asked for is missing), or as failed (409 `interaction_interrupted`
-on replay) when it had posted none.
+message: null, error: {error, message}}`; the run is used, the failed reply is not. A failed reply keeps its error code
+but its message is always "The sender's reply could not be posted", since the real one may quote the private template (a
+dice error quotes the expression). When at least one line was posted and `state` was sent, the state is saved at the
+next version and pushed as `hypertext.state` (never on a card recalled meanwhile). The action ends from the lines that
+are there, so its result names exactly the lines it posted. Every result's `message` is the line re-read for the caller,
+first time and on every replay: a line the caller may not read (a GM-only reply, the result of a hidden-roll template)
+is `null`. A card closed while an action on it is being posted lets that action finish; a recalled one does not (its
+remaining lines fail with 409 `hypertext_closed`). An action abandoned midway is finished by the server within a few
+minutes without posting anything more and without saving its state: done with the lines it had posted (`partial` when
+one it asked for is missing), or as failed (409 `interaction_interrupted` on replay) when it had posted none.
 
 **Lines as the clicker.** A say that is a dice command posts as if the caller typed it, by the command's canonical name:
 `.r`/`.rh`, `.ra`/`.rc`/`.rah`/`.rch` and `.ri`/`.rih` with modifiers only (`+2`, `-1`, `+1d4`, `adv`, `dis`) run

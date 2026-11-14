@@ -43,6 +43,7 @@
 | `characters/CharacterSpaceService` | The character space: COC7 role card (bounded, mirrored into `sheet.attrs`), bio, asset mode, uploads and generated images attached to avatar / portrait / subtitle slots; GM or actor edits | MediaService, CreativeService, Notifier |
 | `script/ScriptKnowledgeService` | The GM's script knowledge built from a structured module (flow, relationships, clues, foreshadowing, background with page citations); per batch: a first model proposes changes with chat quotes, a second reviews, approved ones are applied and all are logged; the pinned board (next per the script, notes); GM edits are final | Retrieval, LlmGateway, ReminderService, Notifier |
 | `chat/ChatService` | Servers, channels, windows, characters, messages (each message ⇒ `message.posted` event with its witnessing audience) | Auth, EventStore, SceneManager, DocumentService (core docs on channel creation) |
+| `chat/Hypertext`, `chat/HypertextService` | Interactive messages (kind `hypertext`, [HYPERTEXT.md](HYPERTEXT.md)): the card format v1 as pure rules (`Hypertext`: checks, fallback text, state, conditions, interpolation, reply templates, dice policy); posting by channel GMs, each viewer's own state, actions with their claims, limits and replays, closing (`HypertextService`). A card's lines go through `ChatService::postMessage` with a `HypertextOrigin`; maintenance finishes abandoned actions and prunes old ones | Auth, ChatService, EventStore, SceneManager, Notifier |
 | `knowledge/KnowledgeService` | Fact–Knower scope derivation (`deriveScope`), entity/relation upsert, viewer queries | Visibility |
 | `documents/DocumentService` | `Proposal` → validation → ops → entries/facts/index tables → revision snapshot; GM corrections, rollback, pending proposals | KnowledgeService, Notifier |
 | `highlights/HighlightService` | Create (dedup/extend), list by scope, dismiss, expiry sweep | Notifier |
@@ -64,6 +65,8 @@ The constraint and module-boundary work is implemented; [ENGINEERING_PLAN.md](EN
 `api/Api.cpp` composes Auth, Channel, Character, Knowledge, Studio and Media route registration plus CORS. `RouteSupport` owns bearer/file-token authentication, request parsing, bounded dispatch, deadlines and error translation. Route groups depend on service facades; policies do not depend on routes.
 
 `ChatService` remains the application facade. `ChannelSettings.cpp`, `CharacterProfiles.cpp`, `WindowService.cpp` and `Messages.cpp` contain cohesive use cases; `ChatQueries` shares message/history projections and server-role lookup. Rule transitions still commit channel settings and card archives together before notifications.
+
+Interactive messages ([HYPERTEXT.md](HYPERTEXT.md)): a channel GM account posts a card (declarative controls and an optional script) through its own route; `HypertextService` stores the public document on the message and the private reply templates beside it. Each app draws the card natively and runs its script on the viewer's device, in QuickJS compiled to WebAssembly with no host functions: a module worker on web and desktop (`frontend/src/hypertext/`), a hidden network-blocked WebView on Android and a WKWebView on iOS, both running the committed bundle `mobile/contracts/hypertext/hypertext-engine.js` built from the same code and WASM bytes. The output is data; the host, then the native side on mobile, then the server validate it. The card logic is ported to Kotlin and Swift and pinned by the shared fixtures in `mobile/contracts/fixtures/`. gm-agent posts roll cards built in code (`gm-agent/src/hypertext.mjs`).
 
 `VnScriptService.cpp` owns jobs and the worker lifecycle. `VnScriptInputs` prepares authorized snapshots; `VnScriptTranscript` builds prompts; `VnScriptMock` and `VnScriptValidation` transform data without I/O; `VnScriptContinuation` handles ranges and continuation; `VnScriptRecovery` decides reusable chunk states and normalizes questions. `VnScriptModel` performs model calls and transactional chunk checkpoints; `VnScriptArt` schedules derived assets. Static facade methods preserve existing callers and unit-test entry points.
 
@@ -137,6 +140,9 @@ Migrations live in `backend/migrations/` and are applied in order at startup.
   `chat_windows`, `chat_window_members` (user + character), `chat_window_scenes`.
 * **Truth**: `scenes`, `messages` (`visibility: window|gm_only|whisper`, `whisper_to`, FTS + trigram indexes),
   `events` (channel-wide `seq`, `kind`, `payload`, `visibility`, `audience uuid[]` = characters who witnessed it).
+* **Interactive messages**: `messages.hypertext` (the public card), `messages.via_*` (the card and the person a line
+  came from), `hypertext_cards` (the private reply templates, closing), `hypertext_interactions` (one row per action:
+  replays, limits, claims), `hypertext_states` (each viewer's own state).
 * **Memory (shards)**: `knowledge_facts` (kind, summary, data, **status**, scene, `source_event_ids`, version, FTS),
   `knowledge_visibility` (fact × scope × character — the Fact–Knower mapping), `entities`, `fact_entities`,
   `entity_relations`, `clues`, `narrative_threads` (typed index tables), optional `fact_embeddings` (pgvector).
@@ -179,6 +185,7 @@ scoped by `channel_id`.
 | Reminders | the GM's own | their group's; opening one re-runs the chat-log filter |
 | World record (`/world`) | the GM's partition | their group's partition; entities their facts mention or whose state cites chat they can still read |
 | Script knowledge, board, changes | all | forbidden (403); never in a player prelude or tool list |
+| Interactive messages | every card; their own state only; reply templates through no route | a card when they may read its message (spectators: without its script); their own state only; templates never |
 
 The same `ChannelAccess` is passed into the Tool API, so the model working for a player cannot retrieve more than the
 player could. The observer runs with a system/GM-scope identity for *reading*, but everything it *writes* gets its scope

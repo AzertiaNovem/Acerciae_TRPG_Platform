@@ -12,10 +12,10 @@ updates *their own* copy of the card's state and may post:
 That is all a card can do. There is no event channel back to your bot: you learn what happened from the lines that get
 posted, like everyone else at the table. The route reference is in [API.md](API.md#interactive-messages).
 
-The server side (posting, state, actions, limits, the fallback text) is complete. Rendering cards and running their
-scripts is the apps' job; sections marked **(apps)** describe behaviour shipped in the web, desktop, Android and iOS
-apps (and **(gm-agent)** what gm-agent does with cards); until an app ships it, that app shows the card's plain-text
-fallback.
+The server checks and stores cards, keeps each viewer's state and posts the lines; it never runs a script. The web and
+desktop app, the Android app and the iOS app draw cards and run their scripts, all in the same way; sections marked
+**(apps)** describe what they do. gm-agent posts roll cards ([With gm-agent](#with-gm-agent)). An app build from
+before cards shows a card's plain-text fallback instead, and reads it aloud like any other line.
 
 ## Quick start
 
@@ -57,19 +57,7 @@ id and `via_user_id` the player. Close the card once you have what you wanted:
 curl -s -X POST $API/channels/$CH/messages/<card id>/hypertext/close -H "Authorization: Bearer $TOKEN"
 ```
 
-**(gm-agent)** gm-agent builds its cards in code, from declarative parts only, with the builders of
-[`gm-agent/src/hypertext.mjs`](../gm-agent/src/hypertext.mjs) (`rollRequest`, `choice`, `checklist`; no builder ever
-produces a `script`). Today only its `request_roll` action posts a card: a roll card like the one above for a character
-a person plays, closed once the roll arrives (see "Interactive messages: roll cards" in
-[gm-agent/README.md](../gm-agent/README.md#interactive-messages-roll-cards)). The agent's model only asks for the roll;
-`choice` and `checklist` are for your own code that posts cards:
-
-```js
-// Inside gm-agent (`api` is its client, src/api.mjs).
-import { rollRequest } from "./src/hypertext.mjs";
-const body = rollRequest({ text: "Something glints under the desk.", command: ".ra Spot Hidden", pcId: adaId, name: "Ada", language: "en" });
-if (body) await api.postHypertext(channelId, windowId, body);   // null: no valid card, post the plain line instead
-```
+gm-agent makes cards like this one in code, with its builders ([With gm-agent](#with-gm-agent)).
 
 ## The post body
 
@@ -162,9 +150,10 @@ points and 5 lines, and if it is a dice command, one a card may post (see the [d
 show a declarative `say` as a caption under its button, so the viewer sees what will be posted in their name.
 
 **When controls are disabled.** Apps disable every control while the card's status is loading, when the card is closed
-or recalled, when the viewer is not one of its `actors`, for a spectator or the demo, when the card sits in a forked
-window's history (it belongs to another window), when the window is archived, and when the viewer is paused there. The
-server enforces the same rules.
+or recalled, when the viewer is not a member of the card's window or not one of its `actors`, for a spectator or the
+demo, when the card sits in a forked window's history (it belongs to another window), when the window is archived, when
+the viewer is paused there, and when the server has no interactive messages or has them turned off. A line under the
+card says why. The server enforces the same rules.
 
 ### Text rules
 
@@ -210,15 +199,17 @@ template when you post the card. Replies stop when you are no longer a GM of the
 | | |
 |---|---|
 | the normalized card, script included | 32 KiB of JSON |
-| the stored card (with the reply stubs, which repeat every enum slot's values) / the reply templates | 60 KiB of JSON each, as the database stores it (400 `invalid_hypertext` at `replies`) |
+| the stored card (with the reply stubs, which repeat every enum slot's values) / the reply templates | 60 KiB of JSON each, as the database stores it (400 `invalid_hypertext` at `replies`, or at `hypertext` for a card without replies) |
 | script | 16 KiB |
 | nodes / state keys / replies / slots / actors | 64 / 32 / 16 / 4 per reply / 10 |
 | a viewer's state | 8 KiB |
 | `content` / text node / reply template | 2000 / 2000 / 1000 code points |
 | `say` | 1–500 code points after trimming, at most 5 lines (`\n`, U+0085, U+2028 and U+2029 each start a line) |
+| a card's life | 60 s to 30 days (`closes_in`); 7 days by default |
 | cards | 20 a minute per author and channel |
-| actions | `runs_per_viewer` per viewer; 10 a minute per viewer and card, 30 per viewer and channel; 60 replies a minute per card |
+| actions | `runs_per_viewer` per viewer; 10 a minute per viewer and card, 30 per viewer and channel (failed actions count); 60 replies a minute per card |
 | state saves | 120 a minute per viewer |
+| status requests | at most 100 card ids each |
 
 ## The fallback text
 
@@ -230,8 +221,8 @@ the title, then one line per node visible under the default state.
 | title | the title |
 | text | the text, interpolated with the defaults |
 | checkbox | `☐ label` |
-| choice | `label: A / B / C` (its options' labels) |
-| input | `label: ____` |
+| choice | `label: A / B / C` (its options' labels; `A / B / C` without a label) |
+| input | `label: ____` (`____` without a label) |
 | button | `[label]` |
 | group | its title |
 | divider | `—` |
@@ -248,7 +239,7 @@ A `say` that is a dice command is posted as the viewer's own command, by its can
 | | commands |
 |---|---|
 | run directly | `.r` / `.rh`; `.ra` / `.rc` / `.rah` / `.rch`; `.ri` / `.rih` with modifiers only (`+2`, `-1`, `+1d4`, `adv`, `dis`) |
-| need the viewer's confirmation | `.sc`, `.ds`: they change the viewer's sheet. Apps ask first; the server answers 428 `confirmation_required` until the request says `confirmed: true`. |
+| need the viewer's confirmation | `.sc`, `.ds`: they change the viewer's sheet. The server answers 428 `confirmation_required` until the request says `confirmed: true`, and the apps ask the viewer before they send that ("This changes your character sheet."). |
 | refused | `.ri` with a name (it could overwrite another character's initiative), `.st`, `.en`, `.ss`, `.init`, `.move` |
 
 `.ri` / `.rih` also need a card whose visibility is `window`: the initiative order is the whole window's, so a GM-only or
@@ -262,14 +253,21 @@ from cards cannot be recalled, like any roll; other lines follow the normal 2-mi
 
 ## What a viewer's app does
 
-1. Renders the card natively from the document and the viewer's state (`GET /channels/{c}/hypertext?ids=` for every
-   loaded card); no JavaScript runs to render.
+The web and desktop app, Android and iOS do the same. The card logic is written once in TypeScript
+(`frontend/src/hypertext/`), ported to Kotlin (`core/Hypertext.kt`) and Swift (`AcerciaeCore/Hypertext.swift`), and
+pinned by the shared fixtures; the details for app developers are in
+[mobile/contracts/INTEGRATION.md](../mobile/contracts/INTEGRATION.md) (2026-11-14).
+
+1. Renders the card natively from the document and the viewer's state; no JavaScript runs to render. The app asks
+   `GET /channels/{c}/hypertext?ids=` for every loaded card when a window opens, after each reconnection and when new
+   cards load. Controls show "Loading…" until the answer arrives.
 2. On a control without a handler or `act` (a checkbox, a choice, an input's submit): applies the change and saves it
-   (`PUT …/hypertext/state`, debounced).
-3. On a declarative `act`: computes the new state and the effects, then `POST …/hypertext/act` (or a PUT when nothing
-   is posted).
-4. On an `on` handler **(apps)**: runs your script for that one event (below), shows the new state, asks the viewer to
-   confirm any free-text `say` or sheet change, then acts.
+   (`PUT …/hypertext/state`, 500 ms after the last change). Leaving an input saves its draft and runs no handler; its
+   button, or Enter outside an IME composition, submits it.
+3. On a declarative `act`: computes the new state and the effects, then `POST …/hypertext/act` without asking (the
+   button's caption showed the line), or a PUT when nothing is posted. A 428 asks the viewer and sends the action again.
+4. On an `on` handler **(apps)**: runs your script for that one event ([Scripts](#scripts-apps)), shows the new state
+   and notes, asks the viewer to confirm any free-text `say` or sheet change, then acts.
 
 An action request is `{interaction_id, node, say?, reply?, state?, base_version}`. The app makes a new UUID per action
 and reuses it when it retries, so a retry never posts twice; it sends the state version it acted on, and the server
@@ -278,6 +276,22 @@ action that finished replays its result even after you closed the card (a bot th
 arrives does not break the viewer's retry). The response lists each line posted, re-read for the viewer: a line the
 viewer may not read — your GM-only reply, the result of a hidden-roll reply — is `null` for them. Error codes are
 listed in [API.md](API.md#interactive-messages).
+
+What the apps do with the answers:
+
+- No answer, a timeout or a 5xx: the same request again after 0.6, 1.8 and 4.5 s, then the action is undone.
+- 409 `state_conflict`: the server's state is shown instead ("This message changed on another device."). Other
+  refusals undo the action and show why.
+- 405, or a 404 that is not the API's own JSON: the server has no interactive messages yet. 403 `feature_disabled`:
+  the operator turned them off. Either way the cards stay drawn, with every control disabled.
+- Pushes: `hypertext.state` brings a viewer's newer state to all their devices; `hypertext.closed` disables a card for
+  everyone at once.
+- Cards are never pinned (the server answers 409) and never read aloud; the lines they produce are ordinary lines.
+- A card an app cannot read (another `v`, a document it cannot parse) shows its `content` with "Update the app to use
+  this message."
+
+An app build from before cards ignores the card fields: it shows `content` like a plain line, reads it aloud, and
+refreshes once on each of the two unknown pushes. Write `content` so that it works as a line on its own.
 
 You can drive the same route by hand to test a card:
 
@@ -289,9 +303,9 @@ curl -s $API/channels/$CH/messages/$CARD/hypertext/act -H "Authorization: Bearer
 ## The security model in plain words
 
 - **The card is public to its readers.** The document, the script, the reply stubs (ids, slot names and values,
-  audience, group) and every state declaration are sent to everyone who can read the card, and kept in the apps'
-  caches. Do not put spoilers there. Spoilers belong only in reply templates, which never leave the server: not in the
-  message, its events, exports, caches, the campaign log or any response.
+  audience, group) and every state declaration are sent to everyone who can read the card (spectators get it without
+  the script), and kept in the apps' caches. Do not put spoilers there. Spoilers belong only in reply templates, which
+  never leave the server: not in the message, its events, exports, caches, the campaign log or any response.
 - **Scripts are UI, not referees.** A modified app can ask for any of your declared replies, with any declared slot
   values, within their limits, and can post any line the viewer could type. So never let a script decide a secret or a
   success: decide it in your bot (from the lines that arrive) or with a server dice roll. Use `group` and `total` for
@@ -300,8 +314,8 @@ curl -s $API/channels/$CH/messages/$CARD/hypertext/act -H "Authorization: Bearer
 - **Each viewer's state is theirs.** No route lets a GM or a bot read it. It can still reach you, but only through lines
   the viewer's actions post — including replies whose slot values a script fills from the state — so treat anything a
   viewer types into a card as something they may share. Apps say so under every input ("Anything you type here may be
-  shared in the chat."). The platform's operator holds the stored states; they are deleted with the card (recall) or the
-  channel.
+  shared in the chat."). The platform's operator holds the stored states, deleted when the card is recalled or the
+  channel is deleted, and each action's request, deleted a day after the card closes.
 - **Lines stay inside the card's audience.** A say goes to the card's audience; a reply to the card's, the viewer's or
   the GMs'; a hidden roll's notice to the card's. Whisper cards therefore let their readers answer privately, up to
   `runs_per_viewer` lines each: you grant that by posting one.
@@ -423,11 +437,84 @@ No action starts after it; one a viewer started just before still posts its line
 posting it removes it entirely: it becomes a tombstone, its viewers' states and your templates are deleted, and an
 action in flight posts nothing more.
 
+## With gm-agent
+
+gm-agent builds its cards in code, from declarative parts only, with the builders of
+[`gm-agent/src/hypertext.mjs`](../gm-agent/src/hypertext.mjs). Its model never writes a card and no builder writes a
+`script`. Each builder returns the body for `POST /channels/{c}/windows/{w}/hypertext`, or `null` when it cannot make
+a card the server accepts; then post the plain line instead. Text from anywhere (the model, a character's name) is
+cleaned first: refused characters are dropped, `{{` is broken up, line breaks become spaces in one-line fields, and
+everything is cut by code points to the v1 limits. The builders' own words ("Roll for Ada", "Choose") follow
+`language`, the table's language name or code: any of the 11 table languages (English, Simplified and Traditional
+Chinese, Japanese, Korean, Spanish, French, German, Russian, Portuguese, Italian), else English.
+
+| builder | parameters | the card |
+|---|---|---|
+| `rollRequest` | `command` (required): one roll a card may post as the player (`.r`, `.ra`, `.rc`, the hidden forms, `.ri` with modifiers, `.sc`, `.ds`); `pcId` (required): the player's character; `text`: the narration; `name`: the character's name; `language`; `content` | Title "Roll for {name}", the narration, and a button named after the roll ("Roll Spot Hidden", "Roll initiative", "Sanity check 1/1d6") whose `act` posts `command` as the player and sets `done`, which greys it out. `actors: [pcId]`, `runs_per_viewer: 1`. `content` defaults to "{text}\n→ {name}: {command}". `null` for any other command or more than one line. |
+| `choice` | `options`: 2–20 labels (duplicates dropped, ignoring case); `prompt`; `actorIds` (at most 10; empty: every reader); `title`; `kind` (`ooc` by default, or `ic`); `language`; `content` | Title (default "Your choice"), the prompt, a choice bound to an enum `pick` with values `o1`…`oN` (buttons for up to 5 options, else a list), and a "Choose" button that posts "I choose: {{pick}}" as the reader and sets `done`. One answer per reader. `content` defaults to the prompt and "A / B / C". `null` with fewer than 2 options. |
+| `checklist` | `items`: 1–30 labels; `title`; `actorIds`; `language` | Title (default "Checklist"), one checkbox per item (bool keys `i1`…`iN`), and "All done." once every box is ticked (for up to 8 items: a condition holds at most 8 leaves). Nothing is posted; each reader's ticks are saved for them. No `content`, so the server writes the fallback. |
+
+For example, this call:
+
+```js
+import { rollRequest } from "./src/hypertext.mjs";   // inside gm-agent
+const body = rollRequest({ text: "Something glints under the desk.", command: ".ra Spot Hidden",
+                           pcId: "6f1d2c3b-4a5e-4f60-8a71-92b3c4d5e6f7", name: "Ada", language: "English" });
+if (body) await api.postHypertext(channelId, windowId, body);   // api: gm-agent's client (src/api.mjs)
+```
+
+builds this body:
+
+```json
+{
+  "content": "Something glints under the desk.\n→ Ada: .ra Spot Hidden",
+  "hypertext": {
+    "v": 1,
+    "title": "Roll for Ada",
+    "state": { "done": { "type": "bool" } },
+    "body": [
+      { "type": "text", "text": "Something glints under the desk." },
+      { "type": "button", "id": "roll", "label": "Roll Spot Hidden",
+        "act": { "say": ".ra Spot Hidden", "set": { "done": true } },
+        "enable_if": { "key": "done", "eq": false } }
+    ],
+    "actors": ["6f1d2c3b-4a5e-4f60-8a71-92b3c4d5e6f7"],
+    "runs_per_viewer": 1
+  }
+}
+```
+
+**`request_roll`.** Only this action of the agent posts a card (`requestRoll` in
+[`gm-agent/src/table/actions.mjs`](../gm-agent/src/table/actions.mjs)); `choice` and `checklist` are for your own
+code. When the agent's model asks a character for a roll:
+
+1. A co-player or an NPC rolls for itself, as before: the narration, then the command as its own line. PbtA tables ask
+   for no rolls.
+2. For a character a person plays, the roll is asked for in that player's own scene. The agent builds `rollRequest`
+   with `content` set to the line it posted before cards ("{text}\n→ Ada: .ra Spot Hidden") and posts it with
+   `sendHypertext` (`visibility: "window"`).
+3. If the builder returns `null` (`.ss`, or `.ri` with a name: rolls the rules may ask for but a card may not post) or
+   the post fails, the agent posts that line as narration instead. A command the table's rules do not allow is never
+   asked for: the agent posts only the narration. A 404 or 405 (a server from before cards) or a 403 `feature_disabled`
+   also sets `table.hypertextSupported` to false: the agent logs it once and posts plain lines until it restarts. Any
+   other refusal (a rate limit, an archived window) falls back for that one card, and the log lists the 400 `errors`
+   paths.
+4. The agent keeps its open roll cards in its state file, by window, character and roll. Asking for the same roll again
+   closes the older card.
+5. When a line answers the card, the agent closes it (`api.closeHypertext`). A line answers it when it came from the
+   card (`via_hypertext_id` is the card's id), or when the same character typed the same roll after the card: the
+   command's name and the skill's words count, numbers and the hidden form do not, so `.rc spot hidden 60` answers
+   `.ra Spot Hidden`. A failed close is only logged; a card nobody closes closes itself after the default 7 days. A
+   recalled card is forgotten.
+
+The agent's models read a card as its `content`, tagged "(interactive message)", and never see its buttons, state or
+script; [gm-agent/README.md](../gm-agent/README.md#interactive-messages-roll-cards) has the details.
+
 ## Scripts (apps)
 
-The rest of this guide describes behaviour shipped in the apps; the server never runs a script. A script is for UI
-logic that `act` cannot express (computed labels, multi-step forms, validating an input before posting). The
-declarative examples above need none.
+Scripts run only in the apps (web, desktop, Android and iOS), on the viewer's device; the server never runs one. A
+script is for UI logic that `act` cannot express (computed labels, multi-step forms, validating an input before
+posting). The declarative examples above need none, and the gm-agent builders never write one.
 
 ```js
 // state declares "tries": {"type": "int", "min": 0, "max": 3}; a button has "on": "roll"
@@ -453,35 +540,90 @@ on('roll', (ev) => {               // ev = {type: 'click'|'change'|'submit', nod
   line is posted under the viewer's account name, and the confirmation says so ("Post as Ann (out of character): …").
   A line speaks as the character the viewer's composer speaks as ("Speak as"), else their character in the window.
 - `reply(id, slots = {})`: at most once per action; the slot names exactly as declared, the values declared.
-- `notify(text)`: up to 3 short notes under the card, for this viewer only, never sent anywhere.
-- `log(...values)`: up to 20 entries, shown only in the "Script details" box GMs see under the card.
+- `notify(text)`: up to 3 notes of 1–200 code points under the card, for this viewer only, never sent anywhere.
+- `log(...values)`: up to 20 entries of at most 200 code points (longer ones are cut), shown only in the "Script
+  details" box GMs see under the card.
 
 Handlers are synchronous (returning a promise is an error). Each action runs in a fresh QuickJS (WebAssembly) instance
-with no host functions: the script's only output is data — `{state, effects, notices, logs}` — which the app validates
-(and the server validates again) before anything happens. Absent: `Date`, `Promise`, `Proxy`, timers, `Intl`, typed
-arrays, `WeakRef`, `eval`, modules; `Math.random` throws ("roll dice with say('.r 1d6')"), because client-side
-randomness can be forged. Each run gets 8 MiB of memory, a 128 KiB stack and a fixed instruction budget (the same on
-every device, so a script either fits everywhere or nowhere); exceeding one stops the run. Any error aborts the action:
-the viewer's state reverts, nothing is sent, players see "This message's action failed." and GMs see the error code
-(`script_error`, `no_handler`, `budget`, `memory`, `stack`, `timeout`, `invalid_state`, `invalid_effect`,
+with no host functions: the script's only output is data — `{state, effects, notices, logs}`, at most 16 KiB of JSON
+nested at most 16 deep — which the app validates (and the server validates again) before anything happens. Absent:
+`Date`, `Promise`, `Proxy`, timers, `Intl`, typed arrays, `WeakRef`, `eval`, modules; `Math.random` throws ("roll dice
+with say('.r 1d6')"), because client-side randomness can be forged.
+
+Each run gets 8 MiB of memory, a 128 KiB stack and a step budget of 50 interrupt polls (about 250,000 loop iterations).
+The step budget cuts a run off at the same point on every device. Built-ins that work in C without polling (long
+`join`, `repeat`, substring searches, `JSON`) are charged to a second, fixed work budget. A run also stops after 500 ms
+(`timeout`), so a script close to that mark may finish on a fast device and fail on a slow one: keep scripts small.
+The host ends a run that does not answer within 1 s (5 s for the first run, which loads the engine). Any error aborts
+the action: the viewer's state reverts, nothing is sent, players see "This message's action failed." and GMs see the
+error code (`script_error`, `no_handler`, `budget`, `memory`, `stack`, `timeout`, `invalid_state`, `invalid_effect`,
 `engine_unavailable`, `engine`), message and logs. Nothing is reported to the server or to you.
 
-Devices without WebAssembly (iOS Lockdown Mode, very old Android WebViews) still render cards and run declarative `act`
-buttons; only controls with `on` handlers are disabled ("Interactive actions are unavailable on this device.").
+Where a script runs. The engine is created on the first run of a control with `on`, never for cards without
+handlers, and never for spectators or the demo.
+
+- **Web and desktop:** a module worker (`frontend/src/hypertext/hypertext-worker.ts`). It fetches and compiles the
+  QuickJS WASM once, then removes `fetch`, `XMLHttpRequest`, `WebSocket`, storage and the other network APIs from its
+  own scope before it handles a run. It never gets a token, and its messages are JSON of at most 64 KiB. The worker
+  is served with its own Content-Security-Policy (only its own chunks and the WASM, from the same origin). It is
+  replaced when a run does not answer within 1 s (5 s for the first), when the engine could not load, and after 500
+  runs, and dropped on sign-out.
+- **Android:** a hidden WebView with network loads blocked, no file or content access, no DOM storage and no
+  JavaScript bridge. It serves only the engine's two files from the app (and lets the page start its own `blob:`
+  worker) and refuses every other load; results come back through `evaluateJavascript`. It is destroyed after 2
+  minutes without a run, in the background, when a run does not answer in time and when its renderer stops, without
+  touching the app's other web views.
+- **iOS:** a hidden WKWebView with a data store that keeps nothing, no script message handlers, a content rule list
+  that blocks every load except the engine's own files and the worker it starts, and a navigation delegate that cancels
+  every navigation after the first. It is dropped after 2 minutes without a run, in the background, when its process
+  ends and when a run does not answer in time.
+- On Android and iOS the page runs `mobile/contracts/hypertext/hypertext-engine.js`: the same engine code with the same
+  WASM bytes inlined, built by `mobile/scripts/build-hypertext.mjs`. The app checks every result again in Kotlin or
+  Swift before it shows or sends anything.
+
+Devices without WebAssembly (iOS Lockdown Mode, jitless or very old Android WebViews) still render cards and run
+declarative `act` buttons; only controls with `on` handlers are disabled ("Interactive actions are unavailable on this
+device.").
 
 ## Testing your cards
 
 - Post to a test channel and read the 400 `errors`: each path points at the offending field of your post body.
-- The shared contract `mobile/contracts/fixtures/hypertext.json` holds hundreds of accepted and refused cards, fallback
-  texts, templates, dice verdicts, defaults, state checks, conditions and interpolations; it is what the server and
-  every app are tested against.
 - Act as a player with the curl above to see the response a viewer gets: the lines they may read, `partial`, the state.
-- In the apps, GMs see a "Script details" box with a script's logs and errors **(apps)**.
+- In the apps, GMs see a "Script details" box under a card with its script's last error and logs **(apps)**.
+- The shared contract is two fixtures. `mobile/contracts/fixtures/hypertext.json` holds accepted and refused cards,
+  fallback texts, reply templates, dice verdicts, defaults, state checks, conditions and interpolations; the server and
+  every app are tested against it. `mobile/contracts/fixtures/hypertext-client.json` holds what the apps do with a card
+  (bindings, the drawn nodes for every lock reason, declarative acts, a stored state drawn over the defaults) and the
+  engine cases (`runs`) with the engine's limits and WASM hash. A case there is a good model for a card of your own.
+- `scripts/test.sh` (with the backend built in `backend/build`; CI runs it too) runs every layer against throwaway
+  databases on a local PostgreSQL: the C++ unit and database tests, the integration suites
+  (`tests/integration/hypertext.test.mjs` drives the five routes over HTTP and WebSocket, the secrecy of templates
+  included; `tests/integration/gm-agent-hypertext.test.mjs` posts every gm-agent builder's card and closes a roll card
+  on its roll), gm-agent's tests (`gm-agent/test/hypertext.test.mjs`), the frontend tests
+  (`frontend/tests/hypertext-*.test.cjs`, the engine over every `runs` case included) and a check that the mobile
+  engine bundle is the build of the current code.
+- `RUN_BROWSER_TESTS=1 scripts/test.sh` adds the browser checks: `scripts/test-browser.sh` starts the web app against
+  that backend and runs `tests/browser/hypertext.mjs` (and the other browser suites) in Chromium and WebKit. Against a
+  local stack you already run, `WEB_BASE=<the local web address> npm --prefix tests/browser run test:hypertext` runs
+  the card suite alone in both engines; it refuses any host but `127.0.0.1` and `localhost`. Install the
+  `tests/browser` dependencies and the Playwright browsers first.
 
 ## Upgrading the script engine (apps)
 
 The engine is QuickJS compiled to WebAssembly (`quickjs-emscripten-core` and `@jitl/quickjs-wasmfile-release-sync`,
-pinned to the same exact version, both MIT). The same `.wasm` bytes run on every platform, and their SHA-256 is recorded
-in `engine.wasm_sha256` of the shared fixture. To upgrade: bump both pins together, rebuild the mobile engine bundle,
-update `wasm_sha256` and the size cap in the fixture, recalibrate the instruction budget if the measured cost changed,
-and run every suite on every platform.
+pinned to the same exact version, both MIT; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)). The same `.wasm`
+bytes run on every platform, and their SHA-256 is recorded as `engine.wasm_sha256` in both fixtures. To upgrade:
+
+1. Bump both pins together in `frontend/package.json` and its lockfile.
+2. Rebuild the mobile engine bundle: `node mobile/scripts/build-hypertext.mjs` (`scripts/test.sh` runs its `--check`
+   form).
+3. Update `wasm_sha256` and `max_bundle_bytes` in both fixtures, and `wasm_bytes`, `packages` and `version` in
+   `hypertext-client.json`. In `frontend/tests/hypertext-engine.test.cjs`, update the pinned `wasm_sha256` and the
+   `@jitl/quickjs-ffi-types` version it expects in the lockfile. The version string is also `ENGINE_VERSION` in
+   `frontend/src/hypertext/engine.ts` and `engineVersion` in `AcerciaeCore/Hypertext.swift`.
+4. Recalibrate `interrupt_polls` if the measured cost changed: in `engine.limits` of both fixtures and in
+   `ENGINE_LIMITS` in `frontend/src/hypertext/engine.ts`.
+5. Update the versions and license texts in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), and the `/*!`
+   license comment in `frontend/src/hypertext/hypertext-worker.ts` (the web worker asset keeps it) and in
+   `mobile/hypertext/engine.ts` (the mobile bundle keeps it, `legalComments: 'eof'`). The two must stay equal.
+6. Run every suite on every platform.

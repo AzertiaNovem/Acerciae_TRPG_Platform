@@ -42,16 +42,17 @@ test('act over the fixture', () => {
   for (const c of fixture.act) assert.deepEqual(B.act(docs[c.doc], c.state, c.node), c.expect, c.name);
 });
 
-test('defaults, overlay and validateState', () => {
+test('overlay over the fixture', () => {
+  assert.ok(fixture.overlay.length >= 20);
+  for (const c of fixture.overlay) assert.deepEqual(B.overlay(docs[c.doc], c.stored), c.expect, c.name);
+  // Untrusted stored keys never reach Object.prototype.
+  assert.ok(fixture.overlay.some((c) => c.stored && Object.hasOwn(c.stored, '__proto__')));
+  assert.equal({}.lamp, undefined);
+});
+
+test('defaults and validateState', () => {
   const d = docs.study;
   assert.deepEqual(B.defaultState(d), { done: false, lamp: false, count: 2, path: null, tools: [], note: '' });
-  assert.deepEqual(B.overlay(d, null), B.defaultState(d));
-  assert.deepEqual(B.overlay(d, { count: 9, path: 'window', tools: ['key', 'key'], note: 'ok', lamp: 'yes', other: 1 }),
-    { done: false, lamp: false, count: 2, path: 'window', tools: [], note: 'ok' });
-  // Untrusted stored keys never reach Object.prototype.
-  const stored = JSON.parse('{"__proto__": {"lamp": true}, "constructor": 1, "done": true}');
-  assert.deepEqual(B.overlay(d, stored), { ...B.defaultState(d), done: true });
-  assert.equal({}.lamp, undefined);
   assert.deepEqual(B.validateState(d, B.defaultState(d)), { ok: true, state: B.defaultState(d) });
   assert.equal(B.validateState(d, { ...B.defaultState(d), tools: ['rope', 'lamp', 'key'] }).key, 'tools');
   assert.equal(B.validateState(d, { ...B.defaultState(d), note: '\u2066x' }).key, 'note');

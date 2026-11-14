@@ -524,9 +524,13 @@ Json::Value HypertextService::act(const ChannelAccess& a, const std::string& mes
         e.origin.interactionId = p.interactionId;
         try {
             repeated = chat_.postMessage(*e.access, windowId, e.body, Json::Value(), "", &e.origin)["repeated"].asBool() || repeated;
-        } catch (const ApiError& err) {
+        } catch (const ApiError& thrown) {
             // The line may be there although something after it failed: it counts as posted (finish finds it).
             if (!postedLine(cardId, a.userId, p.interactionId, e.index).empty()) continue;
+            // A reply's error keeps its code but never its message, which may quote the private template (a dice
+            // error quotes the expression). The message stays in the server log.
+            if (e.index == 1) ALOG_WARN << "hypertext " << cardId << " reply " << p.replyId << ": " << thrown.code() << ": " << thrown.what();
+            const ApiError err = e.index == 1 ? ApiError(thrown.status(), thrown.code(), "The sender's reply could not be posted") : thrown;
             if (i == 0) { failure = err; break; }   // nothing was posted: the action failed
             Json::Value x; x["error"] = err.code(); x["message"] = err.what(); errors[e.type] = x;
         } catch (const std::exception& ex) {

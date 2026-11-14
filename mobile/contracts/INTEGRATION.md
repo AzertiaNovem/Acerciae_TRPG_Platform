@@ -369,10 +369,13 @@ included; the engine's fails the runs in flight and drops its WebView. The page'
 (`blob:https://appassets.androidplatform.net/…`) is left to the WebView (`HxPageRoute`); it names data the page made,
 so it reaches no network. The host's decisions (polling, the warm and cold marks, timeouts, idle and dispose, the
 routes) are plain Kotlin in `core/HypertextHost.kt`, unit-tested with a stand-in page (`HypertextHostTest`), and
-`HypertextWiringTest` checks the WebView settings in the sources. CI runs no WebView and there is no instrumented
-test yet, so a manual check on a device or emulator is still needed: a card with an `on` button runs its script (the
-page loads through `shouldInterceptRequest` with network loads blocked, and its `blob:` worker starts), and a
-`while(1)` script answers `timeout` and the next run works.
+`HypertextWiringTest` checks the WebView settings in the sources. CI runs no WebView, so the real page is checked
+only locally, on a device or emulator, by the instrumented `HypertextEngineSmokeTest` (`src/androidTest`; run
+`./gradlew connectedDebugAndroidTest` from `mobile/android`). It runs a `hypertext-client.json` `runs` case with an
+`on` button through `hypertextEngine` (the page loads through `shouldInterceptRequest` with network loads blocked),
+then a `while(1)` script that answers `budget` or `timeout`, a stuck one that answers `timeout`, and the first case
+again, which must still work. A second test checks that the page starts a `blob:` worker and that `fetch` and an image
+load are refused.
 
 **iOS sandbox** (`App/HypertextEngine.swift`, `@MainActor`, after `LocalStudioEngine`; its rules and timings are in
 `AcerciaeCore/HypertextHost.swift`, `Hypertext.EngineHost`, where they are tested). A hidden `WKWebView` made on the
@@ -394,18 +397,18 @@ warm and 8 s for a new page or after a `timeout` or `engine` answer (`EngineHost
 view and the next run makes a new one; it is also dropped after 2 minutes idle, in the background and on a reset.
 
 **Shared fixtures.** Both ports pass, from `fixtures/hypertext.json`, `dice_policy`, `defaults`, `state_validation`,
-`conditions` and `interpolation`, and from `fixtures/hypertext-client.json`, `bindings`, `resolve` (every lock reason)
-and `act`. Read each section as the file's `about` says: a `state_decl` case is the card `{v: 1, state: state_decl,
-body: [{type: divider}]}`, `conditions` put `cond` in its `show_if`, missing state keys take their defaults, and a
-`bindings` case's `lock` defaults to `{reason: null}`. `validation`, `fallback` and `templates` are the server's. The
-packaged bundle's `hypertext-engine.sha256.json` must match `engine.wasm_sha256`, and the bundle must stay within
+`conditions` and `interpolation`, and from `fixtures/hypertext-client.json`, `bindings`, `resolve` (every lock reason),
+`act` and `overlay`. Read each section as the file's `about` says: a `state_decl` case is the card `{v: 1, state:
+state_decl, body: [{type: divider}]}`, `conditions` put `cond` in its `show_if`, missing state keys take their defaults,
+and a `bindings` case's `lock` defaults to `{reason: null}`. `validation`, `fallback` and `templates` are the server's.
+The packaged bundle's `hypertext-engine.sha256.json` must match `engine.wasm_sha256`, and the bundle must stay within
 `engine.max_bundle_bytes`. The iOS simulator test runs a subset of `runs` through the real WebView, with a probe that
 `fetch` and an `<img>` load are blocked, that later navigations are cancelled and that the `blob:` worker starts; the
-Android host rests on the same bytes, `mobile/hypertext/engine.test.mjs` (node:vm), `HypertextHostTest` and a manual
-check on a device. Android tests read the fixtures from the test classpath
-(`getResourceAsStream("hypertext.json")`), AcerciaeCore tests from `#filePath` less five components (`mobile/`)
-plus `contracts/fixtures/` (as `ContractTests.swift`). Android `ChatSocketTest` and iOS `RealtimeTests` decode the two
-card frames.
+Android host rests on the same bytes, `mobile/hypertext/engine.test.mjs` (node:vm), `HypertextHostTest` and the
+instrumented `HypertextEngineSmokeTest`, run locally on a device or emulator. Android tests read the fixtures from the
+test classpath (`getResourceAsStream("hypertext.json")`), AcerciaeCore tests from `#filePath` less five components
+(`mobile/`) plus `contracts/fixtures/` (as `ContractTests.swift`). Android `ChatSocketTest` and iOS `RealtimeTests`
+decode the two card frames.
 
 **Localization.** Every card string is in `frontend/src/i18n/catalog.json` and is now packaged for both apps by
 `mobile/scripts/sync-localizations.py`; no mobile-only rows were needed. The apps' `tr` has no placeholders: translate

@@ -364,7 +364,7 @@ points to the card rules first):
 | `choice({prompt, options, actorIds, language, title, kind})` | 2–20 options as buttons (a list beyond 5) and a "Choose" button that posts "I choose: the harbour" as the reader's own line (`kind` `ooc` by default, or `ic`), once; `actorIds` limits who may answer |
 | `checklist({title, items, language, actorIds})` | up to 30 boxes each reader ticks for themselves, saved on all their devices; nothing is posted ("All done." once all of up to 8 are ticked) |
 
-Their words follow the table's language: English, Simplified or Traditional Chinese, English for any other. Only
+Their words follow the table's language, any of the 11 table languages; English for any other. Only
 `request_roll` turns into a card today; no GM action posts a choice or a checklist yet, so those two are for code
 that posts them itself.
 

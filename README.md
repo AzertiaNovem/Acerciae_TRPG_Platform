@@ -358,6 +358,7 @@ reproduce it by hand with the demo campaign.
 ## License
 
 BSD 3-Clause; see [LICENSE](LICENSE).
+Third-party code bundled in the build outputs (the QuickJS script engine, MIT) is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ### Optional channel atmosphere
 

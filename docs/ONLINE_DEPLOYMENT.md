@@ -192,3 +192,32 @@ GitHub 新建 PR 时选择 **base: online、compare: main**，检查通过后合
 
 官方参考：[GitHub 部署与并发](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)、
 [Cloudflare Git 集成](https://developers.cloudflare.com/pages/get-started/git-integration/)。
+
+## Interactive messages
+
+Interactive messages (cards that GM accounts post through the API, [HYPERTEXT.md](HYPERTEXT.md)) ship on the normal
+path: the backend part with `Deploy backend`, the web part with Cloudflare Pages.
+
+- **The worker's CSP on Pages.** The build copies `frontend/public/_headers` into `dist`, and Pages applies it. Its one
+  rule matches `/assets/hypertext-worker-*`, the worker that runs card scripts, and sets
+  `Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'`. So the worker
+  may load only its own chunks, fetch only from this origin (the QuickJS WASM) and compile that WASM. It is a second
+  wall: scripts already run inside WebAssembly with no host functions, and the worker removes its network APIs before
+  the first run. Keep the file and the worker's name. The docker image sends the same policy from `frontend/nginx.conf`,
+  and `frontend/tests/hypertext-engine.test.cjs` checks that the two match. The desktop app is not affected (Tauri's
+  `csp` is `null`).
+- **The frontend may go out first.** Pages does not wait for `Deploy backend`. Until the backend has the card routes,
+  they answer 404 (not the API's JSON) or 405, and the web app takes that to mean the feature is unavailable: card
+  controls stay disabled ("This server does not support interactive messages yet."). No card can be posted before the
+  backend has the routes anyway, so nothing else changes. A page left open enables cards after a reload or a channel
+  switch. An older frontend on the new backend shows each card's fallback text as a plain line.
+- **Migration 0067.** `backend/migrations/0067_hypertext.sql` ships like any other migration: the new backend applies it
+  as it starts in step 4, before it listens for requests (the old services were stopped in step 2). It adds the
+  `hypertext` kind and its columns to `messages`, validates the new constraints and builds three indexes on `messages`,
+  in one transaction, so its time grows with the size of `messages`. It also creates `hypertext_cards`,
+  `hypertext_interactions` and `hypertext_states`. A rollback after it ran follows the rules above.
+- **Unit tests on the server.** The deploy uploads only `backend` and `pdf-worker`, so the backend unit tests skip the
+  shared card fixture (`mobile/contracts/fixtures/hypertext.json`) there with a notice. CI runs them with
+  `ACERCIAE_REQUIRE_CONTRACTS=1`, where a missing fixture fails.
+- **Kill switch.** `HYPERTEXT_ENABLED=false` in the backend's env file turns the feature off without a migration; see
+  [OPERATIONS.md](OPERATIONS.md).

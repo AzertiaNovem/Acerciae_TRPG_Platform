@@ -113,6 +113,12 @@ class HypertextTest {
             assertJson(c.name, c["expect"], r?.let { buildJsonObject { put("state", it.state); put("effects", effects(it.effects)) } } ?: JsonNull)
         }
     }
+    @Test fun clientOverlay() {
+        val all = cases(client, "overlay")
+        assertTrue(all.size >= 20)
+        for (c in all) assertJson(c.name, c["expect"], Hypertext.overlay(docs.getValue(c.text("doc")), c["stored"]))
+        assertTrue("a case stores prototype names", all.any { (it["stored"] as? JsonObject)?.containsKey("__proto__") == true })
+    }
     /** The engine runs only in the WebView, but what native code computes from a run is pinned here: the confirmation
      *  of every expected say, and `changed` for the runs whose whole result the fixture gives. */
     @Test fun clientRunsConfirmAndChangedAreComputedNatively() {
@@ -150,14 +156,11 @@ class HypertextTest {
 
     // ---- the hand-written cases of frontend/tests/hypertext-bindings.test.cjs ----
 
-    @Test fun defaultsOverlayAndValidateState() {
+    @Test fun defaultsAndValidateState() {
         val d = docs.getValue("study")
         val defaults = parse("""{"done":false,"lamp":false,"count":2,"path":null,"tools":[],"note":""}""")
         assertJson("defaults", defaults, Hypertext.defaultState(d))
-        assertJson("overlay null", defaults, Hypertext.overlay(d, null))
-        assertJson("overlay", parse("""{"done":false,"lamp":false,"count":2,"path":"window","tools":[],"note":"ok"}"""),
-            Hypertext.overlay(d, parse("""{"count":9,"path":"window","tools":["key","key"],"note":"ok","lamp":"yes","other":1}""")))
-        assertJson("prototype names are plain keys", JsonObject(defaults + ("done" to JsonPrimitive(true))), Hypertext.overlay(d, parse("""{"__proto__":{"lamp":true},"constructor":1,"done":true}""")))
+        assertJson("overlay of nothing", defaults, Hypertext.overlay(d, null))
         assertJson("valid", defaults, (Hypertext.validateState(d, defaults) as HxValidState).state)
         fun key(raw: String) = (Hypertext.validateState(d, JsonObject(defaults + parse(raw))) as HxInvalidState).key
         assertEquals("tools", key("""{"tools":["rope","lamp","key"]}"""))

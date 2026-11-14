@@ -154,6 +154,16 @@ final class HypertextTests: XCTestCase {
             XCTAssertEqual(project(H.act(d, c["state"].object, c["node"].text)), c["expect"], "act: \(name)")
         }
     }
+    func testClientOverlay() throws {
+        let (root, docs) = try clientDocs()
+        let all = cases(root, "overlay")
+        XCTAssertGreaterThanOrEqual(all.count, 20)
+        for c in all {
+            let name = c["name"].text, d = try XCTUnwrap(docs[c["doc"].text], name)
+            XCTAssertEqual(H.overlay(d, c["stored"]), c["expect"].object, "overlay: \(name)")
+        }
+        XCTAssertTrue(all.contains { $0["stored"].object["__proto__"] != nil }, "a case stores prototype names")
+    }
     /// The bundle's results for the `runs` cases, checked again natively: confirm and changed are recomputed here.
     func testNativeCheckRecomputesConfirmAndChangedLikeTheBundle() throws {
         let (root, docs) = try clientDocs()
@@ -210,15 +220,12 @@ final class HypertextTests: XCTestCase {
 
     // MARK: - Hand-written cases (hypertext-bindings.test.cjs)
 
-    func testDefaultsOverlayAndValidateState() throws {
+    func testDefaultsAndValidateState() throws {
         let (_, docs) = try clientDocs()
         let d = try XCTUnwrap(docs["study"])
         let defaults: H.State = ["done": .bool(false), "lamp": .bool(false), "count": .number(2), "path": .null, "tools": .array([]), "note": .string("")]
         XCTAssertEqual(H.defaultState(d), defaults)
         XCTAssertEqual(H.overlay(d, nil), defaults)
-        XCTAssertEqual(H.overlay(d, j(#"{"count":9,"path":"window","tools":["key","key"],"note":"ok","lamp":"yes","other":1}"#)),
-                       defaults.merging(["path": .string("window"), "note": .string("ok")]) { _, b in b })
-        XCTAssertEqual(H.overlay(d, j(#"{"__proto__":{"lamp":true},"constructor":1,"done":true}"#)), defaults.merging(["done": .bool(true)]) { _, b in b })
         XCTAssertEqual(H.validateState(d, defaults), .ok(defaults))
         func key(_ s: JSONValue) -> String? { if case .invalid(let k, _) = H.validateState(d, s) { return k }; return nil }
         func with(_ k: String, _ v: JSONValue) -> JSONValue { .object(defaults.merging([k: v]) { _, b in b }) }

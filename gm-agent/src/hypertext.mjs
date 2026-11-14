@@ -142,8 +142,8 @@ const uniqueLabels = (xs, max) => {
   return out;
 };
 
-// ---- strings, by the table's language (Table.language: "English", "Simplified Chinese", …, or a code); English
-// for any other language.
+// ---- strings, by the table's language (Table.language: the 11 names of daily-locale.mjs, or a code); English for
+// any other language.
 const STRINGS = {
   English: {
     rollTitle: (name) => (name ? `Roll for ${name}` : "Roll request"), check: (what) => `Roll ${what}`, roll: "Roll", initiative: "Roll initiative",
@@ -159,6 +159,46 @@ const STRINGS = {
     rollTitle: (name) => (name ? `${name} 的檢定` : "檢定請求"), check: (what) => `檢定：${what}`, roll: "擲骰", initiative: "擲先攻",
     sanity: (args) => (args ? `理智檢定 ${args}` : "理智檢定"), deathSave: "死亡豁免檢定",
     choiceTitle: "請選擇", choose: "確定", chose: "我選擇：{{pick}}", checklistTitle: "清單", allDone: "全部完成。",
+  },
+  Japanese: {
+    rollTitle: (name) => (name ? `${name}の判定` : "判定リクエスト"), check: (what) => `判定：${what}`, roll: "ダイスを振る", initiative: "イニシアチブを振る",
+    sanity: (args) => (args ? `正気度ロール ${args}` : "正気度ロール"), deathSave: "死亡セーヴィング・スロー",
+    choiceTitle: "選んでください", choose: "決定", chose: "私の選択：{{pick}}", checklistTitle: "チェックリスト", allDone: "すべて完了。",
+  },
+  Korean: {
+    rollTitle: (name) => (name ? `${name}의 판정` : "판정 요청"), check: (what) => `판정: ${what}`, roll: "굴리기", initiative: "우선권 굴리기",
+    sanity: (args) => (args ? `이성 판정 ${args}` : "이성 판정"), deathSave: "죽음 내성 굴림",
+    choiceTitle: "선택하세요", choose: "선택", chose: "내 선택: {{pick}}", checklistTitle: "체크리스트", allDone: "모두 완료했습니다.",
+  },
+  Spanish: {
+    rollTitle: (name) => (name ? `Tirada para ${name}` : "Petición de tirada"), check: (what) => `Tirar ${what}`, roll: "Tirar", initiative: "Tirar iniciativa",
+    sanity: (args) => (args ? `Tirada de cordura ${args}` : "Tirada de cordura"), deathSave: "Tirada de salvación contra muerte",
+    choiceTitle: "Tu elección", choose: "Elegir", chose: "Elijo: {{pick}}", checklistTitle: "Lista de comprobación", allDone: "Todo listo.",
+  },
+  French: {
+    rollTitle: (name) => (name ? `Jet pour ${name}` : "Demande de jet"), check: (what) => `Lancer ${what}`, roll: "Lancer", initiative: "Lancer l’initiative",
+    sanity: (args) => (args ? `Test de santé mentale ${args}` : "Test de santé mentale"), deathSave: "Jet de sauvegarde contre la mort",
+    choiceTitle: "Votre choix", choose: "Choisir", chose: "Je choisis : {{pick}}", checklistTitle: "Liste de contrôle", allDone: "Tout est fait.",
+  },
+  German: {
+    rollTitle: (name) => (name ? `Wurf für ${name}` : "Wurfanfrage"), check: (what) => `Würfeln: ${what}`, roll: "Würfeln", initiative: "Initiative würfeln",
+    sanity: (args) => (args ? `Stabilitätswurf ${args}` : "Stabilitätswurf"), deathSave: "Todesrettungswurf",
+    choiceTitle: "Deine Wahl", choose: "Wählen", chose: "Ich wähle: {{pick}}", checklistTitle: "Checkliste", allDone: "Alles erledigt.",
+  },
+  Russian: {
+    rollTitle: (name) => (name ? `Бросок для ${name}` : "Запрос броска"), check: (what) => `Бросок: ${what}`, roll: "Бросить", initiative: "Бросить инициативу",
+    sanity: (args) => (args ? `Проверка рассудка ${args}` : "Проверка рассудка"), deathSave: "Спасбросок от смерти",
+    choiceTitle: "Ваш выбор", choose: "Выбрать", chose: "Я выбираю: {{pick}}", checklistTitle: "Чек-лист", allDone: "Всё готово.",
+  },
+  Portuguese: {
+    rollTitle: (name) => (name ? `Rolagem para ${name}` : "Pedido de rolagem"), check: (what) => `Rolar ${what}`, roll: "Rolar", initiative: "Rolar iniciativa",
+    sanity: (args) => (args ? `Teste de sanidade ${args}` : "Teste de sanidade"), deathSave: "Teste de resistência contra a morte",
+    choiceTitle: "Sua escolha", choose: "Escolher", chose: "Eu escolho: {{pick}}", checklistTitle: "Lista de verificação", allDone: "Tudo pronto.",
+  },
+  Italian: {
+    rollTitle: (name) => (name ? `Tiro per ${name}` : "Richiesta di tiro"), check: (what) => `Tira ${what}`, roll: "Tira", initiative: "Tira l’iniziativa",
+    sanity: (args) => (args ? `Prova di sanità mentale ${args}` : "Prova di sanità mentale"), deathSave: "Tiro salvezza contro la morte",
+    choiceTitle: "La tua scelta", choose: "Scegli", chose: "Scelgo: {{pick}}", checklistTitle: "Lista di controllo", allDone: "Tutto fatto.",
   },
 };
 export function cardStrings(language) {

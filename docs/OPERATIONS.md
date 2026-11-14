@@ -90,10 +90,23 @@ suspended or demoted from the panel; they can grant the role to other accounts. 
   `PDF_WORKER_TOKEN` is missing).
 - Interactive messages (cards GM accounts post through the API, [HYPERTEXT.md](HYPERTEXT.md)) are on by default;
   `HYPERTEXT_ENABLED=false` turns them off without a migration: posting, saving a viewer's state, acting and closing
-  answer 403 `feature_disabled`, the status route reports `enabled: false`, and every app shows the cards already posted
-  as their plain fallback text. Each minute the maintenance thread finishes actions whose request died midway (without
-  posting anything more), and hourly it drops the action records of cards closed over a day ago. Viewers' card states
-  are kept on the server until the card is recalled or the channel deleted.
+  answer 403 `feature_disabled`, and the status route answers `enabled: false` with no items. The apps still draw the
+  cards already posted, with every control disabled and the note "Interactive messages are turned off on this
+  server."; app builds from before cards show their plain fallback text, as they always do. Cards stay in the chat,
+  and their fallback text stays in search, logs and exports. Turning the switch back on needs only a restart; an app
+  that saw it off enables the cards again once it reopens the channel or reloads.
+- An action holds its claim for 30 s while it posts its lines. Each minute the maintenance thread finishes actions
+  whose claim lapsed more than 2 minutes ago, without posting anything more: `done` with the lines already posted
+  (marked partial when one is missing), `failed` when none was. Hourly it drops the action records (request,
+  replay result, rate counts) of cards closed, or past their `closes_at`, more than a day ago. Viewers' card states
+  are kept until the card is recalled or the channel or account is deleted; a recall also strips the state from
+  the card's action records.
+- The card engine runs in the browser in a worker served from `/assets/hypertext-worker-<hash>.js`. That response
+  carries its own policy, `Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval';
+  connect-src 'self'`: in the docker image from `frontend/nginx.conf` (a `location` for that path), on Cloudflare
+  Pages from `frontend/public/_headers` ([ONLINE_DEPLOYMENT.md](ONLINE_DEPLOYMENT.md#interactive-messages)). Another
+  static host must send the same header for that path; without it the worker still works, with one layer of defence
+  less. `frontend/tests/hypertext-engine.test.cjs` checks that both files send the same policy.
 
 ## Import output allowance
 
