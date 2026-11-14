@@ -61,10 +61,11 @@ test('the shared engine section agrees with the client one', (t) => {
 
 test('the worker is served with its own CSP, on Pages and in the docker image', () => {
   const policy = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'";
-  const headers = fs.readFileSync(path.join(__dirname, '../public/_headers'), 'utf8');
+  // A Windows checkout may turn line endings into CRLF.
+  const headers = fs.readFileSync(path.join(__dirname, '../public/_headers'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(headers, /^\/assets\/hypertext-worker-\*\n {2}Content-Security-Policy: (.+)$/m);
   assert.equal(/^\/assets\/hypertext-worker-\*\n {2}Content-Security-Policy: (.+)$/m.exec(headers)[1], policy);
-  const nginx = fs.readFileSync(path.join(__dirname, '../nginx.conf'), 'utf8');
+  const nginx = fs.readFileSync(path.join(__dirname, '../nginx.conf'), 'utf8').replace(/\r\n/g, '\n');
   assert.ok(nginx.includes(`location ~ ^/assets/hypertext-worker-[^/]+\\.js$ {`), 'nginx: a location for the worker');
   assert.ok(nginx.includes(`add_header Content-Security-Policy "${policy}" always;`), 'nginx: the same policy');
 });
