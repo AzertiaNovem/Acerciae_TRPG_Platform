@@ -13,6 +13,8 @@ PIDS=()
 cleanup() { for p in "${PIDS[@]:-}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 
+# The unit tests skip the shared contract fixtures when mobile/contracts is absent (a backend-only deploy); never here.
+export ACERCIAE_REQUIRE_CONTRACTS=1
 echo "== unit tests"; "$ROOT/backend/build/unit_tests"
 echo "== nonblocking HTTP transport tests"; "$ROOT/backend/build/http_transport_tests"
 echo "== database tests"; psql "$PG" -q -c "DROP DATABASE IF EXISTS acerciae_test" -c "CREATE DATABASE acerciae_test"

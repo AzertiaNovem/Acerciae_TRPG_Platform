@@ -179,7 +179,8 @@ void ScenarioService::summarizeClosed(const std::string& channelId, const std::s
 void ScenarioService::summarizeScene(const std::string& channelId, const std::string& sceneId, int& llmCalls) {
     auto sc = db_.queryOne("SELECT id, title, location, narrative_time, summary_status FROM scenes WHERE id=$1 AND channel_id=$2", {sceneId, channelId});
     if (sc.isNull() || sc["summary_status"] == "gm_edited") return;
-    auto log = db_.queryJson("SELECT e.id AS event_id, e.seq, e.actor_role, c.name AS character_name, coalesce(m.kind, 'ic') AS kind, e.payload->>'content' AS content, e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN messages m ON m.id=e.message_id WHERE e.channel_id=$1 AND e.scene_id=$2 AND e.kind='message.posted' ORDER BY e.seq LIMIT 400", {channelId, sceneId});
+    // Interactive messages are UI (their fallback lists controls); the lines their viewers post are part of the story.
+    auto log = db_.queryJson("SELECT e.id AS event_id, e.seq, e.actor_role, c.name AS character_name, coalesce(m.kind, 'ic') AS kind, e.payload->>'content' AS content, e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id LEFT JOIN messages m ON m.id=e.message_id WHERE e.channel_id=$1 AND e.scene_id=$2 AND e.kind='message.posted' AND coalesce(m.kind, 'ic') <> 'hypertext' ORDER BY e.seq LIMIT 400", {channelId, sceneId});
     if (log.empty()) return;
     db_.exec("UPDATE scenes SET summary_status='pending' WHERE id=$1 AND summary_status<>'gm_edited'", {sceneId});
     Json::Value ctx; ctx["scene"] = sc; ctx["log"] = log;

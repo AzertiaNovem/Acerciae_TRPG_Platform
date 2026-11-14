@@ -254,6 +254,7 @@ void WsEndpointBase::onMessage(const drogon::WebSocketConnectionPtr& conn, std::
         }
     } catch (const ApiError& e) {
         reply["type"] = "error"; reply["error"] = e.what();
+        if (e.details().isObject()) for (const auto& k : e.details().getMemberNames()) if (k != "type" && k != "error") reply[k] = e.details()[k];
     } catch (const std::exception&) {
         reply["type"] = "error"; reply["error"] = "invalid request";
     }

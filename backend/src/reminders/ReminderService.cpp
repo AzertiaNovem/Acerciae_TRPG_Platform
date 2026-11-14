@@ -233,7 +233,8 @@ Json::Value ReminderService::buildContext(const ChannelAccess& view, const std::
     auto prev = db_.queryOne("SELECT e.scene_id FROM events e WHERE e.channel_id=$1 AND e.kind='message.posted' AND e.scene_id IS NOT NULL AND e.scene_id<>$2 AND " + Visibility::eventFilter(view) + " ORDER BY e.seq DESC LIMIT 1", {view.channelId, currentScene});
     ctx["previous_tail"] = prev.isNull() || !prev["scene_id"].isString() ? Json::Value(Json::arrayValue) : readableLines(view, prev["scene_id"].asString(), 12, true);
     ctx["new_events"] = Json::Value(Json::arrayValue);
-    for (const auto& e : batch) if (json::str(e, "kind") == "message.posted") { Json::Value x; x["event_id"] = e["event_id"]; x["seq"] = e["seq"]; x["actor_role"] = e["actor_role"]; x["character_name"] = e["character_name"]; x["content"] = e.isMember("content") ? e["content"] : e["payload"]["content"]; ctx["new_events"].append(x); }
+    // An interactive message's own event is UI, not something said; the lines its viewers post stay in.
+    for (const auto& e : batch) if (json::str(e, "kind") == "message.posted" && json::str(e["payload"], "message_kind") != "hypertext") { Json::Value x; x["event_id"] = e["event_id"]; x["seq"] = e["seq"]; x["actor_role"] = e["actor_role"]; x["character_name"] = e["character_name"]; x["content"] = e.isMember("content") ? e["content"] : e["payload"]["content"]; ctx["new_events"].append(x); }
     // Bound dormant history independently so it cannot crowd active reminders out of the review.
     ctx["managed_reminders"] = db_.queryJson(
         "SELECT * FROM (SELECT r.*, row_number() OVER (PARTITION BY status ORDER BY updated_at DESC, id) AS rank FROM reminders r WHERE channel_id=$1 AND kind<>'pinned' AND " + groupFilter +

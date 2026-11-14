@@ -42,6 +42,12 @@
 #include "logstudio/VnScriptService.h"
 #include "logstudio/MediaMigrator.h"
 #include "logstudio/ObjectInventory.h"
+#include "documents/NarrativeMemoryPolicy.h"
+#include "chat/ChatQueries.h"
+#include "ws/Notifier.h"
+#include "api/RouteSupport.h"
+#include "chat/HypertextService.h"
+#include "chat/Hypertext.h"
 #include <drogon/utils/Utilities.h>
 #include <filesystem>
 #include <iostream>
@@ -1466,6 +1472,375 @@ int main() {
         CHECK(gone.size() == 1 && gone[0] == clueEvent);
         recall::forget(*S.db, *S.documents, *S.notifier, channelId, gone);
         CHECK(entry()["removed"].asBool());
+    });
+
+    test("interactive messages: the schema's checks, unique line origins, the postMessage origin, recall and cascades", [&] {
+        // A third player, outside the whisper cards below (the earlier tests regrouped and removed the first three's peers).
+        auto p4User = S.auth->registerUser("p4" + suffix, "password", "P4")["id"].asString();
+        S.chat->addChannelMember(gm, "p4" + suffix, "player"); mkChar(p4User, "Delta");
+        auto p1 = S.auth->channelAccess(p1User, channelId), p3 = S.auth->channelAccess(p4User, channelId);
+        // Cards as HypertextService writes them (its routes come later): a public document, a private side row.
+        auto card = [&](const std::string& ch, const std::string& win, const std::string& vis, const std::vector<std::string>& to = {}) {
+            auto id = S.db->queryOne("INSERT INTO messages(channel_id, chat_window_id, author_id, author_role, kind, content, visibility, whisper_to, hypertext) VALUES($1,$2,$3,'gm','hypertext','Spot Hidden\n[Roll]',$4,$5::uuid[],$6::jsonb) RETURNING id",
+                {ch, win, gmUser, vis, pgArrayLiteral(to), R"J({"v":1,"title":"Spot Hidden","script":"on('roll', () => {})","body":[{"type":"button","id":"roll","label":"Roll","on":"roll"}]})J"})["id"].asString();
+            S.db->exec("INSERT INTO hypertext_cards(message_id, replies, closes_at) VALUES($1,'{\"door\":{\"text\":\"PRIVATE_MARKER\"}}'::jsonb, now() + interval '7 days')", {id});
+            return id;
+        };
+        auto newId = [&] { return S.db->queryOne("SELECT gen_random_uuid()::text AS id")["id"].asString(); };
+        auto violation = [&](const std::string& sql, const DbParams& p) {
+            try { S.db->exec(sql, p); } catch (const pqxx::check_violation&) { return std::string("check"); } catch (const pqxx::unique_violation&) { return std::string("unique"); } catch (const std::exception& e) { return std::string(e.what()); }
+            return std::string("accepted");
+        };
+        const std::string insertLine = "INSERT INTO messages(channel_id, chat_window_id, author_id, author_role, kind, content, hypertext, recalled_at, via_hypertext_id, via_user_id, via_interaction_id, via_effect) VALUES($1,$2,$3,'player',$4,'x',$5::jsonb,$6::timestamptz,$7::uuid,$8::uuid,$9::uuid,$10::smallint)";
+        auto line = [&](const std::string& kind, const DbParam& doc, const DbParam& recalled, const DbParam& via, const DbParam& iid, const DbParam& effect) {
+            return violation(insertLine, {channelId, mainWin, p1User, kind, doc, recalled, via, via.index() ? DbParam(p1User) : dbNull(), iid, effect});
+        };
+        auto c = card(channelId, mainWin, "window");
+        CHECK(line("card", dbNull(), dbNull(), dbNull(), dbNull(), dbNull()) == "check");                                  // the kind list grew by one only
+        CHECK(line("hypertext", dbNull(), dbNull(), dbNull(), dbNull(), dbNull()) == "check");                             // a card needs its document
+        CHECK(line("hypertext", dbNull(), std::string("2026-01-01T00:00:00Z"), dbNull(), dbNull(), dbNull()) == "accepted");   // unless recalled
+        CHECK(line("ic", std::string("{\"v\":1}"), dbNull(), dbNull(), dbNull(), dbNull()) == "check");                    // only cards hold one
+        CHECK(line("hypertext", "{\"v\":1,\"pad\":\"" + std::string(70000, 'x') + "\"}", dbNull(), dbNull(), dbNull(), dbNull()) == "check");   // at most 64 KiB
+        CHECK(line("ic", dbNull(), dbNull(), c, dbNull(), (int64_t)2) == "check");                                         // effect 0 or 1
+        const std::string iid = "7a1c9a4e-0000-4000-8000-000000000001";
+        CHECK(line("ic", dbNull(), dbNull(), c, iid, (int64_t)0) == "accepted");
+        CHECK(line("ic", dbNull(), dbNull(), c, iid, (int64_t)0) == "unique");                                             // one line per action and effect
+        CHECK(line("narration", dbNull(), dbNull(), c, iid, (int64_t)1) == "accepted");
+        CHECK(line("ic", dbNull(), dbNull(), c, dbNull(), dbNull()) == "accepted"); CHECK(line("ic", dbNull(), dbNull(), c, dbNull(), dbNull()) == "accepted");   // notices carry no interaction
+        CHECK(violation("INSERT INTO hypertext_states(message_id, user_id, state) VALUES($1,$2,$3::jsonb)", {c, p1User, "{\"t\":\"" + std::string(17000, 'x') + "\"}"}) == "check");
+        CHECK(violation("INSERT INTO hypertext_interactions(message_id, channel_id, user_id, interaction_id, request, request_hash, status) VALUES($1,$2,$3,gen_random_uuid(),'{}'::jsonb,'h','partial')", {c, channelId, p1User}) == "check");
+        CHECK(violation("INSERT INTO hypertext_interactions(message_id, channel_id, user_id, interaction_id, request, request_hash) VALUES($1,$2,$3,$4,'{}'::jsonb,'h')", {c, channelId, p1User, iid}) == "accepted");
+        CHECK(violation("INSERT INTO hypertext_interactions(message_id, channel_id, user_id, interaction_id, request, request_hash) VALUES($1,$2,$3,$4,'{}'::jsonb,'h')", {c, channelId, p1User, iid}) == "unique");
+
+        // The chat route never posts a card, nor reads via_* from a body.
+        auto refusal = [&](const Json::Value& b) { try { S.chat->postMessage(gm, mainWin, b); } catch (const ApiError& e) { return std::to_string(e.status()) + " " + e.what(); } return std::string("posted"); };
+        Json::Value asCard; asCard["content"] = "Pick one"; asCard["kind"] = "hypertext";
+        CHECK(refusal(asCard) == "400 interactive messages are posted with POST /windows/{w}/hypertext");
+        Json::Value withDoc; withDoc["content"] = "Pick one"; withDoc["hypertext"]["v"] = 1;
+        CHECK(refusal(withDoc) == "400 interactive messages are posted with POST /windows/{w}/hypertext");
+        Json::Value forged; forged["content"] = "Not from a card"; forged["via_hypertext_id"] = c; forged["via_user_id"] = p1User;
+        auto plain = S.chat->postMessage(p1, mainWin, forged);
+        CHECK(plain["via_hypertext_id"].isNull() && plain["via_user_id"].isNull() && plain["via_user_name"].isNull());
+
+        // A viewer's say: their own line, marked with the card and who acted; the same action again is the same line.
+        // Each origin with its pending claim, as HypertextService holds one while it posts.
+        auto claim = [&](const std::string& card, const std::string& ch, const std::string& user, const std::string& iid, const std::string& status = "pending") {
+            S.db->exec("INSERT INTO hypertext_interactions(message_id, channel_id, user_id, interaction_id, request, request_hash, status, lease_until) VALUES($1,$2,$3,$4,'{}'::jsonb,'h',$5,now() + interval '30 seconds')",
+                       {card, ch, user, iid, status});
+        };
+        auto o = [&](const std::string& user, int effect, const std::string& vis, const std::vector<std::string>& to = {}) {
+            HypertextOrigin x; x.cardId = c; x.userId = user; x.interactionId = newId(); x.effect = effect; x.visibility = vis; x.whisperTo = to;
+            claim(c, channelId, user, x.interactionId); return x; };
+        auto say1 = o(p1User, 0, "window"); say1.sayCharacterId = c1;
+        Json::Value sb; sb["content"] = "I check the door."; sb["kind"] = "ic";
+        auto said = S.chat->postMessage(p1, mainWin, sb, Json::Value(), "", &say1);
+        CHECK(said["via_hypertext_id"] == c); CHECK(said["via_user_id"] == p1User); CHECK(said["via_user_name"] == "P1"); CHECK(said["via_effect"].asInt() == 0);
+        CHECK(said["via_interaction_id"] == say1.interactionId); CHECK(said["character_id"] == c1); CHECK(!said.isMember("repeated"));
+        auto ev = S.db->queryOne("SELECT payload FROM events WHERE message_id=$1", {said["id"].asString()});
+        CHECK(ev["payload"]["via_hypertext_id"] == c); CHECK(!ev["payload"].isMember("via_user_id"));   // the actor already says who
+        auto again = S.chat->postMessage(p1, mainWin, sb, Json::Value(), "", &say1);
+        CHECK(again["id"] == said["id"]); CHECK(again["repeated"].asBool());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM messages WHERE via_interaction_id=$1", {say1.interactionId})["n"].asInt() == 1);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM events WHERE message_id=$1", {said["id"].asString()})["n"].asInt() == 1);
+
+        // A reply as the sender: the GM's line with the template's character (none here), no dice, the server's audience.
+        auto reply = o(p1User, 1, "gm_only"); reply.fixedCharacter = true; reply.allowDice = false;
+        Json::Value rb; rb["content"] = ".r 1d6 The door groans open."; rb["kind"] = "narration";
+        auto replied = S.chat->postMessage(gm, mainWin, rb, Json::Value(), "", &reply);
+        CHECK(replied["kind"] == "narration"); CHECK(replied["dice"].isNull()); CHECK(replied["visibility"] == "gm_only"); CHECK(replied["character_id"].isNull());
+        CHECK(replied["author_id"] == gmUser); CHECK(replied["via_user_id"] == p1User); CHECK(replied["via_effect"].asInt() == 1);
+        CHECK(S.db->queryOne("SELECT payload FROM events WHERE message_id=$1", {replied["id"].asString()})["payload"]["via_user_id"] == p1User);
+        // Lines a card may not ask for are refused whatever its client says.
+        auto refusedWith = [&](const ChannelAccess& who, const std::string& content, HypertextOrigin x) {
+            Json::Value b; b["content"] = content; try { S.chat->postMessage(who, mainWin, b, Json::Value(), "", &x); } catch (const ApiError& e) { return e.status(); } return 200; };
+        CHECK(refusedWith(p1, ".st str60", o(p1User, 0, "window")) == 403);
+        auto rollReply = o(p1User, 1, "window"); rollReply.fixedCharacter = true;
+        CHECK(refusedWith(gm, ".ra Spot Hidden", rollReply) == 403);                              // a reply rolls plain dice only
+        CHECK(refusedWith(p1, ".ri Bob", o(p1User, 0, "window")) == 403);                         // diceVerdict: another's initiative
+        CHECK(refusedWith(p1, ".rih +1", o(p1User, 0, "whisper", {c1})) == 403);                  // the order is the whole window's
+        // A line lands only while its action holds a pending claim: none, or one that ended, refuses it.
+        auto unclaimed = o(p1User, 0, "window"); unclaimed.interactionId = newId();
+        CHECK(refusedWith(p1, "Unclaimed.", unclaimed) == 409);
+        for (const char* status : {"done", "failed"}) {
+            auto ended = unclaimed; ended.interactionId = newId(); claim(c, channelId, p1User, ended.interactionId, status);
+            try { Json::Value b; b["content"] = "Too late."; S.chat->postMessage(p1, mainWin, b, Json::Value(), "", &ended); CHECK(false); }
+            catch (const ApiError& e) { CHECK(e.code() == "interaction_interrupted"); }
+        }
+
+        // A whisper card: its reader answers inside it (a player could not whisper otherwise), and a hidden roll's result
+        // and notice stay inside it too.
+        auto p2 = S.auth->channelAccess(p2User, channelId);
+        auto sees = [&](const ChannelAccess& who, const std::string& id) { for (auto& x : S.chat->listMessages(who, mainWin, 200, 0)) if (x["id"] == id) return true; return false; };
+        auto whisper = o(p1User, 0, "whisper", {c1, c2}); whisper.sayCharacterId = c1;
+        auto private1 = S.chat->postMessage(p1, mainWin, sb, Json::Value(), "", &whisper);
+        CHECK(private1["visibility"] == "whisper"); CHECK(sees(p2, private1["id"].asString())); CHECK(!sees(p3, private1["id"].asString()));
+        S.dice->setRng(std::make_unique<dice::SeqRng>(std::vector<int>{77}));
+        auto hidden = o(p1User, 0, "whisper", {c1, c2}); hidden.sayCharacterId = c1;
+        Json::Value hb; hb["content"] = ".rh 1d100";
+        auto secretRoll = S.chat->postMessage(p1, mainWin, hb, Json::Value(), "", &hidden);
+        CHECK(secretRoll["kind"] == "roll"); CHECK(secretRoll["visibility"] == "whisper"); CHECK(secretRoll["whisper_to"].size() == 1);
+        auto notice = S.db->queryOne(chatQueries::MSG_SELECT + "WHERE m.via_hypertext_id=$1 AND m.via_interaction_id IS NULL AND m.dice->>'type'='hidden_notice'", {c});
+        CHECK(!notice.isNull()); CHECK(notice["visibility"] == "whisper"); CHECK(notice["via_user_id"] == p1User); CHECK(notice["via_effect"].isNull());
+        CHECK(sees(p2, notice["id"].asString())); CHECK(!sees(p2, secretRoll["id"].asString())); CHECK(!sees(p3, notice["id"].asString()));
+        // On a GM-only card the GM rolling as a player's character keeps the result among GMs.
+        S.dice->setRng(std::make_unique<dice::SeqRng>(std::vector<int>{12}));
+        auto gmRoll = o(gmUser, 0, "gm_only"); gmRoll.sayCharacterId = c1;
+        auto kept = S.chat->postMessage(gm, mainWin, hb, Json::Value(), "", &gmRoll);
+        CHECK(kept["visibility"] == "gm_only"); CHECK(!sees(p1, kept["id"].asString()));
+
+        // Pushes for a card go to whoever may read it.
+        auto wcard = card(channelId, mainWin, "whisper", {c1});
+        auto audience = S.notifier->messageAudience(S.db->queryOne(chatQueries::MSG_SELECT + "WHERE m.id=$1", {wcard}));
+        CHECK(audience.count(gmUser) && audience.count(p1User) && !audience.count(p2User) && !audience.count(p4User));
+        // Spectators never get the script; error details reach the response body.
+        auto spec = ChatService::spectatorMessage(S.db->queryOne(chatQueries::MSG_SELECT + "WHERE m.id=$1", {c}));
+        CHECK(spec["hypertext"]["title"] == "Spot Hidden"); CHECK(!spec["hypertext"].isMember("script"));
+        Json::Value details; details["paths"].append("hypertext.body[0].label"); details["error"] = "overridden?";
+        auto resp = http::errResp(ApiError(400, "invalid_hypertext", "the document is invalid", details));
+        auto body = json::parse(std::string(resp->body()));
+        CHECK(resp->statusCode() == 400); CHECK(body["error"] == "invalid_hypertext"); CHECK(body["message"] == "the document is invalid"); CHECK(body["paths"][0] == "hypertext.body[0].label");
+
+        // The campaign log keeps a card as a system line (GM-only stays secret) and marks the lines it produced.
+        auto gmCard = card(channelId, mainWin, "gm_only");
+        for (auto [id, vis] : {std::pair<std::string, std::string>{c, "window"}, {gmCard, "gm_only"}}) {
+            NewEvent e; e.channelId = channelId; e.chatWindowId = mainWin; e.messageId = id; e.actorUserId = gmUser; e.actorRole = "gm"; e.kind = "message.posted"; e.visibility = vis;
+            e.payload["content"] = "Spot Hidden\n[Roll]"; e.payload["message_kind"] = "hypertext"; e.payload["title"] = "Spot Hidden"; S.events->append(e);
+        }
+        S.studio->campaignLog(gm);
+        auto logged = [&](const std::string& id) { return S.db->queryOne("SELECT event_type, metadata FROM log_events WHERE source_message_id=$1", {id}); };
+        CHECK(logged(c)["event_type"] == "system"); CHECK(logged(c)["metadata"]["hypertext"].asBool()); CHECK(logged(c)["metadata"]["title"] == "Spot Hidden");
+        CHECK(logged(gmCard)["event_type"] == "secret");
+        CHECK(logged(said["id"].asString())["metadata"]["via_hypertext"].asBool()); CHECK(logged(said["id"].asString())["event_type"] != "system");
+        std::string mime, fileName;
+        auto exported = json::parse(S.studio->exportLog(gm, "json", "", mime, fileName));
+        int cards = 0, via = 0; for (auto& m : exported["messages"]) { if (m["hypertext"].asBool()) ++cards; if (m["via_hypertext"].asBool()) ++via; }
+        CHECK(cards == 2); CHECK(via >= 3);
+        auto exportedText = json::dump(exported); CHECK(exportedText.find("PRIVATE_MARKER") == std::string::npos); CHECK(exportedText.find("on('roll'") == std::string::npos);
+
+        // The AI does not read a card as narration; the lines its viewers post are read as usual.
+        Json::Value cardEvent; cardEvent["kind"] = "message.posted"; cardEvent["payload"]["message_kind"] = "hypertext"; cardEvent["payload"]["content"] = "Where now? Lighthouse / Harbour";
+        CHECK(narrative_memory::obviousNonNarrative(cardEvent));
+        Json::Value viaEvent = cardEvent; viaEvent["payload"]["message_kind"] = "ic"; viaEvent["payload"]["via_hypertext_id"] = c; CHECK(!narrative_memory::obviousNonNarrative(viaEvent));
+        Json::Value kctx; Json::Value stage; stage["id"] = "k1"; stage["kind"] = "flow"; stage["status"] = "pending"; stage["title"] = "Lighthouse"; kctx["knowledge"].append(stage);
+        Json::Value narrated; narrated["event_id"] = "e1"; narrated["actor_role"] = "gm"; narrated["content"] = "Where now? Lighthouse or Harbour."; narrated["payload"]["message_kind"] = "hypertext";
+        kctx["new_events"].append(narrated);
+        CHECK(ScriptKnowledgeService::mockPropose(kctx)["changes"].empty());
+        kctx["new_events"][0]["payload"]["message_kind"] = "narration";
+        CHECK(!ScriptKnowledgeService::mockPropose(kctx)["changes"].empty());
+        Json::Value seen; seen["seq"] = 3; seen["actor_role"] = "gm"; seen["kind"] = "message.posted"; seen["message_kind"] = "hypertext"; seen["content"] = "Spot Hidden [Roll]";
+        CHECK(InspirationService::renderLogLine(seen, "GM") == "#3 GM (interactive message): Spot Hidden [Roll]");
+
+        // Recall: a card is a tombstone with no document, closed, its states and templates gone; no draft comes back.
+        S.db->exec("INSERT INTO hypertext_states(message_id, user_id, state) VALUES($1,$2,'{\"done\":true}'::jsonb)", {c, p1User});
+        auto inFlight = o(p1User, 0, "window");   // an action claimed before the recall, its line not posted yet
+        S.db->exec("UPDATE hypertext_interactions SET request='{\"say\":{\"text\":\"x\"},\"state\":{\"done\":true}}'::jsonb WHERE interaction_id=$1", {inFlight.interactionId});
+        CHECK(S.chat->getMessage(gm, c)["recall_seconds_left"].asInt() > 0);
+        auto recalled = S.chat->recallMessage(gm, c);
+        CHECK(recalled["content"] == ""); CHECK(recalled["message"]["hypertext"].isNull()); CHECK(!recalled["message"]["recalled_at"].isNull());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM hypertext_states WHERE message_id=$1", {c})["n"].asInt() == 0);
+        auto side = S.db->queryOne("SELECT replies, closed_at FROM hypertext_cards WHERE message_id=$1", {c});
+        CHECK(side["replies"].empty()); CHECK(!side["closed_at"].isNull());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM hypertext_interactions WHERE message_id=$1 AND request ? 'state'", {c})["n"].asInt() == 0);   // nor the copies its actions kept
+        try { S.chat->postMessage(p1, mainWin, sb, Json::Value(), "", &inFlight); CHECK(false); }
+        catch (const ApiError& e) { CHECK(e.code() == "hypertext_closed"); }   // nothing lands after a recall
+        CHECK(S.chat->getMessage(p1, said["id"].asString())["via_hypertext_id"] == c);   // lines it produced stay, naming the tombstone
+
+        // Cascades: a deleted card takes its side rows and leaves its lines unattached; a deleted channel takes it all.
+        Json::Value cb2; cb2["name"] = "Cards";
+        auto ch2 = S.chat->createChannel(gmP, server["id"].asString(), cb2)["id"].asString();
+        auto gm2 = S.auth->channelAccess(gmUser, ch2); auto win2 = S.chat->listWindows(gm2)[0]["id"].asString();
+        auto withRows = [&](const std::string& id) {
+            S.db->exec("INSERT INTO hypertext_states(message_id, user_id, state) VALUES($1,$2,'{}'::jsonb)", {id, gmUser});
+            HypertextOrigin x; x.cardId = id; x.userId = gmUser; x.interactionId = newId(); x.visibility = "window";
+            claim(id, ch2, gmUser, x.interactionId);
+            Json::Value b; b["content"] = "The lamp gutters."; b["kind"] = "narration";
+            return S.chat->postMessage(gm2, win2, b, Json::Value(), "", &x)["id"].asString();
+        };
+        auto rows = [&](const std::string& id) { return S.db->queryOne("SELECT (SELECT count(*) FROM hypertext_cards WHERE message_id=$1) + (SELECT count(*) FROM hypertext_states WHERE message_id=$1) + (SELECT count(*) FROM hypertext_interactions WHERE message_id=$1) AS n", {id})["n"].asInt(); };
+        auto gone = card(ch2, win2, "window"); auto orphan = withRows(gone);
+        CHECK(rows(gone) == 3);
+        S.db->exec("DELETE FROM messages WHERE id=$1", {gone});
+        CHECK(rows(gone) == 0);
+        auto left = S.db->queryOne("SELECT via_hypertext_id, via_user_id FROM messages WHERE id=$1", {orphan});
+        CHECK(left["via_hypertext_id"].isNull()); CHECK(left["via_user_id"] == gmUser);
+        auto kept2 = card(ch2, win2, "window"); withRows(kept2);
+        S.db->exec("DELETE FROM channels WHERE id=$1", {ch2});
+        CHECK(rows(kept2) == 0); CHECK(S.db->queryOne("SELECT count(*) AS n FROM messages WHERE channel_id=$1", {ch2})["n"].asInt() == 0);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM hypertext_interactions WHERE channel_id=$1", {ch2})["n"].asInt() == 0);
+    });
+
+    test("interactive messages: racing claims, one action in flight, abandoned actions, state compare-and-swap, the switch and the sweep", [&] {
+        Json::Value cb3; cb3["name"] = "Racing"; cb3["knowledge_mode"] = "isolated";
+        auto ch = S.chat->createChannel(gmP, server["id"].asString(), cb3)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, ch);
+        for (auto u : {"p1", "p2"}) S.chat->addChannelMember(keeper, u + suffix, "player");
+        for (auto [uid, name] : {std::pair<std::string, std::string>{p1User, "Ada"}, {p2User, "Bea"}}) { Json::Value b; b["name"] = name; S.chat->createCharacter(S.auth->channelAccess(uid, ch), b); }
+        keeper = S.auth->channelAccess(gmUser, ch);
+        auto win = S.chat->listWindows(keeper)[0]["id"].asString();
+        auto post = [&](const std::string& doc) { return S.hypertext->post(keeper, win, json::parse(doc))["id"].asString(); };
+        auto act = [&](const std::string& user, const std::string& cardId, Json::Value b, const std::string& iid = "") {
+            b["interaction_id"] = iid.empty() ? crypto::uuid4() : iid; if (!b.isMember("base_version")) b["base_version"] = 0;
+            return S.hypertext->act(S.auth->channelAccess(user, ch), cardId, b);
+        };
+        // "ok", or the error code an attempt ended with.
+        auto outcome = [](const std::function<void()>& fn) { try { fn(); return std::string("ok"); } catch (const ApiError& e) { return e.code(); } };
+        auto reply = [](const std::string& id) { Json::Value b; b["reply"]["id"] = id; return b; };
+        auto say = [](const std::string& text) { Json::Value b; b["say"]["text"] = text; return b; };
+        auto lines = [&](const std::string& cardId, int effect) { return S.db->queryOne("SELECT count(*) AS n FROM messages WHERE via_hypertext_id=$1 AND via_effect=$2", {cardId, (int64_t)effect})["n"].asInt(); };
+        const std::string doc = R"({"hypertext":{"v":1,"body":[{"type":"button","id":"go","label":"Go","act":{"say":"Go.","reply":"door"}}],"runs_per_viewer":10},
+            "replies":{"door":{"text":"The door opens.","total":1},"left":{"text":"Left.","group":"way"},"right":{"text":"Right.","group":"way"}}})";
+
+        // Two viewers racing for a reply of total 1: exactly one wins, every time.
+        for (int round = 0; round < 5; ++round) {
+            auto c = post(doc);
+            auto one = std::async(std::launch::async, [&] { return outcome([&] { act(p1User, c, reply("door")); }); });
+            auto two = std::async(std::launch::async, [&] { return outcome([&] { act(p2User, c, reply("door")); }); });
+            std::multiset<std::string> got{one.get(), two.get()};
+            CHECK(got == (std::multiset<std::string>{"ok", "reply_exhausted"}));
+            CHECK(lines(c, 1) == 1);
+        }
+        // A group: one answer per viewer, even when one viewer asks for two at once; another viewer still chooses.
+        auto g = post(doc);
+        auto left = std::async(std::launch::async, [&] { return outcome([&] { act(p1User, g, reply("left")); }); });
+        auto right = std::async(std::launch::async, [&] { return outcome([&] { act(p1User, g, reply("right")); }); });
+        auto l = left.get(), r = right.get();
+        CHECK((l == "ok") != (r == "ok")); CHECK(l == "ok" || l == "reply_exhausted" || l == "interaction_in_progress"); CHECK(r == "ok" || r == "reply_exhausted" || r == "interaction_in_progress");
+        CHECK(outcome([&] { act(p1User, g, reply(l == "ok" ? "right" : "left")); }) == "reply_exhausted");
+        CHECK(outcome([&] { act(p2User, g, reply(l == "ok" ? "right" : "left")); }) == "ok");
+        CHECK(lines(g, 1) == 2);
+
+        // One action in flight per viewer and card: another one, or a retry of it, waits until it ends or its claim lapses.
+        auto f = post(doc);
+        auto x = crypto::uuid4();
+        auto first = act(p1User, f, say("I wait."), x);
+        auto said = first["results"][0]["message"]["id"].asString();
+        S.db->exec("UPDATE hypertext_interactions SET status='pending', lease_until=now() + interval '30 seconds' WHERE message_id=$1 AND interaction_id=$2", {f, x});
+        CHECK(outcome([&] { act(p1User, f, say("Me again.")); }) == "interaction_in_progress");
+        CHECK(outcome([&] { act(p1User, f, say("I wait."), x); }) == "interaction_in_progress");
+        CHECK(outcome([&] { act(p2User, f, say("Not me.")); }) == "ok");   // other viewers are not held up
+        // Its claim lapsed (the request died after posting): a retry finishes it without posting again.
+        S.db->exec("UPDATE hypertext_interactions SET lease_until=now() - interval '1 second' WHERE message_id=$1 AND interaction_id=$2", {f, x});
+        auto resumed = act(p1User, f, say("I wait."), x);
+        CHECK(resumed["replayed"].asBool()); CHECK(resumed["results"][0]["message"]["id"].asString() == said);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM messages WHERE via_interaction_id=$1", {x})["n"].asInt() == 1);
+        CHECK(S.db->queryOne("SELECT status FROM hypertext_interactions WHERE message_id=$1 AND interaction_id=$2", {f, x})["status"] == "done");
+        // A takeover that has a line left to post: the say is there, the reply is posted by the retry, once.
+        auto t = post(doc);
+        auto sayReply = say("Onward."); sayReply["reply"]["id"] = "door";
+        auto y = crypto::uuid4();
+        act(p1User, t, sayReply, y);
+        S.db->exec("DELETE FROM messages WHERE via_interaction_id=$1 AND via_effect=1", {y});
+        S.db->exec("UPDATE hypertext_interactions SET status='pending', result_ids='[]', reply_ok=NULL, lease_until=now() - interval '1 second' WHERE interaction_id=$1", {y});
+        auto taken = act(p1User, t, sayReply, y);
+        CHECK(taken["replayed"].asBool()); CHECK(!taken["partial"].asBool()); CHECK(taken["results"].size() == 2);
+        CHECK(taken["results"][0]["ok"].asBool()); CHECK(taken["results"][1]["ok"].asBool()); CHECK(taken["results"][1]["message"]["content"] == "The door opens.");
+        CHECK(lines(t, 0) == 1); CHECK(lines(t, 1) == 1);
+        auto tr = S.db->queryOne("SELECT status, reply_ok, result_ids FROM hypertext_interactions WHERE interaction_id=$1", {y});
+        CHECK(tr["status"] == "done"); CHECK(tr["reply_ok"] == true); CHECK(tr["result_ids"][1]["id"] == taken["results"][1]["message"]["id"]);
+        // A failure that is not the action's (the database refusing the line): the claim lapses at once and a retry
+        // posts it; nothing counts as failed.
+        S.db->exec("CREATE OR REPLACE FUNCTION hypertext_test_refuse() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.content = 'Refused once.' THEN RAISE EXCEPTION 'injected failure'; END IF; RETURN NEW; END $$");
+        S.db->exec("DROP TRIGGER IF EXISTS hypertext_test_refuse ON messages");
+        S.db->exec("CREATE TRIGGER hypertext_test_refuse BEFORE INSERT ON messages FOR EACH ROW EXECUTE FUNCTION hypertext_test_refuse()");
+        auto z = crypto::uuid4();
+        bool internal = false;
+        try { act(p2User, t, say("Refused once."), z); } catch (const ApiError&) {} catch (const std::exception&) { internal = true; }
+        S.db->exec("DROP TRIGGER hypertext_test_refuse ON messages"); S.db->exec("DROP FUNCTION hypertext_test_refuse()");
+        CHECK(internal);
+        auto released = S.db->queryOne("SELECT status, lease_until <= now() AS lapsed FROM hypertext_interactions WHERE interaction_id=$1", {z});
+        CHECK(released["status"] == "pending"); CHECK(released["lapsed"].asBool());
+        auto retried = act(p2User, t, say("Refused once."), z);
+        CHECK(retried["replayed"].asBool()); CHECK(retried["results"][0]["message"]["content"] == "Refused once.");
+        CHECK(S.db->queryOne("SELECT status FROM hypertext_interactions WHERE interaction_id=$1", {z})["status"] == "done");
+        // A finished action replays even once the card has closed (a bot closes it on seeing the line; the response was lost).
+        auto lost = crypto::uuid4();
+        auto done1 = act(p2User, t, say("Seen."), lost);
+        S.hypertext->close(keeper, t);
+        auto late = act(p2User, t, say("Seen."), lost);
+        CHECK(late["replayed"].asBool()); CHECK(late["results"][0]["message"]["id"] == done1["results"][0]["message"]["id"]);
+        CHECK(outcome([&] { act(p2User, t, say("Seen.")); }) == "hypertext_closed");   // a new one is refused
+
+        // Abandoned actions (claim lapsed over 2 minutes ago) are finished by the sweep with what they posted.
+        auto a = post(doc);
+        auto both = say("Onward."); both["reply"]["id"] = "door";
+        auto half = crypto::uuid4(), none = crypto::uuid4(), recent = crypto::uuid4();
+        act(p1User, a, both, half); act(p1User, a, say("Hm."), none); act(p1User, a, say("Ha."), recent);
+        S.db->exec("DELETE FROM messages WHERE via_interaction_id=$1 AND via_effect=1", {half});        // the reply never made it
+        S.db->exec("DELETE FROM messages WHERE via_interaction_id=$1", {none});                           // nothing made it
+        S.db->exec("UPDATE hypertext_interactions SET status='pending', result_ids='[]', reply_ok=NULL, lease_until=now() - interval '3 minutes' WHERE interaction_id = ANY($1::uuid[])", {pgArrayLiteral({half, none})});
+        S.db->exec("UPDATE hypertext_interactions SET status='pending', lease_until=now() - interval '1 minute' WHERE interaction_id=$1", {recent});
+        CHECK(S.hypertext->finishAbandoned() >= 2);
+        auto row = [&](const std::string& iid) { return S.db->queryOne("SELECT status, result_ids, error, reply_ok FROM hypertext_interactions WHERE interaction_id=$1", {iid}); };
+        auto h = row(half);
+        CHECK(h["status"] == "done"); CHECK(h["result_ids"].size() == 2); CHECK(h["result_ids"][0]["id"].isString()); CHECK(h["result_ids"][1]["id"].isNull());
+        CHECK(h["error"]["reply"]["error"] == "interrupted"); CHECK(h["reply_ok"] == false);
+        CHECK(row(none)["status"] == "failed"); CHECK(row(none)["error"]["error"] == "interaction_interrupted");
+        CHECK(row(recent)["status"] == "pending");   // not abandoned yet
+        CHECK(lines(a, 0) == 2); CHECK(lines(a, 1) == 0);   // the sweep posted nothing
+        auto replay = act(p1User, a, both, half);
+        CHECK(replay["replayed"].asBool()); CHECK(replay["partial"].asBool()); CHECK(!replay["results"][1]["ok"].asBool());
+        CHECK(outcome([&] { act(p1User, a, say("Hm."), none); }) == "interaction_interrupted");
+        CHECK(outcome([&] { act(p2User, a, reply("door")); }) == "ok");   // the reply nobody got is still free
+
+        // State: compare and swap, two devices at once get one conflict.
+        auto s = post(R"({"hypertext":{"v":1,"state":{"done":{"type":"bool"}},"body":[{"type":"checkbox","id":"ok","label":"Ready","bind":"done"}]}})");
+        Json::Value put; put["state"]["done"] = true; put["base_version"] = 0;
+        auto p1a = S.auth->channelAccess(p1User, ch);
+        auto d1 = std::async(std::launch::async, [&] { return outcome([&] { S.hypertext->saveState(p1a, s, put); }); });
+        auto d2 = std::async(std::launch::async, [&] { return outcome([&] { S.hypertext->saveState(p1a, s, put); }); });
+        CHECK((std::multiset<std::string>{d1.get(), d2.get()}) == (std::multiset<std::string>{"ok", "state_conflict"}));
+        try { S.hypertext->saveState(p1a, s, put); CHECK(false); }
+        catch (const ApiError& e) { CHECK(e.code() == "state_conflict"); CHECK(e.details()["version"].asInt() == 1); CHECK(e.details()["state"]["done"].asBool()); }
+        Json::Value stale; stale["state"]["done"] = true; stale["base_version"] = 3;   // no state yet: the conflict says version 0
+        try { S.hypertext->saveState(S.auth->channelAccess(p2User, ch), s, stale); CHECK(false); }
+        catch (const ApiError& e) { CHECK(e.code() == "state_conflict"); CHECK(e.details()["version"].isIntegral() && e.details()["version"].asInt() == 0); CHECK(e.details()["state"].isNull()); }
+        put["base_version"] = 1; put["state"]["done"] = false;
+        CHECK(S.hypertext->saveState(p1a, s, put)["version"].asInt() == 2);
+        CHECK(S.db->queryOne("SELECT state FROM hypertext_states WHERE message_id=$1 AND user_id=$2", {s, p2User}).isNull());
+
+        // The largest stubs normalize accepts fit the database's CHECKs, measured as it stores them; one reply more is a
+        // path, not a check violation.
+        for (const char* unit : {"x", "密"}) {
+            auto big = [&](int n) {
+                Json::Value b = json::parse(R"({"hypertext":{"v":1,"body":[{"type":"divider"}]}})"); b["replies"] = Json::Value(Json::objectValue);
+                for (int i = 0; i < n; ++i) for (const char* slot : {"a", "b", "c", "d"}) {
+                    auto& r = b["replies"]["r" + std::to_string(i)]; r["text"] = "{{a}} {{b}} {{c}} {{d}}"; r["slots"][slot]["type"] = "enum";
+                    for (int v = 0; v < 20; ++v) { std::string x; while (text::utf8Length(x) < 62) x += unit; r["slots"][slot]["values"].append(x + std::to_string(10 + v)); }
+                }
+                return b;
+            };
+            int n = 16; while (n > 1 && !hypertext::normalize(big(n)["hypertext"], big(n)["replies"]).ok) --n;
+            CHECK(n < 16);
+            auto id = S.hypertext->post(keeper, win, big(n))["id"].asString();
+            auto sizes = S.db->queryOne("SELECT m.hypertext, octet_length(m.hypertext::text) AS doc_bytes, hc.replies, octet_length(hc.replies::text) AS replies_bytes FROM messages m JOIN hypertext_cards hc ON hc.message_id=m.id WHERE m.id=$1", {id});
+            CHECK(hypertext::storedSize(sizes["hypertext"]) == (size_t)sizes["doc_bytes"].asInt64()); CHECK(hypertext::storedSize(sizes["replies"]) == (size_t)sizes["replies_bytes"].asInt64());
+            CHECK(sizes["doc_bytes"].asInt64() <= 65536 && sizes["replies_bytes"].asInt64() <= 65536);
+            try { S.hypertext->post(keeper, win, big(n + 1)); CHECK(false); }
+            catch (const ApiError& e) { CHECK(e.code() == "invalid_hypertext"); CHECK(e.details()["errors"][0]["path"] == "replies"); }
+        }
+
+        // Expired by closes_at: closed without anyone closing it.
+        S.db->exec("UPDATE hypertext_cards SET closes_at=now() - interval '1 second' WHERE message_id=$1", {f});
+        CHECK(outcome([&] { act(p2User, f, say("Too late?")); }) == "hypertext_closed");
+        CHECK(S.hypertext->status(p1a, f)["items"][0]["closed"].asBool());
+
+        // The sweep drops the action rows of cards closed over a day ago, and only those.
+        S.db->exec("UPDATE hypertext_cards SET closes_at=now() - interval '2 days' WHERE message_id=$1", {f});
+        auto before = S.db->queryOne("SELECT count(*) AS n FROM hypertext_interactions WHERE channel_id=$1 AND message_id<>$2", {ch, f})["n"].asInt();
+        CHECK(S.hypertext->prune() >= 2);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM hypertext_interactions WHERE message_id=$1", {f})["n"].asInt() == 0);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM hypertext_interactions WHERE channel_id=$1", {ch})["n"].asInt() == before);
+
+        // The operator's switch: posting, saving, acting and closing refuse first, the status says so.
+        S.cfg.hypertextEnabled = false;
+        CHECK(outcome([&] { post(doc); }) == "feature_disabled");
+        CHECK(outcome([&] { S.hypertext->saveState(p1a, s, put); }) == "feature_disabled");
+        CHECK(outcome([&] { act(p1User, s, say("Hello.")); }) == "feature_disabled");
+        CHECK(outcome([&] { S.hypertext->close(keeper, s); }) == "feature_disabled");
+        auto off = S.hypertext->status(p1a, s);
+        CHECK(!off["enabled"].asBool()); CHECK(off["items"].empty());
+        S.cfg.hypertextEnabled = true;
+        CHECK(S.hypertext->status(p1a, s)["items"].size() == 1);
     });
 
     std::cout << passed << " checks passed, " << failures << " failed\n";

@@ -228,6 +228,8 @@ Json::Value ChatService::spectatorMessage(Json::Value m) {
     m["character_avatar_asset_id"] = Json::Value(); m["character_avatar_version"] = Json::Value(); m["character_avatar_hash"] = Json::Value();
     m.removeMember("whisper_to");
     m["media_asset_id"] = Json::Value();   // an illustration is served only to channel members who may read the line
+    // An interactive message renders read-only for spectators: its script never reaches them.
+    if (m.isMember("hypertext") && m["hypertext"].isObject()) m["hypertext"].removeMember("script");
     return m;
 }
 

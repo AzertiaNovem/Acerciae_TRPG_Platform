@@ -6,6 +6,18 @@
 namespace acerciae {
 class EventStore; class Notifier; class SceneManager; class DocumentService; class DiceService;
 
+// A line an interactive message (kind hypertext) produces: said as the viewer who acted (effect 0) or replied as the
+// card's sender (effect 1). Built only by HypertextService, never from a request body. The audience is the server's
+// (the card's or a narrower one), and (card, user, interaction, effect) identifies the line, so a retry returns it.
+// A new line is posted only while the card is not recalled and the action's claim (hypertext_interactions) is pending.
+struct HypertextOrigin {
+    std::string cardId, userId, interactionId; int effect = 0;   // userId: who acted (the clicker), also for replies
+    std::string visibility; std::vector<std::string> whisperTo;   // window | gm_only | whisper
+    bool fixedCharacter = false; std::string characterId;          // replies: the template's character, or none
+    bool allowDice = true;                                         // false: the text is never a dice command
+    std::string sayCharacterId;                                    // says: the viewer's active character (their own), "" = the window's
+};
+
 // Servers, channels, chat windows, characters and messages. Posting a message persists the message
 // and appends a `message.posted` event with the audience that witnessed it.
 class ChatService {
@@ -80,14 +92,20 @@ public:
     // after it: how a client that keeps the history catches up from the last line it has. Oldest first either way.
     Json::Value listMessages(const ChannelAccess& a, const std::string& windowId, int limit, int64_t beforeSeq, bool includeHistory = true, int64_t afterSeq = -1);
     // `mediaAssetId`: the picture the line shows (an illustration posted by the server; never from the request body).
-    Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling = {}, const std::string& mediaAssetId = "");
+    // `origin`: the line comes from an interactive message (see HypertextOrigin). A line already posted for the same
+    // origin is returned as it is, marked `repeated: true`, without running its dice again or notifying anyone. Never
+    // called inside another transaction. Without an origin, interactive messages themselves are refused (they have
+    // their own route) and `via_*` keys of the body are never read.
+    Json::Value postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling = {}, const std::string& mediaAssetId = "", const HypertextOrigin* origin = nullptr);
     Json::Value getMessage(const ChannelAccess& a, const std::string& messageId);   // 404 once recalled
     Json::Value searchMessages(const ChannelAccess& a, const std::string& query, int limit);
-    // Recall: the author takes back their own line (ic, ooc or narration; not dice rolls, system lines or a PbtA
-    // move's record) within kRecallSeconds of sending it. The row becomes a tombstone: text, dice and references
-    // erased, `recalled_at` set, its events and campaign-log copies deleted; everyone who could read it is told
+    // Recall: the author takes back their own line (ic, ooc, narration or an interactive message; not dice rolls,
+    // system lines or a PbtA move's record) within kRecallSeconds of sending it. The row becomes a tombstone: text,
+    // dice, references and card document erased, `recalled_at` set, its events and campaign-log copies deleted (a card
+    // also closes, losing its viewers' states and reply templates); everyone who could read it is told
     // (Notifier::messageRecalled) and what the AI made of it is forgotten (recall::forget). Returns
-    // {message: tombstone, content: the original text, for the author to edit and send again}. Repeating it is a no-op.
+    // {message: tombstone, content: the original text, for the author to edit and send again ("" for a card)}.
+    // Repeating it is a no-op.
     // Every message row carries `recall_seconds_left`: seconds until it can no longer be recalled, null when it cannot.
     static constexpr int kRecallSeconds = 120;
     Json::Value recallMessage(const ChannelAccess& a, const std::string& messageId);

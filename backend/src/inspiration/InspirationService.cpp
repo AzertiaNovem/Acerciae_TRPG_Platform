@@ -53,6 +53,7 @@ std::string InspirationService::renderLogLine(const Json::Value& e, const std::s
     std::string who = !name.empty() ? name : json::str(e, "actor_role") == "gm" ? gm : "a player";
     if (kind == "narration") who += " (narration)";
     std::string tag = kind == "ooc" ? " (out of character)" : kind == "roll" || kind == "dice_roll" ? " (roll)" : "";
+    if (kind == "hypertext" || json::str(e, "message_kind") == "hypertext") tag = " (interactive message)";   // its text is the card's plain fallback
     std::string content = json::str(e, "content");
     std::string flat; bool space = false;
     for (unsigned char c : content) { if (c == ' ' || c == '\n' || c == '\t' || c == '\r') { if (!space) flat += ' '; space = true; } else { flat += (char)c; space = false; } }

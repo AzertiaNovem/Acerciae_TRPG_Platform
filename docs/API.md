@@ -128,7 +128,113 @@ returns the updated character and broadcasts `character.updated`. Repeating `tru
 | GET | `/channels/{id}/messages/{mid}/image?token=` | a line's picture, only for someone who may read the line (404 otherwise or once recalled); `?direct=1` answers with the bucket URL as for media; `?download=1` sends the bytes themselves (never a redirect) with `Content-Disposition: attachment` and a readable name, `illustration-<date>-<description>.png` for a drawn picture and `picture-<date>-<caption>.<ext>` for an uploaded one (`filename*` in UTF-8, any script kept) |
 | GET | `/channels/{id}/messages?q=` | search |
 | GET | `/channels/{id}/messages/{mid}` | 404 once the message is recalled |
-| POST | `/channels/{id}/messages/{mid}/recall` | the author takes back their own `ic`, `ooc` or `narration` line up to 2 minutes after sending it; anyone else gets 403, a line the caller cannot read 404, a dice roll, system line or PbtA move record 409 `not_recallable`, a later attempt 409 `recall_expired`. Returns `{message, content}`: the tombstone and the original text (for the author to edit and send again); repeating it returns the tombstone with `content: ""`. The row stays as a tombstone (same `id`, window and `seq`; `content` empty, `dice` null, `reference_ids` empty, `recalled_at` set), so clients replace their copy by id; message lists return it in place, while search, unread counts and references skip it. Its events and campaign-log copies (and with them every snapshot's line) are deleted, so the AI, scene logs and exports never see it again; highlights and reminders citing it are dismissed and Keeper journal entries resting only on recalled lines are retracted (a `system` revision). Copies already published, rendered to PDF or downloaded are not reached. A picture the author uploaded is deleted with its line (a drawn illustration stays in the GM's media library). Every message row carries `recall_seconds_left`: seconds until it can no longer be recalled, `null` when it cannot be. |
+| POST | `/channels/{id}/messages/{mid}/recall` | the author takes back their own `ic`, `ooc` or `narration` line, or interactive message (see below), up to 2 minutes after sending it; anyone else gets 403, a line the caller cannot read 404, a dice roll, system line or PbtA move record 409 `not_recallable`, a later attempt 409 `recall_expired`. Returns `{message, content}`: the tombstone and the original text (for the author to edit and send again; `""` for an interactive message); repeating it returns the tombstone with `content: ""`. The row stays as a tombstone (same `id`, window and `seq`; `content` empty, `dice` null, `reference_ids` empty, `recalled_at` set), so clients replace their copy by id; message lists return it in place, while search, unread counts and references skip it. Its events and campaign-log copies (and with them every snapshot's line) are deleted, so the AI, scene logs and exports never see it again; highlights and reminders citing it are dismissed and Keeper journal entries resting only on recalled lines are retracted (a `system` revision). Copies already published, rendered to PDF or downloaded are not reached. A picture the author uploaded is deleted with its line (a drawn illustration stays in the GM's media library). Every message row carries `recall_seconds_left`: seconds until it can no longer be recalled, `null` when it cannot be. |
+
+
+### Interactive messages
+
+A channel's GM accounts (bots such as gm-agent, or a GM's own tooling) can post an **interactive message**: a message
+of kind `hypertext` that carries a small declarative UI (text, checkboxes, choices, inputs, buttons, rows, groups) and,
+optionally, a script that runs on each viewer's device when that viewer acts. No composer posts one; humans see and use
+them. Each reader keeps their own state of a card, and acting on it can post at most one line as the reader (`say`) and
+one of the sender's private, pre-declared lines as the sender (`reply`). Bots learn only from those lines: there is no
+other channel back. The format, the script API and the security model are in [HYPERTEXT.md](HYPERTEXT.md). The
+operator's `HYPERTEXT_ENABLED=false` turns the feature off: posting, state, act and close answer 403 `feature_disabled`
+(after the channel's own membership check), and the status route answers `{enabled: false, items: []}`.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/channels/{id}/windows/{w}/hypertext` | A channel GM who is in the window. `{content?, character_id?, visibility?: window\|gm_only\|whisper, whisper_to?: [character ids], closes_in?: 60..2592000 (seconds, default 604800 = 7 days), hypertext: {v: 1, title?, state?, body, script?, actors?, runs_per_viewer?}, replies?: {id: {text, kind?, character_id?, audience?, slots?, per_viewer?, total?, group?}}}`. Checked in order: 403 `forbidden` for a player; 404 for a window outside the channel; 400 `invalid_hypertext` with `errors: [{path, message}]` (at most 10, each path into the body: `hypertext.body[0].label`, `replies.door.text`, `closes_in`; unknown keys anywhere are errors; the stored document with its reply stubs, which repeat every enum slot's values, and the templates may each take at most 60 KiB of JSON as stored, else the error is at `replies`, or at `hypertext` for a card without replies); `actors` must be characters of this channel (400 at their path); the card's and each reply's `character_id` an NPC, the sender's own PC or a PC with no player (another player's PC is 403); `content` 1–2000 code points of allowed characters and not a dot command (400 at `content`); `visibility` as for a GM's line (400 `bad_request` for another value, or for `whisper` without `whisper_to`), and `whisper_to` a list of character ids (400 `invalid_hypertext` at `whisper_to` otherwise); at most 20 cards a minute per author and channel (429 `rate_limited` with `retry_after` seconds); an archived window 409. Returns the message row (kind `hypertext`, `author_role: gm`), pushed as `message.posted` to the card's readers. |
+| GET | `/channels/{id}/hypertext?ids=a,b,c` | Any member: the status of up to 100 cards (400 beyond, or for an id that is not a UUID): `{enabled, items: [{message_id, closes_at, closed_at, closed, state, version, runs_left}]}` for the readable, not recalled cards among them (others are left out). `state` and `version` are the caller's own (`null` and `0` before their first save); nobody reads another viewer's state through any route. `runs_left`: actions with effects the caller may still take. Clients fetch it for every card they have loaded (on opening a window and after `subscribed`) and keep controls disabled until it arrives. |
+| PUT | `/channels/{id}/messages/{mid}/hypertext/state` | `{state, base_version}`: the caller's own state of the card, compare-and-swap. `base_version` is the version it was read at (0 creates it). Checked in order: 400 `invalid_state` for a key other than `state` and `base_version`, 404 (missing, recalled or unreadable), the card's window as for acting (403 not a member, 409 archived, 403 paused), 409 `hypertext_closed`, 403 `not_an_actor`, 400 `invalid_state` with `key` (the first offending key; `""` for the whole state; an undeclared key, a wrong type, a value outside its declaration, over 8 KiB), 429 `rate_limited` (`retry_after`) beyond 120 saves a minute per user, then under the card's lock 404/409 again when it was recalled or closed meanwhile, and 409 `state_conflict` with the stored `state` and `version` (`null` and `0` when there is none) when `base_version` is not the current one. Keys left out keep their defaults; the stored state is complete. Returns `{message_id, state, version}` and pushes `hypertext.state` to the caller's sockets only. |
+| POST | `/channels/{id}/messages/{mid}/hypertext/act` | `{interaction_id: UUID, node?: control id (diagnostics only), say?: {text, kind?: ic\|ooc, character_id?, confirmed?}, reply?: {id, slots?}, state?, base_version}`: at least one of `say` and `reply` (a state-only change uses PUT). See *Acting on a card* below. Returns `{interaction_id, replayed, partial, results: [{type: say\|reply, ok, message, error?}], state: {state, version} \| null}`. |
+| POST | `/channels/{id}/messages/{mid}/hypertext/close` | Any channel GM (403 otherwise; 404 for a missing or recalled card). Sets `closed_at`/`closed_by` and pushes `hypertext.closed` to the card's readers; closing again changes nothing and pushes nothing. Returns `{message_id, closes_at, closed_at, closed_by, closed: true}`. A card also closes by itself at `closes_at`. |
+
+**Acting on a card.** The server checks, in order, before anything is posted:
+1. the shape (400 `invalid_effect`: an unknown key — a reply's `text`, for one, is never the client's —, an
+   `interaction_id` that is not a UUID, a `say` of 0 or over 500 code points after trimming, over 5 lines, with control
+   or bidi characters, or of another kind than `ic`/`ooc`, neither `say` nor `reply`, a `base_version` that is not 0 or more);
+2. the card: 404 when missing, recalled or unreadable. A retry of an action that has finished (the same
+   `interaction_id`, done or failed) is answered here, as below, before any later check: the card may have closed, the
+   window been archived or the sender demoted since, and its result still replays;
+3. its window: 403 when the caller is not a member, 409 when archived, 403 when the caller (not a GM) is paused there;
+4. 409 `hypertext_closed` once `closed_at` is set or `closes_at` has passed;
+5. 403 `not_an_actor` when the card lists `actors` and the caller's character in the card's window is not one of them
+   (GMs always may act);
+6. the say (*lines as the clicker*): 403 `hypertext_command_not_allowed` for a command a card may not post (`.ri`/`.rih`
+   included, unless the card's visibility is `window`), 428 `confirmation_required` (with `text`) for `.sc`/`.ds`
+   without `confirmed: true`, and its `character_id`, when given, must be the caller's own character (any, for a GM;
+   400/403 otherwise);
+7. the reply: 400 `invalid_slot` for an id the card does not declare, a slot missing or not declared, an enum value not
+   declared, an int not a JSON integer within its range; 409 `sender_unavailable` when the card's author is no longer a
+   GM of the channel or their account is suspended; 400 `no_character` for an `audience: viewer` reply asked by a player
+   with no character;
+8. the state: 400 `invalid_state` with `key`, as for PUT.
+
+Then, under the card's lock: the same `interaction_id` (for this card and caller) replays — the same request
+(`confirmed` and `node` aside) returns the stored result with `replayed: true` and posts nothing again, a different one
+is 409 `interaction_mismatch`, one still being posted is 409 `interaction_in_progress`, and one whose claim lapsed (its
+request died midway) is finished by this request without posting any line twice. A new action is refused when the card
+was recalled (404) or closed (409 `hypertext_closed`) since it was read, while the caller has another action on the card
+in flight (409 `interaction_in_progress`), when `base_version` is not the caller's current version (409 `state_conflict`
+with `state` and `version`), after `runs_per_viewer` actions with effects (409 `runs_exhausted`), beyond 10 actions a
+minute per caller and card, 30 per caller and channel, or 60 replies a minute per card (429 `rate_limited` with
+`retry_after`; actions that failed count here too), and when the reply's `per_viewer`, `total` or `group` is used up
+(409 `reply_exhausted`; `group`: at most one reply of the group per viewer).
+
+The effects are then posted in order, say first, each as a normal chat line (its own transaction, dice, events and
+pushes), and only while the action still holds its claim and the card is not recalled: the say as the caller, with their
+character (the say's `character_id`, else their character in the window), to the card's audience; the reply as the
+card's author, with the template's character while it still belongs to the channel and speaks for nobody else (else
+none), to its audience (`card`: the card's; `viewer`: a whisper to the caller's character, or GM-only for a GM; `gm`:
+GM-only). A reply rolls dice only when its template itself is a `.r`/`.rh` roll. If the first effect fails, nothing is
+posted, no state is saved, its error is returned (for example 400 `dice_error`, as in chat, or 409 `hypertext_closed`
+when the card was recalled meanwhile) and a replay returns it again; the action uses no run and no reply but still
+counts for the rates. If a later effect fails, the response is 200 with `partial: true` and that result `{ok: false,
+message: null, error: {error, message}}`; the run is used, the failed reply is not. When at least one line was posted
+and `state` was sent, the state is saved at the next version and pushed as `hypertext.state` (never on a card recalled
+meanwhile). The action ends from the lines that are there, so its result names exactly the lines it posted. Every
+result's `message` is the line re-read for the caller, first time and on every replay: a line the caller may not read (a
+GM-only reply, the result of a hidden-roll template) is `null`. A card closed while an action on it is being posted lets
+that action finish; a recalled one does not (its remaining lines fail with 409 `hypertext_closed`). An action abandoned
+midway is finished by the server within a few minutes without posting anything more and without saving its state: done
+with the lines it had posted (`partial` when one it asked for is missing), or as failed (409 `interaction_interrupted`
+on replay) when it had posted none.
+
+**Lines as the clicker.** A say that is a dice command posts as if the caller typed it, by the command's canonical name:
+`.r`/`.rh`, `.ra`/`.rc`/`.rah`/`.rch` and `.ri`/`.rih` with modifiers only (`+2`, `-1`, `+1d4`, `adv`, `dis`) run
+directly; `.sc` and `.ds` change the caller's sheet and need `confirmed: true` (428 first); `.ri` with a name, `.st`,
+`.en`, `.ss`, `.init` and `.move` are refused (403). `.ri`/`.rih` are refused too on a GM-only or whisper card: the
+initiative order is the whole window's. With the server's dice off it posts as plain text. Whisper cards let their
+readers answer privately (to the card's `whisper_to`), up to `runs_per_viewer` lines each; that is a capability a GM
+grants by posting one.
+
+**Fallback.** `content` is the plain text every other reader of the line sees: search, unread counts, the AI, the
+campaign log and exports, read-aloud on older apps and any app that cannot show the card. Without one it is built
+from the card (`hypertext::fallbackText`): the title, then one line per node visible under the default state — text
+(interpolated with the defaults), `☐ label` for a checkbox, `label: A / B` for a choice (its options' labels),
+`label: ____` for an input, `[label]` for a button, a group's title, `—` for a divider — joined with newlines and cut to
+2000 code points, with no locale words (`—` when nothing is visible). mobile/contracts/fixtures/hypertext.json pins it.
+The card's `message.posted` event carries `content`, `message_kind: "hypertext"` and `hypertext_title`, never the
+document, its script or the replies.
+
+**Message rows** gain `hypertext` (the public document on kind `hypertext`: the normalized card with its defaults
+filled in, plus `closes_at` and the reply stubs `replies: [{id, slots, audience, group}]` sorted by id; `null` on other
+kinds and once recalled), and, on a line a card produced, `via_hypertext_id` (the card), `via_user_id` and
+`via_user_name` (who acted; on a reply that is not the author), `via_interaction_id` and `via_effect` (`0` a say, `1` a
+reply; both `null` on a hidden roll's notice). Their `message.posted` events carry `via_hypertext_id`, and
+`via_user_id` when it is not the author. The document, the script and the stubs (ids, slot names and values, audience)
+are public to the card's readers; reply texts never leave the server. `POST /messages` refuses `kind: "hypertext"` or a
+`hypertext` key (400) and never reads `via_*` keys.
+
+**Recall, pins, spectators.** A card's author may recall it like a line (2 minutes): it becomes a tombstone with
+`hypertext: null`, closes, and its viewers' states (with the copies its actions kept of them) and its reply templates
+are deleted; recall waits for an action being claimed or ended on it, and no line of one in flight lands after it.
+Acting on it, saving its state or closing it then answers 404, and recall returns `content: ""` (no draft to re-post). Lines it produced stay and keep
+naming it. A card cannot be pinned (409); its lines can. Spectators receive the card without its `script`, read-only.
+Log Studio keeps a card as a `system` line with `metadata.hypertext` and `metadata.title` (a GM-only card stays
+`secret`), and its lines with `metadata.via_hypertext`; the native export marks them `hypertext: true` /
+`via_hypertext: true`.
 
 Window reads, search, references, player knowledge, Log Studio and WebSocket message delivery use the same
 membership intervals. Resume opens a new interval; it never reveals the gap. Fork history additionally checks
@@ -275,6 +381,9 @@ Connect with `?token=` (a short-lived file token from `POST /auth/file-token`, a
 Chat stream: `message.posted {message}` (only to users allowed to read it), `message.recalled {message}` (the tombstone, to the same audience; spectators get `spectate.recalled`), `window.changed {window}`, `scene.changed {scene}`,
 `character.updated {character}` (attribute changes; NPCs to GMs only), `server.settings {server_id, settings}` (public view), `initiative.changed {chat_window_id}` (refetch the window's Initiative order),
 `typing.changed {chat_window_id, character_id, active}` and, right after `subscribed`, `typing.snapshot {typing: [{chat_window_id, character_id}]}` (see below).
+Interactive messages add `hypertext.state {channel_id, message_id, state, version}` (a viewer's own state of a card, to that
+user's chat sockets only: their other devices; apply it when `version` is higher than the one held) and
+`hypertext.closed {channel_id, message_id, closed_at}` (to the card's readers). The card's lines arrive as `message.posted`.
 
 Typing flags are the character's, not the user's. A client raises one with `{"type":"typing","channel_id","chat_window_id","character_id","active":true}` (its own character, or any for the GM, in a window it belongs to; anything else answers `error`), sends the same pack again every few seconds while the writer keeps typing, and lowers it with `"active":false`. The server lets a flag fall 10 s after the last pack, or when the socket that raised it closes, so a closed tab never leaves a character typing. Each change goes to the users who may read the window (the GMs; the window's members whose view is not paused; everyone in the channel for the Main Chat or a public-knowledge channel); an NPC's flag reaches the GMs only. Heartbeats get no reply.
 

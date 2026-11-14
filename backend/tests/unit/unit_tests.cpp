@@ -40,7 +40,10 @@
 #include "logstudio/ImageProvider.h"
 #include "logstudio/ObjectStore.h"
 #include "logstudio/MediaService.h"
+#include "chat/Hypertext.h"
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <cstdlib>
 #include <zlib.h>
 #include "../../src/ai/AwsSigV4.h"
@@ -57,6 +60,30 @@ using namespace acerciae;
 static int failures = 0, passed = 0;
 #define CHECK(cond) do { if (!(cond)) { std::cerr << "  FAIL " << __FILE__ << ":" << __LINE__ << " " #cond "\n"; failures++; } else passed++; } while (0)
 static void test(const char* name, std::function<void()> fn) { std::cout << "- " << name << "\n"; try { fn(); } catch (const std::exception& e) { std::cerr << "  EXCEPTION " << e.what() << "\n"; failures++; } }
+// A fixture case: counts like CHECK, and names the case (with what came out) when it fails.
+static void expectCase(bool ok, const std::string& section, const Json::Value& c, const std::string& got = "") {
+    if (ok) { passed++; return; }
+    failures++; std::cerr << "  FAIL " << section << ": " << c["name"].asString() << (c.isMember("text") && !c.isMember("name") ? c["text"].asString() : "") << (got.empty() ? "" : " -> " + got) << "\n";
+}
+
+#ifndef ACERCIAE_CONTRACTS_DIR
+#define ACERCIAE_CONTRACTS_DIR ""
+#endif
+// mobile/contracts/fixtures/hypertext.json. Production uploads only backend/ and runs these tests there, so a missing
+// file skips the fixture cases with a notice; scripts/test.sh sets ACERCIAE_REQUIRE_CONTRACTS=1 so CI never skips them.
+static const Json::Value* hypertextFixture() {
+    static Json::Value fixture; static int state = 0;   // 0 not read, 1 loaded, 2 missing
+    if (state == 0) {
+        std::ifstream in(std::string(ACERCIAE_CONTRACTS_DIR) + "/fixtures/hypertext.json");
+        if (in) { std::stringstream ss; ss << in.rdbuf(); fixture = json::parse(ss.str()); state = 1; }
+        else state = 2;
+    }
+    if (state == 1) return &fixture;
+    const char* require = std::getenv("ACERCIAE_REQUIRE_CONTRACTS");
+    if (require && std::string(require) == "1") { std::cerr << "  FAIL " ACERCIAE_CONTRACTS_DIR "/fixtures/hypertext.json is missing and ACERCIAE_REQUIRE_CONTRACTS=1\n"; failures++; }
+    else std::cout << "  skipped: no " ACERCIAE_CONTRACTS_DIR "/fixtures/hypertext.json (backend-only checkout)\n";
+    return nullptr;
+}
 
 int main() {
     test("PbtA moves use inclusive bands, a signed modifier and the stored move text", [] {
@@ -1533,6 +1560,247 @@ int main() {
         CHECK(chooseChunk(&row, true, true) == ChunkReuse::waiting);
         row["answers"] = Json::Value(Json::objectValue);
         CHECK(chooseChunk(&row, false, false) == ChunkReuse::answered);
+    });
+    test("UTF-8 code points: utf8Length counts them, strict decoding refuses surrogates, overlongs and stray bytes", [] {
+        CHECK(text::utf8Length("") == 0); CHECK(text::utf8Length("aé密😀") == 4); CHECK(text::utf8Length("e\xcc\x81") == 2);
+        std::vector<char32_t> cps; CHECK(text::forEachCodePoint("a密😀", [&](char32_t c) { cps.push_back(c); return true; }));
+        CHECK((cps == std::vector<char32_t>{U'a', U'密', U'😀'}));
+        CHECK(text::utf8Valid("\xef\xbf\xbd") && text::utf8Valid("\xf4\x8f\xbf\xbf") && text::utf8Valid(std::string("a\0b", 3)));
+        for (const char* bad : {"\xed\xa0\x80", "\xed\xbf\xbf", "\xc0\xaf", "\xc1\xbf", "\xe0\x80\xaf", "\xf0\x80\x80\xaf", "\xf4\x90\x80\x80", "\xf5\x80\x80\x80",
+                                "\x80", "a\xbf", "\xe5\xaf", "\xe5\xaf" "a", "\xff", "\xfe"})
+            CHECK(!text::utf8Valid(bad));
+        int calls = 0; CHECK(!text::forEachCodePoint("abc", [&](char32_t) { return ++calls < 2; })); CHECK(calls == 2);   // f stops it
+    });
+    test("Hypertext ids and keys refuse JavaScript prototype names and anything outside ^[a-z][a-z0-9_]{0,31}$", [] {
+        for (const char* name : {"constructor", "prototype", "__proto__", "tostring", "valueof", "hasownproperty", "isprototypeof", "propertyisenumerable",
+                                 "tolocalestring", "__definegetter__", "__definesetter__", "__lookupgetter__", "__lookupsetter__"}) {
+            CHECK(!hypertext::validId(name));
+            Json::Value ht = json::parse(R"({"v":1,"body":[{"type":"divider"}]})");
+            ht["state"][name]["type"] = "bool";
+            auto r = hypertext::normalize(ht, Json::Value());
+            CHECK(!r.ok && !r.errors.empty() && r.errors[0].path.rfind("hypertext.state.", 0) == 0);
+            Json::Value replies; replies[name]["text"] = "hi";
+            r = hypertext::normalize(json::parse(R"({"v":1,"body":[{"type":"divider"}]})"), replies);
+            CHECK(!r.ok && !r.errors.empty() && r.errors[0].path.rfind("replies.", 0) == 0);
+        }
+        for (const char* name : {"a", "roll", "a_1", "constructor_x", "x23456789012345678901234567890ab", "valueof2"}) CHECK(hypertext::validId(name));
+        for (const char* name : {"", "A", "1a", "_a", "a-b", "a b", "é", "x234567890123456789012345678901ab", "toString"}) CHECK(!hypertext::validId(name));
+    });
+    test("Hypertext text refuses bidi overrides, C0 controls, noncharacters, surrogates and invalid UTF-8", [] {
+        for (char32_t c : {0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, 0x1FFFE, 0x10FFFF}) {
+            std::string u;   // the code point's UTF-8, built by hand
+            if (c < 0x10000) u = {(char)(0xE0 | (c >> 12)), (char)(0x80 | ((c >> 6) & 0x3F)), (char)(0x80 | (c & 0x3F))};
+            else u = {(char)(0xF0 | (c >> 18)), (char)(0x80 | ((c >> 12) & 0x3F)), (char)(0x80 | ((c >> 6) & 0x3F)), (char)(0x80 | (c & 0x3F))};
+            CHECK(text::utf8Valid(u)); CHECK(!hypertext::allowedText("a" + u, true)); CHECK(!hypertext::allowedText(u, false));
+        }
+        for (char c = 1; c < 0x20; ++c) { CHECK(!hypertext::allowedText(std::string("a") + c, false)); CHECK(hypertext::allowedText(std::string("a") + c, true) == (c == '\n')); }
+        CHECK(!hypertext::allowedText(std::string("a\0b", 3), true));
+        CHECK(hypertext::allowedText("\xe2\x80\x8e\xd8\x9c\x7f\xef\xbf\xbd😀密", false));   // LRM, ALM, DEL, U+FFFD and plain text are fine
+        // jsoncpp decodes a lone low surrogate escape to bytes that are not UTF-8; a lone high one is a JSON error (400).
+        auto lone = json::parse(R"({"v":1,"title":"a\udc00","body":[{"type":"divider"}]})");
+        CHECK(!text::utf8Valid(lone["title"].asString()));
+        auto r = hypertext::normalize(lone, Json::Value());
+        CHECK(!r.ok && r.errors.size() == 1 && r.errors[0].path == "hypertext.title" && r.errors[0].message.find("UTF-8") != std::string::npos);
+        bool threw = false; try { json::parse(R"({"title":"a\ud800"})"); } catch (...) { threw = true; }
+        CHECK(threw);
+        for (std::string bad : {std::string("\xed\xa0\x80"), std::string("\xc0\xaf"), std::string("ok\xff")}) {
+            CHECK(!hypertext::allowedText(bad, true));
+            auto ht = hypertext::normalize(json::parse(R"({"v":1,"state":{"t":{"type":"text"}},"body":[{"type":"divider"}]})"), Json::Value()).doc;
+            CHECK(hypertext::validateState(ht, json::parse("{}")).ok);
+            Json::Value st; st["t"] = bad;
+            auto check = hypertext::validateState(ht, st);
+            CHECK(!check.ok && check.key == "t");
+            CHECK(!hypertext::sayError(bad).empty()); CHECK(!hypertext::contentError(bad).empty());
+            Json::Value doc = json::parse(R"({"v":1,"body":[{"type":"text","text":"x"}]})"); doc["body"][0]["text"] = "a" + bad;
+            r = hypertext::normalize(doc, Json::Value());
+            CHECK(!r.ok && r.errors[0].path == "hypertext.body[0].text");
+            Json::Value replies; replies["r"]["text"] = bad;
+            r = hypertext::normalize(json::parse(R"({"v":1,"body":[{"type":"divider"}]})"), replies);
+            CHECK(!r.ok && r.errors[0].path == "replies.r.text");
+            doc = json::parse(R"({"v":1,"body":[{"type":"divider"}]})"); doc["script"] = "//" + bad;
+            CHECK(!hypertext::normalize(doc, Json::Value()).ok);
+        }
+    });
+    test("Hypertext replies: a forged slot or stored row never renders, and a slot value never makes a command", [] {
+        auto card = json::parse(R"({"v":1,"body":[{"type":"divider"}]})");
+        auto r = hypertext::normalize(card, json::parse(R"({"clue":{"text":"A key stamped {{mark}}, {{n}} turns.","audience":"viewer",
+            "slots":{"mark":{"type":"enum","values":["13","31"]},"n":{"type":"int","min":1,"max":3}}},
+            "cmd":{"text":"{{c}}","slots":{"c":{"type":"enum","values":[".r 1d100",".st str 99",".sc 1/1d6"]}}}})"));
+        CHECK(r.ok);
+        const auto& clue = r.replies["clue"];
+        auto good = hypertext::renderReply(clue, json::parse(R"({"mark":"13","n":2})"));
+        CHECK(good.ok && good.text == "A key stamped 13, 2 turns." && good.error.empty());
+        for (const char* forged : {R"({"mark":"13"})", R"({"mark":"13","n":2,"who":"Alice"})", R"({"mark":"13 and the treasure","n":2})", R"({"mark":" 13","n":2})",
+                                   R"({"mark":13,"n":2})", R"({"mark":["13"],"n":2})", R"({"mark":{"value":"13"},"n":2})", R"({"mark":"13","n":4})", R"({"mark":"13","n":0})",
+                                   R"({"mark":"13","n":"2"})", R"({"mark":"13","n":2.5})", R"({"mark":"13","n":true})", R"({"mark":"13","n":null})", R"(["13",2])", R"("13")", "null", "{}"}) {
+            auto bad = hypertext::renderReply(clue, json::parse(forged));
+            CHECK(!bad.ok && bad.error == "invalid_slot" && bad.text.empty());
+        }
+        // A request carries only {id, slots}: template text a client sends is never read, because the row is the server's.
+        CHECK(!r.replies["cmd"]["allow_dice"].asBool());
+        for (const char* v : {".r 1d100", ".st str 99", ".sc 1/1d6"}) {
+            Json::Value slots; slots["c"] = v;
+            auto out = hypertext::renderReply(r.replies["cmd"], slots);
+            CHECK(out.ok && out.text == v);   // posted as narration: the service passes allowDice=false from the stored row
+        }
+        // A stored row that claims dice but no longer renders a roll is refused.
+        Json::Value row = clue; row["allow_dice"] = true;
+        CHECK(!hypertext::renderReply(row, json::parse(R"({"mark":"13","n":2})")).ok);
+        row["text"] = ".r {{n}}d6"; CHECK(hypertext::renderReply(row, json::parse(R"({"mark":"13","n":2})")).text == ".r 2d6");
+        row["text"] = "{{who}} wins"; CHECK(!hypertext::renderReply(row, json::parse(R"({"mark":"13","n":2})")).ok);
+        row["text"] = "{{ n }}"; CHECK(!hypertext::renderReply(row, json::parse(R"({"mark":"13","n":2})")).ok);
+        // Templates themselves: only .r/.rh rolls are kept, other commands are refused at post time.
+        for (const char* t : {".ra Spot Hidden", ".sc 1/1d6", ".st hp 0", ".en spot", ".ri", ".ds", ".ss 1", ".init", ".move x", "。rc 侦查"}) {
+            Json::Value replies; replies["t"]["text"] = t;
+            auto n = hypertext::normalize(card, replies);
+            CHECK(!n.ok && n.errors[0].path == "replies.t.text");
+        }
+        for (const char* t : {".r 1d6", ".rh", "。r 2d6", "．rh 1d100"}) {
+            Json::Value replies; replies["t"]["text"] = t;
+            auto n = hypertext::normalize(card, replies);
+            CHECK(n.ok && n.replies["t"]["allow_dice"].asBool());
+        }
+    });
+    test("Hypertext dice policy for every command literal parseCommand knows", [] {
+        using hypertext::Verdict;
+        const std::vector<std::pair<const char*, Verdict>> cases = {
+            {".r", Verdict::allowed}, {".rh 1d6", Verdict::allowed}, {".ra Spot", Verdict::allowed}, {".rc Spot", Verdict::allowed}, {".rah Spot", Verdict::allowed},
+            {".rch Spot", Verdict::allowed}, {".ri", Verdict::allowed}, {".rih +1", Verdict::allowed}, {".ri Bob", Verdict::refused}, {".rih Bob", Verdict::refused},
+            {".sc 1/1d6", Verdict::confirm}, {".ds", Verdict::confirm}, {".st str 60", Verdict::refused}, {".en spot", Verdict::refused}, {".ss 1", Verdict::refused},
+            {".init", Verdict::refused}, {".move x", Verdict::refused}, {"hello .ra", Verdict::none}, {"", Verdict::none}};
+        for (auto& [t, v] : cases) { CHECK(hypertext::diceVerdict(t) == v); CHECK(hypertext::isCommand(t) == (v != Verdict::none)); }
+        CHECK(std::string(hypertext::verdictName(Verdict::confirm)) == "confirm" && std::string(hypertext::verdictName(Verdict::none)) == "none");
+    });
+    test("Hypertext say and content rules: code points after trimming, lines, characters, no dot command for content", [] {
+        CHECK(hypertext::sayError("  .ra Spot Hidden \n").empty());
+        CHECK(!hypertext::sayError("").empty()); CHECK(!hypertext::sayError(" \n ").empty());
+        std::string s500; for (int i = 0; i < 500; ++i) s500 += "密";
+        CHECK(hypertext::sayError(s500).empty()); CHECK(!hypertext::sayError(s500 + "x").empty());
+        CHECK(hypertext::sayError("a\nb\nc\nd\ne").empty()); CHECK(!hypertext::sayError("a\nb\nc\nd\ne\nf").empty());
+        CHECK(!hypertext::sayError("hi \xe2\x80\xae").empty()); CHECK(!hypertext::sayError("a\tb").empty());
+        CHECK(hypertext::contentError("Roll Spot Hidden\n→ Alice").empty());
+        CHECK(!hypertext::contentError(".ra Spot Hidden").empty()); CHECK(!hypertext::contentError("。sc 1/1d6").empty()); CHECK(!hypertext::contentError("  ").empty());
+        std::string c2000(2000, 'x'); CHECK(hypertext::contentError(c2000).empty()); CHECK(!hypertext::contentError(c2000 + "x").empty());
+    });
+    test("Hypertext public documents carry stubs only; errors list at most 10 paths; validateState returns the canonical full state", [] {
+        auto r = hypertext::normalize(json::parse(R"({"v":1,"title":"Vote","state":{"pick":{"type":"enum","values":[{"value":"a"},{"value":"b"}]}},
+            "body":[{"type":"choice","id":"c","bind":"pick"},{"type":"button","id":"go","label":"Vote","act":{"reply":"vote"}}]})"),
+            json::parse(R"({"vote":{"text":"PRIVATE_MARKER {{pick}}","kind":"ic","character_id":"00000000-0000-4000-8000-000000000001","per_viewer":2,"total":5,
+            "slots":{"pick":{"type":"enum","values":["a","b"]}}}})"));
+        CHECK(r.ok);
+        auto pub = json::dump(hypertext::publicDoc(r.doc, r.replies, "2030-01-01T00:00:00Z"));
+        for (const char* secret : {"PRIVATE_MARKER", "\"per_viewer\"", "\"total\"", "allow_dice", "character_id", "\"kind\"", "00000000-0000-4000-8000-000000000001"})
+            CHECK(pub.find(secret) == std::string::npos);
+        CHECK(pub.find(R"("replies":[{"audience":"card","group":null,"id":"vote","slots":{"pick":{"type":"enum","values":["a","b"]}}}])") != std::string::npos);
+        CHECK(pub.find(R"("closes_at":"2030-01-01T00:00:00Z")") != std::string::npos);
+        CHECK(hypertext::fallbackText(r.doc) == "Vote\na / b\n[Vote]");
+        Json::Value many = json::parse(R"({"v":1,"body":[{"type":"divider"}]})");
+        for (int i = 0; i < 15; ++i) many["extra" + std::to_string(i)] = 1;
+        auto bad = hypertext::normalize(many, Json::Value());
+        CHECK(!bad.ok && bad.errors.size() == 10 && bad.details().size() == 10 && bad.details()[0]["path"] == "hypertext.extra0" && bad.details()[0]["message"] == "unknown key");
+        auto doc = hypertext::normalize(json::parse(R"({"v":1,"state":{"n":{"type":"int","min":0,"max":9},"s":{"type":"set","values":[{"value":"a"},{"value":"b"},{"value":"c"}]}},
+            "body":[{"type":"divider"}]})"), Json::Value()).doc;
+        auto st = hypertext::validateState(doc, json::parse(R"({"n":3.0,"s":["c","a"]})"));
+        CHECK(st.ok && json::dump(st.state) == R"({"n":3,"s":["a","c"]})");
+        CHECK(json::dump(hypertext::defaultState(doc)) == R"({"n":0,"s":[]})");
+    });
+    test("Hypertext stored size: the public document with its reply stubs and the templates fit the database's 64 KiB as stored", [] {
+        CHECK(hypertext::storedSize(json::parse(R"({"a":[1,2],"b":{},"c":"x, y: z"})")) == std::string(R"({"a": [1, 2], "b": {}, "c": "x, y: z"})").size());
+        CHECK(hypertext::storedSize(json::parse("[]")) == 2 && hypertext::storedSize(json::parse("{}")) == 2);
+        // Up to 16 replies of 4 enum slots of 20 values of 64 code points each pass the per-field rules; their stubs repeat
+        // every value in the public document.
+        auto card = json::parse(R"({"v":1,"body":[{"type":"divider"}]})");
+        auto replies = [](int n, const std::string& unit) {
+            Json::Value rs(Json::objectValue);
+            for (int i = 0; i < n; ++i) {
+                Json::Value r; r["text"] = "{{a}} {{b}} {{c}} {{d}}";
+                for (const char* slot : {"a", "b", "c", "d"}) {
+                    r["slots"][slot]["type"] = "enum";
+                    for (int v = 0; v < 20; ++v) { std::string x; while (text::utf8Length(x) < 62) x += unit; r["slots"][slot]["values"].append(x + std::to_string(10 + v)); }
+                }
+                rs["r" + std::to_string(i)] = r;
+            }
+            return rs;
+        };
+        for (const char* unit : {"x", "密"}) {
+            int fits = 0;
+            for (int n = 1; n <= 16; ++n) {
+                auto r = hypertext::normalize(card, replies(n, unit));
+                if (r.ok) {
+                    fits = n;
+                    CHECK(hypertext::storedSize(hypertext::publicDoc(r.doc, r.replies, std::string(40, '0'))) <= hypertext::kMaxStoredBytes);
+                    CHECK(hypertext::storedSize(r.replies) <= hypertext::kMaxStoredBytes);
+                } else CHECK(r.errors.size() == 1 && r.errors[0].path == "replies");
+            }
+            CHECK(fits > 0 && fits < 16);   // the limit bites before the per-field rules would let it through
+        }
+    });
+    test("Hypertext fixture: validation, fallback, templates, dice policy, defaults, state validation, conditions and interpolation", [] {
+        const Json::Value* fx = hypertextFixture();
+        if (!fx) return;
+        const auto& f = *fx;
+        CHECK(f["engine"]["version"] == 1 && f["engine"]["wasm_sha256"].asString().size() == 64 && f["engine"]["limits"]["interrupt_polls"].asInt() > 0);
+        // A section renamed or dropped would otherwise pass with no cases.
+        for (const char* section : {"validation", "fallback", "templates", "dice_policy", "defaults", "state_validation", "conditions", "interpolation"}) {
+            if (!(f[section].isArray() && !f[section].empty())) std::cerr << "    the fixture has no " << section << " cases\n";
+            CHECK(f[section].isArray() && !f[section].empty());
+        }
+        auto divider = json::parse(R"({"v":1,"body":[{"type":"divider"}]})");
+        auto errs = [](const hypertext::Normalized& r) { return r.errors.empty() ? std::string("ok") : r.errors[0].path + ": " + r.errors[0].message; };
+        for (const auto& c : f["validation"]) {
+            auto r = hypertext::normalize(c["input"]["hypertext"], c["input"]["replies"]);
+            if (!c["ok"].asBool()) { expectCase(!r.ok && !r.errors.empty() && r.errors[0].path == c["error_path"].asString(), "validation", c, errs(r)); continue; }
+            expectCase(r.ok, "validation", c, errs(r));
+            auto again = hypertext::normalize(r.doc, c["input"]["replies"]);   // a normalized card normalizes to itself
+            expectCase(again.ok && json::dump(again.doc) == json::dump(r.doc), "validation idempotent", c, errs(again));
+            if (c.isMember("normalized")) expectCase(json::dump(r.doc) == json::dump(c["normalized"]), "validation normalized", c, json::dump(r.doc));
+            if (c.isMember("private")) expectCase(json::dump(r.replies) == json::dump(c["private"]), "validation private", c, json::dump(r.replies));
+            if (c.isMember("public")) {
+                auto pub = json::dump(hypertext::publicDoc(r.doc, r.replies, c["public"]["closes_at"].asString()));
+                expectCase(pub == json::dump(c["public"]), "validation public", c, pub);
+            }
+        }
+        for (const auto& c : f["fallback"]) {
+            auto r = hypertext::normalize(c["hypertext"], c["replies"]);
+            auto text = hypertext::fallbackText(r.doc);
+            expectCase(r.ok && text == c["text"].asString(), "fallback", c, errs(r) + " | " + text);
+        }
+        for (const auto& c : f["templates"]) {
+            Json::Value replies; replies["t"] = c["reply"];
+            auto r = hypertext::normalize(divider, replies);
+            expectCase(r.ok && r.replies["t"]["allow_dice"].asBool() == c["allow_dice"].asBool(), "templates", c, errs(r));
+            auto out = hypertext::renderReply(r.replies["t"], c["slots"]);
+            if (c.isMember("error")) expectCase(!out.ok && out.error == c["error"].asString(), "templates", c, out.text);
+            else expectCase(out.ok && out.text == c["text"].asString(), "templates", c, out.message + out.text);
+        }
+        for (const auto& c : f["dice_policy"]) {
+            std::string got = hypertext::verdictName(hypertext::diceVerdict(c["text"].asString()));
+            expectCase(got == c["verdict"].asString(), "dice_policy " + c["text"].asString(), c, got);
+        }
+        for (const auto& c : f["defaults"]) {
+            Json::Value ht = divider; ht["state"] = c["state_decl"];
+            auto r = hypertext::normalize(ht, Json::Value());
+            expectCase(r.ok && json::dump(hypertext::defaultState(r.doc)) == json::dump(c["state"]), "defaults", c, json::dump(hypertext::defaultState(r.doc)));
+            expectCase(json::dump(hypertext::defaultState(ht)) == json::dump(c["state"]), "defaults as posted", c, json::dump(hypertext::defaultState(ht)));
+        }
+        for (const auto& c : f["state_validation"]) {
+            auto r = hypertext::normalize(c["hypertext"], Json::Value());
+            auto st = hypertext::validateState(r.doc, c["state"]);
+            expectCase(r.ok && st.ok == c["ok"].asBool() && (st.ok || st.key == c["error"].asString()), "state_validation", c, st.ok ? "ok" : st.key + ": " + st.message);
+        }
+        for (const auto& c : f["conditions"]) {
+            Json::Value ht = divider; ht["state"] = c["state_decl"]; ht["body"][0]["show_if"] = c["cond"];
+            auto r = hypertext::normalize(ht, Json::Value());
+            expectCase(r.ok && hypertext::evalCondition(c["cond"], r.doc, c["state"]) == c["result"].asBool(), "conditions", c, errs(r));
+        }
+        for (const auto& c : f["interpolation"]) {
+            Json::Value ht = c["hypertext"]; Json::Value node; node["type"] = "text"; node["text"] = c["text"]; ht["body"].append(node);
+            auto r = hypertext::normalize(ht, Json::Value());
+            auto out = hypertext::interpolate(c["text"].asString(), r.doc, c["state"]);
+            expectCase(r.ok && out == c["result"].asString(), "interpolation", c, errs(r) + " | " + out);
+        }
+        std::cout << "  " << f["validation"].size() + f["fallback"].size() + f["templates"].size() + f["dice_policy"].size() + f["defaults"].size()
+            + f["state_validation"].size() + f["conditions"].size() + f["interpolation"].size() << " fixture cases\n";
     });
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;

@@ -1,5 +1,6 @@
 #pragma once
 #include "../auth/AuthService.h"
+#include "../core/Errors.h"
 #include <drogon/drogon.h>
 
 namespace acerciae::http {
@@ -10,6 +11,7 @@ using Fn = std::function<Json::Value(const HttpRequestPtr&, const Principal&, co
 
 HttpResponsePtr jsonResp(const Json::Value& v, int status = 200);
 HttpResponsePtr errResp(int status, const std::string& code, const std::string& msg);
+HttpResponsePtr errResp(const ApiError& e);   // {error, message} plus the members of e.details()
 std::string bearer(const HttpRequestPtr& req);
 std::string attachmentHeader(const std::string& name);
 std::string siteOrigin(const HttpRequestPtr& req);

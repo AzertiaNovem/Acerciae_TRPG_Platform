@@ -50,7 +50,7 @@ void registerMediaRoutes() {
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("ETag", etag); r->addHeader("Accept-Ranges", "none"); r->addHeader("X-Content-Type-Options", "nosniff");
             if (mime == "image/svg+xml") r->addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
             cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
+        } catch (const ApiError& e) { cb(errResp(e)); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 
     // ---- Log Studio: presentations (performance timeline) ----
@@ -104,7 +104,7 @@ void registerMediaRoutes() {
             auto pr = fileAuth(req); if (!pr) throw ApiError(401, "unauthorized", "authentication required");
             std::string name; auto data = S.publication->bundle(studioAccess(*pr, ch), pid, name);
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(data); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
+        } catch (const ApiError& e) { cb(errResp(e)); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
     // The same, file by file (the desktop app saves it into a folder and skips files it already has).
     route2("/api/channels/{1}/studio/presentations/{2}/files", {Get}, [&](auto&, auto& p, auto& a) { return S.publication->bundleManifest(studioAccess(p, a[0]), a[1]); });
@@ -118,7 +118,7 @@ void registerMediaRoutes() {
             if (!S.publication->bundleDownload(studioAccess(*pr, ch), id, mayRedirect(req), url, bytes, name)) throw ApiError(404, "not_found", "this download is not ready or has expired; prepare it again");
             if (!url.empty()) { cb(redirectTo(url, "no-store")); return; }
             auto r = HttpResponse::newHttpResponse(); r->setContentTypeString("application/zip"); r->addHeader("Content-Disposition", attachmentHeader(name)); r->addHeader("Cache-Control", "no-store"); r->setBody(std::move(bytes)); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
+        } catch (const ApiError& e) { cb(errResp(e)); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
     route2("/api/channels/{1}/studio/tts/jobs/{2}", {Get}, [&](auto&, auto& p, auto& a) { return S.tts->getJob(studioAccess(p, a[0]), a[1]); });
     route2("/api/channels/{1}/studio/tts/jobs/{2}/cancel", {Post}, [&](auto&, auto& p, auto& a) { return S.tts->cancelJob(studioAccess(p, a[0]), a[1]); });
@@ -134,7 +134,7 @@ void registerMediaRoutes() {
             if (!direct.empty()) { cb(toBucket(req, direct, shared && !ac.isGm, "private, max-age=86400")); return; }
             if (notModified(req, etag)) { cb(notModifiedResponse(etag, cc)); return; }
             auto r = HttpResponse::newHttpResponse(); r->setBody(std::move(bytes)); r->setContentTypeString(mime); r->addHeader("Cache-Control", cc); r->addHeader("ETag", etag); cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
+        } catch (const ApiError& e) { cb(errResp(e)); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
 
 

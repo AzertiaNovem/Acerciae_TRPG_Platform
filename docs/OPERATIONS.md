@@ -88,6 +88,12 @@ suspended or demoted from the panel; they can grant the role to other accounts. 
   instances behind a load balancer would each throttle separately and miss each other's socket revocations.
 - The PDF worker polls the backend; PDF jobs stay pending while it is down (the backend warns at startup when
   `PDF_WORKER_TOKEN` is missing).
+- Interactive messages (cards GM accounts post through the API, [HYPERTEXT.md](HYPERTEXT.md)) are on by default;
+  `HYPERTEXT_ENABLED=false` turns them off without a migration: posting, saving a viewer's state, acting and closing
+  answer 403 `feature_disabled`, the status route reports `enabled: false`, and every app shows the cards already posted
+  as their plain fallback text. Each minute the maintenance thread finishes actions whose request died midway (without
+  posting anything more), and hourly it drops the action records of cards closed over a day ago. Viewers' card states
+  are kept on the server until the card is recalled or the channel deleted.
 
 ## Import output allowance
 

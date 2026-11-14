@@ -138,7 +138,17 @@
           "type": "object"
         },
         "metadata": {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "hypertext": {
+              "type": "boolean",
+              "description": "An interactive message, kept as its plain-text fallback (event_type system, or secret when GM-only). Native exports (2.0) mark such messages with \"hypertext\": true."
+            },
+            "via_hypertext": {
+              "type": "boolean",
+              "description": "A line an interactive message produced (said by the viewer who acted, or replied as its sender). Native exports (2.0) mark it with \"via_hypertext\": true."
+            }
+          }
         },
         "media": {
           "type": [

@@ -28,9 +28,12 @@ inline bool placeholderOnly(const Json::Value& e) {
     static const std::set<std::string> placeholders = {"", "narration", "旁白", "ic", "ooc", "[placeholder]", "（占位）"};
     return placeholders.count(content) > 0;
 }
+// An interactive message (a card) is UI: its fallback text lists controls, not events. The lines its viewers post
+// (normal kinds, naming the card in via_hypertext_id) are judged like any other.
 inline bool obviousNonNarrative(const Json::Value& e) {
     if (placeholderOnly(e)) return true;
     if (json::str(e, "kind") != "message.posted") return false;
+    if (json::str(e["payload"], "message_kind") == "hypertext") return true;
     const auto& dice = e["payload"]["dice"];
     return json::str(dice, "type") == "roll" && text::trim(json::str(dice, "reason")).empty();
 }

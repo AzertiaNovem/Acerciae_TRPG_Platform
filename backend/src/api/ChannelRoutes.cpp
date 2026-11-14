@@ -1,4 +1,5 @@
 #include "../chat/Illustrations.h"
+#include "../chat/HypertextService.h"
 #include "../knowledge/Visibility.h"
 #include "../rules/PbtaRuling.h"
 #include "../app/Services.h"
@@ -67,7 +68,7 @@ void registerChannelRoutes() {
             response->addHeader("ETag", etag);
             response->addHeader("Cache-Control", cc);
             cb(response);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
+        } catch (const ApiError& e) { cb(errResp(e)); }
           catch (const std::exception&) { cb(errResp(400, "bad_request", "invalid avatar request")); }
     }, {Get});
     route0("/api/dice/texts", {Get}, [&](auto&, auto&, auto&) { return ServerSettingsService::builtinTexts(); });
@@ -125,6 +126,14 @@ void registerChannelRoutes() {
         return S.chat->postMessage(access(p,a[0]),a[1],line,b);
     });
     route2("/api/channels/{1}/windows/{2}/messages", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->postMessage(access(p, a[0]), a[1], body(req)); });
+    // Interactive messages (docs/HYPERTEXT.md): a channel GM posts a card through the API; its readers save their own
+    // state and act on it (a line as themselves, one of the sender's private replies). HYPERTEXT_ENABLED=false turns
+    // them off: 403 feature_disabled, and the status reports enabled: false.
+    route2("/api/channels/{1}/windows/{2}/hypertext", {Post}, [&](auto& req, auto& p, auto& a) { return S.hypertext->post(access(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/hypertext", {Get}, [&](auto& req, auto& p, auto& a) { return S.hypertext->status(access(p, a[0]), req->getParameter("ids")); });
+    route2("/api/channels/{1}/messages/{2}/hypertext/state", {Put}, [&](auto& req, auto& p, auto& a) { return S.hypertext->saveState(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/messages/{2}/hypertext/act", {Post}, [&](auto& req, auto& p, auto& a) { return S.hypertext->act(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/messages/{2}/hypertext/close", {Post}, [&](auto&, auto& p, auto& a) { return S.hypertext->close(access(p, a[0]), a[1]); });
     // Illustrations: drawn on request and posted in the window as the requester's out-of-character line.
     // Drawing is optional: the server's maintainers switch it for the server, the GM for the channel (403
     // feature_disabled). The job list, cancelling and the pictures already posted stay available either way.
@@ -159,7 +168,7 @@ void registerChannelRoutes() {
                 r->addHeader("Content-Disposition", "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + drogon::utils::urlEncodeComponent(name));
             }
             cb(r);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); } catch (const std::exception& e) { cb(internalErr(e, req)); }
+        } catch (const ApiError& e) { cb(errResp(e)); } catch (const std::exception& e) { cb(internalErr(e, req)); }
     }, {Get});
     // Deprecated alias of /scenarios/enter: scenarios are campaign-wide, the window is ignored.
     route2("/api/channels/{1}/windows/{2}/scene", {Post}, [&](auto& req, auto& p, auto& a) { return S.scenarios->enter(access(p, a[0]), json::requireStr(body(req), "scene_id")); });

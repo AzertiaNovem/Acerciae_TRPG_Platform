@@ -36,7 +36,7 @@ Json::Value ContextRetrievalService::getSceneById(const ChannelAccess& a, const 
     s["participants"] = db_.queryJson(
         "SELECT DISTINCT c.id AS character_id, c.name, c.kind FROM chat_window_scenes ws JOIN chat_window_members wm ON wm.chat_window_id=ws.chat_window_id JOIN characters c ON c.id=wm.character_id WHERE ws.scene_id=$1", {sceneId});
     s["log"] = db_.queryJson(
-        "SELECT * FROM (SELECT e.id AS event_id, e.seq, e.actor_role, e.character_id, c.name AS character_name, e.kind, e.payload->>'content' AS content, e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id "
+        "SELECT * FROM (SELECT e.id AS event_id, e.seq, e.actor_role, e.character_id, c.name AS character_name, e.kind, e.payload->>'message_kind' AS message_kind, e.payload->>'content' AS content, e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id "
         "WHERE e.channel_id=$1 AND e.scene_id=$2 AND " + Visibility::eventFilter(a) + " ORDER BY e.seq DESC LIMIT $3) x ORDER BY seq ASC", {a.channelId, sceneId, (int64_t)std::max(1, logLimit)});
     s["facts"] = db_.queryJson("SELECT " + FACT_COLS + FACT_FROM + "WHERE f.channel_id=$1 AND f.scene_id=$2 AND f.status <> 'retracted' AND " + Visibility::factFilter(a) + (a.isGm ? "" : " AND coalesce(d.gm_only,false)=false") + " ORDER BY f.updated_at DESC LIMIT 60", {a.channelId, sceneId});
     if(!a.isGm) {
