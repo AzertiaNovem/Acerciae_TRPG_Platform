@@ -365,6 +365,27 @@ final class HypertextStoreTests: XCTestCase {
         try await until("gone") { store.cards["m1"]?.gone == true }
     }
 
+    @MainActor func testAReconnectAsksAnUnavailableServerAgain() async throws {
+        var (store, routes) = harness()
+        store.track(channel: "c", ids: ["m1"])
+        try await routes.next("status").reject(ClientError.gateway(404))
+        try await until("missing") { store.unavailable == .missing }
+        store.resync()
+        XCTAssertNil(store.unavailable, "the mark is dropped at once")
+        try await routes.next("status").resolve(H.Status(enabled: true, items: [item("m1")]))
+        try await until("loaded") { store.cards["m1"].map { $0.loaded && !$0.fetching } == true }
+        XCTAssertNil(store.unavailable)
+        XCTAssertEqual(store.cards["m1"]?.gone, false)
+
+        (store, routes) = harness()
+        store.track(channel: "c", ids: ["m1"])
+        try await routes.next("status").resolve(H.Status(enabled: false, items: []))
+        try await until("disabled") { store.unavailable == .disabled }
+        store.resync()
+        try await routes.next("status").resolve(H.Status(enabled: false, items: []))
+        try await until("still disabled") { store.unavailable == .disabled }
+    }
+
     @MainActor func testADeclarativeActThatPostsNothingIsAPutAndClosingAdoptsTheClosingTime() async throws {
         let (store, routes) = harness()
         try await loaded(store, routes)

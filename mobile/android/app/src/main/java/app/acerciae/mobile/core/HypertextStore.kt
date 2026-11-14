@@ -478,8 +478,9 @@ class HypertextStore(
         flow.value = s.copy(cards = cards)
         if (w.ids.isNotEmpty()) scheduleStatus()
     }
-    /** The chat stream subscribed again: every tracked card's status is asked again. */
-    fun resync() { wanted?.let { track(it.channelId, it.ids, true) } }
+    /** The chat stream subscribed again: every tracked card's status is asked again. The server may have gained the
+     *  feature or turned it back on meanwhile, so an unavailable mark is dropped first. */
+    fun resync() { val w = wanted ?: return; flow.value = flow.value.copy(unavailable = null); track(w.channelId, w.ids, true) }
     /** Asks these cards' status now. They are marked as being asked at once, so no other request asks them again. */
     fun refetch(channelId: String, all: List<String>): Job {
         val ids = all.filter { entry(it) != null }

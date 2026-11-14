@@ -324,7 +324,9 @@ export const useHypertext = create<HypertextState>((set, get) => {
       });
       if (wanted.ids.length) scheduleStatus();
     },
-    resync: () => { if (wanted) get().track(wanted.channelId, wanted.ids, true); },
+    // The stream subscribed again: the server may have gained the feature or turned it back on meanwhile, so an
+    // unavailable mark is dropped and every tracked card's status is asked again.
+    resync: () => { if (!wanted) return; set({ unavailable: null }); get().track(wanted.channelId, wanted.ids, true); },
     refetch: async (channelId, ids) => {
       ids = ids.filter((id) => entry(id));
       if (!ids.length) return;

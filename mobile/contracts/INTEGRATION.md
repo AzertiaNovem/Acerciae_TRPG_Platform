@@ -227,7 +227,9 @@ chunks and join them; more, or an id that is not a UUID, is 400 `bad_request`; a
 items: []}`). It answers `{enabled, items: [{message_id, closes_at, closed_at, closed, state, version, runs_left}]}` for
 the readable, non-recalled cards among them; `state` and `version` are the caller's own (`null` and `0` before their
 first save). Ask it (debounced, 150 ms) for each non-recalled card loaded in the open window not asked yet, and for all
-of them again when a window is opened and after every `subscribed`. `enabled: false` makes the feature `disabled`. A
+of them again when a window is opened and after every `subscribed`. A `subscribed` after a reconnect first drops a
+`missing` or `disabled` mark, so a server upgraded or turned back on meanwhile is noticed without a restart (the
+device's own `engine_unavailable` stays). `enabled: false` makes the feature `disabled`. A
 card left out is gone (drawn closed). A status adopts the server's state when its version is at least the one held.
 If it fails: 405 or any 404 → feature `missing`, 403 `feature_disabled` → `disabled`, anything else → ask again after
 5 s, the controls staying "Loading…".

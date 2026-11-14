@@ -403,6 +403,29 @@ test('the feature is unavailable on 404/405 from these routes and 403 feature_di
   await until(() => h.card('m1').gone, 'gone');
 });
 
+test('a reconnect asks an unavailable server again, so an upgraded or re-enabled server is noticed', async () => {
+  let h = harness();
+  h.store.getState().track('c', ['m1']);
+  (await h.next('status')).reject(apiError(404, 'error', {}, false));
+  await until(() => h.store.getState().unavailable === 'missing', 'missing');
+  h.store.getState().resync();
+  assert.equal(h.store.getState().unavailable, null, 'the mark is dropped at once');
+  const again = await h.next('status');
+  assert.deepEqual(again.ids, ['m1']);
+  again.resolve({ enabled: true, items: [item('m1')] });
+  await until(() => h.card('m1').loaded && !h.card('m1').fetching, 'loaded');
+  assert.equal(h.store.getState().unavailable, null);
+  assert.equal(h.card('m1').gone, false);
+
+  h = harness();
+  h.store.getState().track('c', ['m1']);
+  (await h.next('status')).resolve({ enabled: false, items: [] });
+  await until(() => h.store.getState().unavailable === 'disabled', 'disabled');
+  h.store.getState().resync();
+  (await h.next('status')).resolve({ enabled: false, items: [] });
+  await until(() => h.store.getState().unavailable === 'disabled', 'still disabled');
+});
+
 test('a declarative act that posts nothing is a PUT; closing a card adopts its closing time', async () => {
   const h = harness();
   await loaded(h);

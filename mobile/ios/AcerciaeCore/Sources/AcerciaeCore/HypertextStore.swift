@@ -266,8 +266,9 @@ import Foundation
         if next != cards { cards = next }
         if !unique.isEmpty { scheduleStatus() }
     }
-    /// The chat stream subscribed again: every tracked card's status is fetched again.
-    public func resync() { if let wanted { track(channel: wanted.channel, ids: wanted.ids, refresh: true) } }
+    /// The chat stream subscribed again: every tracked card's status is fetched again. The server may have gained the
+    /// feature or turned it back on meanwhile, so an unavailable mark is dropped first.
+    public func resync() { guard let wanted else { return }; unavailable = nil; track(channel: wanted.channel, ids: wanted.ids, refresh: true) }
     /// Fetches these cards' status now.
     public func refetch(_ channel: String, _ ids: [String]) async {
         let ids = ids.filter { cards[$0] != nil }

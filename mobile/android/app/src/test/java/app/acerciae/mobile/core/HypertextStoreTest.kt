@@ -442,6 +442,27 @@ class HypertextStoreTest {
         until("gone") { h.card()!!.gone }
     }
 
+    @Test fun aReconnectAsksAnUnavailableServerAgain() = test {
+        var h = Harness()
+        h.store.track("c", listOf("m1"))
+        h.next("status").reject(refused(404, "", api = false))
+        until("missing") { h.store.unavailable == HxUnavailable.MISSING }
+        h.store.resync()
+        assertNull("the mark is dropped at once", h.store.unavailable)
+        h.next("status").resolve(HypertextStatus(true, listOf(item("m1"))))
+        until("loaded") { h.card()?.let { it.loaded && !it.fetching } == true }
+        assertNull(h.store.unavailable)
+        assertEquals(false, h.card()!!.gone)
+
+        h = Harness()
+        h.store.track("c", listOf("m1"))
+        h.next("status").resolve(HypertextStatus(false, emptyList()))
+        until("disabled") { h.store.unavailable == HxUnavailable.DISABLED }
+        h.store.resync()
+        h.next("status").resolve(HypertextStatus(false, emptyList()))
+        until("still disabled") { h.store.unavailable == HxUnavailable.DISABLED }
+    }
+
     @Test fun aDeclarativeActThatPostsNothingIsAPutAndClosingAdoptsTheClosingTime() = test {
         val h = Harness()
         h.loaded()

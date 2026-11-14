@@ -209,8 +209,8 @@ path: the backend part with `Deploy backend`, the web part with Cloudflare Pages
 - **The frontend may go out first.** Pages does not wait for `Deploy backend`. Until the backend has the card routes,
   they answer 404 (not the API's JSON) or 405, and the web app takes that to mean the feature is unavailable: card
   controls stay disabled ("This server does not support interactive messages yet."). No card can be posted before the
-  backend has the routes anyway, so nothing else changes. A page left open enables cards after a reload or a channel
-  switch. An older frontend on the new backend shows each card's fallback text as a plain line.
+  backend has the routes anyway, so nothing else changes. A page left open asks again when its chat connection comes
+  back (the backend restart drops it), so cards turn on without a reload; the Android and iOS apps do the same. An older frontend on the new backend shows each card's fallback text as a plain line.
 - **Migration 0067.** `backend/migrations/0067_hypertext.sql` ships like any other migration: the new backend applies it
   as it starts in step 4, before it listens for requests (the old services were stopped in step 2). It adds the
   `hypertext` kind and its columns to `messages`, validates the new constraints and builds three indexes on `messages`,
