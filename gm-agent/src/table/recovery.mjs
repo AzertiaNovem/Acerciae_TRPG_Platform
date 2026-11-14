@@ -66,8 +66,13 @@ export function onEvent(table, ev) {
     // Who is being written as: a human typing holds the window's quiet turns (scheduling.tick).
     if (ev.type === "typing.changed") { table.noteTyping(ev.character_id, ev.chat_window_id, ev.active); return undefined; }
     if (ev.type === "typing.snapshot") { table.typing.clear(); for (const x of ev.typing ?? []) table.noteTyping(x.character_id, x.chat_window_id, true); return undefined; }
-    if (ev.type === "message.posted") return table.onMessage(ev.message);
-    if (ev.type === "message.recalled") return table.onRecalled(ev.message);
+    if (ev.type === "message.posted") {
+      // Closing the roll cards a line answers is not play: it runs while hosting is paused too.
+      const closing = table.noteRollAnswer(ev.message);
+      const handled = table.onMessage(ev.message);
+      return closing ? Promise.all([closing, handled]).then(([, h]) => h) : handled;
+    }
+    if (ev.type === "message.recalled") { if (ev.message?.id) table.forgetRollCard(ev.message.id); return table.onRecalled(ev.message); }
     return undefined;
   }
 

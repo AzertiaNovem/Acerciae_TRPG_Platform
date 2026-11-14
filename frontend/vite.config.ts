@@ -1,6 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { fileURLToPath } from 'node:url';
 
 const apiTarget = process.env.ACERCIAE_API_TARGET || 'http://localhost:8080';
 
@@ -26,15 +25,9 @@ export default defineConfig({
       '/ws': { target: apiTarget.replace(/^http/, 'ws'), ws: true },
     },
   },
-  build: {
-    outDir: 'dist', sourcemap: false,
-    // The interactive-message engine (src/hypertext/client.ts → hypertext-worker.ts and the QuickJS WASM) is built as
-    // its own entry until the card UI imports it; only cards with script handlers ever load it.
-    rollupOptions: {
-      input: { index: fileURLToPath(new URL('./index.html', import.meta.url)), hypertext: fileURLToPath(new URL('./src/hypertext/client.ts', import.meta.url)) },
-      preserveEntrySignatures: 'exports-only',
-    },
-  },
+  // The interactive-message engine (src/hypertext/client.ts starts hypertext-worker.ts, which loads the QuickJS WASM) is
+  // emitted as the worker's own chunk and asset; only cards with script handlers ever load them.
+  build: { outDir: 'dist', sourcemap: false },
   // The read-aloud worker (Kokoro) loads its model code in chunks.
   worker: { format: 'es', plugins: () => [dropOnnxWasm()] },
 });

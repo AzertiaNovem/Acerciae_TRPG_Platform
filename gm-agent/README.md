@@ -277,7 +277,7 @@ creates the character, or reuses the existing one when that name is already in t
    | `bond` | records, changes or ends a relationship between two characters (`secret`: the investigators do not know it) |
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
    | `whisper` | posts a whisper to one character |
-   | `request_roll` | asks a player to roll (`.ra Spot Hidden`; in D&D `.rc Stealth dc 15`); for the client's own characters, the platform rolls against their sheet |
+   | `request_roll` | asks a player to roll (`.ra Spot Hidden`; in D&D `.rc Stealth dc 15`), as a one-tap [roll card](#interactive-messages-roll-cards) where the platform has them; for the client's own characters, the platform rolls against their sheet |
    | `dice` | D&D only: a dice command run as the GM account itself: `.ri +2 Goblin` (a monster's initiative), `.init next`, `.init del <name>`, `.init clr`, `.r 1d8+3` |
    | `note` | posts a GM-only line |
    | `timeline` | records a thread's narrative time, place, span and the GM's private notes |
@@ -320,6 +320,53 @@ still is:
 
 Each turn keeps a checkpoint for this in memory for five minutes, so a restart forgets them. Lines the GM account
 recalls itself never start a rollback.
+
+## Interactive messages: roll cards
+
+On a platform with interactive messages ([docs/HYPERTEXT.md](../docs/HYPERTEXT.md)), a GM's `request_roll` for a
+character a person plays becomes a **roll card** in that player's scene, instead of the line
+"→ Ada: .ra Spot Hidden" for the player to type.
+
+- **What players see.** A card from the GM account, labelled "Interactive message": a title ("Roll for Ada"), the GM's
+  narration, and one button ("Roll Spot Hidden") with the command it posts shown under it. Only Ada's player (and the
+  GMs) can press it; everyone else sees it greyed out. Pressing it posts `.ra Spot Hidden` as Ada: the player's own
+  roll, with their character and sheet, marked "via interactive message". The button then greys out: one roll per
+  card.
+- **The fallback.** The card's plain text is exactly the line posted without cards (the narration, then
+  "→ Ada: .ra Spot Hidden"). Everything that does not show cards reads that instead: older apps, search, the
+  platform's AI, logs and exports, and this client's own models. The player can always type the roll instead.
+- **Closing.** The client remembers its open roll cards (by window, character and roll, in the state file) and closes
+  a card as soon as its roll arrives: tapped from the card, or typed by hand as the same roll (the command and the
+  skill, whatever the value, modifiers or hidden form: `.rc spot hidden 60` answers `.ra Spot Hidden`). Asking for the
+  same roll again replaces the open card. A failed close is only logged; a card nobody closed closes by itself after
+  the platform's 7 days.
+- **Who gets one.** Only a character a person plays. A co-player or an NPC still rolls for itself (the platform rolls
+  against its sheet), and PbtA tables ask for no rolls. A command a card may not post in a player's name (`.st`,
+  `.en`, `.ss`, `.init`, `.move`, `.ri` with a name) is asked for with the plain line.
+- **The feature switch.** The platform's operator can turn interactive messages off (`HYPERTEXT_ENABLED=false`: 403
+  `feature_disabled`), and a platform from before them answers 404 or 405. Either way the client logs once that they
+  are unavailable and posts plain lines from then on, until it restarts. Any other refusal (a rate limit, an archived
+  window) falls back to the plain line for that one card.
+- **How the models read them.** A card reads as its plain text, tagged "(interactive message)"; its buttons, state and
+  any script never reach a prompt. A line a card produced is tagged "(via interactive message)", and a card's reply
+  posted as the GM account also "(answering <player>)". Such a line counts as the person's who acted, and it wakes the
+  table only when the whole window reads it: the answer a whisper card let its reader post, or a GM-only reply, does
+  not. A card another GM account posts is read, never answered.
+
+The cards come from declarative builders in `src/hypertext.mjs`; the model only asks for a roll and never writes a
+card or its JavaScript (no builder ever produces a `script`). Each returns the body for `api.postHypertext(channel,
+window, body)`, or null when it cannot make a card the platform accepts (text from the model is cleaned and cut by code
+points to the card rules first):
+
+| builder | the card |
+|---|---|
+| `rollRequest({text, command, pcId, name, language, content})` | the roll card above; `content` is its plain text |
+| `choice({prompt, options, actorIds, language, title, kind})` | 2–20 options as buttons (a list beyond 5) and a "Choose" button that posts "I choose: the harbour" as the reader's own line (`kind` `ooc` by default, or `ic`), once; `actorIds` limits who may answer |
+| `checklist({title, items, language, actorIds})` | up to 30 boxes each reader ticks for themselves, saved on all their devices; nothing is posted ("All done." once all of up to 8 are ticked) |
+
+Their words follow the table's language: English, Simplified or Traditional Chinese, English for any other. Only
+`request_roll` turns into a card today; no GM action posts a choice or a checklist yet, so those two are for code
+that posts them itself.
 
 ## Illustrations
 
@@ -1214,6 +1261,11 @@ The tests need no backend and no model. They cover:
 - D&D 2024: the rules profile, the build maths and the local point-buy check, generation, repair and completion of
   D&D cards, the GM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
   keeps a CoC table's prompts byte for byte.
+- interactive messages (`test/hypertext.test.mjs`): each builder's card and its limits, the roll card and its fallback
+  on a platform without cards (404, 405, 403 `feature_disabled`), closing it on a tapped or typed roll, and how lines
+  a card produced count and read for the models. `tests/integration/gm-agent-hypertext.test.mjs` (run by
+  `scripts/test.sh`) posts every builder's card to a real backend, model text at its worst included, and closes a roll
+  card on both kinds of roll.
 
 ## Sessions
 
@@ -1273,6 +1325,6 @@ unfinished forks and audience changes and partitions existing split parties befo
 
 ## Runtime modules
 
-`src/loop.mjs` owns `Table` construction, initialization and turn order. `src/table/` separates scheduling/cancellation, recall recovery, context, window movement, actions, illustrations, planning, social messages and co-player actions. Functions receive the table runtime explicitly; the table owns state, injected API/model clients, clock and persistence. The public methods remain available for CLI/host callers and test fixtures. Co-player context never reuses the GM's complete context, and platform mutations still travel through `src/api.mjs` with their existing idempotency keys.
+`src/loop.mjs` owns `Table` construction, initialization and turn order. `src/hypertext.mjs` builds the interactive messages the table posts (see [roll cards](#interactive-messages-roll-cards)). `src/table/` separates scheduling/cancellation, recall recovery, context, window movement, actions, illustrations, planning, social messages and co-player actions. Functions receive the table runtime explicitly; the table owns state, injected API/model clients, clock and persistence. The public methods remain available for CLI/host callers and test fixtures. Co-player context never reuses the GM's complete context, and platform mutations still travel through `src/api.mjs` with their existing idempotency keys.
 
 `npm test` runs with deployment environment variables cleared and automatic local `.env` loading disabled for CLI children. For an explicit configuration fixture or normal operation, `--env FILE` loads only that file. Normal startup without `--env` retains automatic `.env` loading. This client remains a separate Node.js process; the abandoned embedded platform GM proposal is historical documentation.

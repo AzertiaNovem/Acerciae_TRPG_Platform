@@ -162,8 +162,9 @@ operator's `HYPERTEXT_ENABLED=false` turns the feature off: posting, state, act 
 5. 403 `not_an_actor` when the card lists `actors` and the caller's character in the card's window is not one of them
    (GMs always may act);
 6. the say (*lines as the clicker*): 403 `hypertext_command_not_allowed` for a command a card may not post (`.ri`/`.rih`
-   included, unless the card's visibility is `window`), 428 `confirmation_required` (with `text`) for `.sc`/`.ds`
-   without `confirmed: true`, and its `character_id`, when given, must be the caller's own character (any, for a GM;
+   included, unless the card's visibility is `window`), 428 `confirmation_required` (with `text` and `sheet: true`) for
+   `.sc`/`.ds` without `confirmed: true` — and, while the server's dice feature is off, for any say that is a dice
+   command (it would post as plain text; `sheet: false`) — and its `character_id`, when given, must be the caller's own character (any, for a GM;
    400/403 otherwise);
 7. the reply: 400 `invalid_slot` for an id the card does not declare, a slot missing or not declared, an enum value not
    declared, an int not a JSON integer within its range; 409 `sender_unavailable` when the card's author is no longer a
@@ -205,7 +206,8 @@ on replay) when it had posted none.
 `.r`/`.rh`, `.ra`/`.rc`/`.rah`/`.rch` and `.ri`/`.rih` with modifiers only (`+2`, `-1`, `+1d4`, `adv`, `dis`) run
 directly; `.sc` and `.ds` change the caller's sheet and need `confirmed: true` (428 first); `.ri` with a name, `.st`,
 `.en`, `.ss`, `.init` and `.move` are refused (403). `.ri`/`.rih` are refused too on a GM-only or whisper card: the
-initiative order is the whole window's. With the server's dice off it posts as plain text. Whisper cards let their
+initiative order is the whole window's. With the server's dice off it posts as plain text, and only once confirmed
+(428 with `sheet: false` first), since an app may have taken it for a roll it sends without asking. Whisper cards let their
 readers answer privately (to the card's `whisper_to`), up to `runs_per_viewer` lines each; that is a capability a GM
 grants by posting one.
 

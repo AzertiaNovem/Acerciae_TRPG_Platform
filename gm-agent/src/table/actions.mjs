@@ -7,6 +7,7 @@ import { MAIN } from "../timelines.mjs";
 import { addTruth } from "../improv.mjs";
 import { calendarPace, describeCalendar } from "../calendar.mjs";
 import { norm } from "./shared.mjs";
+import { rollRequest, rollSignature } from "../hypertext.mjs";
 
 export async function act(table, windowId, a, ctx, { mode, parent = mode, scope = null, evidenceThrough } = {}) {
     table.generation.signal.throwIfAborted();
@@ -142,9 +143,71 @@ export async function requestRoll(table, windowId, a, scope = null) {
       n += await table.post(windowId, { content: command, kind: "ic", character_id: target.id });
       return n;
     }
-    // A player's roll is asked for, never made, and asked in the player's own scene.
+    // A player's roll is asked for, never made, and asked in the player's own scene: as a one-tap card (an
+    // interactive message whose button posts the command as the player's own roll) where the platform has them, else
+    // as this line for the player to type. The line is also the card's plain text for everyone who sees no card.
     const home = table.isPc(target.id) ? table.windowOf(table.timelines.of(target.id)) : null;
-    return table.post(home ?? windowId, { content: `${a.text ? `${a.text}\n` : ""}→ ${target.name}: ${command}`, kind: "narration" });
+    const where = home ?? windowId;
+    const content = `${a.text ? `${a.text}\n` : ""}→ ${target.name}: ${command}`;
+    if (table.hypertextSupported !== false && humanPc(table, target.id)) {
+      const m = await postRollCard(table, where, { text: a.text, command, target, content });
+      if (m) { await table.sleep(table.cfg.postDelayMs); return 1; }
+    }
+    return table.post(where, { content, kind: "narration" });
+  }
+
+// A player character a person plays (not a co-player, not a PC nobody plays): the one who can tap the card.
+function humanPc(table, id) {
+    const user = table.userOf(id);
+    return table.isPc(id) && Boolean(user) && user !== table.me?.id;
+  }
+
+// ---- roll cards: the ones still open, by (window, character, roll), so each closes when its roll arrives.
+// Remembered in the state file; a card the table forgot closes by itself after the platform's default 7 days.
+const ROLL_CARD_MS = 7 * 24 * 3600000;
+const rollCardKey = (windowId, pcId, command) => `${windowId}|${pcId}|${rollSignature(command)}`;
+
+async function postRollCard(table, windowId, { text, command, target, content }) {
+    const body = rollRequest({ text, command, pcId: target.id, name: target.name, language: table.language, content });
+    if (!body) { table.log(`roll card for ${target.name} not built (${command}): posting the line instead`); return null; }
+    const m = await sendHypertext(table, windowId, body);
+    if (!m) return null;
+    const key = rollCardKey(windowId, target.id, command);
+    const earlier = table.rollCards.get(key);
+    table.rollCards.set(key, { key, id: m.id, windowId, pcId: target.id, command, signature: rollSignature(command), seq: m.seq ?? 0, at: table.now() });
+    for (const [k, c] of table.rollCards) if (table.now() - (c.at ?? 0) > ROLL_CARD_MS) table.rollCards.delete(k);
+    table.save();
+    // The same roll asked again: the newer card replaces the earlier one.
+    if (earlier && earlier.id !== m.id) await closeRollCard(table, earlier, "asked again");
+    return m;
+  }
+
+async function closeRollCard(table, card, why) {
+    try {
+      await table.api.closeHypertext(table.channelId, card.id);
+      if (table.cfg.verbose) table.log(`closed the roll card for ${table.nameOf(card.pcId)} (${card.command}): ${why}`);
+    } catch (e) {
+      table.log(`closing the roll card for ${table.nameOf(card.pcId)} (${card.command}) failed (${e.code || e.status}): ${e.message}`);
+    }
+  }
+
+// A line arrived: the roll cards it answers are closed. A card is answered by a line it posted (`via_hypertext_id`,
+// the player tapped it) or by the same roll the player typed themselves (the command's name and skill, whatever
+// the value, modifiers or hidden form), as that character, after the card. Returns the closing, or null.
+export function noteRollAnswer(table, m) {
+    if (!m || m.channel_id !== table.channelId || m.recalled_at || !table.rollCards.size) return null;
+    const signature = rollSignature(m.content);
+    const answered = [...table.rollCards.values()].filter((c) => (m.via_hypertext_id && m.via_hypertext_id === c.id) ||
+      (signature && signature === c.signature && m.character_id === c.pcId && (m.seq ?? 0) > c.seq && table.isHuman(m)));
+    if (!answered.length) return null;
+    for (const c of answered) table.rollCards.delete(c.key);
+    table.save();
+    return Promise.all(answered.map((c) => closeRollCard(table, c, m.via_hypertext_id === c.id ? "rolled from the card" : "rolled by hand")));
+  }
+
+// A card taken back (a recall, a rollback) has nothing left to close.
+export function forgetRollCard(table, id) {
+    for (const [k, c] of table.rollCards) if (c.id === id) { table.rollCards.delete(k); table.save(); }
   }
 
 export async function gmDice(table, windowId, a) {
@@ -272,30 +335,71 @@ export async function post(table, windowId, body, { count = true, allowPaused = 
     return 1;
   }
 
+// Whether a line may be posted now: not while hosting is paused (unless `allowPaused`), nor past a spark's or a gentle
+// turn's budget. Returns the turn's scope (null outside a turn) when it may, false when not.
+function mayPost(table, allowPaused) {
+    if (!allowPaused && table.generation.signal.aborted) return false;
+    const spark = table.turnScope.getStore();
+    if (spark?.gentle && (table.sparkCancelled() || table.overBudget() || spark.dailyBudget.posted >= spark.dailyBudget.limit)) return false;
+    if (spark?.mode === "spark" && (table.sparkCancelled() || spark.dailyPosted >= spark.lineLimit)) return false;
+    return spark ?? null;
+  }
+
+// The bookkeeping of a posted line or card: the turn's budget and rollback list, this client's own ids, the history.
+function notePosted(table, spark, m, windowId) {
+    if (spark?.mode === "spark") spark.dailyPosted++;
+    if (spark?.gentle) spark.dailyBudget.posted++;
+    table.botMessageIds.add(m.id);
+    if (table.botMessageIds.size > 2000) table.botMessageIds.delete(table.botMessageIds.values().next().value);
+    const turn = table.turnScope.getStore();
+    if (turn?.running) turn.posted.push({ id: m.id, seq: m.seq, kind: m.kind, windowId });
+    table.lastPosted = m;
+    table.noteLine(m);
+    table.noteArt(m);
+  }
+
 // Posts one line and returns the platform's message, or null when nothing was posted (hosting paused, a spark's line
 // limit, PbtA dice text, a refused request). No pause after it. Use the returned message rather than `lastPosted`:
 // phone texts are delivered on their own timer and may be posted in between.
 export async function sendLine(table, windowId, body, { allowPaused = false } = {}) {
-    if (!allowPaused && table.generation.signal.aborted) return null;
-    const spark = table.turnScope.getStore();
-    if (spark?.gentle && (table.sparkCancelled() || table.overBudget() || spark.dailyBudget.posted >= spark.dailyBudget.limit)) return null;
-    if (spark?.mode === "spark" && (table.sparkCancelled() || spark.dailyPosted >= spark.lineLimit)) return null;
+    const spark = mayPost(table, allowPaused);
+    if (spark === false) return null;
     if (table.pbta && /^[.。][a-z]/i.test(String(body.content).trim())) return null;
     try {
       const m = await table.api.postMessage(table.channelId, windowId, { visibility: "window", ...body });
-      if (spark?.mode === "spark") spark.dailyPosted++;
-      if (spark?.gentle) spark.dailyBudget.posted++;
-      table.botMessageIds.add(m.id);
-      if (table.botMessageIds.size > 2000) table.botMessageIds.delete(table.botMessageIds.values().next().value);
-      const turn = table.turnScope.getStore();
-      if (turn?.running) turn.posted.push({ id: m.id, seq: m.seq, kind: m.kind, windowId });
-      table.lastPosted = m;
-      table.noteLine(m);
-      table.noteArt(m);
+      notePosted(table, spark, m, windowId);
       if (table.cfg.verbose) table.log(`posted ${body.kind}${body.visibility && body.visibility !== "window" ? `/${body.visibility}` : ""} in "${table.windowName(windowId)}": ${body.content.slice(0, 100)}`);
       return m;
     } catch (e) {
       table.log(`post failed (${e.code || e.status}): ${e.message}`);
+      return null;
+    }
+  }
+
+// The platform has no interactive messages (an older server: 404/405) or turned them off (403 feature_disabled).
+const hypertextUnavailable = (e) => e?.status === 404 || e?.status === 405 || (e?.status === 403 && e?.code === "feature_disabled");
+
+// Posts an interactive message (a card from ../hypertext.mjs) like sendLine posts a line, and returns the platform's
+// message or null. Where the platform has none, `table.hypertextSupported` turns false and callers post their plain
+// line from then on (until the client restarts); any other refusal is logged and that one card falls back.
+export async function sendHypertext(table, windowId, body, { allowPaused = false } = {}) {
+    const spark = mayPost(table, allowPaused);
+    if (spark === false) return null;
+    // PbtA: a player's dice go through the GM's rulings, never a dot command.
+    if (table.pbta && JSON.stringify(body.hypertext?.body ?? []).match(/"say":"[.。]/)) return null;
+    try {
+      const m = await table.api.postHypertext(table.channelId, windowId, { visibility: "window", ...body });
+      notePosted(table, spark, m, windowId);
+      if (table.cfg.verbose) table.log(`posted an interactive message${body.visibility && body.visibility !== "window" ? `/${body.visibility}` : ""} in "${table.windowName(windowId)}": ${String(m.content ?? "").slice(0, 100)}`);
+      return m;
+    } catch (e) {
+      if (hypertextUnavailable(e)) {
+        if (table.hypertextSupported !== false) table.log(`interactive messages are unavailable on this platform (${e.status}${e.code ? ` ${e.code}` : ""}): posting plain lines instead`);
+        table.hypertextSupported = false;
+      } else {
+        const paths = (e.data?.errors ?? []).map((x) => `${x.path}: ${x.message}`).join("; ");
+        table.log(`interactive message failed (${e.code || e.status}): ${e.message}${paths ? ` [${paths}]` : ""}`);
+      }
       return null;
     }
   }

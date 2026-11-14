@@ -43,6 +43,7 @@
 :root[data-theme="parchment"] :is(.chat-header h2, .card h3, .modal h3, .doc-viewer h3, .bubble .title) { font-family: var(--paper-serif); }
 :root[data-theme="parchment"] :is(.chat-header h2, .card h3, .modal h3) { letter-spacing: .02em; }
 :root[data-theme="parchment"] .message.narration .content { font-family: var(--paper-serif); font-size: 16px; line-height: 1.65; }
+:root[data-theme="parchment"] :is(.hx-title, .hx-style-heading) { font-family: var(--paper-serif); letter-spacing: .01em; }
 :root[data-theme="parchment"] .tabs button { border-radius: 4px 4px 0 0; }
 :root[data-theme="parchment"] .tabs button.active { background: var(--bg-2); color: var(--accent); box-shadow: inset 0 3px var(--accent); }
 :root[data-theme="parchment"] :is(.sidebar-footer, .character-save-bar, .initiative-bar) { background: var(--bg-1); border-color: var(--bg-4); }

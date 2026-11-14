@@ -23,7 +23,9 @@ export default function MessageComposer() {
   const [kind, setKind] = useState<'ic' | 'ooc' | 'narration'>('ic');
   const [visibility, setVisibility] = useState<'window' | 'gm_only' | 'whisper'>('window');
   const [whisperTo, setWhisperTo] = useState<string>('');
-  const [characterId, setCharacterId] = useState<string>('');
+  // "Speak as", per window: kept in the ui store, where interactive messages read it (their lines speak as it too).
+  const characterId = useUi((s) => (windowId ? s.speakAs[windowId] : undefined)) ?? '';
+  const setCharacterId = (id: string) => { if (windowId) useUi.getState().setSpeakAs(windowId, id); };
   const [sending, setSending] = useState(false);
   const [hint, setHint] = useState<{ text: string; for: string } | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);

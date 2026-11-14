@@ -61,7 +61,7 @@ export { languageName } from "./table/shared.mjs";
 
 export class Table {
   // `deferArrivals`: a short-lived CLI process records arrivals in the state file for the `run` process to play.
-  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, casual = null, planner = null, plannerLlm = null, calendar = null, daily: dailyData = null, bonds = null, journal = null, owedArrivals = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now, random = Math.random }) {
+  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, casual = null, planner = null, plannerLlm = null, calendar = null, daily: dailyData = null, bonds = null, journal = null, owedArrivals = [], rollCards = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now, random = Math.random }) {
     this.api = api;
     // The client's own store (store.mjs): the chat's local copy, compacted chapters, token usage. In memory when none
     // is given (tests, read-only commands).
@@ -130,6 +130,10 @@ export class Table {
     this.queue = Promise.resolve();
     this.pending = 0;          // turns waiting or running
     this.cards = new Map();
+    // Interactive messages (hypertext.mjs): whether the platform takes them (false after a 404/405 or 403
+    // feature_disabled, until a restart), and the roll cards still open, by window, character and roll.
+    this.hypertextSupported = true;
+    this.rollCards = new Map((Array.isArray(rollCards) ? rollCards : []).filter((c) => c?.key && c?.id).map((c) => [c.key, c]));
     this.outfitCache = new Map();   // character → their outfits with attire, for pictures (table/art.mjs)
     this.attrs = new Map();
     this.turns = 0;
@@ -744,6 +748,10 @@ export class Table {
   act(...args) { return actions.act(this, ...args); }
 
   requestRoll(...args) { return actions.requestRoll(this, ...args); }
+  // The roll cards a line answers are closed (the player tapped one, or typed the same roll); a recalled card is
+  // forgotten.
+  noteRollAnswer(...args) { return actions.noteRollAnswer(this, ...args); }
+  forgetRollCard(...args) { return actions.forgetRollCard(this, ...args); }
 
   // The GM's own dice (D&D: a monster's initiative, the order, plain rolls), posted as the GM account's line so the
   // platform rolls it; it has no character, so nothing is rolled against a sheet.
@@ -1051,4 +1059,6 @@ export class Table {
   // `count: false` marks bookkeeping lines (pointers, notes) that do not use up the turn's action budget.
   post(...args) { return actions.post(this, ...args); }
   sendLine(...args) { return actions.sendLine(this, ...args); }
+  // An interactive message (a card built by hypertext.mjs), posted like a line; null when it was not.
+  sendHypertext(...args) { return actions.sendHypertext(this, ...args); }
 }

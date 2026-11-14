@@ -300,6 +300,20 @@ test('say: the clicker\'s own line with the card\'s mark; rolls run, sheet chang
   // A plain line, in or out of character; the GM may act too.
   assert.equal((await t.act(t.ann, m.id, { say: { text: 'Back in a minute.', kind: 'ooc' } })).results[0].message.kind, 'ooc');
   assert.equal((await t.act(t.gm, m.id, { say: { text: 'Take your time.', kind: 'ooc' } })).results[0].message.author_id, t.gm.user.id);
+  // Dice turned off on the server: a dot command would post as the plain text it is, so it is confirmed first (no sheet
+  // change then); a line that is no command is unchanged.
+  await request(t.gm.token, 'PUT', `/api/servers/${t.server.id}/settings`, { features: { dice: false } });
+  for (const text of ['.ra I betray Bob', '.sc 1/1d6', '.r 1d6']) {
+    const off = await t.act(t.ann, m.id, { say: { text } }, 428);
+    assert.deepEqual([off.error, off.text, off.sheet], ['confirmation_required', text, false], text);
+  }
+  const offId = uuid();
+  await t.act(t.ann, m.id, { interaction_id: offId, say: { text: '.ra I betray Bob' } }, 428);
+  const plain = (await t.act(t.ann, m.id, { interaction_id: offId, say: { text: '.ra I betray Bob', confirmed: true } })).results[0].message;
+  assert.deepEqual([plain.kind, plain.dice, plain.content], ['ic', null, '.ra I betray Bob']);
+  assert.equal((await t.act(t.ann, m.id, { say: { text: 'Just words.' } })).results[0].message.kind, 'ic');
+  await request(t.gm.token, 'PUT', `/api/servers/${t.server.id}/settings`, { features: { dice: true } });
+  assert.equal((await t.act(t.ann, m.id, { say: { text: '.sc 1/1d6' } }, 428)).sheet, true, 'with dice on, sc changes the sheet');
   // The shape of a say.
   for (const say of [{ text: 'x'.repeat(501) }, { text: 'Hi', kind: 'narration' }, { text: 'a\nb\nc\nd\ne\nf' }, { text: '   ' }, { text: 'Hi‮' }, { text: 'Hi', colour: 'red' }]) {
     assert.equal((await t.act(t.ann, m.id, { say }, 400)).error, 'invalid_effect', JSON.stringify(say));
@@ -514,6 +528,21 @@ test('state: per viewer and private, checked against the card, compare-and-swap,
     assert.deepEqual(empty, { enabled: true, items: [] });
     await request(t.eve.token, 'GET', `${t.root}/hypertext?ids=${m.id}`, undefined, 403);
   } finally { ann2.ws.close(); for (const s of Object.values(others)) s.ws.close(); }
+});
+
+test('downstream: reminder bubbles never quote a card\'s fallback; the narration beside it still is', async () => {
+  const t = await table('remind');
+  const kit = await t.post(t.bot, card([{ type: 'checkbox', id: 'lantern', label: 'Pack the Wexford lantern', bind: 'lantern' }], { hypertext: { title: 'Before you go', state: { lantern: { type: 'bool' } } } }));
+  const told = await t.say(t.gm, 'The innkeeper mentions the Wexford lantern hanging by the cellar door.', { kind: 'narration' });
+  for (let i = 0; i < 9; i++) await t.say(t.gm, `The rain keeps falling on the roof (${i}).`, { kind: 'narration' });
+  await request(t.gm.token, 'POST', `${t.root}/ai/observe-now`);
+  await t.say(t.ann, 'Did anyone bring the Wexford lantern down here?');
+  await request(t.gm.token, 'POST', `${t.root}/ai/observe-now`);
+  const bubbles = await request(t.ann.token, 'GET', `${t.root}/reminders`);
+  const cited = bubbles.flatMap((r) => r.citations.map((c) => c.message_id));
+  assert.ok(cited.includes(told.id), `the narration is quoted: ${JSON.stringify(bubbles.map((r) => r.title))}`);
+  assert.ok(!cited.includes(kit.id), 'the card is not');
+  assert.ok(bubbles.every((r) => !r.title.includes('☐')), 'no bubble quotes a fallback line');
 });
 
 test('downstream: the campaign log keeps a card as a system line (a GM-only card stays secret), marks its lines, and the script ignores cards', async () => {

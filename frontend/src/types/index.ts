@@ -117,7 +117,7 @@ export interface Message {
   stand_in?: boolean;
   reference_ids?: string[];
   id: string; channel_id: string; chat_window_id: string; scene_id: string | null; author_id: string; author_role: 'gm' | 'player';
-  character_id: string | null; character_name: string | null; character_avatar_asset_id?: string | null; character_avatar_version?: number | null; character_avatar_hash?: string | null; author_name: string; author_avatar_version?: number; author_avatar_hash?: string | null; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system';
+  character_id: string | null; character_name: string | null; character_avatar_asset_id?: string | null; character_avatar_version?: number | null; character_avatar_hash?: string | null; author_name: string; author_avatar_version?: number; author_avatar_hash?: string | null; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system' | 'hypertext';
   content: string; visibility: 'window' | 'gm_only' | 'whisper'; whisper_to: string[]; seq: number; created_at: string;
   dice?: DiceResult | null;
   // Recalled by its author: a tombstone (empty content, no dice or references) kept in the line's place.
@@ -126,7 +126,30 @@ export interface Message {
   recall_seconds_left?: number | null;
   // The picture the line shows (an illustration drawn on request); loaded through the line, by those who may read it.
   media_asset_id?: string | null;
+  // An interactive message (kind 'hypertext'): its public document as stored (read it with hypertext/format parseDoc;
+  // null once recalled). Lines a card posted name it (via_hypertext_id) and who acted on it (via_user_id and its
+  // display name, which differs from the author for a reply posted as the card's sender).
+  hypertext?: unknown;
+  via_hypertext_id?: string | null;
+  via_user_id?: string | null;
+  via_user_name?: string | null;
 }
+// Interactive messages (docs/API.md "Interactive messages"): the viewer's own status of each card, the result of an
+// action and of closing. `state` is the viewer's stored state (null before their first save, at version 0).
+export interface HypertextStatusItem { message_id: string; closes_at: string | null; closed_at: string | null; closed: boolean; state: Record<string, unknown> | null; version: number; runs_left: number }
+export interface HypertextStatus { enabled: boolean; items: HypertextStatusItem[] }
+export interface HypertextSaved { message_id: string; state: Record<string, unknown>; version: number }
+export interface HypertextActResult {
+  interaction_id: string; replayed: boolean; partial: boolean;
+  results: { type: 'say' | 'reply'; ok: boolean; message: Message | null; error?: { error: string; message: string } }[];
+  state: { state: Record<string, unknown>; version: number } | null;
+}
+export interface HypertextActBody {
+  interaction_id: string; node?: string; base_version: number; state?: Record<string, unknown>;
+  say?: { text: string; kind?: 'ic' | 'ooc'; character_id?: string; confirmed?: boolean };
+  reply?: { id: string; slots?: Record<string, string | number> };
+}
+export interface HypertextClosed { message_id: string; closes_at: string | null; closed_at: string | null; closed_by: string | null; closed: true }
 // An illustration asked for in chat (POST …/windows/{w}/illustrations), as its requester sees it.
 export interface IllustrationJob { id: string; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; error: string | null; created_at: string; finished_at: string | null; window_id: string; prompt: string; character_ids: string[]; orientation: 'landscape' | 'portrait' | 'square'; message_id: string | null; reference_count: number }
 // bot: who the dice spoke as when the roll was made (the channel's text group persona).

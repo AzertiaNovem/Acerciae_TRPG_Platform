@@ -57,9 +57,19 @@ id and `via_user_id` the player. Close the card once you have what you wanted:
 curl -s -X POST $API/channels/$CH/messages/<card id>/hypertext/close -H "Authorization: Bearer $TOKEN"
 ```
 
-**(gm-agent)** gm-agent posts cards like these through declarative builders (`rollRequest`, `choice`, `checklist`)
-that arrive with its card support: the agent's model only picks a builder and its parameters, and never writes card
-JavaScript. Until then, post the JSON yourself as above.
+**(gm-agent)** gm-agent builds its cards in code, from declarative parts only, with the builders of
+[`gm-agent/src/hypertext.mjs`](../gm-agent/src/hypertext.mjs) (`rollRequest`, `choice`, `checklist`; no builder ever
+produces a `script`). Today only its `request_roll` action posts a card: a roll card like the one above for a character
+a person plays, closed once the roll arrives (see "Interactive messages: roll cards" in
+[gm-agent/README.md](../gm-agent/README.md#interactive-messages-roll-cards)). The agent's model only asks for the roll;
+`choice` and `checklist` are for your own code that posts cards:
+
+```js
+// Inside gm-agent (`api` is its client, src/api.mjs).
+import { rollRequest } from "./src/hypertext.mjs";
+const body = rollRequest({ text: "Something glints under the desk.", command: ".ra Spot Hidden", pcId: adaId, name: "Ada", language: "en" });
+if (body) await api.postHypertext(channelId, windowId, body);   // null: no valid card, post the plain line instead
+```
 
 ## The post body
 
@@ -245,7 +255,9 @@ A `say` that is a dice command is posted as the viewer's own command, by its can
 whisper card cannot add to it (403 `hypertext_command_not_allowed`).
 
 A hidden roll (`.rh`, `.rah`) sends its result to the viewer's character when that character is inside the card's
-audience, and its notice to the card's audience. With the server's dice turned off, a say posts as plain text. Rolls
+audience, and its notice to the card's audience. With the server's dice turned off, a say posts as plain text, and a
+say that looks like a dice command needs the viewer's confirmation like any free text: the server answers 428
+`confirmation_required` with `sheet: false` until the request says `confirmed: true`. Rolls
 from cards cannot be recalled, like any roll; other lines follow the normal 2-minute recall.
 
 ## What a viewer's app does
@@ -430,13 +442,16 @@ on('roll', (ev) => {               // ev = {type: 'click'|'change'|'submit', nod
 - `on(name, fn)` registers a handler (top level only; registering a name twice throws); controls name it with `on`.
 - `state`: a mutable copy of the viewer's state, taken after the control's own change was applied. Its new value is
   validated against your declarations.
-- `viewer` (frozen): `{gm, actor, character}`, `character` being the name of the viewer's character in the window, or
-  null. No user id, locale, platform or time.
+- `viewer` (frozen): `{gm, actor, character}`, `character` being the name of the character the viewer's lines speak as
+  (their composer's, else their character in the window), or null. No user id, locale, platform or time.
 - `card` (frozen): `{title, replies: [ids]}`.
 - `say(text, kind = 'ic')`: at most once per action; `ic` or `ooc`; 1–500 code points, at most 5 lines; the dice policy
   applies. Free text needs the viewer's confirmation ("Post as Ada: …"), and so does a roll that carries more than a
   bare expression or a short skill name (`.r 2d6+3 for damage`, a long `.ra …`), because its words are posted in the
-  viewer's name. A declarative `act.say` needs none: the button shows its text.
+  viewer's name. With the server's dice off every `say` is plain text, so every one is confirmed. A declarative
+  `act.say` needs none (the button shows its text), except a dot command while the server's dice are off. An `ooc`
+  line is posted under the viewer's account name, and the confirmation says so ("Post as Ann (out of character): …").
+  A line speaks as the character the viewer's composer speaks as ("Speak as"), else their character in the window.
 - `reply(id, slots = {})`: at most once per action; the slot names exactly as declared, the values declared.
 - `notify(text)`: up to 3 short notes under the card, for this viewer only, never sent anywhere.
 - `log(...values)`: up to 20 entries, shown only in the "Script details" box GMs see under the card.

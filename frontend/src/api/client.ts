@@ -55,7 +55,9 @@ export async function ensureFileToken(): Promise<string> {
   return fileTokPending;
 }
 
-export class ApiError extends Error { constructor(public status: number, public code: string, message: string, public apiResponse = true) { super(message); } }
+// `data`: the parsed error body, with the fields an error adds beside `error` and `message` (the stored `state` and
+// `version` of a 409 state_conflict, the `text` of a 428, the `errors` of a 400 invalid_hypertext, `retry_after`).
+export class ApiError extends Error { constructor(public status: number, public code: string, message: string, public apiResponse = true, public data: any = null) { super(message); } }
 
 export async function request<R>(method: string, path: string, body?: unknown, raw?: BodyInit): Promise<R> {
   const headers: Record<string, string> = {};
@@ -68,7 +70,7 @@ export async function request<R>(method: string, path: string, body?: unknown, r
     const text = await res.text();
     let data: any = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
-    if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText, typeof data?.error === 'string');
+    if (!res.ok) throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? res.statusText, typeof data?.error === 'string', data);
     return data as R;
   } catch (error) {
     if (controller.signal.aborted) throw new ApiError(408, 'request_timeout', 'Request timed out. Check the saved task status before retrying.');
@@ -80,6 +82,7 @@ const get = <R,>(p: string) => request<R>('GET', p);
 const post = <R,>(p: string, b?: unknown) => request<R>('POST', p, b);
 const put = <R,>(p: string, b?: unknown) => request<R>('PUT', p, b);
 const del = <R,>(p: string) => request<R>('DELETE', p);
+export const HYPERTEXT_STATUS_IDS = 100;   // the server's limit of ids per status request
 const q = (o: Record<string, string | number | undefined>) => { const s = Object.entries(o).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&'); return s ? `?${s}` : ''; };
 
 export const api = {
@@ -227,6 +230,21 @@ export const api = {
   reminders: (ch: string) => get<T.Reminder[]>(`/api/channels/${ch}/reminders`),
   dismissReminder: (ch: string, id: string) => post<{ dismissed: boolean }>(`/api/channels/${ch}/reminders/${id}/dismiss`),
   pinMessage: (ch: string, messageId: string) => post<T.Reminder>(`/api/channels/${ch}/messages/${messageId}/pin`),
+  // Interactive messages. The viewer's status of the cards (at most HYPERTEXT_STATUS_IDS ids a request: more are asked in
+  // turn and joined), their own state saved by compare-and-swap, an action, and closing a card (GMs). Cards are posted
+  // only by GM accounts through the API: there is no post method here.
+  hypertextStatus: async (ch: string, ids: string[]): Promise<T.HypertextStatus> => {
+    const out: T.HypertextStatus = { enabled: true, items: [] };
+    for (let i = 0; i < ids.length; i += HYPERTEXT_STATUS_IDS) {
+      const r = await get<T.HypertextStatus>(`/api/channels/${ch}/hypertext${q({ ids: ids.slice(i, i + HYPERTEXT_STATUS_IDS).join(',') })}`);
+      if (!r.enabled) return { enabled: false, items: [] };
+      out.items.push(...r.items);
+    }
+    return out;
+  },
+  hypertextSave: (ch: string, messageId: string, body: { state: Record<string, unknown>; base_version: number }) => put<T.HypertextSaved>(`/api/channels/${ch}/messages/${messageId}/hypertext/state`, body),
+  hypertextAct: (ch: string, messageId: string, body: T.HypertextActBody) => post<T.HypertextActResult>(`/api/channels/${ch}/messages/${messageId}/hypertext/act`, body),
+  hypertextClose: (ch: string, messageId: string) => post<T.HypertextClosed>(`/api/channels/${ch}/messages/${messageId}/hypertext/close`),
   unpinReminder: (ch: string, id: string) => del<{ unpinned: boolean }>(`/api/channels/${ch}/reminders/${id}`),
   scriptKnowledge: (ch: string, kind?: string) => get<T.ScriptKnowledge[]>(`/api/channels/${ch}/script-knowledge${q({ kind })}`),
   updateScriptKnowledge: (ch: string, id: string, body: { title?: string; body?: string; status?: T.ScriptStatus }) => put<T.ScriptKnowledge>(`/api/channels/${ch}/script-knowledge/${id}`, body),

@@ -419,9 +419,15 @@ Json::Value HypertextService::act(const ChannelAccess& a, const std::string& mes
         auto cmd = dice::parseCommand(p.sayText);
         if (verdict == ht::Verdict::refused || (cmd && cmd->name == "ri" && card["visibility"] != "window"))
             throw ApiError(403, "hypertext_command_not_allowed", "An interactive message cannot post this command for you");
-        if (verdict == ht::Verdict::confirm && !p.confirmed) {
-            Json::Value d; d["text"] = p.sayText;
-            throw ApiError(428, "confirmation_required", "This changes your character's sheet: confirm it, then send the action again", d);
+        // With the server's dice turned off, a dot command posts as the plain text it is (ChatService::postMessage), so
+        // no line that looks like a command goes out unconfirmed: a client may have taken it for a roll, which it
+        // sends without asking. `sheet` tells the client whether the line changes the character sheet.
+        const bool diceOff = verdict != ht::Verdict::none &&
+            !db_.queryOne("SELECT 1 AS off FROM server_settings WHERE server_id=$1 AND NOT feature_dice", {a.serverId}).isNull();
+        if ((verdict == ht::Verdict::confirm || diceOff) && !p.confirmed) {
+            Json::Value d; d["text"] = p.sayText; d["sheet"] = !diceOff;
+            throw ApiError(428, "confirmation_required", diceOff ? "Dice are turned off on this server, so this posts as plain text: confirm it, then send the action again"
+                                                                 : "This changes your character's sheet: confirm it, then send the action again", d);
         }
         if (!p.sayCharacter.empty()) {   // the composer's active character: one of the caller's own (any, for a GM)
             auto c = db_.queryOne("SELECT user_id FROM characters WHERE id=$1 AND channel_id=$2", {p.sayCharacter, a.channelId});

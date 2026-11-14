@@ -22,6 +22,9 @@ export function cancelTimer(table, windowId) {
 export function isTrigger(table, m) {
     if (!m || m.channel_id !== table.channelId) return false;
     if (!table.isHuman(m)) return false;
+    // Only lines the whole window reads wake the table, those an interactive message posted included: the answer a
+    // whisper card let its reader post, a card's GM-only reply or a hidden roll's notice does not. A card itself
+    // (kind hypertext) never does.
     return m.visibility === "window" && TRIGGER_KINDS.has(m.kind);
   }
 
@@ -114,6 +117,9 @@ function dispatchMessage(table, m) {
     if (table.isHuman(m) && m.seq <= table.planner.pauseSeq) return;
     table.updatePause(m);
     table.noteLine(m);
+    // An interactive message (another GM account's; this client's own are never a person's) is read, never answered:
+    // it is nobody's speech, wish or text. What its readers do with it arrives as lines of its own.
+    if (m.kind === "hypertext") return undefined;
     if (table.generation.paused) return;
     if (table.isHuman(m) && !table.isPlannerWindow(m.chat_window_id)) table.noteSession(m);
     // A player's line of play counts toward the calendar's pace (chatter out of character does not).

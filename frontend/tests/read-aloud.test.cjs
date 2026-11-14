@@ -24,6 +24,9 @@ test('spokenLine names a new speaker once, reads narration bare, dice by result,
   assert.equal(spokenLine(msg({ kind: 'ooc', character_name: 'Ada', content: 'brb' }), 'Ada').text, 'Ann: brb');   // out of character: the player
   assert.equal(spokenLine(msg({ kind: 'roll', content: '.r 1d100', dice: { type: 'roll', command: 'r', text: 'Ann rolls 1d100 = 42' } }), 'Ann').text, 'Ann rolls 1d100 = 42');
   assert.equal(spokenLine(msg({ kind: 'system', content: 'Ann joined' }), null), null);
+  // An interactive message's text is its plain fallback (labels, buttons); the lines it posts are read as usual.
+  assert.equal(spokenLine(msg({ kind: 'hypertext', author_role: 'gm', content: 'The study\n[Roll]' }), null), null);
+  assert.equal(spokenLine(msg({ kind: 'ic', character_name: 'Ada', content: 'I open the door.', via_hypertext_id: 'card' }), null).text, 'Ada: I open the door.');
   assert.equal(spokenLine(msg({ content: '你好，世界' }), null), null);
   assert.equal(spokenLine(msg({ character_name: '艾达', content: 'Hello.' }), null).text, 'Hello.');   // a name it cannot say is left out
   assert.equal(spokenLine(msg({ content: 'a '.repeat(900) }), 'Ann').text.length, MAX_SPOKEN);

@@ -14,6 +14,7 @@ import { onIncomingMessage } from './useUnread';
 import { speakMessage, forgetSpokenMessage } from '../lib/speech';
 import { useNotifications } from '../store/notifications';
 import { useTyping } from '../store/typing';
+import { useHypertext } from '../store/hypertext';
 
 // Wires WebSocket events to the stores. Chat and context streams are handled independently.
 export function useRealtime() {
@@ -32,6 +33,7 @@ export function useRealtime() {
         const nav = useNav.getState();
         if (!nav.channelId || m.channel_id !== nav.channelId) return;
         useChat.getState().streamUp(m.channel_id);
+        useHypertext.getState().resync();   // pushes of card state and closings may have been missed
         if (dropped) { dropped = false; nav.refreshWindows().catch(() => undefined); nav.refreshChannel().catch(() => undefined); }
         if (nav.windowId) {
           const chat = useChat.getState(), access = accessKey(nav.channel);
@@ -44,6 +46,9 @@ export function useRealtime() {
       if (m.type === 'message.posted') { useChat.getState().push(m.message); onIncomingMessage(m.message); const nav = useNav.getState(); speakMessage(m.message, useAuth.getState().user?.id, nav.channelId, nav.windowId); }
       // Its author took a line back: the tombstone replaces it, its banner and queued reading go, unread is recounted.
       else if (m.type === 'message.recalled') { useChat.getState().applyRecall(m.message); useNotifications.getState().dismiss(m.message.id); forgetSpokenMessage(m.message.id); useNav.getState().refreshWindows().catch(() => undefined); }
+      // Interactive messages: this viewer's own state of a card (their other devices; newer versions only), a card closed.
+      else if (m.type === 'hypertext.state') useHypertext.getState().applyState(m.message_id, m.state ?? null, m.version);
+      else if (m.type === 'hypertext.closed') useHypertext.getState().applyClosed(m.message_id, m.closed_at);
       else if (m.type === 'initiative.changed') window.dispatchEvent(new CustomEvent('acerciae:initiative', { detail: m.chat_window_id }));
       else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows(); }
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
@@ -62,7 +67,7 @@ export function useRealtime() {
       const sceneId = activeWindow?.active_scene_id ?? undefined;
       if (m.type === 'document.updated') { useDocuments.getState().onUpdated(m, ch, sceneId); useUi.getState().setAiActivity(`${m.doc_type.replace('_', ' ')} updated (v${m.version})`); setTimeout(() => useUi.getState().setAiActivity(null), 4000); }
       else if (m.type === 'knowledge.reset') {
-        bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useChat.getState().forgetChannel(ch); useUi.getState().reset(); useReminders.getState().reset(); useReminders.getState().load(ch).catch(() => undefined);
+        bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useChat.getState().forgetChannel(ch); useHypertext.getState().reset(); useUi.getState().reset(); useReminders.getState().reset(); useReminders.getState().load(ch).catch(() => undefined);
         useDocuments.getState().loadList(ch).catch(()=>undefined); useHighlights.getState().load(ch).catch(()=>undefined); useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
         const win=useNav.getState().windowId; if(win) useChat.getState().open(ch,win,accessKey(useNav.getState().channel)).catch(()=>undefined);
       }
@@ -99,7 +104,7 @@ export function useRealtime() {
         if(!active) return;
         const next=groups.map(g=>`${g.id}:${g.version}`).join(',');
         if(groupVersion && groupVersion!==next) {
-          bumpEpoch(); useReminders.getState().reset(); useReminders.getState().load(channelId).catch(() => undefined); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useChat.getState().forgetChannel(channelId); useUi.getState().reset();
+          bumpEpoch(); useReminders.getState().reset(); useReminders.getState().load(channelId).catch(() => undefined); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useChat.getState().forgetChannel(channelId); useHypertext.getState().reset(); useUi.getState().reset();
           useNav.getState().refreshWindows(); useNav.getState().refreshScenes(); await useNav.getState().refreshChannel();
           const win=useNav.getState().windowId; if(win) useChat.getState().open(channelId,win,accessKey(useNav.getState().channel)).catch(()=>undefined);
         }

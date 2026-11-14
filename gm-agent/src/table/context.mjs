@@ -43,7 +43,12 @@ export function state(table, windowId) {
     return table.windowState.get(windowId);
   }
 
-export function isHuman(table, m) { return m.author_id !== table.me?.id && !table.botMessageIds.has(m.id); }
+// A person's line, not this client's. A line one of this client's interactive messages posted as this account (a card's
+// reply) belongs to the reader who acted (`via_user_id`): it counts as that person's.
+export function isHuman(table, m) {
+    if (m.via_hypertext_id && m.via_user_id && m.via_user_id !== table.me?.id) return true;
+    return m.author_id !== table.me?.id && !table.botMessageIds.has(m.id);
+  }
 
 export function noteSeq(table, windowId, seq) {
     if (!Number.isFinite(seq)) return;

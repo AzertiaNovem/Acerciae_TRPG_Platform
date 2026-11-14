@@ -102,6 +102,12 @@ export class Api {
   illustrate(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/illustrations`, body); }
   illustrations(ch) { return this.get(`/api/channels/${ch}/illustrations`); }
   cancelIllustration(ch, id) { return this.post(`/api/channels/${ch}/illustrations/${id}/cancel`, {}); }
+  // Interactive messages (docs/HYPERTEXT.md), GM only: a card posted in a window (`body`: {content?, visibility?,
+  // whisper_to?, closes_in?, hypertext, replies?}; returns the message row, kind "hypertext"), and closing one (any
+  // channel GM; idempotent). A platform without them answers 404/405, one that turned them off 403 feature_disabled;
+  // a refused card 400 invalid_hypertext with `errors: [{path, message}]` (kept on the ApiError's `data`).
+  postHypertext(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/hypertext`, body); }
+  closeHypertext(ch, id) { return this.post(`/api/channels/${ch}/messages/${id}/hypertext/close`, {}); }
   // A window's Initiative order (D&D channels): {round, turn, entries[{id, name, total, character_id, created_by}]}.
   initiative(ch, w) { return this.get(`/api/channels/${ch}/windows/${w}/initiative`); }
   initiativeAction(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/initiative`, body); }

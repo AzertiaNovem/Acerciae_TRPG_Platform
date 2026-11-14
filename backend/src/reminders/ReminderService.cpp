@@ -185,7 +185,9 @@ Json::Value ReminderService::mockPlan(const Json::Value& ctx) {
 }
 
 Json::Value ReminderService::readableLines(const ChannelAccess& view, const std::string& sceneId, int limit, bool tail) {
-    std::string sql = "SELECT e.id AS event_id, e.seq, e.scene_id, e.chat_window_id, e.message_id, e.actor_role, c.name AS character_name, e.payload->>'content' AS content, e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id WHERE e.channel_id=$1 AND e.scene_id=$2 AND e.kind='message.posted' AND " + Visibility::eventFilter(view);
+    // An interactive message's own event is UI (its fallback text), never a line to quote or outline; the lines its
+    // viewers post stay in, as in the batch (buildContext).
+    std::string sql = "SELECT e.id AS event_id, e.seq, e.scene_id, e.chat_window_id, e.message_id, e.actor_role, c.name AS character_name, e.payload->>'content' AS content, e.created_at FROM events e LEFT JOIN characters c ON c.id=e.character_id WHERE e.channel_id=$1 AND e.scene_id=$2 AND e.kind='message.posted' AND coalesce(e.payload->>'message_kind','') <> 'hypertext' AND " + Visibility::eventFilter(view);
     if (tail) return db_.queryJson("SELECT * FROM (" + sql + " ORDER BY e.seq DESC LIMIT " + std::to_string(limit) + ") x ORDER BY seq", {view.channelId, sceneId});
     return db_.queryJson(sql + " ORDER BY e.seq LIMIT " + std::to_string(limit), {view.channelId, sceneId});
 }
