@@ -205,7 +205,7 @@ template when you post the card. Replies stop when you are no longer a GM of the
 | nodes / state keys / replies / slots / actors | 64 / 32 / 16 / 4 per reply / 10 |
 | a viewer's state | 8 KiB |
 | `content` / text node / reply template | 2000 / 2000 / 1000 code points |
-| `say` | 1–500 code points after trimming, at most 5 lines |
+| `say` | 1–500 code points after trimming, at most 5 lines (`\n`, U+0085, U+2028 and U+2029 each start a line) |
 | cards | 20 a minute per author and channel |
 | actions | `runs_per_viewer` per viewer; 10 a minute per viewer and card, 30 per viewer and channel; 60 replies a minute per card |
 | state saves | 120 a minute per viewer |
@@ -434,7 +434,9 @@ on('roll', (ev) => {               // ev = {type: 'click'|'change'|'submit', nod
   null. No user id, locale, platform or time.
 - `card` (frozen): `{title, replies: [ids]}`.
 - `say(text, kind = 'ic')`: at most once per action; `ic` or `ooc`; 1–500 code points, at most 5 lines; the dice policy
-  applies. Free text needs the viewer's confirmation ("Post as Ada: …").
+  applies. Free text needs the viewer's confirmation ("Post as Ada: …"), and so does a roll that carries more than a
+  bare expression or a short skill name (`.r 2d6+3 for damage`, a long `.ra …`), because its words are posted in the
+  viewer's name. A declarative `act.say` needs none: the button shows its text.
 - `reply(id, slots = {})`: at most once per action; the slot names exactly as declared, the values declared.
 - `notify(text)`: up to 3 short notes under the card, for this viewer only, never sent anywhere.
 - `log(...values)`: up to 20 entries, shown only in the "Script details" box GMs see under the card.
@@ -443,7 +445,7 @@ Handlers are synchronous (returning a promise is an error). Each action runs in 
 with no host functions: the script's only output is data — `{state, effects, notices, logs}` — which the app validates
 (and the server validates again) before anything happens. Absent: `Date`, `Promise`, `Proxy`, timers, `Intl`, typed
 arrays, `WeakRef`, `eval`, modules; `Math.random` throws ("roll dice with say('.r 1d6')"), because client-side
-randomness can be forged. Each run gets 8 MiB of memory, a 256 KiB stack and a fixed instruction budget (the same on
+randomness can be forged. Each run gets 8 MiB of memory, a 128 KiB stack and a fixed instruction budget (the same on
 every device, so a script either fits everywhere or nowhere); exceeding one stops the run. Any error aborts the action:
 the viewer's state reverts, nothing is sent, players see "This message's action failed." and GMs see the error code
 (`script_error`, `no_handler`, `budget`, `memory`, `stack`, `timeout`, `invalid_state`, `invalid_effect`,

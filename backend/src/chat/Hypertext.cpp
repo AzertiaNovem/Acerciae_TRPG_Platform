@@ -374,7 +374,7 @@ struct Checker {
             if (!a["say"].isString()) fail(sp, "must be a string");
             else if (auto e = sayError(a["say"].asString()); !e.empty()) fail(sp, e);
             else {
-                auto say = a["say"].asString();
+                auto say = text::trim(a["say"].asString());   // the text that gets posted, as the apps keep it
                 size_t before = errors.size();
                 interp(say, sp);
                 if (errors.size() == before && diceVerdict(interpolate(say, doc, after)) == Verdict::refused)
@@ -584,7 +584,10 @@ std::string sayError(const std::string& textIn) {
     if (t.empty()) return "say needs text";
     if (!allowedText(t, true)) return "say contains a control, bidi override or noncharacter, or is not valid UTF-8";
     if (text::utf8Length(t) > kMaxSay) return "say must be at most 500 code points";
-    if ((size_t)std::count(t.begin(), t.end(), '\n') + 1 > kMaxSayLines) return "say must be at most 5 lines";
+    // Every line break a chat bubble renders counts: \n, NEL, LINE SEPARATOR and PARAGRAPH SEPARATOR (as the apps count).
+    size_t lines = 1;
+    text::forEachCodePoint(t, [&](char32_t c) { if (c == '\n' || c == 0x85 || c == 0x2028 || c == 0x2029) ++lines; return true; });
+    if (lines > kMaxSayLines) return "say must be at most 5 lines";
     return "";
 }
 std::string contentError(const std::string& t) {
