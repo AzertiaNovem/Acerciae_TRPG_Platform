@@ -1,8 +1,9 @@
 // Runs card scripts in the hypertext worker for the web and desktop app. The worker is created on the first run (only
 // cards with `on` handlers ever run), runs one action at a time, and is replaced when a run passes the wall-clock
-// backstop (1 s, 5 s for the first run, which includes compiling the WASM), after 500 runs, and on dispose (logout,
-// session epoch bump). At most one action per card is in flight and at most 4 wait per device. The result is
-// validated here, on the main thread, before the UI uses it.
+// backstop (1 s, 5 s for the first run, which includes compiling the WASM), after 500 runs, when it could not load the
+// engine (so the next run fetches it again), and on dispose (logout, session epoch bump). At most one action per card
+// is in flight and at most 4 wait per device. The result is validated here, on the main thread, before the UI uses
+// it; a reply that is too large or not JSON fails the run at once.
 import type { EngineInput, RunResult, State } from './types';
 import { failure, validateOutput } from './effects';
 import { utf8Bytes } from './text';
@@ -31,12 +32,16 @@ export function createEngineClient(spawn: () => Worker) {
     const w = spawn();
     w.onmessage = (e: MessageEvent) => {
       const r = running;
-      if (w !== worker || !r || typeof e.data !== 'string' || e.data.length > CLIENT_LIMITS.messageBytes) return;
-      let msg: { id?: unknown; out?: unknown };
-      try { msg = JSON.parse(e.data); } catch { return; }
+      if (w !== worker || !r) return;
+      // The worker answers one request at a time, so whatever it sends now is the answer to `r`.
+      let msg: { id?: unknown; out?: unknown; reload?: unknown } | null = null;
+      if (typeof e.data === 'string' && utf8Bytes(e.data) <= CLIENT_LIMITS.messageBytes) try { msg = JSON.parse(e.data); } catch { msg = null; }
+      if (!msg || typeof msg !== 'object') { finish(r, failure('invalid_effect', 'the engine sent a reply that is too large or not valid')); return; }
       if (msg.id !== r.id) return;
       warm = true;
-      finish(r, validateOutput(r.input.doc, r.prev, msg.out));
+      const result = validateOutput(r.input.doc, r.prev, msg.out);
+      if (msg.reload === true) stop();           // the engine did not load (offline?): the next run starts a new worker
+      finish(r, result);
     };
     w.onerror = () => {
       if (w !== worker) return;
@@ -63,8 +68,9 @@ export function createEngineClient(spawn: () => Worker) {
   }
 
   return {
-    /** One action of `card`. `prev` is the state shown before the action (the result's `changed` compares with it). */
-    run(card: string, input: EngineInput, prev: State = input.state): Promise<RunResult> {
+    /** One action of `card`. `prev` is the state shown before the action, before its binding change (the result's
+     *  `changed` compares with it; `input.state` would miss the binding change itself). */
+    run(card: string, input: EngineInput, prev: State): Promise<RunResult> {
       if (!engineAvailable()) return Promise.resolve(failure('engine_unavailable', 'WebAssembly is not available on this device'));
       if (running?.card === card || waiting.some((j) => j.card === card)) return Promise.resolve(failure('engine', 'an action of this message is still running'));
       if (waiting.length >= CLIENT_LIMITS.queue) return Promise.resolve(failure('engine', 'too many actions are waiting'));

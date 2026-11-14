@@ -1,6 +1,8 @@
 // Builds the card engine for the mobile apps (mobile/hypertext/engine.ts → mobile/contracts/hypertext/). The QuickJS
-// WASM is inlined as bytes, so the WebView never fetches it. --check rebuilds in memory and fails on any difference
-// from the committed files, or when the bundle outgrows the fixture's engine.max_bundle_bytes.
+// WASM is inlined as bytes, so the WebView never fetches it. The bundle is wrapped in a named function whose source
+// the page turns into a blob: worker (mobile/hypertext/engine.ts), hence worker-src blob: in the page's CSP. --check
+// rebuilds in memory and fails on any difference from the committed files, or when the bundle outgrows the fixture's
+// engine.max_bundle_bytes.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -18,11 +20,11 @@ const r = await build({
   charset: 'utf8', loader: { '.wasm': 'binary' }, conditions: ['browser'], define: { 'import.meta.url': '"file:///hypertext-engine.js"' },
   legalComments: 'eof', nodePaths: [path.join(root, 'frontend/node_modules')], write: false, logLevel: 'warning',
 });
-const js = Buffer.from(r.outputFiles[0].contents);
+const js = Buffer.from(`(function __hypertextBundle() {\n${r.outputFiles[0].text}})();\n`);
 const wasm = fs.readFileSync(require.resolve('@jitl/quickjs-wasmfile-release-sync/wasm'));
 const files = {
   'hypertext-engine.js': js,
-  'hypertext-engine.html': Buffer.from('<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\' file: \'wasm-unsafe-eval\'; base-uri \'none\'; form-action \'none\'"><meta http-equiv="x-dns-prefetch-control" content="off"><script src="hypertext-engine.js"></script>\n'),
+  'hypertext-engine.html': Buffer.from('<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\' file: \'wasm-unsafe-eval\'; worker-src blob:; base-uri \'none\'; form-action \'none\'"><meta http-equiv="x-dns-prefetch-control" content="off"><script src="hypertext-engine.js"></script>\n'),
   'hypertext-engine.sha256.json': Buffer.from(JSON.stringify({ wasm_sha256: sha256(wasm), bundle_sha256: sha256(js), bytes: js.length }, null, 2) + '\n'),
 };
 const problems = [];

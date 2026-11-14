@@ -75,8 +75,9 @@ export interface Resolved {
   disabled: boolean;
 }
 
-/** UI actions on a control. Toggle: checkbox. Select: a choice option (an enum selects, a set toggles). Submit: an input. */
-export type Action = { type: 'toggle' } | { type: 'select'; value: string } | { type: 'submit'; value: string } | { type: 'click' };
+/** UI actions on a control. Toggle: checkbox. Select: a choice option (an enum selects, a set toggles). Submit: an input
+ *  (fires its handler). Commit: an input's draft written on blur, which fires no handler. Click: a button. */
+export type Action = { type: 'toggle' } | { type: 'select'; value: string } | { type: 'submit'; value: string } | { type: 'commit'; value: string } | { type: 'click' };
 export type EventType = 'change' | 'submit' | 'click';
 export interface HxEvent { type: EventType; node: string; value: StateValue }
 

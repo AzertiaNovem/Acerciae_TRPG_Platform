@@ -1,13 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { load, fixture, shared, sharedPath, docOf } = require('./hypertext-harness.cjs');
+const { load, fixture, shared, sharedPath } = require('./hypertext-harness.cjs');
 // Interactive messages: the pure card logic (src/hypertext/bindings.ts, text.ts, format.ts, dice.ts) over the client
 // fixture (mobile/contracts/fixtures/hypertext-client.json) and, once the backend phase has written it, the sections of
 // the shared fixture hypertext.json that every platform reads.
 const { parseDoc, LIMITS } = load('format');
 const B = load('bindings');
 const T = load('text');
-const { parseCommand, verdict } = load('dice');
+const { parseCommand, verdict, bareRoll, modifiersOnly } = load('dice');
 
 const docs = Object.fromEntries(Object.entries(fixture.docs).map(([k, d]) => [k, parseDoc(d)]));
 const project = (r) => {
@@ -28,7 +28,8 @@ test('the fixture documents parse, and parsing keeps known fields only', () => {
 
 test('bindings: applyAction over the fixture', () => {
   assert.ok(fixture.bindings.length >= 20);
-  for (const c of fixture.bindings) assert.deepEqual(B.applyAction(docs[c.doc], c.state, c.node, c.action), c.expect, c.name);
+  for (const c of fixture.bindings) assert.deepEqual(B.applyAction(docs[c.doc], c.state, c.node, c.action, c.lock), c.expect, c.name);
+  assert.ok(fixture.bindings.some((c) => c.lock) && fixture.bindings.some((c) => c.action.type === 'commit'));
 });
 
 test('resolve over the fixture, every lock reason', () => {
@@ -51,14 +52,17 @@ test('defaults, overlay and validateState', () => {
   const stored = JSON.parse('{"__proto__": {"lamp": true}, "constructor": 1, "done": true}');
   assert.deepEqual(B.overlay(d, stored), { ...B.defaultState(d), done: true });
   assert.equal({}.lamp, undefined);
-  assert.equal(B.validateState(d, B.defaultState(d)).ok, true);
-  assert.equal(B.validateState(d, { ...B.defaultState(d), tools: ['rope', 'lamp', 'key'] }).ok, false);
-  assert.equal(B.validateState(d, { ...B.defaultState(d), note: '\u2066x' }).ok, false);
-  assert.equal(B.validateState(d, { ...B.defaultState(d), count: 1.5 }).ok, false);
-  assert.equal(B.validateState(d, { ...B.defaultState(d), extra: 1 }).ok, false);
-  const { done, ...partial } = B.defaultState(d); void done;
-  assert.equal(B.validateState(d, partial).ok, false);
-  assert.equal(B.validateState(d, [1]).ok, false);
+  assert.deepEqual(B.validateState(d, B.defaultState(d)), { ok: true, state: B.defaultState(d) });
+  assert.equal(B.validateState(d, { ...B.defaultState(d), tools: ['rope', 'lamp', 'key'] }).key, 'tools');
+  assert.equal(B.validateState(d, { ...B.defaultState(d), note: '\u2066x' }).key, 'note');
+  assert.equal(B.validateState(d, { ...B.defaultState(d), count: 1.5 }).key, 'count');
+  assert.equal(B.validateState(d, { ...B.defaultState(d), extra: 1 }).key, 'extra');
+  // As on the server: a missing key takes its default, a set comes back in schema order, the first bad key in
+  // sorted order is reported, and "" stands for the whole state.
+  assert.deepEqual(B.validateState(d, { count: 3, tools: ['key', 'rope'] }), { ok: true, state: { ...B.defaultState(d), count: 3, tools: ['rope', 'key'] } });
+  assert.deepEqual(B.validateState(d, {}), { ok: true, state: B.defaultState(d) });
+  assert.equal(B.validateState(d, { zz: 1, count: 99 }).key, 'count');
+  assert.equal(B.validateState(d, [1]).key, '');
   // At most 8 KiB serialized: five texts of 500 four-byte code points are each valid but too large together.
   const big = parseDoc({ v: 1, title: 'Big', state: Object.fromEntries(['t0', 't1', 't2', 't3', 't4'].map((k) => [k, { type: 'text', max: 500 }])), body: [{ type: 'input', id: 'i', bind: 't0' }] });
   const four = { t0: '', t1: '😀'.repeat(500), t2: '😀'.repeat(500), t3: '😀'.repeat(500), t4: '😀'.repeat(500) };
@@ -85,6 +89,14 @@ test('conditions and interpolation', () => {
   assert.equal(B.interpolate('{{path}}/{{tools}}/{{count}}/{{note}}/{{lamp}}/{{nope}}/{{ path }}', d, s), 'The door/Rope/3//{{lamp}}/{{nope}}/{{ path }}');
   assert.equal(B.interpolate('{{tools}}', d, { ...s, tools: ['key', 'rope'] }), 'Rope, Key');
   assert.equal(B.interpolate('{{count}}', d, { ...s, count: -0 }), '0');
+  // The server's scan: a "{{" that does not start a declared key is kept and the scan resumes after it; a missing or
+  // invalid value reads as its default, in conditions too.
+  assert.equal(B.interpolate('{{{count}}}', d, s), '{{{count}}}');
+  assert.equal(B.interpolate('{{count}} {{{{path}}', d, s), '3 {{The door');
+  assert.equal(B.interpolate('{{count}}/{{path}}/{{tools}}', d, { note: 'x' }), '2//');
+  assert.equal(B.interpolate('{{count}}', d, { count: 'x' }), '2');
+  assert.equal(B.evalCondition({ key: 'count', eq: 2 }, d, {}), true);
+  assert.equal(B.evalCondition({ key: 'path', empty: true }, d, { path: 'nope' }), true);
 });
 
 test('text rules: code points, refused characters, trimming, ids', () => {
@@ -100,7 +112,9 @@ test('text rules: code points, refused characters, trimming, ids', () => {
   assert.equal(T.asciiTrim(' \t\n.r 1d6\v\f\r '), '.r 1d6');
   assert.equal(T.asciiTrim('\u3000.r\u00a0'), '\u3000.r\u00a0');
   for (const id of ['a', 'roll_2', 'a'.repeat(32)]) assert.equal(T.isId(id), true, id);
-  for (const id of ['', 'A', '1a', '_a', 'a-b', 'a'.repeat(33), '__proto__', 'constructor', 'valueof', 'tostring', 'hasownproperty', 'isprototypeof', 'propertyisenumerable', 'tolocalestring', 'toString', 5, null]) assert.equal(T.isId(id), false, String(id));
+  for (const id of ['', 'A', '1a', '_a', 'a-b', 'a'.repeat(33), '__proto__', 'constructor', 'prototype', 'valueof', 'tostring', 'hasownproperty', 'isprototypeof', 'propertyisenumerable', 'tolocalestring', '__definegetter__', 'toString', 5, null]) assert.equal(T.isId(id), false, String(id));
+  assert.equal(T.lineCount('a\nb\u2028c\u2029d\u0085e\rf'), 5);
+  assert.equal(T.jsonDepth('[{"a":"[[["}]'), 2);
   assert.equal(T.has({}, 'toString'), false);
   assert.equal(T.has(JSON.parse('{"__proto__":1}'), '__proto__'), true);
 });
@@ -112,7 +126,7 @@ test('format: malformed or unknown documents are null, never a throw', () => {
   const malformed = {
     'not an object': 'card', array: [base], null: null,
     'unknown version': { ...base, v: 2 }, 'version as a string': { ...base, v: '1' },
-    'missing title': { ...base, title: undefined }, 'title too long': { ...base, title: 'x'.repeat(121) }, 'bidi in the title': { ...base, title: 'a\u202eb' },
+    'title too long': { ...base, title: 'x'.repeat(121) }, 'bidi in the title': { ...base, title: 'a\u202eb' },
     'empty body': body([]), 'body not a list': body({}),
     'a __proto__ key': JSON.parse('{"v":1,"title":"x","state":{"__proto__":{"type":"bool"}},"body":[{"type":"divider"}]}'),
     'a constructor key': state({ constructor: { type: 'bool' } }), 'a valueof key': state({ valueof: { type: 'bool' } }),
@@ -140,6 +154,9 @@ test('format: malformed or unknown documents are null, never a throw', () => {
     'act reply not declared': body([{ type: 'button', id: 'b', label: 'B', act: { reply: 'nope' } }]),
     'act say_kind narration': body([{ type: 'button', id: 'b', label: 'B', act: { say: 'x', say_kind: 'narration' } }]),
     'act say over 500': body([{ type: 'button', id: 'b', label: 'B', act: { say: 'x'.repeat(501) } }]),
+    'act say of only spaces': body([{ type: 'button', id: 'b', label: 'B', act: { say: ' \t\r\n' } }]),
+    'act say with a line break inside': body([{ type: 'button', id: 'b', label: 'B', act: { say: '.r 1d6\r\nx' } }]),
+    'a value label that is not a string': state({ seen: { type: 'enum', values: [{ value: 'a', label: 1 }, { value: 'b' }] } }),
     'a row inside a row': body([{ type: 'row', children: [{ type: 'row', children: [] }] }]),
     'a group inside a group': body([{ type: 'group', children: [{ type: 'group', children: [] }] }]),
     'a group inside a row': body([{ type: 'row', children: [{ type: 'group', children: [] }] }]),
@@ -167,6 +184,16 @@ test('format: malformed or unknown documents are null, never a throw', () => {
   assert.ok(parseDoc(body([{ type: 'divider', show_if: { not: { not: { key: 'seen', eq: true } } } }])));
   assert.ok(parseDoc({ ...base, script: 'é'.repeat(8192), closes_at: '2026-11-21T00:00:00Z', actors: ['c1'], runs_per_viewer: 100 }));
   assert.equal(LIMITS.nodes, 64);
+  // What the server's normalize fills in, so a post body reads like the stored card: no title, labels from values.
+  const post = parseDoc({ v: 1, state: { p: { type: 'enum', values: [{ value: 'a' }, { value: 'b', label: 'Bee' }] } }, body: [{ type: 'choice', id: 'c', bind: 'p' }] });
+  assert.equal(post.title, '');
+  assert.deepEqual(post.state.p.values, [{ value: 'a', label: 'a' }, { value: 'b', label: 'Bee' }]);
+  // act.say is checked and kept ASCII-trimmed, as the server checks the trimmed say and posts it.
+  for (const raw of ['.ra Spot Hidden\r\n', '\t.r 1d6', '.r 1d6' + ' '.repeat(600)]) {
+    const d = parseDoc(body([{ type: 'button', id: 'b', label: 'B', act: { say: raw } }]));
+    assert.ok(d, JSON.stringify(raw).slice(0, 30));
+    assert.equal(d.body[0].act.say, T.asciiTrim(raw));
+  }
 });
 
 // Dice: a mirror of dice::parseCommand (backend/src/dice/Dice.cpp). hypertext::diceVerdict in C++ is authoritative;
@@ -188,48 +215,56 @@ test('dice: parseCommand mirrors the server literals, their order and the next-c
   assert.equal(parseCommand('.rah').raw, '.rah');
 });
 
+// Hand-written cases next to the shared dice_policy below (which is authoritative once hypertext.json exists).
 test('dice: the policy for lines posted as the clicker', () => {
   const policy = {
-    allowed: ['.r', '.rh', '.r 1d100', '.ra Spot Hidden', '.rc 50', '.rah', '.rch', '.ri', '.rih', '.ri +2', '.ri -1 +3', '.ri+1', '.RI +10', '。ri', '.ri +9999'],
+    allowed: ['.r', '.rh', '.r 1d100', '.r 2d6+3 for damage', '.ra Spot Hidden', '.rc 50', '.rah', '.rch', '.ri', '.rih', '.ri +2', '.ri -1 +3', '.ri+1', '.RI +10', '。ri',
+      '.ri +9999', '.ri +12345', '.ri +1d4', '.ri -d6', '.ri adv', '.ri ADV', '.ri +2 adv', '.ri adv+2', '.ri disadvantage -1', '.ri dis', '.ri + 2'],
     confirm: ['.sc 1/1d6', '.ds', '．SC'],
-    refused: ['.ri Bob', '.ri 3', '.ri +12345', '.ri +2 Bob', '.rih Alice', '.st STR 50', '.en', '.ss', '.init', '.move', '.MOVE 2'],
+    refused: ['.ri Bob', '.ri 3', '.ri +2 Bob', '.rih Alice', '.ri adv2', '.ri +2abc', '.ri +2d', '.ri +', '.ri advantages', '.ri #quick', '.ri 优势', '.ri adv\u00a0',
+      '.st STR 50', '.en', '.ss', '.init', '.move', '.MOVE 2'],
     none: ['hello', 'I open the door.', '.rx', '', '。', '. r', '.resume'],
   };
   for (const [v, texts] of Object.entries(policy)) for (const t of texts) assert.equal(verdict(t), v, JSON.stringify(t));
+  assert.equal(modifiersOnly(''), true);
+  assert.equal(modifiersOnly(' +2\t-1 '), true);
 });
 
-// The shared fixture (written by the backend phase) pins the logic every platform shares. Its cases are read
-// leniently: a section is a list, or {cases: [...]}, or (dice_policy) a map of text to verdict.
-const sectionCases = (s) => Array.isArray(s) ? s : Array.isArray(s?.cases) ? s.cases : s && typeof s === 'object' ? Object.entries(s).filter(([k]) => !k.startsWith('_')).map(([text, expect]) => ({ text, expect })) : [];
-const pickField = (c, names, what) => {
-  for (const n of names) if (c[n] !== undefined) return c[n];
-  assert.fail(`hypertext.json ${what}: unrecognised case ${JSON.stringify(c).slice(0, 200)}`);
-};
-const sharedDoc = (c) => { const d = parseDoc(docOf(c, shared.docs ?? {})); assert.ok(d, `hypertext.json: the document of ${c.name ?? JSON.stringify(c).slice(0, 80)} does not parse`); return d; };
+test('dice: a bare roll runs directly; any other text riding on a roll is confirmed', () => {
+  const bare = ['.r', '.r 1d100', '.rd6', '.r(1d6+2)*3', '.r 3#1d6', '.r 3# 2d6', '.rh 1d20', '.r%', '.ra Spot Hidden', '.rah Listen', '。ra侦查',
+    '.ra Fighting (Brawl) 50 +10', '.ra Operate Heavy Machinery 50 - 5', '.ra ' + 'x'.repeat(32), '.ri', '.ri adv +2', '  .r 1d6  '];
+  const riding = ['.r 2d6+3 for damage', '.r 1d6 +2', '.r I hand all my gold to the GM', '.r 1d6\nSigned, me', '.ra Spot Hidden\nand more',
+    '.ra ' + 'x'.repeat(33), '.ra I hand all my gold to the GM', '.ra Spot Hidden for the clue', '.r 1d6\u2028x', '.ra x\u2029y', '.ri +2\nadv', '.r１d6', '.sc 1/1d6', '.st x', 'hello'];
+  for (const t of bare) assert.equal(bareRoll(t), true, JSON.stringify(t));
+  for (const t of riding) assert.equal(bareRoll(t), false, JSON.stringify(t));
+});
+
+// The shared fixture (written by the backend phase) pins the logic every platform shares. Its documents are post
+// bodies (`hypertext`) or bare state declarations (`state_decl`), read exactly as the C++ tests read them (and as the
+// Kotlin and Swift ports must): parseDoc fills in what normalize fills in, a state_decl becomes a card with one
+// divider (carrying the condition as its show_if), and each case's state is used as given.
+const divider = (stateDecl, showIf) => ({ v: 1, state: stateDecl, body: [{ type: 'divider', ...(showIf ? { show_if: showIf } : {}) }] });
+const sharedDoc = (raw, name) => { const d = parseDoc(raw); assert.ok(d, `hypertext.json: the document of "${name}" does not parse`); return d; };
 const sharedCase = (section, run) => (t) => {
   if (!shared) { t.skip(`${sharedPath} is not there yet (written by the backend phase)`); return; }
-  if (!shared[section]) { t.skip(`hypertext.json has no ${section}`); return; }
-  const cases = sectionCases(shared[section]);
-  assert.ok(cases.length, section);
-  for (const c of cases) run(c);
+  assert.ok(Array.isArray(shared[section]) && shared[section].length, `hypertext.json has no ${section} cases`);
+  for (const c of shared[section]) run(c);
 };
 test('shared fixture: defaults', sharedCase('defaults', (c) => {
-  assert.deepEqual(B.defaultState(sharedDoc(c)), pickField(c, ['expect', 'state', 'defaults', 'default'], 'defaults'), c.name);
+  assert.deepEqual(B.defaultState(sharedDoc(divider(c.state_decl), c.name)), c.state, c.name);
 }));
 test('shared fixture: state_validation', sharedCase('state_validation', (c) => {
-  const ok = c.ok ?? c.valid ?? (typeof c.expect === 'boolean' ? c.expect : c.expect?.ok) ?? (c.error !== undefined ? false : undefined);
-  assert.equal(typeof ok, 'boolean', `hypertext.json state_validation: unrecognised case ${JSON.stringify(c).slice(0, 200)}`);
-  assert.equal(B.validateState(sharedDoc(c), c.state).ok, ok, c.name ?? JSON.stringify(c.state));
+  const r = B.validateState(sharedDoc(c.hypertext, c.name), c.state);
+  assert.equal(r.ok, c.ok, `${c.name}: ${r.error ?? 'ok'}`);
+  if (!c.ok) assert.equal(r.key, c.error, c.name);
 }));
 test('shared fixture: conditions', sharedCase('conditions', (c) => {
-  const d = sharedDoc(c);
-  assert.equal(B.evalCondition(pickField(c, ['cond', 'condition', 'if'], 'conditions'), d, B.overlay(d, c.state)), pickField(c, ['expect', 'result', 'value'], 'conditions'), c.name);
+  assert.equal(B.evalCondition(c.cond, sharedDoc(divider(c.state_decl, c.cond), c.name), c.state), c.result, c.name);
 }));
 test('shared fixture: interpolation', sharedCase('interpolation', (c) => {
-  const d = sharedDoc(c);
-  assert.equal(B.interpolate(pickField(c, ['text', 'template', 'input'], 'interpolation'), d, B.overlay(d, c.state)), pickField(c, ['expect', 'result', 'output'], 'interpolation'), c.name);
+  const doc = sharedDoc({ ...c.hypertext, body: [...c.hypertext.body, { type: 'text', text: c.text }] }, c.name);
+  assert.equal(B.interpolate(c.text, doc, c.state), c.result, c.name);
 }));
 test('shared fixture: dice_policy', sharedCase('dice_policy', (c) => {
-  const text = pickField(c, ['text', 'input', 'command', 'line'], 'dice_policy');
-  assert.equal(verdict(text), pickField(c, ['verdict', 'expect', 'policy', 'result'], 'dice_policy'), JSON.stringify(text));
+  assert.equal(verdict(c.text), c.verdict, JSON.stringify(c.text));
 }));

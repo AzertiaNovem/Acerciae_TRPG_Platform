@@ -7,8 +7,9 @@ const ts = require('typescript');
 
 const SRC = path.join(__dirname, '../src/hypertext');
 const cache = new Map();
-function load(file, patch) {
-  const full = path.resolve(SRC, file.endsWith('.ts') ? file : file + '.ts'), key = patch ? full + '#patched' : full;
+/** `patch` rewrites the transpiled code; `tag` names that variant, so one file can be loaded several ways. */
+function load(file, patch, tag = 'patched') {
+  const full = path.resolve(SRC, file.endsWith('.ts') ? file : file + '.ts'), key = patch ? `${full}#${tag}` : full;
   if (cache.has(key)) return cache.get(key);
   const js = ts.transpileModule(fs.readFileSync(full, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText;
   const mod = { exports: {} };

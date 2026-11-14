@@ -3,8 +3,13 @@
 // normalized copy (known fields only) or null for an unknown `v` or anything malformed; the message then shows its
 // plain-text `content`. It never throws. Every reference is checked here (binds, act keys, reply ids, condition types),
 // so bindings.ts can trust the shape.
+//
+// What it fills in, as the server's normalize does (so a post body reads the same as the stored card): title "",
+// a value's label = its value, text style body and tone neutral, choice display list, button style primary, enum
+// default null, script null, actors null, runs_per_viewer 1, closes_at null, replies [], a stub's slots {}, audience
+// card and group null; act.say is kept ASCII-trimmed, as it is posted. Everything else is required.
 import type { Act, Cond, Doc, EnumValue, Leaf, Node, ReplyStub, SlotDecl, StateDecl, StateValue } from './types';
-import { boundedText, has, isId, isObject, utf8Bytes } from './text';
+import { asciiTrim, boundedText, has, isId, isObject, utf8Bytes } from './text';
 
 export const LIMITS = {
   title: 120, stateKeys: 32, enumValues: 20, valueLen: 64, labelLen: 120, setMax: 20, textMax: 500, int: 1e9,
@@ -25,8 +30,8 @@ function enumValues(v: unknown): EnumValue[] {
   need(Array.isArray(v) && v.length >= 2 && v.length <= LIMITS.enumValues);
   const seen = new Set<string>();
   return (v as unknown[]).map((x) => {
-    need(isObject(x) && boundedText(x.value, LIMITS.valueLen, false, 1) && boundedText(x.label, LIMITS.labelLen) && !seen.has(x.value as string));
-    seen.add((x as any).value); return { value: (x as any).value, label: (x as any).label };
+    need(isObject(x) && boundedText(x.value, LIMITS.valueLen, false, 1) && (x.label === undefined || boundedText(x.label, LIMITS.labelLen)) && !seen.has(x.value as string));
+    seen.add((x as any).value); return { value: (x as any).value, label: (x as any).label ?? (x as any).value };
   });
 }
 function stateDecl(v: unknown): StateDecl {
@@ -49,6 +54,10 @@ function stateDecl(v: unknown): StateDecl {
   }
   return fail();
 }
+
+/** Whether a value fits a reply slot: a declared enum string, or an integer within the slot's range. */
+export const slotOk = (d: SlotDecl, v: unknown): v is string | number =>
+  d.type === 'enum' ? typeof v === 'string' && d.values.includes(v) : Number.isInteger(v) && (v as number) >= d.min && (v as number) <= d.max;
 
 /** Whether a literal is a valid value of a declaration (also the check of validateState, per key). */
 export function validValue(d: StateDecl, v: unknown): v is StateValue {
@@ -109,7 +118,8 @@ function act(v: unknown, decls: Decls, replies: ReplyStub[]): Act {
     need(isObject(a.set)); out.set = {};
     for (const k of Object.keys(a.set as object)) { const x = (a.set as any)[k]; need(validValue(declOf(decls, k), x)); out.set[k] = Array.isArray(x) ? [...x] : x; }
   }
-  if (a.say !== undefined) { need(boundedText(a.say, LIMITS.say, true, 1)); out.say = a.say as string; }
+  // Checked and kept as posted: ASCII-trimmed, as the server checks it (sayError) and the say is posted.
+  if (a.say !== undefined) { need(typeof a.say === 'string' && boundedText(asciiTrim(a.say), LIMITS.say, true, 1)); out.say = asciiTrim(a.say as string); }
   if (a.say_kind !== undefined) { need(a.say !== undefined); out.say_kind = pick(a.say_kind, ['ic', 'ooc'] as const, 'ic'); }
   if (a.reply !== undefined) {
     const stub = replies.find((r) => r.id === a.reply); need(stub);
@@ -181,7 +191,7 @@ function node(v: unknown, decls: Decls, replies: ReplyStub[], level: 0 | 1 | 2, 
 export function parseDoc(raw: unknown): Doc | null {
   try {
     need(isObject(raw)); const r = raw as Record<string, unknown>;
-    need(r.v === 1 && boundedText(r.title, LIMITS.title));
+    need(r.v === 1 && (r.title === undefined || boundedText(r.title, LIMITS.title)));
     need(r.state === undefined || isObject(r.state));
     const decls: Decls = {}, keys = Object.keys((r.state ?? {}) as object);
     need(keys.length <= LIMITS.stateKeys);
@@ -197,7 +207,7 @@ export function parseDoc(raw: unknown): Doc | null {
     need(r.runs_per_viewer === undefined || (isInt(r.runs_per_viewer) && (r.runs_per_viewer as number) >= 1 && (r.runs_per_viewer as number) <= LIMITS.runs));
     need(r.closes_at === undefined || r.closes_at === null || typeof r.closes_at === 'string');
     return {
-      v: 1, title: r.title as string, state: decls, body, script: (r.script as string | undefined) || null,
+      v: 1, title: (r.title as string | undefined) ?? '', state: decls, body, script: (r.script as string | undefined) || null,
       actors: r.actors ? [...(r.actors as string[])] : null, runs_per_viewer: (r.runs_per_viewer as number | undefined) ?? 1,
       closes_at: (r.closes_at as string | undefined) ?? null, replies,
     };

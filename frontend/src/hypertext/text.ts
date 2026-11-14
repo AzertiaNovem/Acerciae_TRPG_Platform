@@ -53,6 +53,22 @@ export function sanitize(s: string, multiline = true): string {
   return out + s;
 }
 
+/** Lines as a reader sees them: \n, and the breaks the text rules let through (U+0085, U+2028, U+2029). */
+export const lineCount = (s: string) => s.split(/[\n\u0085\u2028\u2029]/).length;
+
+/** Nesting depth of a JSON text, scanned before JSON.parse so a deep document cannot exhaust the parser's stack. */
+export function jsonDepth(raw: string): number {
+  let depth = 0, max = 0, str = false;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw.charCodeAt(i);
+    if (str) { if (c === 0x5c) i++; else if (c === 0x22) str = false; continue; }
+    if (c === 0x22) str = true;
+    else if (c === 0x5b || c === 0x7b) { if (++depth > max) max = depth; }
+    else if (c === 0x5d || c === 0x7d) depth--;
+  }
+  return max;
+}
+
 /** Trim as the server does (C++ text::trim: ASCII whitespace only, so a full-width space is kept). */
 export function asciiTrim(s: string): string {
   const ws = (c: number) => c === 0x20 || (c >= 0x09 && c <= 0x0d);
@@ -62,8 +78,9 @@ export function asciiTrim(s: string): string {
   return s.slice(a, b);
 }
 
-/** Ids, state keys and handler names: ^[a-z][a-z0-9_]{0,31}$, never a JS prototype name. */
-const RESERVED = new Set(['constructor', 'hasownproperty', 'isprototypeof', 'propertyisenumerable', 'tolocalestring', 'tostring', 'valueof']);
+/** Ids, state keys and handler names: ^[a-z][a-z0-9_]{0,31}$, never a JS prototype name. The same list as the server's
+ *  kReserved (backend/src/chat/Hypertext.cpp); the names that start with "_" already fail the pattern. */
+const RESERVED = new Set(['constructor', 'prototype', 'hasownproperty', 'isprototypeof', 'propertyisenumerable', 'tolocalestring', 'tostring', 'valueof']);
 export const isId = (s: unknown): s is string => typeof s === 'string' && /^[a-z][a-z0-9_]{0,31}$/.test(s) && !RESERVED.has(s);
 
 /** Own-property lookups only: card keys are untrusted, so `in` and plain indexing could reach Object.prototype. */

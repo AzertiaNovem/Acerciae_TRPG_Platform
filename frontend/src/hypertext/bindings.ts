@@ -3,7 +3,7 @@
 // Kotlin (core/Hypertext.kt) and Swift (AcerciaeCore/Hypertext.swift) and pinned by the fixtures
 // mobile/contracts/fixtures/hypertext.json (shared with C++) and hypertext-client.json, so keep it small and explicit.
 import type { Action, Cond, Doc, Effect, HxEvent, Lock, Node, Resolved, ResolvedOption, State, StateDecl, StateValue } from './types';
-import { LIMITS, findNode, validValue } from './format';
+import { LIMITS, findNode, slotOk, validValue } from './format';
 import { has, isObject, utf8Bytes } from './text';
 
 const copy = (v: StateValue): StateValue => Array.isArray(v) ? [...v] : v;
@@ -31,24 +31,33 @@ export function overlay(doc: Doc, stored: unknown): State {
   return s;
 }
 
-/** Exactly the declared keys, each a valid value, at most 8 KiB serialized. */
-export function validateState(doc: Doc, state: unknown): { ok: true } | { ok: false; error: string } {
-  if (!isObject(state)) return { ok: false, error: 'state must be an object' };
-  for (const k of Object.keys(state)) if (!has(doc.state, k)) return { ok: false, error: `state.${k.slice(0, 40)}: not declared` };
-  for (const k of Object.keys(doc.state)) {
-    if (!has(state, k)) return { ok: false, error: `state.${k}: missing` };
-    if (!validValue(doc.state[k], state[k])) return { ok: false, error: `state.${k}: not a valid ${doc.state[k].type}` };
+/** A state as the server's validateState reads it (PUT /hypertext/state, /act): only declared keys, each a valid value;
+ *  a missing key takes its default. `state` is the completed state (sets in schema order), at most 8 KiB serialized.
+ *  On failure `key` is the offending key ("" for the whole state), the first in sorted order as on the server. The
+ *  engine's own output must be complete as well (effects.ts). */
+export function validateState(doc: Doc, state: unknown): { ok: true; state: State } | { ok: false; key: string; error: string } {
+  if (!isObject(state)) return { ok: false, key: '', error: 'state must be an object' };
+  const full = defaultState(doc);
+  for (const k of Object.keys(state).sort()) {
+    if (!has(doc.state, k)) return { ok: false, key: k, error: `state.${k.slice(0, 40)}: not declared` };
+    const d = doc.state[k];
+    if (!validValue(d, state[k])) return { ok: false, key: k, error: `state.${k}: not a valid ${d.type}` };
+    full[k] = d.type === 'set' ? d.values.map((x) => x.value).filter((x) => (state[k] as string[]).includes(x)) : copy(state[k] as StateValue);
   }
-  if (utf8Bytes(JSON.stringify(state)) > LIMITS.stateBytes) return { ok: false, error: 'state is larger than 8 KiB' };
-  return { ok: true };
+  if (utf8Bytes(JSON.stringify(full)) > LIMITS.stateBytes) return { ok: false, key: '', error: 'state is larger than 8 KiB' };
+  return { ok: true, state: full };
 }
+
+/** A key's value for conditions and interpolation: the state's when it is valid, else the default (C++ valueOf). */
+const valueAt = (doc: Doc, state: State, key: string): StateValue =>
+  has(state, key) && validValue(doc.state[key], state[key]) ? state[key] : defaultOf(doc.state[key]);
 
 export function evalCondition(c: Cond, doc: Doc, state: State): boolean {
   if ('all' in c) return c.all.every((x) => evalCondition(x, doc, state));
   if ('any' in c) return c.any.some((x) => evalCondition(x, doc, state));
   if ('not' in c) return !evalCondition(c.not, doc, state);
-  if (!has(doc.state, c.key) || !has(state, c.key)) return false;
-  const d = doc.state[c.key], v = state[c.key];
+  if (!has(doc.state, c.key)) return false;
+  const d = doc.state[c.key], v = valueAt(doc, state, c.key);
   if ('eq' in c) return v === c.eq;
   if ('in' in c) return (c.in as StateValue[]).includes(v);
   if ('has' in c) return Array.isArray(v) && v.includes(c.has);
@@ -61,20 +70,26 @@ export function evalCondition(c: Cond, doc: Doc, state: State): boolean {
   return false;
 }
 
+const keyChar = (c: number) => (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39) || c === 0x5f;
 /** `{{key}}`: an enum's label ("" when null), a set's labels in schema order joined with ", ", an int in decimal, a
- *  text as is. A bool or an unknown key is a post-time error, so it is left as written. */
+ *  text as is. A bool or an unknown key is a post-time error, so it is left as written. The same scan as the server's
+ *  interpolate: each "{{" either starts a declared key followed by "}}" or is kept, and the scan resumes after it. */
 export function interpolate(text: string, doc: Doc, state: State): string {
-  return text.replace(/\{\{([a-z][a-z0-9_]{0,31})\}\}/g, (all, key: string) => {
-    if (!has(doc.state, key) || !has(state, key)) return all;
-    const d = doc.state[key], v = state[key];
-    switch (d.type) {
-      case 'enum': return d.values.find((x) => x.value === v)?.label ?? '';
-      case 'set': return Array.isArray(v) ? d.values.filter((x) => v.includes(x.value)).map((x) => x.label).join(', ') : '';
-      case 'int': return typeof v === 'number' ? String(v) : '';
-      case 'text': return typeof v === 'string' ? v : '';
-      default: return all;
-    }
-  });
+  let out = '', start = 0, i: number;
+  while ((i = text.indexOf('{{', start)) >= 0) {
+    out += text.slice(start, i);
+    let j = i + 2;
+    while (j < text.length && keyChar(text.charCodeAt(j))) j++;
+    const key = text.slice(i + 2, j);
+    const d = j > i + 2 && text.startsWith('}}', j) && has(doc.state, key) ? doc.state[key] : null;
+    if (!d || d.type === 'bool') { out += '{{'; start = i + 2; continue; }
+    const v = valueAt(doc, state, key);
+    out += d.type === 'enum' ? d.values.find((x) => x.value === v)?.label ?? ''
+      : d.type === 'set' ? d.values.filter((x) => (v as string[]).includes(x.value)).map((x) => x.label).join(', ')
+      : String(v);
+    start = j + 2;
+  }
+  return out + text.slice(start);
 }
 
 const optionsOf = (doc: Doc, n: Extract<Node, { type: 'choice' }>) => {
@@ -83,7 +98,8 @@ const optionsOf = (doc: Doc, n: Extract<Node, { type: 'choice' }>) => {
 };
 
 /** Every node as drawn, in document order. Any lock disables every control; show_if hides (with the node's children),
- *  enable_if disables; a set's unselected options are disabled once it holds `max` values. */
+ *  enable_if disables; a set's unselected options are disabled once it holds `max` values; a button whose act replies
+ *  is disabled while a slot cannot be filled from the state (a null enum, or a value the slot does not list). */
 export function resolve(doc: Doc, state: State, lock: Lock): Resolved[] {
   const out: Resolved[] = [], locked = lock.reason !== null;
   const visit = (nodes: Node[], shown: boolean) => {
@@ -110,8 +126,11 @@ export function resolve(doc: Doc, state: State, lock: Lock): Resolved[] {
         }
         case 'button': {
           r.label = interpolate(n.label, doc, state);
-          const say = n.act?.say !== undefined ? act(doc, state, n.id)?.effects.find((e) => e.type === 'say') : undefined;
-          if (say && say.type === 'say') r.caption = say.text;
+          const a = n.act ? act(doc, state, n.id) : null;
+          for (const e of a?.effects ?? []) {
+            if (e.type === 'say') r.caption = e.text;
+            else if (!replyFits(doc, e.id, e.slots)) r.disabled = true;
+          }
           break;
         }
       }
@@ -123,10 +142,16 @@ export function resolve(doc: Doc, state: State, lock: Lock): Resolved[] {
   return out;
 }
 
-/** A UI action on a control → the new state and the event its `on` handler gets, or null when the action does not
- *  apply (unknown, hidden or disabled control, wrong action, a value that is not allowed, no change of a choice). */
-export function applyAction(doc: Doc, state: State, nodeId: string, action: Action): { state: State; event: HxEvent } | null {
-  const r = resolve(doc, state, { reason: null }).find((x) => x.node.id === nodeId);
+const replyFits = (doc: Doc, id: string, slots: Record<string, unknown>) => {
+  const stub = doc.replies.find((x) => x.id === id);
+  return !!stub && Object.keys(stub.slots).every((k) => slotOk(stub.slots[k], slots[k]));
+};
+
+/** A UI action on a control → the new state and the event its `on` handler gets (null for a commit, which fires no
+ *  handler), or null when the action does not apply: an unknown, hidden or disabled control (under `lock` as well),
+ *  the wrong action, a value that is not allowed, no change of a choice. */
+export function applyAction(doc: Doc, state: State, nodeId: string, action: Action, lock: Lock = { reason: null }): { state: State; event: HxEvent | null } | null {
+  const r = resolve(doc, state, lock).find((x) => x.node.id === nodeId);
   if (!r || !r.visible || r.disabled) return null;
   const n = r.node, s = copyState(state);
   switch (n.type) {
@@ -149,10 +174,10 @@ export function applyAction(doc: Doc, state: State, nodeId: string, action: Acti
       return { state: s, event: { type: 'change', node: n.id, value: copy(s[n.bind]) } };
     }
     case 'input':
-      if (action.type !== 'submit' || !validValue(doc.state[n.bind], action.value)) return null;
+      if ((action.type !== 'submit' && action.type !== 'commit') || !validValue(doc.state[n.bind], action.value)) return null;
       s[n.bind] = action.value;
       if (!validateState(doc, s).ok) return null;
-      return { state: s, event: { type: 'submit', node: n.id, value: action.value } };
+      return { state: s, event: action.type === 'commit' ? null : { type: 'submit', node: n.id, value: action.value } };
     case 'button':
       if (action.type !== 'click') return null;
       return { state: s, event: { type: 'click', node: n.id, value: null } };
@@ -161,8 +186,9 @@ export function applyAction(doc: Doc, state: State, nodeId: string, action: Acti
 }
 
 /** A button's declarative act: `set` first, then `say` interpolated from the new state, then `reply`, whose slots are
- *  filled from the state keys of the same names. Null when the node has no act. The effects are checked like a
- *  script's (effects.ts checkEffects) before anything is sent. */
+ *  filled from the state keys of the same names. Null when the node has no act. It does not check the lock, show_if
+ *  or enable_if: call it only for a click that applyAction accepted. The effects are checked like a script's
+ *  (effects.ts checkEffects) before anything is sent. */
 export function act(doc: Doc, state: State, nodeId: string): { state: State; effects: Effect[] } | null {
   const n = findNode(doc, nodeId);
   if (!n || n.type !== 'button' || !n.act) return null;

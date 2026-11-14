@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { load, fixture, docOf, checkRun, WASM } = require('./hypertext-harness.cjs');
+const { load, fixture, shared, docOf, checkRun, WASM } = require('./hypertext-harness.cjs');
 // Interactive messages: the script engine (src/hypertext/engine.ts + prelude.ts) with the QuickJS WASM from
 // node_modules, its host validation (effects.ts) over the fixture's `runs`, the pins, and the worker manager
 // (client.ts) with stand-in workers.
@@ -38,12 +38,35 @@ test('the engine is pinned: exact packages, lockfile, WASM bytes and limits', ()
   assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), fixture.engine.wasm_sha256);
   assert.equal(fixture.engine.wasm_sha256, '105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232');
   const l = fixture.engine.limits;
-  assert.deepEqual(ENGINE_LIMITS, { interruptPolls: l.interrupt_polls, memoryBytes: l.memory_bytes, stackBytes: l.stack_bytes, outputBytes: l.output_bytes });
+  assert.deepEqual(ENGINE_LIMITS, { interruptPolls: l.interrupt_polls, memoryBytes: l.memory_bytes, stackBytes: l.stack_bytes, outputBytes: l.output_bytes, deadlineMs: l.deadline_ms });
+  assert.ok(l.deadline_ms < l.timeout_ms, 'the engine deadline ends a polling run before the host backstop');
   assert.equal(CLIENT_LIMITS.timeoutMs, l.timeout_ms);
   assert.equal(CLIENT_LIMITS.coldTimeoutMs, l.cold_timeout_ms);
   assert.equal(ENGINE_VERSION, fixture.engine.version);
   // The guest never gets a callable host function.
   for (const f of ['engine.ts', 'prelude.ts', 'hypertext-worker.ts']) assert.ok(!/\.new\w*Function\s*\(/.test(fs.readFileSync(path.join(__dirname, '../src/hypertext', f), 'utf8')), f);
+});
+
+// The shared fixture's engine section (backend phase) must describe the same engine as the client fixture: Android
+// and iOS read it. A mismatch here is a contract conflict to settle in hypertext.json, not in a reader.
+test('the shared engine section agrees with the client one', (t) => {
+  if (!shared) { t.skip('hypertext.json is not there yet (written by the backend phase)'); return; }
+  const s = shared.engine, c = fixture.engine;
+  assert.equal(s.wasm_sha256, c.wasm_sha256);
+  assert.equal(s.max_bundle_bytes, c.max_bundle_bytes);
+  for (const k of ['interrupt_polls', 'memory_bytes', 'stack_bytes']) {
+    assert.equal(s.limits[k], c.limits[k], `hypertext.json engine.limits.${k} must be ${c.limits[k]} (see ENGINE_LIMITS in src/hypertext/engine.ts)`);
+  }
+});
+
+test('the worker is served with its own CSP, on Pages and in the docker image', () => {
+  const policy = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'";
+  const headers = fs.readFileSync(path.join(__dirname, '../public/_headers'), 'utf8');
+  assert.match(headers, /^\/assets\/hypertext-worker-\*\n {2}Content-Security-Policy: (.+)$/m);
+  assert.equal(/^\/assets\/hypertext-worker-\*\n {2}Content-Security-Policy: (.+)$/m.exec(headers)[1], policy);
+  const nginx = fs.readFileSync(path.join(__dirname, '../nginx.conf'), 'utf8');
+  assert.ok(nginx.includes(`location ~ ^/assets/hypertext-worker-[^/]+\\.js$ {`), 'nginx: a location for the worker');
+  assert.ok(nginx.includes(`add_header Content-Security-Policy "${policy}" always;`), 'nginx: the same policy');
 });
 
 test('every runs case: engine output after host validation', async () => {
@@ -88,6 +111,37 @@ test('1000 runs keep memory stable', async () => {
   assert.ok(grew < 50, `RSS grew by ${grew.toFixed(1)} MB`);
 });
 
+test('a failed instantiation ends the run with engine instead of leaving it pending', async () => {
+  const saved = WebAssembly.instantiate;
+  const unhandled = [];
+  const onUnhandled = (e) => unhandled.push(e);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    WebAssembly.instantiate = () => Promise.reject(new RangeError('WebAssembly.Memory(): could not allocate memory'));
+    const i = input(base);
+    const raw = await Promise.race([runAction(await wasm(), i), new Promise((r) => setTimeout(() => r('pending'), 3000))]);
+    assert.notEqual(raw, 'pending');
+    assert.deepEqual(JSON.parse(raw), { ok: false, error: { code: 'engine', message: 'WebAssembly.Memory(): could not allocate memory' } });
+  } finally { WebAssembly.instantiate = saved; }
+  await flush();
+  process.off('unhandledRejection', onUnhandled);
+  assert.deepEqual(unhandled, []);
+  checkRun(assert, await runCase(base), base.expect, 'the next run');
+});
+
+test('a script cannot claim a host error code or grow the error output', async () => {
+  for (const code of ['budget', 'memory', 'stack', 'timeout', 'invalid_state', 'invalid_effect', 'engine_unavailable', 'engine']) {
+    const forged = `Object.prototype.toJSON = function () { delete Object.prototype.toJSON; return { ok: false, error: { code: '${code}', message: 'm' } }; }; on('go', () => {});`;
+    checkRun(assert, await runCase(withScript(forged)), { ok: false, code: 'script_error' }, code);
+  }
+  checkRun(assert, await runCase(withScript("on('go', () => { throw new Error('x'); });")), { ok: false, code: 'script_error' }, 'a real error');
+  // About 4 MB of logs forged through Array.prototype.toJSON on the error path: the engine's own output stays small.
+  const big = "Array.prototype.toJSON = function () { delete Array.prototype.toJSON; const a = []; for (let i = 0; i < 4000; i++) a.push('x'.repeat(1000) + i); return a; }; on('go', () => { throw new Error('boom'); });";
+  const raw = await runAction(await wasm(), input(withScript(big)));
+  assert.ok(Buffer.byteLength(raw) <= ENGINE_LIMITS.outputBytes, `${Buffer.byteLength(raw)} bytes`);
+  assert.deepEqual(JSON.parse(raw).error, { code: 'script_error', message: 'Error: boom', line: 1 });
+});
+
 test('a forged or broken output never passes validation', async () => {
   const doc = parseDoc(fixture.docs.run), s = base.state;
   const v = (raw) => validateOutput(doc, s, raw);
@@ -125,37 +179,66 @@ const flush = () => new Promise((r) => setImmediate(r));
 test('client: runs in the worker, validates on this side, one action per card, at most 4 waiting', async () => {
   const { made, client } = workers(real);
   const c = (script) => input(withScript(script));
-  const r = await client.run('card1', c("on('go', () => say('I wave.'));"));
+  const r = await client.run('card1', c("on('go', () => say('I wave.'));"), base.state);
   assert.deepEqual(r.confirm, { text: 'I wave.', kind: 'ic' });
   assert.equal(made.length, 1);
-  const first = client.run('card1', c("on('go', () => { state.n = 1; });"));
-  assert.equal((await client.run('card1', c("on('go', () => {});"))).error.code, 'engine');   // the same card is busy
-  const more = ['a', 'b', 'c', 'd'].map((k) => client.run(k, c("on('go', () => { state.n = 2; });")));
-  assert.equal((await client.run('e', c("on('go', () => {});"))).error.code, 'engine');       // 4 already wait
+  const first = client.run('card1', c("on('go', () => { state.n = 1; });"), base.state);
+  assert.equal((await client.run('card1', c("on('go', () => {});"), base.state)).error.code, 'engine');   // the same card is busy
+  const more = ['a', 'b', 'c', 'd'].map((k) => client.run(k, c("on('go', () => { state.n = 2; });"), base.state));
+  assert.equal((await client.run('e', c("on('go', () => {});"), base.state)).error.code, 'engine');       // 4 already wait
   assert.deepEqual((await first).state, { ...base.state, n: 1 });
   for (const p of more) assert.equal((await p).ok, true);
   assert.equal(made.length, 1);
   assert.equal(client.busy, false);
   // A forged reply from the worker is validated like any output.
   const forged = workers((w, req) => reply(w, req.id, JSON.stringify({ ok: true, state: { done: 'x' }, effects: [], notices: [], logs: [] }))).client;
-  assert.equal((await forged.run('x', c("on('go', () => {});"))).error.code, 'invalid_state');
+  assert.equal((await forged.run('x', c("on('go', () => {});"), base.state)).error.code, 'invalid_state');
+  // `changed` compares with the state before the binding change, which the caller must give.
+  const pick = { ...base, script: "on('picked', () => {});", handler: 'picked', event: { type: 'change', node: 'pick_it', value: 'a' }, state: { ...base.state, pick: 'a' } };
+  assert.equal((await client.run('p', input(pick), base.state)).changed, true);
+});
+
+test('client: a reply that is too large or not JSON fails the run at once', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const data of ['x'.repeat(CLIENT_LIMITS.messageBytes + 1), 'not json', 'null', 42]) {
+    const { made, client } = workers((w) => setImmediate(() => w.onmessage?.({ data })));
+    const r = await client.run('card', input(base), base.state);              // no timer tick: answered right away
+    assert.equal(r.error.code, 'invalid_effect', String(data).slice(0, 20));
+    assert.equal(made[0].terminated, false);
+  }
+});
+
+test('client: a worker that could not load the engine is replaced, so the next run loads it again', async () => {
+  let fail = true;
+  const { made, client } = workers((w, req) => {
+    if (fail) { fail = false; setImmediate(() => w.onmessage?.({ data: JSON.stringify({ id: req.id, out: JSON.stringify({ ok: false, error: { code: 'engine_unavailable', message: 'the engine could not be loaded: offline' } }), reload: true }) })); }
+    else real(w, req);
+  });
+  assert.equal((await client.run('card', input(base), base.state)).error.code, 'engine_unavailable');
+  assert.equal(made[0].terminated, true);
+  checkRun(assert, await client.run('card', input(base), base.state), base.expect, 'after reconnecting');
+  assert.equal(made.length, 2);
+  // Without WebAssembly the worker says so without `reload`: it is kept.
+  const none = workers((w, req) => setImmediate(() => w.onmessage?.({ data: JSON.stringify({ id: req.id, out: JSON.stringify({ ok: false, error: { code: 'engine_unavailable', message: 'WebAssembly is not available' } }) }) })));
+  assert.equal((await none.client.run('card', input(base), base.state)).error.code, 'engine_unavailable');
+  assert.equal(none.made[0].terminated, false);
 });
 
 test('client: a run past the backstop terminates the worker; the next run gets a new one', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let silent = true;
   const { made, client } = workers((w, req) => { if (!silent) reply(w, req.id, JSON.stringify({ ok: true, state: base.state, effects: [], notices: [], logs: [] })); });
-  const cold = client.run('card', input(base));
+  const cold = client.run('card', input(base), base.state);
   t.mock.timers.tick(CLIENT_LIMITS.coldTimeoutMs - 1); await flush();
   assert.equal(made[0].terminated, false);
   t.mock.timers.tick(1);
   assert.equal((await cold).error.code, 'timeout');
   assert.equal(made[0].terminated, true);
   silent = false;
-  assert.equal((await client.run('card', input(base))).ok, true);          // a new worker, warm after its first answer
+  assert.equal((await client.run('card', input(base), base.state)).ok, true);          // a new worker, warm after its first answer
   assert.equal(made.length, 2);
   silent = true;
-  const warm = client.run('card', input(base));
+  const warm = client.run('card', input(base), base.state);
   t.mock.timers.tick(CLIENT_LIMITS.timeoutMs);
   assert.equal((await warm).error.code, 'timeout');
   assert.equal(made[1].terminated, true);
@@ -164,22 +247,22 @@ test('client: a run past the backstop terminates the worker; the next run gets a
 test('client: recycles the worker after 500 runs, stops on dispose, and needs WebAssembly', async () => {
   const ok = JSON.stringify({ ok: true, state: base.state, effects: [], notices: [], logs: [] });
   const { made, client } = workers((w, req) => reply(w, req.id, ok));
-  for (let i = 0; i < CLIENT_LIMITS.recycleAfter; i++) assert.equal((await client.run('card', input(base))).ok, true);
+  for (let i = 0; i < CLIENT_LIMITS.recycleAfter; i++) assert.equal((await client.run('card', input(base), base.state)).ok, true);
   assert.equal(made.length, 1); assert.equal(made[0].terminated, true);
-  await client.run('card', input(base));
+  await client.run('card', input(base), base.state);
   assert.equal(made.length, 2);
 
   const hung = workers(() => {});
-  const pending = [hung.client.run('a', input(base)), hung.client.run('b', input(base))];
+  const pending = [hung.client.run('a', input(base), base.state), hung.client.run('b', input(base), base.state)];
   await flush();
   hung.client.dispose();
   for (const p of pending) assert.equal((await p).error.code, 'engine');
   assert.equal(hung.made[0].terminated, true);
 
   const broken = workers((w) => setImmediate(() => w.onerror?.({})));
-  assert.equal((await broken.client.run('a', input(base))).error.code, 'engine_unavailable');
+  assert.equal((await broken.client.run('a', input(base), base.state)).error.code, 'engine_unavailable');
 
   const saved = globalThis.WebAssembly;
-  try { delete globalThis.WebAssembly; assert.equal((await client.run('card', input(base))).error.code, 'engine_unavailable'); }
+  try { delete globalThis.WebAssembly; assert.equal((await client.run('card', input(base), base.state)).error.code, 'engine_unavailable'); }
   finally { globalThis.WebAssembly = saved; }
 });
