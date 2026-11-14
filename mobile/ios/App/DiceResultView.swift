@@ -107,12 +107,16 @@ struct DiceAvatarView: View {
 struct DiceBotRow: View {
     let message: Message
     @ObservedObject var model: AppModel
+    /// This row stands alone for its line (a hidden roll's notice), so it carries the line's pill.
+    var provenance = false
     private var tone: Color { diceColor(message.diceTone == .notice ? .neutral : message.diceTone) }
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             DiceAvatarView(model: model, bot: message.diceBot, tone: tone)
             VStack(alignment: .leading, spacing: 6) {
                 Text(message.diceBot?.name.isEmpty == false ? message.diceBot!.name : tr("Dice")).font(.caption.weight(.semibold)).foregroundStyle(tone)
+                // A card's hidden roll announces itself with the same "via interactive message" as the roll line.
+                if provenance && message.viaHypertextId != nil { HypertextViaPill(answering: message.answering) }
                 DiceResultView(message: message, showCommand: false)
             }
             Spacer(minLength: 36)

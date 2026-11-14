@@ -27,6 +27,8 @@ android {
     buildFeatures { compose = true; buildConfig = true }
     sourceSets["main"].assets.srcDir("../../contracts/fixtures")
     sourceSets["main"].assets.srcDir("../../contracts/openstudio")
+    // The interactive messages' script engine (HypertextEngine.kt), as committed: its page, script and hashes.
+    sourceSets["main"].assets.srcDir("../../contracts/hypertext")
     sourceSets["test"].resources.srcDir("../../contracts/fixtures")
 }
 

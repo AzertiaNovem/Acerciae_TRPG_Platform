@@ -40,6 +40,15 @@ import kotlinx.serialization.json.*
     /** Seconds left, when the message arrived, for its author to recall it; null when it cannot be recalled. */
     @SerialName("recall_seconds_left") val recallSecondsLeft: Int? = null,
     @SerialName("stand_in") val standIn: Boolean = false,
+    /** Kind `hypertext` (an interactive message): the card as stored, read with Hypertext.parseDoc; null otherwise and
+     *  on a recalled card. Kept as raw JSON: `content` is its plain-text fallback. */
+    val hypertext: JsonObject? = null,
+    /** On a line a card produced: the card, and who acted on it (not the author on a reply the card's sender said). */
+    @SerialName("via_hypertext_id") val viaHypertextId: String? = null,
+    @SerialName("via_user_id") val viaUserId: String? = null,
+    @SerialName("via_user_name") val viaUserName: String? = null,
+    /** The window the line was written in; a fork shows lines of its parent window, whose cards are history there. */
+    @SerialName("chat_window_id") val chatWindowId: String? = null,
 )
 @Serializable data class DocumentSummary(
     val id: String,

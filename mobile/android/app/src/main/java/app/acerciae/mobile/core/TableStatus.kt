@@ -48,6 +48,13 @@ object Inspiration {
 /** Pinned lines: reminders of kind `pinned`, kept among a group's hints until their pinner or the GM unpins them. */
 object Pins {
     fun of(reminders: List<JsonObject>, messageId: String): JsonObject? = reminders.firstOrNull { it.text("kind") == "pinned" && it.text("pinned_message_id") == messageId }
-    fun canPin(message: Message): Boolean = !message.recalled && message.kind != "system"
+    /** An interactive message cannot be pinned (the server answers 409); the lines it produced can. */
+    fun canPin(message: Message): Boolean = !message.recalled && message.kind != "system" && message.kind != Hypertext.KIND
     fun canUnpin(pin: JsonObject, userId: String?, gm: Boolean): Boolean = pin.text("kind") == "pinned" && (gm || (!userId.isNullOrEmpty() && pin.text("pinned_by") == userId))
+}
+
+/** Which arriving lines are read aloud: not system lines, not interactive messages (their text is the card's plain
+ *  fallback, labels and buttons, not something said at the table), not recalled ones. */
+object ReadAloud {
+    fun speaks(message: Message): Boolean = message.kind != "system" && message.kind != Hypertext.KIND && !message.recalled
 }

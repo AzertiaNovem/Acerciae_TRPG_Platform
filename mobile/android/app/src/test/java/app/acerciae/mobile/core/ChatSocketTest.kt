@@ -20,13 +20,14 @@ class ChatSocketTest {
 
     @Test fun decodesTheServersFramesIncludingARecallTombstone() {
         val events = fixture().map { RealtimeEvent.parse(it)!! }
-        assertEquals(listOf("hello", "subscribed", "message.posted", "message.recalled", "window.changed"), events.map { it.type })
+        assertEquals(listOf("hello", "subscribed", "message.posted", "message.recalled", "window.changed", "hypertext.state", "hypertext.closed"), events.map { it.type })
         val posted = events[2].message!!; val tombstone = events[3].message!!
         assertEquals("I look at teh brass lantern.", posted.displayText)
         assertEquals(120, posted.recallSecondsLeft); assertFalse(posted.recalled)
         assertEquals(posted.id, tombstone.id); assertEquals(posted.seq, tombstone.seq)
         assertTrue(tombstone.recalled); assertEquals("", tombstone.displayText); assertNull(tombstone.recallSecondsLeft)
         assertEquals(events[2].channelId, events[4].channelId); assertNull(events[4].message)
+        assertEquals(events[2].channelId, events[5].channelId); assertNull(events[5].message); assertNull(events[6].message)   // a card's frames carry no message
         assertNull(RealtimeEvent.parse("not json")); assertNull(RealtimeEvent.parse("""{"no":"type"}"""))
     }
 

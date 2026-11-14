@@ -147,3 +147,267 @@ The character owner sees Recall for a stand-in regardless of its author or `reca
 its readability, archived-window and move-record checks. `character.updated` refreshes the character list as before.
 Absent fields on older servers show neither mark and retain ordinary recall rules. Localizations come from
 `localization/mobile.tsv`; `fixtures/passive-presence.json` describes both modern and legacy rows.
+
+## 2026-11-14 — Interactive messages (hypertext)
+
+A channel's GM accounts (bots such as gm-agent) can post an **interactive message** through REST; no composer posts
+one. It is a message of kind `hypertext` whose `hypertext` field is a small declarative card (text, checkboxes,
+choices, inputs, buttons, rows, groups) with an optional script that runs on the viewer's device when they act. The
+format, script API and security model are in `docs/HYPERTEXT.md`; the routes and every error code in `docs/API.md`
+(*Interactive messages*). The web and desktop app are the reference and both apps behave exactly like them: the pure
+logic in `frontend/src/hypertext/` (`types`, `text`, `format`, `bindings`, `dice`, `effects`), the action pipeline in
+`frontend/src/store/hypertext.ts`, the card in `frontend/src/components/HypertextCard.tsx` and its row in
+`MessageList.tsx`. The pure logic is ported to Kotlin `core/Hypertext.kt` and Swift `AcerciaeCore/Hypertext.swift`,
+where it is tested; the UI only draws what they decide.
+
+**Message rows.** `Message` gains `hypertext` (on kind `hypertext`: the normalized card with its defaults filled in,
+plus `closes_at` and the reply stubs `replies: [{id, slots, audience, group}]`; `null` on every other kind and on a
+recalled card), `via_hypertext_id`, `via_user_id`, `via_user_name` (on a line a card produced: the card, and who acted;
+on a reply the card's sender said, `via_user_id` is not the `author_id`) and `chat_window_id` (every row has it; the
+apps did not decode it). Rows also carry `via_interaction_id` and `via_effect`, which the apps do not need. Keep
+`hypertext` as raw JSON (Android `JsonObject?`; iOS the existing `JSONValue`, decoded with `JSONDecoder`, never
+`JSONSerialization`, whose `NSNumber` passes `0`/`1` as booleans on Darwin; `APIJSON`'s snake-case strategy leaves a
+`JSONValue`'s keys as the server spells them, which a typed struct would not) and read it with the `parseDoc` port
+when drawing. Its numbers are integers within ±1e9 (iOS formats them with `String(Int64(d))`). Card values compare by
+UTF-16 code unit, as JavaScript and Kotlin do; Swift's `String ==` (and so `JSONValue ==` and `Set<String>`) treats
+canonically equivalent text as equal (`"\u{E9}"` and `"e\u{301}"`), so the Swift port compares them with
+`Hypertext.same`. The history snapshot is re-encoded from decoded rows, so snapshots written before lack these fields:
+its key becomes `mobile-history-2` (Android `BackendClient.cachedHistory`/`keepHistory`, iOS `BackendClient.swift`,
+`Tests/RefreshTests.swift`).
+
+**Older builds.** An app without this support shows the card's `content` and reads it aloud like any line (read-aloud
+skips only `system` and recalled lines). `content` is the GM's fallback text, or one the server builds: the title,
+then one line per visible node (`☐ label`, `label: A / B`, `label: ____`, `[label]`, `—`). The card's lines are
+ordinary lines there, and its two pushes are unknown types that cause one refresh each.
+
+**Drawing.** The row keeps the sender, the avatar and a pill: kind `hypertext` shows `Interactive message`, never the
+raw kind. A line with `via_hypertext_id` shows `↳ via interactive message`, followed by ` · answering {name}`
+(`via_user_name`) when `via_user_id` is set and is not the `author_id`; its accessibility description is `Posted from
+an interactive message`. `Pins.canPin` is false for the kind (the server answers 409; the card's lines stay pinnable),
+read-aloud skips it (Android `AppViewModel`, iOS `AcerciaeApp` speech filters), and recalling a card returns
+`content: ""`, so no Re-edit. Card strings are plain text (no markup, links or pictures), each isolated on its own
+(U+2068 … U+2069 around it, as the web's `<bdi>`) so it cannot reorder the frame, the pill or a sentence it is placed
+in; iOS draws them with `Text(verbatim:)`. Styles come from the app's theme only. What each node shows comes from
+`resolve(doc, shownState, lock)` (visible, disabled, text, label, caption, value, options), where the shown state is
+the local draft, else the server's state over the defaults (`overlay`). On top of that a control with `on` is disabled
+while the engine is unavailable, and a button whose `act` says or replies is disabled once `runs_left` is 0. A button
+with a declarative `act.say` shows its caption after `Posts:` (`Posts (out of character):` when `act.say_kind` is
+`ooc`). A menu choice with no value shows `Choose…`; `display: menu` on a set is drawn as a list, as on the web. An
+input keeps its draft while typing; leaving the field commits it (action `commit`: saved, no handler runs); its button
+(`submit_label`, else `Send`) or Enter outside an IME composition submits it (action `submit`). Past the declared `max`
+code points it shows `At most {n} characters.` and cannot be submitted, and every input shows `Anything you type here
+may be shared in the chat.` under it. Under the card: the `notify()` notes (this viewer only), the outcome sentence,
+and a footer with the lock reason's sentence; else `Interactive actions are unavailable on this device.` when a control
+has `on` and the engine is unavailable; `Working…` while an action is under way (not while confirming); `Uses left:
+{n}` when the card can post (a control with `on`, or an `act` that says or replies), `runs_per_viewer` > 1 and
+`runs_left` > 0; `You already used this.` when it can post and `runs_left` is 0. GMs (never in a spectator view) get
+`Close` (hint `Stop everyone from using this message`) once the status is loaded, while the card is open, outside fork
+history and with the feature available, and a `Script details` box marked `GM only` with the last failure (code,
+message, `Line {n}`) and the `log()` lines.
+
+**Lock reasons**, first match wins (`HypertextCard.tsx`); the name in parentheses is the `lock.reason` for `resolve`:
+1. spectator view or the demo (`spectator`): "Spectators cannot use interactive messages." Spectators and the demo
+   never fetch the status or start the engine; they draw the document with its default state.
+2. the card was recalled (`recalled`): "This message was recalled."
+3. `message.chat_window_id` is not the open window, i.e. fork history (`history`): "This message belongs to an earlier
+   chat window."
+4. the feature is unavailable (`closed`): "This server does not support interactive messages yet." (an older server)
+   or "Interactive messages are turned off on this server." (`enabled: false`, 403 `feature_disabled`).
+5. closed (`closed`): `closed_at` set (status, close or push), the status said `closed`, the status left the card out,
+   or `closes_at` has passed (redraw at that moment): "This message is closed."
+6. the window is archived (`archived`): "This window is archived."
+7. a player whose view of the window is paused (`paused`): "Your participation in this window is paused."
+8. a player who is not a member of the window (`not_actor`): "Join this chat window to use this message."
+9. a player whose character in the card's window is not in `actors`, compared without case (GMs always may act, and
+   a card without `actors` lets everyone act) (`not_actor`): "This message is for other characters."
+10. the status has not arrived (`loading`): "Loading…".
+
+**Status.** `GET /api/channels/{c}/hypertext?ids=a,b,…`: comma-separated message ids, at most 100 a request (ask in
+chunks and join them; more, or an id that is not a UUID, is 400 `bad_request`; an empty list answers `{enabled: true,
+items: []}`). It answers `{enabled, items: [{message_id, closes_at, closed_at, closed, state, version, runs_left}]}` for
+the readable, non-recalled cards among them; `state` and `version` are the caller's own (`null` and `0` before their
+first save). Ask it (debounced, 150 ms) for each non-recalled card loaded in the open window not asked yet, and for all
+of them again when a window is opened and after every `subscribed`. `enabled: false` makes the feature `disabled`. A
+card left out is gone (drawn closed). A status adopts the server's state when its version is at least the one held.
+If it fails: 405 or any 404 → feature `missing`, 403 `feature_disabled` → `disabled`, anything else → ask again after
+5 s, the controls staying "Loading…".
+
+**Saving.** `PUT /api/channels/{c}/messages/{m}/hypertext/state` `{state, base_version}` → `{message_id, state,
+version}`. A control with no handler and no `act` (a checkbox, a choice, an input's submit), and an input's commit
+whatever its handler, change the draft, saved 500 ms later (debounced per card) with `base_version` = the version held.
+While a PUT is on its way the draft is kept even when it equals the server's copy, so a change back is saved after it.
+On success the newer server copy is adopted (a draft equal to it is dropped), and a draft made meanwhile is saved at
+once unless its own save is due or an action is under way. Saves and actions of one card run one after the other, and
+an action takes over a save still waiting for its timer (it carries the state).
+
+**Acting.** `POST /api/channels/{c}/messages/{m}/hypertext/act` `{interaction_id, node, base_version, state, say?:
+{text, kind, character_id?, confirmed?}, reply?: {id, slots}}` → `{interaction_id, replayed, partial, results: [{type,
+ok, message, error?}], state: {state, version} | null}`. One action per card at a time on a device. `interaction_id` is
+a new UUID per action, the same on every retry and on the resend after a confirmation; `base_version` is the version
+held when it is sent; `say.character_id` is the character the composer speaks as, sent only when it is not the viewer's
+character in the card's window. A script sees `viewer {gm, actor, character}`, `character` being that character's
+name. By control:
+- A button with `act`: `act()` gives the state and effects, checked with `checkEffects` (on failure: "This message's
+  action failed.", and an `invalid_effect` failure for GMs). No effects: save the state at once. Otherwise send it
+  without asking (the caption showed the line).
+- A control with `on`: while the engine is unavailable show "Interactive actions are unavailable on this device." and
+  change nothing. Otherwise show the control's own change and run the engine (below). A failed run reverts with "This
+  message's action failed." (failure and logs to GMs). A run with effects while `runs_left` is 0 reverts with "You
+  already used this.". Else show its notices and logs and take its state as the draft; with no effects save it at once
+  when `changed`. Ask for confirmation when `confirmFor` (recomputed natively) says so, or for any say while the
+  server's dice are off (`features.dice === false`; no sheet warning). Cancel reverts and clears the notices. Then send.
+- 2xx: put each non-null `results[].message` into the chat (de-duplicated with its push by id), adopt `state` when
+  newer, drop the draft, lower a known `runs_left` by one, and say "Part of this action could not be posted." when
+  `partial`.
+- 428 `confirmation_required` (`text`, `sheet` in the body) on a say not yet confirmed: ask "Post as {name}: {text}"
+  (`{name}` the composer's character's name, else the account's display name; for an `ooc` say "Post as {name} (out of
+  character): {text}" with the account's name), `{text}` being the body's `text`, else the say's. Add "This changes your
+  character sheet." unless `sheet` is `false`. "Post" resends the same body, same `interaction_id`, with
+  `say.confirmed: true`; "Cancel" reverts. A `hypertext.closed` push or a reset cancels a pending confirmation.
+
+To revert, the draft goes back to what it was before the action (an unsaved draft is saved again), and the pending flag
+and the confirmation are cleared. The other answers of the three routes:
+
+| Answer | PUT state | POST act |
+|---|---|---|
+| no answer (network), 408, any 5xx; for act also 409 `interaction_in_progress` | again after 0.6, 1.8 and 4.5 s with the draft as it is then; then drop the draft: "Your change could not be saved." | the same body after 0.6, 1.8 and 4.5 s; then revert: "This message's action could not be sent. Check your connection." |
+| 405, or a 404 without the API's JSON `error` (a server without the feature) | feature `missing`, drop the draft | feature `missing`, revert |
+| 403 `feature_disabled` | feature `disabled`, drop the draft | feature `disabled`, revert |
+| 404 with the API's `not_found` (recalled, or no longer readable) | drop the draft, sentence, ask the status again | revert, sentence, ask the status again |
+| 409 `state_conflict` (`state`, `version` in the body) | adopt them, drop the draft: "This message changed on another device." | the same, adopting them even at an equal version |
+| any other 409 (`hypertext_closed`, `runs_exhausted`, `reply_exhausted`, `interaction_mismatch`, `sender_unavailable`, `conflict` for an archived window) | drop the draft, sentence, ask the status again | revert, sentence, ask the status again |
+| anything else (400 `invalid_state`/`invalid_effect`/`invalid_slot`/`no_character`, 403 `forbidden`/`not_an_actor`/`hypertext_command_not_allowed`, 429 `rate_limited`) | drop the draft, sentence | revert, sentence |
+
+The sentence is the catalog's for a known code, else the server's own `message`: `hypertext_closed` "This message is
+closed.", `runs_exhausted` "You already used this.", `reply_exhausted` "This answer is no longer available.",
+`rate_limited` "Too many actions. Try again in a moment.", `not_an_actor` "This message is for other characters.",
+`hypertext_command_not_allowed` "This message cannot post that command for you.", `sender_unavailable` "This message's
+sender can no longer answer.", `state_conflict` "This message changed on another device.", `interaction_in_progress`
+"An action on this message is still being posted. Try again in a moment.", `feature_disabled` "Interactive messages
+are turned off on this server.". A 401 follows the *Shared session failure contract*. Detail fields are merged into
+the error body beside `error` and `message` (`state`, `version`, `text`, `sheet`, `retry_after`, `key`), so these
+routes keep the parsed body: Android `BackendException.details` (filled only when the body is the API's own JSON; the
+exception's message still never holds server text) and iOS `ClientError.refused(status, body)` (thrown by the card
+routes only; a 401 stays `.http(401)` and a body that is not the API's stays `.gateway`). The transport still never
+replays a mutation: these retries are the pipeline's own, safe because the server replays an `interaction_id` and
+checks `base_version`.
+
+**Closing** (GMs). `POST /api/channels/{c}/messages/{m}/hypertext/close` → `{message_id, closes_at, closed_at,
+closed_by, closed: true}`; closing again changes nothing. Then set `closed_at`/`closes_at` and cancel a confirmation.
+A failure is shown with the server's message; 405, a non-API 404 and 403 `feature_disabled` also mark the feature
+unavailable. Everything (cards, timers, confirmations, the engine) is dropped on sign-in or sign-out, a channel switch
+and every change of knowledge scope, as the web store's `reset`.
+
+**Pushes.** Captured from a server, at the end of `fixtures/realtime-events.json`:
+```json
+{"channel_id":"…","message_id":"…","state":{"door":null,"lamp":true},"type":"hypertext.state","version":1}
+{"channel_id":"…","closed_at":"2026-11-14T14:25:47.149433+00:00","message_id":"…","type":"hypertext.closed"}
+```
+`hypertext.state` is the viewer's own complete state of a card after a save or an action on any of their devices, this
+one included. It goes to every chat socket of that user, whatever channel the socket follows. `hypertext.closed` goes
+to the card's readers subscribed to the channel. Neither carries a `message`. `onPush` already drops frames of another
+channel; it applies these two and returns before `pushPending`, since they need no refresh: `hypertext.state` adopts
+the state when `version` is higher than the one held (dropping a draft equal to it); `hypertext.closed` sets
+`closed_at` and cancels a pending confirmation. Both are ignored for a card not loaded. The card arrives as an ordinary
+`message.posted` (the row with its whole `hypertext`, script included; spectators get it without `script`), and so do
+the lines it produces.
+
+**Engine host.** Only controls with `on` need it, so it is created lazily on the first run, never for spectators or
+the demo, and dropped after 2 minutes idle, in the background and on reset. The page is the committed build
+`contracts/hypertext/hypertext-engine.html`, which loads `hypertext-engine.js` beside it (CSP `default-src 'none';
+script-src 'self' file: 'wasm-unsafe-eval'; worker-src blob:; base-uri 'none'; form-action 'none'`). Its
+`window.MobileHypertext` has `ready` (true once a request can run), `version` (`engine.version` of
+`hypertext-client.json`), `start(id, json)` with `take(id)` (the result JSON once the run is done, `null` while it
+runs; at most 32 results wait to be taken) and `run(json)` (a Promise of the result JSON). At most 8 requests wait;
+more are answered at once with an `engine` failure. A request is `{doc, state, prev, handler, event: {type: change |
+submit | click, node, value}, viewer: {gm, actor, character}}`: `doc` the message's `hypertext`, `state` the state after
+the control's change (`applyAction`), `prev` the state shown before it (required), `handler` the control's `on`, `event`
+the one `applyAction` gives. As on the web, a request is at most 64 KiB (else fail with `invalid_state`, "the action
+is too large to run") and so is a result (else `invalid_effect`). A result is `{ok: true, state, effects, notices,
+logs, confirm, changed}` or `{ok: false, error: {code, message, line?}, logs?}`, codes `script_error`, `no_handler`,
+`budget`, `memory`, `stack`, `timeout`, `invalid_state`, `invalid_effect`, `engine_unavailable`, `engine`. Limits
+(`engine.limits`): `interrupt_polls` 50 and `deadline_ms` 500 (checked at each poll), `memory_bytes` 8 MiB,
+`stack_bytes` 128 KiB, `output_bytes` 16 KiB, and the wall-clock backstops `timeout_ms` 1000 and `cold_timeout_ms`
+5000. The bundle applies the backstops itself: each run goes to a `blob:` worker started from the bundle's own source,
+and the page answers `timeout` and replaces the worker when a run passes 1 s (5 s while a new worker starts). Only
+where no worker can start does a run happen on the page, and then the native timeout is the only backstop. So the
+native timeout must not be shorter than those marks; add a margin (and, on Android, the polling interval) so the
+bundle's own answer normally comes first, and count the cold mark from the page's load (a cold WebKit process can take
+much longer to start; `LocalStudioEngine` waits 60 s). The page's `ready` stays true once its first worker is ready,
+but after it answers `timeout` (it ended the worker) or `engine` (the worker stopped) it starts a new worker, so the
+next run is allowed the cold mark again. When the native timeout fires, discard that WebView, fail the run with
+`timeout`, and create a new one for the next run.
+
+**Native checks.** The result is checked again in `core` before anything is shown or sent, as `effects.ts` does: at
+most 64 KiB (the bundle already held the script's own output to `output_bytes`; its result adds `confirm`, which
+repeats the say text, and `changed`, so it may be a little larger), nested at most 16 deep, an object with a boolean
+`ok`. A failure keeps a known code (else `script_error`), its message cut to 200 code points, a
+positive integer `line`, and at most 20 logs of 200 code points. A success has no other keys than `ok`, `state`,
+`effects`, `notices`, `logs`, `confirm`, `changed`; a state with every declared key that passes `validateState`;
+effects that pass `checkEffects` (at most one say, ASCII-trimmed, `ic`/`ooc`, 1–500 code points, at most 5 lines, no
+control or direction characters, not refused by the dice policy; at most one reply, to a declared stub, with exactly its
+slots and allowed values); at most 3 notices of 1–200 code points; at most 20 logs of 200. `confirm` (`confirmFor`:
+the dice verdict and `bareRoll`) and `changed` are computed natively, never taken from the page. Anything else fails
+the run (`invalid_state` or `invalid_effect`). Without WebAssembly (iOS Lockdown Mode, jitless or old WebViews) every
+run answers `engine_unavailable`. The web knows it up front (`typeof WebAssembly`); the apps can ask the loaded page the
+same, or take the first `engine_unavailable` as the answer, and keep it for the app session. Then only controls with
+`on` are disabled ("Interactive actions are unavailable on this device."); rendering, bindings and declarative `act`
+keep working.
+
+**Android sandbox** (`HypertextEngine.kt`, after `StudioEngine` in `LocalStudio.kt` but without its bridge). A hidden
+WebView with JavaScript on, `blockNetworkLoads`, no file or content access, no DOM storage or databases. It loads
+`https://appassets.androidplatform.net/hypertext-engine.html`; `shouldInterceptRequest` serves only that page and
+`hypertext-engine.js` from the APK assets (`sourceSets["main"].assets.srcDir("../../contracts/hypertext")` in
+`build.gradle.kts`, as OpenStudio's) and answers 403 to anything else; `shouldOverrideUrlLoading` returns true. No
+`addJavascriptInterface`: a run is `evaluateJavascript("MobileHypertext.start(<id>, <json>)")`, then
+`MobileHypertext.take(<id>)` polled the same way until it is not `null`, both arguments passed as JSON string literals
+as `StudioEngine` does. The callback receives the value JSON-encoded, so the result string arrives as a JSON string
+literal to decode once. On a timeout destroy only this WebView and recreate it lazily; never call
+`webViewRenderProcess.terminate()`, since the renderer is shared with OpenStudio and the Log Studio viewer. Every
+`WebViewClient` in the app overrides `onRenderProcessGone` and returns true, the document viewer's in `LocalStudio.kt`
+included; the engine's fails the runs in flight and drops its WebView. The page's own `blob:` worker URL
+(`blob:https://appassets.androidplatform.net/…`) is left to the WebView (`HxPageRoute`); it names data the page made,
+so it reaches no network. The host's decisions (polling, the warm and cold marks, timeouts, idle and dispose, the
+routes) are plain Kotlin in `core/HypertextHost.kt`, unit-tested with a stand-in page (`HypertextHostTest`), and
+`HypertextWiringTest` checks the WebView settings in the sources. CI runs no WebView and there is no instrumented
+test yet, so a manual check on a device or emulator is still needed: a card with an `on` button runs its script (the
+page loads through `shouldInterceptRequest` with network loads blocked, and its `blob:` worker starts), and a
+`while(1)` script answers `timeout` and the next run works.
+
+**iOS sandbox** (`App/HypertextEngine.swift`, `@MainActor`, after `LocalStudioEngine`; its rules and timings are in
+`AcerciaeCore/HypertextHost.swift`, `Hypertext.EngineHost`, where they are tested). A hidden `WKWebView` made on the
+first run, with `websiteDataStore = .nonPersistent()`, no script message handlers, and a `WKContentRuleList` compiled
+once per app session that blocks every load, then lets the engine's `file:` assets and the `blob:` worker it starts
+from its own source through: `[{"trigger":{"url-filter":".*"},"action":{"type":"block"}},
+{"trigger":{"url-filter":"^file:"},"action":{"type":"ignore-previous-rules"}},
+{"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}}]`. WebKit checks a worker's script load
+against the list and `.*` matches a `blob:` URL, so it is named from the start; a `blob:` URL only names data the
+page made. The page's CSP blocks the same loads a second time. Both files ship as the folder resource `hypertext/`
+(`../contracts/hypertext` in `project.yml`, a folder reference in the committed `Acerciae.xcodeproj`), and the page
+is loaded with `loadFileURL(_:allowingReadAccessTo:)` on that folder only. Its navigation delegate allows only that
+first main-frame load and cancels every later one. Loading the page and waiting for `MobileHypertext.ready` (a
+`callAsyncJavaScript` that polls it every 25 ms) share one 60 s deadline. A run is the completion-handler form of
+`callAsyncJavaScript("return String(await MobileHypertext.run(json));", arguments: ["json": request], in: nil,
+in: .page)`, one at a time, returning the result string. The host's own backstop per run is 2.5 s while the page is
+warm and 8 s for a new page or after a `timeout` or `engine` answer (`EngineHost.runTimeout`), so the bundle's 1 s and
+5 s answers normally come first. A host timeout, a page failure or `webViewWebContentProcessDidTerminate` drops the
+view and the next run makes a new one; it is also dropped after 2 minutes idle, in the background and on a reset.
+
+**Shared fixtures.** Both ports pass, from `fixtures/hypertext.json`, `dice_policy`, `defaults`, `state_validation`,
+`conditions` and `interpolation`, and from `fixtures/hypertext-client.json`, `bindings`, `resolve` (every lock reason)
+and `act`. Read each section as the file's `about` says: a `state_decl` case is the card `{v: 1, state: state_decl,
+body: [{type: divider}]}`, `conditions` put `cond` in its `show_if`, missing state keys take their defaults, and a
+`bindings` case's `lock` defaults to `{reason: null}`. `validation`, `fallback` and `templates` are the server's. The
+packaged bundle's `hypertext-engine.sha256.json` must match `engine.wasm_sha256`, and the bundle must stay within
+`engine.max_bundle_bytes`. The iOS simulator test runs a subset of `runs` through the real WebView, with a probe that
+`fetch` and an `<img>` load are blocked, that later navigations are cancelled and that the `blob:` worker starts; the
+Android host rests on the same bytes, `mobile/hypertext/engine.test.mjs` (node:vm), `HypertextHostTest` and a manual
+check on a device. Android tests read the fixtures from the test classpath
+(`getResourceAsStream("hypertext.json")`), AcerciaeCore tests from `#filePath` less five components (`mobile/`)
+plus `contracts/fixtures/` (as `ContractTests.swift`). Android `ChatSocketTest` and iOS `RealtimeTests` decode the two
+card frames.
+
+**Localization.** Every card string is in `frontend/src/i18n/catalog.json` and is now packaged for both apps by
+`mobile/scripts/sync-localizations.py`; no mobile-only rows were needed. The apps' `tr` has no placeholders: translate
+the sentence, then replace `{n}`, `{name}` or `{text}` (as `tr("{name} recalled a message").replace(…)` does), keeping
+a replaced card or user string isolated.

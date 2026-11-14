@@ -340,7 +340,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     val separate = message.dice != null && !message.recalled && DiceDisplay.separate(state.user)
     when {
         // A hidden roll's public notice is the dice's own announcement.
-        separate && message.diceTone == DiceTone.NOTICE -> DiceBotRow(message, model)
+        separate && message.diceTone == DiceTone.NOTICE -> DiceBotRow(message, model, provenance = true)
         separate -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { MessageBody(message, state, model, commandOnly = true); DiceBotRow(message, model) }
         else -> MessageBody(message, state, model, commandOnly = false)
     }
@@ -372,9 +372,12 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {
         if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()); Spacer(Modifier.width(8.dp)) }
-        Column(Modifier.widthIn(max = 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+        // An interactive message gets a little more room for its controls.
+        Column(Modifier.widthIn(max = if (message.kind == Hypertext.KIND) 320.dp else 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
             Text(name + (if (message.standIn) " · " + tr("stand-in") else "") + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else "") + (if (pin != null) " · 📌" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
+            // "Interactive message" on a card, "↳ via interactive message" on a line one posted (never the raw kind).
+            if (message.kind == Hypertext.KIND || HypertextView.via(message)) { Spacer(Modifier.height(4.dp)); HypertextPills(message) }
             Spacer(Modifier.height(6.dp))
             // A long press offers "Pin" (or "Unpin"), and on one of the user's own lines, while it can still be recalled, "Recall".
             Box(Modifier.pointerInput(message.id, offersPin, offersUnpin) { detectTapGestures(onLongPress = { if (offersPin || offersUnpin || model.canRecall(message)) menu = true }) }) {
@@ -393,6 +396,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
                     if (message.dice != null && commandOnly) SelectionContainer { Text(message.content, style = MaterialTheme.typography.bodyMedium, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
                     else if (message.dice != null) DiceResult(message)
                     else if (message.hasIllustration) ChatIllustration(message, state, model)
+                    else if (message.kind == Hypertext.KIND) HypertextBody(message, state, model)
                     else Text(message.displayText, style = MaterialTheme.typography.bodyLarge)
                 }
             }

@@ -2,7 +2,13 @@ import Foundation
 
 public enum ClientError: Error, LocalizedError {
     case invalidAddress, insecureAddress, http(Int), gateway(Int), invalidResponse, pointsRule(String), rules(Int, String)
-    public var httpStatus: Int? { if case .http(let code) = self { return code }; if case .rules(let code, _) = self { return code }; return nil }
+    /// The API's own refusal with its whole body (`error`, `message` and the detail fields beside them), from the routes
+    /// whose callers decide by those details (interactive messages). A 401 there is still `.http(401)`.
+    case refused(Int, JSONValue)
+    public var httpStatus: Int? {
+        if case .http(let code) = self { return code }; if case .rules(let code, _) = self { return code }; if case .refused(let code, _) = self { return code }
+        return nil
+    }
     public var errorDescription: String? {
         switch self {
         case .invalidAddress: "请输入服务根地址，不要包含账号、/api 或查询参数"
@@ -16,6 +22,7 @@ public enum ClientError: Error, LocalizedError {
         case .invalidResponse: "服务返回的数据格式不兼容，请更新客户端或联系管理员"
         case .pointsRule(let message): "购点校验未通过：" + message
         case .rules(_, let message): message
+        case .refused(let status, let body): body["message"].string.map { String($0.prefix(2000)) }.flatMap { $0.isEmpty ? nil : $0 } ?? ClientError.http(status).errorDescription
         }
     }
 }
@@ -115,13 +122,14 @@ public struct BackendClient: Sendable {
         let key = cacheKey(ChatIllustrations.path(channel: channel, message: message), [:])
         if let assets { await Task.detached(priority: .utility) { assets.remove(key) }.value }
     }
-    // Local-only snapshot, not an API route: keeps all already-loaded pages for the window.
+    // Local-only snapshot, not an API route: keeps all already-loaded pages for the window. Re-encoded from decoded
+    // rows, so its name changes whenever rows gain fields (-2: interactive messages and `chat_window_id`).
     public func cachedHistory(channel: String, window: String) async -> ChatHistory? {
-        guard let data = await reads?.read(cacheKey(["channels", channel, "windows", window, "mobile-history"], [:])) else { return nil }
+        guard let data = await reads?.read(cacheKey(["channels", channel, "windows", window, "mobile-history-2"], [:])) else { return nil }
         return try? APIJSON.decoder().decode(ChatHistory.self, from: data)
     }
     @discardableResult public func keepHistory(_ history: ChatHistory, channel: String, window: String) -> Task<Void, Never> {
-        let key = cacheKey(["channels", channel, "windows", window, "mobile-history"], [:])
+        let key = cacheKey(["channels", channel, "windows", window, "mobile-history-2"], [:])
         let disk = reads, generation = disk?.generation ?? 0, ticket = disk?.reserve(key)
         return Task.detached(priority: .utility) {
             guard let disk, let data = try? JSONEncoder().encode(history) else { return }
@@ -167,9 +175,10 @@ public struct BackendClient: Sendable {
         do { return try APIJSON.decoder().decode(type, from: data) }
         catch { throw ClientError.invalidResponse }
     }
-    private func send(_ original: URLRequest) async throws -> Data { try await sendResponse(original).0 }
-    /// The bytes and the response (the disk cache keeps only what its Cache-Control marks immutable).
-    private func sendResponse(_ original: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    private func send(_ original: URLRequest, keepBody: Bool = false) async throws -> Data { try await sendResponse(original, keepBody: keepBody).0 }
+    /// The bytes and the response (the disk cache keeps only what its Cache-Control marks immutable). `keepBody`: an API
+    /// refusal other than 401 is thrown as `.refused` with its body.
+    private func sendResponse(_ original: URLRequest, keepBody: Bool = false) async throws -> (Data, HTTPURLResponse) {
         var request = original
         request.setValue("AcerciaeMobile/0.1 (iOS)", forHTTPHeaderField: "User-Agent")
         let readOnly = ["GET", "HEAD"].contains(request.httpMethod ?? "GET")
@@ -185,6 +194,7 @@ public struct BackendClient: Sendable {
                     // Edge/WAF HTML or text is not an application authorization decision.
                     let value = try? APIJSON.decoder().decode(JSONValue.self, from: data)
                     guard let error = value, !error["error"].text.isEmpty else { throw ClientError.gateway(response.statusCode) }
+                    if keepBody && response.statusCode != 401 { throw ClientError.refused(response.statusCode, error) }
                     if response.statusCode == 400 && error["error"].text == "points_rule" { throw ClientError.pointsRule(String(error["message"].text.prefix(2000))) }
                     let path = request.url?.path ?? ""
                     if [400,409].contains(response.statusCode), (path.contains("/pbta") || path.hasSuffix("/card")), !error["message"].text.isEmpty { throw ClientError.rules(response.statusCode, String(error["message"].text.prefix(2000))) }
@@ -217,6 +227,46 @@ public struct BackendClient: Sendable {
     /// Takes back one of the caller's own lines: its tombstone, and the text to edit and send again.
     public func recall(token: String, channel: String, message: String) async throws -> Recalled {
         try await request(["channels", channel, "messages", message, "recall"], token: token, body: Data("{}".utf8))
+    }
+
+    // Interactive messages (docs/API.md "Interactive messages"): the viewer's status of the cards, their own state saved
+    // by compare-and-swap, an action, and closing a card (GMs). Never cached and never replayed by the transport (the
+    // pipeline retries an action itself, with the same interaction id); an API refusal is `.refused` with its body,
+    // whose details the pipeline needs (the stored state of a 409 state_conflict, the text of a 428).
+    public static let hypertextStatusIds = 100
+    private func card<T: Decodable>(_ path: [String], token: String, method: String, body: JSONValue? = nil, query: [String: String] = [:]) async throws -> T {
+        var components = URLComponents(url: address.api(path), resolvingAgainstBaseURL: false)!
+        if !query.isEmpty { components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = body == nil ? 30 : 120
+        request.httpMethod = method
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Written as the web writes it: integers without a fraction (Hypertext.jsonText).
+        if let body { request.httpBody = Data(Hypertext.jsonText(body).utf8); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        return try decode(T.self, data: await send(request, keepBody: true))
+    }
+    /// The status of these cards, asked `hypertextStatusIds` at a time and joined; `enabled: false` ends it at once.
+    public func hypertextStatus(token: String, channel: String, ids: [String]) async throws -> Hypertext.Status {
+        var items: [Hypertext.StatusItem] = []
+        for start in stride(from: 0, to: ids.count, by: Self.hypertextStatusIds) {
+            let chunk = ids[start..<min(start + Self.hypertextStatusIds, ids.count)]
+            let r: Hypertext.Status = try await card(["channels", channel, "hypertext"], token: token, method: "GET", query: ["ids": chunk.joined(separator: ",")])
+            if !r.enabled { return Hypertext.Status(enabled: false, items: []) }
+            items += r.items
+        }
+        return Hypertext.Status(enabled: true, items: items)
+    }
+    public func hypertextSave(token: String, channel: String, message: String, state: Hypertext.State, baseVersion: Int) async throws -> Hypertext.Saved {
+        try await card(["channels", channel, "messages", message, "hypertext", "state"], token: token, method: "PUT",
+                       body: .object(["state": .object(state), "base_version": .number(Double(baseVersion))]))
+    }
+    /// One action (`Hypertext.actBody`); a retry sends the same body, with the same interaction id.
+    public func hypertextAct(token: String, channel: String, message: String, body: JSONValue) async throws -> Hypertext.ActResult {
+        try await card(["channels", channel, "messages", message, "hypertext", "act"], token: token, method: "POST", body: body)
+    }
+    public func hypertextClose(token: String, channel: String, message: String) async throws -> Hypertext.Closed {
+        try await card(["channels", channel, "messages", message, "hypertext", "close"], token: token, method: "POST")
     }
 }
 public struct Recalled: Decodable, Sendable { public let message: Message; public let content: String }

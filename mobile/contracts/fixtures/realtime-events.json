@@ -1,5 +1,5 @@
 {
-  "_comment": "Chat-stream frames as the backend sends them (captured from a live server): hello, subscribed, a line, its recall (the tombstone: no text, recalled_at set), a window change. Both mobile apps decode these in their tests.",
+  "_comment": "Chat-stream frames as the backend sends them (captured from a live server): hello, subscribed, a line, its recall (the tombstone: no text, recalled_at set), a window change, then an interactive message's two frames: hypertext.state (the viewer's own complete state of the card, sent only to that user's chat sockets, whatever channel they follow) and hypertext.closed (to the card's readers). Those two were captured on another table and carry this fixture's channel id. Both mobile apps decode these in their tests.",
   "events": [
     {
       "stream": "chat",
@@ -80,6 +80,22 @@
       "window": {
         "id": "23d2dada-df29-4142-840f-963d3ffd7fb3"
       }
+    },
+    {
+      "channel_id": "eeed6fc7-332b-428c-bb89-b36f640fd7b1",
+      "message_id": "929c7028-0755-4aec-9538-ecd2eab5a12b",
+      "state": {
+        "door": null,
+        "lamp": true
+      },
+      "type": "hypertext.state",
+      "version": 1
+    },
+    {
+      "channel_id": "eeed6fc7-332b-428c-bb89-b36f640fd7b1",
+      "closed_at": "2026-11-14T14:25:47.149433+00:00",
+      "message_id": "929c7028-0755-4aec-9538-ecd2eab5a12b",
+      "type": "hypertext.closed"
     }
   ]
 }

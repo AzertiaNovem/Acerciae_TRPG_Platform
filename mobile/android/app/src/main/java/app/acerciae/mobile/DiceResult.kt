@@ -120,14 +120,17 @@ private val diceAvatars = LruCache<String, Bitmap>(16)
     }
 }
 
-/** The dice answering as their own message: the persona's avatar and name, then the result. */
-@Composable fun DiceBotRow(message: Message, model: AppViewModel) {
+/** The dice answering as their own message: the persona's avatar and name, then the result. [provenance]: this row
+ *  stands alone for its line (a hidden roll's notice), so it carries the line's pills. */
+@Composable fun DiceBotRow(message: Message, model: AppViewModel, provenance: Boolean = false) {
     val bot = message.diceBot
     val tone = if (message.diceTone == DiceTone.NOTICE) diceColor(DiceTone.NEUTRAL) else diceColor(message.diceTone)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         DiceAvatar(bot, tone, model); Spacer(Modifier.width(8.dp))
         Column(Modifier.widthIn(max = 300.dp)) {
             Text(bot?.name?.ifEmpty { null } ?: tr("Dice"), style = MaterialTheme.typography.labelSmall, color = tone, fontWeight = FontWeight.SemiBold)
+            // A card's hidden roll announces itself with the same "via interactive message" as the roll line.
+            if (provenance && HypertextView.via(message)) { Spacer(Modifier.height(4.dp)); HypertextPills(message) }
             Spacer(Modifier.height(6.dp))
             DiceResult(message, showCommand = false)
         }

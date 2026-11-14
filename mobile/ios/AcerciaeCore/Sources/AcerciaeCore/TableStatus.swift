@@ -78,7 +78,8 @@ public enum Pins {
     public static func of(_ reminders: [Resource], messageId: String) -> Resource? {
         reminders.first { $0["kind"].text == "pinned" && $0["pinned_message_id"].text == messageId }
     }
-    public static func canPin(_ message: Message) -> Bool { !message.recalled && message.kind != "system" }
+    /// A card cannot be pinned (the server answers 409); the lines it posts can.
+    public static func canPin(_ message: Message) -> Bool { !message.recalled && message.kind != "system" && message.kind != "hypertext" }
     public static func canUnpin(_ pin: Resource, userId: String?, gm: Bool) -> Bool {
         guard pin["kind"].text == "pinned" else { return false }
         if gm { return true }
