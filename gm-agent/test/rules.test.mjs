@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { RULE_SYSTEMS, adaptPrompt, ruleSystemOf, rulesProfile } from "../src/rules/index.mjs";
-import { directorSystem } from "../src/director.mjs";
+import { directorFormatSchema, directorSystem } from "../src/director.mjs";
 import { coplayerSystem } from "../src/coplayer.mjs";
 import { plannerSystem } from "../src/planner.mjs";
 
@@ -69,11 +69,13 @@ test("PbtA keeps sourced moves and player choices without CoC or D&D dice", () =
   const director = directorSystem("English", { profile, pbta: true });
   assert.match(director, /^You are the GM \(Game master\) of a Powered by the Apocalypse campaign/);
   assert.match(director, /Narrate only the GM's own decisions\./);
-  assert.match(director, /"type":"move","source_id"/);
+  const format = directorFormatSchema({ profile, pbta: true });
+  assert.match(format, /"type":"move","source_id"/);
+  assert.doesNotMatch(format, /"type": "dice"|"type": "request_roll"/);
   assert.match(director, /quote the options and wait for their actual reply/);
   assert.doesNotMatch(director, /Keeper|\bMC\b|Sealdice|"type": "dice"|"type": "request_roll"|undefined/);
   const coplayer = coplayerSystem("English", { profile, pbta: { moves: [] } });
-  assert.match(coplayer, /"command": "\.move <move-id>"/);
+  assert.match(coplayer, /\.move <move-id>[^\n]*Table directions:/);
   assert.doesNotMatch(coplayer, /Keeper|\bMC\b|Sealdice|\.rc |\.ra |undefined/);
 });
 
@@ -84,13 +86,14 @@ test("a D&D table's prompts name the GM and the D20 commands, never the Keeper, 
   assert.doesNotMatch(director, /Keeper|Dungeon Master|\bDM\b|\.sc |Sealdice|investigator/);
   assert.match(director, /"\.rc Stealth dc 15", "\.rc WIS save dc 13", "\.rc attack \+5 ac 14"/);
   assert.match(director, /- Combat: when a fight starts, have everyone roll initiative/); assert.match(director, /Your dice action runs a command as the GM:/);
-  assert.match(director, /\{"type": "dice", "command": "\.ri \+2 Goblin \| \.init next/); assert.match(director, /"command": "\.rc <skill \| ABILITY save \| attack \+N> \[dc N \| ac N\]"/);
-  assert.match(director, /<GM-only note>/); assert.match(director, /"who": \["<adventurer names>"\]/);
+  const format = directorFormatSchema({ profile: dnd });
+  assert.match(format, /\{"type": "dice", "command": "<exact command>"/); assert.match(format, /"type": "request_roll"/);
+  assert.match(director, /GM only: for a private note/); assert.match(format, /"whereabouts": \[\{"who":/);
   assert.match(director, /nothing needs the GM now/);
   const coplayer = coplayerSystem("English", { profile: dnd });
   assert.match(coplayer, /^You play one adventurer in a fifth-edition fantasy game \(D&D 2024 rules\) on an online table/);
   assert.doesNotMatch(coplayer, /Keeper|Dungeon Master|Sealdice|\.ra Spot Hidden/);
-  assert.match(coplayer, /The GM runs the world\. You are a fellow player, not the GM and not the protagonist\./);
-  assert.match(coplayer, /"\.rc Stealth dc 15" for a check, "\.rc WIS save dc 13" for a save/); assert.match(coplayer, /"command": "\.rc <skill> dc N"/);
+  assert.match(coplayer, /The GM runs the world\. You are a fellow player with a stake in the story\./);
+  assert.match(coplayer, /"\.rc Stealth dc 15" for a check, "\.rc WIS save dc 13" for a save/); assert.match(coplayer, /\.rc <skill> dc N[^\n]*Table directions:/);
   assert.match(coplayerSystem("English", { profile: dnd, improv: true }), /a fifth-edition fantasy game \(D&D 2024 rules\) whose genre and tone follow its world setting, on an online table/);
 });

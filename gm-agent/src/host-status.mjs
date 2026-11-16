@@ -12,6 +12,16 @@ const parsed = (s) => { const t = Date.parse(s ?? ""); return Number.isFinite(t)
 const clip = (s, n = 200) => { const v = String(s ?? ""); return v.length > n ? `${v.slice(0, n - 1)}…` : v; };
 
 const usageCache = new WeakMap();
+export function worldSnapshot(table) {
+  const s = table.worldState;
+  if (!table.improv?.on || !s) return { on: false };
+  return { on: true, at: new Date().toISOString(), revision: s.revision,
+    characters: (table.characters ?? []).map(c => ({ id: c.id, name: c.name, npc: table.roster.isNpc(c.id) })),
+    definitions: s.definitions, values: Object.values(s.values), events: s.events, audit: s.audit.slice(-50).reverse(),
+    inventory: table.worldInventory ?? [], inventoryAvailable: Boolean(table.worldInventoryAvailable), inventoryError: table.worldInventoryError ?? null,
+    pending: s.pending ? { at: s.pending.at, error: s.pending.error ?? null, phase: s.pending.phase ?? 'prepared' } : null,
+    recallPending: Boolean(s.recallPending) };
+}
 export function usageSnapshot(store, now = Date.now()) {
   const day = new Date(now); day.setHours(0, 0, 0, 0);
   const since = day.getTime(), cached = usageCache.get(store);
@@ -40,6 +50,7 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
 
   const snapshot = {
     at: new Date(now).toISOString(),
+    forge: table.forge ?? null,
     channel: section("channel", () => ({
       id: channel?.id ?? table.channelId, name: channel?.name ?? "", rule: table.profile?.id ?? channel?.rule_system ?? "coc7e",
       gm: channel?.my_role ? channel.my_role === "gm" : null, knowledge: channel?.knowledge_mode ?? null, language: table.language ?? "",
@@ -56,6 +67,9 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
         splitInProgress: Boolean(table.journal), openingTurnsOwed: table.owedArrivals?.length ?? 0,
       };
     }),
+    worldState: section('worldState', () => ({ on: Boolean(table.improv?.on), revision: table.worldState?.revision ?? 0,
+      inventoryStamp: (table.worldInventory ?? []).map(c => `${c.id}:${c.version}`).join(','), inventoryAvailable: Boolean(table.worldInventoryAvailable),
+      pending: table.worldState?.pending?.error ?? table.worldState?.pending?.phase ?? null })),
     realtime: realtime ? { streams: [...(realtime.streams ?? [])], connected: [...(realtime.connected ?? [])] } : null,
     cast: section("cast", () => ({
       players: (table.characters ?? []).filter((c) => table.isPc?.(c.id)).map((c) => ({ name: c.name, player: c.player_name ?? null, timeline: table.timelines?.of(c.id)?.handle ?? null })),

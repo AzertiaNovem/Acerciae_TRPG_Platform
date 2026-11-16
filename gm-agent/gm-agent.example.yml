@@ -2,6 +2,11 @@
 # --config / GM_AGENT_CONFIG). Secrets and deployment stay in the environment or .env: GM_PASSWORD, ANTHROPIC_API_KEY,
 # LLM_API_KEY, PLANNER_API_KEY, ACERCIAE_API_BASE, CHANNEL_ID, STATE_DIR. A command-line flag overrides any key for one run.
 
+writing:                      # optional per-channel guidance; each blank uses its original built-in text
+  gm: ""                      # GM narration, NPC dialogue and NPC phone replies; YAML | supports multiple lines
+  coplayer: ""                # co-player scene actions and dialogue
+  formatting: ""              # second request only: short/long bubbles, paragraph grouping or sentence splitting
+
 account:
   username: aikeeper          # the GM account (its password is GM_PASSWORD)
   display_name: AI GM
@@ -55,7 +60,7 @@ planner:                      # the story planner: a slower model above the GM t
   final_review_min_lines: 10  # player lines a session needs to be reviewed
   final_review_max_days: 30   # casual games: the most story days one final review may move the calendar
 
-providers:                    # more endpoints, each with its key and default model (the llm section is the one called "default")
+providers: {}                 # remove {} to configure more endpoints, each with its key and default model (the llm section is the one called "default")
   # fast:
   #   provider: anthropic       # anthropic | openai_compatible | mock
   #   api_base: ""
@@ -64,11 +69,13 @@ providers:                    # more endpoints, each with its key and default mo
   #   effort: medium            # these take the llm section's values when left out:
   #   max_tokens: 16000         # effort, max_tokens, timeout_ms, stream, fallbacks, cache_ttl
 
-models:                       # which function runs on which provider and model; a function left out runs on `default`
+models: {}                    # remove {} to configure which function runs on which provider and model; a function left out runs on `default`
   # director: { provider: default, model: claude-opus-5-5, effort: high }   # the GM's turns
   # coplayers: { provider: fast }                                           # coplayer_turn, coplayer_phone
   # planner: fast                                                           # a provider's name alone is enough
   # memory: fast                                                            # compact, coplayer_memory
+  # forge: { provider: default, model: "" }                                  # pre-game co-design, review and playtests
+  # formatting: fast                                                       # chat_format: drafts are arranged for chat on a separate call
   # readers: { provider: fast, effort: low }                                # scene_presence, movement_evidence, placement_correction, scene_handoff
   # pictures: fast                                                          # scenario_illustration, event_illustration, plot_search, plot_illustration
   # cards: default                                                          # coplayer_card, npc_card, coplayer_repair, coplayer_points, coplayer_build, pbta_design, pbta_card
@@ -143,6 +150,9 @@ illustrations:                # pictures drawn by the server's image provider, p
   max_per_hour: 6             # pictures in play each hour: small events' ends and the GM's own (scenario pictures are not counted)
   allow_cloud: true           # descriptions and portraits may go to a cloud image service
   requests_per_hour: 4        # pictures of past plots each player may ask for with "/画 …" in the planner window (0: off)
+
+forge:
+  enabled: false              # pre-game only; requires modes.improv: true. See ../docs/FORGE.md
 
 modes:                        # set with `setup`, `world`, `casual`; then kept in the state file. Empty = leave as it is.
   improv:                     # true: improvisation mode (no module; your world setting)

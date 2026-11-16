@@ -8,6 +8,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { DAILY_DEFAULTS } from "./daily.mjs";
 import { DEFAULT_PROVIDER, FUNCTION_NAMES, PROVIDER_TYPES, PURPOSES } from "./llm/routes.mjs";
+import { DEFAULT_WRITING, WRITING_MAX_LENGTH } from "./writing.mjs";
 
 // Loads KEY=VALUE lines from a .env file without overriding variables already set in the environment.
 export function loadEnvFile(file) {
@@ -64,12 +65,14 @@ const get = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o =
 // Every setting: flag, file key, and (for the few that still come from the environment) its variable. Older variable
 // names map to file keys for the warning.
 const SETTINGS = [
+  ["forge", null, "forge.enabled"],
   ...Object.keys(DAILY_DEFAULTS).map(k => [`daily-${k.replaceAll("_", "-")}`, null, `daily.${k}`]),
   ["standin-context-tokens", null, "context.standin_tokens"],
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
   ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rule_system"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
   ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"],
   ["level", null, "table.level"], ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
+  ["gm-writing", null, "writing.gm"], ["coplayer-writing", null, "writing.coplayer"], ["formatting-writing", null, "writing.formatting"],
   ["llm-provider", null, "llm.provider"], ["llm-api-base", null, "llm.api_base"], ["llm-api-key", "LLM_API_KEY", null], ["llm-model", null, "llm.model"], ["llm-effort", null, "llm.effort"],
   ["llm-max-tokens", null, "llm.max_tokens"], ["llm-fallbacks", null, "llm.fallbacks"], ["llm-timeout-ms", null, "llm.timeout_ms"], ["llm-stream", null, "llm.stream"], ["llm-trace", null, "llm.trace"], ["llm-cache-ttl", null, "llm.cache_ttl"],
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
@@ -103,7 +106,7 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
-const SECTIONS = ["daily", "account", "channel", "table", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
+const SECTIONS = ["forge", "daily", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
 // Named endpoints (`providers`) and the model of each function (`models`) have keys of their own (llm/routes.mjs).
 const FREE_SECTIONS = ["providers", "models"];
 const PROVIDER_KEYS = ["provider", "api_base", "api_key", "model", "effort", "max_tokens", "fallbacks", "timeout_ms", "stream", "cache_ttl"];
@@ -133,6 +136,14 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   };
   // A file given in the configuration file is relative to that file; on the command line, to the working directory.
   const where = (flag, v) => (v ? path.resolve(args[flag] !== undefined ? process.cwd() : dir, String(v)) : null);
+  const writing = Object.fromEntries(Object.entries(DEFAULT_WRITING).map(([role, fallback]) => {
+    const value = pick(`${role}-writing`, fallback);
+    if (typeof value !== "string" || value.length > WRITING_MAX_LENGTH) {
+      warnings.push(`writing.${role} must be text of at most ${WRITING_MAX_LENGTH} characters`);
+      return [role, fallback];
+    }
+    return [role, value.trim() || fallback];
+  }));
 
   const provider = str(pick("llm-provider", env.ANTHROPIC_API_KEY ? "anthropic" : "mock"));
   const llm = {
@@ -238,6 +249,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     level: Math.max(1, Math.min(20, int(pick("level", 1), 1))),   // D&D: the level of new co-players
     coplayerWindows: list(pick("coplayer-windows", "")),
     language: str(pick("language", "")),
+    writing,
     llm,
     planner,
     providers,
@@ -308,6 +320,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     },
     // Improvisation and casual modes are kept in the state file; these only change them when given (`setup`, `world`,
     // `casual`).
+    forge: { enabled: bool(pick("forge"), false) },
     improv: tri(pick("improv")),
     casual: tri(pick("casual")),
     casualMaxDelayMinutes: Math.max(0, int(pick("casual-max-delay-minutes", 240), 240)),

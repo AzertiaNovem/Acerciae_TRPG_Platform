@@ -17,7 +17,7 @@ import AcerciaeCore
     @Published var initiative: JSONValue = .null
     @Published var bannersEnabled = UserDefaults.standard.object(forKey: "chatBanners") as? Bool ?? true
     @Published var readAloud = UserDefaults.standard.bool(forKey: "readAloud")
-    var foreground = false { didSet { if !foreground { stopArtworkPrefetch(); metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID(); metadataUpdated = .distantPast; stopRealtime() } } }
+    var foreground = false { didSet { if !foreground { stopArtworkPrefetch(); metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID(); metadataUpdated = .distantPast; stopRealtime(); cards.engine.release() } } }
     // ---- live updates. The chat stream (AcerciaeCore/ChatSocket.swift) follows the channel on screen. A push wakes the
     // poll loop (RootView), which refreshes as it always has; a recall is applied at once. While the stream is live,
     // polling every 30 s is only a safety net; when it is down the loop polls every 4 s as before.
@@ -36,6 +36,8 @@ import AcerciaeCore
                     self?.pushConnected = live
                     if !live { self?.typingFlags.clear(); self?.showTyping() }   // the snapshot after the next subscription says who is typing
                     if live { self?.pushPending = true }
+                    // Card states and closings pushed while the stream was down are read again after each subscription.
+                    if live { self?.cards.store.resync() }
                     if self?.online == true { self?.connection = live ? "已连接 · 实时推送" : "已连接 · 自动刷新" }
                 },
                 resync: { [weak self] in self?.pushPending = true }))
@@ -84,6 +86,7 @@ import AcerciaeCore
     func onPush(_ e: RealtimeEvent) {
         guard e.channelId.isEmpty || e.channelId == channelId else { return }
         if typingFlags.apply(e) { showTyping(); return }   // a pen is no reason to fetch anything
+        if cards.store.apply(e) { return }   // a card's state or closing needs no refresh either
         switch e.type {
         case "message.recalled": if let tombstone = e.message { applyRecall(tombstone) }
         case "character.updated", "scene.changed", "server.settings": metadataUpdated = .distantPast
@@ -126,7 +129,8 @@ import AcerciaeCore
                 let done = try await client.recall(token: token, channel: self.channelId, message: m.id)
                 guard stamp == self.epoch else { return }
                 self.applyRecall(done.message)
-                if !done.content.isEmpty { self.recallDrafts[m.id] = done.content }
+                // A card's text is not the author's to edit again (the server answers it empty anyway).
+                if !done.content.isEmpty && !m.isHypertext { self.recallDrafts[m.id] = done.content }
             } catch ClientError.http(409) {
                 self.notice = tr(self.recallDeadlines.expired(m) ? "Messages can only be recalled within 2 minutes of sending." : "This message can't be recalled.")
             }
@@ -139,7 +143,7 @@ import AcerciaeCore
     var chatVisible = false
     let speech = AVSpeechSynthesizer()
     private var readSeq: [String: Int64] = [:]
-    @Published var campaign: DemoCampaign?
+    @Published var campaign: DemoCampaign? { didSet { trackCards() } }
     @Published var loadError: String?
     @Published var draft = ""
     @Published var role = tr("场外")
@@ -290,6 +294,7 @@ import AcerciaeCore
         stopRealtime()
         foreground = false
         speech.stopSpeaking(at: .immediate)
+        resetCards()
         client = nil
         session = nil
         histories = [:]; historyOrder = []
@@ -315,6 +320,7 @@ import AcerciaeCore
     }
     private func clearChannel() {
         lowerTyping(); typingFlags.clear(); showTyping(); inspiration = .null; inspirationShown = []
+        resetCards()
         stopArtworkPrefetch(reset: true)
         metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID()
         metadataUpdated = .distantPast; failedPolls = 0; nextPoll = .distantPast
@@ -450,7 +456,7 @@ import AcerciaeCore
             campaign?.documents = values.0 ?? []; campaign?.highlights = values.1 ?? []
         }
     }
-    private func purgeCachedAccess() { histories = [:]; historyOrder = []; stopArtworkPrefetch(reset: true); cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects() }
+    private func purgeCachedAccess() { histories = [:]; historyOrder = []; stopArtworkPrefetch(reset: true); cacheRevision += 1; client?.reads?.clear(); client?.assets?.clear(); ArtworkImages.clear(); AvatarCache.images.removeAllObjects(); resetCards() }
     private func permissionsDiffer(_ old: JSONValue, _ oldWindows: [Resource], _ fresh: JSONValue, _ freshWindows: [Resource]) -> Bool {
         ["player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode"].contains { old[$0] != fresh[$0] }
         || oldWindows.contains { win in freshWindows.first { $0.id == win.id }?["members"] != win["members"] }
@@ -644,7 +650,7 @@ import AcerciaeCore
         if channel["rule_system"].text == "dnd2024" { let value = try await get(["channels",c,"windows",w,"initiative"]); guard stamp == epoch else { return }; initiative = value }
         guard !Task.isCancelled, foreground, chatVisible, stamp == epoch else { return }
         if allowSpeech && readAloud, let previousMessages, let newest = previousMessages.map(\.seq).max() {
-            let fresh = (campaign?.messages ?? []).filter { $0.seq > newest && $0.authorId != user && $0.kind != "system" && !$0.recalled }
+            let fresh = (campaign?.messages ?? []).filter { $0.seq > newest && $0.authorId != user && $0.speakable }
             for message in fresh.suffix(5) { let utterance = AVSpeechUtterance(string:String(message.displayText.prefix(1500))); utterance.voice = AVSpeechSynthesisVoice(language:serverSettings["language"].text); speech.speak(utterance) }
         }
         if let seq = campaign?.messages.map(\.seq).max(), seq > (readSeq[w] ?? -1), windows.first(where: { $0.id == w })?["unread"] != .null {
@@ -766,6 +772,51 @@ import AcerciaeCore
         draft += (draft.isEmpty ? "" : "\n") + text
         result = nil
         noteTyping()
+    }
+    // ---- interactive messages (AcerciaeCore/HypertextStore.swift, HypertextCardView.swift): this viewer's status of each
+    // card, their drafts, saves and actions. The cards loaded in the open window have their status fetched when the
+    // window opens, after every subscription of the chat stream and when more cards load; everything is dropped on
+    // sign-in or out, a channel switch and a change of knowledge scope. Spectators and the demo never come here.
+    private(set) lazy var cards: HypertextCards = {
+        let cards = HypertextCards(session: { [weak self] in self?.cardSession() }, sessionLost: { [weak self] in self?.handle($0) })
+        cards.store.onLines = { [weak self] lines in self?.mergeCardLines(lines) }
+        return cards
+    }()
+    private var trackedCards: (window: String, ids: [String])?
+    private func cardSession() -> (client: BackendClient, token: String)? {
+        guard let client, let token = session?.token else { return nil }
+        return (client: client, token: token)
+    }
+    private func trackCards() {
+        guard online, !channelId.isEmpty, !windowId.isEmpty, let messages = campaign?.messages else { return }
+        let ids = Hypertext.cardIds(messages), window = channelId + "|" + windowId
+        let opened = trackedCards?.window != window
+        guard opened || trackedCards?.ids != ids else { return }
+        trackedCards = (window: window, ids: ids)
+        cards.store.track(channel: channelId, ids: ids, refresh: opened)
+    }
+    private func resetCards() { cards.store.reset(); trackedCards = nil }
+    // The lines an action posted show at once; their pushes and the next refresh find them already there.
+    private func mergeCardLines(_ lines: [Message]) {
+        guard let messages = campaign?.messages else { return }
+        let merged = Hypertext.mergeLines(messages, lines.map { recalledMessages[$0.id] ?? $0 }, channel: channelId, window: windowId)
+        guard merged != messages else { return }
+        recallDeadlines.note(lines); campaign?.messages = merged; rememberHistory()
+    }
+    /// A card as this viewer meets it in the open window: their seat in its window, the character the composer speaks
+    /// as (cards follow it), and what the app knows about the server and the engine.
+    func cardViewing(_ m: Message, doc: Hypertext.Doc, now: Date) -> Hypertext.Viewing {
+        Hypertext.viewing(m, doc: doc, openWindow: windowId, window: windows.first(where: { $0.id == m.chatWindowId })?.value, userId: session?.user.id, gm: gm,
+                          speakAs: characterId, characters: characters.map(\.value), unavailable: cards.store.unavailable, engine: cards.engineReady,
+                          dice: serverSettings["features"]["dice"] != .bool(false), now: now)
+    }
+    /// A card route's failure the viewer is told about (closing a card): a lost session as everywhere, else the server's
+    /// words (or the catalog's for a known code).
+    func cardFailure(_ error: Error) {
+        // A 401 already signed out through the card routes (Transport.live's sessionLost), or came for an older session.
+        if ConnectionPolicy.invalidatesSession(error) || error is CancellationError { return }
+        let refusal = Hypertext.Refusal(error)
+        notice = refusal.status == 0 ? tr(ConnectionPolicy.message(error)) : tr(Hypertext.errorText(refusal))
     }
     // ---- pinned lines (docs/API.md): a member keeps a chat line among their group's hints until its pinner or the GM
     // takes it down. The list is read again after either, so a new pin comes with its pinner's name.

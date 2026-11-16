@@ -65,7 +65,7 @@ test("named providers and the model of each function: defaults, keys, routes and
   // A purpose named directly outranks its function; a function not named runs on models.default; the planner keeps its own section.
   assert.deepEqual([routeFor(cfg, "coplayer_turn").name, routeFor(cfg, "coplayer_turn").model, routeFor(cfg, "coplayer_phone").model, routeFor(cfg, "coplayer_phone").maxTokens], ["gw", "gpt-x", "claude-sonnet-5-5", 800]);
   assert.deepEqual([routeFor(cfg, "compact").name, routeFor(cfg, "compact").effort, routeFor(cfg, "director").name, routeFor(cfg, "director").effort, routeFor(cfg, "planner").effort, routeFor(cfg, "planner").function], ["fast", "low", "default", "high", "high", "planner"]);
-  assert.deepEqual(describeModels(cfg).map((r) => [r.function, r.provider, r.model, r.effort]), [["coplayers", "gw", "gpt-x", "medium"], ["planner", "anthropic", "claude-opus-5-5", "high"], ["memory", "fast", "claude-haiku-5-5", "low"], ["default", "anthropic", "claude-opus-5-5", "high"]]);
+  assert.deepEqual(describeModels(cfg).map((r) => [r.function, r.provider, r.model, r.effort]), [["coplayers", "gw", "gpt-x", "medium"], ["formatting", "anthropic", "claude-opus-5-5", "low"], ["planner", "anthropic", "claude-opus-5-5", "high"], ["memory", "fast", "claude-haiku-5-5", "low"], ["default", "anthropic", "claude-opus-5-5", "high"]]);
   // models.planner outranks the planner section; without either, the planner runs on the default route.
   const planned = buildConfig({}, env, file({ llm: { provider: "anthropic" }, providers: { fast: { provider: "anthropic", model: "claude-haiku-5-5" } }, models: { planner: "fast" } }));
   assert.deepEqual([routeFor(planned, "planner").name, routeFor(planned, "planner").model], ["fast", "claude-haiku-5-5"]);
@@ -80,6 +80,16 @@ test("named providers and the model of each function: defaults, keys, routes and
     models: { singer: "gw", director: "missing", coplayers: { provider: "odd", effort: "extreme", size: 1 } } }));
   for (const re of [/"default" is the llm section/, /"bad name" is not a name/, /providers\.gw \(openai_compatible\) needs api_base/, /needs a model/, /unknown key "providers\.odd\.colour"/, /providers\.nope\.provider must be/, /unknown function "singer"/, /models\.director: no provider "missing"/, /models\.coplayers\.effort must be/, /unknown key "models\.coplayers\.size"/]) assert.ok(bad.warnings.some((w) => re.test(w)), String(re));
   assert.equal(buildConfig({}, {}, file({ llm: { provider: "mock" } })).providers.default.name, "default");
+});
+
+test("chat formatting can use a fast model with its own output limit", () => {
+  const cfg = buildConfig({}, {}, file({ llm: { provider: "mock", model: "writer", max_tokens: 9000, effort: "high" },
+    providers: { fast: { provider: "mock", model: "formatter" } }, models: { formatting: { provider: "fast", max_tokens: 800 } } }));
+  assert.deepEqual(cfg.warnings, []);
+  const { model, effort, maxTokens } = routeFor(cfg, "chat_format");
+  assert.deepEqual({ model, effort, maxTokens }, { model: "formatter", effort: "low", maxTokens: 800 });
+  assert.equal(routeFor(cfg, "director").model, "writer");
+  assert.equal(routeFor(cfg, "director").maxTokens, 9000);
 });
 
 test("files named in the configuration are relative to it; on the command line, to the working directory", () => {

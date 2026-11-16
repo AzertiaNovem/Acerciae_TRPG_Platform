@@ -234,6 +234,8 @@ struct CharacterSpace: View {
             let latest = try await model.get(base + ["space"])
             guard latest["character"]["role_card"] == baselineCard && latest["rule_system"].text == cardRuleSystem && (!pbta || latest["pbta_rules"]["revision"] == pbtaRules["revision"]) else { model.notice = tr("The character card changed on the server. Your draft is preserved. Reload the card before saving."); return }
             var body: [String: JSONValue] = ["name":.string(name),"bio":.string(bio),"speaking_style":.string(speakingStyle),"role_card":.object(card),"rule_system":.string(cardRuleSystem)]
+            if latest["character"]["updated_at"].string != nil { body["expected_updated_at"] = latest["character"]["updated_at"] }
+            if latest["character"].object["inventory_version"] != nil { body["expected_inventory_version"] = latest["character"]["inventory_version"] }
             if pbta { body["pack_revision"] = pbtaRules["revision"] }
             let updated = try await model.get(base + ["card"], body: .object(body), method: "PUT")
             apply(updated); try await model.refresh(); model.notice = tr("角色卡已保存")

@@ -84,7 +84,7 @@ void registerKnowledgeRoutes() {
             // A backdrop id names one stored image, shown to everyone in the channel.
             auto etag=etagOf(id);if(notModified(req,etag)){cb(notModifiedResponse(etag,kKeep));return;}
             auto r=HttpResponse::newHttpResponse();r->setBody(std::move(bytes));r->setContentTypeString(mime);r->addHeader("Cache-Control",kKeep);r->addHeader("ETag",etag);r->addHeader("X-Content-Type-Options","nosniff");cb(r);
-        }catch(const ApiError& e){cb(errResp(e.status(),e.code(),e.what()));}catch(const std::exception& e){cb(internalErr(e,req));}
+        }catch(const ApiError& e){cb(errResp(e));}catch(const std::exception& e){cb(internalErr(e,req));}
     },{Get});
     route1("/api/channels/{1}/reminders", {Get}, [&](auto&, auto& p, auto& a) { return S.reminders->list(access(p, a[0])); });
     route2("/api/channels/{1}/reminders/{2}/dismiss", {Post}, [&](auto&, auto& p, auto& a) { return S.reminders->dismiss(access(p, a[0]), a[1]); });

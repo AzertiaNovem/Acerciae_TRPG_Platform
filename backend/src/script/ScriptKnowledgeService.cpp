@@ -34,6 +34,9 @@ bool wordIn(const std::string& lc, const std::string& w) {
 }
 std::string firstSentences(const std::string& s, int n) { std::string out; int i = 0; for (auto& x : text::sentences(s)) { if (i++ >= n) break; out += (out.empty() ? "" : " ") + text::trim(x); } return clip(out, 400); }
 const std::vector<std::string> kKinds = {"flow","relationship","clue","foreshadowing","background"};
+// An interactive message's own event (its fallback lists controls, e.g. a choice's options): never narration that
+// moves the script. The lines its viewers post have normal kinds and stay in.
+bool isCard(const Json::Value& e) { return json::str(e["payload"], "message_kind") == "hypertext" || json::str(e, "message_kind") == "hypertext"; }
 ChannelAccess systemAccess(const std::string& channelId) { ChannelAccess a; a.channelId = channelId; a.isGm = true; a.userId = "00000000-0000-0000-0000-000000000000"; a.knowledgeMode = "isolated"; return a; }
 } // namespace
 
@@ -151,7 +154,7 @@ Json::Value ScriptKnowledgeService::mockPropose(const Json::Value& ctx) {
     Json::Value out; out["changes"] = Json::Value(Json::arrayValue);
     std::set<std::string> used;
     for (const auto& e : ctx["new_events"]) {
-        if (json::str(e, "actor_role") != "gm") continue;
+        if (json::str(e, "actor_role") != "gm" || isCard(e)) continue;
         auto content = json::str(e, "content"); auto lc = text::lower(content);
         for (const auto& k : ctx["knowledge"]) {
             if (out["changes"].size() >= 4) break;
@@ -326,7 +329,7 @@ Json::Value ScriptKnowledgeService::afterBatch(const ChannelAccess& sys, const J
     Json::Value out; out["changes"] = Json::Value(Json::arrayValue); out["applied"] = 0; out["rejected"] = 0;
     if (batch.empty() || !sys.isGm) return out;
     Json::Value newEvents(Json::arrayValue); std::vector<std::string> batchIds;
-    for (const auto& e : batch) { batchIds.push_back(json::str(e, "event_id")); if (json::str(e, "kind") != "message.posted") continue; Json::Value x; x["event_id"] = e["event_id"]; x["seq"] = e["seq"]; x["actor_role"] = e["actor_role"]; x["character_name"] = e["character_name"]; x["content"] = e["payload"]["content"]; newEvents.append(x); }
+    for (const auto& e : batch) { batchIds.push_back(json::str(e, "event_id")); if (json::str(e, "kind") != "message.posted" || isCard(e)) continue; Json::Value x; x["event_id"] = e["event_id"]; x["seq"] = e["seq"]; x["actor_role"] = e["actor_role"]; x["character_name"] = e["character_name"]; x["content"] = e["payload"]["content"]; newEvents.append(x); }
     auto knowledge = compactKnowledge(sys.channelId);
     if (!knowledge.empty() && !newEvents.empty()) {
         auto changes = proposeChanges(sys, knowledge, newEvents, llmCalls);

@@ -65,7 +65,7 @@ void registerAuthRoutes() {
             response->addHeader("ETag", av.etag);
             response->addHeader("Cache-Control", cc);
             cb(response);
-        } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
+        } catch (const ApiError& e) { cb(errResp(e)); }
           catch (const std::exception&) { cb(errResp(400, "bad_request", "invalid avatar request")); }
     }, {Get});
 

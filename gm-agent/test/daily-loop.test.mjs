@@ -363,7 +363,7 @@ test('a real human event cancels an in-flight spark before it posts', async () =
   const complete=llm.complete.bind(llm); let release, entered, held=false;
   const waiting=new Promise(resolve=>{entered=resolve;});
   llm.complete=async request=>{
-    if(request.purpose==='coplayer_turn'&&!held) { held=true; entered(); await new Promise(resolve=>{release=resolve;}); return JSON.stringify({action:'speak',text:'CANCELLED-SPARK'}); }
+    if(request.purpose==='coplayer_turn'&&!held) { held=true; entered(); await new Promise(resolve=>{release=resolve;}); return 'CANCELLED-SPARK'; }
     return complete(request);
   };
   const spark=t.schedule('w-main',{mode:'spark',delay:0,sparker:{id:'c-harriet',coplayer:t.roster.coplayers[0]}});

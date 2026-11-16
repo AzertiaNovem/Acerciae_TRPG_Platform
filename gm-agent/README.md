@@ -42,6 +42,21 @@ Set `webui.enabled: true` in the shared file and supply a random `webui.token` o
 
 A save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active.
 
+Settings → 纯文本写作指导 provides separate multiline editors for GM/NPC prose (`writing.gm`) and co-player scene
+prose (`writing.coplayer`). Each is prefilled with the original style guidance. Custom text replaces that
+guidance in the creative call, including GM phone replies and unattended co-player scenes; the formatter does
+not receive it. Clear the field or choose 恢复默认 to restore the built-in guidance. Each field supports up to
+12,000 characters. Table rules, character agency, and unattended-play limits remain in the role prompts.
+
+Settings → 消息呈现指导（结构化输出） edits `writing.formatting`, prefilled with the current paragraph-grouping
+guidance. It goes only to the second, formatting request. Ask for shorter bubbles split at sentence boundaries,
+longer bubbles combining adjacent paragraphs, or one message per speaker. Each message keeps the draft's wording,
+order, speaker and audience; distinct speakers and private recipients cannot be combined. Use the prose editors
+above to change total narrative length or level of detail. Co-player speech can also become multiple messages;
+when the remaining turn budget is smaller, the tail is combined into the last available message. Rolls, phone
+replies and passive stand-ins retain their own operation limits. The presentation editor has its own save/reset
+value and the same 12,000-character limit.
+
 The Overview's “AI 队友所在窗口” card lists each co-player's current conversation windows and timeline, updating with the live status. Closed historical seats are excluded; archived, ended or unavailable windows are labelled explicitly. Hover over a window name to see its ID when names repeat. A stopped or unresponsive worker's retained locations are marked as the last record rather than a live position.
 
 **Token charts.** “全部任务用量” compares each hosted channel’s recorded input + output for today; click a task to inspect it. In Overview, stacked bars group calls by purpose (GM/director, planner, co-player turns/cards, memory, etc.) and show ordinary input, cached input reads/writes and output. Switch between today (the host’s local midnight) and the rolling last seven days; expand the table for every phase/provider/model, call count, failures, unreported usage, estimates and average output. Cached tokens are already included in input and are not counted twice. Shares refer to the recorded total, and missing provider usage is shown as unknown rather than free. Budget-equivalent token counts remain separate from the raw chart totals and do not represent a monetary price. Statistics use two indexed grouped queries, shared for 15 seconds, and reuse the same chart while its data is unchanged. No per-call history is downloaded by polling. Stopped workers show their last snapshot; missing or previous-day snapshots are excluded from today’s cross-task comparison and listed as unavailable, never zero.
@@ -277,7 +292,7 @@ creates the character, or reuses the existing one when that name is already in t
    | `bond` | records, changes or ends a relationship between two characters (`secret`: the investigators do not know it) |
    | `new_npc` | creates the NPC: the model writes its role card, then it speaks |
    | `whisper` | posts a whisper to one character |
-   | `request_roll` | asks a player to roll (`.ra Spot Hidden`; in D&D `.rc Stealth dc 15`); for the client's own characters, the platform rolls against their sheet |
+   | `request_roll` | asks a player to roll (`.ra Spot Hidden`; in D&D `.rc Stealth dc 15`), as a one-tap [roll card](#interactive-messages-roll-cards) where the platform has them; for the client's own characters, the platform rolls against their sheet |
    | `dice` | D&D only: a dice command run as the GM account itself: `.ri +2 Goblin` (a monster's initiative), `.init next`, `.init del <name>`, `.init clr`, `.r 1d8+3` |
    | `note` | posts a GM-only line |
    | `timeline` | records a thread's narrative time, place, span and the GM's private notes |
@@ -320,6 +335,53 @@ still is:
 
 Each turn keeps a checkpoint for this in memory for five minutes, so a restart forgets them. Lines the GM account
 recalls itself never start a rollback.
+
+## Interactive messages: roll cards
+
+On a platform with interactive messages ([docs/HYPERTEXT.md](../docs/HYPERTEXT.md)), a GM's `request_roll` for a
+character a person plays becomes a **roll card** in that player's scene, instead of the line
+"→ Ada: .ra Spot Hidden" for the player to type.
+
+- **What players see.** A card from the GM account, labelled "Interactive message": a title ("Roll for Ada"), the GM's
+  narration, and one button ("Roll Spot Hidden") with the command it posts shown under it. Only Ada's player (and the
+  GMs) can press it; everyone else sees it greyed out. Pressing it posts `.ra Spot Hidden` as Ada: the player's own
+  roll, with their character and sheet, marked "via interactive message". The button then greys out: one roll per
+  card.
+- **The fallback.** The card's plain text is exactly the line posted without cards (the narration, then
+  "→ Ada: .ra Spot Hidden"). Everything that does not show cards reads that instead: older apps, search, the
+  platform's AI, logs and exports, and this client's own models. The player can always type the roll instead.
+- **Closing.** The client remembers its open roll cards (by window, character and roll, in the state file) and closes
+  a card as soon as its roll arrives: tapped from the card, or typed by hand as the same roll (the command and the
+  skill, whatever the value, modifiers or hidden form: `.rc spot hidden 60` answers `.ra Spot Hidden`). Asking for the
+  same roll again replaces the open card. A failed close is only logged; a card nobody closed closes by itself after
+  the platform's 7 days.
+- **Who gets one.** Only a character a person plays. A co-player or an NPC still rolls for itself (the platform rolls
+  against its sheet), and PbtA tables ask for no rolls. A command a card may not post in a player's name (`.st`,
+  `.en`, `.ss`, `.init`, `.move`, `.ri` with a name) is asked for with the plain line.
+- **The feature switch.** The platform's operator can turn interactive messages off (`HYPERTEXT_ENABLED=false`: 403
+  `feature_disabled`), and a platform from before them answers 404 or 405. Either way the client logs once that they
+  are unavailable and posts plain lines from then on, until it restarts. Any other refusal (a rate limit, an archived
+  window) falls back to the plain line for that one card.
+- **How the models read them.** A card reads as its plain text, tagged "(interactive message)"; its buttons, state and
+  any script never reach a prompt. A line a card produced is tagged "(via interactive message)", and a card's reply
+  posted as the GM account also "(answering <player>)". Such a line counts as the person's who acted, and it wakes the
+  table only when the whole window reads it: the answer a whisper card let its reader post, or a GM-only reply, does
+  not. A card another GM account posts is read, never answered.
+
+The cards come from declarative builders in `src/hypertext.mjs`; the model only asks for a roll and never writes a
+card or its JavaScript (no builder ever produces a `script`). Each returns the body for `api.postHypertext(channel,
+window, body)`, or null when it cannot make a card the platform accepts (text from the model is cleaned and cut by code
+points to the card rules first):
+
+| builder | the card |
+|---|---|
+| `rollRequest({text, command, pcId, name, language, content})` | the roll card above; `content` is its plain text |
+| `choice({prompt, options, actorIds, language, title, kind})` | 2–20 options as buttons (a list beyond 5) and a "Choose" button that posts "I choose: the harbour" as the reader's own line (`kind` `ooc` by default, or `ic`), once; `actorIds` limits who may answer |
+| `checklist({title, items, language, actorIds})` | up to 30 boxes each reader ticks for themselves, saved on all their devices; nothing is posted ("All done." once all of up to 8 are ticked) |
+
+Their words follow the table's language, any of the 11 table languages; English for any other. Only
+`request_roll` turns into a card today; no GM action posts a choice or a checklist yet, so those two are for code
+that posts them itself.
 
 ## Illustrations
 
@@ -1072,7 +1134,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `planner.provider`, `planner.api_base`, `planner.model` | `--planner-provider`, `--planner-api-base`, `--planner-model` | the GM's | the planner's own model and endpoint (its key: `PLANNER_API_KEY`, else the provider's key) |
 | `planner.effort` | `--planner-effort` | `high` | the planner's reasoning effort (ignored by `openai_compatible`) |
 | `providers.<name>.provider`, `.api_base`, `.api_key`, `.model`, `.effort`, `.max_tokens`, `.timeout_ms`, `.stream`, `.fallbacks`, `.cache_ttl` | | the `llm` settings | a named endpoint with its key and default model; a key left out comes from `ANTHROPIC_API_KEY` or `LLM_API_KEY` (see "Several models") |
-| `models.<function>` | | the `llm` settings | `{provider, model, effort, max_tokens}`, or a provider's name: where `director`, `coplayers`, `planner`, `memory`, `readers`, `pictures` or `cards` run; a purpose name or `default` is accepted too |
+| `models.<function>` | | the `llm` settings | `{provider, model, effort, max_tokens}`, or a provider's name: where `director`, `coplayers`, `formatting`, `planner`, `memory`, `readers`, `pictures` or `cards` run; a purpose name or `default` is accepted too |
 | `planner.interval_minutes`, `planner.min_lines` | | `30`, `40` | play time and lines before an ordinary automatic plan (`0` disables interval planning; daily refresh and final review use their own triggers) |
 | `planner.cooldown_minutes`, `planner.max_runs_per_hour` | | `10`, `4` | least gap between runs; hourly cap |
 | `planner.stall_turns` | | `6` | turns in the same place with no world change, truth, move or scenario change before the planner is asked |
@@ -1147,13 +1209,14 @@ because the platform cannot change a character's kind.
 ### Several models: `providers` and `models`
 
 Every model call names its purpose (the ones the usage list shows: `director`, `coplayer_turn`, `planner`, `compact`…).
-The purposes fall into seven functions, and a table may run each on a different provider and model
+The purposes fall into eight functions, and a table may run each on a different provider and model
 (`src/llm/routes.mjs`):
 
 | Function | Purposes | What it is |
 |---|---|---|
 | `director` | `director` | the GM's turns: the largest context, the most judgement |
-| `coplayers` | `coplayer_turn`, `coplayer_phone` | the AI co-players' lines and texts |
+| `coplayers` | `coplayer_turn`, `coplayer_phone`, `standin_turn` | the co-players' lines and texts, and passive characters' stand-in lines |
+| `formatting` | `chat_format` | places the drafted prose in chat and converts explicit table directions into actions |
 | `planner` | `planner`, `planner_daily` | full story planning and the unattended day's single routine/topic call |
 | `memory` | `compact`, `coplayer_memory` | compacting older chat into chapters |
 | `readers` | `scene_presence`, `movement_evidence`, `placement_correction`, `scene_handoff` | the small calls that check who is where |
@@ -1168,6 +1231,13 @@ part optional (a missing model or effort is the provider's), or just a provider'
 (`coplayer_phone`) outranks its function; `default` covers every function not named; the planner's own
 `planner.provider/model/effort` keep naming its route when `models.planner` does not.
 
+The GM and the co-player write their turns as plain text first. A second call receives only the draft, assigns its
+paragraphs (or sentence ranges) to the appropriate chat messages, and translates any explicit table directions. The client takes
+each message's wording and any private recipient directly from the draft. This includes phone replies and
+stand-in lines. Both calls count toward the usual token budget and are cancelled together on pause.
+`models.formatting` (or the `chat_format` purpose) can use a faster model. Without a separate setting it uses
+the default model, with low effort where supported and an output cap of at most 2048 tokens.
+
 ```yaml
 providers:
   fast: { provider: anthropic, model: claude-haiku-5-5 }
@@ -1175,6 +1245,7 @@ providers:
 models:
   director: { effort: high }          # the llm section's model, more effort
   coplayers: gateway
+  formatting: fast
   memory: fast
   readers: { provider: fast, effort: low }
   pictures: fast
@@ -1214,6 +1285,11 @@ The tests need no backend and no model. They cover:
 - D&D 2024: the rules profile, the build maths and the local point-buy check, generation, repair and completion of
   D&D cards, the GM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
   keeps a CoC table's prompts byte for byte.
+- interactive messages (`test/hypertext.test.mjs`): each builder's card and its limits, the roll card and its fallback
+  on a platform without cards (404, 405, 403 `feature_disabled`), closing it on a tapped or typed roll, and how lines
+  a card produced count and read for the models. `tests/integration/gm-agent-hypertext.test.mjs` (run by
+  `scripts/test.sh`) posts every builder's card to a real backend, model text at its worst included, and closes a roll
+  card on both kinds of roll.
 
 ## Sessions
 
@@ -1273,6 +1349,24 @@ unfinished forks and audience changes and partitions existing split parties befo
 
 ## Runtime modules
 
-`src/loop.mjs` owns `Table` construction, initialization and turn order. `src/table/` separates scheduling/cancellation, recall recovery, context, window movement, actions, illustrations, planning, social messages and co-player actions. Functions receive the table runtime explicitly; the table owns state, injected API/model clients, clock and persistence. The public methods remain available for CLI/host callers and test fixtures. Co-player context never reuses the GM's complete context, and platform mutations still travel through `src/api.mjs` with their existing idempotency keys.
+`src/loop.mjs` owns `Table` construction, initialization and turn order. `src/hypertext.mjs` builds the interactive messages the table posts (see [roll cards](#interactive-messages-roll-cards)). `src/table/` separates scheduling/cancellation, recall recovery, context, window movement, actions, illustrations, planning, social messages and co-player actions. Functions receive the table runtime explicitly; the table owns state, injected API/model clients, clock and persistence. The public methods remain available for CLI/host callers and test fixtures. Co-player context never reuses the GM's complete context, and platform mutations still travel through `src/api.mjs` with their existing idempotency keys.
 
 `npm test` runs with deployment environment variables cleared and automatic local `.env` loading disabled for CLI children. For an explicit configuration fixture or normal operation, `--env FILE` loads only that file. Normal startup without `--env` retains automatic `.env` loading. This client remains a separate Node.js process; the abandoned embedded platform GM proposal is historical documentation.
+
+## Pre-game Forge
+
+Set `modes.improv: true` and `forge.enabled: true` to co-create a world and characters in a dedicated preparation window before play. Start from an optional world draft or an empty idea. Every participating player confirms the same public world, rules and their own character; then enable the draft and explicitly start play. PbtA playbooks and character sheets are designed and activated together. Hidden truth and initial world-state rules remain GM-private. All calls use the existing daily budget. See [Forge workflow and API](../docs/FORGE.md).
+
+## Structured world state
+
+Improvisation mode keeps private numeric meters, boolean flags and named states alongside the story. Forge can seed definitions and initial values; the GM can add or revise definitions during play. A relationship is keyed by NPC ID, target character ID and metric ID: the same NPC can trust one player, distrust another and feel differently about an AI co-player. Renaming a character preserves that identity. Co-players' own feelings and decisions remain improvised; no reciprocal or party-wide attitude is inferred.
+
+The plain composer uses native `world_state_read`, `world_state_define`, `world_state_set`, `world_state_resolve_event` and `inventory_change` tools. Final chat remains prose. Every change names an observed chat line or an exact phrase in the adopted reply. Discarded drafts cannot apply changes. Number bounds and cumulative per-scene change limits are enforced in code. Thresholds with all/any comparisons unlock a pending opportunity once per directed pair, and completing it requires an actual reply; it does not force a player action. Passive players' relationships and inventories cannot be advanced by unattended play. The planner reads the same private state through a frozen, read-only view.
+
+Inventories use the platform's `role_card.items`, with atomic transfers and version checks. A durable intent and server receipts recover interrupted writes without double spending or duplicate chat. Pausing cancels unpublished messages and compensates inventory only if no later edit conflicts. A recent message recall restores associated state and inventory when both the supporting messages and versions permit it; otherwise the GM receives a private explanation and newer data stays intact. Web and iOS full-card saves send inventory versions so an old editor cannot overwrite a transfer.
+
+In the authenticated host WebUI, open **世界状态** to filter relationships by subject and target, inspect change rules and pending opportunities, and read inventories and recent changes. This page is read-only and separate from public chat. Current state and fired-threshold markers persist; audit and resolved-event histories retain at most 30 days / 1,000 entries. Definitions, tracked values and pending opportunities are capped at 128, 2,000 and 500 respectively. Context includes a bounded summary, with paged tools for omitted details; the composer allows at most three tool rounds / twelve calls, using the existing usage meter and cancellation checks.
+
+Deploy the platform with migration `0069_inventory_transactions.sql` before updating gm-agent. Its new GM-only inventory and message-receipt endpoints are required for state-linked publication. The agent reports an unavailable platform without falling back to blind card writes. Agent state remains in its existing per-channel state file; run one writer per channel. This does not change the separate, manual gm-agent deployment policy.
+
+Provider continuations retain [Responses encrypted reasoning](https://developers.openai.com/api/reference/resources/responses/methods/create) with `store:false`, and [Anthropic thinking/tool blocks](https://platform.claude.com/docs/en/build-with-claude/thinking-tool-workflows). No additional provider-side conversation storage is enabled.

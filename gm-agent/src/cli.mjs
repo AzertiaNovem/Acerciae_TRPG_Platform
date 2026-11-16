@@ -7,6 +7,7 @@
 //   advance open the next scenario now
 //   status  show the channel, the cast, the timelines and how each role is fed (read-only)
 //   date    casual games: move the story's calendar on (or to a later date); bond records or ends a relationship
+import { forgeMode, startForge } from "./forge/runtime.mjs";
 import { awaitingReview, fingerprint, preparePack, prepareActor } from "./pbta.mjs";
 import fs from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
@@ -107,6 +108,9 @@ async function setup(cfg) {
 }
 
 async function setupChannel(cfg, api, target, automatic = false) {
+  const state = loadState(cfg.stateDir, target.channel.id);
+  if (state?.forge?.phase === "playing") return true;
+  if (forgeMode(cfg, state)) { log("Forge will prepare this channel when run starts; no cards created during setup."); return true; }
   if (target.channel.rule_system !== "pbta") return prepareChannel(cfg, api, target);
   const release = acquireLock(cfg.stateDir, "pbta-init-" + target.channel.id);
   if (!release) throw Error("This channel is already being prepared by another agent process.");
@@ -273,7 +277,7 @@ async function openTable(cfg, { llm = null, plannerLlm = null, write = true, hea
   let version = Number(state.version) || 0;
   const persist = write
     ? (t) => {
-      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, casual: t.casual, planner: t.planner, calendar: t.calendar, daily: t.daily, bonds: t.bonds, journal: t.journal, owedArrivals: t.owedArrivals };
+      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, worldState: t.worldState, casual: t.casual, planner: t.planner, calendar: t.calendar, daily: t.daily, bonds: t.bonds, journal: t.journal, owedArrivals: t.owedArrivals, rollCards: [...t.rollCards.values()] };
       delete next.version;
       try { version = saveState(cfg.stateDir, next, { expectVersion: version }); }
       catch (e) { if (!(e instanceof StateConflict)) throw e; onConflict(e); }
@@ -281,7 +285,7 @@ async function openTable(cfg, { llm = null, plannerLlm = null, write = true, hea
     : () => {};
   const table = new Table({
     api, llm, cfg, channelId: channel.id, store: Store.open(cfg.stateDir, channel.id), roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
-    scenario: state.scenario ?? null, improv: state.improv ?? null, casual: state.casual ?? null, planner: state.planner ?? null, calendar: state.calendar ?? null, daily: state.daily ?? null, bonds: state.bonds ?? null, plannerLlm, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], deferArrivals, log, persist,
+    scenario: state.scenario ?? null, improv: state.improv ?? null, worldState: state.worldState ?? null, casual: state.casual ?? null, planner: state.planner ?? null, calendar: state.calendar ?? null, daily: state.daily ?? null, bonds: state.bonds ?? null, plannerLlm, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], rollCards: state.rollCards ?? [], deferArrivals, log, persist,
   });
   await table.init({ heal, dailyStart: write });
   if (write) table.save();
@@ -296,6 +300,11 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   const release = acquireLock(cfg.stateDir, ch.id);
   if (!release) throw new Error(`another process (pid ${lockHolder(cfg.stateDir, ch.id) ?? "?"}) already keeps this channel`);
   onLock();
+  const saved = loadState(cfg.stateDir, ch.id);
+  try {
+    if (forgeMode(cfg, saved)) return await startForge({ cfg, api: signedIn, channel: ch, release, managed, run, log });
+    if (saved?.forge?.phase === "playing") cfg = { ...cfg, worldFile: null, secretsFile: null, prepareOnStart: false };
+  } catch (e) { release(); throw e; }
   // Another writer changed the state file under us: continuing would act on a stale table, so stop loudly.
   const onConflict = (e) => { log(`stopping: ${e.message}. Restart \`run\` to continue from the file.`); release(); process.exit(3); };
   let opened;

@@ -19,6 +19,8 @@ void registerCharacterRoutes() {
     route2("/api/channels/{1}/characters/{2}/presence", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->setCharacterPresence(access(p, a[0]), a[1], body(req)); });
     route1("/api/channels/{1}/characters", {Post}, [&](auto& req, auto& p, auto& a) { return S.chat->createCharacter(access(p, a[0]), body(req)); });
     route2("/api/channels/{1}/characters/{2}", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->updateCharacter(access(p, a[0]), a[1], body(req)); });
+    route2("/api/channels/{1}/characters/{2}/owner", {Put}, [&](auto& req, auto& p, auto& a) { return S.chat->transferCharacter(access(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/characters/preview", {Post}, [&](auto& req, auto& p, auto& a) { return S.characterSpace->previewCard(access(p,a[0]),body(req)); });
     // ---- character space ----
     route2("/api/channels/{1}/characters/{2}/space", {Get}, [&](auto&, auto& p, auto& a) { return S.characterSpace->space(access(p, a[0]), a[1]); });
     // COC7 point-buy reference: skills with bases, specialisation families, the 230 careers of the community sheet.

@@ -1,6 +1,7 @@
 #pragma once
 #include "../core/Db.h"
 #include <json/json.h>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,14 @@ public:
     // The author took a line back: `message` is its tombstone (text erased, recalled_at set), sent to everyone who
     // could read the line (`message.recalled`, or `spectate.recalled` on the spectator feed).
     void messageRecalled(const Json::Value& message);
+    // Who may read a message row now: the channel's GMs plus the players the period-aware group view lets read it
+    // (the same rule as HTTP). Interactive messages' pushes go to this audience or a narrower one.
+    std::set<std::string> messageAudience(const Json::Value& message);
+    // An interactive message was closed (`hypertext.closed` {channel_id, message_id, closed_at}) to whoever reads it.
+    void hypertextClosed(const Json::Value& message, const std::string& closedAt);
+    // A viewer's own state of a card changed (`hypertext.state` {channel_id, message_id, state, version}): only that
+    // user's sockets, never anyone else's.
+    void hypertextState(const std::string& channelId, const std::string& userId, const std::string& messageId, const Json::Value& state, int64_t version);
     void knowledgeChanged(const std::string& channelId);
     void windowChanged(const std::string& channelId, const Json::Value& window);
     void initiativeChanged(const std::string& channelId, const std::string& windowId);   // invalidation only: members refetch

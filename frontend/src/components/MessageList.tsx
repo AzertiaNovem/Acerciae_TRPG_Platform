@@ -1,5 +1,5 @@
 import { t as tr, currentLocale } from '../i18n';
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../store/auth';
 import { api } from '../api/client';
 import { useChat, recallDeadline } from '../store/chat';
@@ -10,6 +10,9 @@ import ChatReference from './ChatReference';
 import type { Message } from '../types';
 import { CachedImg } from './CachedImg';
 import { isDesktop } from '../lib/platform';
+import { HypertextBody, Isolated } from './HypertextCard';
+import { kindLabel } from './messageKind';
+import { useHypertext } from '../store/hypertext';
 
 // Colour a roll by its outcome so successes and failures read at a glance: every success level has its own colour.
 type Tone = 'crit' | 'extreme' | 'hard' | 'ok' | 'fail' | 'fumble' | 'roll' | 'info';
@@ -127,21 +130,23 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
     <div className={`message ${m.kind} ${m.visibility}`} id={`msg-${m.id}`}>
       <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <CachedImg src={avatar} hash={avatarHash} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
-        <div className="meta"><span className="author">{name}</span>
+        <div className={`meta ${m.kind === 'hypertext' || m.via_hypertext_id ? 'hx-meta' : ''}`}><span className="author">{name}</span>
           {m.stand_in && <span className="pill stand-in">{tr('stand-in')}</span>}
-          {m.kind !== 'ic' && !m.dice && <span className="pill">{tr(m.kind)}</span>}
+          {m.kind === 'hypertext' ? <span className="pill hx-pill">{kindLabel(m.kind)}</span> : m.kind !== 'ic' && !m.dice && <span className="pill">{kindLabel(m.kind)}</span>}
+          {m.via_hypertext_id && <ViaPill m={m} />}
           {m.dice?.hidden && <span className="pill ai">{tr("hidden roll")}</span>}
           {m.visibility === 'gm_only' && <span className="pill gm">{tr("GM note")}</span>}
           {m.visibility === 'whisper' && <span className="pill ai">{tr("whisper")}</span>}
           <span className="tiny muted">{new Date(m.created_at).toLocaleTimeString(currentLocale())}</span>
           {!readOnly && <button className="ghost small" onClick={()=>addReference(m)} disabled={references.length>=5 || references.some(r=>r.id===m.id)}>{tr('Quote as reference')}</button>}
-          {!readOnly && m.kind !== 'system' && (pin
+          {!readOnly && m.kind !== 'system' && m.kind !== 'hypertext' && (pin
             ? ((pin.pinned_by === meId || isGm) && <button className="ghost small" onClick={() => unpinLine(m.channel_id, pin.id).catch((e: any) => toast(e.message, 'error'))} title={tr('Remove this line from the context bubbles')}>{tr('Unpin')}</button>)
             : <button className="ghost small" onClick={() => pinLine(m.channel_id, m.id).then(() => toast(tr('Pinned to the context bubbles'))).catch((e: any) => toast(e.message, 'error'))} title={tr('Keep this line in the context bubbles for your group')}>{tr('Pin')}</button>)}
           {recallable && <button className="ghost small" onClick={()=>recall(m)} title={tr('Take this message back from everyone in this chat')}>{tr('Recall')}</button>}
         </div>
         {!readOnly && m.reference_ids?.map(id=><ChatReference key={id} channelId={m.channel_id} messageId={id}/>)}
-        {m.dice?.type === 'hidden_notice' ? <DiceCard m={m} />
+        {m.kind === 'hypertext' ? <HypertextBody m={m} readOnly={readOnly} jumped={jumped} />
+          : m.dice?.type === 'hidden_notice' ? <DiceCard m={m} />
           : m.dice ? (<>
             <div className={`content dice-command ${jumped ? 'jumped' : ''}`}>{m.content}</div>
             {!separateDice && <DiceCard m={m} />}
@@ -151,6 +156,17 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
     </div>
     {separateDice && <DiceBotRow m={m} />}
   </>);
+}
+
+// A line an interactive message posted: "via interactive message", and who acted on it when that is not the line's
+// author (a reply the card's sender said, "answering" the player who clicked).
+function ViaPill({ m }: { m: Message }) {
+  const answering = m.via_user_id && m.via_user_id !== m.author_id && m.via_user_name;
+  return (
+    <span className="pill hx-via" title={tr('Posted from an interactive message')}>
+      ↳ {tr('via interactive message')}{answering && <> · <Isolated text="answering {name}" values={{ name: m.via_user_name }} /></>}
+    </span>
+  );
 }
 
 // A line's picture, drawn on request or uploaded by its author: the picture (loaded through its line) and, when it
@@ -197,6 +213,17 @@ export default function MessageList() {
   const jumpTo = useChat((s) => s.jumpTo);
   const loadOlder = useChat((s) => s.loadOlder);
   const ref = useRef<HTMLDivElement>(null);
+  // Interactive messages: the viewer's status of every card loaded here, fetched for the cards not fetched yet, and
+  // for all of them again when a window is opened (the chat stream's `subscribed` does the same, store/hypertext).
+  const cardIds = useMemo(() => messages.filter((m) => m.kind === 'hypertext' && !m.recalled_at).map((m) => m.id), [messages]);
+  const cardKey = cardIds.join(',');
+  const openedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!channelId || !windowId) return;
+    const opened = openedFor.current !== `${channelId}/${windowId}`;
+    openedFor.current = `${channelId}/${windowId}`;
+    useHypertext.getState().track(channelId, cardIds, opened);
+  }, [channelId, windowId, cardKey]);
   const [stick, setStick] = useState(true);
   const [jumped, setJumped] = useState<string | null>(null);
   const olderPending = useRef(false);
@@ -229,6 +256,21 @@ export default function MessageList() {
     const settle = () => { if (sticking.current) el.scrollTop = el.scrollHeight; };
     el.addEventListener('load', settle, true);
     return () => el.removeEventListener('load', settle, true);
+  }, [windowId]);
+  // So does a line that grows in place, such as an interactive message showing its confirmation, an error or a
+  // notice: every row is watched for its size while the list stays at the newest line.
+  useEffect(() => {
+    const el = ref.current; if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => { if (sticking.current) el.scrollTop = el.scrollHeight; });
+    for (const c of Array.from(el.children)) ro.observe(c);
+    const mo = new MutationObserver((records) => {
+      for (const r of records) {
+        r.addedNodes.forEach((n) => { if (n instanceof Element) ro.observe(n); });
+        r.removedNodes.forEach((n) => { if (n instanceof Element) ro.unobserve(n); });
+      }
+    });
+    mo.observe(el, { childList: true });
+    return () => { mo.disconnect(); ro.disconnect(); };
   }, [windowId]);
   useEffect(() => {
     if (!jumpTo) return;

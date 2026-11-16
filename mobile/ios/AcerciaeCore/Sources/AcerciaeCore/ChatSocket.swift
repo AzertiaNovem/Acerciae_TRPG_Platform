@@ -26,6 +26,22 @@ public struct RealtimeEvent: Sendable {
     }
 }
 
+public extension RealtimeEvent {
+    /// `hypertext.state`: the viewer's own complete state of a card after a save or an action on any of their devices,
+    /// this one included (sent to every chat socket of theirs, whatever channel it follows; no `message`).
+    var hypertextState: Hypertext.StatePush? {
+        guard type == "hypertext.state", let id = payload["message_id"].string, !id.isEmpty else { return nil }
+        let state: Hypertext.State?
+        if case .object(let o) = payload["state"] { state = o } else { state = nil }
+        return Hypertext.StatePush(messageId: id, state: state, version: Hypertext.integer(payload["version"], limit: 9e15) ?? 0)
+    }
+    /// `hypertext.closed`: a GM closed a card (sent to its readers subscribed to the channel; no `message`).
+    var hypertextClosed: Hypertext.ClosedPush? {
+        guard type == "hypertext.closed", let id = payload["message_id"].string, !id.isEmpty else { return nil }
+        return Hypertext.ClosedPush(messageId: id, closedAt: payload["closed_at"].text)
+    }
+}
+
 /// 1 s, doubling to 15 s: the pause before the next attempt after `failures` failed ones.
 public func reconnectPause(_ failures: Int) -> Double { min(15, Double(1 << min(failures, 4))) }
 

@@ -1,4 +1,5 @@
 #include "ChatService.h"
+#include "Forge.h"
 #include "../characters/CharacterSpaceService.h"
 #include "../events/EventStore.h"
 #include "../scenes/SceneManager.h"
@@ -68,6 +69,7 @@ Json::Value ChatService::getChannel(const ChannelAccess& a) {
     if(!a.isGm) c["current_scene_title"]=Json::Value();
     if(!a.playerGroupId.empty()) c["player_group_name"]=db_.queryOne("SELECT name FROM player_groups WHERE id=$1",{a.playerGroupId})["name"];
     c["player_group_id"]=a.playerGroupId; c["player_group_version"]=a.playerGroupVersion;
+    c["forge_eligible"] = db_.tx([&](pqxx::work& w) { return !forge::hasPlay(w,a.channelId); });
     c["my_role"] = a.isGm ? "gm" : "player";
     c["my_character_ids"] = json::fromStrArray(a.characterIds);
     return c;
@@ -228,6 +230,8 @@ Json::Value ChatService::spectatorMessage(Json::Value m) {
     m["character_avatar_asset_id"] = Json::Value(); m["character_avatar_version"] = Json::Value(); m["character_avatar_hash"] = Json::Value();
     m.removeMember("whisper_to");
     m["media_asset_id"] = Json::Value();   // an illustration is served only to channel members who may read the line
+    // An interactive message renders read-only for spectators: its script never reaches them.
+    if (m.isMember("hypertext") && m["hypertext"].isObject()) m["hypertext"].removeMember("script");
     return m;
 }
 

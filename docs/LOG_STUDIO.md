@@ -17,6 +17,12 @@ Exports need no snapshot and are available to every member within their own view
 SealDice-compatible JSON per chat window (`{version:105, items[]}` as story-painter reads it, with the structured
 dice result under `commandInfo`), and a zip of all of them.
 
+An interactive message (message kind `hypertext`, [HYPERTEXT.md](HYPERTEXT.md)) is UI, not story: the log keeps its
+plain fallback text as a `system` line with `metadata.hypertext: true` and its title in `metadata.title`, never its
+document, script or reply templates; a GM-only card stays `secret` like any GM-only line. The lines a card produced (a
+viewer's say, the sender's reply) are classified as usual and carry `metadata.via_hypertext: true`. The native export
+marks them `hypertext: true` / `via_hypertext: true` (optional booleans in `LOG_SCHEMA.json`).
+
 ## Who reads what
 
 Access to the Log Studio (`studioAccess`): the server maintainer can turn the feature off for the whole server.

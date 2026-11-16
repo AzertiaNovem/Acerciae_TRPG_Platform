@@ -19,6 +19,11 @@ HttpResponsePtr jsonResp(const Json::Value& v, int status) {
 HttpResponsePtr errResp(int status, const std::string& code, const std::string& msg) {
     Json::Value e; e["error"] = code; e["message"] = msg; return jsonResp(e, status);
 }
+HttpResponsePtr errResp(const ApiError& err) {
+    Json::Value e; e["error"] = err.code(); e["message"] = err.what();
+    if (err.details().isObject()) for (const auto& k : err.details().getMemberNames()) if (k != "error" && k != "message") e[k] = err.details()[k];
+    return jsonResp(e, err.status());
+}
 // The session token travels only in the Authorization header.
 std::string bearer(const HttpRequestPtr& req) {
     auto h = req->getHeader("Authorization");
@@ -143,7 +148,7 @@ void run(const HttpRequestPtr& req, Cb&& cb, const Params& params, const Fn& fn,
             p = *pr;
         }
         cb(jsonResp(fn(req, p, params)));
-    } catch (const ApiError& e) { cb(errResp(e.status(), e.code(), e.what())); }
+    } catch (const ApiError& e) { cb(errResp(e)); }
     // Values the database or the JSON layer reject are the client's mistake, not a server failure.
     catch (const pqxx::unique_violation&) { cb(errResp(409, "conflict", "that already exists or was just changed by someone else")); }
     catch (const pqxx::check_violation&) { cb(errResp(400, "bad_request", "a value is outside its allowed range")); }

@@ -1,4 +1,5 @@
 #include "ChatService.h"
+#include "Forge.h"
 #include "../characters/CharacterSpaceService.h"
 #include "../events/EventStore.h"
 #include "../scenes/SceneManager.h"
@@ -56,6 +57,7 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     auto sheet = dice::normalizeSheet(body.isMember("sheet") && body["sheet"].isObject() ? body["sheet"] : Json::Value(Json::objectValue));
     sheet.removeMember("rule_attrs");
     return db_.tx([&](pqxx::work& w) {
+        auto prior=forge::receipt(w,a,"character",body); if(!prior.isNull()) return prior;
         if (!sheet["attrs"].empty() && Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId})["rule_system"] == "pbta")
             throw badRequest("Create the character and select a PbtA playbook");
         auto c = Db::queryOne(w, "INSERT INTO characters(channel_id, user_id, name, kind, speaking_style, sheet) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *",
@@ -71,8 +73,35 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
         }
         Db::exec(w, "INSERT INTO entities(channel_id, kind, name, character_id, description) VALUES($1,$2,$3,$4,$5) ON CONFLICT (channel_id, kind, name) WHERE player_group_id IS NULL DO UPDATE SET character_id=EXCLUDED.character_id",
             {a.channelId, kind, name, c["id"].asString(), json::str(body, "description")});
+        forge::remember(w,a,"character",body,c);
         return c;
     });
+}
+Json::Value ChatService::transferCharacter(const ChannelAccess& a, const std::string& id, const Json::Value& body) {
+    auth_.requireGm(a);
+    const auto owner=json::requireStr(body,"user_id");
+    if(!Visibility::isUuid(id) || !Visibility::isUuid(owner) || !body.isMember("expected_user_id") ||
+       !(body["expected_user_id"].isNull() || (body["expected_user_id"].isString() && Visibility::isUuid(body["expected_user_id"].asString())))) throw badRequest("user_id and expected_user_id required");
+    Json::Value windows(Json::arrayValue);
+    auto result=db_.tx([&](pqxx::work& w) {
+        Db::queryOne(w,"SELECT id FROM channels WHERE id=$1 FOR NO KEY UPDATE",{a.channelId});
+        auto c=Db::queryOne(w,"SELECT * FROM characters WHERE channel_id=$1 AND id=$2 FOR UPDATE",{a.channelId,id});
+        if(c.isNull()) throw notFound("character not found");
+        if(c["kind"]!="pc") throw badRequest("Only PCs have a player owner");
+        auto member=Db::queryOne(w,"SELECT role FROM channel_members WHERE channel_id=$1 AND user_id=$2 FOR SHARE",{a.channelId,owner});
+        if(member.isNull() || (member["role"]!="player" && member["role"]!="gm")) throw badRequest("Owner must be a player or GM in this channel");
+        if(c["user_id"]==owner) return c;
+        if(c["user_id"]!=body["expected_user_id"]) throw conflict("Character owner changed");
+        Db::exec(w,"INSERT INTO character_owner_changes(channel_id,character_id,actor_id,previous_user_id,user_id) VALUES($1,$2,$3,$4,$5)",{a.channelId,id,a.userId,c["user_id"].isNull()?dbNull():DbParam(c["user_id"].asString()),owner});
+        Db::exec(w,"UPDATE chat_window_members SET character_id=NULL WHERE character_id=$1",{id});
+        if(member["role"]=="player") Db::exec(w,"UPDATE chat_window_members wm SET character_id=$3 FROM chat_windows cw WHERE cw.id=wm.chat_window_id AND cw.channel_id=$1 AND cw.purpose='story' AND wm.user_id=$2 AND wm.character_id IS NULL",{a.channelId,owner,id});
+        windows=Db::queryJson(w,"SELECT * FROM chat_windows WHERE channel_id=$1",{a.channelId});
+        return Db::queryOne(w,"UPDATE characters SET user_id=$2,passive_since=NULL,updated_at=now() WHERE id=$1 RETURNING *",{id,owner});
+    });
+    notifier_.characterUpdated(a.channelId,result);
+    for(const auto& win:windows) notifier_.windowChanged(a.channelId,win);
+    notifier_.channelUpdated(a.channelId);
+    return result;
 }
 Json::Value ChatService::updateCharacter(const ChannelAccess& a, const std::string& characterId, const Json::Value& body) {
     return db_.tx([&](pqxx::work& w) {

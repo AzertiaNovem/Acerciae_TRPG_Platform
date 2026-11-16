@@ -32,17 +32,20 @@ static WsGateway::UserFilter setFilter(std::set<std::string> allowed) {
 
 void Notifier::messagePosted(const Json::Value& m) { deliverMessage(m, "message.posted", "spectate.message"); }
 void Notifier::messageRecalled(const Json::Value& m) { deliverMessage(m, "message.recalled", "spectate.recalled"); }
+std::set<std::string> Notifier::messageAudience(const Json::Value& m) {
+    std::set<std::string> allowed;
+    for (auto& u : gmUsers(m["channel_id"].asString())) allowed.insert(u);
+    // Use the same period-aware group view as HTTP. Direct window membership/whisper ownership
+    // must not bypass a pause and leak a message through the socket before the next fetch.
+    for(const auto& r : db_.queryJson("SELECT DISTINCT pm.user_id FROM player_group_members pm JOIN player_group_readable_messages ge ON ge.group_id=pm.group_id WHERE ge.message_id=$1",{m["id"].asString()})) allowed.insert(r["user_id"].asString());
+    return allowed;
+}
 void Notifier::deliverMessage(const Json::Value& m, const char* type, const char* spectateType) {
     auto channelId = m["channel_id"].asString();
     auto windowId = m["chat_window_id"].asString();
     auto vis = m["visibility"].asString();
-    std::set<std::string> allowed;
-    for (auto& u : gmUsers(channelId)) allowed.insert(u);
-    // Use the same period-aware group view as HTTP. Direct window membership/whisper ownership
-    // must not bypass a pause and leak a message through the socket before the next fetch.
-    for(const auto& r : db_.queryJson("SELECT DISTINCT pm.user_id FROM player_group_members pm JOIN player_group_readable_messages ge ON ge.group_id=pm.group_id WHERE ge.message_id=$1",{m["id"].asString()})) allowed.insert(r["user_id"].asString());
     Json::Value msg; msg["type"] = type; msg["channel_id"] = channelId; msg["message"] = m;
-    WsGateway::instance().broadcast("chat", channelId, msg, setFilter(std::move(allowed)));
+    WsGateway::instance().broadcast("chat", channelId, msg, setFilter(messageAudience(m)));
     // Spectators: public lines of the Main Chat only, to members (not guests) of a server that still allows it.
     auto key = WsGateway::spectateKey(channelId);
     if (vis == "window" && WsGateway::instance().hasSubscribers("chat", key)) {
@@ -55,6 +58,14 @@ void Notifier::deliverMessage(const Json::Value& m, const char* type, const char
             WsGateway::instance().broadcast("chat", key, spec, setFilter(std::move(members)));
         }
     }
+}
+void Notifier::hypertextClosed(const Json::Value& m, const std::string& closedAt) {
+    Json::Value msg; msg["type"] = "hypertext.closed"; msg["channel_id"] = m["channel_id"]; msg["message_id"] = m["id"]; msg["closed_at"] = closedAt;
+    WsGateway::instance().broadcast("chat", m["channel_id"].asString(), msg, setFilter(messageAudience(m)));
+}
+void Notifier::hypertextState(const std::string& channelId, const std::string& userId, const std::string& messageId, const Json::Value& state, int64_t version) {
+    Json::Value msg; msg["type"] = "hypertext.state"; msg["channel_id"] = channelId; msg["message_id"] = messageId; msg["state"] = state; msg["version"] = (Json::Int64)version;
+    WsGateway::instance().sendToUser("chat", userId, msg);   // every chat socket of that user (other devices too), nobody else
 }
 void Notifier::knowledgeChanged(const std::string& channelId) {
     Json::Value msg; msg["type"]="knowledge.reset"; msg["channel_id"]=channelId;

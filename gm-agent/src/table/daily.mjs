@@ -308,6 +308,8 @@ export async function standinAct(table, windowId, id, { spark = false, autonomou
   let reply;
   try {
     reply = await standinTurn(table.llm, { language: table.language, self: `YOU ARE ${c.name}\nPERSONA: ${c.bio ?? ''}\nSPEAKING STYLE: ${c.speaking_style ?? ''}\nYOUR CARD: ${JSON.stringify(card ?? c.role_card ?? {})}`, log: raw.map(m => table.renderForCoplayer(m)).join('\n'), recalled,
+      canFormat: () => table.isPassive(id) && !table.sparkCancelled() && !((spark || autonomous) && table.overBudget()),
+      formatting: table.cfg.writing?.formatting,
       phone: renderThread(table.store.phoneOf(id, 20), x => table.nameOf(x)), bonds: renderBondsFor(table.bonds, id, known.all, x => table.nameOf(x)), today: describeCalendar(table.calendar, { time: table.timelines.of(id).narrativeTime }), routine: describeRoutine(table.calendar), rule: table.daily.rules[id], questions, spark, request, dailyNote: spark ? table.sparkNote(windowId).text : '' });
   } catch (e) { table.log(`stand-in ${c.name}: ${e.message}`); return 0; }
   if (reply.action !== 'speak' || !table.isPassive(id) || table.sparkCancelled() || table.typing.get(id)?.windowId === windowId) return 0;

@@ -1,10 +1,10 @@
 name: Mobile contracts
 on:
   pull_request:
-    paths: ['mobile/**', 'backend/src/api/**', 'backend/src/auth/**', 'backend/src/knowledge/Visibility*', 'backend/src/logstudio/**', 'backend/src/chat/**', 'backend/migrations/**', 'frontend/src/store/auth.ts', 'frontend/src/api/**', '.github/workflows/mobile.yml']
+    paths: ['mobile/**', 'backend/src/api/**', 'backend/src/auth/**', 'backend/src/knowledge/Visibility*', 'backend/src/logstudio/**', 'backend/src/chat/**', 'backend/migrations/**', 'frontend/src/store/auth.ts', 'frontend/src/api/**', 'frontend/src/hypertext/**', 'frontend/package-lock.json', '.github/workflows/mobile.yml']
   push:
     branches: [main]
-    paths: ['mobile/**', 'backend/src/api/**', 'backend/src/auth/**', 'backend/src/knowledge/Visibility*', 'backend/src/logstudio/**', 'backend/src/chat/**', 'backend/migrations/**', 'frontend/src/store/auth.ts', 'frontend/src/api/**', '.github/workflows/mobile.yml']
+    paths: ['mobile/**', 'backend/src/api/**', 'backend/src/auth/**', 'backend/src/knowledge/Visibility*', 'backend/src/logstudio/**', 'backend/src/chat/**', 'backend/migrations/**', 'frontend/src/store/auth.ts', 'frontend/src/api/**', 'frontend/src/hypertext/**', 'frontend/package-lock.json', '.github/workflows/mobile.yml']
 permissions:
   contents: read
 jobs:

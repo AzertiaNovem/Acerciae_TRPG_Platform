@@ -44,6 +44,7 @@ struct Config {
     std::string corsOrigins;                // CORS_ORIGINS: comma-separated origins allowed cross-origin ("" = same origin only)
     bool trustProxy = false;                // TRUST_PROXY: take the client address from X-Forwarded-For (behind a reverse proxy)
     int registerPerHour = 20;               // AUTH_REGISTER_PER_HOUR: new accounts per client address per hour
+    bool hypertextEnabled = true;           // HYPERTEXT_ENABLED: interactive messages (kind hypertext); false = 403 feature_disabled
     std::vector<std::string> platformAdmins; // PLATFORM_ADMINS: usernames that administer the deployment (the admin panel, suspensions)
     int retentionAuditDays = 365;           // studio audit rows
     int retentionAiJobDays = 30;            // finished background AI job rows

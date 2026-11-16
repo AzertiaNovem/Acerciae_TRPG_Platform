@@ -2,9 +2,10 @@ import SwiftUI
 import UIKit
 import AcerciaeCore
 
-private let ink = Color(red: 0.07, green: 0.086, blue: 0.098)
-private let panelColor = Color(red: 0.14, green: 0.165, blue: 0.18)
-private let accent = Color(red: 0.79, green: 0.85, blue: 0.74)
+// The app's theme, shared with the interactive message cards (HypertextCardView.swift).
+let ink = Color(red: 0.07, green: 0.086, blue: 0.098)
+let panelColor = Color(red: 0.14, green: 0.165, blue: 0.18)
+let accent = Color(red: 0.79, green: 0.85, blue: 0.74)
 
 struct RootView: View {
     @StateObject private var model: AppModel
@@ -417,7 +418,7 @@ private struct MessageBubble: View {
             }.frame(maxWidth: .infinity)
         } else if separate && message.diceTone == .notice {
             // A hidden roll's public notice is the dice's own announcement.
-            DiceBotRow(message: message, model: model)
+            DiceBotRow(message: message, model: model, provenance: true)
         } else if separate {
             VStack(spacing: 12) { bubble; DiceBotRow(message: message, model: model) }
         } else { bubble }
@@ -428,14 +429,19 @@ private struct MessageBubble: View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 36) } else { avatar }
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
-                Text(header).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(header).font(.caption).foregroundStyle(.secondary)
+                    if message.isHypertext { HypertextPill() }
+                }
+                if message.viaHypertextId != nil { HypertextViaPill(answering: message.answering) }
                 if message.dice != nil && (message.referenceIds ?? []).isEmpty && !separate { DiceResultView(message: message).modifier(MessageMenu(message: message, model: model)) } else {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(message.referenceIds ?? [], id: \.self) { id in
                             ChatReferenceView(messageId: id, model: model)
                                 .id("\(model.session?.user.id ?? ""):\(model.scopeKey):\(model.windowId):\(id)")
                         }
-                        if message.dice != nil && separate { Text(message.content).font(.system(.body, design: .monospaced)).textSelection(.enabled) }
+                        if message.isHypertext { HypertextBody(message: message, model: model) }
+                        else if message.dice != nil && separate { Text(message.content).font(.system(.body, design: .monospaced)).textSelection(.enabled) }
                         else if message.dice != nil { DiceResultView(message: message) }
                         else if message.hasIllustration { ChatIllustration(message: message, model: model) }
                         else { Text(message.displayText).textSelection(.enabled) }

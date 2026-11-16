@@ -60,7 +60,7 @@ private struct SpectatorView: View {
             if !failed.isEmpty { Text(failed).foregroundStyle(.orange) }
             if more { Button(tr("Load earlier messages")) { Task { await load(older: true) } }.disabled(loading) }
             // The spectator endpoint already strips private fields. Never enrich with channel characters or documents.
-            ForEach(Array(messages.enumerated()), id: \.offset) { _, item in VStack(alignment: .leading, spacing: 6) { Text(item["author_name"].text).font(.caption).foregroundStyle(.secondary); Text(item["content"].text).textSelection(.enabled) } }
+            ForEach(Array(messages.enumerated()), id: \.offset) { _, item in SpectatorLine(item: item) }
         }.navigationTitle(channel.name).task { await load() }.refreshable { await load() }
     }
     private func load(older: Bool = false) async {
@@ -70,5 +70,28 @@ private struct SpectatorView: View {
             let result = try await model.get(["channels", channel.id, "spectate"], query: query)
             let next = result["messages"].array; messages = older ? next + messages : next; more = next.count >= 50; failed = ""
         } catch { messages = []; more = false; failed = tr("Something went wrong in this view.") }
+    }
+}
+/// One line of a read-only Main Chat. An interactive message is drawn from its document with every control locked: a
+/// spectator never asks for its status or runs its script.
+private struct SpectatorLine: View {
+    let item: JSONValue
+    private var kind: String { item["kind"].text }
+    private var answering: String? {
+        let via = item["via_user_id"].text, name = item["via_user_name"].text
+        return via.isEmpty || via == item["author_id"].text || name.isEmpty ? nil : name
+    }
+    var body: some View {
+        let card = kind == "hypertext" && (item["recalled_at"].string ?? "").isEmpty
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(item["author_name"].text).font(.caption).foregroundStyle(.secondary)
+                if kind == "hypertext" { HypertextPill() }
+            }
+            if !(item["via_hypertext_id"].string ?? "").isEmpty { HypertextViaPill(answering: answering) }
+            if card, let doc = Hypertext.parseDoc(item["hypertext"]) { HypertextSpectatorCard(doc: doc) }
+            else if card { HypertextFallback(content: item["content"].text) }
+            else { Text(item["content"].text).textSelection(.enabled) }
+        }
     }
 }

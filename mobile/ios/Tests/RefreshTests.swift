@@ -44,7 +44,7 @@ import AcerciaeCore
         XCTAssertEqual(model.draft,"Typing over cached history"); XCTAssertFalse(model.hasOlder)
         model.foreground=false
         let disk=AssetDiskCache(directory:directory)
-        let key="https://refresh.test/api/channels/channel/windows/window/mobile-history"
+        let key="https://refresh.test/api/channels/channel/windows/window/mobile-history-2"
         let saved=Date().addingTimeInterval(3)
         while disk.get(key)==nil && Date()<saved { try await Task.sleep(for:.milliseconds(10)) }
         XCTAssertNotNil(disk.get(key))
@@ -96,6 +96,41 @@ import AcerciaeCore
         try await model.refresh(metadata: false)
         XCTAssertTrue(model.references.isEmpty)
         XCTAssertTrue(model.campaign?.messages.first?.recalled == true)
+        model.foreground = false
+    }
+
+    func testCardPushesApplyWithoutARefreshAndCardsAreNotReadOrPinned() async throws {
+        let model = try model()
+        let card = #"{"id":"card","content":"Lamp","kind":"hypertext","seq":2,"author_name":"GM","author_id":"gm","chat_window_id":"window","hypertext":{"v":1,"state":{"lamp":{"type":"bool"}},"body":[{"type":"checkbox","id":"lamp","label":"Lamp","bind":"lamp"}]}}"#
+        RefreshProtocol.set("messages", status: 200, body: "[" + card + "]")
+        RefreshProtocol.set("hypertext", status: 200, body: #"{"enabled":true,"items":[{"message_id":"card","closes_at":null,"closed_at":null,"closed":false,"state":null,"version":0,"runs_left":null}]}"#)
+        try await model.refresh(metadata: false)
+        // The loaded card's status is asked for on its own (debounced), and the card is not pinnable.
+        let deadline = Date().addingTimeInterval(3)
+        while model.cards.store.cards["card"]?.loaded != true && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(model.cards.store.cards["card"]?.loaded, true)
+        XCTAssertTrue(RefreshProtocol.paths.contains("/api/channels/channel/hypertext?ids=card"), RefreshProtocol.paths.joined(separator: ", "))
+        let row = try XCTUnwrap(model.campaign?.messages.first { $0.id == "card" })
+        XCTAssertFalse(Pins.canPin(row)); XCTAssertFalse(row.speakable)
+        let viewing = model.cardViewing(row, doc: try XCTUnwrap(Hypertext.parseDoc(row.hypertext)), now: Date())
+        XCTAssertFalse(viewing.facts.history); XCTAssertTrue(viewing.facts.gm)
+        // The two card pushes are applied at once and wake no refresh; another channel's are left alone.
+        model.pushPending = false
+        model.onPush(try XCTUnwrap(RealtimeEvent.parse(#"{"type":"hypertext.state","channel_id":"channel","message_id":"card","state":{"lamp":true},"version":1}"#)))
+        XCTAssertFalse(model.pushPending)
+        XCTAssertEqual(model.cards.store.cards["card"]?.state, ["lamp": .bool(true)])
+        model.onPush(try XCTUnwrap(RealtimeEvent.parse(#"{"type":"hypertext.state","channel_id":"other","message_id":"card","state":{"lamp":false},"version":2}"#)))
+        XCTAssertEqual(model.cards.store.cards["card"]?.version, 1)
+        model.onPush(try XCTUnwrap(RealtimeEvent.parse(#"{"type":"hypertext.closed","channel_id":"channel","message_id":"card","closed_at":"2026-11-14T14:25:47.149433+00:00"}"#)))
+        XCTAssertFalse(model.pushPending)
+        XCTAssertEqual(model.cards.store.cards["card"]?.closedAt, "2026-11-14T14:25:47.149433+00:00")
+        model.onPush(try XCTUnwrap(RealtimeEvent.parse(#"{"type":"message.posted","channel_id":"channel","message":{"id":"next","content":"Hi","kind":"ic","seq":3,"author_name":"Test"}}"#)))
+        XCTAssertTrue(model.pushPending, "any other push still wakes the refresh")
+        // A change of knowledge scope drops every card: the one still shown starts over from its status.
+        RefreshProtocol.set("channel", status: 200, body: #"{"id":"channel","name":"Chat","my_role":"player"}"#)
+        try await model.refresh(metadata: false)
+        XCTAssertNil(model.cards.store.cards["card"]?.closedAt)
+        XCTAssertEqual(model.cards.store.cards["card"]?.version, 0)
         model.foreground = false
     }
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Table } from "../src/loop.mjs";
 import { Roster, markStyle } from "../src/roles/roster.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
+import { applyWorldOperation, valueKey } from '../src/world-state/state.mjs';
 import { buildConfig } from "../src/config.mjs";
 import { DND_RULES } from "./fixtures/dndRules.mjs";
 import { PBTA_RULES } from "./fixtures/pbtaRules.mjs";
@@ -36,6 +37,61 @@ async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = []
   return { t, api, llm, clock };
 }
 const playerSays = (t, api, content, w = t.primaryWindowId()) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content }) });
+
+test('a native state tool continues through plain composition, formatting and adopted publication', async () => {
+  const llm = new MockLlm(), original = llm.complete.bind(llm); let called = false;
+  llm.director = () => ({actions:[{type:'narrate',text:'Grimsby gives Harriet a trusting smile.'}],coplayers_may_act:false});
+  llm.complete = async req => {
+    if (req.purpose === 'director' && !called) {
+      called=true;
+      assert.ok(req.tools.some(t=>t.name==='world_state_set'));
+      return {calls:[{id:'trust-once',name:'world_state_set',arguments:{metric:'trust',subject:'c-butler',target:'c-harriet',expected:0,value:1,reason:'Harriet kept her word',basis:{kind:'reply',quote:'Grimsby gives Harriet a trusting smile.'}}}],providerOutput:[{type:'function_call'}]};
+    }
+    return original(req);
+  };
+  const {t,api}=await table({llm,forks:false,improv:{on:true,world:'An ordinary household.'},before: api=>{
+    api.inventory=async()=>({supported:true,characters:api.characters_.map(c=>({id:c.id,name:c.name,items:c.role_card.items??[],version:0}))});
+    api.agentMessage=async()=>({message:null,cancelled:false});
+  }});
+  t.worldState=applyWorldOperation(t.worldState,{type:'define',definition:{id:'trust',label:'Trust',description:'NPC trust of one character',scope:'relation',type:'number',initial:0,min:0,max:10,changeRule:'Keep a promise +1'},reason:'Fixture'});
+  await playerSays(t,api,'Harriet kept her word.');await settle(t);
+  assert.equal(t.worldState.values[valueKey('trust','c-butler','c-harriet')].value,1);
+  assert.equal(t.worldState.values[valueKey('trust','c-butler','c-alice')],undefined);
+  const line=api.posts.find(p=>p.content==='Grimsby gives Harriet a trusting smile.');
+  assert.ok(line?.request_id);assert.equal(line.kind,'narration');assert.equal(t.worldState.pending,null);
+});
+
+test("channel prose and presentation guidance reach only their respective requests", async () => {
+  const writing = { gm: "GM-STYLE: 只用动作写出情绪。", coplayer: "CP-STYLE: 用短句和话外音。", formatting: "LAYOUT-STYLE: 每句话拆成一条。" };
+  const { t, api, llm } = await table({ cfg: { writing } });
+  await playerSays(t, api, "I open the desk drawer.");
+  assert.ok(llm.calls.some(c => c.purpose === "director" && c.system.includes(writing.gm)));
+  assert.ok(llm.calls.some(c => c.purpose === "coplayer_turn" && c.system.includes(writing.coplayer)));
+  for (const c of llm.calls.filter(c => c.purpose === "chat_format")) {
+    assert.doesNotMatch(c.system + JSON.stringify(c.messages), /GM-STYLE|CP-STYLE/);
+    assert.ok(c.system.includes(writing.formatting));
+  }
+  for (const c of llm.calls.filter(c => ["director", "coplayer_turn"].includes(c.purpose))) assert.doesNotMatch(c.system, /LAYOUT-STYLE/);
+});
+
+test("co-player message splitting fits the remaining turn budget and stops on pause", async () => {
+  const { t, api, llm } = await table();
+  const cp = t.roster.coplayers[0];
+  const complete = llm.complete.bind(llm);
+  llm.complete = async r => {
+    if (r.purpose === "coplayer_turn") return "我推开门。灯还亮着。我停在门口。";
+    if (r.purpose === "chat_format" && r.phase === "coplayer_turn") return JSON.stringify({ action: "speak", kind: "ic", messages: [1, 2, 3].map(i => ({ id: 1, from: i, to: i })) });
+    return complete(r);
+  };
+  const before = api.lines.length;
+  assert.equal(await t.coplayerAct("w-main", cp, true, { maxMessages: 2 }), 2);
+  assert.deepEqual(api.lines.slice(before).map(m => [m.character_id, m.content]), [[cp.characterId, "我推开门。"], [cp.characterId, "灯还亮着。\n\n我停在门口。"]]);
+  const post = t.post.bind(t);
+  t.post = async (...args) => { const n = await post(...args); t.generation.pause(); return n; };
+  const pausedAt = api.lines.length;
+  assert.equal(await t.coplayerAct("w-main", cp, true, { maxMessages: 3 }), 1);
+  assert.deepEqual(api.lines.slice(pausedAt).map(m => m.content), ["我推开门。"]);
+});
 
 test("co-players and real NPCs are told apart from the platform's characters", async () => {
   const { t } = await table();
@@ -754,7 +810,7 @@ test("improvisation: the world is posted once for the players, and the GM and co
   assert.ok(ctx.includes("## Hidden truths") && ctx.includes("WORLD-SECRET"), "the GM keeps the secrets");
   assert.equal(ctx.split("WORLD-PUBLIC").length - 1, 1, "the posted copy is left out of the chat");
   assert.ok(!ctx.includes("SECRET-SCRIPT"), "no module script knowledge");
-  assert.match(director.system, /there is no module/); assert.match(director.system, /"type": "truth"/);
+  assert.match(director.system, /there is no module/); assert.match(llm.calls.find(c => c.purpose === "chat_format").system, /"type": "truth"/);
   const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
   assert.ok(cp.includes("THE WORLD") && cp.includes("WORLD-PUBLIC"), "the co-player knows the world");
   assert.equal(cp.split("WORLD-PUBLIC").length - 1, 1, "once, not again from the chat");
@@ -981,7 +1037,7 @@ test("the world record is in the GM's context, never a co-player's, and world_ch
   const ctx = director.messages[0].content;
   assert.match(ctx, /## The world now/); assert.match(ctx, /\[npc\] Silas Mott — dead: RECORD-SILAS found drowned under the pier \[set by you\]/);
   assert.ok(!ctx.includes("Old Mill"), "entities with nothing known are left out");
-  assert.match(director.system, /"type": "world_change"/);
+  assert.match(llm.calls.find(c => c.purpose === "chat_format").system, /"type": "world_change"/);
   assert.ok(!llm.calls.filter((c) => c.purpose === "coplayer_turn").some((c) => c.messages[0].content.includes("RECORD-SILAS")), "co-players never read the GM's record");
   assert.deepEqual(api.declared, [{ text: "WORLD-CHANGE: the Guild closes the docks at night.", secret: true }]);
   assert.ok(!api.posts.some((p) => p.content.includes("WORLD-CHANGE")), "a declaration is never a chat line");
@@ -1065,7 +1121,7 @@ test("casual: an NPC answers a text through the GM after a believable delay, and
   await settle(t);
   const call = llm.calls.filter((c) => c.purpose === "director").at(-1);
   assert.match(call.messages[0].content, /MODE: phone — Alice Hale texted Mr\. Grimsby/);
-  assert.match(call.system, /"type": "text"/); assert.match(call.system, /Casual mode/);
+  assert.match(call.system, /Phone from <NPC> to <recipient>/); assert.match(call.system, /Casual mode/);
   assert.equal(texts(t, api, "c-alice").length, 0, "not yet");
   assert.ok(!api.posts.some((p) => p.content === "NOT-IN-A-SCENE"), "a phone turn narrates nothing");
   clock.t += 31 * MIN;
@@ -1096,7 +1152,7 @@ test("casual: a co-player may text a player first; without casual mode the GM ha
   const plain = await table();
   await alicePosts(plain.t, plain.api, "Hm.");
   await settle(plain.t);
-  assert.ok(!/"type": "text"/.test(plain.llm.calls.find((c) => c.purpose === "director").system));
+  assert.doesNotMatch(plain.llm.calls.find((c) => c.purpose === "chat_format").system, /"type": "text"/);
 });
 
 test("casual: a line naming no known contact gets a hint, and nobody is texted", async () => {
@@ -1183,7 +1239,7 @@ test("the first story plan: drafted, critiqued and revised in one cached convers
   const parts = director.parts[0];
   assert.ok(!parts[0].text.includes("## Story plan"), "not in A");
   assert.ok(parts.slice(1, -1).some((p) => p.cache && p.text.includes("## Story plan") && p.text.includes("[mock twist]")), "in a cached middle part");
-  assert.match(director.system, /Story plan: your private plan/); assert.match(director.system, /"type": "planner_note"/);
+  assert.match(director.system, /Story plan: your private plan/); assert.match(llm.calls.findLast(c => c.purpose === "chat_format" && c.system.includes("For a GM turn")).system, /"type": "planner_note"/);
   assert.ok(!director.messages[0].content.includes("[mock impulse]"), "the GM never reads an impulse");
   const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet")).at(-1).messages[0].content;
   assert.ok(cp.includes("SOMETHING ON YOUR MIND") && cp.includes("[mock impulse]"), "Harriet has her impulse");
@@ -1385,7 +1441,7 @@ test("the GM's date and bond actions; traits, gender and relationships, and who 
   assert.match(gm, /- Lady Ashcombe \(female, 40; extremely good-looking, striking; extremely intelligent\): /, "the GM's cast");
   assert.match(gm, /- Mr\. Grimsby \(male, 62; very large, imposing build\): /);
   assert.match(gm, /- Alice Hale \(played by alice\)\n[^\n]*gender: female[\s\S]*notable: extremely intelligent/);
-  assert.match(llm.calls.find((c) => c.purpose === "director").system, /"type": "date"[\s\S]*"type": "bond"/);
+  assert.match(llm.calls.find(c => c.purpose === "chat_format").system, /"type": "date"[\s\S]*"type": "bond"/);
   // The operator's commands.
   await t.command({ cmd: "bond", a: "Alice Hale", b: "Mr. Grimsby", kind: "rivals", end: true });
   assert.equal(t.bonds.length, 3);
@@ -1612,7 +1668,7 @@ test("the planner window: every player sits in it; wishes and corrections reach 
 });
 
 test("a new player is seated in the planner window, gets a phone in casual mode, and the GM brings their character in", async () => {
-  const { t, api, llm } = await isolated({ cfg: pcfg() });
+  const { t, api, llm } = await isolated({ improv: IMPROV, cfg: pcfg() });
   await t.ensureTableWindows();
   assert.ok(t.planner.window && t.casual.log, "planner window and phone log");
   const before = Object.keys(t.casual.phones).length;
@@ -1676,7 +1732,7 @@ test("recall recovers compacted evidence with source labels; co-players never se
   assert.match(prompt, /RELEVANT EARLIER LINES YOU WITNESSED/);
   assert.match(prompt, /PUBLIC-DETAIL/);
   for (const forbidden of ["HIDDEN-DETAIL", "PRIVATE-DETAIL", "ELSEWHERE-DETAIL", ...SECRETS]) assert.ok(!prompt.includes(forbidden), forbidden);
-  assert.equal(llm.calls.length, before + 1, "only the co-player's normal response call was added");
+  assert.deepEqual(llm.calls.slice(before).map(c => c.purpose), ["coplayer_turn", "chat_format"], "only drafting and formatting the response");
 });
 
 test("GM prompt cache preserves completed history blocks when a new chunk arrives", async () => {
@@ -1730,7 +1786,7 @@ test("a split follows individual declarations, even when the director assigns al
 
 test("a player's correction in chat or the planner window restores the real seat before play, despite a fresh move", async () => {
   for (const source of ["w-main", "w-planner"]) {
-    const { t, api, llm } = await table({ bob: true });
+    const { t, api, llm } = await table({ improv: IMPROV, bob: true });
     t.deferArrivals = true;
     t.planner.window = "w-planner";
     await t.command({ cmd: "split", who: ["Harriet Vance", "Bob Price"], place: "Darkroom" });
@@ -1896,7 +1952,7 @@ test("a newer departure during presence analysis invalidates the proposed reunio
 });
 
 test("planner /pause cancels queued turns; scheduled phone texts still arrive exactly once without replies", async () => {
-  const { t, api, llm, clock } = await isolated({ cfg: pcfg() });
+  const { t, api, llm, clock } = await isolated({ improv: IMPROV, cfg: pcfg() });
   const initialCalls = llm.calls.length;
   const initialInbox = [...t.planner.inbox];
   const queued = t.schedule("w-main", { delay: 60000 });
@@ -1942,7 +1998,7 @@ test("a paused director cannot post a late response after the player resumes", {
       signal = req.signal;
       began.resolve();
       await finish.promise;
-      return JSON.stringify({ actions: [{ type: "narrate", text: "Stale narration" }] });
+      return "Stale narration";
     }
     return complete(req);
   };
@@ -2028,7 +2084,7 @@ test('a lost fork response is recovered by the same persisted request without du
 
 test("without scene forks: a player's correction in chat or the planner window restores the real seat before play, despite a fresh move", async () => {
   for (const source of ["w-main", "w-planner"]) {
-    const { t, api, llm } = await table({ forks: false,  bob: true });
+    const { t, api, llm } = await table({ improv: IMPROV, forks: false, bob: true });
     t.deferArrivals = true;
     t.planner.window = "w-planner";
     await t.command({ cmd: "split", who: ["Harriet Vance", "Bob Price"], place: "Darkroom" });
@@ -2339,7 +2395,7 @@ test("a D&D table: the GM's and the co-players' prompts follow the profile; the 
   assert.equal(t.profile.id, "dnd2024"); assert.equal(t.rules.point_buy.budget, 27, "the D&D rules were fetched");
   await alicePosts(t, api, "I check the door for traps."); await settle(t);
   const director = llm.calls.find((c) => c.purpose === "director");
-  assert.match(director.system, /^You are the GM \(Game master\) of a fifth-edition fantasy campaign/); assert.doesNotMatch(director.system, /Keeper|Dungeon Master|\bDM\b|\.sc /); assert.match(director.system, /"type": "dice"/);
+  assert.match(director.system, /^You are the GM \(Game master\) of a fifth-edition fantasy campaign/); assert.doesNotMatch(director.system, /Keeper|Dungeon Master|\bDM\b|\.sc /); assert.match(llm.calls.find(c => c.purpose === "chat_format").system, /"type": "dice"/);
   const gm = director.messages[0].content;
   assert.match(gm, /Co-players \(AI adventurers/); assert.match(gm, /- Harriet Vance\n    build: level 3 Elf Rogue \(Criminal\)\n/); assert.match(gm, /- Alice Hale \(played by alice\)\n    build: level 2 Goliath Fighter \(Soldier\)\n[^\n]*\n    notable: extremely strong/);
   assert.doesNotMatch(gm, /Keeper|Dungeon Master|Investigators may be living/); assert.match(gm, /## GM board/); assert.match(gm, /\[GM only\]/); assert.match(gm, /Adventurers may be living different threads/);
@@ -2455,6 +2511,20 @@ const lineSaid = (api, content, { who = "alice", w = "w-main" } = {}) => api.add
 const sayLine = (t, line) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: line });
 const openSeats = (cp) => cp.seats.filter((s) => s.toSeq === null).map((s) => s.windowId);
 
+test('world state remains when its supporting narration cannot be recalled', async () => {
+  const { t, api } = await table({ forks: false });
+  const human = lineSaid(api, 'I accept the key.');
+  const cp = t.openCheckpoint('w-main', 'human');
+  t.worldState.revision++;
+  const posted = await api.postMessage('ch', 'w-main', {kind:'narration',content:'The key is now yours.'});
+  cp.posted.push({id:posted.id,seq:posted.seq,kind:'narration',windowId:'w-main'});
+  t.closeCheckpoint(cp);
+  api.recallMessage = async () => {throw Object.assign(Error('expired'),{status:409,code:'recall_expired'});};
+  await t.rollback(human,[cp]);
+  assert.equal(t.worldState.revision,1);
+  assert.match(api.posts.at(-1).content,/world state supporting a line that remains/);
+});
+
 test("a recent recall rolls the table back: the GM's lines after it are recalled and the co-player's move is undone", async () => {
   const { t, api } = await table({ forks: false });
   const harriet = t.roster.coplayerByName("Harriet Vance");
@@ -2564,7 +2634,7 @@ test("the GM may have an evocative moment drawn: with the characters' portraits,
   const { t, api } = await table({ llm, forks: false, cfg: illustrateCfg({ maxPerHour: 1 }) });
   await playerSays(t, api, "I walk to the end of the pier."); await settle(t);
   const system = llm.calls.find((c) => c.purpose === "director").system;
-  assert.match(system, /- Pictures: the story moves in small events/); assert.match(system, /for a breathtaking moment in the middle of an event[^\n]*illustrate/); assert.match(system, /"type": "illustrate"/); assert.match(system, /"type": "event_done"/);
+  assert.match(system, /- Pictures: the story moves in small events/); assert.match(system, /for a breathtaking moment in the middle of an event[^\n]*illustrate/); assert.match(llm.calls.find(c => c.purpose === "chat_format").system, /"type": "event_done"[\s\S]*"type": "illustrate"/);
   assert.deepEqual(api.illustrations_.map((j) => [j.window_id, j.prompt, j.character_ids, j.orientation, j.allow_cloud]),
     [["w-main", "Harriet at the end of the pier, lantern raised, fog lit gold", ["c-harriet", "c-butler"], "portrait", true]], "unknown names are left out");
   assert.ok(api.lines.some((m) => m.kind === "ooc" && m.content.startsWith("🖼️ Harriet at the end") && m.media_asset_id), "posted by the platform as the GM's picture");
@@ -2572,7 +2642,8 @@ test("the GM may have an evocative moment drawn: with the characters' portraits,
   assert.equal(api.illustrations_.length, 1, "the hourly limit holds");
   const off = await table({ llm: new MockLlm(), forks: false, cfg: illustrateCfg({ enabled: false }) });
   await playerSays(off.t, off.api, "Hello?"); await settle(off.t);
-  assert.doesNotMatch(off.llm.calls.find((c) => c.purpose === "director").system, /Illustrations:|"illustrate"/, "off: the GM is not offered the action");
+  assert.doesNotMatch(off.llm.calls.find((c) => c.purpose === "director").system, /- Pictures:/);
+  assert.doesNotMatch(off.llm.calls.find(c => c.purpose === "chat_format").system, /"illustrate"/, "off: the formatter is not offered the action");
 });
 
 test("every scenario change draws the best moment of each timeline a player is in, all posted in the Main Chat", async () => {
@@ -2609,7 +2680,7 @@ test("a co-player-only thread gets no scenario picture; a busy account makes the
   await none.t.illustrateMoment("w-main", { text: "A moment", who: [] });
   assert.match(none.t.illustrationOff, /not configured/);
   await playerSays(none.t, none.api, "Hello?"); await settle(none.t);
-  assert.doesNotMatch(none.llm.calls.filter((c) => c.purpose === "director").at(-1).system, /"illustrate"/, "the GM is no longer offered it");
+  assert.doesNotMatch(none.llm.calls.findLast(c => c.purpose === "chat_format" && c.system.includes("For a GM turn")).system, /"illustrate"/, "the GM is no longer offered it");
 });
 
 test("the platform's switches: no drawing while the GM or the server's maintainers have it off, never off for good", async () => {
@@ -2621,7 +2692,7 @@ test("the platform's switches: no drawing while the GM or the server's maintaine
   assert.equal(t.illustrationOff, null, "not off for good");
   assert.equal(t.illustrationsOn(), false);
   await playerSays(t, api, "Hello?"); await settle(t);
-  assert.doesNotMatch(llm.calls.filter((c) => c.purpose === "director").at(-1).system, /"illustrate"/, "the GM is not offered it while it is off");
+  assert.doesNotMatch(llm.calls.findLast(c => c.purpose === "chat_format" && c.system.includes("For a GM turn")).system, /"illustrate"/, "the GM is not offered it while it is off");
   // Back on: the channel's update is followed.
   api.channelIllustrations = true;
   t.onEvent({ stream: "chat", type: "channel.updated", channel_id: "ch" }); await settle(t);
@@ -2753,7 +2824,7 @@ const plannerPosts = (t, api) => api.posts.filter((p) => p.window === t.planner.
 
 test("a player asks the planner window for a picture of a past plot: found however long ago, drawn there at once, never the planner's", async () => {
   // The aurora was long ago: before the oldest line the table keeps, in the scenario it began.
-  const { t, api, llm } = await table({ heal: true, forks: false, cfg: artCfg(), before: (a) => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, forks: false, cfg: artCfg(), before: (a) => {
     a.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: AURORA });
     for (let i = 0; i < 60; i++) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: `Filler ${i}: we talk about the weather.` });
   } });
@@ -2778,7 +2849,7 @@ test("a player asks the planner window for a picture of a past plot: found howev
 });
 
 test("a picture request while the GM has illustrations off is answered at once, and costs nothing", async () => {
-  const { t, api, llm } = await table({ heal: true, forks: false, cfg: artCfg(), before: (a) => { a.channelIllustrations = false; } });
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, forks: false, cfg: artCfg(), before: (a) => { a.channelIllustrations = false; } });
   await inPlanner(t, api, "/draw the aurora above the lighthouse");
   assert.deepEqual(plannerPosts(t, api), ["🎨 Picture requests are turned off for this table."]);
   assert.equal(llm.calls.filter((c) => c.purpose === "plot_search" || c.purpose === "plot_illustration").length, 0);
@@ -2788,7 +2859,7 @@ test("a picture request while the GM has illustrations off is answered at once, 
 test("a picture request searches by meaning: summaries and recent play, a zoom into a long stretch, and the next entry when the first holds nothing", async () => {
   const pad = " The rain keeps falling on the slate roofs while we wait and talk of tides, of debts, of the old harbour master's stubborn silence.";
   const llm = new MockLlm();
-  const { t, api } = await table({ llm, heal: true, forks: false, cfg: { ...pcfg(), ...illustrateCfg() }, before: (a) => {
+  const { t, api } = await table({ llm, improv: IMPROV, heal: true, forks: false, cfg: { ...pcfg(), ...illustrateCfg() }, before: (a) => {
     for (let i = 0; i < 300; i++) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice",
       content: i === 150 ? "Harriet lifts the lantern and green light ripples across the bay." : `Line ${i}:${pad}` });
     for (const l of ["We dry our coats by the fire.", "We say little.", "We sleep."]) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: l });
@@ -2813,7 +2884,7 @@ test("a picture request searches by meaning: summaries and recent play, a zoom i
 });
 
 test("a picture request: any scene, never a whisper; a hint when empty, one at a time and capped per hour, and no resumption of a paused table", async () => {
-  const { t, api, llm } = await table({ heal: true, forks: false, bob: true, cfg: artCfg({ requestsPerHour: 2 }), before: (a) => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, forks: false, bob: true, cfg: artCfg({ requestsPerHour: 2 }), before: (a) => {
     a.add({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "I find the brass astrolabe hidden behind the portrait." });
     a.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "Only you hear the violin playing under the floorboards.", visibility: "whisper", whisper_to: ["c-bob"] });
   } });

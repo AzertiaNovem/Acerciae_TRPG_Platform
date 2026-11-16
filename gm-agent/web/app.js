@@ -2,10 +2,12 @@
 // Only login sends the access token. An HttpOnly session cookie restores the UI across visits.
 // All content is set with textContent (no HTML from the server).
 import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
+import { renderWorld } from './world-state.js';
 'use strict';
+let worldKey = '', worldBusy = false;
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
-const FUNCTIONS = { director: '主持', coplayers: '队友', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
+const FUNCTIONS = { forge: '开局共创', director: '主持', coplayers: '队友', formatting: '排版', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
 let channelRequest = 0;
 let usageRange = 'today', usageDetailsOpen = false, planKey = '';
 let usageKey = '', usageNode = null;
@@ -70,7 +72,7 @@ function disconnect() {
   connection++; connected = false; selected = ''; config = null; detail = null; hostInfo = null; schema = null; channels = []; platform = null; dirty.clear();
   logSeq = 0; logLines = []; $('log').replaceChildren(); $('token').value = ''; $('channel-count').textContent = '';
   $('yaml').value = ''; $('form').replaceChildren(); $('overview').replaceChildren(); $('host').replaceChildren(); renderSavebar();
-  planKey = ''; $('plan-view').replaceChildren(); $('host-usage').replaceChildren(); $('host-usage').hidden = true; $('all-usage').disabled = true;
+  planKey = ''; worldKey = ''; $('world-view').replaceChildren(); $('plan-view').replaceChildren(); $('host-usage').replaceChildren(); $('host-usage').hidden = true; $('all-usage').disabled = true;
   $('login').hidden = false; $('session').hidden = true; $('summary').hidden = true; $('host').hidden = true;
   $('channels').replaceChildren(h('p', { class: 'muted', text: '连接后显示频道。' }));
   $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false; $('new-task').disabled = true;
@@ -134,6 +136,7 @@ async function refreshChannels() {
 async function select(id) {
   if (busy || (id !== selected && !confirmDiscard())) return;
   selected = id; dirty.clear(); logSeq = 0; logLines = []; $('log').replaceChildren(); detail = null; config = null;
+  worldKey = ''; $('world-view').replaceChildren();
   $('empty').hidden = true; $('create').hidden = true; $('channel').hidden = false;
   $('title').textContent = id; $('subtitle').textContent = '';
   try { await Promise.all([loadConfig(), refreshDetail()]); await refreshChannels(); showTab(tab); notice(''); }
@@ -152,7 +155,8 @@ for (const button of document.querySelectorAll('[data-tab]')) button.onclick = (
 function showTab(name) {
   tab = name;
   for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
-  for (const t of ['overview', 'plan', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
+  for (const t of ['overview', 'plan', 'world', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
+  if (name === 'world') refreshWorld().catch(error => notice(error.message, 'bad'));
   if (name === 'logs') refreshLogs().catch(() => {});
 }
 
@@ -163,6 +167,19 @@ async function refreshDetail() {
   if (selected !== id) return;
   detail = next;
   renderHead(); renderOverview(); renderPlan();
+  if (tab === 'world') await refreshWorld();
+}
+async function refreshWorld() {
+  if (!selected || worldBusy) return;
+  const id = selected, epoch = connection;
+  const key = JSON.stringify([id, detail?.live?.worldState, detail?.live?.stale]);
+  if (key === worldKey) return;
+  worldBusy = true;
+  try {
+    const data = await api(`/api/channels/${id}/world`);
+    if (selected !== id || connection !== epoch) return;
+    renderWorld($('world-view'), data); worldKey = key;
+  } finally { worldBusy = false; }
 }
 function renderHead() {
   const d = detail, live = d.live, [label, kind] = STATES[d.status] ?? [d.status, 'off'];
@@ -271,6 +288,13 @@ function renderOverview() {
     rt.lastError ? h('p', { class: 'error-text', text: rt.lastError }) : null));
   if (live) {
     const c = live.channel ?? {}, a = live.activity ?? {}, cast = live.cast ?? {}, u = live.usage, p = live.planner, s = live.settings ?? {};
+    if (live.forge) cards.push(card('开局共创 Forge',
+      kv('阶段', ({ interview:'共同筹备',review:'等待全员确认',applying:'正在启用',ready:'等待开始',cancelled:'已暂停',playing:'已开局' })[live.forge.phase] || live.forge.phase),
+      kv('草案版本', live.forge.revision), kv('已确认', `${live.forge.confirmed.length}/${live.forge.participants.length}`),
+      kv('参与者', live.forge.participants.map(p=>p.name).join('、')),
+      h('p',{text:'请在平台的“开局共创 · Forge”窗口回答与确认。'}),
+      live.forge.error ? h('p',{class:'error-text',text:live.forge.error}) : null,
+      ...(live.forge.playtests ?? []).map(t=>h('details',{},h('summary',{text:`${t.depth} 试跑 · v${t.revision}`}),h('pre',{text:t.reports.flat().join('\n\n')})))));
     cards.push(card('牌桌',
       kv('频道', c.name), kv('规则', RULES[c.rule] ?? c.rule), kv('语言', c.language), kv('GM 身份', c.gm === null ? '—' : c.gm ? '是' : '否（无法主持）', c.gm === false ? 'error-text' : ''),
       kv('知识模式', c.knowledge === 'isolated' ? '隔离' : c.knowledge === 'public' ? '公开' : c.knowledge), kv('窗口', num(cast.windows)),
@@ -370,19 +394,28 @@ function display(field, value) {
   if (Array.isArray(value)) return value.length ? value.join(', ') : '空';
   return `${value}${field.unit ? ` ${field.unit}` : ''}`;
 }
-function current(field) {
-  if (dirty.has(field.key)) return dirty.get(field.key);
+function savedValue(field) {
   const v = config?.values?.[field.key]?.set;
-  if (v === undefined) return '';
+  if (field.type === 'text' && (v == null || !String(v).trim())) return config?.values?.[field.key]?.effective ?? '';
+  if (v === undefined) return field.type === 'text' ? config?.values?.[field.key]?.effective ?? '' : '';
   return Array.isArray(v) ? v.join(', ') : typeof v === 'boolean' ? String(v) : String(v);
+}
+function current(field) {
+  if (dirty.has(field.key)) return field.type === 'text' && dirty.get(field.key) === '' ? config?.values?.[field.key]?.default ?? '' : dirty.get(field.key);
+  return savedValue(field);
 }
 function input(field) {
   const value = current(field), id = `f-${field.key.replace(/\./g, '-')}`;
   const change = event => {
-    const v = event.target.value, saved = (() => { const s = config?.values?.[field.key]?.set; return s === undefined ? '' : Array.isArray(s) ? s.join(', ') : String(s); })();
+    const v = event.target.value, saved = savedValue(field);
     if (v === saved) dirty.delete(field.key); else dirty.set(field.key, v);
     renderSavebar(); event.target.closest('.field')?.classList.toggle('changed', dirty.has(field.key));
   };
+  if (field.type === 'text') {
+    const area = h('textarea', { id, rows: 7, maxlength: field.maxLength,
+      oninput: change, autocomplete: 'off', spellcheck: 'false' });
+    area.value = value; return area;
+  }
   if (field.type === 'bool' || field.type === 'tri' || field.type === 'enum') {
     const eff = config?.values?.[field.key]?.default;
     const opts = field.type === 'enum'
@@ -398,7 +431,7 @@ function renderForm() {
   if (!schema || !config) return;
   const q = $('filter').value.trim().toLowerCase(), onlySet = $('only-set').checked;
   const groups = schema.groups.map(g => {
-    const fields = schema.fields.filter(x => x.group === g.id).filter(x => !q || x.label.toLowerCase().includes(q) || x.key.includes(q) || x.help.toLowerCase().includes(q))
+    const fields = schema.fields.filter(x => x.group === g.id).filter(x => !q || g.title.toLowerCase().includes(q) || x.label.toLowerCase().includes(q) || x.key.includes(q) || x.help.toLowerCase().includes(q))
       .filter(x => !onlySet || config.values[x.key]?.set !== undefined || dirty.has(x.key));
     if (!fields.length) return null;
     const setCount = fields.filter(x => config.values[x.key]?.set !== undefined).length;
@@ -407,14 +440,14 @@ function renderForm() {
       h('p', { class: 'muted small', text: g.help }),
       ...fields.map(field => {
         const v = config.values[field.key] ?? {};
-        return h('div', { class: `field${v.set !== undefined ? ' set' : ''}${dirty.has(field.key) ? ' changed' : ''}` },
+        return h('div', { class: `field${field.type === 'text' ? ' multiline' : ''}${v.set !== undefined ? ' set' : ''}${dirty.has(field.key) ? ' changed' : ''}` },
           h('label', { for: `f-${field.key.replace(/\./g, '-')}` }, h('span', { text: field.label }), h('code', { text: field.key })),
           h('div', { class: 'control' }, input(field),
-            v.set !== undefined || dirty.has(field.key) ? h('button', { type: 'button', class: 'quiet small', title: '删除这个键，使用默认值', onclick: () => {
+            field.type === 'text' || v.set !== undefined || dirty.has(field.key) ? h('button', { type: 'button', class: 'quiet small', title: '删除这个键，使用默认值', onclick: () => {
               if (v.set === undefined) dirty.delete(field.key); else dirty.set(field.key, '');
               renderForm(); renderSavebar();
             }, text: '恢复默认' }) : null),
-          h('p', { class: 'help', text: `${field.help} 当前生效：${display(field, v.effective)}${v.set !== undefined && String(v.default) !== String(v.effective) ? `；默认：${display(field, v.default)}` : ''}` }));
+          h('p', { class: 'help', text: field.type === 'text' ? field.help : `${field.help} 当前生效：${display(field, v.effective)}${v.set !== undefined && String(v.default) !== String(v.effective) ? `；默认：${display(field, v.default)}` : ''}` }));
       }));
   }).filter(Boolean);
   $('form').replaceChildren(...(groups.length ? groups : [h('p', { class: 'muted', text: '没有符合条件的设置。' })]));
@@ -490,7 +523,7 @@ window.addEventListener('beforeunload', event => { if (connected && unsaved()) {
 setInterval(() => {
   if (!connected || busy) return;
   refreshChannels().catch(error => notice(error.message, 'bad'));
-  if (selected && ['overview', 'plan'].includes(tab)) refreshDetail().catch(() => {});
+  if (selected && ['overview', 'plan', 'world'].includes(tab)) refreshDetail().catch(() => {});
   else if (selected && detail) { const id = selected; api(`/api/channels/${id}/status`).then(d => { if (selected === id) { detail = d; renderHead(); } }).catch(() => {}); }
 }, 4000);
 setInterval(() => { if (connected && !busy && selected && tab === 'logs') refreshLogs().catch(() => {}); }, 2500);
@@ -504,7 +537,7 @@ $('all-usage').onclick = () => {
   $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false;
   refreshChannels().catch(e => notice(e.message, 'bad')); notice('');
 };
-const CREATE_FIELDS = ['table.language', 'table.coplayers', 'table.level', 'modes.casual', 'timelines.scene_forks', 'autonomy.enabled', 'planner.enabled'];
+const CREATE_FIELDS = ['modes.improv', 'forge.enabled', 'table.language', 'table.coplayers', 'table.level', 'modes.casual', 'timelines.scene_forks', 'autonomy.enabled', 'planner.enabled'];
 const source = () => document.querySelector('input[name=source]:checked').value;
 function createRule() {
   if (source() === 'new') return $('c-rule').value;

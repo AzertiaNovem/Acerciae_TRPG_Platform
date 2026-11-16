@@ -58,7 +58,26 @@ public struct Message: Codable, Identifiable, Sendable, Equatable {
     /// Seconds left, when the message arrived, for its author to recall it; nil when it cannot be recalled.
     public var recallSecondsLeft: Int? = nil
     public var standIn: Bool? = nil
+    /// The window the line belongs to: a line of an earlier window shows in a fork's history (its card stays locked).
+    public var chatWindowId: String? = nil
+    /// An interactive message's public card (kind `hypertext`) as stored; read it with `Hypertext.parseDoc`. Nil on
+    /// every other kind and once the card is recalled. Older builds show and read aloud `content` instead.
+    public var hypertext: JSONValue? = nil
+    /// On a line an interactive message posted: the card, and who acted on it (on a reply the card's sender said,
+    /// `viaUserId` is not the `authorId`).
+    public var viaHypertextId: String? = nil
+    public var viaUserId: String? = nil
+    public var viaUserName: String? = nil
     public var recalled: Bool { recalledAt != nil }
+    public var isHypertext: Bool { kind == "hypertext" }
+    /// Who a card's reply answered ("answering {name}"): set only when someone other than the line's author acted.
+    public var answering: String? {
+        guard let via = viaUserId, !via.isEmpty, via != authorId, let name = viaUserName, !name.isEmpty else { return nil }
+        return name
+    }
+    /// Whether read-aloud may speak the line: not a system line, not a card (its text is the plain fallback of labels
+    /// and buttons, not something said at the table), not recalled.
+    public var speakable: Bool { kind != "system" && kind != "hypertext" && !recalled }
     public var hasIllustration: Bool { !recalled && !(mediaAssetId ?? "").isEmpty }
     public var illustrationCaption: String { ChatIllustrations.caption(content) }
     public var displayText: String { recalled ? "" : dice?["text"].string ?? (diceTone == .notice ? "" : content) }

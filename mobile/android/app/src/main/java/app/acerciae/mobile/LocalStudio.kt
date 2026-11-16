@@ -290,18 +290,26 @@ class LocalStudioViewModel(application:Application): AndroidViewModel(applicatio
     val context=LocalContext.current
     val scope=rememberCoroutineScope(); var error by remember { mutableStateOf<String?>(null) }
     var web by remember { mutableStateOf<WebView?>(null) }; var ready by remember { mutableStateOf(false) }
+    // The renderer is shared by every WebView of the app: when it stops, this viewer closes its page, the app stays.
+    var stopped by remember { mutableStateOf(false) }
     val save=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(if(document.file.extension=="html") "text/html" else if(document.file.extension=="json") "application/json" else "text/plain")) { uri -> if(uri!=null) scope.launch { try { withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri)?.use { out -> document.file.inputStream().use { it.copyTo(out) } } ?: kotlin.error("Cannot save file") } } catch(e:Exception) { error=e.message } } }
     DisposableEffect(Unit) { onDispose { web?.destroy() } }
     Scaffold(topBar={TopAppBar(title={Text(document.title,maxLines=1)},navigationIcon={TextButton(onClick=close) { Text(tr("完成")) }},actions={
         if(document.kind=="pdf") TextButton(onClick={ web?.let { (context.getSystemService(Context.PRINT_SERVICE) as PrintManager).print(document.title,it.createPrintDocumentAdapter(document.title),null) } },enabled=ready) { Text(tr("Print / Save PDF")) }
         else TextButton(onClick={save.launch("OpenLogStudio."+document.file.extension)}) { Text(tr("Export")) }
     })}) { padding ->
-        if(document.file.extension=="html") AndroidView(factory={ctx -> WebView(ctx).apply {
+        if(document.file.extension=="html" && stopped) Column(Modifier.padding(padding).padding(24.dp)) { Text(tr("Something went wrong in this view.")) }
+        else if(document.file.extension=="html") AndroidView(factory={ctx -> WebView(ctx).apply {
             settings.javaScriptEnabled=document.kind=="vn"; settings.allowFileAccess=false;settings.allowContentAccess=false;settings.blockNetworkLoads=true
-            webViewClient=object:WebViewClient() { override fun onPageFinished(view:WebView,url:String) { ready=true }; override fun shouldOverrideUrlLoading(view:WebView,request:WebResourceRequest)= !(request.url.scheme=="https" && request.url.host=="appassets.androidplatform.net" && request.url.path=="/") }
+            webViewClient=object:WebViewClient() {
+                override fun onPageFinished(view:WebView,url:String) { ready=true }
+                override fun shouldOverrideUrlLoading(view:WebView,request:WebResourceRequest)= !(request.url.scheme=="https" && request.url.host=="appassets.androidplatform.net" && request.url.path=="/")
+                // The view leaves the screen (and is destroyed on release); nothing may use it any more.
+                override fun onRenderProcessGone(view:WebView,detail:RenderProcessGoneDetail):Boolean { if(web===view) web=null; ready=false; stopped=true; return true }
+            }
             web=this
-            scope.launch { val html=withContext(Dispatchers.IO) { document.file.readText() }; loadDataWithBaseURL("https://appassets.androidplatform.net/",html,"text/html","UTF-8",null) }
-        } },modifier=Modifier.padding(padding).fillMaxSize())
+            scope.launch { val html=withContext(Dispatchers.IO) { document.file.readText() }; if(!stopped) loadDataWithBaseURL("https://appassets.androidplatform.net/",html,"text/html","UTF-8",null) }
+        } },onRelease={ it.destroy() },modifier=Modifier.padding(padding).fillMaxSize())
         else Column(Modifier.padding(padding).padding(24.dp)) { Text(tr("Export ready")); if(document.kind=="archive") Text(tr("Project backups include all messages and local images.")) }
     }
     error?.let { Text(it) }

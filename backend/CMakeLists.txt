@@ -39,6 +39,8 @@ target_link_libraries(acerciae-server PRIVATE acerciae_core)
 enable_testing()
 add_executable(unit_tests tests/unit/unit_tests.cpp)
 target_link_libraries(unit_tests PRIVATE acerciae_core)
+# The shared contract fixtures; a backend-only checkout (production) lacks them and their cases are skipped.
+target_compile_definitions(unit_tests PRIVATE ACERCIAE_CONTRACTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../mobile/contracts")
 add_test(NAME unit_tests COMMAND unit_tests)
 
 add_executable(http_transport_tests tests/integration/http_transport_tests.cpp)

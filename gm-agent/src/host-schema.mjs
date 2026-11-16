@@ -3,9 +3,12 @@
 // buildConfig()'s result. `applyChanges` edits the YAML in place, keeping comments and every key it does not touch.
 import YAML from "yaml";
 import { FUNCTION_NAMES, MODEL_FUNCTIONS, providerLabel, routeFor } from "./llm/routes.mjs";
+import { WRITING_MAX_LENGTH } from "./writing.mjs";
 
 export const GROUPS = [
   { id: "table", title: "牌桌", help: "语言、AI 队友与开场。频道的规则系统来自平台（在 GM 工作区中修改）。" },
+  { id: "writing", title: "纯文本写作指导", help: "第一步：决定故事怎么写，包括文风、细节和总篇幅。预填原有指导，保存后替换该项默认文本；只发送给写作模型。规则、角色权限和无人值守限制仍由系统管理。" },
+  { id: "presentation", title: "消息呈现指导（结构化输出）", help: "第二步：决定原文在聊天中怎么呈现。可要求每条短一些、合并成长消息，或按句子分多条；只发送给排版模型。不同说话人、收件人和私聊内容仍分别呈现。" },
   { id: "llm", title: "主持模型", help: "GM、NPC 与 AI 队友所用的模型。服务商、地址与密钥在公共配置中设置。" },
   { id: "models", title: "模型分配", help: "每项功能在哪个服务商的哪个模型上运行。服务商（地址与密钥）由公共配置的 providers 定义，这里只选择名字；留空的功能使用“主持模型”（default）。用量统计按实际回答的服务商与模型记录。" },
   { id: "planner", title: "剧情规划", help: "较慢、较深的规划模型：节拍、线索与会后总结。" },
@@ -25,8 +28,8 @@ const minutes = (ms) => Math.round(ms / 60000);
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 // One row of fields per function (llm/routes.mjs): its provider (a name from the shared file; `dynamic` fills the
 // options), model and effort. The effective values are those of the route the function's calls take.
-const FUNCTION_LABELS = { director: "主持（GM 与 NPC）", coplayers: "AI 队友", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
-const FUNCTION_HELP = { director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
+const FUNCTION_LABELS = { forge: "开局共创", director: "主持（GM 与 NPC）", coplayers: "AI 队友", formatting: "聊天排版", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
+const FUNCTION_HELP = { forge: "开局访谈、世界和角色共同构建、评审及独立试跑。", director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", formatting: "只读取本轮草稿，将原文排成聊天消息及桌面操作。可选用更快的模型。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
 const modelFields = FUNCTION_NAMES.flatMap((fn) => {
   const route = (c) => routeFor(c, MODEL_FUNCTIONS[fn][0]);
   return [
@@ -43,6 +46,9 @@ export const FIELDS = [
   f("channel.era", "string", "时代", "生成队友时参考的时代（例如 1920s）。", (c) => c.era),
   f("table.kickoff", "bool", "启动时开场", "启动后 GM 立即在主场景开场。", (c) => c.kickoff),
   f("table.verbose", "bool", "详细日志", "在日志中记录更多细节。", (c) => c.verbose),
+  f("writing.gm", "text", "GM 与 NPC 写作指导", "用于 GM 的叙述、NPC 台词和短信。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.gm, { maxLength: WRITING_MAX_LENGTH }),
+  f("writing.coplayer", "text", "AI 陪玩写作指导", "用于陪玩在场景中的动作和台词，包括无人值守日常。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.coplayer, { maxLength: WRITING_MAX_LENGTH }),
+  f("writing.formatting", "text", "消息长短与拆分指导", "预填现有排版习惯，可直接改写。只调整原文的分组与拆条；故事本身写得详细还是简练，请在上方写作指导中设置。留空或恢复默认会使用原有指导。", (c) => c.writing.formatting, { group: "presentation", maxLength: WRITING_MAX_LENGTH }),
 
   f("llm.model", "string", "模型", "留空则使用公共配置或服务商默认模型。", (c) => c.llm.model),
   f("llm.effort", "enum", "推理强度", "模型的思考强度。", (c) => c.llm.effort, { options: ["", "low", "medium", "high", "xhigh", "max"] }),
@@ -121,6 +127,7 @@ export const FIELDS = [
   f("calendar.min_lines", "int", "日期推进所需行数", "以及这么多玩家发言。", (c) => c.calendarMinLines, { min: 0 }),
   f("calendar.max_days", "int", "一次最多跳过天数", "GM 一次推进日期的上限。", (c) => c.calendarMaxDays, { min: 0, unit: "天" }),
 
+  f("forge.enabled", "bool", "开局共创 Forge", "仅即兴模式、正式游戏开始前：在聊天窗口完善世界、角色和规则；全体参与者确认后才开局。", c => c.forge.enabled, { group: "modes" }),
   f("modes.improv", "tri", "即兴模式", "没有模组：故事来自世界设定。留空则保持状态文件中的设置。", (c) => c.improv),
   f("modes.world_file", "string", "世界设定文件", "相对于本频道配置文件的路径。", (c) => c.worldFile),
   f("modes.secrets_file", "string", "GM 秘密文件", "相对于本频道配置文件的路径。", (c) => c.secretsFile),
@@ -169,6 +176,9 @@ export function formValues(data, cfg, rebuild = null) {
 function coerce(x, v) {
   const bad = (why) => { throw Object.assign(new Error(`${x.label}（${x.key}）${why}`), { code: "INVALID_SETTING" }); };
   switch (x.type) {
+    case "text":
+      if (typeof v !== "string" || v.length > x.maxLength) return bad(`必须是文本（不超过 ${x.maxLength} 字符）`);
+      return v;
     case "bool": case "tri":
       if (v === true || v === false) return v;
       if (v === "true" || v === "false") return v === "true";

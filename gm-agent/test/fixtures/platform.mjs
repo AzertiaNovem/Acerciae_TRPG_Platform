@@ -101,6 +101,20 @@ export class FakeApi {
     const roll = body.content.startsWith(".");
     return this.add({ chat_window_id: w, author_id: "u-bot", author_role: "gm", ...body, kind: roll ? "roll" : body.kind, ...(roll ? { dice: { text: `[fake dice] ${body.content}` } } : {}) });
   }
+  // Interactive messages. By default this is a platform from before them (404, so the table posts plain lines); with
+  // `hypertext` true it takes cards (posted as the account's kind "hypertext" line, its `content` the fallback), and
+  // `hypertextError` ({status, code, data}) refuses the next ones. `closeError` makes closing fail.
+  async postHypertext(_ch, w, body) {
+    (this.hypertextPosts ??= []).push({ window: w, ...structuredClone(body) });
+    const refuse = this.hypertextError ?? (this.hypertext ? null : { status: 404, code: "" });
+    if (refuse) throw Object.assign(new Error(`POST /api/channels/ch/windows/${w}/hypertext: ${refuse.status} ${refuse.code ?? ""}`.trim()), { code: "", ...refuse });
+    return this.add({ chat_window_id: w, author_id: "u-bot", author_role: "gm", kind: "hypertext", content: body.content ?? body.hypertext?.title ?? "—", visibility: body.visibility ?? "window", whisper_to: body.whisper_to ?? [], hypertext: structuredClone(body.hypertext) });
+  }
+  async closeHypertext(_ch, id) {
+    (this.closedCards ??= []).push(id);
+    if (this.closeError) throw Object.assign(new Error(`POST /api/channels/ch/messages/${id}/hypertext/close: ${this.closeError.status}`), this.closeError);
+    return { message_id: id, closed: true, closed_at: "2026-11-14T00:00:00Z" };
+  }
   async characterSpace(_ch, cid) {
     if (this.ruleSystem === "dnd2024") return { character: { id: cid, role_card: { basic: { age: "24", sex: "female" }, dnd: { ...new MockLlm().dndBuild(), level: 3, saves: ["DEX", "INT"], ac: 14, hp_max: 24, speed: 30, hit_dice: "3d8", slots: {} } } }, attrs: { HP: 20 }, rule_system: "dnd2024" };
     return { character: { id: cid, role_card: { characteristics: { INT: 70 }, skills: { "Spot Hidden": 60 } } } };

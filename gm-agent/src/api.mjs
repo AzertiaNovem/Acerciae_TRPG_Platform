@@ -72,7 +72,12 @@ export class Api {
 
   // ---- characters
   characters(ch) { return this.get(`/api/channels/${ch}/characters`); }
+  inventory(ch) { return this.get(`/api/channels/${ch}/inventory`); }
+  updateInventory(ch, body) { return this.post(`/api/channels/${ch}/inventory`, body); }
+  agentMessage(ch, requestId) { return this.get(`/api/channels/${ch}/agent-messages/${encodeURIComponent(requestId)}`); }
+  cancelAgentMessage(ch, requestId) { return this.call('DELETE', `/api/channels/${ch}/agent-messages/${encodeURIComponent(requestId)}`); }
   createCharacter(ch, body) { return this.post(`/api/channels/${ch}/characters`, body); }
+  transferCharacter(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/owner`, body); }
   setCharacterPresence(ch, cid, passive) { return this.put(`/api/channels/${ch}/characters/${cid}/presence`, { passive }); }
   characterSpace(ch, cid) { return this.get(`/api/channels/${ch}/characters/${cid}/space`); }
   pbtaRules(ch) { return this.get(`/api/channels/${ch}/pbta`); }
@@ -81,6 +86,7 @@ export class Api {
   previewPbta(ch, pack) { return this.post(`/api/channels/${ch}/pbta/preview`, pack); }
   pbtaRulings(ch, w, before = 0) { return this.get(`/api/channels/${ch}/windows/${w}/pbta-rulings?before_seq=${before}`); }
   pbtaRuling(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/pbta-rulings`, body); }
+  previewCard(ch, body) { return this.post(`/api/channels/${ch}/characters/preview`, body); }
   putCard(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/card`, body); }
   putAppearance(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/appearance`, body); }
   coc7Rules() { return this.get("/api/coc7/rules"); }
@@ -102,6 +108,12 @@ export class Api {
   illustrate(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/illustrations`, body); }
   illustrations(ch) { return this.get(`/api/channels/${ch}/illustrations`); }
   cancelIllustration(ch, id) { return this.post(`/api/channels/${ch}/illustrations/${id}/cancel`, {}); }
+  // Interactive messages (docs/HYPERTEXT.md), GM only: a card posted in a window (`body`: {content?, visibility?,
+  // whisper_to?, closes_in?, hypertext, replies?}; returns the message row, kind "hypertext"), and closing one (any
+  // channel GM; idempotent). A platform without them answers 404/405, one that turned them off 403 feature_disabled;
+  // a refused card 400 invalid_hypertext with `errors: [{path, message}]` (kept on the ApiError's `data`).
+  postHypertext(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/hypertext`, body); }
+  closeHypertext(ch, id) { return this.post(`/api/channels/${ch}/messages/${id}/hypertext/close`, {}); }
   // A window's Initiative order (D&D channels): {round, turn, entries[{id, name, total, character_id, created_by}]}.
   initiative(ch, w) { return this.get(`/api/channels/${ch}/windows/${w}/initiative`); }
   initiativeAction(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/initiative`, body); }

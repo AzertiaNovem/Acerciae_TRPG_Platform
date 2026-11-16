@@ -2,6 +2,7 @@
 #include "Services.h"
 #include "../auth/AuthService.h"
 #include "../chat/ChatService.h"
+#include "../chat/HypertextService.h"
 #include "../logstudio/PublicationService.h"
 #include "../ws/WsGateway.h"
 #include "../core/Log.h"
@@ -39,6 +40,8 @@ void Maintenance::sweep() {
     db.exec("DELETE FROM ai_jobs WHERE finished_at IS NOT NULL AND finished_at < now() - make_interval(days => $1)", {(int64_t)std::max(1, s_.cfg.retentionAiJobDays)});
     db.exec("DELETE FROM studio_audit_log WHERE created_at < now() - make_interval(days => $1)", {(int64_t)std::max(30, s_.cfg.retentionAuditDays)});
     db.exec("DELETE FROM server_invites WHERE created_at < now() - interval '30 days' AND (revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at < now()) OR (max_uses > 0 AND uses >= max_uses))");
+    // Interactive messages closed for more than a day no longer need their action rows (replays, runs, limits).
+    s_.hypertext->prune();
 }
 
 void Maintenance::loop() {
@@ -52,6 +55,8 @@ void Maintenance::loop() {
         try { revalidateSockets(); } catch (const std::exception& e) { ALOG_WARN << "socket revalidation: " << e.what(); }
         // Expired visual-novel bundles leave storage within a minute.
         try { s_.publication->expireBundles(); } catch (const std::exception& e) { ALOG_WARN << "bundle expiry: " << e.what(); }
+        // Interactive-message actions whose request died mid-way are finished without posting anything more.
+        try { s_.hypertext->finishAbandoned(); } catch (const std::exception& e) { ALOG_WARN << "abandoned interactive-message actions: " << e.what(); }
         if (std::chrono::steady_clock::now() >= nextSweep) {
             try { sweep(); } catch (const std::exception& e) { ALOG_WARN << "retention sweep: " << e.what(); }
             nextSweep = std::chrono::steady_clock::now() + std::chrono::hours(1);

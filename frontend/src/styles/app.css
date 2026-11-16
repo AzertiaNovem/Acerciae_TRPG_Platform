@@ -302,6 +302,77 @@ table.simple td, table.simple th { padding: 5px 6px; border-bottom: 1px solid va
 .message.dice-bot .author { color: color-mix(in srgb, var(--tone, var(--dice-info)) 70%, var(--fg-0)); }
 .avatar.dice { background: color-mix(in srgb, var(--tone, var(--dice-info)) 30%, var(--bg-3)); font-size: 18px; }
 
+/* ---- interactive messages (kind hypertext) ---- */
+/* A card posted by a GM account: its own frame under the sender's name, native controls, theme colours only. Card text
+   is isolated (bdi / dir=auto), so it never turns the frame or the pills around. */
+.message.hypertext > div:last-child { min-width: 0; }
+.pill.hx-pill { background: color-mix(in srgb, var(--accent) 14%, var(--bg-3)); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 38%, var(--bg-4)); }
+/* Their pills never squeeze into ovals on a phone: the row wraps instead. */
+.message .meta.hx-meta { flex-wrap: wrap; row-gap: 3px; }
+.pill.hx-via { max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
+.hx-card { margin-top: 4px; width: 100%; max-width: 560px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+  border-radius: var(--radius); background: var(--bg-2); border: 1px solid var(--bg-4); border-left: 3px solid var(--accent); unicode-bidi: isolate; }
+.hx-card.jumped { background: color-mix(in srgb, var(--hl) 60%, var(--bg-2)); }
+.hx-title { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+.hx-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.hx-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.hx-style-heading { margin: 0; font-size: 15px; font-weight: 700; }
+.hx-style-strong { font-weight: 600; }
+.hx-style-muted { color: var(--fg-2); font-size: 13px; }
+.hx-tone-good { color: var(--ok); } .hx-tone-bad { color: var(--danger); } .hx-tone-warn { color: var(--warn); }
+.hx-divider { width: 100%; margin: 0; border: 0; border-top: 1px solid var(--bg-4); }
+.hx-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; min-width: 0; }
+.hx-group { margin: 0; padding: 6px 10px 10px; min-width: 0; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--bg-4); border-radius: 8px; background: color-mix(in srgb, var(--bg-1) 45%, transparent); }
+.hx-legend { max-width: 100%; padding: 0 4px; font-size: 12px; font-weight: 600; color: var(--fg-1); overflow-wrap: anywhere; }
+.hx-label { padding: 0; font-size: 12px; font-weight: 600; color: var(--fg-1); overflow-wrap: anywhere; }
+.hx-check { display: inline-flex; align-items: flex-start; gap: 7px; cursor: pointer; overflow-wrap: anywhere; }
+.hx-check input { margin: 3px 0 0; flex: none; width: auto; accent-color: var(--accent); cursor: inherit; }
+.hx-check.hx-off { cursor: default; color: var(--fg-2); }
+.hx-choice { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+fieldset.hx-list { margin: 0; padding: 0; border: 0; }
+fieldset.hx-list > legend { margin-bottom: 4px; }
+.hx-segmented { display: flex; flex-wrap: wrap; gap: 4px; }
+.hx-option { max-width: 100%; padding: 4px 11px; border-radius: 999px; font-size: 13px; overflow-wrap: anywhere; white-space: normal; text-align: start; }
+.hx-option.hx-on { background: color-mix(in srgb, var(--accent) 22%, var(--bg-3)); border-color: var(--accent); color: var(--fg-0); font-weight: 600; }
+.hx-select { max-width: 100%; }
+.hx-input { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; }
+.hx-input-row { display: flex; gap: 6px; min-width: 0; }
+.hx-input-row input { flex: 1; min-width: 0; }
+.hx-input-row input:disabled { opacity: .6; }
+/* While an action is under way: the controls look disabled but stay focusable (aria-disabled). */
+.hx-card button[aria-disabled="true"] { opacity: .5; cursor: default; }
+.hx-card :is(input, select)[aria-disabled="true"] { opacity: .6; cursor: default; }
+/* Read by screen readers only: the outcome of an action, announced as it changes. */
+.hx-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.hx-hint { font-size: 11px; color: var(--fg-2); }
+.hx-bad { color: var(--danger); }
+.hx-action { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 3px; max-width: 100%; }
+.hx-button { max-width: 100%; overflow-wrap: anywhere; text-align: start; }
+.hx-caption { max-width: 100%; font-size: 11px; color: var(--fg-2); overflow-wrap: anywhere; }
+.hx-caption-text { font-family: var(--mono); color: var(--fg-1); }
+.hx-notices { margin: 0; padding: 6px 10px; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 13px; border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-2) 10%, var(--bg-2)); border: 1px solid color-mix(in srgb, var(--accent-2) 35%, var(--bg-4)); color: var(--fg-1); }
+.hx-notices li { overflow-wrap: anywhere; white-space: pre-wrap; }
+.hx-confirm { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--bg-2)); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--bg-4)); }
+.hx-confirm-text { font-size: 13px; overflow-wrap: anywhere; }
+.hx-confirm-line { white-space: pre-wrap; font-weight: 600; }
+.hx-confirm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.hx-error { font-size: 12px; color: var(--danger); }
+.hx-details { font-size: 12px; padding: 5px 9px; border-radius: 8px; border: 1px dashed color-mix(in srgb, var(--warn) 60%, var(--bg-4)); background: color-mix(in srgb, var(--warn) 6%, var(--bg-2)); }
+.hx-details summary { cursor: pointer; font-weight: 600; color: var(--fg-1); }
+.hx-gm-only { margin-left: 4px; font-weight: 400; font-size: 11px; color: var(--warn); }
+.hx-details-error { margin-top: 4px; overflow-wrap: anywhere; }
+.hx-logs { margin: 4px 0 0; padding-left: 22px; font-family: var(--mono); font-size: 11.5px; color: var(--fg-1); }
+.hx-logs li { white-space: pre-wrap; overflow-wrap: anywhere; }
+.hx-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 22px; font-size: 11.5px; color: var(--fg-2); }
+.hx-footer .grow { flex: 1; }
+.hx-update { margin-top: 2px; }
+@media (max-width: 480px) {
+  .hx-card { padding: 8px 9px; }
+  .hx-group { padding: 4px 8px 8px; }
+}
+
 .publication-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:16px 0}.publication-fields label {display:flex;flex-direction:column;gap:6px}.publication-fields input,.publication-fields select {width:100%}.studio-publishing {display:grid;gap:18px}.shared-publication {max-width:1100px;margin:32px auto;padding:20px}.published-reading article {padding:12px 0;border-bottom:1px solid var(--border)}
 
 .studio-tabs {flex-wrap:wrap;flex-shrink:0;gap:4px;padding:6px 10px}.studio-tabs button {white-space:nowrap;flex-shrink:0;padding:7px 10px}.studio-tabs .grow {display:none}.studio-tabs .pill {max-width:180px;overflow:hidden;text-overflow:ellipsis}

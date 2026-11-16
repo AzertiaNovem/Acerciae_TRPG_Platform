@@ -35,7 +35,8 @@ export interface Spoken { text: string; speaker: string }
  * previous line read aloud (`previous`); narration is read without a name. Dice read their result, not the command.
  */
 export function spokenLine(m: Message, previous: string | null, model: SpeechModel = 'en'): Spoken | null {
-  if (m.kind === 'system') return null;
+  // An interactive message's text is its plain fallback (labels and buttons), not something said at the table.
+  if (m.kind === 'system' || m.kind === 'hypertext') return null;
   const narration = m.kind === 'narration';
   const speaker = narration ? '' : m.kind === 'ooc' ? m.author_name : m.character_name ?? m.author_name;
   const body = speakableText(m.dice?.text ? String(m.dice.text) : m.content, model);

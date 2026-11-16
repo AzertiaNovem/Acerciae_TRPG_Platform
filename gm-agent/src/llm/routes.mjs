@@ -7,6 +7,8 @@
 export const MODEL_FUNCTIONS = {
   director: ["director"],
   coplayers: ["coplayer_turn", "coplayer_phone", "standin_turn"],
+  formatting: ["chat_format", "forge_format"],
+  forge: ["forge_interview", "forge_compile", "forge_review", "forge_secrets", "forge_seed", "forge_playtest"],
   planner: ["planner", "planner_daily"],
   memory: ["compact", "coplayer_memory", "day_summary"],
   readers: ["scene_presence", "movement_evidence", "placement_correction", "scene_handoff", "away_rule"],
@@ -35,7 +37,12 @@ export function routeFor(cfg, purpose = "") {
   if (!pick && models.default) pick = { ...models.default, function: "default" };
   const base = providers[pick?.provider ?? DEFAULT_PROVIDER] ?? providers[DEFAULT_PROVIDER];
   const { trace, ...rest } = base;
-  return { ...rest, name: base.name ?? DEFAULT_PROVIDER, model: pick?.model || base.model, effort: pick?.effort || base.effort, maxTokens: pick?.maxTokens || base.maxTokens, function: pick?.function ?? null };
+  const formatting = fn === "formatting";
+  const specific = pick?.function === fn || pick?.function === purpose;
+  return { ...rest, name: base.name ?? DEFAULT_PROVIDER, model: pick?.model || base.model,
+    effort: formatting ? ((specific && pick?.effort) || "low") : pick?.effort || base.effort,
+    maxTokens: formatting ? ((specific && pick?.maxTokens) || Math.min(pick?.maxTokens || base.maxTokens || 2048, 2048)) : pick?.maxTokens || base.maxTokens,
+    function: pick?.function ?? null };
 }
 
 // Whether the planner section asks for anything other than the llm settings (an effort of its own counts).

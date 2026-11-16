@@ -26,6 +26,7 @@ planner:
 #     model: gpt-5-mini
 # models:                    # every channel's routes unless its own file says otherwise (see examples/channels)
 #   memory: fast
+#   formatting: fast
 #   readers: fast
 #   pictures: { provider: fast, effort: low }
 webui:

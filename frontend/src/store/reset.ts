@@ -6,6 +6,7 @@ import { useUi } from './ui';
 import { useStudio } from './studio';
 import { useReminders } from './reminders';
 import { useKp } from './kp';
+import { useHypertext } from './hypertext';
 import { stopChatSpeech } from '../lib/speech';
 
 // Clears everything that belongs to a user session. Called on login, register and logout.
@@ -18,6 +19,7 @@ export function resetUserStores() {
   useStudio.getState().reset();
   useReminders.getState().reset();
   useKp.getState().reset();
+  useHypertext.getState().reset();   // also stops the card engine's worker
   stopChatSpeech();
 }
 // Clears everything that belongs to one channel's context. Called when switching channels.
@@ -29,4 +31,5 @@ export function resetChannelStores() {
   useStudio.getState().reset();
   useReminders.getState().reset();
   useKp.getState().reset();
+  useHypertext.getState().reset();
 }

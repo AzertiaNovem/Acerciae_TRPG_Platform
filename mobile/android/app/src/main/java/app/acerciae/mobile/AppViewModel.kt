@@ -15,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import java.io.File
@@ -73,14 +75,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var polling = false
     private var catalogUpdated = 0L
     var foreground = false
-        set(value) { field=value; if(!value) { stopArtworkPrefetch(); metadataJob?.cancel(); metadataJob=null; metadataGeneration++; metadataUpdated=0L } }
+        set(value) { field=value; if(!value) { stopArtworkPrefetch(); metadataJob?.cancel(); metadataJob=null; metadataGeneration++; metadataUpdated=0L; hypertextEngine.dispose() } }
     var chatVisible = false
     private val readSeq = mutableMapOf<String,Long>()
     private val preferences = application.getSharedPreferences("chat-activity",0)
     private var speechReady = false
     private val speech = android.speech.tts.TextToSpeech(application) { speechReady = it == android.speech.tts.TextToSpeech.SUCCESS }
     fun stopSpeech() { speech.stop() }
-    override fun onCleared() { stopRealtime(); speech.stop(); speech.shutdown(); super.onCleared() }
+    override fun onCleared() { stopRealtime(); speech.stop(); speech.shutdown(); hypertext.reset(); hypertextEngine.dispose(); super.onCleared() }
 
     // ---- live updates. The chat stream (core/ChatSocket.kt) follows the channel on screen. A push wakes the poll loop
     // (MainActivity), which refreshes as it always has; a recall is applied at once. While the stream is live, polling
@@ -96,10 +98,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         override fun live(live: Boolean) { viewModelScope.launch {
             pushConnected = live
             if (!live) { typingFlags.clear(); showTyping() }   // the snapshot after the next subscription says who is typing
-            if (live) pushPending = true
+            if (live) { pushPending = true; hypertext.resync() }   // card states and closings may have been missed
             if (state.value.online) update { copy(connection = if (live) "已连接 · 实时推送" else "已连接 · 自动刷新") }
         } }
-        override fun resync() { pushPending = true }
+        override fun resync() { pushPending = true; viewModelScope.launch { hypertext.resync() } }
     }
     fun followRealtime() {
         val s = state.value; val client = api; val token = session?.token
@@ -123,6 +125,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun showTyping() { val current = typingFlags.byCharacter; if (current != state.value.typing) update { copy(typing = current) } }
     private fun onPush(e: RealtimeEvent) {
         if (e.channelId.isNotEmpty() && e.channelId != state.value.channelId) return
+        if (hypertext.onPush(e)) return   // a card's state or closing: applied here, nothing to fetch
         if (typingFlags.apply(e)) { showTyping(); return }   // a pen is no reason to fetch anything
         when (e.type) {
             "message.recalled" -> e.message?.let(::applyRecall)
@@ -130,6 +133,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             "channel.deleted", "server.deleted" -> catalogUpdated = 0L
         }
         pushPending = true
+    }
+
+    // ---- interactive messages (kind hypertext, core/HypertextStore.kt): this viewer's state and the action pipeline
+    // of the cards in the open window. The card routes go through the session signed in now (a 401 signs out, as
+    // everywhere); a line an action posted joins the window at once; the engine page (HypertextEngine.kt) is made for
+    // the first script and dropped when idle or in the background. Everything is dropped on sign-in, sign-out, a
+    // channel switch and any change of knowledge scope. Spectators never come here.
+    private val hypertextEngine = hypertextEngine(application, viewModelScope)
+    private suspend fun <T> cardRoute(work: suspend (BackendClient, String) -> T): T {
+        try { return work(client(), token()) }
+        catch (e: BackendException) { if (ConnectionPolicy.invalidatesSession(e)) handle(e); throw e }
+    }
+    private val hypertextApi = object : HypertextApi {
+        override suspend fun status(channel: String, ids: List<String>) = cardRoute { c, t -> c.hypertextStatus(t, channel, ids) }
+        override suspend fun save(channel: String, message: String, state: JsonObject, baseVersion: Long) = cardRoute { c, t -> c.hypertextSave(t, channel, message, state, baseVersion) }
+        override suspend fun act(channel: String, message: String, body: JsonObject) = cardRoute { c, t -> c.hypertextAct(t, channel, message, body) }
+        override suspend fun close(channel: String, message: String) = cardRoute { c, t -> c.hypertextClose(t, channel, message) }
+    }
+    val hypertext = HypertextStore(hypertextApi, hypertextEngine, viewModelScope, posted = ::hypertextPosted)
+    private val hypertextTracker = HxTracker()
+    init {
+        // The status of each card loaded in the open window is asked once, and for all of them when a window opens.
+        viewModelScope.launch {
+            state.map { s -> if (!s.online) HxTracker.View("", "", "", emptyList()) else HxTracker.View(s.user?.id.orEmpty() + "|" + s.scopeKey, s.channelId, s.windowId, HxTracker.cardIds(s.campaign?.messages.orEmpty())) }
+                .distinctUntilChanged()
+                .collect { v -> val step = hypertextTracker.next(v); if (step.reset) hypertext.reset(); if (step.track) hypertext.track(v.channelId, v.ids, step.refresh) }
+        }
+    }
+    private fun hypertextPosted(m: Message) {
+        val s = state.value; val lines = s.campaign?.messages ?: return
+        val next = HxChat.withPosted(lines, m, s.channelId, s.windowId, recalledMessages) ?: return
+        recallDeadlines.note(m)
+        update { copy(campaign = campaign?.copy(messages = next)) }
+    }
+    /** A control of a card was used (the card has checked that it may be). */
+    fun hypertextAct(ctx: HxContext, nodeId: String, action: HxAction) { if (state.value.online && ctx.channelId == state.value.channelId) hypertext.interact(ctx, nodeId, action) }
+    /** "Post" (true) or "Cancel" on a card's confirmation. */
+    fun hypertextAnswer(id: String, ok: Boolean) = hypertext.answer(id, ok)
+    /** A GM closes a card for everyone; a refusal is shown in the server's words (a known code in the catalog's). */
+    suspend fun hypertextClose(m: Message) {
+        val stamp = epoch; val channel = m.channelId ?: state.value.channelId
+        try { hypertext.close(channel, m.id) } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            if (stamp != epoch) return
+            notice(if (e is BackendException) tr(HypertextPipeline.errorText(e)) else tr(ConnectionPolicy.message(e)))
+        }
     }
 
     // ---- recall: the author takes a line back within two minutes (docs/API.md). The tombstone replaces the line here,
@@ -158,7 +206,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val done = try { client().recall(token(), s.channelId, m.id) } catch (e: BackendException) { val refusal = recallRefusal(e) ?: throw e; notice(tr(refusal)); return@launch }
         if (stamp != epoch) return@launch
         applyRecall(done.message)
-        if (done.content.isNotEmpty()) update { copy(recallDrafts = recallDrafts + (m.id to done.content)) }
+        // A recalled interactive message has nothing to edit again (the server answers content "" for it too).
+        if (done.content.isNotEmpty() && m.kind != Hypertext.KIND) update { copy(recallDrafts = recallDrafts + (m.id to done.content)) }
     }
     fun reedit(id: String) { val text = state.value.recallDrafts[id] ?: return; update { copy(draft = if (draft.isBlank()) text else draft + "\n" + text, recallDrafts = recallDrafts - id) } }
     fun setBanners(on:Boolean) { preferences.edit().putBoolean("banners",on).apply(); update { copy(bannersEnabled=on,chatNotices=if(on) chatNotices else emptyList()) } }
@@ -183,7 +232,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if(stamp!=epoch || !foreground || !chatVisible) return
         if(allowSpeech && s.readAloud && speechReady && before!=null) {
             speech.language=java.util.Locale.forLanguageTag(s.serverSettings.text("language"))
-            s.campaign?.messages.orEmpty().filter { it.seq>before && it.authorId!=user && it.kind!="system" && !it.recalled && !wasRecalled(it.id) }.takeLast(5).forEach { speech.speak(it.displayText.take(1500),android.speech.tts.TextToSpeech.QUEUE_ADD,null,it.id) }
+            s.campaign?.messages.orEmpty().filter { it.seq>before && it.authorId!=user && ReadAloud.speaks(it) && !wasRecalled(it.id) }.takeLast(5).forEach { speech.speak(it.displayText.take(1500),android.speech.tts.TextToSpeech.QUEUE_ADD,null,it.id) }
         }
         val seq=s.campaign?.messages?.maxOfOrNull { it.seq }
         if(seq!=null && seq>(readSeq[s.windowId] ?: -1) && s.windows.find { it.id==s.windowId }?.containsKey("unread")==true) {
@@ -264,6 +313,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         client.assets = assetsFor(state.value.endpoint, auth.user); client.reads = readsFor(state.value.endpoint, auth.user)
+        hypertext.reset()
         epoch++; api = client; session = auth; drafts.clear(); catalogUpdated = 0L
         auth.user.uiLanguage?.let { MobileLocale.set(it) }
         update { AppState(endpoint = endpoint, user = auth.user, busy = true, connection = "已连接") }
@@ -310,6 +360,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         stopRealtime()
         stopArtworkPrefetch(reset = true)
         val oldApi = api; val oldToken = session?.token
+        hypertext.reset()
         epoch++; api = null; session = null; drafts.clear(); catalogUpdated = 0L
         update { AppState(connection = "已退出登录", accountUsers = others) }
         oldApi?.assets?.invalidate(); oldApi?.reads?.invalidate(); histories.clear(); navigationJob?.cancel(); clearAvatarImages(); ChatIllustrationImages.clear()
@@ -321,7 +372,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun clearChannel() {
         stopArtworkPrefetch(reset = true)
         metadataJob?.cancel(); metadataJob=null; metadataGeneration++
-        typingSignal.lower(); typingFlags.clear()
+        typingSignal.lower(); typingFlags.clear(); hypertext.reset()
         metadataUpdated=0L; failedPolls=0; nextPoll=0L; readSeq.clear(); speech.stop(); recallDeadlines.clear(); update { copy(typing=emptyMap(),inspiration=null,inspirationShown=emptyList(),recallDrafts=emptyMap(),chatNotices=emptyList(),initiative=emptyObject,speechMode = "ooc", references = emptyList(), jumpMessageId = null, channelId = "", windowId = "", characterId = "", channel = emptyObject, campaign = null, windows = emptyList(), characters = emptyList(), scenes = emptyList(), reminders = emptyList(), draft = "", diceHint = "", result = null, hasOlder = false) } }
     suspend fun selectServer(id: String) {
         if (id == state.value.serverId && state.value.channels.isNotEmpty() && state.value.channelId.isNotEmpty() && state.value.campaign != null) return
@@ -436,7 +487,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             update { copy(campaign = campaign?.copy(documents = json.decodeFromJsonElement(docs), highlights = json.decodeFromJsonElement(hints))) }
         }
     }
-    private fun purgeCachedAccess() { histories.clear(); stopArtworkPrefetch(reset = true); clearAvatarImages(); ChatIllustrationImages.clear(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
+    private fun purgeCachedAccess() { hypertext.reset(); histories.clear(); stopArtworkPrefetch(reset = true); clearAvatarImages(); ChatIllustrationImages.clear(); update { copy(cacheRevision = cacheRevision + 1) }; api?.reads?.clear(); api?.assets?.clear() }
     private fun permissionsDiffer(old: JsonObject, oldWindows: List<JsonObject>, fresh: JsonObject, freshWindows: List<JsonObject>) =
         listOf("player_group_id","player_group_version","my_role","my_character_ids","knowledge_mode").any { old[it] != fresh[it] } || oldWindows.any { win -> freshWindows.find { it.id == win.id }?.get("members") != win["members"] }
     private var artworkPrefetcher = CharacterArtworkPrefetcher()

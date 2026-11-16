@@ -21,6 +21,10 @@ targets:
         buildPhase: resources
       - path: ../contracts/openstudio/studio-engine.html
         buildPhase: resources
+      # The interactive message engine (HypertextEngine.swift) as a folder, so its page gets read access to it alone.
+      - path: ../contracts/hypertext
+        type: folder
+        buildPhase: resources
       - path: ../contracts/fixtures/demo-campaign.json
         buildPhase: resources
     dependencies:

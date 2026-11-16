@@ -10,7 +10,7 @@ class DocumentService; class HighlightService; class ContextRetrievalService; cl
 class ScenarioService; class ReminderService; class ScriptKnowledgeService; class CharacterSpaceService; class GrowthService; class ObserverScheduler; class ConsistencyService; class InspirationService; class ModuleImporter;
 class Notifier;
 namespace logstudio { class LogStudioService; class ObjectStore; class MediaMigrator; class StorageCleanup; class MediaService; class PresentationService; class StyleService; class TtsService; class PublicationService; class CreativeService; class VnScriptService; }
-class IllustrationService; class AtmosphereService; class ServerSettingsService; class DeletionService; class AdminService; class DiceService; class AiPolicyService; class WorkPool; class Maintenance;
+class IllustrationService; class HypertextService; class AtmosphereService; class ServerSettingsService; class DeletionService; class AdminService; class DiceService; class AiPolicyService; class WorkPool; class Maintenance;
 
 // Composition root: every module gets its dependencies through here (constructed once in main).
 struct Services {
@@ -35,6 +35,7 @@ struct Services {
     std::unique_ptr<DiceService> dice;
     std::unique_ptr<ChatService> chat;
     std::unique_ptr<IllustrationService> illustrations;   // pictures drawn on request and posted in a chat window
+    std::unique_ptr<HypertextService> hypertext;          // interactive messages: cards GM accounts post through the API
     std::unique_ptr<ContextRetrievalService> retrieval;
     std::unique_ptr<LlmGateway> llm;
     std::unique_ptr<ConsistencyService> consistency;

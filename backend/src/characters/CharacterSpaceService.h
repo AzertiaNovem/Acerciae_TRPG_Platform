@@ -22,6 +22,7 @@ public:
     bool pointsMode(const ChannelAccess& a);
     std::string ruleSystem(const ChannelAccess& a);   // the channel's rule system: which card and rules apply
     Json::Value pointsReport(const ChannelAccess& a, const Json::Value& card);
+    Json::Value previewCard(const ChannelAccess& a, const Json::Value& body);
     Json::Value updateCard(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);        // name, speaking_style, bio, role_card
     Json::Value updateAppearance(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);  // asset_mode, appearance_prompt
     // slot: avatar | portrait | subtitle (with `subtitle` = IDLE, SAY, FIGHT, …). The file becomes an approved asset of the character.

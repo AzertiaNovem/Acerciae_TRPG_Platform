@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '../store/chat';
 import { useNav } from '../store/nav';
 import { MAX_GROUPS, useNotifications, type MessageNotice } from '../store/notifications';
+import { kindLabel } from './messageKind';
 
 const SHOW_MS = 6000;
 
@@ -33,7 +34,7 @@ function Card({ n, count, inList, onClick, onClose }: { n: MessageNotice; count?
           <span className="notice-time">{new Date(n.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
           {onClose && <button className="notice-x" aria-label={tr('Close')} title={tr('Close')} onClick={onClose}>×</button>}
         </div>
-        <div className="notice-speaker">{speaker}{m.kind !== 'ic' && m.kind !== 'system' && !m.dice && <span className="notice-kind">{tr(m.kind)}</span>}</div>
+        <div className="notice-speaker">{speaker}{m.kind !== 'ic' && m.kind !== 'system' && !m.dice && <span className="notice-kind">{kindLabel(m.kind)}</span>}</div>
         {m.dice?.text ? <div className="notice-dice">🎲 {m.dice.text}</div> : <div className={`notice-body ${m.kind}`}>{m.content}</div>}
       </div>
     </div>

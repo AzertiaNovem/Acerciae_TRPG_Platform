@@ -25,6 +25,8 @@ export default defineConfig({
       '/ws': { target: apiTarget.replace(/^http/, 'ws'), ws: true },
     },
   },
+  // The interactive-message engine (src/hypertext/client.ts starts hypertext-worker.ts, which loads the QuickJS WASM) is
+  // emitted as the worker's own chunk and asset; only cards with script handlers ever load them.
   build: { outDir: 'dist', sourcemap: false },
   // The read-aloud worker (Kokoro) loads its model code in chunks.
   worker: { format: 'es', plugins: () => [dropOnnxWasm()] },

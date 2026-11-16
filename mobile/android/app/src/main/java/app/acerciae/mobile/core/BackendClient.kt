@@ -38,7 +38,15 @@ enum class RealtimeStream(val path: String) { CHAT("chat"), CONTEXT("context") }
 class PointRuleException(message: String) : IllegalArgumentException("购点校验未通过：" + message.take(2000))
 class RuleValidationException(message: String) : IllegalArgumentException(message.take(2000))
 class InvalidBackendResponse : IOException("服务返回的数据格式不兼容，请更新客户端或联系管理员")
-class BackendException(val status: Int, val apiResponse: Boolean = true, /** The API's error code, e.g. `recall_expired`. */ val code: String = "") : IOException(if (!apiResponse) "服务入口暂时不可用（HTTP $status），请稍后重试" else when (status) {
+class BackendException(
+    val status: Int,
+    val apiResponse: Boolean = true,
+    /** The API's error code, e.g. `recall_expired`. */
+    val code: String = "",
+    /** The API's parsed error body (`error`, `message` and the detail fields beside them, such as the `state` and
+     *  `version` of a 409 state_conflict or the `text` of a 428); null for a body that is not the API's. Never shown. */
+    val details: JsonObject? = null,
+) : IOException(if (!apiResponse) "服务入口暂时不可用（HTTP $status），请稍后重试" else when (status) {
     401 -> "登录已过期，请重新登录"
     403 -> "当前账号没有权限，或管理员已关闭此功能"
     404 -> "内容不可用，或服务版本尚未提供此功能"
@@ -103,14 +111,15 @@ class BackendClient(
     suspend fun forgetMessageImage(channel: String, message: String) = withContext(Dispatchers.IO) {
         assets?.remove(cacheKey(ChatIllustrations.path(channel, message), emptyMap()))
     }
-    // Local-only snapshot, not an API route: includes previously loaded older pages.
+    // Local-only snapshot, not an API route: includes previously loaded older pages. Its name changes whenever Message
+    // gains fields, since it is written from decoded rows: an older snapshot would lack them.
     suspend fun cachedHistory(channel: String, window: String): ChatHistory? = withContext(Dispatchers.IO) {
-        reads?.get(cacheKey(listOf("channels", channel, "windows", window, "mobile-history"), emptyMap()))?.let {
+        reads?.get(cacheKey(listOf("channels", channel, "windows", window, HISTORY_SNAPSHOT), emptyMap()))?.let {
             runCatching { json.decodeFromString<ChatHistory>(it.toString(Charsets.UTF_8)) }.getOrNull()
         }
     }
     fun keepHistory(history: ChatHistory, channel: String, window: String): Job {
-        val key = cacheKey(listOf("channels", channel, "windows", window, "mobile-history"), emptyMap())
+        val key = cacheKey(listOf("channels", channel, "windows", window, HISTORY_SNAPSHOT), emptyMap())
         val disk = reads; val generation = disk?.generation(); val ticket = disk?.reserve(key)
         return transferScope.launch { disk?.put(key, json.encodeToString(history).toByteArray(), generation, ticket) }
     }
@@ -155,7 +164,8 @@ class BackendClient(
                             val error=runCatching { json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject }.getOrNull()
                             if(it.code==400 && error?.text("error")=="points_rule") throw PointRuleException(error.text("message"))
                             if(it.code in listOf(400,409) && (request.url.encodedPath.contains("/pbta") || request.url.encodedPath.endsWith("/card")) && !error?.text("message").isNullOrEmpty()) throw RuleValidationException(error!!.text("message"))
-                            throw BackendException(it.code,!error?.text("error").isNullOrEmpty(),error?.text("error").orEmpty())
+                            val api=!error?.text("error").isNullOrEmpty()
+                            throw BackendException(it.code,api,error?.text("error").orEmpty(),if(api) error else null)
                         }
                         Fetched(bytes, it.header("Cache-Control"))
                     }
@@ -182,5 +192,33 @@ class BackendClient(
     suspend fun fileToken(token: String): String = resource(listOf("auth", "file-token"), token, JsonObject(emptyMap())).text("token")
     /** Takes back one of the caller's own lines: its tombstone, and the text to edit and send again. */
     suspend fun recall(token: String, channel: String, message: String): Recalled = request(listOf("channels", channel, "messages", message, "recall"), token, body = "{}")
+
+    // Interactive messages (docs/API.md). The viewer's status of the cards, at most STATUS_IDS ids a request (more are
+    // asked in turn and joined; none asks nothing), their own state saved by compare-and-swap, an action, and closing a
+    // card (GMs). Refusals keep the API's error body in BackendException.details. Cards are posted only by GM accounts
+    // through the API: there is no post method here. None of these is cached.
+    suspend fun hypertextStatus(token: String, channel: String, ids: List<String>): HypertextStatus {
+        val items = ArrayList<HypertextStatusItem>()
+        for (chunk in ids.chunked(HypertextPipeline.STATUS_IDS)) {
+            val r: HypertextStatus = request(listOf("channels", channel, "hypertext"), token, query = mapOf("ids" to chunk.joinToString(",")))
+            if (!r.enabled) return HypertextStatus(false, emptyList())
+            items += r.items
+        }
+        return HypertextStatus(true, items)
+    }
+    suspend fun hypertextSave(token: String, channel: String, message: String, state: JsonObject, baseVersion: Long): HypertextSaved =
+        request(listOf("channels", channel, "messages", message, "hypertext", "state"), token, buildJsonObject { put("state", state); put("base_version", baseVersion) }.toString(), "PUT")
+    suspend fun hypertextAct(token: String, channel: String, message: String, body: JsonObject): HypertextActResult =
+        request(listOf("channels", channel, "messages", message, "hypertext", "act"), token, body.toString())
+    suspend fun hypertextClose(token: String, channel: String, message: String): HypertextClosed =
+        request(listOf("channels", channel, "messages", message, "hypertext", "close"), token, body = "{}")
+    /** The card routes for one session, for [HypertextStore]. */
+    fun hypertext(token: String): HypertextApi = object : HypertextApi {
+        override suspend fun status(channel: String, ids: List<String>) = hypertextStatus(token, channel, ids)
+        override suspend fun save(channel: String, message: String, state: JsonObject, baseVersion: Long) = hypertextSave(token, channel, message, state, baseVersion)
+        override suspend fun act(channel: String, message: String, body: JsonObject) = hypertextAct(token, channel, message, body)
+        override suspend fun close(channel: String, message: String) = hypertextClose(token, channel, message)
+    }
+    companion object { const val HISTORY_SNAPSHOT = "mobile-history-2" }
 }
 @kotlinx.serialization.Serializable data class Recalled(val message: Message, val content: String = "")

@@ -5,6 +5,7 @@ import { MAIN } from "../timelines.mjs";
 import { renderTableNotes } from "../wishes.mjs";
 import { renderCalendar } from "../calendar.mjs";
 import { renderBonds } from "../bonds.mjs";
+import { worldContext } from './world-state.mjs';
 
 export function mainWindow(table) { return table.windows.find((w) => w.kind === "main") ?? table.windows[0]; }
 
@@ -43,7 +44,12 @@ export function state(table, windowId) {
     return table.windowState.get(windowId);
   }
 
-export function isHuman(table, m) { return m.author_id !== table.me?.id && !table.botMessageIds.has(m.id); }
+// A person's line, not this client's. A line one of this client's interactive messages posted as this account (a card's
+// reply) belongs to the reader who acted (`via_user_id`): it counts as that person's.
+export function isHuman(table, m) {
+    if (m.via_hypertext_id && m.via_user_id && m.via_user_id !== table.me?.id) return true;
+    return m.author_id !== table.me?.id && !table.botMessageIds.has(m.id);
+  }
 
 export function noteSeq(table, windowId, seq) {
     if (!Number.isFinite(seq)) return;
@@ -73,7 +79,7 @@ export function calendarPaceCfg(table) { if (table.dailyOn()) return { minMinute
 
 export async function buildGm(table, windowId, extra = {}) {
     const initiative = await table.initiativeOf(windowId);
-    return table.gm.build({ windowId, initiative, roster: table.roster, characters: table.characters, windows: table.windows, timelines: table.timelines, sceneOf: (w) => table.scene(w), improv: table.improv, hide: table.hiddenLines(), awayOf: (id) => table.awayOf(id), daily: table.dailyOn() ? { questions: table.daily.questions } : null, calendar: table.calendarOn() ? renderCalendar(table.calendar, { pace: table.calendarPaceCfg(), now: table.now() }) : "", bonds: renderBonds(table.bonds, (id) => table.nameOf(id)), table: renderTableNotes(table.planner.table), ...extra });
+    return table.gm.build({ windowId, initiative, roster: table.roster, characters: table.characters, windows: table.windows, timelines: table.timelines, sceneOf: (w) => table.scene(w), improv: table.improv, worldStateText: worldContext(table, windowId), hide: table.hiddenLines(), awayOf: (id) => table.awayOf(id), daily: table.dailyOn() ? { questions: table.daily.questions } : null, calendar: table.calendarOn() ? renderCalendar(table.calendar, { pace: table.calendarPaceCfg(), now: table.now() }) : "", bonds: renderBonds(table.bonds, (id) => table.nameOf(id)), table: renderTableNotes(table.planner.table), ...extra });
   }
 
 export function renderForGm(table, m) { return renderLine({ ...m, whisper_to_names: (m.whisper_to ?? []).map((id) => table.nameOf(id)) }, { markVisibility: true, timeline: table.timelines.ofLine(m).name, gm: table.profile?.vocab.gm }); }

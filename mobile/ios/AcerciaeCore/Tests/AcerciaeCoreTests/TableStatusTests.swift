@@ -140,5 +140,8 @@ final class TableStatusTests: XCTestCase {
         XCTAssertTrue(Pins.canPin(line("narration")))
         XCTAssertFalse(Pins.canPin(line("system")))
         XCTAssertFalse(Pins.canPin(line("ic", recalled: "2026-11-07T00:00:00Z")))
+        XCTAssertFalse(Pins.canPin(line("hypertext")), "an interactive message is never pinned (the server answers 409)")
+        var posted = line("roll"); posted.viaHypertextId = "card"
+        XCTAssertTrue(Pins.canPin(posted), "the lines a card posts stay pinnable")
     }
 }

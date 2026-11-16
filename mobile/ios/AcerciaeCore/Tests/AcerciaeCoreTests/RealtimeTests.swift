@@ -46,13 +46,14 @@ final class RealtimeTests: XCTestCase {
 
     func testDecodesTheServersFramesIncludingARecallTombstone() throws {
         let events = try frames().map { try XCTUnwrap(RealtimeEvent.parse($0)) }
-        XCTAssertEqual(events.map(\.type), ["hello", "subscribed", "message.posted", "message.recalled", "window.changed"])
+        XCTAssertEqual(events.map(\.type), ["hello", "subscribed", "message.posted", "message.recalled", "window.changed", "hypertext.state", "hypertext.closed"])
         let posted = try XCTUnwrap(events[2].message), tombstone = try XCTUnwrap(events[3].message)
         XCTAssertEqual(posted.displayText, "I look at teh brass lantern.")
         XCTAssertEqual(posted.recallSecondsLeft, 120); XCTAssertFalse(posted.recalled)
         XCTAssertEqual(posted.id, tombstone.id); XCTAssertEqual(posted.seq, tombstone.seq)
         XCTAssertTrue(tombstone.recalled); XCTAssertEqual(tombstone.displayText, ""); XCTAssertNil(tombstone.recallSecondsLeft)
         XCTAssertEqual(events[2].channelId, events[4].channelId); XCTAssertNil(events[4].message)
+        XCTAssertEqual(events[2].channelId, events[5].channelId); XCTAssertNil(events[5].message); XCTAssertNil(events[6].message)   // a card's frames carry no message
         XCTAssertNil(RealtimeEvent.parse("not json")); XCTAssertNil(RealtimeEvent.parse(#"{"no":"type"}"#))
     }
 

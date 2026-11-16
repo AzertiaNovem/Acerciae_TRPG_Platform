@@ -52,6 +52,14 @@ import kotlinx.serialization.json.*
         item { TextButton(onClick = close) { Text(tr("Back")) }; Text(channel.name, style = MaterialTheme.typography.titleLarge); Text(tr("Read-only Main Chat")) }
         item { TextButton(onClick = { model.loadAsync { load() } }, enabled = !state.busy) { Text(tr("Refresh")) } }
         if (more) item { TextButton(onClick = { model.launch { load(true) } }, enabled = !state.busy) { Text(tr("Load earlier messages")) } }
-        items(messages, key = { it.id }) { item -> Text(item.text("author_name"), style = MaterialTheme.typography.labelSmall); Text(item.text("content")) }
+        items(messages, key = { it.id }) { item ->
+            Text(item.text("author_name"), style = MaterialTheme.typography.labelSmall)
+            // An interactive message is drawn read-only from its document (no status, no state, no engine). A line a card
+            // posted keeps its "via interactive message" pill here too.
+            val line = remember(item) { if (item.text("kind") == Hypertext.KIND || item.text("via_hypertext_id").isNotEmpty()) runCatching { spectatedRows.decodeFromJsonElement<Message>(item) }.getOrNull()?.takeIf { !it.recalled } else null }
+            if (line != null) HypertextPills(line)
+            if (line != null && line.kind == Hypertext.KIND) HypertextBody(line, state, model, readOnly = true) else Text(item.text("content"))
+        }
     }
 }
+private val spectatedRows = Json { ignoreUnknownKeys = true }
