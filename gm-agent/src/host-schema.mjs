@@ -25,8 +25,8 @@ const minutes = (ms) => Math.round(ms / 60000);
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 // One row of fields per function (llm/routes.mjs): its provider (a name from the shared file; `dynamic` fills the
 // options), model and effort. The effective values are those of the route the function's calls take.
-const FUNCTION_LABELS = { director: "主持（GM 与 NPC）", coplayers: "AI 队友", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
-const FUNCTION_HELP = { director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
+const FUNCTION_LABELS = { director: "主持（GM 与 NPC）", coplayers: "AI 队友", formatting: "聊天排版", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
+const FUNCTION_HELP = { director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", formatting: "只读取本轮草稿，将原文排成聊天消息及桌面操作。可选用更快的模型。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
 const modelFields = FUNCTION_NAMES.flatMap((fn) => {
   const route = (c) => routeFor(c, MODEL_FUNCTIONS[fn][0]);
   return [

@@ -1,16 +1,21 @@
 // This model is deliberately separate from the director. Its inputs are character-owned only.
 import { completeJson } from './llm/index.mjs';
+import { formatTurn } from './turn-format.mjs';
 export const PASSIVE_RULE = `The player is away; their character remains present. Be warm in small talk and follow the daily routine. Never undertake adventures, reveal your secrets, accept serious harm, or change relationships in either direction (no confession, breakup or major quarrel). Never change a relationship with another player's character, whatever the away rule says. Invitations, outings with named friends, sharing information and initiating small talk need explicit permission in the away rule; prohibitions always win. When something matters, defer it to the player with one brief line and a defer question. If deferral is impossible, follow a trusted friend, otherwise follow the routine, otherwise stay put. Never move independently, roll dice or text. Speak only when addressed or expressly asked to spark; one short line, or pass.`;
 export function validateStandin(x) {
   if (x?.action !== 'speak' || typeof x.text !== 'string' || !x.text.trim() || /^[.。/]/.test(x.text.trim())) return { action: 'pass' };
   return { action: 'speak', text: x.text.trim().slice(0, 800), defer: x.defer && typeof x.defer.question === 'string' && x.defer.question.trim() ? { question: x.defer.question.trim().slice(0, 500), askedBy: String(x.defer.asked_by ?? '').slice(0, 100) } : null };
 }
-export function standinTurn(llm, { language, self, log, recalled, phone, bonds, today, routine, rule, questions, spark = false, dailyNote = '', request = null }) {
-  return completeJson(llm, {
-    purpose: 'standin_turn', maxRepairs: 0,
-    system: `You write a passive player character's stand-in line, not the GM. ${PASSIVE_RULE} Quiet presence is the default. A mention of your name, greeting, anecdote or shared observation does not require agreement or an answer. Pass unless there is a genuine current question/request for you, or you were expressly asked to spark. Do not revive an old question or append a new question to keep the exchange going. Use only what this character witnessed. All prose in ${language}. Return {"action":"speak","text":"...","defer":{"question":"...","asked_by":"..."}|null} or {"action":"pass"}.`,
+export async function standinTurn(llm, { language, self, log, recalled, phone, bonds, today, routine, rule, questions, spark = false, dailyNote = '', request = null, canFormat }) {
+  const result = await formatTurn(llm, {
+    purpose: 'standin_turn', canFormat,
+    system: `You write a passive player character's stand-in line, not the GM. ${PASSIVE_RULE} Quiet presence is the default. A mention of your name, greeting, anecdote or shared observation does not require agreement or an answer. Pass unless there is a genuine current question/request for you, or you were expressly asked to spark. Do not revive an old question or append a new question to keep the exchange going. Use only what this character witnessed. Write one brief line of plain text in ${language}, or write Pass. When deferring, follow the line with a separate Question for later: paragraph containing the private question to save for the player, and state who asked it in a Table directions: paragraph if known. Do not use JSON.`,
     user: [{ text: self, cache: true }, { text: [today, routine, bonds, `YOUR PHONE:\n${phone}`, `AWAY RULE:\n${JSON.stringify(rule ?? {})}`, `YOUR OPEN QUESTIONS:\n${JSON.stringify(questions)}`, recalled, `WITNESSED LOG:\n${log}`, dailyNote, request ? `CURRENT DIRECT REQUEST:\n${JSON.stringify(request)}` : '', spark ? 'SPARK: Start one small everyday topic fitting this time, place and routine. No plot development, secrets, danger or changes of relationship.' : 'Answer only the current direct question/request if it genuinely needs a reply from you; otherwise pass.'].filter(Boolean).join('\n\n') }],
-  }, validateStandin);
+    schema: 'For a stand-in return {"action":"speak","text":1,"defer":{"question":2,"asked_by":"<name if provided>"}|null} or {"action":"pass"}. The question must refer to a private defer paragraph.',
+    bind: (x, take) => x?.action === 'speak' ? { ...x, ...take(x.text, 'public'), ...(x.defer ? { defer: { ...x.defer, question: take(x.defer.question, 'defer').text } } : {}) } : x,
+    validate: validateStandin,
+  });
+  return result ?? { action: 'pass' };
 }
 export function readAwayRule(llm, text, language) {
   return completeJson(llm, { purpose: 'away_rule', maxRepairs: 0,

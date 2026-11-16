@@ -1,5 +1,5 @@
-// The GM's turn: one model call with the GM's whole context, which returns the GM's and the real NPCs' moves
-// for this turn. Real NPCs are voiced here, so they share the GM's knowledge. Co-players are not: the director only
+// The GM writes a turn with the GM's whole context; a short second call arranges it for chat.
+// Real NPCs are voiced here, so they share the GM's knowledge. Co-players are not: the director only
 // says whether they may act now (and who has the spotlight), and never hands them anything to say.
 //
 // A turn has a mode:
@@ -16,7 +16,7 @@
 import { NPC_CONTINUITY_RULES } from "./context/npcContinuity.mjs";
 import { COC7E } from "./rules/coc7e.mjs";
 import { adaptPrompt } from "./rules/index.mjs";
-import { completeJson } from "./llm/index.mjs";
+import { directorSources, formatTurn } from "./turn-format.mjs";
 import { validateWhereabouts } from "./whereabouts.mjs";
 import { ILLUSTRATE_RULE, ILLUSTRATE_SCHEMA, normalizeIllustration } from "./illustrations.mjs";
 
@@ -28,7 +28,7 @@ const WORLD_RULE = `- The world lives on: "The world now" is the platform's reco
 const TIME_RULE = (planner) => `- Time: the story has a date (see Calendar). Keep to it: weekdays, seasons, how long ago things happened. Everyday life follows its routine ("Everyday life now"): weave it into scenes, and let quiet days fill with it. When time passes in the fiction (a night's sleep, a journey, days of research), move it on with date (advance_days and the time of day, or the new date). ${planner ? "The story planner chooses the first date; until it has, keep the day vague." : "Set the date once when none is set."} It never runs backwards. A scenario change that jumps in time carries advance_days too. Let the calendar move slowly: play a day out rather than skip ahead, and keep to the Pace line of the Calendar section: while it says the date may not move on yet, move only the time of day, and never skip more days at once than it allows.`;
 const PEOPLE_RULE = `- People: the Cast gives each character's gender, age and what is most striking about them (extremely good-looking, slow-witted, very large build…), and Relationships says who lives with, loves, is related to or is at odds with whom. Play them that way: a striking face turns heads, a slow wit misses things, people who live together know each other's habits. When play establishes a relationship or ends one, record it with bond (secret when the investigators do not know it). Never decide a player character's feelings: record a bond with one only when its player or its profile says so.`;
 const AWAY_RULE = `- Players come and go: a player character marked "player away" keeps its place in the scene but stays passive. Never act, speak or decide for it, never make the scene wait on it, and do not have harm befall it while its player is away; it catches up when its player returns.`;
-const DICE_RULE = (profile) => `- Call for dice when the outcome is uncertain and matters: use request_roll with ${profile.dice.gmExamples}. Do not invent results; read results already posted in the chat.`;
+const DICE_RULE = (profile) => `- Call for dice when the outcome is uncertain and matters: in the table directions specify who must roll and the exact command, such as ${profile.dice.gmExamples}. If you explain the roll to the player, write that line as prose. Do not invent results; read results already posted in the chat.`;
 const COMMON_RULES = (unattended) => `${unattended ? '- Let ordinary conversations breathe. Respond as an existing, present NPC only when they have something of their own to say to the actual speaker. No automatic response to every line, obligatory question, plot hook or new decision point. Quiet activity and a natural ending need no action. Passive player characters are not the default audience; do not repeatedly name, greet, invite or reassure them.' : '- Every player, co-players included, needs an immediate response to each choice and line: acknowledge what they did, give its consequence, and propel the story (new information, a complication, a decision point). Never leave a move hanging or stall with vague atmosphere; then hand the scene back with an open situation.'}
 - For any jump over play (including a same-day cut), establish the new time BEFORE narrating the next scene. Use date, a timed scenario change or time_skip. The table posts a public handoff using this window's chat. Distinguish completed actions, by actor and time, from plans still outstanding. A planner's suggested montage does not mean anyone ate, traveled, or made a decision. Do not replay established events. If completion is unclear, leave it open or ask.
 - Never write words, thoughts or decisions for player characters or co-players.
@@ -67,29 +67,36 @@ ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
 ${SCENARIO_RULES(forks)}${improv ? `\n${IMPROV_RULES}` : ""}${casual ? `\n${CASUAL_RULES}` : ""}${planner && !unattended ? `\n${PLANNER_RULE}` : ""}${illustrate ? `\n${ILLUSTRATE_RULE}` : ""}
 ${profile.combatRule ? `${profile.combatRule}
 ` : ""}${profile.dice.gmHelp ? `${profile.dice.gmHelp}
-` : ""}- Keep each line short enough for chat (1-5 sentences). One to three actions per turn is typical. Return no actions if nothing needs the GM now (for example players talking among themselves out of character).
-- Write all text in ${language}.
+` : ""}- Write playable prose in ${language}. Let gestures, details that matter here, and each NPC's own voice carry the scene. Trust subtext and leave room for the players' reply. A few paragraphs is typical; if nothing needs the GM now, simply write Pass.
 
-Reply with only one JSON object:
+Write the turn as plain text. Use blank lines between paragraphs. Let narration stand as prose, without JSON, code fences or commentary. Use these staging cues at the start of a paragraph only when needed:
+- NPC <name>: for an established NPC's own words or actions; New NPC <name>: for their first line (put the role card brief in the directions).
+- Whisper to <name>: for a private message; GM only: for a private note. Never put either in public narration.
+${casual ? '- Phone from <NPC> to <recipient>: for a text message. Specify its delay in the directions if needed.\n' : ''}- Opening: for prose belonging to another scene. Identify the destination in the directions.
+- Table directions: for decisions the table must carry out. Use brief plain sentences with the exact names, commands, IDs, times and other required facts. Put a direction before or after the relevant prose according to when it happens; point to that paragraph if they belong to one action. Say whether co-players may act, and who has the spotlight, when it matters. An unlabelled paragraph is public; repeat the cue for every new paragraph of private text or NPC dialogue.`);
+}
+
+export function directorFormatSchema({ auto = true, improv = false, casual = false, planner = false, calendar = false, daily = false, pbta = false, illustrate = false, profile = COC7E, mode = "human", attention = false } = {}) {
+  return `For a GM turn map public paragraphs to narrate, npc to npc, new_npc to new_npc, whisper to whisper, note to note, and npc_text to text. An opening paragraph belongs only to a split or whereabouts. Names and recipients come from the paragraphs. Use only the drafted actions from the options below. Numbers in text or opening fields are paragraph ids.
 {"actions": [
-${daily ? '  {"type": "question_done", "id": "<open question id>"},\n' : ""}  {"type": "narrate", "text": "..."},
-  {"type": "npc", "name": "<a real NPC from the cast>", "text": "<what they say or do>"},
-  {"type": "new_npc", "name": "<new NPC name>", "brief": "<who they are, for their role card>", "text": "<their first line>"},
-  {"type": "whisper", "to": "<character name>", "text": "..."},
+${daily ? '  {"type": "question_done", "id": "<open question id>"},\n' : ""}  {"type": "narrate", "text": 1},
+  {"type": "npc", "text": 2${pbta ? ', "move_id": "<optional NPC move>", "modifier": 0' : ""}},
+  {"type": "new_npc", "brief": "<who they are, for their role card>", "text": 3${pbta ? ', "move_id": "<optional NPC move>", "modifier": 0' : ""}},
+  {"type": "whisper", "text": 4},
 ${pbta ? `  {"type":"move","source_id":"<declaration>","character_id":"<actor>","move_id":"<move>","modifier":0},
-  {"type":"ask","roll_id":"<roll>","character_id":"<actor>","text":"<player options>"},
-  {"type":"mark","roll_id":"<roll>","character_id":"<actor>","section":"resources | conditions","field":"<id>","expected":0,"value":1,"basis":"automatic | choice","answer_id":"<reply if choice>"},` : `  {"type": "request_roll", "who": "<character name>", "command": "${profile.dice.requestRoll}", "text": "<why, in one short line>"},`}
-${!pbta && profile.gmDice ? `  {"type": "dice", "command": ".ri +2 Goblin | .init next | .init del <name> | .init clr | .r 1d8+3", "text": "<optional narration before it>"},
-` : ""}  {"type": "note", "text": "<GM-only note>"},
+  {"type":"ask","roll_id":"<roll>","character_id":"<actor>","text":5},
+  {"type":"mark","roll_id":"<roll>","character_id":"<actor>","section":"resources | conditions","field":"<id>","expected":0,"value":1,"basis":"automatic | choice","answer_id":"<reply if choice>"},` : `  {"type": "request_roll", "who": "<character name>", "command": "<exact command>", "text": 5},`}
+${!pbta && profile.gmDice ? `  {"type": "dice", "command": "<exact command>", "text": 5},
+` : ""}  {"type": "note", "text": 6},
   {"type": "world_change", "text": "<what is now true in the world, e.g. 'The Harbour Guild has closed the docks at night.'>", "secret": true | false},
 ${calendar ? `  {"type": "date", "advance_days": 1, "time": "<time of day, e.g. early morning>", "date": "<optional: the new date, YYYY-MM-DD>", "reason": "<what passed>"},
 ` : ""}  {"type": "bond", "a": "<character>", "b": "<character>", "kind": "lives with | married | lovers | friends | family | colleagues | rivals | ...", "note": "<which way, since when>", "secret": false, "end": false},
 ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for your own memory>"},
-` : ""}${casual ? `  {"type": "text", "from": "<a real NPC>", "to": "<a player character or a co-player>", "text": "<the text message>", "delay_minutes": <0 = now; or when it arrives>},
+` : ""}${casual ? `  {"type": "text", "text": 7, "delay_minutes": <0 = now; or when it arrives>},
 ` : ""}${planner ? `  {"type": "planner_note", "text": "<for the story planner: what the players did that changed the plan, or what you need>", "beat_done": true | false},
 ` : ""}${illustrate ? `${ILLUSTRATE_SCHEMA}
-` : ""}${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-player names>"], "location": "...", "narrative_time": "...", "opening": "<first narration of the thread>"},
-  {"type": "rejoin", "timeline": "<thread name>", "into": "<window name, optional>", "text": "<optional narration where they return>"},
+` : ""}${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-player names>"], "location": "...", "narrative_time": "...", "opening": 8},
+  {"type": "rejoin", "timeline": "<thread name>", "into": "<window name, optional>", "text": 9},
 `}  {"type": "timeline", "timeline": "<handle or thread name>", "narrative_time": "...", "location": "...", "notes": "<your private notes>", "span": "short" | "long"},
   {"type": "time_skip", "time": "<new public story time in this scene, for a jump without another time-changing action>"},
   {"type": "advance_scenario", "title": "...", "location": "...", "narrative_time": "...", ${calendar ? `"advance_days": 0, ` : ""}"reason": "<why now>"},
@@ -97,7 +104,7 @@ ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for yo
  ],
  "coplayers_may_act": true | false,
  "spotlight": ["<co-player names invited to act first>"]${auto ? `,
- "whereabouts": [{"who": ["<investigator names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": "<first narration there>"}]` : ""}}`);
+ "whereabouts": [{"who": ["<character names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": 8}]` : ""}${mode === "spark" ? `, "topic": {"state": "open" | "ended", "title": "..."}` : ""}${attention ? `, "attention_review": {"decision": "invite" | "rest", "reason": "..."}` : ""}}`;
 }
 
 export function validateDirector(x, { mode = "human", gentle = false, daily = false, auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
@@ -121,14 +128,14 @@ export function validateDirector(x, { mode = "human", gentle = false, daily = fa
 
 const list = (names) => (names ?? []).join(", ");
 const MODE_NOTES = {
-  spark: () => 'MODE: spark — no human is here. Narrate briefly as the world and existing NPCs: small daily-life talk only. Never advance a plot, reveal a secret, start danger, change any relationship, move anyone or change the scenario. Passive characters are present; never speak or decide for them. Only narrate, npc, note and text actions. Do not offer illustrations. Also return "topic": {"state": "open" | "ended", "title": "a few words"} to say whether the topic ended.',
+  spark: () => 'MODE: spark — no human is here. Narrate briefly as the world and existing NPCs: small daily-life talk only. Never advance a plot, reveal a secret, start danger, change any relationship, move anyone or change the scenario. Passive characters are present; never speak or decide for them. Only narrate, npc, note and text actions. Do not offer illustrations. In the table directions say whether the topic remains open or ended, and give it a short title.',
   kickoff: ({ pcs = "investigators" }) => `KICKOFF: yes — open the session: set the scene for the ${pcs} in the current scenario and invite them to act.`,
   followup: () => "MODE: followup — the co-players just acted (the lines after your last ones). Answer each of their choices now and push the story forward.",
   quiet: ({ quietMinutes }) => `MODE: quiet — the human players in this window have been silent for ${quietMinutes} minutes. Move the scene forward a little on your own: the world, the NPCs, or a question to a named player. Co-players may act. Never decide, speak or roll for a player character, and never resolve a roll a player still owes.`,
   side: ({ timeline }) => `MODE: side — this window is the co-players-only timeline "${timeline?.name ?? "side"}". No human is here: run its thread with the co-players, beat by beat. When the co-players head back to the others, report it in whereabouts.`,
   attention: () => 'MODE: attention — give the selected neglected AI co-player a concrete personal opportunity or a grounded reason to rest. This is their turn; do not require a human response.',
   arrival: ({ arrival }) => (arrival?.newcomer ? `MODE: arrival — a new player just joined the table with ${list(arrival.names)}. Bring ${arrival.names?.length > 1 ? "them" : "this character"} into the story here, naturally: who they are to the others, why they are here now, what they notice; then hand them the scene. Never decide for player characters.` : `MODE: arrival — ${list(arrival?.names)} ${arrival?.reunion ? "just rejoined the others here" : `just arrived at ${arrival?.place || "this place"}`}. Open the scene for them now: where they are, what they notice, an open situation. Do not repeat the departure${arrival?.opening ? ` or this opening, already posted: "${arrival.opening}"` : ""}. Never decide for player characters.`),
-  phone: ({ phone }) => `MODE: phone — ${phone?.from ?? "a player character"} texted ${phone?.to ?? "an NPC"} on their phone${phone?.thread ? `. The thread so far (oldest first):\n${phone.thread}\n` : ": "}${JSON.stringify(phone?.text ?? "")}. Answer only as ${phone?.to ?? "the NPC"}, with one text action (from: ${phone?.to ?? "the NPC"}, to: ${phone?.from ?? "the player character"}) and delay_minutes for when they would plausibly answer; or no action if they would leave it unanswered. Nothing else happens in any scene this turn. You may add a note, truth or world_change.`,
+  phone: ({ phone }) => `MODE: phone — ${phone?.from ?? "a player character"} texted ${phone?.to ?? "an NPC"} on their phone${phone?.thread ? `. The thread so far (oldest first):\n${phone.thread}\n` : ": "}${JSON.stringify(phone?.text ?? "")}. Answer only as ${phone?.to ?? "the NPC"}, with one Phone from ${phone?.to ?? "the NPC"} to ${phone?.from ?? "the player character"} paragraph and a plausible delay in the directions; or pass if they would leave it unanswered. Nothing else happens in any scene this turn. You may add a note, truth or world_change.`,
   relay: ({ relay }) => `MODE: relay — ${relay?.speaker ?? "a player"} wrote in another window ("${relay?.window ?? "elsewhere"}"), but their character is here, in this scene. Answer them here as if they had written here: ${JSON.stringify(relay?.text ?? "")}.`,
 };
 
@@ -163,6 +170,11 @@ export async function directTurn(llm, { language, context, newest, mode = "human
     `Decide the ${v.gm}'s actions for this turn.`,
   ].filter(Boolean).join("\n");
   const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
-  const on = Boolean(planner?.on);
-  return completeJson(llm, { system: directorSystem(language, { auto, forks, improv, casual, planner: on, calendar, daily, unattended: mode === "spark" || gentle, pbta: !!pbta, illustrate, profile }), user, purpose: "director", phase: mode }, (x) => validateDirector(x, { mode, gentle, daily, auto, improv, casual, planner: on, calendar, pbta: !!pbta, illustrate, profile }));
+  const options = { mode, gentle, daily, auto, improv, casual, planner: Boolean(planner?.on), calendar, pbta: !!pbta, illustrate, profile };
+  const result = await formatTurn(llm, {
+    system: directorSystem(language, { ...options, forks, unattended: mode === "spark" || gentle }),
+    user, purpose: "director", phase: mode, schema: directorFormatSchema({ ...options, attention: Boolean(extra.attentionNote) }), bind: directorSources,
+    validate: (x) => validateDirector(x, options), canFormat: extra.canFormat,
+  });
+  return result ?? validateDirector({ actions: [], coplayers_may_act: false }, options);
 }

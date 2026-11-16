@@ -7,6 +7,35 @@ const CAREERS = ["Antiquarian", "Journalist", "Doctor of Medicine", "Private Inv
 
 const field = (text, label) => (String(text).match(new RegExp(`^${label}:\\s*(.+)$`, "m")) ?? [])[1]?.trim() ?? "";
 
+// Keep the offline fixtures expressed as game actions. Emit their prose as a draft and carry the
+// remaining fixture decisions in a mock-only direction, so the real paragraph binding still runs.
+function draftFor(purpose, plan) {
+  const paragraphs = [];
+  const part = (text, label = "") => {
+    if (!String(text ?? "").trim()) return undefined;
+    const rows = String(text).trim().split(/\n\s*\n/);
+    const ids = rows.map(row => paragraphs.push(label ? `${label}: ${row}` : row));
+    return ids.length === 1 ? ids[0] : ids;
+  };
+  if (purpose === "director") {
+    const label = a => ({
+      npc: `NPC ${a.name}`, new_npc: `New NPC ${a.name}`, whisper: `Whisper to ${a.to}`,
+      note: "GM only", text: `Phone from ${a.from} to ${a.to}`,
+    })[a.type];
+    const withOpening = a => a.opening ? { ...a, opening: part(a.opening, "Opening") } : a;
+    const sourced = new Set(["narrate", "npc", "new_npc", "whisper", "note", "text", "request_roll", "ask", "dice", "rejoin"]);
+    plan = { ...plan, actions: plan.actions.map(a => sourced.has(a.type) ? { ...a, text: part(a.text, label(a)) } : withOpening(a)) };
+    if (plan.whereabouts) plan.whereabouts = plan.whereabouts.map(withOpening);
+  } else if (purpose === "coplayer_phone") {
+    plan = { ...plan, reply: part(plan.reply) ?? null };
+  } else {
+    plan = { ...plan, text: part(plan.text, plan.action === "text" ? `Phone to ${plan.to}` : plan.kind === "ooc" ? "Out of character" : "") };
+    if (plan.defer) plan.defer = { ...plan.defer, question: part(plan.defer.question, "Question for later") };
+  }
+  paragraphs.push(`Table directions: ${JSON.stringify(plan)}`);
+  return paragraphs.join("\n\n");
+}
+
 export class MockLlm {
   constructor() { this.calls = []; this.mock = true; }
 
@@ -45,12 +74,13 @@ export class MockLlm {
       case "event_illustration": return JSON.stringify({ ...this.scenarioMoment(user), moment: this.scenarioMoment(user).moment.replace("[mock moment]", "[mock event]") });
       case "plot_search": return JSON.stringify(this.plotChoose(user));
       case "plot_illustration": return JSON.stringify(this.plotMoment(user));
-      case "director": return JSON.stringify(this.director(user));
-      case "coplayer_turn": return JSON.stringify(this.coplayer(user, system));
-      case "standin_turn": return JSON.stringify(this.standin?.(user) ?? { action: "pass" });
+      case "director": return draftFor(purpose, this.director(user));
+      case "coplayer_turn": return draftFor(purpose, this.coplayer(user, system));
+      case "standin_turn": return draftFor(purpose, this.standin?.(user) ?? { action: "pass" });
       case "away_rule": return JSON.stringify(this.awayRule?.(user) ?? { allow: [], forbid: [], maySpark: false });
       case "day_summary": return JSON.stringify({ text: "[mock] You spent time with your friends. Your phone holds any questions waiting for you." });
-      case "coplayer_phone": return JSON.stringify({ reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
+      case "coplayer_phone": return draftFor(purpose, { reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
+      case "chat_format": return JSON.parse(messages[0].content).findLast(p => p.kind === "directions")?.text ?? "{}";
       case "planner": return JSON.stringify(this.planner(user));
       case "planner_daily": return JSON.stringify(this.dailyPlanner?.(user) ?? { routine: '[mock] Ordinary classes and a quiet lunch break.', topics: ['A favourite lunch', 'The changing season'] });
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
@@ -241,7 +271,7 @@ export class MockLlm {
     if (!last) return { action: "pass" };
     // "Harriet, text Tomas Leclerc: …" makes Harriet text (casual mode).
     const text = [...user.matchAll(/^#\d+ [^:"]+: (\S+), text ([^:]+): (.+)$/gm)].at(-1);
-    if (text && me.startsWith(text[1]) && /"action": "text"/.test(system)) return { action: "text", to: text[2].trim(), text: text[3].trim() };
+    if (text && me.startsWith(text[1]) && /Phone to <name>/.test(system)) return { action: "text", to: text[2].trim(), text: text[3].trim() };
     return { action: "speak", kind: "ic", text: `[mock ${me}] I stay close and keep my eyes open.` };
   }
 }

@@ -69,6 +69,7 @@ models:                       # which function runs on which provider and model;
   # coplayers: { provider: fast }                                           # coplayer_turn, coplayer_phone
   # planner: fast                                                           # a provider's name alone is enough
   # memory: fast                                                            # compact, coplayer_memory
+  # formatting: fast                                                       # chat_format: drafts are arranged for chat on a separate call
   # readers: { provider: fast, effort: low }                                # scene_presence, movement_evidence, placement_correction, scene_handoff
   # pictures: fast                                                          # scenario_illustration, event_illustration, plot_search, plot_illustration
   # cards: default                                                          # coplayer_card, npc_card, coplayer_repair, coplayer_points, coplayer_build, pbta_design, pbta_card

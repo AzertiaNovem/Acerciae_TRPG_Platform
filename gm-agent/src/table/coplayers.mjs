@@ -39,6 +39,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       const known = table.knownTo(me, witnessed);
       if ((spark || whistle || gentle) && (table.sparkCancelled() || table.overBudget())) return 0;
       move = await coplayerTurn(table.llm, { language: table.language, coplayer, card, pbta, profile: table.profile, attrs: table.attrs.get(me) ?? {}, companions, withYou: table.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: table.improv.on ? table.improv.world : "", improv: table.improv.on, casual: table.casualOn(), phone, impulse: renderImpulse(table.impulseFor(me)),
+        canFormat: () => !table.sparkCancelled() && !((spark || whistle || gentle || side) && table.overBudget()),
         spark, whistle, gentle, attentionNote, daily: table.dailyOn(), dailyNote: [dailyNote, table.passiveNote(windowId)].filter(Boolean).join("\n"), corrections: renderCorrectionsFor(table.planner.table, coplayer.name),
         ...(table.calendarOn() ? { today: describeCalendar(table.calendar, { time: t?.narrativeTime || table.calendar.time }), routine: describeRoutine(table.calendar), timePassed: table.timePassedFor(me, witnessed) } : {}), met: table.metBy(known.met), bonds: renderBondsFor(table.bonds, me, known.all, (id) => table.nameOf(id)) });
     } catch (e) { table.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }

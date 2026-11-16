@@ -1119,7 +1119,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `planner.provider`, `planner.api_base`, `planner.model` | `--planner-provider`, `--planner-api-base`, `--planner-model` | the GM's | the planner's own model and endpoint (its key: `PLANNER_API_KEY`, else the provider's key) |
 | `planner.effort` | `--planner-effort` | `high` | the planner's reasoning effort (ignored by `openai_compatible`) |
 | `providers.<name>.provider`, `.api_base`, `.api_key`, `.model`, `.effort`, `.max_tokens`, `.timeout_ms`, `.stream`, `.fallbacks`, `.cache_ttl` | | the `llm` settings | a named endpoint with its key and default model; a key left out comes from `ANTHROPIC_API_KEY` or `LLM_API_KEY` (see "Several models") |
-| `models.<function>` | | the `llm` settings | `{provider, model, effort, max_tokens}`, or a provider's name: where `director`, `coplayers`, `planner`, `memory`, `readers`, `pictures` or `cards` run; a purpose name or `default` is accepted too |
+| `models.<function>` | | the `llm` settings | `{provider, model, effort, max_tokens}`, or a provider's name: where `director`, `coplayers`, `formatting`, `planner`, `memory`, `readers`, `pictures` or `cards` run; a purpose name or `default` is accepted too |
 | `planner.interval_minutes`, `planner.min_lines` | | `30`, `40` | play time and lines before an ordinary automatic plan (`0` disables interval planning; daily refresh and final review use their own triggers) |
 | `planner.cooldown_minutes`, `planner.max_runs_per_hour` | | `10`, `4` | least gap between runs; hourly cap |
 | `planner.stall_turns` | | `6` | turns in the same place with no world change, truth, move or scenario change before the planner is asked |
@@ -1194,13 +1194,14 @@ because the platform cannot change a character's kind.
 ### Several models: `providers` and `models`
 
 Every model call names its purpose (the ones the usage list shows: `director`, `coplayer_turn`, `planner`, `compact`…).
-The purposes fall into seven functions, and a table may run each on a different provider and model
+The purposes fall into eight functions, and a table may run each on a different provider and model
 (`src/llm/routes.mjs`):
 
 | Function | Purposes | What it is |
 |---|---|---|
 | `director` | `director` | the GM's turns: the largest context, the most judgement |
-| `coplayers` | `coplayer_turn`, `coplayer_phone` | the AI co-players' lines and texts |
+| `coplayers` | `coplayer_turn`, `coplayer_phone`, `standin_turn` | the co-players' lines and texts, and passive characters' stand-in lines |
+| `formatting` | `chat_format` | places the drafted prose in chat and converts explicit table directions into actions |
 | `planner` | `planner`, `planner_daily` | full story planning and the unattended day's single routine/topic call |
 | `memory` | `compact`, `coplayer_memory` | compacting older chat into chapters |
 | `readers` | `scene_presence`, `movement_evidence`, `placement_correction`, `scene_handoff` | the small calls that check who is where |
@@ -1215,6 +1216,13 @@ part optional (a missing model or effort is the provider's), or just a provider'
 (`coplayer_phone`) outranks its function; `default` covers every function not named; the planner's own
 `planner.provider/model/effort` keep naming its route when `models.planner` does not.
 
+The GM and the co-player write their turns as plain text first. A second call receives only the draft, assigns its
+paragraphs to the appropriate chat messages, and translates any explicit table directions. The client takes
+each message's wording and any private recipient directly from the draft. This includes phone replies and
+stand-in lines. Both calls count toward the usual token budget and are cancelled together on pause.
+`models.formatting` (or the `chat_format` purpose) can use a faster model. Without a separate setting it uses
+the default model, with low effort where supported and an output cap of at most 2048 tokens.
+
 ```yaml
 providers:
   fast: { provider: anthropic, model: claude-haiku-5-5 }
@@ -1222,6 +1230,7 @@ providers:
 models:
   director: { effort: high }          # the llm section's model, more effort
   coplayers: gateway
+  formatting: fast
   memory: fast
   readers: { provider: fast, effort: low }
   pictures: fast

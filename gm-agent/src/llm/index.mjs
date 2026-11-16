@@ -65,6 +65,15 @@ export function extractJson(text) {
   return JSON.parse(s.slice(start, end + 1));
 }
 
+// The creative call uses the same cancellation, transport retries and usage tracking as a structured call.
+export async function completeText(llm, { system, user, purpose, phase = "", signal = llm.signalOf?.() }) {
+  const complete = completionAttempts(llm, crypto.randomUUID(), { signal });
+  const text = await complete({ system, messages: [{ role: "user", content: user }], purpose, phase });
+  signal?.throwIfAborted();
+  if (typeof text !== "string" || !text.trim()) throw new Error("The turn draft was empty");
+  return text.trim();
+}
+
 // Asks for a JSON object; bounded transport retries and validation repairs. `user` is a string or a
 // list of parts (parts.mjs), or `messages` a prepared conversation (the story planner's draft → critique → revise);
 // the repair round appends to it, so the original prompt stays a cached prefix.

@@ -48,10 +48,11 @@ test("co-player HP, sanity and inventory changes preserve the cached identity an
   await coplayerTurn(llm, opts);
   opts.card.derived.hp = 5; opts.card.derived.san = 50; opts.card.items = [{ name: "torch" }];
   await coplayerTurn(llm, opts);
-  assert.equal(llm.calls[0].parts[0][0].text, llm.calls[1].parts[0][0].text);
-  assert.match(llm.calls[1].parts[0].at(-1).text, /HP 5\/\?, SAN 50/);
-  assert.match(llm.calls[1].parts[0].at(-1).text, /carrying: torch/);
-  assert.doesNotMatch(llm.calls[1].parts[0][0].text, /HP|carrying:/);
+  const [before, after] = llm.calls.filter(c => c.purpose === "coplayer_turn");
+  assert.equal(before.parts[0][0].text, after.parts[0][0].text);
+  assert.match(after.parts[0].at(-1).text, /HP 5\/\?, SAN 50/);
+  assert.match(after.parts[0].at(-1).text, /carrying: torch/);
+  assert.doesNotMatch(after.parts[0][0].text, /HP|carrying:/);
 });
 
 test("document cache keeps the full version for recall, retries errors, invalidates updates and prunes deletions", async () => {
