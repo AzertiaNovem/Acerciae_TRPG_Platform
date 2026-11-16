@@ -168,7 +168,11 @@ test('two real workers host CoC and D&D concurrently and restart independently',
   assert.equal(live.status, 'running'); assert.equal(live.live.channel.rule, 'dnd2024'); assert.equal(live.live.channel.name, 'b');
   assert.equal(live.live.channel.gm, true); assert.equal(typeof live.live.usage.today.billable, 'number'); assert.deepEqual(live.live.cast.coplayers, []);
   assert.equal(live.live.timelines[0].handle, 'T0'); assert.equal(live.live.settings.sceneForks, false); assert.ok(!live.live.errors, JSON.stringify(live.live.errors));
-  assert.ok(manager.logs('a').lines.some(l => /keeping "a"/.test(l.text)), 'the worker log reaches the UI');
+  // The ready message and stdout use separate worker channels; readiness does not mean the log was delivered yet.
+  const logged = () => manager.logs('a').lines.some(l => /keeping "a"/.test(l.text));
+  const logDeadline = Date.now() + 8000;
+  while (!logged() && Date.now() < logDeadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.ok(logged(), 'the worker log reaches the UI');
   assert.equal(manager.status().find(c => c.id === 'b').name, 'b', 'the list shows the channel name once a snapshot was taken');
   for (const id of ['a', 'b']) assert.ok(fs.existsSync(path.join(host.stateDir, `${id}.db`)));
   const peer = manager.running.get('b').worker;
