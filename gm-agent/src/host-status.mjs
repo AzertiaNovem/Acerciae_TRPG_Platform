@@ -40,6 +40,7 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
 
   const snapshot = {
     at: new Date(now).toISOString(),
+    forge: table.forge ?? null,
     channel: section("channel", () => ({
       id: channel?.id ?? table.channelId, name: channel?.name ?? "", rule: table.profile?.id ?? channel?.rule_system ?? "coc7e",
       gm: channel?.my_role ? channel.my_role === "gm" : null, knowledge: channel?.knowledge_mode ?? null, language: table.language ?? "",

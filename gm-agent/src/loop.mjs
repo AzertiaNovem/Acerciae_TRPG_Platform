@@ -252,7 +252,8 @@ export class Table {
     // A player character first seen after start-up: a new player at the table (see welcomeNewcomers).
     const fresh = this.ready && this.characters ? characters.filter((c) => !this.characters.some((x) => x.id === c.id)) : [];
     this.characters = characters;
-    this.windows = windows;
+    this.forgeWindows = new Set(windows.filter(w => w.purpose === "forge").map(w => w.id));
+    this.windows = windows.filter(w => w.purpose !== "forge");
     const main = this.mainWindow();
     this.roster.reconcile(this.characters, main ? [main.id] : [], { castBy: this.me?.id });
     this.timelines.reconcile(investigatorsFor(this.characters, this.roster).map((c) => c.id));

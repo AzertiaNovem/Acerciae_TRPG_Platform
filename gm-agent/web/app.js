@@ -5,7 +5,7 @@ import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
 'use strict';
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
-const FUNCTIONS = { director: '主持', coplayers: '队友', formatting: '排版', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
+const FUNCTIONS = { forge: '开局共创', director: '主持', coplayers: '队友', formatting: '排版', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
 let channelRequest = 0;
 let usageRange = 'today', usageDetailsOpen = false, planKey = '';
 let usageKey = '', usageNode = null;
@@ -271,6 +271,13 @@ function renderOverview() {
     rt.lastError ? h('p', { class: 'error-text', text: rt.lastError }) : null));
   if (live) {
     const c = live.channel ?? {}, a = live.activity ?? {}, cast = live.cast ?? {}, u = live.usage, p = live.planner, s = live.settings ?? {};
+    if (live.forge) cards.push(card('开局共创 Forge',
+      kv('阶段', ({ interview:'共同筹备',review:'等待全员确认',applying:'正在启用',ready:'等待开始',cancelled:'已暂停',playing:'已开局' })[live.forge.phase] || live.forge.phase),
+      kv('草案版本', live.forge.revision), kv('已确认', `${live.forge.confirmed.length}/${live.forge.participants.length}`),
+      kv('参与者', live.forge.participants.map(p=>p.name).join('、')),
+      h('p',{text:'请在平台的“开局共创 · Forge”窗口回答与确认。'}),
+      live.forge.error ? h('p',{class:'error-text',text:live.forge.error}) : null,
+      ...(live.forge.playtests ?? []).map(t=>h('details',{},h('summary',{text:`${t.depth} 试跑 · v${t.revision}`}),h('pre',{text:t.reports.flat().join('\n\n')})))));
     cards.push(card('牌桌',
       kv('频道', c.name), kv('规则', RULES[c.rule] ?? c.rule), kv('语言', c.language), kv('GM 身份', c.gm === null ? '—' : c.gm ? '是' : '否（无法主持）', c.gm === false ? 'error-text' : ''),
       kv('知识模式', c.knowledge === 'isolated' ? '隔离' : c.knowledge === 'public' ? '公开' : c.knowledge), kv('窗口', num(cast.windows)),
@@ -513,7 +520,7 @@ $('all-usage').onclick = () => {
   $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false;
   refreshChannels().catch(e => notice(e.message, 'bad')); notice('');
 };
-const CREATE_FIELDS = ['table.language', 'table.coplayers', 'table.level', 'modes.casual', 'timelines.scene_forks', 'autonomy.enabled', 'planner.enabled'];
+const CREATE_FIELDS = ['modes.improv', 'forge.enabled', 'table.language', 'table.coplayers', 'table.level', 'modes.casual', 'timelines.scene_forks', 'autonomy.enabled', 'planner.enabled'];
 const source = () => document.querySelector('input[name=source]:checked').value;
 function createRule() {
   if (source() === 'new') return $('c-rule').value;

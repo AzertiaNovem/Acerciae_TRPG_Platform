@@ -29,9 +29,9 @@ export async function setCasual(table, on) {
 
 export function isPlannerWindow(table, windowId) { return Boolean(windowId) && windowId === table.planner.window; }
 
-export function isTableWindow(table, windowId) { return table.isPhone(windowId) || table.isPlannerWindow(windowId) || (Boolean(windowId) && windowId === table.casual.log); }
+export function isTableWindow(table, windowId) { return table.windows?.some(w => w.id === windowId && w.purpose === "forge") || table.isPhone(windowId) || table.isPlannerWindow(windowId) || (Boolean(windowId) && windowId === table.casual.log); }
 
-export function plannerWindowWanted(table) { return table.cfg.planner?.wishWindow !== false && table.plannerMode() !== "off"; }
+export function plannerWindowWanted(table) { return Boolean(table.improv?.on) && table.cfg.planner?.wishWindow !== false && table.plannerMode() !== "off"; }
 
 export async function ensureTableWindows(table) {
     if (!table.ready || table.ensuringWindows) return;

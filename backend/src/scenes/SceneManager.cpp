@@ -80,8 +80,8 @@ std::string SceneManager::moveChannel(pqxx::work& w, const std::string& channelI
     if (scene["status"].asString() == "closed") throw conflict("a closed scenario can only be consulted, not entered again");
     if (!previous.empty()) Db::exec(w, "UPDATE scenes SET status='closed', closed_at=now() WHERE id=$1 AND status='active'", {previous});
     Db::exec(w, "UPDATE channels SET current_scene_id=$2 WHERE id=$1", {channelId, sceneId});
-    Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE channel_id=$1", {channelId, sceneId});
-    Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) SELECT id, $2 FROM chat_windows WHERE channel_id=$1 ON CONFLICT DO NOTHING", {channelId, sceneId});
+    Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE channel_id=$1 AND purpose='story'", {channelId, sceneId});
+    Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) SELECT id, $2 FROM chat_windows WHERE channel_id=$1 AND purpose='story' ON CONFLICT DO NOTHING", {channelId, sceneId});
     for (auto& win : Db::queryJson(w, "SELECT id FROM chat_windows WHERE channel_id=$1", {channelId})) {
         auto wid = win["id"].asString();
         std::vector<std::string> audience;
@@ -121,8 +121,8 @@ std::string SceneManager::resolveSceneForWindow(pqxx::work& w, const std::string
         auto row = Db::queryOne(w, "INSERT INTO scenes(channel_id, title, sequence) SELECT $1, CASE WHEN coalesce(max(sequence),0)=0 THEN 'Opening scene' ELSE 'Scenario ' || (max(sequence)+1)::text END, coalesce(max(sequence),0)+1 FROM scenes WHERE channel_id=$1 RETURNING id", {channelId});
         sceneId = row["id"].asString();
         Db::exec(w, "UPDATE channels SET current_scene_id=$2 WHERE id=$1", {channelId, sceneId});
-        Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE channel_id=$1", {channelId, sceneId});
-        Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) SELECT id, $2 FROM chat_windows WHERE channel_id=$1 ON CONFLICT DO NOTHING", {channelId, sceneId});
+        Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE channel_id=$1 AND purpose='story'", {channelId, sceneId});
+        Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) SELECT id, $2 FROM chat_windows WHERE channel_id=$1 AND purpose='story' ON CONFLICT DO NOTHING", {channelId, sceneId});
         return sceneId;
     }
     Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE id=$1 AND active_scene_id IS DISTINCT FROM $2", {chatWindowId, sceneId});

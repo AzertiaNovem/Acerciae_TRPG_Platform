@@ -57,7 +57,10 @@ export class Roster {
   // GM made by hand) as a real NPC.
   reconcile(characters, defaultWindows, { castBy = null } = {}) {
     const byId = new Map(characters.map((c) => [c.id, c]));
-    this.coplayers = this.coplayers.filter((c) => byId.has(c.characterId));
+    this.coplayers = this.coplayers.filter((c) => {
+      const actor = byId.get(c.characterId);
+      return actor && (actor.kind === "npc" || !castBy || actor.user_id === castBy);
+    });
     this.npcs = this.npcs.filter((c) => byId.has(c.characterId) && !this.isCoplayer(c.characterId));
     for (const c of characters) {
       const gmCast = c.kind === "pc" && castBy && c.user_id === castBy;

@@ -1,4 +1,7 @@
 #include "Pbta.h"
+#include "../chat/Forge.h"
+#include "../characters/CharacterSpaceService.h"
+#include "../knowledge/Visibility.h"
 #include "../core/Errors.h"
 #include "../core/Json.h"
 #include "../core/Text.h"
@@ -134,11 +137,55 @@ Json::Value read(Db &db, const ChannelAccess &a) {
     row["pack"].removeMember("gmMoves");
   return row;
 }
-Json::Value preview(const ChannelAccess &a, const J &pack) {
-  if (!a.isGm)
-    throw forbidden("Only the GM can import rules");
-  validate(pack);
-  return pack;
+static J jointCandidate(const J& body) {
+  validate(body["pack"]);
+  require(body["characters"].isArray() && body["characters"].size()<=32, "Expected at most 32 character drafts");
+  J out=body; std::set<std::string> keys, ids;
+  for(auto& c:out["characters"]) {
+    label(c["key"],80,"character key"); label(c["name"],80,"character name");
+    require(keys.insert(c["key"].asString()).second,"Duplicate character key");
+    require(c["kind"]=="player" || c["kind"]=="coplayer" || c["kind"]=="npc","Invalid cast kind");
+    if(c["kind"]=="player") require(c["owner_user_id"].isString() && Visibility::isUuid(c["owner_user_id"].asString()),"Player needs owner_user_id");
+    if(!json::str(c,"existing_id").empty()) require(Visibility::isUuid(c["existing_id"].asString()) && ids.insert(c["existing_id"].asString()).second && c["expected_updated_at"].isString(),"Existing character needs its version");
+    auto nums=normalizeCard(c["role_card"]["pbta"],body["pack"]);
+    for(const auto& stat:body["pack"]["stats"]) require(nums["stats"].isMember(stat["id"].asString()),"Every starting stat needs a value");
+    for(const auto& resource:body["pack"]["resources"]) require(nums["resources"].isMember(resource["id"].asString()),"Every starting resource needs a value");
+    c["role_card"]=CharacterSpaceService::forSystem(c["role_card"],"pbta"); c["role_card"]["pbta"]=nums;
+  }
+  return out;
+}
+Json::Value preview(const ChannelAccess &a, const J &body) {
+  if (!a.isGm) throw forbidden("Only the GM can import rules");
+  if(body.isMember("pack")) return jointCandidate(body);
+  validate(body); return body;
+}
+static J saveJoint(pqxx::work& w,const ChannelAccess& a,const J& draft,const J& revision) {
+  Db::queryOne(w,"SELECT id FROM channels WHERE id=$1 FOR NO KEY UPDATE",{a.channelId});
+  if(forge::hasPlay(w,a.channelId)) throw conflict("Forge is available only before play");
+  auto old=Db::queryOne(w,"SELECT revision,pack FROM pbta_packs WHERE channel_id=$1 FOR UPDATE",{a.channelId});
+  require(!old.isNull(),"Missing PbtA pack");
+  if(old["revision"]!=revision) throw conflict("Rules changed. Review the joint draft again");
+  auto bundle=jointCandidate(draft); auto& pack=bundle["pack"];
+  std::set<std::string> replacing; for(const auto& c:bundle["characters"]) replacing.insert(json::str(c,"existing_id"));
+  for(const auto& c:Db::queryJson(w,"SELECT id,name,role_card FROM characters WHERE channel_id=$1 FOR UPDATE",{a.channelId}))
+    if(!replacing.count(c["id"].asString()) && c["role_card"]["pbta"].isObject() && usesRemoved(c["role_card"]["pbta"],old["pack"],pack)) throw conflict("Unreviewed character still uses removed definitions: "+c["name"].asString());
+  J actors(Json::arrayValue);
+  for(const auto& c:bundle["characters"]) {
+    auto owner=json::str(c,"owner_user_id");
+    if(c["kind"]=="player" && Db::queryOne(w,"SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2 AND role IN ('player','gm') FOR SHARE",{a.channelId,owner}).isNull()) throw conflict("Player left this channel");
+    const auto kind=c["kind"]=="npc"?std::string("npc"):std::string("pc");
+    auto id=json::str(c,"existing_id"); J row;
+    if(!id.empty()) {
+      row=Db::queryOne(w,"SELECT * FROM characters WHERE id=$1 AND channel_id=$2 FOR UPDATE",{id,a.channelId});
+      if(row.isNull() || row["updated_at"]!=c["expected_updated_at"] || row["kind"]!=kind || (kind=="pc" && row["user_id"]!=(c["kind"]=="player"?owner:a.userId))) throw conflict("Character changed. Review its draft again");
+    } else {
+      row=Db::queryOne(w,"INSERT INTO characters(channel_id,user_id,name,kind) VALUES($1,$2,$3,$4) RETURNING *",{a.channelId,kind=="npc"?dbNull():DbParam(a.userId),c["name"].asString(),kind}); id=row["id"].asString();
+    }
+    row=Db::queryOne(w,"UPDATE characters SET name=$2,bio=$3,speaking_style=$4,appearance_prompt=$5,role_card=$6::jsonb,card_pending=false,updated_at=now() WHERE id=$1 RETURNING *",{id,c["name"].asString(),json::str(c,"persona"),json::str(c,"speaking_style"),json::str(c,"appearance_prompt"),json::dump(c["role_card"])});
+    Db::exec(w,"INSERT INTO entities(channel_id,kind,name,character_id,description) VALUES($1,$2,$3,$4,$5) ON CONFLICT (channel_id,kind,name) WHERE player_group_id IS NULL DO UPDATE SET character_id=EXCLUDED.character_id,description=EXCLUDED.description",{a.channelId,kind,c["name"].asString(),id,json::str(c,"persona")});
+    J mapped; mapped["key"]=c["key"]; mapped["character"]=row; actors.append(mapped);
+  }
+  auto result=Db::queryOne(w,"UPDATE pbta_packs SET pack=$2::jsonb,revision=revision+1 WHERE channel_id=$1 RETURNING revision,pack",{a.channelId,json::dump(pack)}); result["characters"]=actors; return result;
 }
 static J savePack(pqxx::work &w, const ChannelAccess &a, const J &revision,
                   const J &pack) {
@@ -211,11 +258,23 @@ J review(Db &db, const ChannelAccess &a) {
 }
 J changeReview(Db &db, const ChannelAccess &a, const J &body) {
   return db.tx([&](pqxx::work &w) {
+    if(!a.isGm) throw forbidden("Only the GM can review rule drafts");
+    auto prior=forge::receipt(w,a,"pbta_joint",body); if(!prior.isNull()) return prior;
+    Db::queryOne(w,"SELECT id FROM channels WHERE id=$1 FOR NO KEY UPDATE",{a.channelId});
     auto draft = reviewState(w, a, true);
     if (draft["version"] != body["version"])
       throw conflict("Draft changed. Reload before continuing.");
     const auto op = json::str(body, "op"), state = json::str(draft, "status");
-    if (op == "start" && (state == "none" || state == "retry")) {
+    if(op=="forge_submit") {
+      if(forge::hasPlay(w,a.channelId)) throw conflict("Forge is available only before play");
+      if(body["revision"]!=draft["revision"]) throw conflict("Rules changed");
+      auto candidate=jointCandidate(body);
+      draft["pack"]=candidate["pack"]; draft["characters"]=candidate["characters"];
+      draft["joint"]=true; draft["status"]="pending"; draft["base_revision"]=draft["revision"];
+      auto hash=json::requireStr(body,"world_hash");
+      require(std::regex_match(hash,std::regex("[0-9a-f]{64}")),"Invalid world fingerprint");
+      draft["world_hash"]=hash; draft.removeMember("applied");
+    } else if (op == "start" && (state == "none" || state == "retry")) {
       if (!draft["eligible"].asBool())
         throw conflict("This table already has rules, cards or play.");
       const auto hash = json::str(body, "world_hash");
@@ -246,13 +305,18 @@ J changeReview(Db &db, const ChannelAccess &a, const J &body) {
       draft["status"] = "kept";
     } else if ((op == "edit" || op == "activate") && state == "pending") {
       validate(body["pack"]);
+      if(draft["joint"].asBool()) {
+        require(!json::str(body,"request_id").empty(),"Joint activation needs request_id");
+        if(op!="activate" || body["pack"]!=draft["pack"] || body["characters"]!=draft["characters"]) throw conflict("Resubmit and confirm the whole joint draft before activating");
+      }
       draft["pack"] = body["pack"];
       if (op == "activate") {
         if (body["revision"] != draft["revision"] ||
             (body["revision"] != draft["base_revision"] &&
              !json::toBool(body, "reviewed_changes")))
           throw conflict("Compare the new official version before activating.");
-        savePack(w, a, body["revision"], body["pack"]);
+        if(draft["joint"].asBool()) draft["applied"]=saveJoint(w,a,draft,body["revision"]);
+        else savePack(w, a, body["revision"], body["pack"]);
         draft["status"] = "active";
       }
     } else
@@ -262,7 +326,7 @@ J changeReview(Db &db, const ChannelAccess &a, const J &body) {
     draft["version"] = draft["version"].asInt() + 1;
     Db::exec(w, "UPDATE pbta_packs SET review=$2::jsonb WHERE channel_id=$1",
              {a.channelId, json::dump(draft)});
-    return reviewState(w, a, false);
+    auto result=reviewState(w, a, false); forge::remember(w,a,"pbta_joint",body,result); return result;
   });
 }
 Json::Value normalizeCard(const J &c, const J &p) {

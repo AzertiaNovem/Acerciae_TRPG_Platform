@@ -70,6 +70,7 @@ export function updatePause(table, m, { historical = false } = {}) {
   }
 
 export function onMessage(table, m) {
+    if (table.forgeWindows?.has(m?.chat_window_id) || (table.isPlannerWindow(m?.chat_window_id) && !table.improv.on)) return;
     if (!m || m.channel_id !== table.channelId || !table.dailyOn() || !table.isHuman(m)) return dispatchMessage(table, m);
     // The same live event twice is handled once. The local chat copy is no guide: a GM context build may already have
     // fetched this line from the platform before its event arrived, and the line still needs its answer.

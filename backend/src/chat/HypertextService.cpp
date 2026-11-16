@@ -188,9 +188,9 @@ Json::Value HypertextService::post(const ChannelAccess& a, const std::string& wi
         auto rate = Db::queryOne(w, "SELECT count(*) AS n, ceil(extract(epoch FROM min(created_at) + interval '1 minute' - now()))::int AS wait FROM messages "
                                     "WHERE channel_id=$1 AND author_id=$2 AND kind='hypertext' AND created_at > now() - interval '1 minute'", {a.channelId, a.userId});
         if (rate["n"].asInt() >= kPostsPerMinute) throw rateLimited("at most " + std::to_string(kPostsPerMinute) + " interactive messages a minute in a channel", rate["wait"].asInt());
-        auto target = Db::queryOne(w, "SELECT archived_at FROM chat_windows WHERE id=$1 FOR SHARE", {windowId});
+        auto target = Db::queryOne(w, "SELECT archived_at,purpose FROM chat_windows WHERE id=$1 FOR SHARE", {windowId});
         if (!target["archived_at"].isNull()) throw conflict("This window is archived. Restore it or fork it to continue.");
-        auto sceneId = scenes_.resolveSceneForWindow(w, a.channelId, windowId);
+        auto sceneId = target["purpose"] == "forge" ? std::string() : scenes_.resolveSceneForWindow(w, a.channelId, windowId);
         auto closesAt = Db::queryOne(w, "SELECT now() + $1::bigint * interval '1 second' AS closes_at", {closesIn})["closes_at"].asString();   // (not "t": the name queryJson gives its CTE)
         auto doc = ht::publicDoc(n.doc, n.replies, closesAt);
         auto id = Db::queryOne(w,
@@ -209,7 +209,7 @@ Json::Value HypertextService::post(const ChannelAccess& a, const std::string& wi
         e.payload["content"] = content; e.payload["message_kind"] = "hypertext";
         auto title = n.doc.get("title", "").asString();
         if (!title.empty()) e.payload["hypertext_title"] = title;
-        events_.append(w, e);
+        if (target["purpose"] != "forge") events_.append(w, e);
         return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {id});
     });
     notifier_.messagePosted(row);

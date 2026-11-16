@@ -1,4 +1,5 @@
 #include "ChatService.h"
+#include "Forge.h"
 #include "../characters/CharacterSpaceService.h"
 #include "../events/EventStore.h"
 #include "../scenes/SceneManager.h"
@@ -63,17 +64,21 @@ Json::Value ChatService::createWindow(const ChannelAccess& a, const Json::Value&
     if (name.size()>240 || text::trim(name).empty()) throw badRequest("invalid window name");
     auto kind = json::str(body, "kind", "group");
     if (kind != "group" && kind != "private" && kind != "main") throw badRequest("kind must be main, group or private");
+    auto purpose=json::str(body,"purpose","story");
+    if(purpose!="story" && purpose!="forge") throw badRequest("invalid window purpose");
     auto win = db_.tx([&](pqxx::work& w) {
-        auto row = Db::queryOne(w, "INSERT INTO chat_windows(channel_id, name, kind, created_by) VALUES($1,$2,$3,$4) RETURNING *", {a.channelId, name, kind, a.userId});
+        auto prior=forge::receipt(w,a,"window",body); if(!prior.isNull()) return prior;
+        auto row = Db::queryOne(w, "INSERT INTO chat_windows(channel_id, name, kind, created_by,purpose) VALUES($1,$2,$3,$4,$5) RETURNING *", {a.channelId, name, kind, a.userId,purpose});
         auto wid = row["id"].asString();
         insertWindowMembers(w,a,wid,body["members"]);
         // Scenarios are campaign-wide: a new window joins the channel's current scenario (a scene_id in the body is ignored).
         auto cur = Db::queryOne(w, "SELECT current_scene_id FROM channels WHERE id=$1", {a.channelId});
-        if (!cur.isNull() && !cur["current_scene_id"].isNull()) {
+        if (purpose == "story" && !cur.isNull() && !cur["current_scene_id"].isNull()) {
             Db::exec(w, "UPDATE chat_windows SET active_scene_id=$2 WHERE id=$1", {wid, cur["current_scene_id"].asString()});
             Db::exec(w, "INSERT INTO chat_window_scenes(chat_window_id, scene_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {wid, cur["current_scene_id"].asString()});
         }
-        return Db::queryOne(w, "SELECT * FROM chat_windows WHERE id=$1", {wid});
+        auto result=Db::queryOne(w, "SELECT * FROM chat_windows WHERE id=$1", {wid});
+        forge::remember(w,a,"window",body,result); return result;
     });
     notifier_.windowChanged(a.channelId, win);
     return win;
@@ -97,6 +102,7 @@ Json::Value ChatService::forkWindow(const ChannelAccess& a, const std::string& p
         Db::queryOne(w,"SELECT id FROM channels WHERE id=$1 FOR UPDATE",{a.channelId});
         auto parent=Db::queryOne(w,"SELECT * FROM chat_windows WHERE id=$1 AND channel_id=$2 FOR UPDATE",{parentId,a.channelId});
         if (parent.isNull()) throw notFound("chat window not found");
+        if (parent["purpose"] == "forge") throw conflict("A preparation window cannot become story history");
         if (!key.empty()) {
             auto existing=Db::queryOne(w,"SELECT * FROM chat_windows WHERE channel_id=$1 AND created_by=$2 AND fork_request_id=$3",{a.channelId,a.userId,key});
             if (!existing.isNull()) {

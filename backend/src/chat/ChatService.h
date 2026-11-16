@@ -76,6 +76,7 @@ public:
     Json::Value listCharacters(const ChannelAccess& a);
     Json::Value createCharacter(const ChannelAccess& a, const Json::Value& body);
     Json::Value updateCharacter(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);
+    Json::Value transferCharacter(const ChannelAccess& a, const std::string& characterId, const Json::Value& body);
     // windows
     Json::Value listWindows(const ChannelAccess& a);
     Json::Value createWindow(const ChannelAccess& a, const Json::Value& body);

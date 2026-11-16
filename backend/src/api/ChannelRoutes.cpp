@@ -1,3 +1,4 @@
+#include "../ws/Notifier.h"
 #include "../chat/Illustrations.h"
 #include "../chat/HypertextService.h"
 #include "../knowledge/Visibility.h"
@@ -98,7 +99,12 @@ void registerChannelRoutes() {
     route2("/api/channels/{1}/windows/{2}/messages", {Get}, [&](auto& req, auto& p, auto& a) { return S.chat->listMessages(access(p, a[0]), a[1], qint(req, "limit", 80), qint64(req, "before_seq", 0), req->getParameter("include_history") != "false", qint64(req, "after_seq", -1)); });
     route1("/api/channels/{1}/pbta", {Get}, [&](auto&, auto& p, auto& a) { return pbta::read(*S.db, access(p,a[0])); });
     route1("/api/channels/{1}/pbta/draft", {Get}, [&](auto&, auto& p, auto& a) { return pbta::review(*S.db,access(p,a[0])); });
-    route1("/api/channels/{1}/pbta/draft", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::changeReview(*S.db,access(p,a[0]),body(req)); });
+    route1("/api/channels/{1}/pbta/draft", {Post}, [&](auto& req, auto& p, auto& a) { auto result=pbta::changeReview(*S.db,access(p,a[0]),body(req));
+      if (result["status"]=="active" && result["joint"].asBool()) {
+        for (const auto& actor:result["applied"]["characters"]) S.notifier->characterUpdated(a[0],actor["character"]);
+        S.notifier->channelUpdated(a[0]);
+      }
+      return result; });
     route1("/api/channels/{1}/pbta/preview", {Post}, [&](auto& req, auto& p, auto& a) { return pbta::preview(access(p,a[0]),body(req)); });
     route1("/api/channels/{1}/pbta", {Put}, [&](auto& req, auto& p, auto& a) { return pbta::replace(*S.db, access(p,a[0]), body(req)); });
     route2("/api/channels/{1}/windows/{2}/initiative", {Get}, [&](auto&, auto& p, auto& a) { return S.dice->initiative(access(p, a[0]), a[1]); });

@@ -65,6 +65,7 @@ const get = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o =
 // Every setting: flag, file key, and (for the few that still come from the environment) its variable. Older variable
 // names map to file keys for the warning.
 const SETTINGS = [
+  ["forge", null, "forge.enabled"],
   ...Object.keys(DAILY_DEFAULTS).map(k => [`daily-${k.replaceAll("_", "-")}`, null, `daily.${k}`]),
   ["standin-context-tokens", null, "context.standin_tokens"],
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
@@ -105,7 +106,7 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
-const SECTIONS = ["daily", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
+const SECTIONS = ["forge", "daily", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
 // Named endpoints (`providers`) and the model of each function (`models`) have keys of their own (llm/routes.mjs).
 const FREE_SECTIONS = ["providers", "models"];
 const PROVIDER_KEYS = ["provider", "api_base", "api_key", "model", "effort", "max_tokens", "fallbacks", "timeout_ms", "stream", "cache_ttl"];
@@ -319,6 +320,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     },
     // Improvisation and casual modes are kept in the state file; these only change them when given (`setup`, `world`,
     // `casual`).
+    forge: { enabled: bool(pick("forge"), false) },
     improv: tri(pick("improv")),
     casual: tri(pick("casual")),
     casualMaxDelayMinutes: Math.max(0, int(pick("casual-max-delay-minutes", 240), 240)),

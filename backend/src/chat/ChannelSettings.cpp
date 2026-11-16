@@ -1,4 +1,5 @@
 #include "ChatService.h"
+#include "Forge.h"
 #include "../characters/CharacterSpaceService.h"
 #include "../events/EventStore.h"
 #include "../scenes/SceneManager.h"
@@ -68,6 +69,7 @@ Json::Value ChatService::getChannel(const ChannelAccess& a) {
     if(!a.isGm) c["current_scene_title"]=Json::Value();
     if(!a.playerGroupId.empty()) c["player_group_name"]=db_.queryOne("SELECT name FROM player_groups WHERE id=$1",{a.playerGroupId})["name"];
     c["player_group_id"]=a.playerGroupId; c["player_group_version"]=a.playerGroupVersion;
+    c["forge_eligible"] = db_.tx([&](pqxx::work& w) { return !forge::hasPlay(w,a.channelId); });
     c["my_role"] = a.isGm ? "gm" : "player";
     c["my_character_ids"] = json::fromStrArray(a.characterIds);
     return c;

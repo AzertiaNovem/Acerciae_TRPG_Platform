@@ -28,8 +28,8 @@ const minutes = (ms) => Math.round(ms / 60000);
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 // One row of fields per function (llm/routes.mjs): its provider (a name from the shared file; `dynamic` fills the
 // options), model and effort. The effective values are those of the route the function's calls take.
-const FUNCTION_LABELS = { director: "主持（GM 与 NPC）", coplayers: "AI 队友", formatting: "聊天排版", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
-const FUNCTION_HELP = { director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", formatting: "只读取本轮草稿，将原文排成聊天消息及桌面操作。可选用更快的模型。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
+const FUNCTION_LABELS = { forge: "开局共创", director: "主持（GM 与 NPC）", coplayers: "AI 队友", formatting: "聊天排版", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
+const FUNCTION_HELP = { forge: "开局访谈、世界和角色共同构建、评审及独立试跑。", director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", formatting: "只读取本轮草稿，将原文排成聊天消息及桌面操作。可选用更快的模型。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
 const modelFields = FUNCTION_NAMES.flatMap((fn) => {
   const route = (c) => routeFor(c, MODEL_FUNCTIONS[fn][0]);
   return [
@@ -127,6 +127,7 @@ export const FIELDS = [
   f("calendar.min_lines", "int", "日期推进所需行数", "以及这么多玩家发言。", (c) => c.calendarMinLines, { min: 0 }),
   f("calendar.max_days", "int", "一次最多跳过天数", "GM 一次推进日期的上限。", (c) => c.calendarMaxDays, { min: 0, unit: "天" }),
 
+  f("forge.enabled", "bool", "开局共创 Forge", "仅即兴模式、正式游戏开始前：在聊天窗口完善世界、角色和规则；全体参与者确认后才开局。", c => c.forge.enabled, { group: "modes" }),
   f("modes.improv", "tri", "即兴模式", "没有模组：故事来自世界设定。留空则保持状态文件中的设置。", (c) => c.improv),
   f("modes.world_file", "string", "世界设定文件", "相对于本频道配置文件的路径。", (c) => c.worldFile),
   f("modes.secrets_file", "string", "GM 秘密文件", "相对于本频道配置文件的路径。", (c) => c.secretsFile),

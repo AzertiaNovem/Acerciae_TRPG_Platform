@@ -362,6 +362,11 @@ function notePosted(table, spark, m, windowId) {
 // limit, PbtA dice text, a refused request). No pause after it. Use the returned message rather than `lastPosted`:
 // phone texts are delivered on their own timer and may be posted in between.
 export async function sendLine(table, windowId, body, { allowPaused = false } = {}) {
+    const speaker = body.character_id && table.characters.find(c => c.id === body.character_id);
+    if (body.expected_owner_id && speaker?.user_id !== body.expected_owner_id) return null;
+    if (speaker?.kind === 'pc' && speaker.user_id === table.me.id && !body.stand_in) {
+      body = { ...body, expected_owner_id: table.me.id };
+    }
     const spark = mayPost(table, allowPaused);
     if (spark === false) return null;
     if (table.pbta && /^[.。][a-z]/i.test(String(body.content).trim())) return null;

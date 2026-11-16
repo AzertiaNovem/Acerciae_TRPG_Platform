@@ -1644,7 +1644,7 @@ test("the planner window: every player sits in it; wishes and corrections reach 
 });
 
 test("a new player is seated in the planner window, gets a phone in casual mode, and the GM brings their character in", async () => {
-  const { t, api, llm } = await isolated({ cfg: pcfg() });
+  const { t, api, llm } = await isolated({ improv: IMPROV, cfg: pcfg() });
   await t.ensureTableWindows();
   assert.ok(t.planner.window && t.casual.log, "planner window and phone log");
   const before = Object.keys(t.casual.phones).length;
@@ -1762,7 +1762,7 @@ test("a split follows individual declarations, even when the director assigns al
 
 test("a player's correction in chat or the planner window restores the real seat before play, despite a fresh move", async () => {
   for (const source of ["w-main", "w-planner"]) {
-    const { t, api, llm } = await table({ bob: true });
+    const { t, api, llm } = await table({ improv: IMPROV, bob: true });
     t.deferArrivals = true;
     t.planner.window = "w-planner";
     await t.command({ cmd: "split", who: ["Harriet Vance", "Bob Price"], place: "Darkroom" });
@@ -1928,7 +1928,7 @@ test("a newer departure during presence analysis invalidates the proposed reunio
 });
 
 test("planner /pause cancels queued turns; scheduled phone texts still arrive exactly once without replies", async () => {
-  const { t, api, llm, clock } = await isolated({ cfg: pcfg() });
+  const { t, api, llm, clock } = await isolated({ improv: IMPROV, cfg: pcfg() });
   const initialCalls = llm.calls.length;
   const initialInbox = [...t.planner.inbox];
   const queued = t.schedule("w-main", { delay: 60000 });
@@ -2060,7 +2060,7 @@ test('a lost fork response is recovered by the same persisted request without du
 
 test("without scene forks: a player's correction in chat or the planner window restores the real seat before play, despite a fresh move", async () => {
   for (const source of ["w-main", "w-planner"]) {
-    const { t, api, llm } = await table({ forks: false,  bob: true });
+    const { t, api, llm } = await table({ improv: IMPROV, forks: false, bob: true });
     t.deferArrivals = true;
     t.planner.window = "w-planner";
     await t.command({ cmd: "split", who: ["Harriet Vance", "Bob Price"], place: "Darkroom" });
@@ -2786,7 +2786,7 @@ const plannerPosts = (t, api) => api.posts.filter((p) => p.window === t.planner.
 
 test("a player asks the planner window for a picture of a past plot: found however long ago, drawn there at once, never the planner's", async () => {
   // The aurora was long ago: before the oldest line the table keeps, in the scenario it began.
-  const { t, api, llm } = await table({ heal: true, forks: false, cfg: artCfg(), before: (a) => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, forks: false, cfg: artCfg(), before: (a) => {
     a.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: AURORA });
     for (let i = 0; i < 60; i++) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: `Filler ${i}: we talk about the weather.` });
   } });
@@ -2811,7 +2811,7 @@ test("a player asks the planner window for a picture of a past plot: found howev
 });
 
 test("a picture request while the GM has illustrations off is answered at once, and costs nothing", async () => {
-  const { t, api, llm } = await table({ heal: true, forks: false, cfg: artCfg(), before: (a) => { a.channelIllustrations = false; } });
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, forks: false, cfg: artCfg(), before: (a) => { a.channelIllustrations = false; } });
   await inPlanner(t, api, "/draw the aurora above the lighthouse");
   assert.deepEqual(plannerPosts(t, api), ["🎨 Picture requests are turned off for this table."]);
   assert.equal(llm.calls.filter((c) => c.purpose === "plot_search" || c.purpose === "plot_illustration").length, 0);
@@ -2821,7 +2821,7 @@ test("a picture request while the GM has illustrations off is answered at once, 
 test("a picture request searches by meaning: summaries and recent play, a zoom into a long stretch, and the next entry when the first holds nothing", async () => {
   const pad = " The rain keeps falling on the slate roofs while we wait and talk of tides, of debts, of the old harbour master's stubborn silence.";
   const llm = new MockLlm();
-  const { t, api } = await table({ llm, heal: true, forks: false, cfg: { ...pcfg(), ...illustrateCfg() }, before: (a) => {
+  const { t, api } = await table({ llm, improv: IMPROV, heal: true, forks: false, cfg: { ...pcfg(), ...illustrateCfg() }, before: (a) => {
     for (let i = 0; i < 300; i++) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice",
       content: i === 150 ? "Harriet lifts the lantern and green light ripples across the bay." : `Line ${i}:${pad}` });
     for (const l of ["We dry our coats by the fire.", "We say little.", "We sleep."]) a.add({ chat_window_id: "w-main", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: l });
@@ -2846,7 +2846,7 @@ test("a picture request searches by meaning: summaries and recent play, a zoom i
 });
 
 test("a picture request: any scene, never a whisper; a hint when empty, one at a time and capped per hour, and no resumption of a paused table", async () => {
-  const { t, api, llm } = await table({ heal: true, forks: false, bob: true, cfg: artCfg({ requestsPerHour: 2 }), before: (a) => {
+  const { t, api, llm } = await table({ improv: IMPROV, heal: true, forks: false, bob: true, cfg: artCfg({ requestsPerHour: 2 }), before: (a) => {
     a.add({ chat_window_id: "w-priv", author_id: "u-alice", author_role: "player", character_id: "c-alice", content: "I find the brass astrolabe hidden behind the portrait." });
     a.add({ chat_window_id: "w-main", author_id: "u-bot", author_role: "gm", kind: "narration", content: "Only you hear the violin playing under the floorboards.", visibility: "whisper", whisper_to: ["c-bob"] });
   } });

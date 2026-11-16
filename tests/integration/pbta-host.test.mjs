@@ -267,7 +267,9 @@ test('the running GM reads real dice before asking; a co-player only receives it
         ];
         asked = true;
       }
-      return JSON.stringify({ actions, coplayers_may_act: !!reply && !botTurn });
+      const prose = actions.filter(a=>a.text).map(a=>a.text);
+      let n=0; actions=actions.map(a=>a.text?{...a,text:++n}:a);
+      return [...prose, `Table directions: ${JSON.stringify({actions,coplayers_may_act:!!reply&&!botTurn})}`].join('\n\n');
     }
     if (req.purpose === 'coplayer_turn') {
       const txt = req.messages.map((m) => textOf(m.content)).join('');
@@ -276,11 +278,7 @@ test('the running GM reads real dice before asking; a co-player only receives it
       assert.ok(!txt.includes(rules.pack.moves.find((m) => m.book === 'scribe').trigger));
       assert.ok(txt.includes(rules.pack.moves.find((m) => m.id === 'compare').trigger));
       botTurn = true;
-      return JSON.stringify({
-        action: 'roll',
-        command: '.move compare',
-        text: 'I lay out both order slips.',
-      });
+      return 'I lay out both order slips.\n\nTable directions: '+JSON.stringify({action:'roll',command:'.move compare',text:1});
     }
     return original(req);
   };

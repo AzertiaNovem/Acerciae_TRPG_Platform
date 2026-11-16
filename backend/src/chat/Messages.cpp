@@ -57,14 +57,15 @@ Json::Value ChatService::searchMessages(const ChannelAccess& a, const std::strin
         {a.channelId, query});
 }
 Json::Value ChatService::postSystemMessage(pqxx::work& w, const std::string& channelId, const std::string& windowId, const std::string& authorId, const std::string& content) {
-    auto sceneId = scenes_.resolveSceneForWindow(w, channelId, windowId);
+    bool prep=Db::queryOne(w,"SELECT purpose FROM chat_windows WHERE id=$1",{windowId})["purpose"]=="forge";
+    auto sceneId = prep ? std::string() : scenes_.resolveSceneForWindow(w, channelId, windowId);
     auto id = Db::queryOne(w,
         "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, kind, content, visibility, whisper_to) VALUES($1,$2,$3,$4,'gm','system',$5,'window','{}'::uuid[]) RETURNING id",
-        {channelId, windowId, sceneId, authorId, content})["id"].asString();
+        {channelId, windowId, sceneId.empty()?dbNull():DbParam(sceneId), authorId, content})["id"].asString();
     NewEvent e; e.channelId = channelId; e.chatWindowId = windowId; e.sceneId = sceneId; e.messageId = id; e.actorUserId = authorId; e.actorRole = "system"; e.kind = "message.posted";
     for (auto& r : Db::queryJson(w, "SELECT character_id FROM chat_window_members WHERE chat_window_id=$1 AND character_id IS NOT NULL", {windowId})) e.audience.push_back(r["character_id"].asString());
     e.payload["content"] = content; e.payload["message_kind"] = "system";
-    events_.append(w, e);
+    if (!prep) events_.append(w, e);
     return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {id});
 }
 Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& windowId, const Json::Value& body, const Json::Value& ruling, const std::string& mediaAssetId, const HypertextOrigin* origin) {
@@ -142,11 +143,15 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
                                       {origin->cardId, origin->userId, origin->interactionId});
             if (claim.isNull() || claim["status"] != "pending") throw ApiError(409, "interaction_interrupted", "This action was interrupted before this line was posted; try it again");
         }
-        auto target=Db::queryOne(w,"SELECT archived_at FROM chat_windows WHERE id=$1 FOR SHARE",{windowId});
+        if (body.isMember("expected_owner_id")) {
+            auto current=Db::queryOne(w,"SELECT user_id FROM characters WHERE id=$1 AND channel_id=$2 FOR SHARE",{characterId,a.channelId});
+            if (current.isNull() || current["user_id"]!=body["expected_owner_id"]) throw conflict("Character owner changed");
+        }
+        auto target=Db::queryOne(w,"SELECT archived_at,purpose FROM chat_windows WHERE id=$1 FOR SHARE",{windowId});
         if (!target["archived_at"].isNull()) throw conflict("This window is archived. Restore it or fork it to continue.");
         if (!a.isGm && !Db::queryOne(w,"SELECT 1 AS paused FROM chat_window_members WHERE chat_window_id=$1 AND user_id=$2 AND visibility_paused",{windowId,a.userId}).isNull())
             throw forbidden("Your participation in this window is paused");
-        auto sceneId = scenes_.resolveSceneForWindow(w, a.channelId, windowId);
+        auto sceneId = target["purpose"] == "forge" ? std::string() : scenes_.resolveSceneForWindow(w, a.channelId, windowId);
         if (!ruling.isNull() || (diceCmd && diceCmd->name=="move" && Db::queryOne(w,"SELECT rule_system FROM channels WHERE id=$1 FOR SHARE",{a.channelId})["rule_system"]=="pbta")) {
             if (characterId.empty()) throw badRequest("Choose a character for this move");
             auto args=diceCmd ? text::trim(diceCmd->args) : "";
@@ -184,7 +189,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
                 // A character's line keeps the outfit the character wears as it is written (a visual novel shows it so).
                 "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, character_id, kind, content, visibility, whisper_to, dice, outfit_id, stand_in, via_hypertext_id, via_user_id, via_interaction_id, via_effect) "
                 "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid[],$11::jsonb,(SELECT outfit_id FROM characters WHERE id=$6::uuid),$12,$13::uuid,$14::uuid,$15::uuid,$16::smallint) RETURNING id",
-                {a.channelId, windowId, sceneId, a.userId, a.isGm ? "gm" : "player", characterId.empty() ? dbNull() : DbParam(characterId), kind, text, vis,
+                {a.channelId, windowId, sceneId.empty() ? dbNull() : DbParam(sceneId), a.userId, a.isGm ? "gm" : "player", characterId.empty() ? dbNull() : DbParam(characterId), kind, text, vis,
                  pgArrayLiteral(to), dice.isNull() ? dbNull() : DbParam(json::dump(dice)), standIn,
                  origin ? DbParam(origin->cardId) : dbNull(), origin ? DbParam(origin->userId) : dbNull(),
                  origin && action && !origin->interactionId.empty() ? DbParam(origin->interactionId) : dbNull(), origin && action ? DbParam((int64_t)origin->effect) : dbNull()})["id"].asString();
@@ -200,7 +205,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
             notice = Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {insert(origin ? origin->visibility : "window", origin ? origin->whisperTo : std::vector<std::string>{}, diceCmd->raw, nd, false)});
         }
         // Sheet maintenance (.st/.en) is bookkeeping, not something that happened in the story.
-        if (!diceCmd || diceResult.narrative) {
+        if (target["purpose"] != "forge" && (!diceCmd || diceResult.narrative)) {
             // Audience = characters who can read this message in-fiction.
             std::vector<std::string> audience;
             std::string evVis = "window";

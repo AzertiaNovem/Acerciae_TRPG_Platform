@@ -7,7 +7,8 @@
 export const MODEL_FUNCTIONS = {
   director: ["director"],
   coplayers: ["coplayer_turn", "coplayer_phone", "standin_turn"],
-  formatting: ["chat_format"],
+  formatting: ["chat_format", "forge_format"],
+  forge: ["forge_interview", "forge_compile", "forge_review", "forge_secrets", "forge_seed", "forge_playtest"],
   planner: ["planner", "planner_daily"],
   memory: ["compact", "coplayer_memory", "day_summary"],
   readers: ["scene_presence", "movement_evidence", "placement_correction", "scene_handoff", "away_rule"],

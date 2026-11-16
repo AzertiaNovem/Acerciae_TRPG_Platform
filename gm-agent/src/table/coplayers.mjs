@@ -46,6 +46,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
         ...(table.calendarOn() ? { today: describeCalendar(table.calendar, { time: t?.narrativeTime || table.calendar.time }), routine: describeRoutine(table.calendar), timePassed: table.timePassedFor(me, witnessed) } : {}), met: table.metBy(known.met), bonds: renderBondsFor(table.bonds, me, known.all, (id) => table.nameOf(id)) });
     } catch (e) { table.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
     if ((spark || whistle || gentle) && (table.sparkCancelled() || table.overBudget() || !["pass", "speak"].includes(move.action))) return 0;
+    if (!table.roster.isCoplayer(me)) return 0;
     if (!spark && !whistle) table.memory.maintainCoplayer(coplayer, witnessed, (m) => table.renderForCoplayer(m));
     if (move.action === "text") {
       const to = table.characterByName(move.to);
@@ -56,7 +57,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       table.store.addPhone({ windowId: table.casual.phones[to.id], from: me, to: to.id, text: move.text, at: table.now() });
       table.casual.last[to.id] = me;
       table.save();
-      return table.post(table.casual.phones[to.id], { content: move.text, kind: "ic", character_id: me }, { count: false });
+      return table.post(table.casual.phones[to.id], { content: move.text, kind: "ic", character_id: me, expected_owner_id: table.me.id }, { count: false });
     }
     if (move.action === "speak") {
       const limit = Math.max(0, Math.floor(spark || whistle ? Math.min(1, maxMessages) : maxMessages));
@@ -68,7 +69,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       const posted = [];
       for (const content of messages) {
         if (table.sparkCancelled() || ((side || gentle || spark || whistle) && table.overBudget())) break;
-        const sent = await table.post(windowId, { content, kind: move.kind, character_id: me });
+        const sent = await table.post(windowId, { content, kind: move.kind, character_id: me, expected_owner_id: table.me.id });
         if (!sent) break;
         n += sent;
         posted.push(content);
@@ -84,7 +85,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       const [, moveId, modifier] = move.command.split(" ");
       if (/^[.。]/.test(move.text.trim())) return 0;
       const cue = witnessed.findLast(m => m.chat_window_id === windowId && m.visibility === "window" && m.character_id !== me);
-      if (!cue) return table.post(windowId, { content: move.text, kind: "ic", character_id: me });
+      if (!cue) return table.post(windowId, { content: move.text, kind: "ic", character_id: me, expected_owner_id: table.me.id });
       const intent = await table.api.pbtaRuling(table.channelId, windowId, {
         op: "declare", source_id: cue.id, text: move.text, character_id: me,
         move_id: moveId, modifier: Number(modifier ?? 0), revision: table.pbta.revision,
@@ -99,8 +100,8 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
     }
     if (move.action === "roll") {
       let n = 0;
-      if (move.text) n += await table.post(windowId, { content: move.text, kind: "ic", character_id: me });
-      return n + (await table.post(windowId, { content: move.command, kind: "ic", character_id: me }));
+      if (move.text) n += await table.post(windowId, { content: move.text, kind: "ic", character_id: me, expected_owner_id: table.me.id });
+      return n + (await table.post(windowId, { content: move.command, kind: "ic", character_id: me, expected_owner_id: table.me.id }));
     }
     return 0;
   }
