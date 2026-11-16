@@ -191,7 +191,7 @@ test('redaction masks known secrets and anything shaped like a credential', () =
 
 test('the settings form edits YAML in place, keeps comments, and knows every key it offers', () => {
   for (const x of FIELDS) {
-    const sample = { bool: true, tri: false, int: x.min ?? 1, enum: x.options?.find(Boolean), list: ['Main Chat'], string: x.key.endsWith('.model') ? 'some-model' : 'value' }[x.type];
+    const sample = { bool: true, tri: false, int: x.min ?? 1, enum: x.options?.find(Boolean), list: ['Main Chat'], text: '白描。\n多写动作，少解释。', string: x.key.endsWith('.model') ? 'some-model' : 'value' }[x.type];
     const data = x.key.split('.').reduceRight((inner, k) => ({ [k]: inner }), sample);
     assert.deepEqual(buildConfig({}, {}, { data }).warnings, [], x.key);
     assert.doesNotThrow(() => parseChannel(applyChanges('', { [x.key]: sample })), x.key);

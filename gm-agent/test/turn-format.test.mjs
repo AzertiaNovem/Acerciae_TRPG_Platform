@@ -2,9 +2,72 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { directTurn } from "../src/director.mjs";
 import { coplayerTurn } from "../src/coplayer.mjs";
+import { coplayerPhoneReply } from "../src/casual.mjs";
+import { standinTurn } from "../src/standin.mjs";
+import { DEFAULT_WRITING } from "../src/writing.mjs";
 
 const gm = { language: "简体中文", context: [{ text: "UNRELATED-GM-SECRET and the whole table history", cache: true }], casual: true };
 const player = { language: "简体中文", coplayer: { name: "谢遥" }, log: [] };
+
+test("presentation can split a paragraph and merge adjacent prose without rewriting it", async () => {
+  const calls = [];
+  const formatting = '每条一到两句，保留原文。';
+  const plan = await directTurn({ async complete(r) {
+    calls.push(r);
+    if (r.purpose === 'director') return '灯还亮着。她停在门口。\n\n雨没有停。';
+    const source = JSON.parse(r.messages[0].content);
+    assert.deepEqual(source[0].parts, ['灯还亮着。', '她停在门口。']);
+    return JSON.stringify({ actions: [
+      { type: 'narrate', text: { id: 1, from: 1, to: 1 } },
+      { type: 'narrate', text: [{ id: 1, from: 2, to: 2 }, 2] },
+    ] });
+  } }, { ...gm, formatting });
+  assert.deepEqual(plan.actions.map(a => a.text), ['灯还亮着。', '她停在门口。\n\n雨没有停。']);
+  assert.ok(!calls[0].system.includes(formatting));
+  assert.ok(calls[1].system.includes(formatting));
+  assert.ok(!calls[1].system.includes(DEFAULT_WRITING.formatting));
+});
+
+test("sentence ranges cannot omit, repeat, reorder or mix speakers and recipients", async () => {
+  const range = (from, to = from) => ({ id: 1, from, to });
+  const cases = [
+    ['灯亮着。雨停了。', [{ type: 'narrate', text: range(1) }]],
+    ['灯亮着。雨停了。', [{ type: 'narrate', text: range(1) }, { type: 'narrate', text: range(1, 2) }]],
+    ['灯亮着。雨停了。', [{ type: 'narrate', text: range(2) }, { type: 'narrate', text: range(1) }]],
+    ['NPC 江念: 灯亮着。\n\nNPC 谢遥: 雨停了。', [{ type: 'npc', text: [1, 2] }]],
+    ['Whisper to 江念: 灯亮着。\n\nWhisper to 谢遥: 雨停了。', [{ type: 'whisper', text: [1, 2] }]],
+    ['Whisper to 江念: 灯亮着。雨停了。', [{ type: 'narrate', text: range(1, 2) }]],
+  ];
+  for (const [draft, actions] of cases) await assert.rejects(directTurn({ async complete(r) {
+    return r.purpose === 'director' ? draft : JSON.stringify({ actions });
+  } }, gm), /left unplaced|paragraph reference/);
+});
+
+test("co-player prose can be one long message or several short messages", async () => {
+  for (const multiple of [false, true]) {
+    const move = await coplayerTurn({ async complete(r) {
+      if (r.purpose === 'coplayer_turn') return '我推开门。\n\n“怎么还不走？”';
+      return JSON.stringify({ action: 'speak', kind: 'ic', ...(multiple ? { messages: [1, 2] } : { text: [1, 2] }) });
+    } }, player);
+    assert.equal(move.text, '我推开门。\n\n“怎么还不走？”');
+    assert.deepEqual(move.messages, multiple ? ['我推开门。', '“怎么还不走？”'] : undefined);
+  }
+});
+
+test("phone and stand-in presentation guidance stays out of the creative request", async () => {
+  for (const role of ['phone', 'standin']) {
+    const calls = [], formatting = 'LAYOUT-ONLY: 保留完整句子。';
+    const llm = { async complete(r) {
+      calls.push(r);
+      if (r.purpose !== 'chat_format') return '好，我知道了。';
+      return JSON.stringify(role === 'phone' ? { reply: 1 } : { action: 'speak', text: 1 });
+    } };
+    if (role === 'phone') await coplayerPhoneReply(llm, { language: 'Chinese', name: '江念', maxDelay: 30, formatting });
+    else await standinTurn(llm, { language: 'Chinese', formatting });
+    assert.ok(!calls[0].system.includes(formatting));
+    assert.ok(calls[1].system.includes(formatting));
+  }
+});
 
 test("a GM draft becomes ordered messages without sharing context or rewriting prose", async () => {
   const replies = [

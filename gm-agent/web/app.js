@@ -370,19 +370,28 @@ function display(field, value) {
   if (Array.isArray(value)) return value.length ? value.join(', ') : '空';
   return `${value}${field.unit ? ` ${field.unit}` : ''}`;
 }
-function current(field) {
-  if (dirty.has(field.key)) return dirty.get(field.key);
+function savedValue(field) {
   const v = config?.values?.[field.key]?.set;
-  if (v === undefined) return '';
+  if (field.type === 'text' && (v == null || !String(v).trim())) return config?.values?.[field.key]?.effective ?? '';
+  if (v === undefined) return field.type === 'text' ? config?.values?.[field.key]?.effective ?? '' : '';
   return Array.isArray(v) ? v.join(', ') : typeof v === 'boolean' ? String(v) : String(v);
+}
+function current(field) {
+  if (dirty.has(field.key)) return field.type === 'text' && dirty.get(field.key) === '' ? config?.values?.[field.key]?.default ?? '' : dirty.get(field.key);
+  return savedValue(field);
 }
 function input(field) {
   const value = current(field), id = `f-${field.key.replace(/\./g, '-')}`;
   const change = event => {
-    const v = event.target.value, saved = (() => { const s = config?.values?.[field.key]?.set; return s === undefined ? '' : Array.isArray(s) ? s.join(', ') : String(s); })();
+    const v = event.target.value, saved = savedValue(field);
     if (v === saved) dirty.delete(field.key); else dirty.set(field.key, v);
     renderSavebar(); event.target.closest('.field')?.classList.toggle('changed', dirty.has(field.key));
   };
+  if (field.type === 'text') {
+    const area = h('textarea', { id, rows: 7, maxlength: field.maxLength,
+      oninput: change, autocomplete: 'off', spellcheck: 'false' });
+    area.value = value; return area;
+  }
   if (field.type === 'bool' || field.type === 'tri' || field.type === 'enum') {
     const eff = config?.values?.[field.key]?.default;
     const opts = field.type === 'enum'
@@ -398,7 +407,7 @@ function renderForm() {
   if (!schema || !config) return;
   const q = $('filter').value.trim().toLowerCase(), onlySet = $('only-set').checked;
   const groups = schema.groups.map(g => {
-    const fields = schema.fields.filter(x => x.group === g.id).filter(x => !q || x.label.toLowerCase().includes(q) || x.key.includes(q) || x.help.toLowerCase().includes(q))
+    const fields = schema.fields.filter(x => x.group === g.id).filter(x => !q || g.title.toLowerCase().includes(q) || x.label.toLowerCase().includes(q) || x.key.includes(q) || x.help.toLowerCase().includes(q))
       .filter(x => !onlySet || config.values[x.key]?.set !== undefined || dirty.has(x.key));
     if (!fields.length) return null;
     const setCount = fields.filter(x => config.values[x.key]?.set !== undefined).length;
@@ -407,14 +416,14 @@ function renderForm() {
       h('p', { class: 'muted small', text: g.help }),
       ...fields.map(field => {
         const v = config.values[field.key] ?? {};
-        return h('div', { class: `field${v.set !== undefined ? ' set' : ''}${dirty.has(field.key) ? ' changed' : ''}` },
+        return h('div', { class: `field${field.type === 'text' ? ' multiline' : ''}${v.set !== undefined ? ' set' : ''}${dirty.has(field.key) ? ' changed' : ''}` },
           h('label', { for: `f-${field.key.replace(/\./g, '-')}` }, h('span', { text: field.label }), h('code', { text: field.key })),
           h('div', { class: 'control' }, input(field),
-            v.set !== undefined || dirty.has(field.key) ? h('button', { type: 'button', class: 'quiet small', title: '删除这个键，使用默认值', onclick: () => {
+            field.type === 'text' || v.set !== undefined || dirty.has(field.key) ? h('button', { type: 'button', class: 'quiet small', title: '删除这个键，使用默认值', onclick: () => {
               if (v.set === undefined) dirty.delete(field.key); else dirty.set(field.key, '');
               renderForm(); renderSavebar();
             }, text: '恢复默认' }) : null),
-          h('p', { class: 'help', text: `${field.help} 当前生效：${display(field, v.effective)}${v.set !== undefined && String(v.default) !== String(v.effective) ? `；默认：${display(field, v.default)}` : ''}` }));
+          h('p', { class: 'help', text: field.type === 'text' ? field.help : `${field.help} 当前生效：${display(field, v.effective)}${v.set !== undefined && String(v.default) !== String(v.effective) ? `；默认：${display(field, v.default)}` : ''}` }));
       }));
   }).filter(Boolean);
   $('form').replaceChildren(...(groups.length ? groups : [h('p', { class: 'muted', text: '没有符合条件的设置。' })]));

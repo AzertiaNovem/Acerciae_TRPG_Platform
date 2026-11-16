@@ -3,6 +3,7 @@
 // GM's side: no GM notes, no platform AI tips, no real NPC's details, no other window and no other character's
 // whispers.
 import { coplayerSources, formatTurn } from "./turn-format.mjs";
+import { DEFAULT_WRITING } from "./writing.mjs";
 import { renderLine } from "./context/coplayerContext.mjs";
 import { renderProfile } from "./context/profiles.mjs";
 import { historyParts } from "./llm/parts.mjs";
@@ -11,7 +12,7 @@ import { COC7E } from "./rules/coc7e.mjs";
 
 // The profile supplies each game's vocabulary and dice commands. `improv` follows the public world's tone;
 // `casual` lets a co-player text another character on their phone (casual.mjs).
-export function coplayerSystem(language, { improv = false, casual = false, pbta = null, profile = COC7E, daily = false, unattended = false } = {}) {
+export function coplayerSystem(language, { improv = false, casual = false, pbta = null, profile = COC7E, daily = false, unattended = false, writing = DEFAULT_WRITING.coplayer } = {}) {
   const { gm, pc } = profile.vocab;
   return `You play one ${pc} in ${pbta ? "a Powered by the Apocalypse game" : profile.coplayerGame(improv)} on an online table, alongside human players. The ${gm} runs the world. You are a fellow player with a stake in the story. Share the spotlight and step into it when your character has a reason to act.
 
@@ -22,7 +23,7 @@ How to play:
 - Keep to the story's date (TODAY IN THE STORY): weekdays, seasons, how long ago things happened. When time has passed, you lived through it too. Everyday life (school, work, seasons, festivals) goes on around you: let it fill your days and your talk.
 - Companions may have lived through scenes you were not part of. When one tells you about something, it happened where and when they were, not here and now; you know only what they tell you.
 ${unattended ? '- This unattended exchange follows your own ordinary interests and relationships. Talk to a present co-player or NPC, or enjoy a quiet activity. Give the ordinary scene personality: make a specific choice, show an eccentric habit, tell a story with a point, or take the initiative on a small everyday activity when allowed. An absent human character is not the default audience. Do not turn every remark into a question or an agreement. Passing and natural endings are welcome.' : '- Play your own agenda. When you have a stake in the scene, take a concrete action that could change it: challenge a premise, make an offer you might regret, admit something awkward, go after a lead, or take a risk your character would take. Let their attachments, blind spots and contradictions drive the choice. Supporting other players includes disagreeing in character, choosing a different direction, and leaving them a real choice about how to respond. Do not monopolize the scene or solve the mystery alone.'}
-- Put the choice on the page as an action or dialogue, rather than saying you might act later. Give it a specific detail or a distinct voice. A quiet beat can be as telling as a confrontation; let the stakes and the tone of the scene guide you. One compact turn is usually enough.
+- ${writing}
 - Never narrate outcomes, the world or other characters' actions; that is the ${gm}'s job.
 ${unattended ? '- No rolls or phone texts in this exchange.' : pbta ? '- Trigger an available move only when its trigger fits. Give the fictional declaration and the exact .move command, then wait for the actual result. Answer choices only for yourself.' : `- If the ${gm} asked you to roll, or an uncertain action needs a check, use ${profile.dice.coplayerHelp} (the platform rolls it against your sheet).`}
 - Pass when you have nothing meaningful to add. Listen when someone else has the floor, but do not wait to be addressed to act on something that matters to you.
@@ -34,7 +35,7 @@ ${unattended ? '' : `If rolling, put the exact command (${pbta ? ".move <move-id
 }
 
 function coplayerFormatSchema({ casual = false, daily = false, unattended = false } = {}) {
-  return `For one co-player move, return {"action":"speak","kind":"ic"|"ooc","text":1${daily ? ',"needs_reply_from":["<explicit names, if any>"]' : ""}}, ${unattended ? "" : '{"action":"roll","command":"<exact command>","text":1}, '}${casual && !unattended ? '{"action":"text","text":1}, ' : ""}or {"action":"pass"}. Use ic for public paragraphs, ooc for ooc paragraphs, and text only for a phone paragraph. If there is no prose accompanying a roll, omit its text.`;
+  return `For one co-player move, return {"action":"speak","kind":"ic"|"ooc","text":1${daily ? ',"needs_reply_from":["<explicit names, if any>"]' : ""}}, ${unattended ? "" : '{"action":"roll","command":"<exact command>","text":1}, '}${casual && !unattended ? '{"action":"text","text":1}, ' : ""}or {"action":"pass"}. For multiple chat messages in a speak move, replace text with "messages":[<reference for each message>]; a reference can be an id, a part range or a group of consecutive references. Use ic for public paragraphs, ooc for ooc paragraphs, and text only for a phone paragraph. Rolls and phone moves remain one operation. If there is no prose accompanying a roll, omit its text.`;
 }
 
 // Who the co-player is: the stable head of every prompt it gets.
@@ -59,7 +60,8 @@ export function validateCoplayer(x, { casual = false, pbta = null, roll = COC7E.
     const text = String(x.text ?? "").trim();
     if (!text) return { action: "pass" };
     const needsReplyFrom = daily && Array.isArray(x.needs_reply_from) ? [...new Set(x.needs_reply_from.filter(n => typeof n === 'string').map(n => n.trim()).filter(Boolean))].slice(0, 5) : [];
-    return { action: "speak", kind: x.kind === "ooc" ? "ooc" : "ic", text, ...(needsReplyFrom.length ? { needsReplyFrom } : {}) };
+    if (x.messages != null && (!Array.isArray(x.messages) || !x.messages.length || x.messages.some(m => typeof m !== "string" || !m.trim()))) throw new Error("messages must be nonempty text");
+    return { action: "speak", kind: x.kind === "ooc" ? "ooc" : "ic", text, ...(x.messages ? { messages: x.messages } : {}), ...(needsReplyFrom.length ? { needsReplyFrom } : {}) };
   }
   if (x.action === "roll") {
     const command = String(x.command ?? "").trim();
@@ -103,7 +105,7 @@ function cardSummary(card, { stable = false, profile = COC7E, attrs = {} } = {})
 // `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
 // `today` is the story's date as this co-player lives it (calendar.mjs), `timePassed` a line when the calendar moved
 // on since it last acted; `met` the NPCs it has met (rendered), `bonds` the relationships it knows (bonds.mjs).
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, spark = false, whistle = false, gentle = false, attentionNote = "", daily = false, dailyNote = "", world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null, profile = COC7E, attrs = {}, canFormat }) {
+export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, spark = false, whistle = false, gentle = false, attentionNote = "", daily = false, dailyNote = "", world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null, profile = COC7E, attrs = {}, canFormat, writing, formatting }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -142,8 +144,8 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
   const user = [{ text: `${self}\n\n`, cache: true }, ...(past ? [{ text: `${past}\n\n`, cache: true }] : []), ...historyParts(frozen, line, "CHAT LOG YOUR CHARACTER WITNESSED, earlier part (oldest first):", CHUNK_LINES), { text: now }];
   const unattended = spark || whistle || gentle;
   const result = await formatTurn(llm, {
-    system: coplayerSystem(language, { improv, casual, pbta, profile, daily, unattended }), user, purpose: "coplayer_turn",
-    schema: coplayerFormatSchema({ casual, daily, unattended }), bind: coplayerSources, canFormat,
+    system: coplayerSystem(language, { improv, casual, pbta, profile, daily, unattended, writing }), user, purpose: "coplayer_turn",
+    schema: coplayerFormatSchema({ casual, daily, unattended }), bind: coplayerSources, canFormat, formatting,
     validate: (x) => validateCoplayer(x, { casual, pbta, roll: profile.roll, daily }),
   });
   return result ?? { action: "pass" };

@@ -42,6 +42,21 @@ Set `webui.enabled: true` in the shared file and supply a random `webui.token` o
 
 A save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active.
 
+Settings → 纯文本写作指导 provides separate multiline editors for GM/NPC prose (`writing.gm`) and co-player scene
+prose (`writing.coplayer`). Each is prefilled with the original style guidance. Custom text replaces that
+guidance in the creative call, including GM phone replies and unattended co-player scenes; the formatter does
+not receive it. Clear the field or choose 恢复默认 to restore the built-in guidance. Each field supports up to
+12,000 characters. Table rules, character agency, and unattended-play limits remain in the role prompts.
+
+Settings → 消息呈现指导（结构化输出） edits `writing.formatting`, prefilled with the current paragraph-grouping
+guidance. It goes only to the second, formatting request. Ask for shorter bubbles split at sentence boundaries,
+longer bubbles combining adjacent paragraphs, or one message per speaker. Each message keeps the draft's wording,
+order, speaker and audience; distinct speakers and private recipients cannot be combined. Use the prose editors
+above to change total narrative length or level of detail. Co-player speech can also become multiple messages;
+when the remaining turn budget is smaller, the tail is combined into the last available message. Rolls, phone
+replies and passive stand-ins retain their own operation limits. The presentation editor has its own save/reset
+value and the same 12,000-character limit.
+
 The Overview's “AI 队友所在窗口” card lists each co-player's current conversation windows and timeline, updating with the live status. Closed historical seats are excluded; archived, ended or unavailable windows are labelled explicitly. Hover over a window name to see its ID when names repeat. A stopped or unresponsive worker's retained locations are marked as the last record rather than a live position.
 
 **Token charts.** “全部任务用量” compares each hosted channel’s recorded input + output for today; click a task to inspect it. In Overview, stacked bars group calls by purpose (GM/director, planner, co-player turns/cards, memory, etc.) and show ordinary input, cached input reads/writes and output. Switch between today (the host’s local midnight) and the rolling last seven days; expand the table for every phase/provider/model, call count, failures, unreported usage, estimates and average output. Cached tokens are already included in input and are not counted twice. Shares refer to the recorded total, and missing provider usage is shown as unknown rather than free. Budget-equivalent token counts remain separate from the raw chart totals and do not represent a monetary price. Statistics use two indexed grouped queries, shared for 15 seconds, and reuse the same chart while its data is unchanged. No per-call history is downloaded by polling. Stopped workers show their last snapshot; missing or previous-day snapshots are excluded from today’s cross-task comparison and listed as unavailable, never zero.
@@ -1217,7 +1232,7 @@ part optional (a missing model or effort is the provider's), or just a provider'
 `planner.provider/model/effort` keep naming its route when `models.planner` does not.
 
 The GM and the co-player write their turns as plain text first. A second call receives only the draft, assigns its
-paragraphs to the appropriate chat messages, and translates any explicit table directions. The client takes
+paragraphs (or sentence ranges) to the appropriate chat messages, and translates any explicit table directions. The client takes
 each message's wording and any private recipient directly from the draft. This includes phone replies and
 stand-in lines. Both calls count toward the usual token budget and are cancelled together on pause.
 `models.formatting` (or the `chat_format` purpose) can use a faster model. Without a separate setting it uses

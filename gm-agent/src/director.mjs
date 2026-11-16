@@ -17,6 +17,7 @@ import { NPC_CONTINUITY_RULES } from "./context/npcContinuity.mjs";
 import { COC7E } from "./rules/coc7e.mjs";
 import { adaptPrompt } from "./rules/index.mjs";
 import { directorSources, formatTurn } from "./turn-format.mjs";
+import { DEFAULT_WRITING } from "./writing.mjs";
 import { validateWhereabouts } from "./whereabouts.mjs";
 import { ILLUSTRATE_RULE, ILLUSTRATE_SCHEMA, normalizeIllustration } from "./illustrations.mjs";
 
@@ -51,7 +52,7 @@ const CASUAL_RULES = `- Casual mode: light, everyday and slice-of-life play is w
 const PBTA_PLAY = `- Start with the fiction. Only an explicit action that satisfies an available move triggers it. If ambiguous, ask. To act on a declaration in this window use move with its precise source_id and character_id. Use the server for both rolled and diceless moves. For an NPC whose own declared action triggers a player move, include move_id and optionally modifier on its npc or new_npc action. NPCs otherwise need no playbook. Stop after requesting a move and read the posted result before narrating. Use its frozen outcome, even if the current pack differs. A low roll is not a generic failure.
 - If the outcome gives the player a choice, use ask, quote the options and wait for their actual reply; do not choose for them. Narrate only the GM's own decisions. Use mark for mandatory effects or after the player chooses. Copy expected from initial_card (absent means 0 or false), and give the absolute resulting value. Include the reply's answer_id for a choice. Do not repeat paid costs. No dice commands inside free speech. Never take a new action on behalf of a silent human.
 `;
-export function directorSystem(language, { auto = true, forks = false, improv = false, casual = false, planner = false, calendar = false, daily = false, unattended = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
+export function directorSystem(language, { auto = true, forks = false, improv = false, casual = false, planner = false, calendar = false, daily = false, unattended = false, pbta = false, illustrate = false, profile = COC7E, writing = DEFAULT_WRITING.gm } = {}) {
   return adaptPrompt(profile, `You are ${pbta ? "the GM (Game master) of a Powered by the Apocalypse campaign" : profile.framing(improv)} on an online table. Human players play their investigators; some investigators are AI co-players that act on their own turn after you. You voice the world and every real NPC.
 
 How to keep the table:
@@ -67,13 +68,16 @@ ${auto ? WHEREABOUTS_RULES : LEGACY_TIMELINE_RULES}
 ${SCENARIO_RULES(forks)}${improv ? `\n${IMPROV_RULES}` : ""}${casual ? `\n${CASUAL_RULES}` : ""}${planner && !unattended ? `\n${PLANNER_RULE}` : ""}${illustrate ? `\n${ILLUSTRATE_RULE}` : ""}
 ${profile.combatRule ? `${profile.combatRule}
 ` : ""}${profile.dice.gmHelp ? `${profile.dice.gmHelp}
-` : ""}- Write playable prose in ${language}. Let gestures, details that matter here, and each NPC's own voice carry the scene. Trust subtext and leave room for the players' reply. A few paragraphs is typical; if nothing needs the GM now, simply write Pass.
+` : ""}- Write playable prose in ${language}. If nothing needs the GM now, simply write Pass.
+
+Writing guidance:
+\u0000WRITING\u0000
 
 Write the turn as plain text. Use blank lines between paragraphs. Let narration stand as prose, without JSON, code fences or commentary. Use these staging cues at the start of a paragraph only when needed:
 - NPC <name>: for an established NPC's own words or actions; New NPC <name>: for their first line (put the role card brief in the directions).
 - Whisper to <name>: for a private message; GM only: for a private note. Never put either in public narration.
 ${casual ? '- Phone from <NPC> to <recipient>: for a text message. Specify its delay in the directions if needed.\n' : ''}- Opening: for prose belonging to another scene. Identify the destination in the directions.
-- Table directions: for decisions the table must carry out. Use brief plain sentences with the exact names, commands, IDs, times and other required facts. Put a direction before or after the relevant prose according to when it happens; point to that paragraph if they belong to one action. Say whether co-players may act, and who has the spotlight, when it matters. An unlabelled paragraph is public; repeat the cue for every new paragraph of private text or NPC dialogue.`);
+- Table directions: for decisions the table must carry out. Use brief plain sentences with the exact names, commands, IDs, times and other required facts. Put a direction before or after the relevant prose according to when it happens; point to that paragraph if they belong to one action. Say whether co-players may act, and who has the spotlight, when it matters. An unlabelled paragraph is public; repeat the cue for every new paragraph of private text or NPC dialogue.`).replace("\u0000WRITING\u0000", () => writing);
 }
 
 export function directorFormatSchema({ auto = true, improv = false, casual = false, planner = false, calendar = false, daily = false, pbta = false, illustrate = false, profile = COC7E, mode = "human", attention = false } = {}) {
@@ -172,9 +176,9 @@ export async function directTurn(llm, { language, context, newest, mode = "human
   const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
   const options = { mode, gentle, daily, auto, improv, casual, planner: Boolean(planner?.on), calendar, pbta: !!pbta, illustrate, profile };
   const result = await formatTurn(llm, {
-    system: directorSystem(language, { ...options, forks, unattended: mode === "spark" || gentle }),
+    system: directorSystem(language, { ...options, forks, unattended: mode === "spark" || gentle, writing: extra.writing }),
     user, purpose: "director", phase: mode, schema: directorFormatSchema({ ...options, attention: Boolean(extra.attentionNote) }), bind: directorSources,
-    validate: (x) => validateDirector(x, options), canFormat: extra.canFormat,
+    validate: (x) => validateDirector(x, options), canFormat: extra.canFormat, formatting: extra.formatting,
   });
   return result ?? validateDirector({ actions: [], coplayers_may_act: false }, options);
 }

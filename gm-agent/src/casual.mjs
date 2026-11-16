@@ -63,7 +63,7 @@ export const dueAt = (now, minutes, max) => now + Math.round(Math.max(0, Math.mi
 
 // A co-player answers a text in character (or leaves it on read). It is given its own card and memories (in `self`,
 // stable-first) and the thread with this person only.
-export async function coplayerPhoneReply(llm, { language, self, name, from, thread, maxDelay, pc = "investigator", canFormat }) {
+export async function coplayerPhoneReply(llm, { language, self, name, from, thread, maxDelay, pc = "investigator", canFormat, formatting }) {
   const system = `You play ${name}, an ${pc} in a tabletop roleplaying game, and you are reading your phone. Text messages are part of this casual game, even when the setting has no phones: treat them as natural. Reply in character, as a text message would read: short, in your own voice, true to what you know. You may wait before answering, as people do, or leave it unanswered if that is what ${name} would do. Write in ${language}.
 Write only your text message as plain text, without JSON. If you would leave it unread, write Pass. If the answer should arrive later, add a separate Table directions: paragraph saying how many minutes to wait (up to ${maxDelay}).`;
   const user = [
@@ -71,7 +71,7 @@ Write only your text message as plain text, without JSON. If you would leave it 
     { text: `YOUR MESSAGES WITH ${from} (oldest first):\n${thread || "(none before)"}\n\n${from} just texted you. Your answer?` },
   ];
   return await formatTurn(llm, {
-    system, user, purpose: "coplayer_phone", canFormat,
+    system, user, purpose: "coplayer_phone", canFormat, formatting,
     schema: 'For a co-player phone reply return {"reply":1,"delay_minutes":0} with the drafted delay, or {"reply":null} for no reply.',
     bind: (x, take) => x?.reply == null ? x : { ...x, reply: take(x.reply, 'public').text },
     validate: (x) => ({ reply: x.reply ?? null, delay: Math.max(0, Math.min(Number(x.delay_minutes) || 0, maxDelay)) }),

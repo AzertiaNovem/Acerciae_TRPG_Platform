@@ -546,6 +546,8 @@ export class Table {
         ? ctx.lines(windowId).findLast(m => this.isTrigger(m)) ?? ctx.newest : ctx.newest;
       const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), daily: this.dailyOn(), ...roundExtra, gentle, attentionNote: roundMode === mode ? attentionBrief(reviewed, { gentle }) : '', dailyNote: [this.passiveNote(windowId), roundExtra.dailyNote].filter(Boolean).join("\n") };
       request.canFormat = () => !this.sparkCancelled() && !((mode === "spark" || gentle || autonomous) && this.overBudget());
+      request.writing = this.cfg.writing?.gm;
+      request.formatting = this.cfg.writing?.formatting;
       if (!request.canFormat()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       let plan = await directTurn(this.llm, request);
       if (this.sparkCancelled()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
@@ -688,7 +690,7 @@ export class Table {
     let acted = 0;
     for (const c of [...first, ...seated.filter((x) => !first.includes(x))]) {
       if (budget <= 0 || (reviewed && acted > 0 && budget <= 1) || (autonomous && this.overBudget()) || this.sparkCancelled()) break;
-      const n = await this.coplayerAct(windowId, c, first.includes(c), { side, gentle, attentionNote: attentionChoice(c.characterId === reviewed?.id ? reviewed : null) });
+      const n = await this.coplayerAct(windowId, c, first.includes(c), { side, gentle, maxMessages: Math.max(1, budget - (reviewed ? 1 : 0)), attentionNote: attentionChoice(c.characterId === reviewed?.id ? reviewed : null) });
       if (c.characterId === reviewed?.id) noteAttention(this, reviewed, reviewDecision);
       if (n) (st2.coplayersActed ??= new Set()).add(c.characterId);
       acted += n; budget -= n;

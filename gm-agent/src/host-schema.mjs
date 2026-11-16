@@ -3,9 +3,12 @@
 // buildConfig()'s result. `applyChanges` edits the YAML in place, keeping comments and every key it does not touch.
 import YAML from "yaml";
 import { FUNCTION_NAMES, MODEL_FUNCTIONS, providerLabel, routeFor } from "./llm/routes.mjs";
+import { WRITING_MAX_LENGTH } from "./writing.mjs";
 
 export const GROUPS = [
   { id: "table", title: "牌桌", help: "语言、AI 队友与开场。频道的规则系统来自平台（在 GM 工作区中修改）。" },
+  { id: "writing", title: "纯文本写作指导", help: "第一步：决定故事怎么写，包括文风、细节和总篇幅。预填原有指导，保存后替换该项默认文本；只发送给写作模型。规则、角色权限和无人值守限制仍由系统管理。" },
+  { id: "presentation", title: "消息呈现指导（结构化输出）", help: "第二步：决定原文在聊天中怎么呈现。可要求每条短一些、合并成长消息，或按句子分多条；只发送给排版模型。不同说话人、收件人和私聊内容仍分别呈现。" },
   { id: "llm", title: "主持模型", help: "GM、NPC 与 AI 队友所用的模型。服务商、地址与密钥在公共配置中设置。" },
   { id: "models", title: "模型分配", help: "每项功能在哪个服务商的哪个模型上运行。服务商（地址与密钥）由公共配置的 providers 定义，这里只选择名字；留空的功能使用“主持模型”（default）。用量统计按实际回答的服务商与模型记录。" },
   { id: "planner", title: "剧情规划", help: "较慢、较深的规划模型：节拍、线索与会后总结。" },
@@ -43,6 +46,9 @@ export const FIELDS = [
   f("channel.era", "string", "时代", "生成队友时参考的时代（例如 1920s）。", (c) => c.era),
   f("table.kickoff", "bool", "启动时开场", "启动后 GM 立即在主场景开场。", (c) => c.kickoff),
   f("table.verbose", "bool", "详细日志", "在日志中记录更多细节。", (c) => c.verbose),
+  f("writing.gm", "text", "GM 与 NPC 写作指导", "用于 GM 的叙述、NPC 台词和短信。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.gm, { maxLength: WRITING_MAX_LENGTH }),
+  f("writing.coplayer", "text", "AI 陪玩写作指导", "用于陪玩在场景中的动作和台词，包括无人值守日常。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.coplayer, { maxLength: WRITING_MAX_LENGTH }),
+  f("writing.formatting", "text", "消息长短与拆分指导", "预填现有排版习惯，可直接改写。只调整原文的分组与拆条；故事本身写得详细还是简练，请在上方写作指导中设置。留空或恢复默认会使用原有指导。", (c) => c.writing.formatting, { group: "presentation", maxLength: WRITING_MAX_LENGTH }),
 
   f("llm.model", "string", "模型", "留空则使用公共配置或服务商默认模型。", (c) => c.llm.model),
   f("llm.effort", "enum", "推理强度", "模型的思考强度。", (c) => c.llm.effort, { options: ["", "low", "medium", "high", "xhigh", "max"] }),
@@ -169,6 +175,9 @@ export function formValues(data, cfg, rebuild = null) {
 function coerce(x, v) {
   const bad = (why) => { throw Object.assign(new Error(`${x.label}（${x.key}）${why}`), { code: "INVALID_SETTING" }); };
   switch (x.type) {
+    case "text":
+      if (typeof v !== "string" || v.length > x.maxLength) return bad(`必须是文本（不超过 ${x.maxLength} 字符）`);
+      return v;
     case "bool": case "tri":
       if (v === true || v === false) return v;
       if (v === "true" || v === "false") return v === "true";

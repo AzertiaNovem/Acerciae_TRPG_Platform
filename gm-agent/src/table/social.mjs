@@ -163,7 +163,7 @@ export async function phoneTurn(table, windowId, { fromId, toId }) {
         : [today ? `TODAY IN THE STORY: ${today}` : "", today && describeRoutine(table.calendar) ? `${describeRoutine(table.calendar)} (common knowledge)` : "", renderBondsFor(table.bonds, toId, known, (id) => table.nameOf(id)), renderCorrectionsFor(table.planner.table, cp.name)];
       const self = [table.passiveNote(windowId), coplayerSelf({ coplayer: cp, card, world: table.improv.on ? table.improv.world : "", profile: table.profile, attrs: table.attrs.get(toId) ?? {} }), memories.length ? `WHAT YOU REMEMBER:\n${memories.join("\n\n")}` : "", ...tableInfo].filter(Boolean).join("\n\n");
       let r;
-      try { r = await coplayerPhoneReply(table.llm, { language: table.language, self: [self, renderImpulse(table.impulseFor(toId))].filter(Boolean).join("\n\n"), name: cp.name, from: table.nameOf(fromId), thread, maxDelay: max, pc: table.profile.vocab.pc, canFormat }); }
+      try { r = await coplayerPhoneReply(table.llm, { language: table.language, self: [self, renderImpulse(table.impulseFor(toId))].filter(Boolean).join("\n\n"), name: cp.name, from: table.nameOf(fromId), thread, maxDelay: max, pc: table.profile.vocab.pc, canFormat, formatting: table.cfg.writing?.formatting }); }
       catch (e) { table.log(`co-player ${cp.name} (phone): ${e.message}`); return; }
       if (r.reply) table.queueText({ windowId, from: toId, to: fromId, text: r.reply, minutes: r.delay });
       else table.log(`casual: ${cp.name} leaves ${table.nameOf(fromId)}'s message on read`);
@@ -171,7 +171,7 @@ export async function phoneTurn(table, windowId, { fromId, toId }) {
       const ctx = await table.buildGm(windowId);
       const last = table.store.thread(fromId, toId, 1).at(-1);
       let plan;
-      try { plan = await directTurn(table.llm, { language: table.language, profile: table.profile, context: ctx.parts, pbta:table.pbta, newest: null, mode: "phone", auto: table.cfg.timelineAuto, forks: table.forks, improv: table.improv.on, casual: true, daily: table.dailyOn(), dailyNote: table.passiveNote(windowId), phone: { from: table.nameOf(fromId), to: table.nameOf(toId), thread, text: last?.text ?? "" }, canFormat }); }
+      try { plan = await directTurn(table.llm, { language: table.language, profile: table.profile, context: ctx.parts, pbta:table.pbta, newest: null, mode: "phone", auto: table.cfg.timelineAuto, forks: table.forks, improv: table.improv.on, casual: true, daily: table.dailyOn(), dailyNote: table.passiveNote(windowId), phone: { from: table.nameOf(fromId), to: table.nameOf(toId), thread, text: last?.text ?? "" }, canFormat, writing: table.cfg.writing?.gm, formatting: table.cfg.writing?.formatting }); }
       catch (e) { table.log(`phone turn: ${e.message}`); return; }
       // Only messages and the GM's own notes: nothing happens in a scene because of a text.
       for (const a of plan.actions.filter((x) => ["text", "note", "truth", "world_change"].includes(x.type))) {

@@ -37,6 +37,38 @@ async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = []
 }
 const playerSays = (t, api, content, w = t.primaryWindowId()) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content }) });
 
+test("channel prose and presentation guidance reach only their respective requests", async () => {
+  const writing = { gm: "GM-STYLE: 只用动作写出情绪。", coplayer: "CP-STYLE: 用短句和话外音。", formatting: "LAYOUT-STYLE: 每句话拆成一条。" };
+  const { t, api, llm } = await table({ cfg: { writing } });
+  await playerSays(t, api, "I open the desk drawer.");
+  assert.ok(llm.calls.some(c => c.purpose === "director" && c.system.includes(writing.gm)));
+  assert.ok(llm.calls.some(c => c.purpose === "coplayer_turn" && c.system.includes(writing.coplayer)));
+  for (const c of llm.calls.filter(c => c.purpose === "chat_format")) {
+    assert.doesNotMatch(c.system + JSON.stringify(c.messages), /GM-STYLE|CP-STYLE/);
+    assert.ok(c.system.includes(writing.formatting));
+  }
+  for (const c of llm.calls.filter(c => ["director", "coplayer_turn"].includes(c.purpose))) assert.doesNotMatch(c.system, /LAYOUT-STYLE/);
+});
+
+test("co-player message splitting fits the remaining turn budget and stops on pause", async () => {
+  const { t, api, llm } = await table();
+  const cp = t.roster.coplayers[0];
+  const complete = llm.complete.bind(llm);
+  llm.complete = async r => {
+    if (r.purpose === "coplayer_turn") return "我推开门。灯还亮着。我停在门口。";
+    if (r.purpose === "chat_format" && r.phase === "coplayer_turn") return JSON.stringify({ action: "speak", kind: "ic", messages: [1, 2, 3].map(i => ({ id: 1, from: i, to: i })) });
+    return complete(r);
+  };
+  const before = api.lines.length;
+  assert.equal(await t.coplayerAct("w-main", cp, true, { maxMessages: 2 }), 2);
+  assert.deepEqual(api.lines.slice(before).map(m => [m.character_id, m.content]), [[cp.characterId, "我推开门。"], [cp.characterId, "灯还亮着。\n\n我停在门口。"]]);
+  const post = t.post.bind(t);
+  t.post = async (...args) => { const n = await post(...args); t.generation.pause(); return n; };
+  const pausedAt = api.lines.length;
+  assert.equal(await t.coplayerAct("w-main", cp, true, { maxMessages: 3 }), 1);
+  assert.deepEqual(api.lines.slice(pausedAt).map(m => m.content), ["我推开门。"]);
+});
+
 test("co-players and real NPCs are told apart from the platform's characters", async () => {
   const { t } = await table();
   assert.deepEqual(t.roster.coplayers.map((c) => [c.name, c.seats]), [["Harriet Vance", [{ windowId: "w-main", fromSeq: 0, toSeq: null }]]]);
