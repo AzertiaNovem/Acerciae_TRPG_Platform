@@ -6,6 +6,7 @@
 #include "logstudio/PresentationService.h"
 #include "logstudio/PublicationService.h"
 #include "characters/CharacterSpaceService.h"
+#include "characters/Inventory.h"
 #include "logstudio/MediaService.h"
 #include "core/Crypto.h"
 #include "app/Services.h"
@@ -1843,6 +1844,7 @@ int main() {
         CHECK(S.hypertext->status(p1a, s)["items"].size() == 1);
     });
 
+    #include "inventory_tests.inc"
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();
     return failures == 0 ? 0 : 1;

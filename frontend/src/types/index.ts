@@ -55,6 +55,7 @@ export interface ChatWindow {
   fork_parent_id?: string | null; fork_seq?: number | null; archived_at?: string | null;
 }
 export interface Character { passive_since?: string | null; id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; avatar_asset_version?: number | null; avatar_asset_hash?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean; card_pending?: boolean;
+  updated_at?: string; inventory_version?: number;
   /** The outfit worn now (null = the base look); avatar_asset_id is then the outfit's avatar, base_avatar_asset_id the base one. */
   outfit_id?: string | null; outfit_name?: string | null; base_avatar_asset_id?: string | null; outfits?: { id: string; name: string }[];
   /** The numbers shown next to the name (see Vitals), by the channel's rule system. */

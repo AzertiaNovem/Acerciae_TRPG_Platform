@@ -156,7 +156,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
       if (valid()) { if (isCardSave) setSaveError(e.message); toast(e.message, 'error'); }
     } finally { busyRef.current = false; if (mounted.current) { setBusy(false); setSaving(false); } }
   };
-  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, role_card: card }), tr('Character saved'), true);
+  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, expected_updated_at: space.character.updated_at, expected_inventory_version: space.character.inventory_version, role_card: card }), tr('Character saved'), true);
   // D&D: the build is part of the card; live values (Hit Points, slots left, death saves) are written straight away.
   const setDnd = (fn: (d: DndCard) => void) => setCardField((x) => { x.dnd = x.dnd ?? JSON.parse(JSON.stringify(EMPTY_DND)); fn(x.dnd!); });
   const setLive = (set: Record<string, number>) => mutate(async () => { await api.updateAttributes(channelId, characterId, { set }); return api.characterSpace(channelId, characterId); });
@@ -169,7 +169,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   // Rule transitions: numbers of earlier rules, read-only, and the rebuild the channel's switch asked for.
   const archives = space.card_archives ?? [];
   const restorable = archives.some((x) => x.rule_system === space.rule_system);
-  const waive = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, role_card: card, card_rebuilt: true }), tr('Marked as rebuilt'), true);
+  const waive = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, expected_updated_at: space.character.updated_at, expected_inventory_version: space.character.inventory_version, role_card: card, card_rebuilt: true }), tr('Marked as rebuilt'), true);
   const restore = async (x: CardArchive) => {
     if (!confirm(tr('Use this {system} card again? The numbers on the card now are set aside under Former cards.', { system: systemName(x.rule_system) }))) return;
     await mutate(() => api.restoreCardArchive(channelId, characterId, x.id), tr('Former card restored'));

@@ -72,6 +72,10 @@ export class Api {
 
   // ---- characters
   characters(ch) { return this.get(`/api/channels/${ch}/characters`); }
+  inventory(ch) { return this.get(`/api/channels/${ch}/inventory`); }
+  updateInventory(ch, body) { return this.post(`/api/channels/${ch}/inventory`, body); }
+  agentMessage(ch, requestId) { return this.get(`/api/channels/${ch}/agent-messages/${encodeURIComponent(requestId)}`); }
+  cancelAgentMessage(ch, requestId) { return this.call('DELETE', `/api/channels/${ch}/agent-messages/${encodeURIComponent(requestId)}`); }
   createCharacter(ch, body) { return this.post(`/api/channels/${ch}/characters`, body); }
   transferCharacter(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/owner`, body); }
   setCharacterPresence(ch, cid, passive) { return this.put(`/api/channels/${ch}/characters/${cid}/presence`, { passive }); }

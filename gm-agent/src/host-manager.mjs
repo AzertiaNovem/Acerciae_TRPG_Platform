@@ -149,19 +149,20 @@ export class HostManager {
     }
   }
   // A fresh snapshot from a running worker; otherwise (or when it does not answer in time) the last one, marked stale.
-  async snapshot(id) {
+  async snapshot(id, section = '') {
     const rt = this.runtime(id), record = this.running.get(id);
-    const last = () => (rt.snapshot ? { ...rt.snapshot, stale: true } : null);
+    const key = section === 'world' ? 'worldSnapshot' : 'snapshot';
+    const last = () => (rt[key] ? { ...rt[key], stale: true } : null);
     if (!record || this.states.get(id) !== 'running') return last();
     const request = ++this.requests;
     const msg = await new Promise(resolve => {
       const timer = setTimeout(() => { record.replies.delete(request); resolve(null); }, this.statusTimeout);
       record.replies.set(request, value => { clearTimeout(timer); record.replies.delete(request); resolve(value); });
-      record.worker.postMessage({ type: 'status', id: request });
+      record.worker.postMessage({ type: 'status', id: request, ...(section ? { section } : {}) });
     });
     if (!msg?.snapshot) return last();
-    rt.snapshot = JSON.parse(redact(JSON.stringify(msg.snapshot), this.secrets));
-    return rt.snapshot;
+    rt[key] = JSON.parse(redact(JSON.stringify(msg.snapshot), this.secrets));
+    return rt[key];
   }
   async detail(id) {
     const entry = this.entry(id), rt = this.runtime(id), iso = ms => (ms ? new Date(ms).toISOString() : null);

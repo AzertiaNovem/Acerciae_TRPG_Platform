@@ -4,6 +4,7 @@ import { recall } from "../context/recall.mjs";
 import { Timelines } from "../timelines.mjs";
 import { Guard } from "../whereabouts.mjs";
 import { SPEAKER_KINDS } from "./shared.mjs";
+import { undoWorldCheckpoint, recoverWorldRecall, recoverWorldState, rememberInventory } from './world-state.mjs';
 
 export function noteLine(table, m) {
     if (table.forgeWindows?.has(m.chat_window_id)) return;
@@ -53,6 +54,7 @@ export function onEvent(table, ev) {
     if (ev.channel_id && ev.channel_id !== table.channelId) return undefined;
     if (ev.stream === "context") { table.gm.onContextEvent(ev); return undefined; }
     if (ev.type === "character.updated" && ev.character) {
+      if (Number.isSafeInteger(ev.character.inventory_version) && Array.isArray(ev.character.role_card?.items)) rememberInventory(table, [{ id: ev.character.id, name: ev.character.name, version: ev.character.inventory_version, items: ev.character.role_card.items }]);
       table.cards.delete(ev.character.id); table.outfitCache.delete(ev.character.id);
       table.characters = table.characters.map(c => c.id === ev.character.id ? { ...c, ...ev.character } : c);
       table.roster.reconcile(table.characters, table.mainWindow() ? [table.mainWindow().id] : [], { castBy: table.me?.id });
@@ -127,6 +129,7 @@ export function slices(table) {
       bonds: stable(table.bonds),
       attention: stable(Object.fromEntries(table.roster.coplayers.map(c => [c.characterId, c.attention ?? null]))),
       truths: stable(table.improv.truths ?? []),
+      world: stable(table.worldState),
       pending: stable(table.casual.pending ?? []),
     };
   }
@@ -146,6 +149,8 @@ export function closeCheckpoint(table, cp) { cp.after = table.slices(); cp.runni
 
 export async function rollback(table, m, undo, copies = []) {
     await Promise.all(undo.map((cp) => cp.done));
+    if (table.worldState.pending) await recoverWorldState(table);
+    if (table.worldState.recallPending) await recoverWorldRecall(table);
     const windowId = m.chat_window_id;
     // Turns the rolled-back ones scheduled and that have not started yet are not wanted either.
     for (const [w, pending] of [...table.timers]) if (pending.origin && undo.includes(pending.origin)) table.cancelTimer(w);
@@ -155,15 +160,16 @@ export async function rollback(table, m, undo, copies = []) {
     for (const id of copies) ids.set(id, { id });
     for (const line of table.history.lines(windowId, { after: m.seq })) if (!table.isHuman(line)) ids.set(line.id, { id: line.id, seq: line.seq, kind: line.kind });
     const kept = undo.flatMap((cp) => cp.kept);
-    const restored = new Set();
+    const restored = new Set(), unrecalled = new Set();
     let recalled = 0;
     for (const p of [...ids.values()].sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))) {
-      if (p.kind === "roll") { kept.push("a roll's result"); continue; }
+      if (p.kind === "roll") { kept.push("a roll's result"); unrecalled.add(p.id); continue; }
       try {
         const res = await table.api.recallMessage(table.channelId, p.id);
         if (res?.message) table.history.add(res.message);
         recalled++;
       } catch (e) {
+        unrecalled.add(p.id);
         kept.push(e.code === "recall_expired" ? "a line older than the recall window" : e.code === "not_recallable" ? "a line on the record (a roll or a move)" : `a line the platform would not recall (${e.status ?? e.message})`);
       }
     }
@@ -183,6 +189,13 @@ export async function rollback(table, m, undo, copies = []) {
     for (const cp of [...undo].reverse()) {
       if (!cp.after) continue;
       const now = table.slices();
+      if (cp.after.world !== cp.before.world) {
+        if (cp.posted.some(p => unrecalled.has(p.id))) kept.push('world state supporting a line that remains on the record');
+        else if (now.world === cp.after.world) {
+          try { await undoWorldCheckpoint(table, cp); restored.add('world state and inventory'); }
+          catch (e) { if (e.status === 409 && e.code !== 'inventory_request_expired') { delete table.worldState.recallPending; table.persist(table); kept.push('inventory changed by a later edit'); } else throw e; }
+        } else kept.push('world state changed by a later turn');
+      }
       if (cp.after.attention !== cp.before.attention && now.attention === cp.after.attention) {
         const before = JSON.parse(cp.before.attention);
         for (const c of table.roster.coplayers) { if (before[c.characterId]) c.attention = before[c.characterId]; else delete c.attention; }

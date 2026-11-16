@@ -84,7 +84,7 @@ export class GmContext {
   // `storyPlan` is the planner's rendered section (planner.mjs) for part C; `peek` leaves the live tips for the GM (the
   // planner reads the context too, in the background). `calendar` and `bonds` are the rendered calendar.mjs and
   // bonds.mjs sections, and `table` the players' wishes and corrections (wishes.mjs), also for part C.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, hide = null, awayOf = () => null, daily = null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "", initiative = null }) {
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, worldStateText = "", hide = null, awayOf = () => null, daily = null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "", initiative = null }) {
     const ch = this.channelId;
     const candidates = [];
     const P = this.profile;
@@ -154,6 +154,7 @@ export class GmContext {
     // ---- C: changes every few turns
     const c = [], dailyVolatile = [];
     if (hiddenSection) c.push(hiddenSection);
+    if (worldStateText) c.push(worldStateText);
     if (table) c.push(table);
     if (storyPlan && !daily) c.push(storyPlan);
     if (calendar && !daily) c.push(calendar);

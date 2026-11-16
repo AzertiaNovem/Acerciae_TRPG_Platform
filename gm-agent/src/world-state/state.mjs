@@ -30,7 +30,8 @@ export function worldState(raw) {
 export function pruneWorldState(s, now = Date.now()) {
   s.audit = s.audit.filter(x => x.at >= now - 30 * DAY).slice(-1000);
   const pending = s.events.filter(x => x.status === 'pending');
-  s.events = [...pending, ...s.events.filter(x => x.status !== 'pending' && x.at >= now - 30 * DAY).slice(-(Math.max(0, 1000 - pending.length)))];
+  const room = Math.max(0, 1000 - pending.length);
+  s.events = [...pending, ...(room ? s.events.filter(x => x.status !== 'pending' && (x.resolvedAt ?? x.at) >= now - 30 * DAY).slice(-room) : [])];
   return s;
 }
 
@@ -168,7 +169,7 @@ export function seedWorldState(current, seed, { characterIds = {}, characters = 
     return s;
   }
   if (!object(seed) || !Array.isArray(seed.definitions) || !Array.isArray(seed.values)) throw Error('Seed needs definitions and values arrays');
-  if (seed.definitions.length > 128 || seed.values.length > 2000) throw Error('Forge seed is too large');
+  if (Object.keys(s.definitions).length + seed.definitions.length > 128 || seed.values.length > 2000) throw Error('Forge seed is too large');
   // Define the whole batch first so conditions may refer to a later definition.
   for (const raw of seed.definitions) {
     const d = validateDefinition(raw);
@@ -190,7 +191,7 @@ export function stateView(s, { characters = [], subject = '', target = '', offse
   const rows = Object.values(s.values).filter(v => (!subject || v.subject === subject || v.target === subject) && (!target || v.target === target));
   return { revision: s.revision, total: rows.length, values: rows.slice(offset, offset + limit).map(v => ({ ...v,
     subjectName: names.get(v.subject) ?? v.subject, targetName: names.get(v.target) ?? v.target, definition: s.definitions[v.metric] })),
-    events: s.events.filter(e => e.status === 'pending' && (!subject || e.subject === subject || e.target === subject) && (!target || e.target === target)).slice(0, limit),
+    events: s.events.filter(e => e.status === 'pending' && (!subject || e.subject === subject || e.target === subject) && (!target || e.target === target)).slice(offset, offset + limit),
     definitions: Object.values(s.definitions).map(d => ({ id: d.id, label: d.label, scope: d.scope, type: d.type })) };
 }
 

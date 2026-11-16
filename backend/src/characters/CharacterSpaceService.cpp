@@ -1,6 +1,7 @@
 #include "../chat/Forge.h"
 #include "../rules/Pbta.h"
 #include "CharacterSpaceService.h"
+#include "Inventory.h"
 #include <map>
 #include "Coc7Rules.h"
 #include "Dnd2024Rules.h"
@@ -302,7 +303,7 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
         auto row = db_.tx([&](pqxx::work& w) {
             const auto pack = pbta::lockedPack(w, a.channelId);
             if (body["pack_revision"] != pack["revision"]) throw conflict("Open the current PbtA sheet before saving");
-            auto current = Db::queryOne(w, "SELECT role_card, card_pending, updated_at FROM characters WHERE id=$1 FOR UPDATE", {characterId});
+            auto current = Db::queryOne(w, "SELECT role_card, card_pending, updated_at, inventory_version, inventory_guarded FROM characters WHERE id=$1 FOR UPDATE", {characterId});
             if (body.isMember("expected_updated_at") && body["expected_updated_at"] != current["updated_at"]) throw conflict("Character changed. Review it again.");
             // The story part the client sent (or the stored one), the PbtA numbers checked against the channel's pack.
             auto story = normalizeRoleCard(current["role_card"]);
@@ -311,10 +312,11 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
             Json::Value nums(Json::objectValue);
             if (!(waive && !body["role_card"]["pbta"].isObject())) nums["pbta"] = pbta::normalizeCard(body["role_card"]["pbta"], pack["pack"]);
             auto merged = withNumbers(story, nums, "pbta");
+            inventory::checkCard(current, body, merged["items"]);
             const bool pending = current["card_pending"].asBool() && !built(merged, "pbta") && !waive;
             auto name = str(body, "name", 80); if (!body.isMember("name")) name = c["name"].asString();
             if (name.empty()) throw badRequest("name required");
-            auto result = Db::queryOne(w, "UPDATE characters SET name=$2,speaking_style=$3,bio=$4,role_card=$5::jsonb,card_pending=$6,updated_at=now() WHERE id=$1 RETURNING *",
+            auto result = Db::queryOne(w, "UPDATE characters SET name=$2,speaking_style=$3,bio=$4,role_card=$5::jsonb,card_pending=$6,updated_at=now(),inventory_version=inventory_version+CASE WHEN coalesce(role_card->'items','[]'::jsonb) IS DISTINCT FROM $5::jsonb->'items' THEN 1 ELSE 0 END WHERE id=$1 RETURNING *",
                 {characterId, name, clip(json::str(body, "speaking_style", c["speaking_style"].asString()), 400), clip(json::str(body, "bio", c["bio"].asString()), 6000), json::dump(merged), pending});
             Db::exec(w, "UPDATE entities SET name=$2 WHERE character_id=$1 AND player_group_id IS NULL AND name<>$2", {characterId, name});
             return result;
@@ -362,7 +364,9 @@ Json::Value CharacterSpaceService::updateCard(const ChannelAccess& a, const std:
     // GM switched the rules would otherwise put the old system's numbers back.
     auto row = db_.tx([&](pqxx::work& w) {
         auto prior=forge::receipt(w,a,"card",body); if(!prior.isNull()) return prior;
-        auto row = Db::queryOne(w,"UPDATE characters SET name=$2, speaking_style=$3, bio=$4, role_card=$5::jsonb, sheet=$6::jsonb, card_pending=$7, updated_at=now() "
+        auto current=Db::queryOne(w,"SELECT role_card,inventory_version,inventory_guarded FROM characters WHERE id=$1 FOR UPDATE",{characterId});
+        inventory::checkCard(current,body,card["items"]);
+        auto row = Db::queryOne(w,"UPDATE characters SET name=$2, speaking_style=$3, bio=$4, role_card=$5::jsonb, sheet=$6::jsonb, card_pending=$7, updated_at=now(),inventory_version=inventory_version+CASE WHEN coalesce(role_card->'items','[]'::jsonb) IS DISTINCT FROM $5::jsonb->'items' THEN 1 ELSE 0 END "
                             "WHERE id=$1 AND ($9::timestamptz IS NULL OR updated_at=$9::timestamptz) AND EXISTS (SELECT 1 FROM channels WHERE id=characters.channel_id AND rule_system=$8 FOR SHARE) RETURNING *",
         {characterId, name, clip(json::str(body, "speaking_style", c["speaking_style"].asString()), 400), clip(json::str(body, "bio", c["bio"].asString()), 6000), json::dump(card), json::dump(sheet), pending, rs, body.isMember("expected_updated_at") ? DbParam(body["expected_updated_at"].asString()) : dbNull()});
     if (row.isNull()) throw conflict("Channel rules changed. Reopen the character.");

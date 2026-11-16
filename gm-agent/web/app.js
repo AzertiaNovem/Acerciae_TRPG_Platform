@@ -2,7 +2,9 @@
 // Only login sends the access token. An HttpOnly session cookie restores the UI across visits.
 // All content is set with textContent (no HTML from the server).
 import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
+import { renderWorld } from './world-state.js';
 'use strict';
+let worldKey = '', worldBusy = false;
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
 const FUNCTIONS = { forge: '开局共创', director: '主持', coplayers: '队友', formatting: '排版', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
@@ -70,7 +72,7 @@ function disconnect() {
   connection++; connected = false; selected = ''; config = null; detail = null; hostInfo = null; schema = null; channels = []; platform = null; dirty.clear();
   logSeq = 0; logLines = []; $('log').replaceChildren(); $('token').value = ''; $('channel-count').textContent = '';
   $('yaml').value = ''; $('form').replaceChildren(); $('overview').replaceChildren(); $('host').replaceChildren(); renderSavebar();
-  planKey = ''; $('plan-view').replaceChildren(); $('host-usage').replaceChildren(); $('host-usage').hidden = true; $('all-usage').disabled = true;
+  planKey = ''; worldKey = ''; $('world-view').replaceChildren(); $('plan-view').replaceChildren(); $('host-usage').replaceChildren(); $('host-usage').hidden = true; $('all-usage').disabled = true;
   $('login').hidden = false; $('session').hidden = true; $('summary').hidden = true; $('host').hidden = true;
   $('channels').replaceChildren(h('p', { class: 'muted', text: '连接后显示频道。' }));
   $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false; $('new-task').disabled = true;
@@ -134,6 +136,7 @@ async function refreshChannels() {
 async function select(id) {
   if (busy || (id !== selected && !confirmDiscard())) return;
   selected = id; dirty.clear(); logSeq = 0; logLines = []; $('log').replaceChildren(); detail = null; config = null;
+  worldKey = ''; $('world-view').replaceChildren();
   $('empty').hidden = true; $('create').hidden = true; $('channel').hidden = false;
   $('title').textContent = id; $('subtitle').textContent = '';
   try { await Promise.all([loadConfig(), refreshDetail()]); await refreshChannels(); showTab(tab); notice(''); }
@@ -152,7 +155,8 @@ for (const button of document.querySelectorAll('[data-tab]')) button.onclick = (
 function showTab(name) {
   tab = name;
   for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
-  for (const t of ['overview', 'plan', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
+  for (const t of ['overview', 'plan', 'world', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
+  if (name === 'world') refreshWorld().catch(error => notice(error.message, 'bad'));
   if (name === 'logs') refreshLogs().catch(() => {});
 }
 
@@ -163,6 +167,19 @@ async function refreshDetail() {
   if (selected !== id) return;
   detail = next;
   renderHead(); renderOverview(); renderPlan();
+  if (tab === 'world') await refreshWorld();
+}
+async function refreshWorld() {
+  if (!selected || worldBusy) return;
+  const id = selected, epoch = connection;
+  const key = JSON.stringify([id, detail?.live?.worldState, detail?.live?.stale]);
+  if (key === worldKey) return;
+  worldBusy = true;
+  try {
+    const data = await api(`/api/channels/${id}/world`);
+    if (selected !== id || connection !== epoch) return;
+    renderWorld($('world-view'), data); worldKey = key;
+  } finally { worldBusy = false; }
 }
 function renderHead() {
   const d = detail, live = d.live, [label, kind] = STATES[d.status] ?? [d.status, 'off'];
@@ -506,7 +523,7 @@ window.addEventListener('beforeunload', event => { if (connected && unsaved()) {
 setInterval(() => {
   if (!connected || busy) return;
   refreshChannels().catch(error => notice(error.message, 'bad'));
-  if (selected && ['overview', 'plan'].includes(tab)) refreshDetail().catch(() => {});
+  if (selected && ['overview', 'plan', 'world'].includes(tab)) refreshDetail().catch(() => {});
   else if (selected && detail) { const id = selected; api(`/api/channels/${id}/status`).then(d => { if (selected === id) { detail = d; renderHead(); } }).catch(() => {}); }
 }, 4000);
 setInterval(() => { if (connected && !busy && selected && tab === 'logs') refreshLogs().catch(() => {}); }, 2500);

@@ -7,6 +7,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { textOf } from "./parts.mjs";
 import { completionAttempts } from './retry.mjs';
+import { completeWithTools } from './tools.mjs';
 import { JsonFieldError, applyFieldRepairs, repairInstruction } from './json-repair.mjs';
 import { providerLabel, routeFor, routeKey } from "./routes.mjs";
 
@@ -50,7 +51,7 @@ function traced(llm, file) {
   return Object.assign(Object.create(llm), {
     async complete(req) {
       const reply = await llm.complete(req);
-      fs.appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), purpose: req.purpose, system: req.system, messages: req.messages.map((m) => ({ role: m.role, content: textOf(m.content) })), reply })}\n`);
+      fs.appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), purpose: req.purpose, system: req.system, tools: req.tools, messages: req.messages.map((m) => ({ role: m.role, ...(m.providerOutput ? { providerOutput: m.providerOutput } : m.toolResults ? { toolResults: m.toolResults } : { content: textOf(m.content) }) })), reply })}\n`);
       return reply;
     },
   });
@@ -77,15 +78,15 @@ export async function completeText(llm, { system, user, purpose, phase = "", sig
 // Asks for a JSON object; bounded transport retries and validation repairs. `user` is a string or a
 // list of parts (parts.mjs), or `messages` a prepared conversation (the story planner's draft → critique → revise);
 // the repair round appends to it, so the original prompt stays a cached prefix.
-export async function completeJson(llm, { system, user, messages: given, purpose, phase = "", maxRepairs = 1, signal, retryDelay }, validate = (x) => x) {
+export async function completeJson(llm, { system, user, messages: given, purpose, phase = "", maxRepairs = 1, signal, retryDelay, toolkit, canContinue }, validate = (x) => x) {
   const messages = given ? given.map((m) => ({ ...m })) : [{ role: "user", content: user }];
   const requestId = crypto.randomUUID();
   signal ??= llm.signalOf?.();
   const complete = completionAttempts(llm, requestId, { signal, retryDelay });
   let value, fieldError = null, patchError = '', retryReason;
   for (let round = 0; ; round++) {
-    const reply = await complete({ system, messages, purpose, phase, retryReason,
-      ...(fieldError ? { repairPaths: fieldError.paths } : {}) });
+    const reply = toolkit ? await completeWithTools(llm, { system, messages, purpose, phase, signal, toolkit, canContinue, retryDelay })
+      : await complete({ system, messages, purpose, phase, retryReason, ...(fieldError ? { repairPaths: fieldError.paths } : {}) });
     try {
       value = fieldError ? applyFieldRepairs(value, extractJson(reply), fieldError.paths) : extractJson(reply);
       fieldError = null; patchError = '';

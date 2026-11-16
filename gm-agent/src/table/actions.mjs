@@ -8,6 +8,7 @@ import { addTruth } from "../improv.mjs";
 import { calendarPace, describeCalendar } from "../calendar.mjs";
 import { norm } from "./shared.mjs";
 import { rollRequest, rollSignature } from "../hypertext.mjs";
+import { markWorldCut } from './world-state.mjs';
 
 export async function act(table, windowId, a, ctx, { mode, parent = mode, scope = null, evidenceThrough } = {}) {
     table.generation.signal.throwIfAborted();
@@ -22,6 +23,7 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
         if (!scene || !time || scene.narrativeTime === time) return 0;
         if (!await table.readClock(windowId, time)) return 0;
         table.timelines.relocate(scene.id, { narrativeTime: time });
+        markWorldCut(table, windowId);
         table.save();
         return table.postHandoff(windowId, time, evidenceThrough);
       }

@@ -176,9 +176,9 @@ export async function directTurn(llm, { language, context, newest, mode = "human
   const user = [...(Array.isArray(context) ? context : [{ text: String(context ?? "") }]), { text: `\n${turn}` }];
   const options = { mode, gentle, daily, auto, improv, casual, planner: Boolean(planner?.on), calendar, pbta: !!pbta, illustrate, profile };
   const result = await formatTurn(llm, {
-    system: directorSystem(language, { ...options, forks, unattended: mode === "spark" || gentle, writing: extra.writing }),
+    system: directorSystem(language, { ...options, forks, unattended: mode === "spark" || gentle, writing: extra.writing }) + (extra.worldToolRules ? `\n\n${extra.worldToolRules}` : ''),
     user, purpose: "director", phase: mode, schema: directorFormatSchema({ ...options, attention: Boolean(extra.attentionNote) }), bind: directorSources,
-    validate: (x) => validateDirector(x, options), canFormat: extra.canFormat, formatting: extra.formatting,
+    validate: (x) => validateDirector(x, options), canFormat: extra.canFormat, formatting: extra.formatting, toolkit: extra.toolkit,
   });
   return result ?? validateDirector({ actions: [], coplayers_may_act: false }, options);
 }

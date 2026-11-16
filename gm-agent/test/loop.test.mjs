@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Table } from "../src/loop.mjs";
 import { Roster, markStyle } from "../src/roles/roster.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
+import { applyWorldOperation, valueKey } from '../src/world-state/state.mjs';
 import { buildConfig } from "../src/config.mjs";
 import { DND_RULES } from "./fixtures/dndRules.mjs";
 import { PBTA_RULES } from "./fixtures/pbtaRules.mjs";
@@ -36,6 +37,29 @@ async function table({ llm = new MockLlm(), cfg: over = {}, extraCharacters = []
   return { t, api, llm, clock };
 }
 const playerSays = (t, api, content, w = t.primaryWindowId()) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: api.add({ chat_window_id: w, author_id: "u-alice", author_role: "player", character_id: "c-alice", content }) });
+
+test('a native state tool continues through plain composition, formatting and adopted publication', async () => {
+  const llm = new MockLlm(), original = llm.complete.bind(llm); let called = false;
+  llm.director = () => ({actions:[{type:'narrate',text:'Grimsby gives Harriet a trusting smile.'}],coplayers_may_act:false});
+  llm.complete = async req => {
+    if (req.purpose === 'director' && !called) {
+      called=true;
+      assert.ok(req.tools.some(t=>t.name==='world_state_set'));
+      return {calls:[{id:'trust-once',name:'world_state_set',arguments:{metric:'trust',subject:'c-butler',target:'c-harriet',expected:0,value:1,reason:'Harriet kept her word',basis:{kind:'reply',quote:'Grimsby gives Harriet a trusting smile.'}}}],providerOutput:[{type:'function_call'}]};
+    }
+    return original(req);
+  };
+  const {t,api}=await table({llm,forks:false,improv:{on:true,world:'An ordinary household.'},before: api=>{
+    api.inventory=async()=>({supported:true,characters:api.characters_.map(c=>({id:c.id,name:c.name,items:c.role_card.items??[],version:0}))});
+    api.agentMessage=async()=>({message:null,cancelled:false});
+  }});
+  t.worldState=applyWorldOperation(t.worldState,{type:'define',definition:{id:'trust',label:'Trust',description:'NPC trust of one character',scope:'relation',type:'number',initial:0,min:0,max:10,changeRule:'Keep a promise +1'},reason:'Fixture'});
+  await playerSays(t,api,'Harriet kept her word.');await settle(t);
+  assert.equal(t.worldState.values[valueKey('trust','c-butler','c-harriet')].value,1);
+  assert.equal(t.worldState.values[valueKey('trust','c-butler','c-alice')],undefined);
+  const line=api.posts.find(p=>p.content==='Grimsby gives Harriet a trusting smile.');
+  assert.ok(line?.request_id);assert.equal(line.kind,'narration');assert.equal(t.worldState.pending,null);
+});
 
 test("channel prose and presentation guidance reach only their respective requests", async () => {
   const writing = { gm: "GM-STYLE: 只用动作写出情绪。", coplayer: "CP-STYLE: 用短句和话外音。", formatting: "LAYOUT-STYLE: 每句话拆成一条。" };
@@ -2486,6 +2510,20 @@ const recallLine = (t, api, line) => {
 const lineSaid = (api, content, { who = "alice", w = "w-main" } = {}) => api.add({ chat_window_id: w, author_id: `u-${who}`, author_role: "player", character_id: `c-${who}`, content });
 const sayLine = (t, line) => t.onEvent({ stream: "chat", type: "message.posted", channel_id: "ch", message: line });
 const openSeats = (cp) => cp.seats.filter((s) => s.toSeq === null).map((s) => s.windowId);
+
+test('world state remains when its supporting narration cannot be recalled', async () => {
+  const { t, api } = await table({ forks: false });
+  const human = lineSaid(api, 'I accept the key.');
+  const cp = t.openCheckpoint('w-main', 'human');
+  t.worldState.revision++;
+  const posted = await api.postMessage('ch', 'w-main', {kind:'narration',content:'The key is now yours.'});
+  cp.posted.push({id:posted.id,seq:posted.seq,kind:'narration',windowId:'w-main'});
+  t.closeCheckpoint(cp);
+  api.recallMessage = async () => {throw Object.assign(Error('expired'),{status:409,code:'recall_expired'});};
+  await t.rollback(human,[cp]);
+  assert.equal(t.worldState.revision,1);
+  assert.match(api.posts.at(-1).content,/world state supporting a line that remains/);
+});
 
 test("a recent recall rolls the table back: the GM's lines after it are recalled and the co-player's move is undone", async () => {
   const { t, api } = await table({ forks: false });

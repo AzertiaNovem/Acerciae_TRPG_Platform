@@ -17,6 +17,7 @@
 #include "Recall.h"
 #include "Hypertext.h"
 #include <algorithm>
+#include <chrono>
 
 #include "ChatQueries.h"
 namespace acerciae {
@@ -124,11 +125,29 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     else if (kind == "roll") throw badRequest("roll messages come from dice commands: start the message with a dot command such as .ra or .r");
 
     DiceService::Result diceResult;
+    const auto agentRequest = json::str(body,"request_id");
+    if (!agentRequest.empty() && (!a.isGm || origin || diceCmd || !ruling.isNull() || standIn || agentRequest.size()>160)) throw badRequest("request_id is for ordinary GM story messages only");
+    const auto agentFingerprint = agentRequest.empty() ? std::string() : crypto::sha256Hex(windowId+":"+json::dump(body));
     Json::Value notice;
     pbta::Ruling audit;
     bool repeated = false;
     auto msg = db_.tx([&](pqxx::work& w) {
         Db::queryOne(w,"SELECT id FROM channels WHERE id=$1 FOR NO KEY UPDATE",{a.channelId});
+        if (!agentRequest.empty()) {
+            auto receipt=Db::queryOne(w,"SELECT * FROM agent_message_receipts WHERE channel_id=$1 AND actor_id=$2 AND request_id=$3",{a.channelId,a.userId,agentRequest});
+            if (!receipt.isNull()) {
+                if (receipt["cancelled"].asBool()) throw conflict("This story message was cancelled");
+                if (receipt["fingerprint"]!=agentFingerprint) throw conflict("Story message request ID was reused with different content");
+                if (receipt["message_id"].isNull()) throw conflict("The original story message was deleted");
+                repeated=true;
+                return Db::queryOne(w,MSG_SELECT+"WHERE m.id=$1",{receipt["message_id"].asString()});
+            }
+            if (!body["request_issued_at"].isInt64()) throw badRequest("request_issued_at must be epoch milliseconds");
+            const auto now=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            const auto issued=body["request_issued_at"].asInt64();
+            if (issued>now+300000 || issued<now-7LL*86400000) throw conflict("Story message request expired; reconcile before continuing");
+            Db::exec(w,"DELETE FROM agent_message_receipts WHERE channel_id=$1 AND created_at<now()-interval '30 days'",{a.channelId});
+        }
         if (origin) {
             // The same card action again: the line it already posted, found before any dice run (a sheet change applies once).
             auto done = Db::queryOne(w, "SELECT id FROM messages WHERE via_hypertext_id=$1 AND via_user_id=$2 AND via_interaction_id=$3 AND via_effect=$4",
@@ -195,6 +214,7 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
                  origin && action && !origin->interactionId.empty() ? DbParam(origin->interactionId) : dbNull(), origin && action ? DbParam((int64_t)origin->effect) : dbNull()})["id"].asString();
         };
         auto messageId = insert(visibility, whisperTo, content, diceJson, true);
+        if (!agentRequest.empty()) Db::exec(w,"INSERT INTO agent_message_receipts(channel_id,actor_id,request_id,fingerprint,message_id) VALUES($1,$2,$3,$4,$5)",{a.channelId,a.userId,agentRequest,agentFingerprint,messageId});
         audit.finish(w,messageId,characterId);
         for(const auto& id : references) if(Db::queryOne(w,MSG_SELECT+"WHERE m.id=$1 AND m.channel_id=$2 AND "+Visibility::messageFilter(a),{id,a.channelId}).isNull()) throw forbidden("Referenced chat is no longer accessible");
         Db::exec(w,"UPDATE messages SET reference_ids=$2::uuid[] WHERE id=$1",{messageId,pgArrayLiteral(references)});

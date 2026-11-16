@@ -6,8 +6,8 @@ import { providerNames } from './host-config.mjs';
 import { HostSessions } from './host-sessions.mjs';
 const asset = name => fs.readFileSync(new URL(`../web/${name}`, import.meta.url));
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
-const ASSETS = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/usage.js': ['usage.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
-const OPERATIONS = ['config', 'action', 'status', 'logs', 'form', 'validate', 'registry', 'remove'];
+const ASSETS = { '/world-state.js': ['world-state.js', 'text/javascript; charset=utf-8'], '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/usage.js': ['usage.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
+const OPERATIONS = ['config', 'action', 'status', 'world', 'logs', 'form', 'validate', 'registry', 'remove'];
 const originOf = value => { try { return new URL(value).origin; } catch { return null; } };
 // Browsers send Origin on every POST. It must be this UI's own address: the Host the request arrived with, the host a
 // reverse proxy forwarded (X-Forwarded-Host; a page on another site cannot set that header without a CORS preflight,
@@ -65,12 +65,13 @@ export async function startWeb(manager, options) {
       const [, id, operation] = match;
       try { manager.entry(id); } catch { return send(404, { error: 'Unknown channel' }); }
       if (req.method === 'GET') {
+        if (operation === 'world') return send(200, await manager.snapshot(id, 'world'));
         if (operation === 'config') return send(200, manager.config(id));
         if (operation === 'status') return send(200, await manager.detail(id));
         if (operation === 'logs') return send(200, manager.logs(id, Math.max(0, Number(url.searchParams.get('after')) || 0)));
         return send(405, { error: 'Method not allowed' });
       }
-      if (req.method !== 'POST' || ['status', 'logs'].includes(operation)) return send(405, { error: 'Method not allowed' });
+      if (req.method !== 'POST' || ['status', 'logs', 'world'].includes(operation)) return send(405, { error: 'Method not allowed' });
       const body = await readJson();
       if (operation === 'registry') return send(200, { ok: true, ...(await manager.setRegistry(id, body)) });
       if (operation === 'remove') {

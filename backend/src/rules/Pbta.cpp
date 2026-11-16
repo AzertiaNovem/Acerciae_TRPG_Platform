@@ -181,7 +181,7 @@ static J saveJoint(pqxx::work& w,const ChannelAccess& a,const J& draft,const J& 
     } else {
       row=Db::queryOne(w,"INSERT INTO characters(channel_id,user_id,name,kind) VALUES($1,$2,$3,$4) RETURNING *",{a.channelId,kind=="npc"?dbNull():DbParam(a.userId),c["name"].asString(),kind}); id=row["id"].asString();
     }
-    row=Db::queryOne(w,"UPDATE characters SET name=$2,bio=$3,speaking_style=$4,appearance_prompt=$5,role_card=$6::jsonb,card_pending=false,updated_at=now() WHERE id=$1 RETURNING *",{id,c["name"].asString(),json::str(c,"persona"),json::str(c,"speaking_style"),json::str(c,"appearance_prompt"),json::dump(c["role_card"])});
+    row=Db::queryOne(w,"UPDATE characters SET name=$2,bio=$3,speaking_style=$4,appearance_prompt=$5,role_card=$6::jsonb,card_pending=false,updated_at=now(),inventory_version=inventory_version+CASE WHEN coalesce(role_card->'items','[]'::jsonb) IS DISTINCT FROM coalesce($6::jsonb->'items','[]'::jsonb) THEN 1 ELSE 0 END WHERE id=$1 RETURNING *",{id,c["name"].asString(),json::str(c,"persona"),json::str(c,"speaking_style"),json::str(c,"appearance_prompt"),json::dump(c["role_card"])});
     Db::exec(w,"INSERT INTO entities(channel_id,kind,name,character_id,description) VALUES($1,$2,$3,$4,$5) ON CONFLICT (channel_id,kind,name) WHERE player_group_id IS NULL DO UPDATE SET character_id=EXCLUDED.character_id,description=EXCLUDED.description",{a.channelId,kind,c["name"].asString(),id,json::str(c,"persona")});
     J mapped; mapped["key"]=c["key"]; mapped["character"]=row; actors.append(mapped);
   }

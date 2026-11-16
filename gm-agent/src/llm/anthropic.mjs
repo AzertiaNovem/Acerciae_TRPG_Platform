@@ -19,9 +19,11 @@ export class AnthropicLlm {
     this.cacheTtl = cacheTtl;
   }
 
-  async complete({ system, messages, onUsage, signal }) {
+  async complete({ system, messages, onUsage, signal, tools, toolChoice }) {
     const cc = this.cacheTtl === "off" ? null : { type: "ephemeral", ...(this.cacheTtl === "1h" ? { ttl: "1h" } : {}) };
-    const blocks = messages.map((m) => ({ role: m.role, content: Array.isArray(m.content) ? partsOf(m.content).map((p) => ({ type: "text", text: p.text, mark: Boolean(p.cache), shortCache: p.cacheTtl === "5m" })) : m.content }));
+    const blocks = messages.map((m) => ({ role: m.toolResults ? 'user' : m.role, content: m.providerOutput ? structuredClone(m.providerOutput) : m.toolResults
+      ? m.toolResults.map(r => ({ type: 'tool_result', tool_use_id: r.id, content: JSON.stringify(r.result), ...(r.result?.error ? { is_error: true } : {}) }))
+      : Array.isArray(m.content) ? partsOf(m.content).map((p) => ({ type: "text", text: p.text, mark: Boolean(p.cache), shortCache: p.cacheTtl === "5m" })) : m.content }));
     let left = cc ? MAX_BREAKPOINTS - 1 : 0;   // one goes to the system prompt
     for (const m of [...blocks].reverse()) {
       if (!Array.isArray(m.content)) continue;
@@ -47,6 +49,7 @@ export class AnthropicLlm {
       messages: blocks,
       stream: this.stream,
       output_config: { effort: this.effort },
+      ...(tools ? { tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.schema })), tool_choice: toolChoice === 'none' ? { type: 'none' } : { type: 'auto', disable_parallel_tool_use: true } } : {}),
     };
     // On a policy decline the API re-runs the request on Anthropic's recommended fallback model.
     const response = await withResponseTimeout(this.timeoutMs, signal, this.stream, async (requestSignal, activity) => {
@@ -65,13 +68,16 @@ export class AnthropicLlm {
     if (response.usage) onUsage?.({ model: response.model ?? this.model, input: Number.isSafeInteger(u.input_tokens) ? u.input_tokens + cacheRead + cacheWrite : null, cacheRead, cacheWrite, output: u.output_tokens ?? null });
     if (response.stop_reason === "refusal") throw new Error(`the model declined (${response.stop_details?.category ?? "refusal"})`);
     if (response.stop_reason === "max_tokens") throw new Error("LLM output was truncated by the token limit; increase llm.max_tokens or request a shorter response.");
-    return response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    if (!tools) return text;
+    return { text, calls: response.content.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, arguments: b.input })), providerOutput: response.content };
   }
 }
 
 // Only visible text is used by the agent. Thinking and ping frames still count as activity.
 async function readMessage(body, activity) {
   let message;
+  const inputs = new Map();
   for await (const event of streamEvents(body, activity)) {
     if (event.type === "ping") continue;
     if (event.type === "message_start") {
@@ -90,6 +96,13 @@ async function readMessage(body, activity) {
       if (block?.type !== "text") throw new Error("LLM stream is missing a text block.");
       block.text += event.delta.text;
     }
+    if (event.type === 'content_block_delta' && event.delta.type === 'input_json_delta') inputs.set(event.index, (inputs.get(event.index) ?? '') + event.delta.partial_json);
+    if (event.type === 'content_block_delta' && event.delta.type === 'thinking_delta') message.content[event.index].thinking += event.delta.thinking;
+    if (event.type === 'content_block_delta' && event.delta.type === 'signature_delta') message.content[event.index].signature = (message.content[event.index].signature ?? '') + event.delta.signature;
+    if (event.type === 'content_block_stop' && inputs.has(event.index)) {
+      message.content[event.index].input = JSON.parse(inputs.get(event.index));
+      inputs.delete(event.index);
+    }
     if (event.type === "message_delta") {
       Object.assign(message, event.delta);
       for (const [key, value] of Object.entries(event.usage ?? {})) {
@@ -98,6 +111,7 @@ async function readMessage(body, activity) {
     }
     if (event.type === "message_stop") {
       if (!message.stop_reason) throw new Error("LLM stream ended without a stop reason.");
+      if (inputs.size) throw Error('LLM stream ended with incomplete tool arguments');
       return message;
     }
   }

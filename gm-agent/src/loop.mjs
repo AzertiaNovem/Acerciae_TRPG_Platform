@@ -56,12 +56,14 @@ import * as planning from "./table/planning.mjs";
 import * as social from "./table/social.mjs";
 import * as coplayers from "./table/coplayers.mjs";
 import { attentionCandidates, attentionBrief, attentionChoice, noteAttention } from "./table/attention.mjs";
+import * as world from './table/world-state.mjs';
+import { worldState as normalizeWorldState } from './world-state/state.mjs';
 import { languageName, MOVE_MODES, norm, names } from "./table/shared.mjs";
 export { languageName } from "./table/shared.mjs";
 
 export class Table {
   // `deferArrivals`: a short-lived CLI process records arrivals in the state file for the `run` process to play.
-  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, casual = null, planner = null, plannerLlm = null, calendar = null, daily: dailyData = null, bonds = null, journal = null, owedArrivals = [], rollCards = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now, random = Math.random }) {
+  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, worldState = null, casual = null, planner = null, plannerLlm = null, calendar = null, daily: dailyData = null, bonds = null, journal = null, owedArrivals = [], rollCards = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now, random = Math.random }) {
     this.api = api;
     // The client's own store (store.mjs): the chat's local copy, compacted chapters, token usage. In memory when none
     // is given (tests, read-only commands).
@@ -83,6 +85,8 @@ export class Table {
     this.guard = guard ?? new Guard();
     this.scenario = scenario;            // {id, since}: when the client saw the current scenario begin
     this.improv = improvState(improv);   // improvisation mode: world setting, hidden truths (improv.mjs)
+    this.worldState = normalizeWorldState(worldState);
+    this.worldInventory = [];
     this.casual = casualState(casual);   // casual mode: phones, pending replies (casual.mjs)
     this.calendar = calendarState(calendar); // the story's date (calendar.mjs)
     this.bonds = bondsState(bonds);       // relationships between characters (bonds.mjs)
@@ -179,6 +183,10 @@ export class Table {
     await this.refresh();
     for (const w of this.windows) if (Number.isFinite(Number(w.last_seq))) this.noteSeq(w.id, Number(w.last_seq));
     await this.observeHistory();
+    if (this.improv.on) {
+      await world.refreshWorldInventory(this);
+      if (heal) { await world.recoverWorldRecall(this); await world.recoverWorldState(this); }
+    }
     this.speakers.clear();                 // history never authorises a move
     if (this.channel.current_scene_id && this.scenario?.id !== this.channel.current_scene_id) {
       const scenes = (await this.api.scenes(this.channelId).catch(() => [])) ?? [];
@@ -518,6 +526,7 @@ export class Table {
       scene = this.scene(windowId);
       if (roundMode === mode && ["human", "relay", "quiet", "side", "attention"].includes(mode) && budget >= 2 && (!autonomous || !this.overBudget())) reviewed = attentionCandidates(this, windowId)[0] ?? null;
       if (roundMode === "attention" && !reviewed) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
+      let worldDraft = await world.beginWorldDraft(this, windowId, { gentle: gentle || mode === 'spark' });
       const ctx = await this.buildGm(windowId, { storyPlan: this.storyPlanSection() });
       lastCtx = ctx;
       // Compaction runs beside the turn: this round's prompt is already built.
@@ -549,6 +558,8 @@ export class Table {
       request.canFormat = () => !this.sparkCancelled() && !((mode === "spark" || gentle || autonomous) && this.overBudget());
       request.writing = this.cfg.writing?.gm;
       request.formatting = this.cfg.writing?.formatting;
+      request.toolkit = worldDraft?.toolkit;
+      request.worldToolRules = worldDraft ? world.WORLD_TOOL_RULES : '';
       if (!request.canFormat()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       let plan = await directTurn(this.llm, request);
       if (this.sparkCancelled()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
@@ -567,7 +578,8 @@ export class Table {
         if ((checked.disputed || blocked.size) && plan.actions.length) {
           // Drafted dialogue/opening may already put the wrong person in the other room.
           const verified = checked.reports.map(r => ({ who: r.who.filter(n => !blocked.has(this.investigatorByName(n))), destination: r.place || r.thread })).filter(r => r.who.length);
-          plan = await directTurn(this.llm, { ...request, whereabouts: whereabouts + "\nVerified departures for this round: " + JSON.stringify(verified) + ". Everyone else stays. Redraft actions to respect these placements; do not report new moves." });
+          worldDraft = await world.beginWorldDraft(this, windowId, { gentle: gentle || mode === 'spark' });
+          plan = await directTurn(this.llm, { ...request, toolkit: worldDraft?.toolkit, whereabouts: whereabouts + "\nVerified departures for this round: " + JSON.stringify(verified) + ". Everyone else stays. Redraft actions to respect these placements; do not report new moves." });
         }
       }
       this.generation.signal.throwIfAborted();
@@ -592,13 +604,15 @@ export class Table {
       // A small event ends before a scenario change in the same turn, whatever the order the GM listed them in.
       const change = plan.actions.findIndex((x) => x.type === "advance_scenario" || x.type === "enter_scenario");
       if (change >= 0) plan.actions = [...plan.actions.slice(0, change), ...plan.actions.slice(change).filter((x) => x.type === "event_done"), ...plan.actions.slice(change).filter((x) => x.type !== "event_done")];
-      for (const action of plan.actions) {
+      const worldGroups = worldDraft?.bind(plan);
+      await world.commitWorldGroup(this, windowId, worldGroups?.get(-1));
+      for (const [actionIndex, action] of plan.actions.entries()) {
         this.generation.signal.throwIfAborted();
         const reserve = roundMode === mode && reviewInvite() ? Math.min(2, this.cfg.maxActionsPerTurn - 1) : 0;
         if (budget <= reserve || (gentle && this.overBudget())) break;
         if (this.pbta && action.type === "move" && !intents.some(m => m.id === action.source_id && m.character_id === action.character_id)) continue;
         const newNpc = action.type === "new_npc" && !this.roster.npcByName(action.name);
-        budget -= await this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope, evidenceThrough });
+        budget -= await world.runWorldAction(this, windowId, worldGroups?.get(actionIndex), action, () => this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope, evidenceThrough }));
         const kept = { advance_scenario: "a scenario change", enter_scenario: "a scenario change", world_change: "a world change" }[action.type]
           ?? (newNpc && this.roster.npcByName(action.name) ? `a new NPC, ${action.name}, who stays in the cast` : null);
         if (kept) this.turnScope.getStore()?.kept.push(kept);
