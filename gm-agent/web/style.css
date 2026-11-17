@@ -202,3 +202,13 @@ button.usage-name { padding: 0; color: var(--accent); }
   .usage-totals strong { font-size: 19px; }
 }
 .task-row .danger { margin-left: auto; }
+/* 世界书 and 队友意图 */
+.stack { display: flex; flex-direction: column; gap: 14px; padding-bottom: 72px; }
+textarea.wb-text { width: 100%; resize: vertical; padding: 10px 12px; line-height: 1.6; font-size: 14px; background: #0d131b; }
+.stack .row h3 { margin: 0; }
+.stack .row .counter { margin-left: auto; }
+.wb-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.wb-entry summary .muted { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-body { padding: 10px 0; border-top: 1px solid #1f2a38; }
+.bad-text { color: var(--bad); }
+.field .control label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 13.5px; }

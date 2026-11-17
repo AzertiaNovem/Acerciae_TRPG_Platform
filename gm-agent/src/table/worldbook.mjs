@@ -7,6 +7,8 @@
 //   * the state moved on while the file did not (the Forge, the `world` command, a state from before the worldbook):
 //     the state's texts are written into the file, its entries kept;
 //   * both moved: the file wins, since that is where a person edited it last.
+// Every write says who made it (`updatedBy`: "agent", "web" or "forge"). With no record yet (the first start, or a
+// state replaced since), the file wins unless the agent itself wrote it last.
 // A table without a state directory (tests, read-only commands) reads the state alone and has no entries.
 import { operatorPath, readOperatorFile, writeOperatorFile, watchOperatorFile } from "../operator-files.mjs";
 import { worldbookState, entriesInPlay, findEntry, renderIndex, renderInPlay, WORLDBOOK_DEFAULTS, WORLDBOOK_TOOL, WORLDBOOK_TOOL_RULE } from "../worldbook.mjs";
@@ -39,18 +41,22 @@ export function worldbook(table) {
   return book;
 }
 
-// The state's bible and hidden layer into the file, keeping its entries.
+// A bible and hidden layer into a channel's worldbook file, keeping its entries. Returns the sync record for the state
+// ({revision, hash}). The Forge uses it too when play starts.
+export function writeWorldbookTexts(stateDir, channelId, { world = "", secrets = "" }, by = "agent") {
+  const written = writeOperatorFile(operatorPath(stateDir, channelId, "worldbook"), (cur) => {
+    const book = worldbookState(cur);
+    return { bible: world, hidden: secrets, entries: book.entries, nextId: book.nextId, updatedBy: by };
+  });
+  return { revision: written.revision, hash: textsHash({ world, secrets }) };
+}
+
+// The state's bible and hidden layer into the file.
 export function writeBible(table) {
-  const file = worldbookFile(table), im = table.improv;
-  if (!file || !im.on) return;
-  try {
-    const written = writeOperatorFile(file, (cur) => {
-      const book = worldbookState(cur);
-      return { bible: im.world, hidden: im.secrets, entries: book.entries, nextId: book.nextId };
-    });
-    im.book = { revision: written.revision, hash: textsHash(im) };
-    table.save();
-  } catch (e) { table.log(`worldbook: ${e.message}`); }
+  const im = table.improv;
+  if (!table.operatorDir || !im.on) return;
+  try { im.book = writeWorldbookTexts(table.operatorDir, table.channelId, im); table.save(); }
+  catch (e) { table.log(`worldbook: ${e.message}`); }
 }
 
 // When `run` starts: bring the file and the state together (see the top of this file).
@@ -58,21 +64,21 @@ export function syncWorldbook(table) {
   const file = worldbookFile(table), im = table.improv;
   table.worldbookSynced = true;
   if (!file || !im.on) return;
-  let book;
-  try { book = readOperatorFile(file); } catch (e) { table.log(`worldbook: ${e.message}; it is not used until it is fixed`); return; }
-  if (!book) {
+  let raw;
+  try { raw = readOperatorFile(file); } catch (e) { table.log(`worldbook: ${e.message}; it is not used until it is fixed`); return; }
+  if (!raw) {
     if (!im.world && !im.secrets) return;
     writeBible(table);
     table.log(`worldbook: ${file} created from the world setting`);
     return;
   }
-  book = worldbookState(book);
-  const fileMoved = im.book?.revision !== book.revision;
-  const stateMoved = !im.book ? Boolean(im.world || im.secrets) : im.book.hash !== textsHash(im);
-  const same = im.world === book.bible && im.secrets === book.hidden;
-  if (same) { im.book = { revision: book.revision, hash: textsHash(im) }; table.save(); return; }
-  if (stateMoved && !(fileMoved && im.book)) { writeBible(table); table.log("worldbook: the world setting changed outside the Web UI; written into the worldbook"); return; }
-  if (stateMoved) table.log("worldbook: both the worldbook and the world setting changed; the worldbook wins");
+  const book = worldbookState(raw);
+  if (im.world === book.bible && im.secrets === book.hidden) { im.book = { revision: book.revision, hash: textsHash(im) }; table.save(); return; }
+  const stateWins = !im.book
+    ? raw.updatedBy === "agent" && Boolean(im.world || im.secrets)
+    : im.book.hash !== textsHash(im) && im.book.revision === book.revision;
+  if (stateWins) { writeBible(table); table.log("worldbook: the world setting changed outside the Web UI; written into the worldbook"); return; }
+  if (im.book && im.book.hash !== textsHash(im)) table.log("worldbook: both the worldbook and the world setting changed; the worldbook wins");
   adopt(table, book);
 }
 

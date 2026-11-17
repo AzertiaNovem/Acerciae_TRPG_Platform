@@ -60,6 +60,7 @@ try {
   fs.writeFileSync(path.join(dir, 'b.yml'), 'table:\n  coplayers: 0\n');
   fs.writeFileSync(path.join(dir, 'host.yml'), JSON.stringify({ llm: { provider: 'mock' }, webui: { enabled: true, token, port: 0 }, channels: ['a', 'b'].map(id => ({ id, config: id + '.yml' })) }));
   fs.mkdirSync(path.join(dir, '.state')); fs.writeFileSync(path.join(dir, '.state/a.json'), '{"retained":true}');
+  fs.writeFileSync(path.join(dir, '.state/b.json'), JSON.stringify({ channelId: 'b', improv: { on: true, world: 'B 的世界', secrets: 'B 的秘密' }, coplayers: [{ characterId: 'hl', name: '哈丽特 <队友>' }] }));
   await start(); const port = web.address().port, base = `http://127.0.0.1:${port}`;
   context = await open(); let page = context.pages()[0]; const errors = [], auth = [];
   const watch = p => { p.on('pageerror', e => errors.push(e.message)); p.on('request', r => { if (r.headers().authorization) auth.push(new URL(r.url()).pathname); }); };
@@ -153,6 +154,21 @@ try {
   await page.unroute(base + '/api/channels/b/remove');
   await page.getByRole('tab', { name: '概览', exact: true }).click();
   await page.locator('#coplayer-locations').getByText('暂无 AI 队友', { exact: true }).waitFor();
+  // 世界书 and 队友意图: forms over the channel's files in the state directory.
+  await page.getByRole('tab', { name: '世界书', exact: true }).click();
+  assert.equal(await page.getByLabel('世界圣经').inputValue(), 'B 的世界', 'before the first save the state\u2019s world is the starting point');
+  await page.getByRole('button', { name: '＋ 新词条' }).click();
+  await page.getByLabel('标题').last().fill('<i>港务协会</i>'); await page.getByLabel('关键词').last().fill('协会大楼, dockmasters');
+  await page.getByLabel('正文').last().fill('协会掌管码头。'); await page.locator('.wb-entry').last().getByLabel(/秘密/).check();
+  await page.getByRole('button', { name: '保存世界书' }).click(); await page.getByText('世界书已保存（第 1 版）').waitFor();
+  const book = JSON.parse(fs.readFileSync(path.join(dir, '.state/b.worldbook.json'), 'utf8'));
+  assert.deepEqual(book.entries.map(e => [e.id, e.title, e.keys, e.secret]), [['e1', '<i>港务协会</i>', ['协会大楼', 'dockmasters'], true]]);
+  assert.ok(!(await page.locator('#worldbook-view').innerText()).includes('null'));
+  await page.getByRole('tab', { name: '队友意图', exact: true }).click();
+  await page.getByLabel('哈丽特 <队友> 的意图').fill('追求米娜，同时维持社团团结。');
+  await page.getByRole('button', { name: '保存意图' }).click(); await page.getByText(/意图已保存/).waitFor();
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, '.state/b.intentions.json'), 'utf8')).intentions.hl.text, '追求米娜，同时维持社团团结。');
+  await page.getByRole('tab', { name: '概览', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: '/tmp/gm-host-webui-mobile.png', fullPage: true });
@@ -162,5 +178,5 @@ try {
   assert.equal(await page.locator('#session').isVisible(), false);
   assert.ok(!(await context.cookies()).some(c => c.name === cookie.name));
   assert.deepEqual(errors, []);
-  console.log('GM WebUI: live co-player windows, stale locations, token charts, full plan, persistent login and hosting task controls passed');
+  console.log('GM WebUI: live co-player windows, stale locations, token charts, full plan, worldbook, intentions, persistent login and hosting task controls passed');
 } finally { await context?.close(); await stop(); for (const s of stores.values()) s.close(); fs.rmSync(dir, { recursive: true, force: true }); }

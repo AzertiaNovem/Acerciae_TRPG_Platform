@@ -57,8 +57,8 @@ test("worldbook: created from the world setting, never posted, and an edit reach
 
 test("worldbook: a newer world in the state is written into the file, an edit made while stopped wins at the next start", async () => {
   const dir = tmp();
-  writeOperatorFile(bookFile(dir), () => ({ bible: "OLD", hidden: "OLD-SECRET", entries: ENTRIES, nextId: 4 }));
-  // The Forge starts play with a state that knows nothing of the file.
+  writeOperatorFile(bookFile(dir), () => ({ bible: "OLD", hidden: "OLD-SECRET", entries: ENTRIES, nextId: 4, updatedBy: "agent" }));
+  // A state that knows nothing of the file, replaced since the agent last wrote it (an older Forge).
   const first = await setup({ dir, improv: { on: true, world: "FORGED-WORLD", secrets: "FORGED-SECRET" } });
   let book = readOperatorFile(bookFile(dir));
   assert.deepEqual([book.bible, book.hidden, book.entries.length, first.t.improv.book.revision], ["FORGED-WORLD", "FORGED-SECRET", 3, 2]);
@@ -101,6 +101,15 @@ test("worldbook: the GM opens an entry nobody mentioned with worldbook_read, and
   const kit = t.withWorldbookTool(t.primaryWindowId(), { tools: [], call: () => null });
   assert.match(kit.call("worldbook_read", { title: "no such place" }).error, /Titles: Harbour Guild; Drowned keeper; Fish market/);
   assert.equal(t.withWorldbookTool(null, { tools: [], call: () => null }).call("worldbook_read", { title: "lighthouse" }).text, ENTRIES[1].body, "the planner reads secret entries too");
+});
+
+test("worldbook: on a first start, a worldbook edited in the Web UI or by the Forge wins over the state", async () => {
+  for (const by of ["web", "forge", undefined]) {
+    const dir = tmp();
+    writeOperatorFile(bookFile(dir), () => ({ bible: "PREPARED", hidden: "PREPARED-SECRET", entries: ENTRIES, nextId: 4, ...(by ? { updatedBy: by } : {}) }));
+    const { t } = await setup({ dir });
+    assert.deepEqual([t.improv.world, t.improv.secrets, t.improv.book.revision], ["PREPARED", "PREPARED-SECRET", 1], `${by ?? "hand-written"}`);
+  }
 });
 
 test("worldbook: without entries a table reads exactly as before, no section and no tool", async () => {

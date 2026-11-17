@@ -93,6 +93,8 @@
         <button role="tab" data-tab="overview" aria-selected="true">概览</button>
         <button role="tab" data-tab="plan" aria-selected="false">计划</button>
         <button role="tab" data-tab="world" aria-selected="false">世界状态</button>
+        <button role="tab" data-tab="worldbook" aria-selected="false">世界书</button>
+        <button role="tab" data-tab="intentions" aria-selected="false">队友意图</button>
         <button role="tab" data-tab="settings" aria-selected="false">设置<span id="dirty-count" class="count" hidden></span></button>
         <button role="tab" data-tab="yaml" aria-selected="false">YAML</button>
         <button role="tab" data-tab="logs" aria-selected="false">日志</button>
@@ -107,6 +109,10 @@
         <p class="muted small">只读查看 GM 当前采用的私密剧情计划。</p>
         <div id="plan-view" class="grid"></div>
       </div>
+
+      <div id="tab-worldbook" class="tab" role="tabpanel" hidden><div id="worldbook-view" class="stack"></div></div>
+
+      <div id="tab-intentions" class="tab" role="tabpanel" hidden><div id="intentions-view" class="stack"></div></div>
 
       <div id="tab-world" class="tab" role="tabpanel" hidden><p class="muted small">GM 私密账本。NPC 对每个角色的态度独立记录。</p><div id="world-view"></div></div>
 
