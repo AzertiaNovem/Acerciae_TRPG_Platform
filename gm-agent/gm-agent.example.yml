@@ -124,6 +124,11 @@ scenarios:
   min_minutes: 20             # ... after at least this long and this many lines (lifted when the planner says move on)
   min_lines: 30
 
+worldbook:                    # improvisation: the bible always, entries only when needed (edited in the Web UI's 世界书)
+  gm_tokens: 3000             # the most entries in play a GM prompt carries
+  coplayer_tokens: 1200       # ... and a co-player prompt (public entries only)
+  recent_lines: 30            # a window's latest lines searched for entries' titles and keys; how long an opened entry stays
+
 daily:                        # opt-in; requires casual + improvisation, without a module
   # With planner.enabled, unattended play refreshes routine/topics once per story day within the token budget.
   enabled: false
