@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { DAILY_DEFAULTS } from "./daily.mjs";
+import { WORLDBOOK_DEFAULTS } from "./worldbook.mjs";
 import { DEFAULT_PROVIDER, FUNCTION_NAMES, PROVIDER_TYPES, PURPOSES } from "./llm/routes.mjs";
 import { DEFAULT_WRITING, WRITING_MAX_LENGTH } from "./writing.mjs";
 
@@ -67,6 +68,7 @@ const get = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o =
 const SETTINGS = [
   ["forge", null, "forge.enabled"],
   ...Object.keys(DAILY_DEFAULTS).map(k => [`daily-${k.replaceAll("_", "-")}`, null, `daily.${k}`]),
+  ...Object.keys(WORLDBOOK_DEFAULTS).map(k => [`worldbook-${k.replaceAll("_", "-")}`, null, `worldbook.${k}`]),
   ["standin-context-tokens", null, "context.standin_tokens"],
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
   ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rule_system"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
@@ -106,7 +108,7 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
-const SECTIONS = ["forge", "daily", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
+const SECTIONS = ["forge", "daily", "worldbook", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
 // Named endpoints (`providers`) and the model of each function (`models`) have keys of their own (llm/routes.mjs).
 const FREE_SECTIONS = ["providers", "models"];
 const PROVIDER_KEYS = ["provider", "api_base", "api_key", "model", "effort", "max_tokens", "fallbacks", "timeout_ms", "stream", "cache_ttl"];
@@ -271,6 +273,8 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
         Math.min(k === "day_hours" ? 168 : Number.MAX_SAFE_INTEGER, Math.max(["day_hours", "pause_days", "spark_max_lines"].includes(k) ? 1 : 0, int(v, d)))];
     })),
     standinContextTokens: Math.max(1000, int(pick("standin-context-tokens", 12000), 12000)),
+    // The worldbook (worldbook.mjs): how much of it a GM or co-player prompt may carry, and how far back a mention counts.
+    worldbook: Object.fromEntries(Object.entries(WORLDBOOK_DEFAULTS).map(([k, d]) => [k, Math.min(k === "recent_lines" ? 200 : 20000, Math.max(k === "recent_lines" ? 1 : 0, int(pick(`worldbook-${k.replaceAll("_", "-")}`, d), d)))])),
     dailyTokenBudget: Math.max(0, int(pick("llm-daily-token-budget", 0), 0)),
     kickoff: bool(pick("kickoff"), false),
     // Autonomy: the table moves on its own clock (side timelines, quiet shared windows) while humans are around.

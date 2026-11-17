@@ -46,6 +46,8 @@ import { rulesProfile, ruleSystemOf } from "./rules/index.mjs";
 // is long enough that nobody composing a long paragraph is cut off.
 const TYPING_STALE_MS = 10 * 60000;
 import * as daily from "./table/daily.mjs";
+import * as book from "./table/worldbook.mjs";
+import { intentionOf } from "./table/intentions.mjs";
 import * as context from "./table/context.mjs";
 import * as recovery from "./table/recovery.mjs";
 import * as scheduling from "./table/scheduling.mjs";
@@ -63,7 +65,7 @@ export { languageName } from "./table/shared.mjs";
 
 export class Table {
   // `deferArrivals`: a short-lived CLI process records arrivals in the state file for the `run` process to play.
-  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, worldState = null, casual = null, planner = null, plannerLlm = null, calendar = null, daily: dailyData = null, bonds = null, journal = null, owedArrivals = [], rollCards = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now, random = Math.random }) {
+  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, worldState = null, casual = null, planner = null, plannerLlm = null, calendar = null, daily: dailyData = null, bonds = null, journal = null, owedArrivals = [], rollCards = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now, random = Math.random, operatorDir = null }) {
     this.api = api;
     // The client's own store (store.mjs): the chat's local copy, compacted chapters, token usage. In memory when none
     // is given (tests, read-only commands).
@@ -80,6 +82,7 @@ export class Table {
     this.now = now;
     this.startedAt = now();
     this.random = random;
+    this.operatorDir = operatorDir;   // the state directory: the worldbook and intentions files the host's Web UI edits
     this.daily = daily.dailyState(dailyData, 0);
     this.timelines = timelines ?? new Timelines([], { now });
     this.guard = guard ?? new Guard();
@@ -187,6 +190,7 @@ export class Table {
       await world.refreshWorldInventory(this);
       if (heal) { await world.recoverWorldRecall(this); await world.recoverWorldState(this); }
     }
+    if (dailyStart) this.syncWorldbook();   // before anything reads the world: a newer world in the state may win
     this.speakers.clear();                 // history never authorises a move
     if (this.channel.current_scene_id && this.scenario?.id !== this.channel.current_scene_id) {
       const scenes = (await this.api.scenes(this.channelId).catch(() => [])) ?? [];
@@ -195,7 +199,7 @@ export class Table {
     }
     if (heal && this.pbta && awaitingReview((await this.api.pbtaDraft(this.channelId)).status)) throw Error("Rule draft awaits GM review");
     if (heal) await this.heal();
-    if (heal) await this.publishWorld();
+    if (heal) await this.seedWorld();
     this.ready = true;
     if (heal) await this.ensureTableWindows();
     if (dailyStart) await this.initDaily();
@@ -558,8 +562,8 @@ export class Table {
       request.canFormat = () => !this.sparkCancelled() && !((mode === "spark" || gentle || autonomous) && this.overBudget());
       request.writing = this.cfg.writing?.gm;
       request.formatting = this.cfg.writing?.formatting;
-      request.toolkit = worldDraft?.toolkit;
-      request.worldToolRules = worldDraft ? world.WORLD_TOOL_RULES : '';
+      request.toolkit = this.withWorldbookTool(windowId, worldDraft?.toolkit);
+      request.worldToolRules = worldDraft ? [world.WORLD_TOOL_RULES, this.worldbookToolRule()].filter(Boolean).join('\n') : '';
       if (!request.canFormat()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       let plan = await directTurn(this.llm, request);
       if (this.sparkCancelled()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
@@ -579,7 +583,7 @@ export class Table {
           // Drafted dialogue/opening may already put the wrong person in the other room.
           const verified = checked.reports.map(r => ({ who: r.who.filter(n => !blocked.has(this.investigatorByName(n))), destination: r.place || r.thread })).filter(r => r.who.length);
           worldDraft = await world.beginWorldDraft(this, windowId, { gentle: gentle || mode === 'spark' });
-          plan = await directTurn(this.llm, { ...request, toolkit: worldDraft?.toolkit, whereabouts: whereabouts + "\nVerified departures for this round: " + JSON.stringify(verified) + ". Everyone else stays. Redraft actions to respect these placements; do not report new moves." });
+          plan = await directTurn(this.llm, { ...request, toolkit: this.withWorldbookTool(windowId, worldDraft?.toolkit), whereabouts: whereabouts + "\nVerified departures for this round: " + JSON.stringify(verified) + ". Everyone else stays. Redraft actions to respect these placements; do not report new moves." });
         }
       }
       this.generation.signal.throwIfAborted();
@@ -1031,9 +1035,16 @@ export class Table {
   // Hands the world setting (public) and the GM's secrets (secret) to the platform's world record, once per version
   // of each text, so its observer knows the places, groups and people from the start.
   seedWorld(...args) { return social.seedWorld(this, ...args); }
+  worldbook(...args) { return book.worldbook(this, ...args); }
+  syncWorldbook(...args) { return book.syncWorldbook(this, ...args); }
+  writeBible(...args) { return book.writeBible(this, ...args); }
+  gmWorldbook(...args) { return book.gmWorldbook(this, ...args); }
+  publicLore(...args) { return book.publicLore(this, ...args); }
+  withWorldbookTool(...args) { return book.withWorldbookTool(this, ...args); }
+  worldbookToolRule(...args) { return book.worldbookToolRule(this, ...args); }
+  intentionOf(...args) { return intentionOf(this, ...args); }
 
   // Posts the world setting in the Main Chat for the human players, once per version of the text.
-  publishWorld(...args) { return social.publishWorld(this, ...args); }
 
   // ---- older, model-led timelines (TIMELINE_AUTO=false)
   coplayersNamed(...args) { return windows.coplayersNamed(this, ...args); }
