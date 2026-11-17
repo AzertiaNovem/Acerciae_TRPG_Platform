@@ -36,6 +36,8 @@ Set `webui.enabled: true` in the shared file and supply a random `webui.token` o
 
 - **Overview** — the live table, read from its worker every few seconds: how long it has run and how often it started, the last error (why a start failed, or how the worker exited), the WebSocket streams, the GM role and knowledge mode, activity (turns, queued turns, the last player line, paused or away), today's and the week's model use against the daily budget with a breakdown by purpose, player characters, co-players and their windows, NPCs, timelines with their windows and members, the story planner (plan version, beat, planner window notes, the session in progress), calendar, casual and improvisation modes, and relationships. A stopped channel shows its last snapshot, marked as such.
 - **Plan** — the full currently adopted plan: throughline, played events, beat purpose and exit conditions, pacing verdict, threads (stakes, hooks, twists and maturity conditions), upcoming events, review and calendar advice, plus the complete JSON. A pending newer version is labelled as waiting for adoption. This is the GM’s private plan, visible only after Web UI authentication; it is read-only. Unchanged status polls preserve the expanded JSON view.
+- **世界书 (Worldbook)** — the channel's worldbook: the world bible, the hidden layer and the entries, each with its title, keys, text, a secret switch and an on/off switch. See "The worldbook".
+- **队友意图 (Intentions)** — a standing intention for each AI co-player, set by hand. See "Co-player intentions".
 - **Settings** — every channel key as a form, grouped and searchable, each with its help, the value in effect and its default. Only the keys you change are written; the file keeps its comments and other keys. "Default" removes a key. Values are checked against their ranges before anything is saved.
 - **YAML** — the file itself, with a validate button that checks it without saving.
 - **Logs** — the worker's last 600 log lines, filterable, with errors highlighted. Known passwords, keys and the UI token, and anything shaped like a credential (bearer tokens, JWTs, `sk-` keys, `token=` parameters), are masked before a line is kept.
@@ -113,6 +115,8 @@ The GM can invoke a triggered move for the speaking player, with a reference to 
   age, distinctive traits and brief (see "Time and people");
 - in a casual game, the story's calendar and everyday routine; in every game, the relationships between characters;
 - the current scenario and the summaries of earlier ones;
+- in improvisation mode, the worldbook: the bible and the hidden layer, the list of all entries, and the entries in
+  play in this window, secret ones included (see "The worldbook");
 - the platform's AI tips:
   - `GET /kp/board`
   - `/reminders` and `/script-knowledge`
@@ -142,9 +146,12 @@ Besides the log, its prompt holds:
 - the relationships it is part of, and the public ones between people it knows;
 - the players' corrections about it or about no one in particular, from the planner window (never their wishes);
 - in casual mode, the texts it sent or received, including those in the phone log.
+- in improvisation mode, the world bible and the public worldbook entries that came up in what it witnessed, its
+  place or its intention (never a secret entry, the hidden layer or the list of entries);
+- its own standing intention, when the host's operator set one (see "Co-player intentions").
 
-It never gets a real NPC's brief, an NPC it has not met, a secret relationship it is not part of, or anyone's
-characteristic and skill numbers.
+It never gets a real NPC's brief, an NPC it has not met, a secret relationship it is not part of, another
+co-player's intention, or anyone's characteristic and skill numbers.
 
 ## Long campaigns: memory, compaction and caching
 
@@ -884,13 +891,11 @@ node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2 --improv --world wor
 ```
 
 - **`world.md`, the world setting** (your own text, used as written, up to 30,000 characters): places, factions, people,
-  tone, what everyone knows.
-  - Shared with **everyone**. `run` posts it in the Main Chat for the human players (in parts if it is long), once per
-    version of the text.
-  - The GM, the real NPCs and every co-player get it as a section of their prompt. The posted copy is left out of
-    their chat logs, so it is not read twice.
+  tone, what everyone knows. It becomes the worldbook's **bible** (see "The worldbook").
+  - The GM, the real NPCs and every co-player get it as a section of their prompt.
+  - It is never posted in the chat: players read the worldbook where the agent runs (the host's Web UI, or the file).
 - **`secrets.md`, the GM's hidden layer** (optional): what is really going on. Only the GM and the real NPCs read
-  it; it is never posted.
+  it; it is never posted. It becomes the worldbook's hidden layer.
 - **The GM improvises.** It grows the story from the world, the investigators' backgrounds and the players' choices,
   and is told to reveal hidden things only through play.
   - Whenever it decides a hidden fact (who did it, what someone wants), it records it with a `truth` action.
@@ -919,8 +924,66 @@ node src/cli.mjs world --secrets secrets-v2.md
 node src/cli.mjs world --improv false
 ```
 
-A text you leave out keeps its current version. `status` shows whether the mode is on, the setting's size, whether it
-has been posted, and how many truths the GM has recorded.
+A text you leave out keeps its current version, and the worldbook takes the new one, keeping its entries. `status`
+shows whether the mode is on, the sizes of the bible and the hidden layer, the number of worldbook entries and the
+file, and how many truths the GM has recorded.
+
+### The worldbook
+
+The world is not one text that every prompt carries whole. The worldbook has three parts:
+
+- **The bible** (the world setting, up to 30,000 characters): always in use; the GM, the real NPCs and every co-player
+  read it each turn.
+- **The hidden layer** (the GM's secrets, up to 20,000 characters): always in use, for the GM and the real NPCs only.
+- **Entries** (up to 300; each a title, up to 24 keys and up to 6,000 characters): places, groups, people, customs and
+  history, read only when they are needed. An entry is **secret** when only the GM's side may know it, and can be
+  switched off without deleting it.
+
+When an entry is needed:
+
+- **Its title or a key comes up.** The window's last `worldbook.recent_lines` lines (30), the scene's place and the
+  scenario's title are searched. Keys in Latin scripts match whole words ("Guild" is not found in "Guildford"); CJK
+  keys match anywhere; case does not matter; a single-character key is ignored. A co-player's search covers only the
+  lines it witnessed, its place and its intention; a stand-in's, only what its character witnessed.
+- **The GM opens it.** The GM sees the list of all entries (titles and keys) and opens any of them with the
+  `worldbook_read` tool when the story reaches it; an opened entry stays in play in that window for the next
+  `worldbook.recent_lines` lines there. The planner can read entries with the same tool.
+- Entries in play are limited to `worldbook.gm_tokens` (3,000) for the GM and `worldbook.coplayer_tokens` (1,200) for a
+  co-player; the most recently mentioned and the opened ones come first.
+
+Secret entries reach only the GM, the real NPCs and the planner, never a co-player or a stand-in. A table without
+entries reads exactly as before: no list, no tool.
+
+**Where it lives.** `STATE_DIR/<channel>.worldbook.json`, edited in the host's Web UI (世界书), private to the owner
+(mode 600). Nothing of it is posted in the chat: whoever runs the agent reads it there, which is usually the players
+themselves. The Web UI edits it whether the channel runs or not; a running table reads a change at its next turn.
+Every save names the revision it started from and is refused when the file changed elsewhere meanwhile. The bible and
+the hidden layer are also kept in the channel's state, so every other reader of the world keeps working:
+
+- An edit in the Web UI becomes the state's world at the next turn, or at the next start.
+- `setup --world`, the `world` command and the Forge write their new text into the worldbook, keeping its entries.
+- If both changed while the channel was stopped, the worldbook wins and the log says so. On a channel's first start
+  with a worldbook, the file wins unless the agent wrote it last; without a file, `run` creates one from the state.
+
+The platform's world record still receives the bible and the hidden layer once per version; entries are not handed
+to it. A world posted in the Main Chat by earlier versions stays there and is still left out of the models' chat logs.
+
+## Co-player intentions
+
+The host's operator can give an AI co-player a standing intention by hand, in the Web UI (队友意图): "win Mina over
+while keeping the club united". It is a light, occasional control over where a co-player leans; nothing sets,
+advances, completes or clears an intention automatically.
+
+- Only that co-player reads it, in its turns, its unattended small talk and its phone replies, as its own long-term
+  aim to pursue in character, step by step, when the moment allows. It keeps it to itself.
+- The GM, the real NPCs, the planner, the other co-players and the stand-ins never read it.
+- It never overrides how the table plays: a co-player still never decides for a player character, never presses a
+  passive one, and keeps to the players' corrections.
+- Worldbook entries its intention names come into its prompt, so it knows what it is aiming at.
+
+Intentions live in `STATE_DIR/<channel>.intentions.json`, keyed by character id (a rename keeps them), at most 1,000
+characters each. An empty text clears one. They can be edited whether the channel runs or not; a running co-player
+reads the change at its next turn.
 
 ## D&D 2024 channels
 
@@ -1180,6 +1243,8 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `daily.pc_sparks` | `--daily-pc-sparks` | `false` | allow PC sparks only with explicit /away permission |
 | `daily.passive_minutes` | `--daily-passive-minutes` | `30` | real minutes without that player's scene line before passive presence |
 | `daily.summaries` | `--daily-summaries` | `true` | personal summaries for PCs who were passive during the day |
+| `worldbook.gm_tokens`, `worldbook.coplayer_tokens` | `--worldbook-gm-tokens`, `--worldbook-coplayer-tokens` | `3000`, `1200` | the most worldbook entries in play a GM's or a co-player's prompt carries (see "The worldbook") |
+| `worldbook.recent_lines` | `--worldbook-recent-lines` | `30` | how many of a window's latest lines are searched for entries' titles and keys, and how long an opened entry stays in play |
 | `context.standin_tokens` | `--standin-context-tokens` | `12000` | witnessed context budget for the separate stand-in call |
 | `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
 | `illustrations.enabled` | `--illustrations` | `true` | evocative moments and the scenario-change pictures (see Illustrations) |
@@ -1187,7 +1252,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `illustrations.allow_cloud` | `--illustrations-allow-cloud` | `true` | descriptions and portraits may go to a cloud image service |
 | `illustrations.requests_per_hour` | `--illustrations-requests-per-hour` | `4` | pictures of past plots each player may ask for with `/画` in the planner window each hour (0: the command is off) |
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
-| `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the GM's secrets, read by `setup` and `world` (relative to the file) |
+| `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the GM's secrets, read by `setup` and `world` (relative to the file); they become the worldbook's bible and hidden layer |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
 | `modes.casual_max_delay_minutes` | | `240` | longest delay before an NPC's or co-player's reply to a text |
 | `modes.casual_ai_texts_per_hour`, `modes.casual_ai_chain` | | `12`, `4` | texts between AI characters answered at most an hour; how many in a row before an exchange rests until a person writes |
@@ -1305,6 +1370,11 @@ session can be had (a suspended account, a changed password), the sockets keep r
 why; the control page shows the chat and context streams as disconnected.
 
 ## Known limitations
+
+The worldbook finds an entry by its title and keys, not by meaning: a scene that reaches a place under another name,
+or describes it without naming it, does not bring its entry into play by itself (the GM can still open it with
+`worldbook_read`). Give each entry the names people actually use for it as keys. Entries are not handed to the
+platform's world record or its observers.
 
 Stand-ins have witnessed recent context and lexical recall rather than their own long-term memory. Their interpretation
 of free-text permissions and consequential decisions still depends on the model. Co-player lines retain the existing

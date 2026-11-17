@@ -4,7 +4,7 @@ import { investigatorsFor } from "../context/profiles.mjs";
 import { directTurn } from "../director.mjs";
 import { coplayerSelf } from "../coplayer.mjs";
 import { playerRules } from "../pbta.mjs";
-import { hashText, worldMessages } from "../improv.mjs";
+import { hashText } from "../improv.mjs";
 import { PHONE_LOG, PHONE_PREFIX, coplayerPhoneReply, dueAt, pairKey, parseAddress, renderThread } from "../casual.mjs";
 import { WISH_WINDOW, addToInbox, renderCorrectionsFor } from "../wishes.mjs";
 import { renderImpulse } from "../planner.mjs";
@@ -163,7 +163,8 @@ export async function phoneTurn(table, windowId, { fromId, toId }) {
         : [today ? `TODAY IN THE STORY: ${today}` : "", today && describeRoutine(table.calendar) ? `${describeRoutine(table.calendar)} (common knowledge)` : "", renderBondsFor(table.bonds, toId, known, (id) => table.nameOf(id)), renderCorrectionsFor(table.planner.table, cp.name)];
       const self = [table.passiveNote(windowId), coplayerSelf({ coplayer: cp, card, world: table.improv.on ? table.improv.world : "", profile: table.profile, attrs: table.attrs.get(toId) ?? {} }), memories.length ? `WHAT YOU REMEMBER:\n${memories.join("\n\n")}` : "", ...tableInfo].filter(Boolean).join("\n\n");
       let r;
-      try { r = await coplayerPhoneReply(table.llm, { language: table.language, self: [self, renderImpulse(table.impulseFor(toId))].filter(Boolean).join("\n\n"), name: cp.name, from: table.nameOf(fromId), thread, maxDelay: max, pc: table.profile.vocab.pc, canFormat, formatting: table.cfg.writing?.formatting }); }
+      const intention = table.intentionOf(toId);
+      try { r = await coplayerPhoneReply(table.llm, { language: table.language, intention, lore: table.publicLore({ texts: [table.store.thread(fromId, toId, 12).reverse().map((x) => x.text).join("\n"), intention] }), self: [self, renderImpulse(table.impulseFor(toId))].filter(Boolean).join("\n\n"), name: cp.name, from: table.nameOf(fromId), thread, maxDelay: max, pc: table.profile.vocab.pc, canFormat, formatting: table.cfg.writing?.formatting }); }
       catch (e) { table.log(`co-player ${cp.name} (phone): ${e.message}`); return; }
       if (r.reply) table.queueText({ windowId, from: toId, to: fromId, text: r.reply, minutes: r.delay });
       else table.log(`casual: ${cp.name} leaves ${table.nameOf(fromId)}'s message on read`);
@@ -269,7 +270,7 @@ export async function setWorld(table, { on, world, secrets }) {
     if (world !== undefined) table.improv.world = String(world);
     if (secrets !== undefined) table.improv.secrets = String(secrets);
     table.save();
-    await table.publishWorld();
+    table.writeBible();   // the worldbook file follows; nothing is posted in the chat
     await table.seedWorld();
     table.log(`improvisation ${table.improv.on ? "on" : "off"}: world ${table.improv.world.length} characters, secrets ${table.improv.secrets.length}, hidden truths ${table.improv.truths.length}`);
   }
@@ -282,30 +283,4 @@ export async function seedWorld(table) {
       if (!text || im.declared[key] === hashText(text)) continue;
       if (await table.declare(text, secret)) { im.declared[key] = hashText(text); table.save(); }
     }
-  }
-
-export async function publishWorld(table) {
-    const { on, world, published } = table.improv;
-    if (!on || !world || published.hash === hashText(world)) return 0;
-    const main = table.mainWindow();
-    if (!main) return 0;
-    const ids = [];
-    try {
-      for (const content of worldMessages(world)) {
-        const m = await table.api.postMessage(table.channelId, main.id, { content, kind: "narration", visibility: "window" });
-        table.botMessageIds.add(m.id);
-        table.noteLine(m);
-        ids.push(m.id);
-      }
-    } catch (e) {
-      table.log(`posting the world setting failed (${e.message}); it is posted again when run starts`);
-      table.improv.published.ids.push(...ids);
-      table.save();
-      return 0;
-    }
-    table.improv.published = { hash: hashText(world), ids: [...published.ids, ...ids].slice(-100) };
-    table.save();
-    await table.seedWorld();
-    table.log(`world setting posted in "${main.name}" (${ids.length} message${ids.length === 1 ? "" : "s"})`);
-    return ids.length;
   }

@@ -4,6 +4,7 @@
 import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
 import { renderWorld } from './world-state.js';
 import { CreateWizard } from './create-wizard.js';
+import { worldbookEditor, intentionsEditor } from './worldbook.js';
 'use strict';
 let worldKey = '', worldBusy = false;
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
@@ -58,7 +59,7 @@ const time = iso => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false
 const STATES = { starting: ['启动中', 'warn'], running: ['运行中', 'ok'], stopping: ['停止中', 'warn'], stopped: ['已停止', 'off'], failed: ['失败 / 已退出', 'bad'] };
 const RULES = { coc7e: 'CoC 7e', dnd2024: 'D&D 2024', pbta: 'PbtA' };
 const yesNo = v => (v === true ? '开' : v === false ? '关' : '—');
-const unsaved = () => dirty.size > 0 || (config && $('yaml').value !== config.yaml);
+const unsaved = () => dirty.size > 0 || (config && $('yaml').value !== config.yaml) || books.dirty() || intents.dirty();
 const confirmDiscard = () => !unsaved() || confirm('放弃尚未保存的修改？');
 
 // ---------- login
@@ -138,6 +139,7 @@ async function select(id) {
   if (busy || (id !== selected && !confirmDiscard())) return;
   selected = id; dirty.clear(); logSeq = 0; logLines = []; $('log').replaceChildren(); detail = null; config = null;
   worldKey = ''; $('world-view').replaceChildren();
+  books.reset(); intents.reset();
   $('empty').hidden = true; $('create').hidden = true; $('channel').hidden = false;
   $('title').textContent = id; $('subtitle').textContent = '';
   try { await Promise.all([loadConfig(), refreshDetail()]); await refreshChannels(); showTab(tab); notice(''); }
@@ -151,12 +153,18 @@ async function loadConfig() {
   dirty.clear(); renderForm(); renderSavebar();
 }
 
+// The worldbook and the co-players' intentions (worldbook.js): files the host edits, running or not.
+const books = worldbookEditor($('worldbook-view'), { api, notice });
+const intents = intentionsEditor($('intentions-view'), { api, notice });
+
 // ---------- tabs
 for (const button of document.querySelectorAll('[data-tab]')) button.onclick = () => showTab(button.dataset.tab);
 function showTab(name) {
   tab = name;
   for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
-  for (const t of ['overview', 'plan', 'world', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
+  for (const t of ['overview', 'plan', 'world', 'worldbook', 'intentions', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
+  if (name === 'worldbook' && selected) books.load(selected);
+  if (name === 'intentions' && selected) intents.load(selected);
   if (name === 'world') refreshWorld().catch(error => notice(error.message, 'bad'));
   if (name === 'logs') refreshLogs().catch(() => {});
 }

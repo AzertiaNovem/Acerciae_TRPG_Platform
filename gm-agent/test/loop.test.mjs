@@ -796,24 +796,21 @@ test("co-players are GM-cast PCs: every PC the GM account owns is one, older mar
 // ---- improvisation mode
 const IMPROV = { on: true, world: "WORLD-PUBLIC: Kingsport, 1923. A fog-bound port; the Harbour Guild runs the docks.", secrets: "WORLD-SECRET: the Guild master drowned the lighthouse keeper." };
 
-test("improvisation: the world is posted once for the players, and the GM and co-players get it as a section of its own", async () => {
+test("improvisation: the world is never posted in the chat; the GM and co-players get it as a section of its own", async () => {
   const { t, api, llm } = await table({ improv: IMPROV, heal: true });
-  const posted = api.posts.filter((p) => p.window === "w-main" && p.content.includes("WORLD-PUBLIC"));
-  assert.equal(posted.length, 1, "posted in the Main Chat"); assert.equal(posted[0].visibility, "window"); assert.match(posted[0].content, /^World setting/);
-  await t.publishWorld();
-  assert.equal(api.posts.filter((p) => p.content.includes("WORLD-PUBLIC")).length, 1, "never posted twice for the same text");
+  assert.ok(!api.posts.some((p) => p.content.includes("WORLD-PUBLIC")), "players read the worldbook where the agent runs");
   await alicePosts(t, api, "I look out over the harbour.");
   await settle(t);
   const director = llm.calls.find((c) => c.purpose === "director");
   const ctx = director.messages[0].content;
   assert.ok(ctx.includes("## World setting") && ctx.includes("WORLD-PUBLIC"));
   assert.ok(ctx.includes("## Hidden truths") && ctx.includes("WORLD-SECRET"), "the GM keeps the secrets");
-  assert.equal(ctx.split("WORLD-PUBLIC").length - 1, 1, "the posted copy is left out of the chat");
+  assert.equal(ctx.split("WORLD-PUBLIC").length - 1, 1, "once");
   assert.ok(!ctx.includes("SECRET-SCRIPT"), "no module script knowledge");
   assert.match(director.system, /there is no module/); assert.match(llm.calls.find(c => c.purpose === "chat_format").system, /"type": "truth"/);
   const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content;
   assert.ok(cp.includes("THE WORLD") && cp.includes("WORLD-PUBLIC"), "the co-player knows the world");
-  assert.equal(cp.split("WORLD-PUBLIC").length - 1, 1, "once, not again from the chat");
+  assert.equal(cp.split("WORLD-PUBLIC").length - 1, 1, "once");
   assert.ok(!cp.includes("WORLD-SECRET"), "never the GM's secrets");
   assert.ok(cp.includes("PERSONA: A sharp antiquarian."), "and its own personality and background");
 });
@@ -843,18 +840,14 @@ test("improvisation off: the module guides the GM, no world, and truth is not an
   assert.equal(t.improv.on, false);
 });
 
-test("the world command turns the mode on, posts a long setting in parts, and posts it again only when it changes", async () => {
-  const { t, api } = await table();
-  const long = Array.from({ length: 6 }, (_, i) => `PART-${i} ${"x".repeat(1500)}`).join("\n\n");
-  await t.command({ cmd: "world", on: true, world: long, secrets: "S" });
-  const parts = api.posts.filter((p) => p.content.startsWith("World setting ("));
-  assert.ok(parts.length >= 3 && parts.every((p) => p.content.length <= 4100), `${parts.length} parts`);
-  assert.ok(parts.at(-1).content.includes("PART-5"));
-  await t.command({ cmd: "world", on: true, world: long });
-  assert.equal(api.posts.filter((p) => p.content.startsWith("World setting (")).length, parts.length, "unchanged: not posted again");
+test("the world command turns the mode on and changes the world without posting it", async () => {
+  const { t, api, llm } = await table();
+  await t.command({ cmd: "world", on: true, world: "WORLD-ONE", secrets: "S" });
   await t.command({ cmd: "world", world: "A new world." });
-  assert.ok(api.posts.some((p) => p.content === "World setting\n\nA new world."));
-  assert.equal(t.improv.secrets, "S", "secrets kept when not given");
+  assert.equal(t.improv.world, "A new world."); assert.equal(t.improv.secrets, "S", "secrets kept when not given");
+  assert.ok(!api.posts.some((p) => /WORLD-ONE|A new world/.test(p.content)), "nothing is posted");
+  await alicePosts(t, api, "Hello."); await settle(t);
+  assert.ok(llm.calls.filter((c) => c.purpose === "director").at(-1).messages[0].content.includes("A new world."));
 });
 
 // ---- long context: local history, compaction, co-player memory, cache layout, usage
@@ -1049,7 +1042,7 @@ test("improvisation: the world and secrets are handed to the platform's world re
   llm.director = (user) => (user.includes("Who did it") ? { actions: [{ type: "truth", text: "TRUTH-Y: the clerk forged it." }], coplayers_may_act: false } : base(user));
   const { t, api } = await table({ llm, improv: IMPROV, heal: true });
   assert.deepEqual(api.declared.map((d) => [d.text.slice(0, 12), d.secret]), [["WORLD-PUBLIC", false], ["WORLD-SECRET", true]]);
-  await t.publishWorld(); await t.seedWorld();
+  await t.seedWorld();
   assert.equal(api.declared.length, 2, "not again for the same texts");
   await t.command({ cmd: "world", secrets: "WORLD-SECRET-2: the keeper lives." });
   assert.equal(api.declared.at(-1).text, "WORLD-SECRET-2: the keeper lives."); assert.equal(api.declared.at(-1).secret, true);
