@@ -6,8 +6,8 @@ import { providerNames } from './host-config.mjs';
 import { HostSessions } from './host-sessions.mjs';
 const asset = name => fs.readFileSync(new URL(`../web/${name}`, import.meta.url));
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
-const ASSETS = { '/world-state.js': ['world-state.js', 'text/javascript; charset=utf-8'], '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/usage.js': ['usage.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
-const OPERATIONS = ['config', 'action', 'status', 'world', 'logs', 'form', 'validate', 'registry', 'remove'];
+const ASSETS = { '/world-state.js': ['world-state.js', 'text/javascript; charset=utf-8'], '/worldbook.js': ['worldbook.js', 'text/javascript; charset=utf-8'], '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/usage.js': ['usage.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
+const OPERATIONS = ['config', 'action', 'status', 'world', 'logs', 'form', 'validate', 'registry', 'remove', 'worldbook', 'intentions'];
 const originOf = value => { try { return new URL(value).origin; } catch { return null; } };
 // Browsers send Origin on every POST. It must be this UI's own address: the Host the request arrived with, the host a
 // reverse proxy forwarded (X-Forwarded-Host; a page on another site cannot set that header without a CORS preflight,
@@ -66,6 +66,8 @@ export async function startWeb(manager, options) {
       try { manager.entry(id); } catch { return send(404, { error: 'Unknown channel' }); }
       if (req.method === 'GET') {
         if (operation === 'world') return send(200, await manager.snapshot(id, 'world'));
+        if (operation === 'worldbook') return send(200, manager.worldbook(id));
+        if (operation === 'intentions') return send(200, manager.intentions(id));
         if (operation === 'config') return send(200, manager.config(id));
         if (operation === 'status') return send(200, await manager.detail(id));
         if (operation === 'logs') return send(200, manager.logs(id, Math.max(0, Number(url.searchParams.get('after')) || 0)));
@@ -92,6 +94,8 @@ export async function startWeb(manager, options) {
         } else saved = await manager.saveForm(id, body.changes, body.revision);
         return send(200, { ok: true, ...saved, values: manager.config(id).values });
       }
+      if (operation === 'worldbook') return send(200, { ok: true, ...manager.saveWorldbook(id, body) });
+      if (operation === 'intentions') return send(200, { ok: true, ...manager.saveIntentions(id, body) });
       await manager.action(id, body.action);
       send(200, { ok: true });
     } catch (error) { send(error.code === 'HTTP' ? error.status : error.code === 'STALE_CONFIG' || error.code === 'CONFLICT' ? 409 : 400, { error: error.message }); }

@@ -9,6 +9,7 @@ import { renderProfile } from "./context/profiles.mjs";
 import { historyParts } from "./llm/parts.mjs";
 import { CHUNK_LINES } from "./memory.mjs";
 import { COC7E } from "./rules/coc7e.mjs";
+import { renderIntention } from "./intentions.mjs";
 
 // The profile supplies each game's vocabulary and dice commands. `improv` follows the public world's tone;
 // `casual` lets a co-player text another character on their phone (casual.mjs).
@@ -105,7 +106,7 @@ function cardSummary(card, { stable = false, profile = COC7E, attrs = {} } = {})
 // `impulse` is the story planner's one private urge for this co-player (planner.mjs renderImpulse), uncached.
 // `today` is the story's date as this co-player lives it (calendar.mjs), `timePassed` a line when the calendar moved
 // on since it last acted; `met` the NPCs it has met (rendered), `bonds` the relationships it knows (bonds.mjs).
-export async function coplayerTurn(llm, { language, coplayer, card, companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, spark = false, whistle = false, gentle = false, attentionNote = "", daily = false, dailyNote = "", world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null, profile = COC7E, attrs = {}, canFormat, writing, formatting }) {
+export async function coplayerTurn(llm, { language, coplayer, card, lore = "", intention = "", companions = [], withYou = null, log, memories = [], recalled = "", spotlight, timeline = null, side = false, spark = false, whistle = false, gentle = false, attentionNote = "", daily = false, dailyNote = "", world = "", improv = false, casual = false, phone = "", impulse = "", today = "", routine = "", timePassed = "", corrections = "", met = "", bonds = "", pbta = null, profile = COC7E, attrs = {}, canFormat, writing, formatting }) {
   const here = withYou ? companions.filter((c) => withYou.includes(c.id)) : companions;
   const away = withYou ? companions.filter((c) => !withYou.includes(c.id)) : [];
   const newest = log[log.length - 1];
@@ -123,6 +124,7 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
     attentionNote,
     gentle ? 'UNATTENDED PERSONAL SCENE: choose only ordinary daily-life activities for yourself. You may explicitly leave for your own routine or accept an immediate invitation. No player-dependent plot, secrets, danger, relationship escalation, rolls or phone texts. Do not move, summon or demand a response from passive humans. Speak briefly or pass.' : '',
     `YOUR CURRENT CONDITION AND INVENTORY:\n${cardState(card, profile, attrs)}`,
+    renderIntention(intention),
     recalled,
     phone ? `YOUR PHONE (recent text messages, oldest first):\n${phone}` : "",
     ...(pbta ? ["Your available moves and playbook: " + JSON.stringify(pbta)] : [
@@ -131,6 +133,7 @@ export async function coplayerTurn(llm, { language, coplayer, card, companions =
       timePassed,
     ]),
     timeline ? `YOUR TIMELINE: ${timeline.name}${timeline.narrativeTime ? `; time: ${timeline.narrativeTime}` : ""}${timeline.location ? `; place: ${timeline.location}` : ""}` : "",
+    lore,
     side ? "No human player is with you here: you and your companions drive this thread yourselves. Choose, investigate, talk to the people you meet; still never narrate outcomes." : "",
     `THE OTHER ${PCS} (what you know about your companions)${withYou ? " — WITH YOU HERE" : ""}:\n${here.map(c => pbta ? c.name : renderProfile(c, "", profile)).join("\n") || "(none)"}`,
     away.length ? `ELSEWHERE (not in this scene; talk to them only when you meet again):\n${away.map(c => pbta ? c.name : renderProfile(c, "", profile)).join("\n")}` : "",

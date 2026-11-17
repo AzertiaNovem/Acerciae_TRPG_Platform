@@ -452,3 +452,40 @@ test('Web UI origin check: its own address, a reverse proxy that forwards the ho
   assert.equal(refused.status, 403);
   assert.match((await refused.json()).error, /opened at https:\/\/evil\.example, but the request reached the host as 127\.0\.0\.1:\d+.*proxy_set_header Host \$http_host.*webui\.allowed_origins/);
 });
+
+test('Web UI edits the worldbook and the co-players\' intentions in their files, with revision checks, running or not', async t => {
+  const host = fixture(t), manager = new _M(host, { makeWorker: cfg => new TalkingWorker(cfg) });
+  const web = await startWeb(manager, host.web);
+  t.after(async () => { await manager.close(); await new Promise(resolve => web.close(resolve)); });
+  fs.mkdirSync(host.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(host.stateDir, 'a.json'), JSON.stringify({ channelId: 'a', improv: { on: true, world: 'STATE-WORLD', secrets: 'STATE-SECRET' }, coplayers: [{ characterId: 'c-h', name: 'Harriet Vance' }] }));
+  const base = `http://127.0.0.1:${web.address().port}`;
+  const headers = { Authorization: `Bearer ${host.web.token}`, 'Content-Type': 'application/json' };
+  const get = async p => { const r = await fetch(base + p, { headers }); return { status: r.status, body: await r.json() }; };
+  const post = async (p, body, extra = {}) => { const r = await fetch(base + p, { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+  // Before the channel ever ran with a worldbook, the state's world is the starting point.
+  let book = (await get('/api/channels/a/worldbook')).body;
+  assert.deepEqual([book.exists, book.improv, book.revision, book.bible, book.hidden, book.entries], [false, true, 0, 'STATE-WORLD', 'STATE-SECRET', []]);
+  const edit = { bible: 'BIBLE', hidden: 'HIDDEN', entries: [{ title: 'Harbour Guild', keys: ['dockmasters', 'guild hall'], body: 'The Guild runs the docks.', secret: false, enabled: true }] };
+  const saved = await post('/api/channels/a/worldbook', { revision: 0, book: edit });
+  assert.equal(saved.status, 200);
+  assert.deepEqual([saved.body.revision, saved.body.entries[0].id, saved.body.updatedBy], [1, 'e1', 'web']);
+  const file = JSON.parse(fs.readFileSync(path.join(host.stateDir, 'a.worldbook.json'), 'utf8'));
+  assert.deepEqual([file.bible, file.entries[0].keys, file.updatedBy], ['BIBLE', ['dockmasters', 'guild hall'], 'web']);
+  assert.equal((await post('/api/channels/a/worldbook', { revision: 0, book: edit })).status, 409, 'a stale editor is refused');
+  assert.match((await post('/api/channels/a/worldbook', { revision: 1, book: { entries: [{ title: 'Empty', body: '' }] } })).body.error, /"Empty" has no text/);
+  assert.equal((await post('/api/channels/a/worldbook', { revision: 1, book: edit }, { Origin: 'http://elsewhere' })).status, 403);
+  book = (await get('/api/channels/a/worldbook')).body;
+  assert.equal(book.revision, 1);
+  // Intentions: only co-players, set and cleared by hand.
+  let intents = (await get('/api/channels/a/intentions')).body;
+  assert.deepEqual(intents.coplayers, [{ id: 'c-h', name: 'Harriet Vance', intention: '', at: null }]);
+  const set = await post('/api/channels/a/intentions', { revision: 0, changes: { 'c-h': 'Win Mina over; keep the club united.' } });
+  assert.equal(set.status, 200);
+  assert.equal(set.body.coplayers[0].intention, 'Win Mina over; keep the club united.');
+  assert.match((await post('/api/channels/a/intentions', { revision: 1, changes: { 'c-alice': 'x' } })).body.error, /not a co-player/);
+  assert.equal((await post('/api/channels/a/intentions', { revision: 0, changes: { 'c-h': '' } })).status, 409);
+  intents = (await post('/api/channels/a/intentions', { revision: 1, changes: { 'c-h': '' } })).body;
+  assert.deepEqual([intents.revision, intents.coplayers[0].intention], [2, '']);
+  assert.equal((await get('/api/channels/zz/worldbook')).status, 404);
+});

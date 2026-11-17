@@ -79,12 +79,14 @@ export class GmContext {
   //   D          – what changes every turn: the scenario's event count, reminders, tips, windows, the newest lines.
   // `sceneOf(windowId)` gives the active timeline played in a window (the main timeline for the Main Chat), or null.
   // `improv` (improv.mjs): in improvisation mode the module's script knowledge and hints are left out, and the world
-  // setting and hidden truths are added. `hide` holds message ids left out of the chat (the posted world setting).
+  // setting and hidden truths are added; `worldbook({lines, place, scenario})` gives the worldbook's index and the
+  // entries in play in this window (table/worldbook.mjs). `hide` holds message ids left out of the chat (a world setting
+  // posted by earlier versions).
   // `awayOf(characterId)` is how long a player character's player has been away (ms), or null when they are around.
   // `storyPlan` is the planner's rendered section (planner.mjs) for part C; `peek` leaves the live tips for the GM (the
   // planner reads the context too, in the background). `calendar` and `bonds` are the rendered calendar.mjs and
   // bonds.mjs sections, and `table` the players' wishes and corrections (wishes.mjs), also for part C.
-  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, worldStateText = "", hide = null, awayOf = () => null, daily = null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "", initiative = null }) {
+  async build({ windowId, roster, characters, windows, timelines, sceneOf = () => null, improv = null, worldbook = null, worldStateText = "", hide = null, awayOf = () => null, daily = null, storyPlan = "", peek = false, calendar = "", bonds = "", table = "", initiative = null }) {
     const ch = this.channelId;
     const candidates = [];
     const P = this.profile;
@@ -121,6 +123,9 @@ export class GmContext {
     a.push(`## Campaign\nname: ${channel?.name ?? ""}\nera: ${channel?.era || "(not set)"}\ndescription: ${clip(channel?.description, 600)}\nstory: ${channel?.story_status ?? "ongoing"}\ncurrent scenario: ${current ? `${current.title}${current.location ? ` @ ${current.location}` : ""}${current.narrative_time ? ` (${current.narrative_time})` : ""}` : "(none)"}`);
     const [worldSection, hiddenSection] = improvSections(improv);
     if (worldSection) a.push(worldSection);
+    // The worldbook (worldbook.mjs): the list of its entries with the campaign; the entries this window came to, below.
+    const lore = worldbook?.({ lines: linesOf(windowId), place: sceneOf(windowId)?.location ?? "", scenario: current?.title ?? "" }) ?? null;
+    if (lore?.index) a.push(lore.index);
     const prepared = (scenes ?? []).filter((s) => s.status === "active" && s.id !== channel?.current_scene_id);
     if (prepared.length) a.push(`## Prepared scenarios (enter_scenario)\n${prepared.map((s) => `- ${s.title}${s.location ? ` @ ${s.location}` : ""}${s.narrative_time ? ` (${s.narrative_time})` : ""}${s.summary ? `: ${clip(s.summary, 200)}` : ""}`).join("\n")}`);
     const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-8);
@@ -154,6 +159,7 @@ export class GmContext {
     // ---- C: changes every few turns
     const c = [], dailyVolatile = [];
     if (hiddenSection) c.push(hiddenSection);
+    if (lore?.inPlay) c.push(lore.inPlay);
     if (worldStateText) c.push(worldStateText);
     if (table) c.push(table);
     if (storyPlan && !daily) c.push(storyPlan);

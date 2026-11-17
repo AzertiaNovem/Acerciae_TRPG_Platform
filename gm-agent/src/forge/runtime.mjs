@@ -6,6 +6,7 @@ import { usageSink } from '../usage.mjs';
 import { Realtime } from '../realtime.mjs';
 import { rulesProfile } from '../rules/index.mjs';
 import { loadState, saveState } from '../state.mjs';
+import { writeWorldbookTexts } from '../table/worldbook.mjs';
 import { newSession, SESSION_KEY, fact, join, acceptAnswer, approve, allApproved, publicDossier, status, hash } from './state.mjs';
 import { controlsCard, questionCard, command, bindingFor } from './cards.mjs';
 import { interview, compile, secrets, playtest } from './design.mjs';
@@ -170,6 +171,7 @@ export async function startForge({cfg,api,channel,release,managed,run,log}) {
     let state=loadState(cfg.stateDir,channel.id)??{channelId:channel.id,serverId:channel.server_id};
     state=importSeed(state,s,await api.characters(channel.id));
     state.improv={on:true,world:s.candidate.world+'\n\n开局条件\n'+s.candidate.opening,secrets:s.privateWorld,truths:[]};
+    try{state.improv.book=writeWorldbookTexts(cfg.stateDir,channel.id,state.improv,'forge');}catch(e){log('worldbook: '+e.message);}
     state.forge={id:s.id,revision:s.revision,phase:'playing',characterIds:s.characterIds};state.pbtaSetup={ready:true};saveState(cfg.stateDir,state);
     s.phase='playing';store.set(SESSION_KEY,s);table.forge=status(s);table.stopped=true;
     clearInterval(timer);rt?.stop();release();store.close();
