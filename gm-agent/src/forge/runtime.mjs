@@ -170,6 +170,8 @@ export async function startForge({cfg,api,channel,release,managed,run,log}) {
     let state=loadState(cfg.stateDir,channel.id)??{channelId:channel.id,serverId:channel.server_id};
     state=importSeed(state,s,await api.characters(channel.id));
     state.improv={on:true,world:s.candidate.world+'\n\n开局条件\n'+s.candidate.opening,secrets:s.privateWorld,truths:[]};
+    // Forge skips ordinary setup/card generation; carry the selected casual mode into play here.
+    if(cfg.casual!==undefined) state.casual={...(state.casual??{}),on:cfg.casual};
     state.forge={id:s.id,revision:s.revision,phase:'playing',characterIds:s.characterIds};state.pbtaSetup={ready:true};saveState(cfg.stateDir,state);
     s.phase='playing';store.set(SESSION_KEY,s);table.forge=status(s);table.stopped=true;
     clearInterval(timer);rt?.stop();release();store.close();

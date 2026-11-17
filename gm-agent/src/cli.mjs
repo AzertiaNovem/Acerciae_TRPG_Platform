@@ -74,8 +74,8 @@ export async function resolveChannel(api, cfg, { create }) {
   if (!RULE_SYSTEMS.includes(cfg.ruleSystem)) throw Error(`Choose --rules ${RULE_SYSTEMS.join(", ")}`);
   let serverId = cfg.serverId;
   if (!serverId) { serverId = (await api.createServer(cfg.serverName)).id; log(`created server "${cfg.serverName}"`); }
-  // Casual mode's phones are private only when each player is in a group of their own.
-  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: cfg.casual ? "isolated" : "public", rule_system: cfg.ruleSystem });
+  // Phones and private scene forks require isolated knowledge (and a separate group for each player).
+  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: cfg.casual || cfg.sceneForks ? "isolated" : "public", rule_system: cfg.ruleSystem });
   if (cfg.era) await api.updateChannel(ch.id, { era: cfg.era });
   log(`created channel "${cfg.channelName}"`);
   // A channel this client made has no players yet: an invite code gets them onto the server.

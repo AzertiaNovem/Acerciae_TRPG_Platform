@@ -8,7 +8,7 @@ import { channelConfig, atomicWrite, parseChannel, sharedConfig, editRegistry, r
 import { keptChannels } from './channels.mjs';
 import { RULE_SYSTEMS } from './rules/index.mjs';
 import { applyChanges, formValues } from './host-schema.mjs';
-import { lockPath } from './state.mjs';
+import { lockPath, loadState } from './state.mjs';
 
 const LOG_LINES = 600, LOG_LINE_CHARS = 2000;
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
@@ -223,7 +223,12 @@ export class HostManager {
     const [channels, servers] = await Promise.all([keptChannels(api), api.servers().catch(() => [])]);
     const hosted = new Set(this.host.channels.map(e => e.id));
     return { account: cfg.username, defaults: this.defaults(),
-      channels: channels.map(c => ({ id: c.id, name: c.name, server: c.server, serverId: c.serverId, knowledge: c.knowledge_mode ?? 'public', rule: c.rule_system ?? 'coc7e', hosted: hosted.has(c.id) })),
+      channels: channels.map(c => {
+        const state = validId(c.id) ? loadState(this.host.stateDir, c.id) : null;
+        return { id: c.id, name: c.name, server: c.server, serverId: c.serverId, knowledge: c.knowledge_mode ?? 'public', rule: c.rule_system ?? 'coc7e', hosted: hosted.has(c.id), hasModule: Boolean(c.module_id),
+          // Only mode availability is needed by the wizard, never the world text or GM secrets.
+          saved: state ? { improv: Boolean(state.improv?.on || state.forge), casual: Boolean(state.casual?.on), hasWorld: typeof state.improv?.world === 'string' && Boolean(state.improv.world.trim()), forgePhase: state.forge?.phase ?? null } : null };
+      }),
       servers: (servers ?? []).map(s => ({ id: s.id, name: s.name })) };
   }
   create(spec) { return this.serial(async () => {
@@ -233,14 +238,14 @@ export class HostManager {
     if (task.source === 'new' && task.era) settings['channel.era'] = task.era;
     const text = applyChanges('', settings), dir = this.channelDir();
     // The channel file must be valid before anything is created on the platform.
-    channelConfig(this.host, { id: 'new-channel', config: path.join(dir, 'new-channel.yml') }, text);
+    const initialCfg = channelConfig(this.host, { id: 'new-channel', config: path.join(dir, 'new-channel.yml') }, text);
     if (task.source === 'existing' && this.host.channels.some(e => e.id === task.channelId)) conflict('这个频道已经在主持中');
     const { resolveChannel } = await import('./cli.mjs');
     const { cfg, api } = await this.signIn();
-    const casual = [true, 'true'].includes(settings['modes.casual']);
+    const casual = initialCfg.casual === true, sceneForks = initialCfg.sceneForks;
     const target = task.source === 'existing'
       ? await resolveChannel(api, { ...cfg, channelId: task.channelId }, { create: false })
-      : await resolveChannel(api, { ...cfg, channelId: '', create: true, serverId: task.serverId, serverName: task.serverName, channelName: task.channelName, ruleSystem: task.ruleSystem, era: task.era, casual }, { create: true });
+      : await resolveChannel(api, { ...cfg, channelId: '', create: true, serverId: task.serverId, serverName: task.serverName, channelName: task.channelName, ruleSystem: task.ruleSystem, era: task.era, casual, sceneForks }, { create: true });
     const id = target.channel.id;
     if (!validId(id)) throw Error('The platform returned an unusable channel id');
     if (this.host.channels.some(e => e.id === id)) conflict('这个频道已经在主持中');

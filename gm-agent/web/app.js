@@ -3,6 +3,7 @@
 // All content is set with textContent (no HTML from the server).
 import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
 import { renderWorld } from './world-state.js';
+import { CreateWizard } from './create-wizard.js';
 'use strict';
 let worldKey = '', worldBusy = false;
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
@@ -69,7 +70,7 @@ async function connect() {
   notice('已连接。请选择频道。');
 }
 function disconnect() {
-  connection++; connected = false; selected = ''; config = null; detail = null; hostInfo = null; schema = null; channels = []; platform = null; dirty.clear();
+  connection++; connected = false; selected = ''; config = null; detail = null; hostInfo = null; schema = null; channels = []; createWizard.clear(); dirty.clear();
   logSeq = 0; logLines = []; $('log').replaceChildren(); $('token').value = ''; $('channel-count').textContent = '';
   $('yaml').value = ''; $('form').replaceChildren(); $('overview').replaceChildren(); $('host').replaceChildren(); renderSavebar();
   planKey = ''; worldKey = ''; $('world-view').replaceChildren(); $('plan-view').replaceChildren(); $('host-usage').replaceChildren(); $('host-usage').hidden = true; $('all-usage').disabled = true;
@@ -530,109 +531,20 @@ setInterval(() => { if (connected && !busy && selected && tab === 'logs') refres
 setInterval(() => { if (connected && !busy) refreshHost().catch(() => {}); }, 30000);
 
 // ---------- hosting tasks: create, auto-start / prepare switches, remove
-let platform = null;
 $('all-usage').onclick = () => {
   if (busy || !confirmDiscard()) return;
   selected = ''; detail = null; config = null; dirty.clear(); renderSavebar();
   $('channel').hidden = true; $('create').hidden = true; $('empty').hidden = false;
   refreshChannels().catch(e => notice(e.message, 'bad')); notice('');
 };
-const CREATE_FIELDS = ['modes.improv', 'forge.enabled', 'table.language', 'table.coplayers', 'table.level', 'modes.casual', 'timelines.scene_forks', 'autonomy.enabled', 'planner.enabled'];
-const source = () => document.querySelector('input[name=source]:checked').value;
-function createRule() {
-  if (source() === 'new') return $('c-rule').value;
-  return platform?.channels.find(c => c.id === $('c-channel').value)?.rule ?? null;
-}
-function renderCreateSettings() {
-  const keep = Object.fromEntries([...document.querySelectorAll('#c-settings [data-key]')].map(el => [el.dataset.key, el.value]));
-  const fields = CREATE_FIELDS.map(k => schema.fields.find(x => x.key === k)).filter(Boolean).filter(x => x.key !== 'table.level' || createRule() === 'dnd2024');
-  $('c-settings').replaceChildren(...fields.map(field => {
-    const def = platform?.defaults?.[field.key]?.default, id = `c-${field.key.replace('.', '-')}`;
-    let control;
-    if (field.type === 'int' || field.type === 'string') control = h('input', { id, 'data-key': field.key, type: field.type === 'int' ? 'number' : 'text', min: field.min, max: field.max, placeholder: `默认：${display(field, def)}`, autocomplete: 'off' });
-    else {
-      const opts = field.type === 'enum' ? field.options.map(o => [o, o === '' ? `默认（${display(field, def)}）` : o])
-        : [['', field.type === 'tri' ? '默认（关）' : `默认（${display(field, def)}）`], ['true', '开'], ['false', '关']];
-      control = h('select', { id, 'data-key': field.key }, ...opts.map(([v, label]) => h('option', { value: v, text: label })));
-    }
-    if (keep[field.key] !== undefined) control.value = keep[field.key];
-    if (field.key === 'modes.casual') control.addEventListener('change', explainCasual);
-    return h('div', { class: 'field' }, h('label', { for: id }, h('span', { text: field.label }), h('code', { text: field.key })),
-      h('div', { class: 'control' }, control), h('p', { class: 'help', text: field.help }));
-  }));
-  explainCasual();
-}
-function explainCasual() {
-  const casual = $('c-modes-casual')?.value === 'true';
-  $('c-rule-help').textContent = `规则系统之后可在平台的 GM 工作区中更改。${casual ? '日常模式会把新频道设为“隔离”知识模式，让每位玩家的手机保持私密。' : '新频道使用“公开”知识模式；开启日常模式则为“隔离”。'}${$('c-rule').value === 'pbta' ? ' PbtA 频道需要先在 GM 工作区审核规则草案，审核前不会开始主持。' : ''}`;
-}
-function renderPlatform() {
-  $('create-account').textContent = platform?.account ?? '';
-  const free = platform.channels.filter(c => !c.hosted);
-  $('c-channel').replaceChildren(
-    h('option', { value: '', text: free.length ? '选择频道…' : '（没有可接入的频道）' }),
-    ...platform.channels.map(c => h('option', { value: c.id, disabled: c.hosted ? true : undefined,
-      text: `${c.name} — ${c.server} · ${RULES[c.rule] ?? c.rule} · ${c.knowledge === 'isolated' ? '隔离' : '公开'}${c.hosted ? '（已在主持）' : ''}` })));
-  $('c-channel-help').textContent = platform.channels.length
-    ? `GM 账户是这些频道的 GM。${free.length ? '' : '它们都已在主持中。'}要接入其他频道，先在网页端把 ${platform.account} 设为该频道的 GM。`
-    : `${platform.account} 还不是任何频道的 GM。在网页端把它设为某个频道的 GM，或在这里新建频道。`;
-  const current = $('c-server').value;
-  $('c-server').replaceChildren(h('option', { value: '', text: '＋ 新建服务器' }), ...platform.servers.map(x => h('option', { value: x.id, text: x.name })));
-  $('c-server').value = platform.servers.some(x => x.id === current) ? current : '';
-  $('c-server-name-row').hidden = Boolean($('c-server').value);
-  renderCreateSettings();
-}
-async function loadPlatform() {
-  $('create-status').textContent = '正在读取平台上的频道…';
-  try { platform = await api('/api/platform'); renderPlatform(); $('create-status').textContent = ''; }
-  catch (error) { $('create-status').textContent = `无法读取平台：${error.message}`; $('create-status').className = 'small error-text'; throw error; }
-}
+const createWizard = new CreateWizard({ h, api, getSchema: () => schema, notice,
+  isBusy: () => busy, onBusy: value => { busy = value; },
+  onCreated: () => Promise.allSettled([refreshChannels(), refreshHost()]), viewChannel: id => select(id) });
 $('new-task').onclick = async () => {
   if (busy || !confirmDiscard()) return;
-  selected = ''; dirty.clear(); detail = null; config = null;
-  $('empty').hidden = true; $('channel').hidden = true; $('create').hidden = false; $('create-result').hidden = true; resetCreate();
-  $('create-status').className = 'muted small';
-  await refreshChannels().catch(() => {});
-  await loadPlatform().catch(() => {});
-};
-// A fresh form for the next task: no settings, switches back on, names cleared (the source and server stay).
-function resetCreate() {
-  for (const id of ['c-name', 'c-era', 'c-server-name']) $(id).value = '';
-  for (const id of ['c-enabled', 'c-prepare', 'c-start']) $(id).checked = true;
-  $('c-settings').replaceChildren(); renderCreateSettings();
-}
-$('create-cancel').onclick = () => { $('create').hidden = true; $('empty').hidden = false; };
-$('c-refresh').onclick = () => loadPlatform().catch(() => {});
-for (const radio of document.querySelectorAll('input[name=source]')) radio.onchange = () => {
-  $('source-existing').hidden = source() !== 'existing'; $('source-new').hidden = source() !== 'new'; renderCreateSettings();
-};
-$('c-channel').onchange = renderCreateSettings; $('c-rule').onchange = renderCreateSettings;
-$('c-server').onchange = () => { $('c-server-name-row').hidden = Boolean($('c-server').value); };
-$('create-submit').onclick = async () => {
-  if (busy) return;
-  const settings = {};
-  for (const el of document.querySelectorAll('#c-settings [data-key]')) if (el.value !== '') settings[el.dataset.key] = el.value;
-  const body = { source: source(), settings, enabled: $('c-enabled').checked, prepare_on_start: $('c-prepare').checked, start: $('c-start').checked };
-  if (body.source === 'existing') body.channel_id = $('c-channel').value;
-  else Object.assign(body, { server_id: $('c-server').value, server_name: $('c-server-name').value, channel_name: $('c-name').value, rule_system: $('c-rule').value, era: $('c-era').value });
-  if (body.source === 'existing' && !body.channel_id) { notice('请选择一个频道。', 'bad'); return; }
-  if (body.source === 'new' && !confirm(`在平台上新建频道「${body.channel_name || '（未命名）'}」？`)) return;
-  busy = true; $('create-submit').disabled = true; $('create-status').className = 'muted small'; $('create-result').hidden = true;
-  $('create-status').textContent = body.source === 'new' ? '正在平台上创建频道…' : '正在接入…';
-  try {
-    const made = await api('/api/channels', body);
-    $('create-status').textContent = '';
-    const result = $('create-result');
-    result.replaceChildren(...[
-      h('div', {}, '已', made.created ? '新建并' : '', '接入 ', h('strong', { text: made.name }), `（${RULES[made.rule] ?? made.rule}），配置文件 `, h('code', { text: made.config }), body.start ? '，正在启动。' : '。'),
-      made.invite ? h('div', {}, '服务器邀请码：', h('strong', { class: 'mono', text: made.invite }), '（玩家用它加入服务器）') : null,
-      h('div', { class: 'row' }, h('button', { type: 'button', class: 'primary', onclick: () => select(made.id), text: '查看频道' }))].filter(Boolean));
-    result.hidden = false;
-    resetCreate();
-    notice('主持任务已创建。', 'ok');
-    await Promise.allSettled([refreshChannels(), refreshHost(), loadPlatform()]);
-  } catch (error) { $('create-status').textContent = `✗ ${error.message}`; $('create-status').className = 'small error-text'; }
-  finally { busy = false; $('create-submit').disabled = false; }
+  selected = ''; dirty.clear(); detail = null; config = null; renderSavebar();
+  $('empty').hidden = true; $('channel').hidden = true; $('create').hidden = false;
+  notice(''); await createWizard.open();
 };
 for (const [id, key] of [['r-enabled', 'enabled'], ['r-prepare', 'prepare_on_start']]) $(id).onchange = () => run(async () => {
   const saved = await api(`/api/channels/${selected}/registry`, { [key]: $(id).checked });

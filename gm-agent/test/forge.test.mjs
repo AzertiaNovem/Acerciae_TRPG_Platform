@@ -8,6 +8,11 @@ import { buildConfig } from '../src/config.mjs';
 import { Roster } from '../src/roles/roster.mjs';
 import { plannerWindowWanted } from '../src/table/social.mjs';
 import { Store } from '../src/store.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { startForge } from '../src/forge/runtime.mjs';
+import { loadState, saveState } from '../src/state.mjs';
 const setup = () => {const s=newSession({world:'public',secrets:'SECRET',rule:'pbta'});join(s,{user_id:'a',display_name:'A'});join(s,{user_id:'b',display_name:'B'});s.candidate={world:'world',characters:[]};s.phase='review';return s;};
 test('Forge requires improv, preserves completed authority, and planner window is improv-only',()=>{
   const cfg=buildConfig({}, {}, {forge:{enabled:true}});
@@ -79,4 +84,24 @@ test('private initial state maps C keys to real IDs exactly once and cannot assi
   const wrong={...s,candidate:{world:'World',characters:[{key:'C1',kind:'coplayer'},{key:'C2',kind:'player'}]}};
   await assert.rejects(createSeed({complete:async()=>JSON.stringify(s.worldStateSeed)},wrong),/NPC/);
   assert.equal(JSON.stringify(publicDossier(s)).includes('worldStateSeed'),false);
+});
+
+test('Forge hands the selected casual mode to play without losing existing phone state', async () => {
+  for (const casual of [true, false, undefined]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-casual-'));
+    let runtime, started;
+    const channel = { id: 'ch', server_id: 'server', forge_eligible: true, rule_system: 'coc7e' };
+    const api = { user: { id: 'gm' }, token: 'fixture', channel: async () => channel, channelMembers: async () => [], characters: async () => [],
+      createWindow: async () => ({ id: 'forge' }), windows: async () => [{ id: 'forge', purpose: 'forge' }], postMessage: async () => ({ id: 'message' }), postHypertext: async () => ({ id: 'card' }) };
+    try {
+      saveState(dir, { channelId: 'ch', casual: { on: true, phones: { player: 'phone-window' } } });
+      const cfg = { ...buildConfig({}, {}, { data: { llm: { provider: 'mock' } } }), stateDir: dir, apiBase: 'http://127.0.0.1:0', improv: true, casual };
+      runtime = await startForge({ cfg, api, channel, release: () => {}, managed: true, log: () => {}, run: async () => { started = loadState(dir, 'ch'); return { stop: async () => {} }; } });
+      Object.assign(runtime.table.s, { candidate: { world: 'Confirmed world', opening: 'The door opens', characters: [] }, privateWorld: 'Secret', characterIds: {} });
+      await runtime.table.onStart(runtime.table.s);
+      assert.equal(started.casual.on, casual ?? true);
+      assert.deepEqual(started.casual.phones, { player: 'phone-window' });
+      assert.equal(started.forge.phase, 'playing'); assert.equal(started.improv.on, true);
+    } finally { await runtime?.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+  }
 });
