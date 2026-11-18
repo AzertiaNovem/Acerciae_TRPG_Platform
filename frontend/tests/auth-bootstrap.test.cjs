@@ -8,7 +8,7 @@ function fixture() {
   const api = {me:async()=>{calls++;if(failure)throw failure;return {id:'u',ui_language:'en'};}};
   const noop=()=>{}; const mod={exports:{}};
   const code=ts.transpileModule(fs.readFileSync(require.resolve('../src/store/auth.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
-  const client={api,ApiError,getToken:()=>token,setToken:t=>token=t,forgetActiveCredential:async()=>{token=null;},ensureFileToken:async()=>'',rememberDesktopAccount:async()=>{},desktopAccounts:null};
+  const client={setViewAccount:noop,api,ApiError,getToken:()=>token,setToken:t=>token=t,forgetActiveCredential:async()=>{token=null;},ensureFileToken:async()=>'',rememberDesktopAccount:async()=>{},desktopAccounts:null};
   const deps={'../api/client':client,'../api/ws':{connectSockets:noop,closeSockets:noop},'./session':{bumpEpoch:noop},'../i18n':{useLocale:{getState:()=>({setLanguage:noop})}},'./reset':{resetUserStores:noop},'../lib/assetCache':{setAssetScope:noop,scheduleSweep:noop},'../lib/chatHistory':{setHistoryScope:noop,clearHistory:async()=>{}},'../lib/platform':{apiBase:()=>'',isDesktop:false}};
   new Function('require','module','exports','setInterval',code)(name=>deps[name]??require(name),mod,mod.exports,noop);
   return {auth:mod.exports.useAuth,ApiError,fail:e=>failure=e,token:()=>token,calls:()=>calls,api,client};

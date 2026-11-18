@@ -121,8 +121,10 @@ navigation store for this; the Studio's view in its own store. Invitation (`/?in
 shell all do.
 
 Chat history in the web client (`frontend/src/store/chat.ts`, `lib/chatHistory.ts`): each window's lines are kept for
-the visit and on the device (IndexedDB, per account and server, at most 1,500 lines per window and 150 windows, removed
-on sign-out, discarded unread when the viewer's role or player group changed). Lines pushed on the chat stream are
+the visit and on the device (IndexedDB, per account and server, without age, line or window limits). Sign-out
+detaches the namespace; recalls replace stored copies, and a change of access discards the affected history.
+The database upgrades old snapshots in place. Individual rows and verified sequence intervals let the UI
+restore only the newest page and read earlier pages locally until it reaches an unverified gap. Lines pushed on the chat stream are
 shown at once in every window of the subscribed channel, but a push is never taken as proof that nothing was missed:
 only the server's answer to a check counts. A check asks only for the lines after the last one checked (`after_seq`),
 from just before the recent ones kept so recalls reach it; a gap of more than 1,000 lines starts again from the newest
@@ -130,6 +132,13 @@ page. The open window is checked every 30 s while the stream is subscribed (to c
 stayed up), every 5 s while it is not, and at once when the stream subscribes again; not while the page is hidden.
 Opening a window shows what is kept straight away and checks it only when its last check is that old, so switching
 back and forth sends nothing new. Scrolling up pages back until the window's first line.
+
+The web client warms the current viewer’s lightweight character, window and knowledge views during idle time,
+without following media URLs. Within a visit these snapshots can be displayed while a conditional GET runs.
+JSON endpoints opt in with `view_cache=1`: the server authenticates and projects the visible result first, then
+hashes the response and returns 304 for a matching ETag. Snapshots from an earlier visit require this check
+before display. Account changes and access resets invalidate in-flight reads. Media bytes use the separate
+on-demand asset cache; neither opening a character nor refreshing metadata requests its gallery in advance.
 
 ## Data model (PostgreSQL)
 

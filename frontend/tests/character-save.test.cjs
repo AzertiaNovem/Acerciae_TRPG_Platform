@@ -25,7 +25,7 @@ function harness(start = initial()) {
   const nav = { channelId: 'channel', characters: [], channel: { my_role: 'gm' }, openCharacter() {}, characterTab: 'card', setCharacterTab(t) { nav.characterTab = t; } };
   const requireMock = name => ({ react: hook, '../api/client': { api }, '../store/nav': { useNav: select => (select ? select(nav) : nav) }, '../lib/route': { CHARACTER_TABS: ['card', 'look', 'background', 'items'] }, '../store/ui': { useUi: select => select({ toast() {} }) }, '../i18n': { t: s => s }, '../store/session': { sessionEpoch: () => epoch }, './PointBuy': { default: () => null }, './pbta/Sheet': { default: () => null }, './DndSheet': { default: () => null, EMPTY_DND: {} }, './CachedImg': { CachedImg: () => null }, './CharacterOutfits': { default: () => null } }[name] || require(name));
   new Function('require', 'module', 'exports', source)(requireMock, mod, mod.exports);
-  global.window = { addEventListener: (name, callback) => events.set(name, callback), removeEventListener: name => events.delete(name) };
+  global.window = { setInterval: () => 1, addEventListener: (name, callback) => events.set(name, callback), removeEventListener: name => events.delete(name) };
   return { requests, api, events, render() { cursor = 0; const tree = mod.exports.default({ characterId: 'c' }); while (effects.length) effects.shift()(); return tree; }, async flush() { await new Promise(r => setImmediate(r)); }, holdSave(promise) { deferSave = promise; }, changeSession() { ++epoch; } };
 }
 function all(tree, predicate) { if (!tree || typeof tree !== 'object') return []; if (Array.isArray(tree)) return tree.flatMap(t => all(t, predicate)); return [...(predicate(tree) ? [tree] : []), ...all(tree.props?.children, predicate)]; }
@@ -86,3 +86,14 @@ test('after a rule change: the rebuild notice, former cards read-only, only a ca
   assert.equal(h2.requests.at(-1).card_rebuilt, true);
 });
 
+
+test('a slow hash check updates a warm card without replacing a draft or advancing its edit base', async () => {
+  const first=initial();first.character.updated_at='v1';
+  const h=harness(first), newer=copy(first);
+  newer.character.updated_at='v2';newer.character.role_card.characteristics.STR=60;
+  let release;
+  h.api.characterSpace=(_ch,_id,options)=>{options.cached(first);return new Promise(resolve=>{release=resolve;});};
+  h.render();edit(h,85);release(newer);await h.flush();
+  const tree=h.render();assert.equal(strength(tree).props.value,85);
+  await button(tree,'Save').props.onClick();assert.equal(h.requests[0].expected_updated_at,'v1');
+});

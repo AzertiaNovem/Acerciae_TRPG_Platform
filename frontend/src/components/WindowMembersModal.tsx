@@ -18,7 +18,7 @@ export default function WindowMembersModal({ windowId, onClose }: { windowId: st
   const [busy, setBusy] = useState<string | null>(null);
   const win = windows.find((w) => w.id === windowId);
   const members = win?.members ?? [];
-  useEffect(() => { if (channelId) api.channelMembers(channelId).then(setChannelMembers).catch(() => undefined); }, [channelId]);
+  useEffect(() => { let live=true; const show=(v: ChannelMember[])=>{if(live)setChannelMembers(v);}; if (channelId) api.channelMembers(channelId,{cached:show}).then(show).catch(()=>{if(live)setChannelMembers([]);}); return ()=>{live=false;}; }, [channelId]);
   if (!win || !channelId) return null;
 
   const add = async (userId: string) => { try { await api.addWindowMember(channelId, windowId, userId); await refreshWindows(); } catch (e: any) { toast(e.message, 'error'); } };

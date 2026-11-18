@@ -106,24 +106,36 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   const [rules, setRules] = useState<Coc7Rules | null>(null);
   const fileFor = useRef<{ slot: 'avatar' | 'portrait' | 'subtitle'; subtitle?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const draftBase = useRef<Space['character'] | null>(null);
+  const lastApplied = useRef<Space | null>(null);
+  const lookDirty = useRef(false);
   const apply = (s: Space, savedRevision?: number) => {
+    if (s === lastApplied.current && savedRevision === undefined) return;
+    lastApplied.current = s;
     setSpace(s);
     // Image responses and polls contain the last saved card, not the local draft.
     // A save acknowledgement also must not erase edits made while it was in flight.
+    if (!dirtyRef.current || savedRevision !== undefined) draftBase.current = s.character;
     if (!dirtyRef.current || savedRevision === revision.current) {
       setCard(s.character.role_card);
       setHead({ name: s.character.name, speaking_style: s.character.speaking_style, bio: s.character.bio ?? '' });
       setDirty(false);
     }
-    setLook({ asset_mode: s.character.asset_mode ?? 'uploaded', appearance_prompt: s.character.appearance_prompt ?? '' });
+    if (!lookDirty.current) setLook({ asset_mode: s.character.asset_mode ?? 'uploaded', appearance_prompt: s.character.appearance_prompt ?? '' });
   };
   const refresh = async () => {
     if (!channelId) return;
     const valid = validResponse();
-    try { const s = await api.characterSpace(channelId, characterId); if (valid()) apply(s); }
-    catch (e: any) { if (valid() && !space) toast(e.message, 'error'); }
+    const show = (s: Space) => { if (valid() && !busyRef.current) apply(s); };
+    try { show(await api.characterSpace(channelId, characterId, { cached: show })); }
+    catch (e: any) { if (!valid()) return; if ([401,403,404].includes(e.status)) { setSpace(null); openCharacter(null); } else if (!lastApplied.current && e.name !== 'AbortError') toast(e.message, 'error'); }
   };
-  useEffect(() => { mounted.current = true; refresh(); return () => { mounted.current = false; ++responseEpoch.current; }; }, [channelId, characterId]);
+  useEffect(() => {
+    mounted.current = true; refresh();
+    const check = () => { if (!document.hidden && !busyRef.current) void refresh(); };
+    const timer = window.setInterval(check, 30000);
+    return () => { clearInterval(timer); mounted.current = false; ++responseEpoch.current; };
+  }, [channelId, characterId]);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirtyRef.current) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
@@ -138,7 +150,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
   // Live updates (generation finished, another editor saved) arrive as character.updated → characters refresh.
   const version = characters.find((c) => c.id === characterId);
   useEffect(() => { if (space) refresh(); }, [version?.avatar_asset_id, version?.portrait_asset_id, version?.asset_mode, version?.outfit_id]);
-  useEffect(() => { if (!space || !space.jobs.some((j) => j.status === 'pending' || j.status === 'running')) return; const t = setTimeout(refresh, 2500); return () => clearTimeout(t); }, [space]);
+  useEffect(() => { if (!space || !space.jobs.some((j) => j.status === 'pending' || j.status === 'running')) return; const t = setInterval(refresh, 2500); return () => clearInterval(t); }, [space]);
   if (!channelId || !space || !card) return <div className="workspace"><div className="content muted">{tr("Loading…")}</div></div>;
   const c = space.character; const editable = c.editable;
   const url = (a: { id: string; version: number } | null) => (a ? api.mediaUrl(channelId, a.id, a.version) : '');
@@ -156,11 +168,11 @@ export default function CharacterSpace({ characterId }: { characterId: string })
       if (valid()) { if (isCardSave) setSaveError(e.message); toast(e.message, 'error'); }
     } finally { busyRef.current = false; if (mounted.current) { setBusy(false); setSaving(false); } }
   };
-  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, expected_updated_at: space.character.updated_at, expected_inventory_version: space.character.inventory_version, role_card: card }), tr('Character saved'), true);
+  const save = () => mutate(() => api.updateCharacterCard(channelId, characterId, { ...head, rule_system: space.rule_system, pack_revision: space.pbta_rules?.revision, expected_updated_at: draftBase.current?.updated_at, expected_inventory_version: draftBase.current?.inventory_version, role_card: card }), tr('Character saved'), true);
   // D&D: the build is part of the card; live values (Hit Points, slots left, death saves) are written straight away.
   const setDnd = (fn: (d: DndCard) => void) => setCardField((x) => { x.dnd = x.dnd ?? JSON.parse(JSON.stringify(EMPTY_DND)); fn(x.dnd!); });
   const setLive = (set: Record<string, number>) => mutate(async () => { await api.updateAttributes(channelId, characterId, { set }); return api.characterSpace(channelId, characterId); });
-  const saveLook = async (patch: Partial<typeof look>) => { if (busyRef.current) return; const next = { ...look, ...patch }; setLook(next); await mutate(() => api.updateCharacterAppearance(channelId, characterId, next)); };
+  const saveLook = async (patch: Partial<typeof look>) => { if (busyRef.current) return; lookDirty.current = false; const next = { ...look, ...patch }; setLook(next); await mutate(() => api.updateCharacterAppearance(channelId, characterId, next)); };
   const pickFile = (slot: 'avatar' | 'portrait' | 'subtitle', subtitle?: string) => { fileFor.current = { slot, subtitle }; fileInput.current?.click(); };
   const onFile = async (f: File | undefined) => { if (!f || !fileFor.current) return; const target = fileFor.current; await mutate(() => api.uploadCharacterAsset(channelId, characterId, target.slot, f, target.subtitle ?? ''), tr('Image uploaded')); if (fileInput.current) fileInput.current.value = ''; };
   const generate = (slots: string[], subtitles: string[]) => mutate(async () => (await api.generateCharacterAssets(channelId, characterId, { slots, subtitles, allow_cloud: true })).space, tr('Image generation queued'));
@@ -255,7 +267,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
               {!space.generation_available && <span className="tiny muted">{tr('Image generation is not configured on this server; uploads still work.')}</span>}
             </div>
             <div className="tiny muted" style={{ marginTop: 6 }}>{tr("In uploaded mode you supply the avatar, the portrait and one image per subtitle (IDLE, SAY, FIGHT, …); the visual novel can only use those subtitles. In generated mode the appearance prompt below drives the image AI, which also takes the campaign's era and the current moment of the story into account.")}</div>
-            <label className="field" style={{ marginTop: 8 }}><span>{tr('Appearance prompt')}</span><textarea value={look.appearance_prompt} disabled={!editable} onChange={(e) => setLook({ ...look, appearance_prompt: e.target.value })} onBlur={() => editable && look.appearance_prompt !== (c.appearance_prompt ?? '') && saveLook({})} placeholder={tr('e.g. A gaunt woman in her forties, grey wool coat, cropped dark hair, round spectacles, a pistol holster under the coat')} style={{ minHeight: 70 }} /></label>
+            <label className="field" style={{ marginTop: 8 }}><span>{tr('Appearance prompt')}</span><textarea value={look.appearance_prompt} disabled={!editable} onChange={(e) => { lookDirty.current = true; setLook({ ...look, appearance_prompt: e.target.value }); }} onBlur={() => editable && look.appearance_prompt !== (c.appearance_prompt ?? '') && saveLook({})} placeholder={tr('e.g. A gaunt woman in her forties, grey wool coat, cropped dark hair, round spectacles, a pistol holster under the coat')} style={{ minHeight: 70 }} /></label>
             <div className="tiny muted">{tr('Era')}: {space.era || '—'}{space.narrative_time ? ` · ${tr('now')}: ${space.narrative_time}` : ''}</div>
             <h4 style={{ marginTop: 12 }}>{tr('Subtitle portraits')}</h4>
             <div className="subtitle-grid">

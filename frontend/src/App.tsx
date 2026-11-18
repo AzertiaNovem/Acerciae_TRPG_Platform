@@ -1,3 +1,4 @@
+import { useWarmViews } from './hooks/useWarmViews';
 import { t as tr } from './i18n';
 import { useLocale } from './i18n';
 import { lazy, Suspense, useEffect, useLayoutEffect, useState } from 'react';
@@ -27,6 +28,7 @@ const SharedPublication = lazy(() => import('./components/studio/PublicationView
 const OpenLogStudio = lazy(() => import('./openstudio/ui/OpenLogStudio'));
 
 function Shell() {
+  useWarmViews();
   useRealtime();
   useReadTracking();
   useRouteSync();   // opens the place the URL names, and keeps the URL on the place shown

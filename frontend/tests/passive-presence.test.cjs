@@ -8,7 +8,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const user={id:'alice',display_name:'Alice'};
 let characters=[{id:'pc',user_id:'alice'}];
 const fake={
-  '../i18n':{t:s=>s,currentLocale:()=> 'en'},
+  '../i18n':{t:s=>s,currentLocale:()=> 'en',useLocale:f=>f({language:'en'})},
   '../store/auth':{useAuth:fn=>fn({user})},
   '../store/nav':{useNav:fn=>fn({characters})},
   '../store/chat':{useChat:fn=>fn({references:[],recallDrafts:{}}),recallDeadline:()=>null},

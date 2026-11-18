@@ -14,11 +14,12 @@ export default function InitiativePanel({ channelId, windowId, isGm }: { channel
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let live = true;
-    const load = () => api.initiative(channelId, windowId).then((o) => { if (live) setOrder(o); }).catch(() => undefined);
-    load();
+    const show = (o: InitiativeOrder) => { if (live) setOrder(o); };
+    const load = () => api.initiative(channelId, windowId, {cached: show}).then(show).catch(e => { if (live && [401,403,404].includes(e.status)) setOrder(null); });
+    load(); const timer = setInterval(() => { if (!document.hidden) load(); }, 30000);
     const on = (e: Event) => { if ((e as CustomEvent).detail === windowId) load(); };
     window.addEventListener('acerciae:initiative', on);
-    return () => { live = false; window.removeEventListener('acerciae:initiative', on); };
+    return () => { clearInterval(timer); live = false; window.removeEventListener('acerciae:initiative', on); };
   }, [channelId, windowId]);
   if (!order || order.entries.length === 0) return null;
   const act = async (action: 'next' | 'clear' | 'remove', entry_id?: string) => {

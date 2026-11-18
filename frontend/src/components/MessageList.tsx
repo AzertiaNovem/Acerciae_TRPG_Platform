@@ -1,8 +1,8 @@
-import { t as tr, currentLocale } from '../i18n';
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { t as tr, currentLocale, useLocale } from '../i18n';
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../store/auth';
 import { api } from '../api/client';
-import { useChat, recallDeadline } from '../store/chat';
+import { useChat, recallDeadline, PAGE } from '../store/chat';
 import { useNav } from '../store/nav';
 import { useReminders } from '../store/reminders';
 import { useUi } from '../store/ui';
@@ -88,6 +88,7 @@ function useRecallable(m: Message, own: boolean) {
 
 // readOnly: a spectator's view — no quoting and no references into a channel the reader cannot open.
 export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolean; readOnly?: boolean }) {
+  useLocale(s => s.language);
   const user = useAuth((s) => s.user);
   const references = useChat(s=>s.references);
   const addReference = useChat(s=>s.addReference);
@@ -158,6 +159,8 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   </>);
 }
 
+const CachedMessageRow = memo(MessageRow);
+
 // A line an interactive message posted: "via interactive message", and who acted on it when that is not the line's
 // author (a reply the card's sender said, "answering" the player who clicked).
 function ViaPill({ m }: { m: Message }) {
@@ -203,14 +206,24 @@ function DownloadPicture({ m }: { m: Message }) {
 }
 
 // Where each window was left in this visit: at its newest line, or up in its history.
-const scrolls = new Map<string, { stick: boolean; top: number }>();
+const scrolls = new Map<string, { stick: boolean; top: number; from?: number }>();
 
 export default function MessageList() {
   const { channelId, windowId, windows } = useNav();
-  const messages = useChat((s) => (windowId ? s.byWindow[windowId] : undefined)) ?? [];
+  const all = useChat((s) => (windowId ? s.byWindow[windowId] : undefined)) ?? [];
   // The window's first line is here: nothing older to fetch.
-  const complete = useChat((s) => (windowId ? s.spans[windowId]?.complete : false)) ?? false;
+  const firstPage = useChat((s) => (windowId ? s.spans[windowId]?.complete : false)) ?? false;
   const jumpTo = useChat((s) => s.jumpTo);
+  // Mount only the newest page on return to a long-running window. While reading earlier
+  // lines the first visible block stays anchored by sequence, even when new lines arrive.
+  const [anchor, setAnchor] = useState<number | undefined>(() => windowId ? scrolls.get(windowId)?.from : undefined);
+  const start = useMemo(() => {
+    let index = anchor === undefined ? Math.max(0,all.length-PAGE) : all.findIndex(m=>m.seq >= anchor);
+    if (jumpTo) { const jump = all.findIndex(m=>m.id===jumpTo.messageId); if (jump >= 0) index=Math.min(index,jump); }
+    return Math.max(0,index);
+  },[all,anchor,jumpTo]);
+  const messages = useMemo(()=>all.slice(start),[all,start]);
+  const complete = !start && firstPage;
   const loadOlder = useChat((s) => s.loadOlder);
   const ref = useRef<HTMLDivElement>(null);
   // Interactive messages: the viewer's status of every card loaded here, fetched for the cards not fetched yet, and
@@ -224,7 +237,7 @@ export default function MessageList() {
     openedFor.current = `${channelId}/${windowId}`;
     useHypertext.getState().track(channelId, cardIds, opened);
   }, [channelId, windowId, cardKey]);
-  const [stick, setStick] = useState(true);
+  const [stick, setStick] = useState(windowId ? scrolls.get(windowId)?.stick ?? true : true);
   const [jumped, setJumped] = useState<string | null>(null);
   const olderPending = useRef(false);
   const loadPrevious = async () => {
@@ -234,10 +247,12 @@ export default function MessageList() {
     const height = el.scrollHeight, top = el.scrollTop;
     setStick(false);
     try {
-      await loadOlder(channelId, windowId);
-      requestAnimationFrame(() => {
+      if (start > 0) setAnchor(all[Math.max(0,start-PAGE)].seq);
+      else { await loadOlder(channelId, windowId); setAnchor(useChat.getState().byWindow[windowId]?.[0]?.seq); }
+      await new Promise<void>(resolve => requestAnimationFrame(() => {
         if (useNav.getState().windowId === windowId && ref.current === el) el.scrollTop = top + el.scrollHeight - height;
-      });
+        resolve();
+      }));
     } finally { olderPending.current = false; }
   };
   // Switching back to a window returns to where it was left.
@@ -275,13 +290,15 @@ export default function MessageList() {
   useEffect(() => {
     if (!jumpTo) return;
     const el = document.getElementById(`msg-${jumpTo.messageId}`);
-    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('jumped'); setJumped(jumpTo.messageId); setTimeout(() => { el.classList.remove('jumped'); setJumped(null); }, 2500); }
+    if (el) { setAnchor(messages[0]?.seq); useChat.getState().clearJump(); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('jumped'); setJumped(jumpTo.messageId); setTimeout(() => { el.classList.remove('jumped'); setJumped(null); }, 2500); }
   }, [jumpTo]);
   const onScroll = () => {
-    const el = ref.current; if (!el) return;
+    const el = ref.current; if (!el || olderPending.current) return;
     const atNewest = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     setStick(atNewest);
-    if (windowId) scrolls.set(windowId, { stick: atNewest, top: el.scrollTop });
+    const from = atNewest ? undefined : messages[0]?.seq;
+    if (from !== anchor) setAnchor(from);
+    if (windowId) scrolls.set(windowId, { stick: atNewest, top: el.scrollTop, from });
     if (el.scrollTop < 20 && !complete) void loadPrevious();
   };
   return (
@@ -291,7 +308,7 @@ export default function MessageList() {
       {messages.map((m, i) => <Fragment key={m.id}>
         {(i === 0 || messages[i - 1].chat_window_id !== m.chat_window_id) && (m.chat_window_id !== windowId || i > 0 && messages[i - 1].chat_window_id !== windowId) &&
           <div className="section small muted">{m.chat_window_id === windowId ? tr('Current scene') : tr('Earlier history from {name}', { name: windows.find(w => w.id === m.chat_window_id)?.name ?? tr('Previous scene') })}</div>}
-        <MessageRow m={m} jumped={jumped === m.id} />
+        <CachedMessageRow m={m} jumped={jumped === m.id} />
       </Fragment>)}
     </div>
   );

@@ -53,7 +53,8 @@ export default function KnowledgeWorkspace() {
   useEffect(()=>{
     let live=true;
     setDocs([]); setSelected(''); setDoc(null);
-    const load=()=>channelId && api.documents(channelId).then(d=>{ if(live) {setDocs(d);setSelected(old=>d.some(x=>x.id===old)?old:d[0]?.id ?? '');} }).catch(e=>toast(e.message,'error'));
+    const show=(d: DocumentSummary[])=>{ if(live) {setDocs(d);setSelected(old=>d.some(x=>x.id===old)?old:d[0]?.id ?? '');} };
+    const load=()=>channelId && api.documents(channelId,{cached:show}).then(show).catch(e=>{ if(live && [401,403,404].includes(e.status)) show([]); });
     load(); const timer=setInterval(load,10000);
     return ()=>{live=false;clearInterval(timer);};
   },[channelId,toast]);
@@ -63,7 +64,8 @@ export default function KnowledgeWorkspace() {
   const shownId=doc?.id;
   useEffect(()=>{
     let live=true; if(shownId!==selected) setDoc(null);
-    if(channelId && selected) api.document(channelId,selected,'all').then(d=>{if(live)setDoc(d);}).catch(e=>toast(e.message,'error'));
+    const show=(d: DocumentFull)=>{if(live)setDoc(d);};
+    if(channelId && selected) api.document(channelId,selected,'all',undefined,{cached:show}).then(show).catch(e=>{if(live && [401,403,404].includes(e.status))setDoc(null);});
     return ()=>{live=false;};
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[channelId,selected,selectedVersion,toast]);

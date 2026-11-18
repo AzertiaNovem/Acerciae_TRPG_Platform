@@ -3,7 +3,7 @@ import { useUi } from './ui';
 import { api } from '../api/client';
 import type { Channel, Message } from '../types';
 import { sessionEpoch, isStale } from './session';
-import { readHistory, writeHistory, dropHistory } from '../lib/chatHistory';
+import { readHistory, writeHistory, dropHistory, recallHistory } from '../lib/chatHistory';
 
 // A recall is final: a copy fetched before it (a reload still in flight) never replaces the tombstone.
 const keep = (prev: Message | undefined, next: Message) => !(prev?.recalled_at && !next.recalled_at);
@@ -83,7 +83,7 @@ interface ChatState {
   // Checks a window against the server now: the lines after the last checked one.
   catchUp: (channelId: string, windowId: string, access: string) => Promise<void>;
   loadOlder: (channelId: string, windowId: string) => Promise<void>;
-  push: (m: Message) => void;
+  push: (m: Message, access?: string) => void;
   // A recalled line's tombstone takes its place in every window that shows it (forks show their parents' lines).
   applyRecall: (tombstone: Message) => void;
   // The author's own recall; the text comes back as a draft for "Re-edit".
@@ -102,13 +102,11 @@ interface ChatState {
 const olderInFlight = new Set<string>();
 const catching = new Map<string, { run: Promise<void>; gen: number }>();
 
-// Kept on this device shortly after it changes: the contiguous block only.
-function persist(w: string) {
-  writeHistory(w, () => {
-    const s = useChat.getState(); const span = s.spans[w];
-    if (!span || !span.through) return null;
-    return { windowId: w, channelId: span.channelId, access: span.access, messages: (s.byWindow[w] ?? []).filter((m) => m.seq >= span.from), from: span.from, through: span.through, complete: span.complete };
-  });
+// The span may cover many years; persist only new/changed rows, using the in-memory tombstone if
+// a recall beat the page's response. Overlapping verified ranges merge in IndexedDB.
+function persist(w:string, span:Span, lines:Message[]) {
+  const tombstones = new Map((useChat.getState().byWindow[w] ?? []).filter(m => m.recalled_at).map(m => [m.id,m]));
+  void writeHistory({ ...span, windowId:w, messages:lines.map(m=>tombstones.get(m.id) ?? m) });
 }
 // Where catching up starts: after the last line known, or before the oldest recent line kept, so a recall made since
 // it was read comes back as its tombstone.
@@ -131,7 +129,7 @@ export const useChat = create<ChatState>((set, get) => ({
       const kept = await readHistory(w);
       if (isStale(e)) return;
       span = get().spans[w];   // another open may have filled it meanwhile
-      if (!span && kept && kept.access === access && kept.channelId === ch && kept.through > 0) {
+      if (!span && kept && kept.access === access && kept.channelId === ch && (kept.through > 0 || kept.messages.length > 0 || kept.complete)) {
         span = { channelId: ch, access, from: kept.from, through: kept.through, complete: kept.complete, checkedAt: 0 };
         const restored = span;
         set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(kept.messages, s.byWindow[w] ?? []) }, spans: { ...s.spans, [w]: restored } }));
@@ -147,9 +145,10 @@ export const useChat = create<ChatState>((set, get) => ({
   // One at a time per window: a check asked for meanwhile waits for the running one, and runs again after it only
   // when the stream subscribed since that one started (what was pushed in between may have been lost).
   catchUp: async (ch, w, access) => {
+    const startEpoch = sessionEpoch();
     for (let running = catching.get(w); running; running = catching.get(w)) {
       await running.run;
-      if (running.gen === streamGen || isStale(sessionEpoch())) return;
+      if (running.gen === streamGen || isStale(startEpoch)) return;
     }
     const gen = streamGen;
     const run = (async () => {
@@ -158,9 +157,11 @@ export const useChat = create<ChatState>((set, get) => ({
       set((s) => ({ loading: { ...s.loading, [w]: true } }));
       try {
         const span = get().spans[w];
+        let changed:Message[]=[];
         const newest = async (): Promise<Span | null> => {
           const page = await api.messages(ch, w, undefined, PAGE);
           if (isStale(e)) return null;
+          changed=page;
           const fresh: Span = { channelId: ch, access, from: page[0]?.seq ?? 0, through: page.length ? page[page.length - 1].seq : 0, complete: page.length < PAGE, checkedAt: startedAt };
           // The block starts again here: older lines kept are not known to join it. Lines in memory from its first one on
           // stay (pushed ones, and a recall applied while this was in flight stays final).
@@ -179,16 +180,23 @@ export const useChat = create<ChatState>((set, get) => ({
             if (page.length < CATCH_UP_PAGE) break;
             if (pages + 1 >= CATCH_UP_PAGES) { full = true; break; }
           }
-          if (full) next = await newest();   // too much was missed to page through: start again from the newest lines
+          changed=fetched;
+          if (full) { persist(w,{...span,through:after},fetched); next = await newest(); }   // too much was missed to page through: start again from the newest lines
           else {
             next = { ...span, through: Math.max(span.through, after), checkedAt: startedAt };
-            set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], fetched) } }));
+            if (fetched.length) set((s) => ({ byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], fetched) } }));
           }
         } else next = await newest();   // nothing kept: the newest lines
         if (!next) return;
         set((s) => ({ spans: { ...s.spans, [w]: next } }));
-        persist(w);
-      } catch (err: any) { if (!isStale(e)) useUi.getState().toast(err.message, 'error'); }
+        if (changed.length || !span) persist(w,next,changed);
+      } catch (err: any) {
+        if (!isStale(e)) {
+          if ([403,404].includes(err.status)) get().forgetWindow(w);
+          if (!get().spans[w] || [403,404].includes(err.status)) useUi.getState().toast(err.message,'error');
+          else set(s=>({spans:{...s.spans,[w]:{...s.spans[w],checkedAt:Date.now()}}}));
+        }
+      }
       finally { if (!isStale(e)) set((s) => ({ loading: { ...s.loading, [w]: false } })); }
     })();
     const entry = { run, gen };
@@ -205,39 +213,40 @@ export const useChat = create<ChatState>((set, get) => ({
     const e = sessionEpoch();
     try {
       const before = span.from || cur[0].seq;
-      const older = await api.messages(ch, w, before, PAGE);
+      const local = await readHistory(w,before,PAGE,span.access);
+      if (isStale(e)) return;
+      const older = local?.messages.length || local?.complete ? local.messages : await api.messages(ch, w, before, PAGE);
       if (isStale(e)) return;
       set((s) => {
         const sp = s.spans[w];
         return {
           byWindow: { ...s.byWindow, [w]: merge(s.byWindow[w] ?? [], older) },
-          spans: sp ? { ...s.spans, [w]: { ...sp, from: older.length ? Math.min(sp.from, older[0].seq) : sp.from, complete: older.length < PAGE } } : s.spans,
+          spans: sp ? { ...s.spans, [w]: { ...sp, from: older.length ? Math.min(sp.from, older[0].seq) : sp.from, complete: local?.messages.length || local?.complete ? local.complete : older.length < PAGE } } : s.spans,
         };
       });
-      persist(w);
+      if (!local?.messages.length && !local?.complete) persist(w,get().spans[w],older);
     } catch (err: any) { useUi.getState().toast(err.message, 'error'); }
     finally { olderInFlight.delete(w); }
   },
-  push: (m) => {
+  push: (m, access) => {
     const w = m.chat_window_id;
     const s = get(); const list = s.byWindow[w] ?? [];
     if (list.some((x) => x.id === m.id)) return;
     const span = s.spans[w];
     // Shown at once; it counts as checked only once the server's answer covers it.
     set({ byWindow: { ...s.byWindow, [w]: merge(list, [m]) } });
-    if (span) persist(w);
+    if (span || access) void writeHistory({windowId:w,channelId:m.channel_id,access:span?.access ?? access!,from:m.seq,through:m.seq,complete:false,messages:[m]},false);
   },
   applyRecall: (tombstone) => {
-    const touched: string[] = [];
     set((s) => {
       const byWindow: Record<string, Message[]> = {};
       for (const [w, list] of Object.entries(s.byWindow)) {
-        if (list.some((m) => m.id === tombstone.id)) { touched.push(w); byWindow[w] = list.map((m) => (m.id === tombstone.id ? tombstone : m)); }
+        if (list.some((m) => m.id === tombstone.id)) { byWindow[w] = list.map((m) => (m.id === tombstone.id ? tombstone : m)); }
         else byWindow[w] = list;
       }
       return { byWindow, references: s.references.filter((m) => m.id !== tombstone.id) };
     });
-    for (const w of touched) persist(w);
+    void recallHistory(tombstone);
   },
   recall: async (m) => {
     const e = sessionEpoch();
@@ -264,6 +273,6 @@ export const useChat = create<ChatState>((set, get) => ({
   },
   requestJump: (messageId) => set({ jumpTo: { messageId, nonce: Date.now() } }),
   clearJump: () => set({ jumpTo: null }),
-  // The visit's copy only; what is kept on this device stays (signing out clears it, see store/auth).
+  // Reset this visit's copy. Signing out detaches the account's history on this device.
   reset: () => { recallDeadlines.clear(); catching.clear(); set({ byWindow: {}, spans: {}, loading: {}, jumpTo: null, references: [], recallDrafts: {} }); },
 }));

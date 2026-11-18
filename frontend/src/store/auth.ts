@@ -1,17 +1,23 @@
 import { create } from 'zustand';
-import { api, setToken, getToken, ensureFileToken, rememberDesktopAccount, forgetActiveCredential, desktopAccounts, ApiError } from '../api/client';
+import { api, setViewAccount, setToken, getToken, ensureFileToken, rememberDesktopAccount, forgetActiveCredential, desktopAccounts, ApiError } from '../api/client';
 import type { User } from '../types';
 import { connectSockets, closeSockets } from '../api/ws';
 import { bumpEpoch } from './session';
 import { useLocale } from '../i18n';
 import { resetUserStores } from './reset';
 import { scheduleSweep, setAssetScope } from '../lib/assetCache';
-import { clearHistory, setHistoryScope } from '../lib/chatHistory';
+import { setHistoryScope } from '../lib/chatHistory';
 import { apiBase, isDesktop } from '../lib/platform';
 
 // The local asset cache belongs to one account on one server; it stays across sign-out and is emptied when another
 // account signs in on this browser (setAssetScope). Expired entries are swept once per session.
-const scopeAssets = (u: User) => { setAssetScope(`${apiBase()}|${u.id}`, isDesktop); setHistoryScope(`${apiBase()}|${u.id}`, isDesktop); scheduleSweep(); };
+const scopeAssets = (u: User) => {
+  const scope = `${apiBase()}|${u.id}`;
+  setViewAccount(u.id);
+  setAssetScope(scope, isDesktop);
+  setHistoryScope(scope);
+  scheduleSweep();
+};
 
 export type AuthPhase = 'restoring' | 'anonymous' | 'signing_in' | 'authenticated' | 'recoverable_error' | 'signing_out';
 interface AuthState {
@@ -101,7 +107,7 @@ export const useAuth = create<AuthState>((set) => {
       closeSockets();
       try { await api.logout(); } catch { /* Local sign-out also works offline. */ }
       if (!current(id)) return;
-      await clearHistory();
+      setHistoryScope('');
       if (!current(id)) return;
       resetUserStores();
       try {

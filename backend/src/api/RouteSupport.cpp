@@ -147,7 +147,15 @@ void run(const HttpRequestPtr& req, Cb&& cb, const Params& params, const Fn& fn,
             if (!pr) { cb(errResp(401, "unauthorized", "missing or invalid token")); return; }
             p = *pr;
         }
-        cb(jsonResp(fn(req, p, params)));
+        auto value = fn(req, p, params); // always perform authorization and viewer-specific projection first
+        if (req->method() == Get && req->getParameter("view_cache") == "1") {
+            auto bytes = json::dump(value);
+            auto tag = etagOf(crypto::sha256Hex(bytes));
+            if (notModified(req, tag)) { cb(notModifiedResponse(tag, "private, no-store")); return; }
+            auto r = HttpResponse::newHttpResponse();
+            r->setContentTypeCode(CT_APPLICATION_JSON); r->setBody(std::move(bytes));
+            r->addHeader("ETag", tag); r->addHeader("Cache-Control", "private, no-store"); cb(r);
+        } else cb(jsonResp(value));
     } catch (const ApiError& e) { cb(errResp(e)); }
     // Values the database or the JSON layer reject are the client's mistake, not a server failure.
     catch (const pqxx::unique_violation&) { cb(errResp(409, "conflict", "that already exists or was just changed by someone else")); }

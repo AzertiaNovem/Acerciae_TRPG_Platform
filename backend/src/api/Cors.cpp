@@ -28,7 +28,7 @@ void registerCors() {
             if (auto o = allowedOrigin(req); !o.empty()) {
                 r->addHeader("Access-Control-Allow-Origin", o);
                 r->addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-                r->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+                r->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, If-None-Match");
                 r->addHeader("Access-Control-Max-Age", "600");
             }
             acb(r); return;
@@ -40,7 +40,7 @@ void registerCors() {
         // the cached answer to an <img> load (no Origin, no header) for a fetch() from the web app and fails its CORS
         // check, which bites on the 302 to the public bucket.
         resp->addHeader("Vary", "Origin");
-        if (auto o = allowedOrigin(req); !o.empty()) resp->addHeader("Access-Control-Allow-Origin", o);
+        if (auto o = allowedOrigin(req); !o.empty()) { resp->addHeader("Access-Control-Allow-Origin", o); resp->addHeader("Access-Control-Expose-Headers", "ETag"); }
         resp->addHeader("X-Content-Type-Options", "nosniff");
     });
 }

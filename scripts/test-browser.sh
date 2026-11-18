@@ -23,5 +23,6 @@ for engine in chromium webkit; do
   for suite in desktop-accounts references recall theme pbta pbta-review session-retry hypertext gm-create; do
     WEB_BASE="http://127.0.0.1:$PREVIEW_PORT" node "$suite.mjs" "$engine"
   done
+  WEB_BASE="http://127.0.0.1:$DEV_PORT" node view-cache.mjs "$engine"
   WEB_BASE="http://127.0.0.1:$DEV_PORT" node vn-hybrid.mjs "$engine"
 done
