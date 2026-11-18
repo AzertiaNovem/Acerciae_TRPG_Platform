@@ -48,6 +48,12 @@ function db(): Promise<IDBDatabase | null> {
 }
 const windowRows=(s:string,w:string)=>IDBKeyRange.bound([s,w,0],[s,w,Infinity]);
 const done=<T,>(req:IDBRequest<T>)=>new Promise<T>((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error);});
+function committed(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error('History transaction aborted'));
+  });
+}
 export async function readHistory(w:string, before?:number, limit=80, access?:string):Promise<WindowHistory|null>{
   const s=scope, d=await db(); if (!s || s!==scope || !d) return null;
   try {
@@ -91,18 +97,26 @@ export async function writeHistory(h:WindowHistory, verified=true) {
       if (m.recalled_at || !same) put();
       else { const existing=rows.get([s,h.windowId,m.seq]); existing.onsuccess=()=>{ if (!existing.result?.m.recalled_at) put(); }; }
     }
+    await committed(tx);
   } catch { /* storage may be unavailable or full */ }
 }
 // Also replace copies in forked windows and in pages not currently loaded.
 export async function recallHistory(m:Message) {
   const s=scope,d=await db(); if (!s || s!==scope || !d) return;
-  const c=d.transaction(LINES,'readwrite').objectStore(LINES).index('message').openCursor([s,m.id]);
-  c.onsuccess=()=>{const row=c.result;if(row){row.update({...row.value,m:clean(m)});row.continue();}};
+  try {
+    const tx=d.transaction(LINES,'readwrite');
+    const c=tx.objectStore(LINES).index('message').openCursor([s,m.id]);
+    c.onsuccess=()=>{const row=c.result;if(row){row.update({...row.value,m:clean(m)});row.continue();}};
+    await committed(tx);
+  } catch { /* storage may be unavailable */ }
 }
 export async function dropHistory(match:{windowId?:string;channelId?:string}) {
   const s=scope,d=await db(); if (!s || !d) return;
-  const tx=d.transaction([META,LINES],'readwrite'), meta=tx.objectStore(META),rows=tx.objectStore(LINES);
-  const drop=(w:string)=>{meta.delete([s,w]);rows.delete(windowRows(s,w));};
-  if(match.windowId) drop(match.windowId);
-  else if(match.channelId){const cur=meta.index('channel').openCursor([s,match.channelId]);cur.onsuccess=()=>{const c=cur.result;if(c){drop(c.value.windowId);c.continue();}};}
+  try {
+    const tx=d.transaction([META,LINES],'readwrite'), meta=tx.objectStore(META),rows=tx.objectStore(LINES);
+    const drop=(w:string)=>{meta.delete([s,w]);rows.delete(windowRows(s,w));};
+    if(match.windowId) drop(match.windowId);
+    else if(match.channelId){const cur=meta.index('channel').openCursor([s,match.channelId]);cur.onsuccess=()=>{const c=cur.result;if(c){drop(c.value.windowId);c.continue();}};}
+    await committed(tx);
+  } catch { /* storage may be unavailable */ }
 }

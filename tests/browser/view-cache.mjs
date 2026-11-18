@@ -53,6 +53,9 @@ try {
   await page.locator('.message-list').evaluate(el=>{el.scrollTop=0;});
   await page.locator('#msg-row-240').waitFor();assert.equal(await page.locator('.message-list .message').count(),160);
   // Real IndexedDB: >1500 lines, multiple windows, paging, separate accounts, offline reload and durable tombstones.
+  // Use the same origin and disk, with no app bootstrap resetting the fixture's account mid-read.
+  await page.route('**/history-fixture', route => route.fulfill({contentType:'text/html',body:'<!doctype html><title>History fixture</title>'}));
+  await page.goto(site+'/history-fixture');
   const storeTest=await page.evaluate(async()=>{
     const h=await import('/src/lib/chatHistory.ts');
     h.setHistoryScope('legacy');
@@ -67,9 +70,10 @@ try {
     return [last.messages.length,last.through,prev.messages.at(-1).seq];
   });
   assert.deepEqual(storeTest,[80,1700,1620]); await page.reload();
+  await page.evaluate(async()=>{window.historyFixture=await import('/src/lib/chatHistory.ts');});
   await page.context().setOffline(true);
   const history=await page.evaluate(async()=>{
-    const h=await import('/src/lib/chatHistory.ts');h.setHistoryScope('fixture-B');const other=await h.readHistory('w');
+    const h=window.historyFixture;h.setHistoryScope('fixture-B');const other=await h.readHistory('w');
     h.setHistoryScope('fixture-A');const head=await h.readHistory('w',3,80,'gm');const isolated=await h.readHistory('w',3,80,'player');
     return [other,head.messages.map(m=>m.content),head.complete,isolated];
   });
