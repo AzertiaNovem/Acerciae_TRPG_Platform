@@ -16,13 +16,6 @@ const browser=await (engine==='webkit'?webkit:chromium).launch(engine==='webkit'
 try {
   const page=await browser.newPage(); const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(token=>localStorage.setItem('acerciae.token',token),gm.token);
-  // Start with the previous released IndexedDB schema and a genuine kept window.
-  await page.goto(site+'/api/health');
-  await page.evaluate(()=>new Promise((resolve,reject)=>{
-    const r=indexedDB.open('acerciae-chat',1);
-    r.onupgradeneeded=()=>r.result.createObjectStore('windows',{keyPath:'key'}).put({key:'legacy|w',scope:'legacy',windowId:'w',channelId:'fixture',access:'gm',from:1,through:1,complete:true,messages:[{id:'old',seq:1,content:'before upgrade'}]});
-    r.onsuccess=()=>{r.result.close();resolve();};r.onerror=()=>reject(r.error);
-  }));
   const warm=page.waitForResponse(r=>new URL(r.url()).pathname===path && r.status()===200);
   await page.goto(site); await (await warm).finished();
   await page.evaluate(path=>{
@@ -53,10 +46,17 @@ try {
   await page.locator('.message-list').evaluate(el=>{el.scrollTop=0;});
   await page.locator('#msg-row-240').waitFor();assert.equal(await page.locator('.message-list .message').count(),160);
   // Real IndexedDB: >1500 lines, multiple windows, paging, separate accounts, offline reload and durable tombstones.
-  // Use the same origin and disk, with no app bootstrap resetting the fixture's account mid-read.
-  await page.route('**/history-fixture', route => route.fulfill({contentType:'text/html',body:'<!doctype html><title>History fixture</title>'}));
-  await page.goto(site+'/history-fixture');
-  const storeTest=await page.evaluate(async()=>{
+  // Going offline in this context must not interrupt a real GM's background requests on the application page.
+  const storagePage=await browser.newPage();
+  storagePage.on('pageerror',e=>errors.push(e.message));
+  await storagePage.route('**/history-fixture', route => route.fulfill({contentType:'text/html',body:'<!doctype html><title>History fixture</title>'}));
+  await storagePage.goto(site+'/history-fixture');
+  await storagePage.evaluate(()=>new Promise((resolve,reject)=>{
+    const r=indexedDB.open('acerciae-chat',1);
+    r.onupgradeneeded=()=>r.result.createObjectStore('windows',{keyPath:'key'}).put({key:'legacy|w',scope:'legacy',windowId:'w',channelId:'fixture',access:'gm',from:1,through:1,complete:true,messages:[{id:'old',seq:1,content:'before upgrade'}]});
+    r.onsuccess=()=>{r.result.close();resolve();};r.onerror=()=>reject(r.error);
+  }));
+  const storeTest=await storagePage.evaluate(async()=>{
     const h=await import('/src/lib/chatHistory.ts');
     h.setHistoryScope('legacy');
     if ((await h.readHistory('w'))?.messages[0]?.content !== 'before upgrade') throw Error('lost legacy history');
@@ -69,10 +69,10 @@ try {
     await h.recallHistory({id:'w1',seq:1,content:'',recalled_at:'today'});
     return [last.messages.length,last.through,prev.messages.at(-1).seq];
   });
-  assert.deepEqual(storeTest,[80,1700,1620]); await page.reload();
-  await page.evaluate(async()=>{window.historyFixture=await import('/src/lib/chatHistory.ts');});
-  await page.context().setOffline(true);
-  const history=await page.evaluate(async()=>{
+  assert.deepEqual(storeTest,[80,1700,1620]); await storagePage.reload();
+  await storagePage.evaluate(async()=>{window.historyFixture=await import('/src/lib/chatHistory.ts');});
+  await storagePage.context().setOffline(true);
+  const history=await storagePage.evaluate(async()=>{
     const h=window.historyFixture;h.setHistoryScope('fixture-B');const other=await h.readHistory('w');
     h.setHistoryScope('fixture-A');const head=await h.readHistory('w',3,80,'gm');const isolated=await h.readHistory('w',3,80,'player');
     return [other,head.messages.map(m=>m.content),head.complete,isolated];
