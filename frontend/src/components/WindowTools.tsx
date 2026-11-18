@@ -39,7 +39,8 @@ function ForkWindowModal({ win, onClose }: { win: ChatWindow; onClose: () => voi
   useEscape(busy ? null : onClose);
   useEffect(() => {
     let active = true;
-    api.channelMembers(win.channel_id).then(rows => { if (active) { setMembers(rows); setLoaded(true); } }).catch(e => toast(e.message, 'error'));
+    const show = (rows: ChannelMember[]) => { if (active) { setMembers(rows); setLoaded(true); } };
+    api.channelMembers(win.channel_id,{cached:show}).then(show).catch(e => { if (active && e.name !== 'AbortError') { if ([401,403,404].includes(e.status)) { setMembers([]); setLoaded(false); } toast(e.message,'error'); } });
     return () => { active = false; };
   }, [win.channel_id, toast]);
   const submit = async () => {

@@ -30,10 +30,10 @@ export default function ScriptKnowledgePanel() {
     if (!channelId) return;
     const request = ++sequence.current, epoch = sessionEpoch();
     try {
-      const [e, c, jobs] = await Promise.all([api.scriptKnowledge(channelId), api.scriptChanges(channelId, 40), api.scriptBuilds(channelId).catch(error => { if(error.status === 404) return []; throw error; })]);
+      const [e, c, jobs] = await Promise.all([api.scriptKnowledge(channelId,undefined,{cached: rows=>{if(request===sequence.current && epoch===sessionEpoch())setEntries(rows);}}), api.scriptChanges(channelId, 40), api.scriptBuilds(channelId).catch(error => { if(error.status === 404) return []; throw error; })]);
       if (request !== sequence.current || epoch !== sessionEpoch()) return;
       setEntries(e); setChanges(c); setBuild(jobs[0] ?? null); setLoadError('');
-    } catch (error: any) { if (request === sequence.current && epoch === sessionEpoch()) setLoadError(error.message); }
+    } catch (error: any) { if (request === sequence.current && epoch === sessionEpoch()) { if ([401,403,404].includes(error.status)) {setEntries([]);setChanges([]);setEditing(null);} setLoadError(error.message); } }
   }, [channelId]);
   useEffect(() => { setBuild(null); load(); return () => { ++sequence.current; }; }, [load]);
   const active = build?.status === 'pending' || build?.status === 'running';

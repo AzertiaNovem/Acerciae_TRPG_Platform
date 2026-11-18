@@ -197,17 +197,11 @@ test('scrolling up goes back from the block, page by page, and stops at the firs
   assert.equal(h.pending.messages.length, 0, 'the first line is here: nothing more to ask');
 });
 
-test('kept history: the newest lines only, no stale recall offer, no search vector', () => {
-  const js = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/lib/chatHistory.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
-  const mod = { exports: {} };
-  new Function('require', 'module', 'exports', js)((name) => { if (name === './storage') return { readStorage: () => null, writeStorage: () => undefined }; throw Error(name); }, mod, mod.exports);
-  const { trimHistory } = mod.exports;
-  const entry = { windowId: 'w', channelId: 'c', access: 'a', messages: [msg('island', 1), ...lines(10, 14, { recall_seconds_left: 60, search: "'lantern':1" })], from: 10, through: 14, complete: true };
-  const all = trimHistory(entry);
-  assert.deepEqual(ids(all.messages), ['m10', 'm11', 'm12', 'm13', 'm14'], 'only the contiguous block');
-  assert.ok(all.messages.every((m) => !('recall_seconds_left' in m) && !('search' in m)));
-  assert.equal(all.complete, true);
-  const newest = trimHistory(entry, 2);
-  assert.deepEqual(ids(newest.messages), ['m13', 'm14']);
-  assert.deepEqual([newest.from, newest.complete], [13, false]);
+test('disk intervals preserve disjoint history and join only when a verified page bridges the gap', () => {
+  const js=ts.transpileModule(fs.readFileSync(path.join(__dirname,'../src/lib/chatHistory.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+  const mod={exports:{}};new Function('module','exports',js)(mod,mod.exports);
+  const {joinRanges}=mod.exports, range=(from,through,complete=false)=>({from,through,complete});
+  const both=joinRanges([range(10,20,true)],range(2000,2100));
+  assert.deepEqual(both,[range(10,20,true),range(2000,2100)]);
+  assert.deepEqual(joinRanges(both,range(20,2000)),[range(10,2100,true)]);
 });

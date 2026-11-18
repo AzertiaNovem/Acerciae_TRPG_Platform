@@ -37,7 +37,7 @@ export default function ChatWindow() {
       {channel.rule_system === 'dnd2024' && <InitiativePanel key={win.id} channelId={channel.id} windowId={win.id} isGm={channel.my_role === 'gm'} />}
       <div className="chat-body">
         <AtmosphereBackdrop />
-        <MessageList />
+        <MessageList key={win.id} />
         <ContextBubbleDock />
       </div>
       <div style={{ position: 'relative' }}>

@@ -19,14 +19,17 @@ export function actionsFor(s) {
     : [['join','加入共创'], ['next','继续提问'], ['compile','生成完整草案'], ['save','保存草案'], ['cancel','暂停筹备']];
 }
 export const announcement = (s,label) => `开局共创：${label}（第 ${s.revision} 版）`;
-export function controlsCard(s) {
-  const actions = actionsFor(s);
+export const CONTROL_LIFETIME_SECONDS = 7 * 86400;
+export function controlsCard(s, audience = s.invitedMembers) {
+  const actions = actionsFor(s).filter(([a]) => a !== 'join' || !audience || audience.some(id => !s.participants[id]));
   return { content: `开局共创 v${s.revision} · ${s.phase}\n${actions.map(([a,b]) => `${b}：${command(s,a)}`).join('\n')}`,
-    hypertext: { v: 1, title: `开局共创 v${s.revision}`, body: actions.map(([a,b],i) => ({ type: 'button', id: `b${i}`, label: b, act: { say: announcement(s,b), say_kind: 'ooc' } })) } };
+    closes_in: CONTROL_LIFETIME_SECONDS, hypertext: { v: 1, title: `开局共创 v${s.revision}`, state: { joined: { type: 'bool' } }, body: actions.map(([a,b],i) => ({ type: 'button', id: `b${i}`, label: b,
+      ...(a === 'join' ? { enable_if: { key: 'joined', eq: false } } : {}), act: { say: announcement(s,b), say_kind: 'ooc', ...(a === 'join' ? { set: { joined: true } } : {}) } })) } };
 }
 
 // Interpret only lines actually posted through this card. No private viewer state is read.
 export function bindingFor(s,body) {
   const q=s.questions.find(q=>body.hypertext.title===`开局共创 · ${q.id}`);
-  return {revision:s.revision,...(q?{question:q.id,prefix:`开局共创 · ${q.id}：`}:{actions:Object.fromEntries(actionsFor(s).map(([a,b])=>[announcement(s,b),a]))})};
+  const posted=new Set(body.hypertext.body.map(n=>n.act?.say));
+  return {revision:s.revision,...(q?{question:q.id,prefix:`开局共创 · ${q.id}：`}:{actions:Object.fromEntries(actionsFor(s).map(([a,b])=>[announcement(s,b),a]).filter(([line])=>posted.has(line)))})};
 }

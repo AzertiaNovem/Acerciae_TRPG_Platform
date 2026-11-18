@@ -7,6 +7,7 @@
 //   advance open the next scenario now
 //   status  show the channel, the cast, the timelines and how each role is fed (read-only)
 //   date    casual games: move the story's calendar on (or to a later date); bond records or ends a relationship
+import { operatorPath } from "./operator-files.mjs";
 import { forgeMode, startForge } from "./forge/runtime.mjs";
 import { awaitingReview, fingerprint, preparePack, prepareActor } from "./pbta.mjs";
 import fs from "node:fs";
@@ -74,8 +75,8 @@ export async function resolveChannel(api, cfg, { create }) {
   if (!RULE_SYSTEMS.includes(cfg.ruleSystem)) throw Error(`Choose --rules ${RULE_SYSTEMS.join(", ")}`);
   let serverId = cfg.serverId;
   if (!serverId) { serverId = (await api.createServer(cfg.serverName)).id; log(`created server "${cfg.serverName}"`); }
-  // Casual mode's phones are private only when each player is in a group of their own.
-  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: cfg.casual ? "isolated" : "public", rule_system: cfg.ruleSystem });
+  // Phones and private scene forks require isolated knowledge (and a separate group for each player).
+  const ch = await api.createChannel(serverId, { name: cfg.channelName, knowledge_mode: cfg.casual || cfg.sceneForks ? "isolated" : "public", rule_system: cfg.ruleSystem });
   if (cfg.era) await api.updateChannel(ch.id, { era: cfg.era });
   log(`created channel "${cfg.channelName}"`);
   // A channel this client made has no players yet: an invite code gets them onto the server.
@@ -284,7 +285,7 @@ async function openTable(cfg, { llm = null, plannerLlm = null, write = true, hea
     }
     : () => {};
   const table = new Table({
-    api, llm, cfg, channelId: channel.id, store: Store.open(cfg.stateDir, channel.id), roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
+    api, llm, cfg, channelId: channel.id, operatorDir: cfg.stateDir, store: Store.open(cfg.stateDir, channel.id), roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
     scenario: state.scenario ?? null, improv: state.improv ?? null, worldState: state.worldState ?? null, casual: state.casual ?? null, planner: state.planner ?? null, calendar: state.calendar ?? null, daily: state.daily ?? null, bonds: state.bonds ?? null, plannerLlm, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], rollCards: state.rollCards ?? [], deferArrivals, log, persist,
   });
   await table.init({ heal, dailyStart: write });
@@ -465,7 +466,7 @@ async function status(cfg) {
   console.log(`planner window: ${pl.window ? `"${wname(pl.window)}" — ${notes.filter((n) => n.kind === "correction").length} correction(s), ${notes.filter((n) => n.kind === "wish").length} wish(es) standing${pl.inbox.length ? `; ${pl.inbox.length} line(s) not read yet` : ""}` : cfg.planner.wishWindow && pl.on ? "opened by run" : "off"}${notes.length ? `\n  ${notes.map((n) => `${n.id} [${n.kind}] ${n.text}`).join("\n  ")}` : ""}`);
   const ses = pl.session;
   console.log(`final review: ${cfg.planner.finalReview && pl.on ? `on — after a session of ≥ ${cfg.planner.finalReviewMinLines} player lines, once nobody has written for ${cfg.autonomyIdleMinutes} min (or when run stops); moves the calendar up to ${cfg.planner.finalReviewMaxDays} days` : "off"}${ses ? `; session in progress: ${ses.lines} player line(s) since ${new Date(ses.startedAt).toISOString().slice(0, 16).replace("T", " ")}` : ""}${pl.between ? "; the next session opens from the last review" : ""}`);
-  console.log(`improvisation: ${im.on ? `on — world ${im.world.length} characters (${im.published.hash ? "posted in the Main Chat" : "not posted yet; run posts it"}), secrets ${im.secrets.length} characters, ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
+  console.log(`improvisation: ${im.on ? `on — world bible ${im.world.length} characters, hidden ${im.secrets.length} characters, ${table.worldbook().entries.length} worldbook entr${table.worldbook().entries.length === 1 ? "y" : "ies"} (${operatorPath(cfg.stateDir, table.channelId, "worldbook")}), ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
   console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
   console.log(`timelines: ${cfg.timelineAuto ? `proactive (at most ${cfg.timelineMaxActive} at once, ${cfg.timelineMaxArrivalsPerHour} arrivals an hour)` : "model-led (TIMELINE_AUTO=false)"}, ${cfg.sceneForks ? "scene forks on (after a split the main story leaves the Main Chat, a lobby)" : "the main story stays in the Main Chat"}; scenarios: ${cfg.scenarioAuto ? `GM-driven from the Main Chat after ${cfg.scenarioMinMinutes} min and ${cfg.scenarioMinLines} lines; never during a short split` : "manual only"}`);
 }

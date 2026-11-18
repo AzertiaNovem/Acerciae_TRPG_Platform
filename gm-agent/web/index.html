@@ -38,17 +38,19 @@
     <div id="create" hidden>
       <div class="channel-head">
         <div class="channel-title"><h2>新建主持任务</h2><p class="muted">让 GM 账户 <span id="create-account" class="mono"></span> 主持一个频道：接入它已是 GM 的频道，或在平台上新建一个。</p></div>
-        <div class="actions"><button id="create-cancel" type="button" class="quiet">取消</button></div>
+        <div class="actions"><button id="c-refresh" type="button" class="quiet">刷新平台</button><button id="create-cancel" type="button" class="quiet">取消</button></div>
       </div>
-      <section class="card step">
-        <h3>1 · 频道</h3>
+      <nav id="create-steps" class="wizard-steps" aria-label="创建进度"></nav>
+      <div id="create-flow">
+      <section class="card step" data-create-step="0" aria-labelledby="create-heading-0">
+        <h3 id="create-heading-0" tabindex="-1">1 · 选择频道</h3>
         <div class="segmented" role="radiogroup" aria-label="频道来源">
           <label><input type="radio" name="source" value="existing" checked> 接入已有频道</label>
           <label><input type="radio" name="source" value="new"> 在平台上新建频道</label>
         </div>
         <div id="source-existing">
-          <div class="field"><label for="c-channel"><span>频道</span><code>channel_id</code></label>
-            <div class="control"><select id="c-channel"></select><button id="c-refresh" type="button" class="quiet small">刷新</button></div>
+          <div class="field"><label for="c-channel"><span>频道</span></label>
+            <div class="control"><select id="c-channel"></select></div>
             <p id="c-channel-help" class="help"></p></div>
         </div>
         <div id="source-new" hidden>
@@ -59,18 +61,40 @@
           <div class="field"><label for="c-era"><span>时代</span></label><div class="control"><input id="c-era" type="text" maxlength="200" placeholder="例如：1920s"></div><p class="help">生成 AI 队友时参考。</p></div>
         </div>
       </section>
-      <section class="card step">
-        <h3>2 · 初始设置</h3>
-        <p class="muted small">写入新的频道配置文件；留空为默认。创建后可在“设置”中修改其余各项。</p>
-        <div id="c-settings"></div>
+      <section class="card step" data-create-step="1" aria-labelledby="create-heading-1" hidden>
+        <h3 id="create-heading-1" tabindex="-1">2 · 选择故事模式</h3>
+        <p>先决定故事从哪里来，再选择是否加入日常生活。</p>
+        <div id="c-story"></div>
+        <div id="c-world"></div>
+        <div id="c-casual"></div>
       </section>
-      <section class="card step">
-        <h3>3 · 主持</h3>
+      <section class="card step" data-create-step="2" aria-labelledby="create-heading-2" hidden>
+        <h3 id="create-heading-2" tabindex="-1">3 · 选择配套功能</h3>
+        <p id="c-features-intro"></p>
+        <div id="c-basics"></div>
+        <div id="c-features" class="wizard-features"></div>
+        <div id="c-budget"></div>
+      </section>
+      <section class="card step" data-create-step="3" aria-labelledby="create-heading-3" hidden>
+        <h3 id="create-heading-3" tabindex="-1">4 · 邀请玩家</h3>
+        <p>搜索玩家的平台账号，选好后点击「邀请并继续」。这会把他们加入频道，主持要到最后一步才会启动。玩家无需此刻在线。</p>
+        <div class="field"><label for="c-player-query">用户名或显示名</label><div class="control row"><input id="c-player-query" type="search" maxlength="100" autocomplete="off"><button id="c-player-search" type="button">搜索</button></div></div>
+        <div id="c-player-results" class="row" aria-live="polite"></div>
+        <h4>邀请名单</h4><div id="c-players" aria-live="polite"></div>
+        <p class="help" id="c-invite-help"></p>
+      </section>
+      <section class="card step" data-create-step="4" aria-labelledby="create-heading-4" hidden>
+        <h3 id="create-heading-4" tabindex="-1">确认并启动</h3>
+        <div id="c-review"></div>
+        <h4>启动方式</h4>
         <label class="check"><input id="c-enabled" type="checkbox" checked> 随主机自动启动</label>
         <label class="check"><input id="c-prepare" type="checkbox" checked> 启动时准备频道（沿用已有 AI 队友并补齐数量）</label>
         <label class="check"><input id="c-start" type="checkbox" checked> 创建后立即启动</label>
+        <p id="c-start-help" class="help"></p>
       </section>
-      <div class="row"><button id="create-submit" type="button" class="primary">创建主持任务</button><span id="create-status" class="muted small"></span></div>
+      <div class="row wizard-actions"><button id="create-back" type="button">上一步</button><button id="create-next" type="button" class="primary">下一步</button><button id="create-submit" type="button" class="primary" hidden>创建主持任务</button></div>
+      </div>
+      <p id="create-status" class="small" role="status" aria-live="polite"></p>
       <div id="create-result" class="banner ok" hidden></div>
     </div>
 
@@ -93,6 +117,8 @@
         <button role="tab" data-tab="overview" aria-selected="true">概览</button>
         <button role="tab" data-tab="plan" aria-selected="false">计划</button>
         <button role="tab" data-tab="world" aria-selected="false">世界状态</button>
+        <button role="tab" data-tab="worldbook" aria-selected="false">世界书</button>
+        <button role="tab" data-tab="intentions" aria-selected="false">队友意图</button>
         <button role="tab" data-tab="settings" aria-selected="false">设置<span id="dirty-count" class="count" hidden></span></button>
         <button role="tab" data-tab="yaml" aria-selected="false">YAML</button>
         <button role="tab" data-tab="logs" aria-selected="false">日志</button>
@@ -107,6 +133,10 @@
         <p class="muted small">只读查看 GM 当前采用的私密剧情计划。</p>
         <div id="plan-view" class="grid"></div>
       </div>
+
+      <div id="tab-worldbook" class="tab" role="tabpanel" hidden><div id="worldbook-view" class="stack"></div></div>
+
+      <div id="tab-intentions" class="tab" role="tabpanel" hidden><div id="intentions-view" class="stack"></div></div>
 
       <div id="tab-world" class="tab" role="tabpanel" hidden><p class="muted small">GM 私密账本。NPC 对每个角色的态度独立记录。</p><div id="world-view"></div></div>
 

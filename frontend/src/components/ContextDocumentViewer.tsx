@@ -59,12 +59,16 @@ export function EntryCard({ e, focused, isGm, onChanged }: { e: DocEntry; focuse
 
 export default function ContextDocumentViewer({ documentId, onClose }: { documentId: string; onClose: () => void }) {
   const { channelId, channel, windows, windowId } = useNav();
-  const { full, loadDocument, focusEntryId, focusEntry, markSeen } = useDocuments();
+  const { full, fullScene, loadDocument, focusEntryId, focusEntry, markSeen } = useDocuments();
   const hlCount = useHighlights((s) => Object.values(s.byId).filter((h) => h.document_id === documentId).length);
   const [showRevisions, setShowRevisions] = useState(false);
-  const doc = full[documentId];
   const sceneId = windows.find((w) => w.id === windowId)?.active_scene_id ?? undefined;
-  useEffect(() => { if (channelId) loadDocument(channelId, documentId, sceneId); }, [channelId, documentId, sceneId, loadDocument]);
+  const doc = fullScene[documentId] === sceneId ? full[documentId] : undefined;
+  useEffect(() => {
+    if (!channelId) return;
+    const refresh = () => { if (!document.hidden) void loadDocument(channelId, documentId, sceneId); };
+    refresh(); const timer = setInterval(refresh, 30000); return () => clearInterval(timer);
+  }, [channelId, documentId, sceneId, loadDocument]);
   useEffect(() => () => { markSeen(documentId); focusEntry(null); }, [documentId, markSeen, focusEntry]);
   const isGm = channel?.my_role === 'gm';
   return (

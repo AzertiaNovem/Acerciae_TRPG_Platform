@@ -111,7 +111,7 @@ export function runPlanner(table, reason, { session = null } = {}) {
       ].filter(Boolean).join("\n");
       const mode = table.plannerMode();
       const out = await planStory(table.plannerLlm, {
-        language: table.language, profile: table.profile, mode, toolkit: plannerWorldTools(table), canContinue: () => !table.overBudget() && !table.generation.signal.aborted, contextText: ctx.text, prev: p.arc, since: sinceText, coplayers: table.roster.coplayers, secrets: [table.improv.secrets, ...table.improv.truths.map((t) => t.text)],
+        language: table.language, profile: table.profile, mode, toolkit: table.withWorldbookTool(null, plannerWorldTools(table)), canContinue: () => !table.overBudget() && !table.generation.signal.aborted, contextText: ctx.text, prev: p.arc, since: sinceText, coplayers: table.roster.coplayers, secrets: [table.improv.secrets, ...table.improv.truths.map((t) => t.text)],
         nextId: p.nextThreadId, lastSeq: table.lastSeq, trigger: reason, now: table.now(), impulseLines: table.cfg.planner?.impulseLines ?? 60, log: table.log,
         final: session ? { maxDays: table.cfg.planner?.finalReviewMaxDays ?? 30 } : null, calendar: table.calendarOn(), daily: table.dailyOn(),
         table: Boolean(p.window), wishes: p.window ? renderInbox(inbox, p.table) : "",

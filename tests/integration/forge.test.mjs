@@ -35,6 +35,21 @@ test('Forge windows/cards stay out of scenes and cannot be forked into fiction; 
   await assert.rejects(gm.postMessage(ch.id,main.id,{kind:'ic',content:'stale AI line',character_id:c.id,expected_owner_id:gm.user.id}),{status:409});
   await a.postMessage(ch.id,main.id,{kind:'ic',content:'The real story begins',character_id:c.id});assert.equal((await gm.channel(ch.id)).forge_eligible,false);
 });
+test('invited players see and can both use the first Forge card; late members receive a visible card',async t=>{
+  const {gm,a,b,outsider,channel}=await fixture('coc7e'),store=new Store(':memory:'); t.after(()=>store.close());
+  const f=new Forge({api:gm,cfg:{},channel,store}); await f.init();
+  const cards=async client=>(await client.messages(channel.id,f.s.window,100)).filter(m=>m.kind==='hypertext');
+  const [first]=await cards(a); assert.ok(first); assert.deepEqual((await cards(b)).map(m=>m.id),[first.id]);
+  const join=first.hypertext.body.find(n=>n.label==='加入共创');
+  for(const client of [a,b]) {
+    await client.post(`/api/channels/${channel.id}/messages/${first.id}/hypertext/act`,{interaction_id:crypto.randomUUID(),base_version:0,node:join.id,state:join.act.set,say:{text:join.act.say,kind:'ooc',confirmed:true}});
+    await f.catchup(); assert.ok(f.s.participants[client.user.id]);
+  }
+  assert.equal((await gm.searchUsers(outsider.user.username))[0].id,outsider.user.id);
+  await gm.invitePlayer(channel.id,outsider.user.id); await f.catchup();
+  assert.ok((await outsider.windows(channel.id)).some(w=>w.id===f.s.window));
+  const visible=await cards(outsider); assert.equal(visible[0].id,f.s.cards.at(-1)); assert.ok(visible[0].hypertext.body.some(n=>n.label==='加入共创'));
+});
 test('PbtA pack and sheets activate atomically, retries survive lost responses, and conflicts do not partially write',async()=>{
   const {gm,a,channel:ch}=await fixture();const old=await gm.pbtaRules(ch.id),draft=await gm.pbtaDraft(ch.id),pack=structuredClone(old.pack);
   pack.name='Together';pack.books[0].name='Bookshop keeper';

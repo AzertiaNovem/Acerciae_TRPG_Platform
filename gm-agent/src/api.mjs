@@ -68,6 +68,8 @@ export class Api {
   channel(ch) { return this.get(`/api/channels/${ch}`); }
   updateChannel(ch, body) { return this.put(`/api/channels/${ch}`, body); }
   channelMembers(ch) { return this.get(`/api/channels/${ch}/members`); }
+  searchUsers(query) { return this.get(`/api/users/search?q=${encodeURIComponent(query)}&limit=15`); }
+  invitePlayer(ch, user_id) { return this.post(`/api/channels/${ch}/members`, { user_id, role: 'player' }); }
   playerGroups(ch) { return this.get(`/api/channels/${ch}/player-groups`); }
 
   // ---- characters
@@ -94,6 +96,7 @@ export class Api {
 
   // ---- chat
   windows(ch) { return this.get(`/api/channels/${ch}/windows`); }
+  windowMembers(ch, w) { return this.get(`/api/channels/${ch}/windows/${w}/members`); }
   createWindow(ch, body) { return this.post(`/api/channels/${ch}/windows`, body); }
   forkWindow(ch, parent, body) { return this.post(`/api/channels/${ch}/windows/${parent}/fork`, body); }
   setWindowVisibility(ch, w, user, paused) { return this.put(`/api/channels/${ch}/windows/${w}/members/${user}/visibility`, { paused }); }

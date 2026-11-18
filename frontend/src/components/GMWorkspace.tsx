@@ -20,7 +20,7 @@ function Overview() {
   const { toast, showEvidence } = useUi();
   const [ws, setWs] = useState<any | null>(null);
   const [status, setStatus] = useState<any | null>(null);
-  const load = async () => { if (!channelId) return; const [w, s] = await Promise.all([api.gmWorkspace(channelId), api.aiStatus(channelId)]); setWs(w); setStatus(s); };
+  const load = async () => { if (!channelId) return; const [w, s] = await Promise.all([api.gmWorkspace(channelId,{cached:setWs}), api.aiStatus(channelId,{cached:setStatus})]); setWs(w); setStatus(s); };
   useEffect(() => { load().catch(() => undefined); const t = setInterval(() => load().catch(() => undefined), 10000); return () => clearInterval(t); }, [channelId]);
   if (!ws) return <div className="muted">{tr("Loading…")}</div>;
   const decideProposal = async (p: Proposal, accept: boolean) => { if (!channelId) return; try { await api.decideProposal(channelId, p.id, accept); toast(accept ? 'Proposal accepted' : 'Proposal rejected'); load(); } catch (e: any) { toast(e.message, 'error'); } };

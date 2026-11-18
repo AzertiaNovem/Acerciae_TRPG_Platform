@@ -45,10 +45,12 @@ try {
   await page.goto(site);
   await page.getByText('UI Scout', { exact: true }).first().click();
   await page.getByLabel('Playbook').selectOption('scout');
-  await page
-    .getByRole('button', { name: /^Save$/i })
-    .first()
-    .click();
+  const [saved] = await Promise.all([
+    page.waitForResponse(r => new URL(r.url()).pathname.endsWith('/card') && r.request().method() === 'PUT'),
+    page.getByRole('button', { name: /^Save$/i }).first().click(),
+  ]);
+  assert.equal(saved.status(), 200);
+  await page.getByText('All character changes saved', { exact: true }).waitFor();
   const move = page.locator('details').filter({ has: page.locator('summary', { hasText: '冒险搜查' }) });
   await move.locator('summary').click();
   const [reply] = await Promise.all([

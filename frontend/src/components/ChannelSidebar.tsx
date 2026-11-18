@@ -63,8 +63,10 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
   // Member lists for the pickers are fetched when a dialog that needs them opens.
   useEffect(() => {
     if (!nav.channelId || (dialog !== 'window' && dialog !== 'member')) return;
-    api.channelMembers(nav.channelId).then(setChannelMembers).catch(() => undefined);
-    if (dialog === 'member' && nav.serverId && !isGuest) api.serverMembers(nav.serverId).then(setServerMembers).catch(() => undefined);
+    let live = true; const show = (members:ChannelMember[]) => { if (live) setChannelMembers(members); };
+    api.channelMembers(nav.channelId,{cached:show}).then(show).catch(e => {if ([401,403,404].includes(e.status)) show([]);});
+    if (dialog === 'member' && nav.serverId && !isGuest) api.serverMembers(nav.serverId).then(rows=>{if(live)setServerMembers(rows);}).catch(() => undefined);
+    return () => { live=false; };
   }, [dialog, nav.channelId, nav.serverId, isGuest]);
   const searchAll = useCallback(async (q: string) => (await api.searchUsers(q)).map((u) => userCandidate(u, isMaintainer ? tr('not on this server') : tr('joins as a guest'))), [isMaintainer]);
 

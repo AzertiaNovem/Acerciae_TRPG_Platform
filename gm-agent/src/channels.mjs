@@ -10,7 +10,7 @@ export async function keptChannels(api) {
   const out = [];
   for (const s of servers) {
     const channels = (await api.channels(s.id).catch(() => [])) ?? [];
-    for (const c of channels) if (c.my_role === "gm") out.push({ id: c.id, name: c.name, server: s.name, serverId: s.id, knowledge_mode: c.knowledge_mode, rule_system: c.rule_system });
+    for (const c of channels) if (c.my_role === "gm") out.push({ id: c.id, name: c.name, server: s.name, serverId: s.id, knowledge_mode: c.knowledge_mode, rule_system: c.rule_system, module_id: c.module_id ?? null });
   }
   return out;
 }

@@ -57,6 +57,12 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # Some hosted runners select an EC2 mirror that takes most of the job to download CJK fonts and WebKit libraries.
+          mirrors=/etc/apt/apt-mirrors.txt
+          if [[ -f "$mirrors" ]] && grep -q '\.ec2\.archive\.ubuntu\.com' "$mirrors" &&
+             curl -fsS --range 0-1048575 --max-time 4 -o /dev/null https://azure.archive.ubuntu.com/ubuntu/dists/noble/main/binary-amd64/Packages.xz; then
+            sudo sed -Ei 's@https?://[a-z0-9.-]+\.ec2\.archive\.ubuntu\.com/ubuntu@https://azure.archive.ubuntu.com/ubuntu@g' "$mirrors"
+          fi
           sudo apt-get update
           # libmariadb-dev only because Ubuntu's Drogon package was built with MySQL support (see README).
           sudo apt-get install -y --no-install-recommends \

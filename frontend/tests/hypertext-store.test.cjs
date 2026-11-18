@@ -117,6 +117,7 @@ test('the API client asks for at most 100 cards a request and keeps the error bo
   global.fetch = async (url, init) => { requests.push({ url, init }); const r = reply(url, init); return { ok: r.status < 300, status: r.status, statusText: 'x', text: async () => JSON.stringify(r.body) }; };
   const mod = { exports: {} };
   const req = (name) => {
+    if (name === '../lib/viewCache') return {views:{clear(){},setAccount(){}}};
     if (name === '../lib/desktopAccounts') return { createAccountDirectory: () => null };
     if (name === '../lib/platform') return { apiBase: () => '', isDesktop: false, setServerUrl() {} };
     if (name === '../lib/tokenStore') return { createTokenStore: () => ({ initial: () => 'secret', load: async () => 'secret', save: async () => {} }), tauriKeychain: {} };

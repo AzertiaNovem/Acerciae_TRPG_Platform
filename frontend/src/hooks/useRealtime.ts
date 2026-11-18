@@ -20,6 +20,7 @@ import { useHypertext } from '../store/hypertext';
 export function useRealtime() {
   const channelId = useNav((s) => s.channelId);
   const windowId = useNav((s) => s.windowId);
+  const access = useNav((s) => accessKey(s.channel));
   const windows = useNav((s) => s.windows);
   useEffect(() => {
     // Pushed lines show as they come (store/chat); the open window is still checked against the server now and then,
@@ -43,19 +44,19 @@ export function useRealtime() {
       }
       const ch = useNav.getState().channelId;
       if (m.channel_id && m.channel_id !== ch) return;
-      if (m.type === 'message.posted') { useChat.getState().push(m.message); onIncomingMessage(m.message); const nav = useNav.getState(); speakMessage(m.message, useAuth.getState().user?.id, nav.channelId, nav.windowId); }
+      if (m.type === 'message.posted') { useChat.getState().push(m.message, accessKey(useNav.getState().channel)); onIncomingMessage(m.message); const nav = useNav.getState(); speakMessage(m.message, useAuth.getState().user?.id, nav.channelId, nav.windowId); }
       // Its author took a line back: the tombstone replaces it, its banner and queued reading go, unread is recounted.
       else if (m.type === 'message.recalled') { useChat.getState().applyRecall(m.message); useNotifications.getState().dismiss(m.message.id); forgetSpokenMessage(m.message.id); useNav.getState().refreshWindows().catch(() => undefined); }
       // Interactive messages: this viewer's own state of a card (their other devices; newer versions only), a card closed.
       else if (m.type === 'hypertext.state') useHypertext.getState().applyState(m.message_id, m.state ?? null, m.version);
       else if (m.type === 'hypertext.closed') useHypertext.getState().applyClosed(m.message_id, m.closed_at);
       else if (m.type === 'initiative.changed') window.dispatchEvent(new CustomEvent('acerciae:initiative', { detail: m.chat_window_id }));
-      else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows(); }
-      else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes(); }
-      else if (m.type === 'character.updated') useNav.getState().refreshCharacters();
+      else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows().catch(()=>undefined); }
+      else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes().catch(()=>undefined); }
+      else if (m.type === 'character.updated') useNav.getState().refreshCharacters().catch(()=>undefined);
       else if (m.type === 'typing.changed') useTyping.getState().changed(m);
       else if (m.type === 'typing.snapshot') useTyping.getState().snapshot(m.typing ?? []);
-      else if (m.type === 'channel.updated') useNav.getState().refreshChannel();
+      else if (m.type === 'channel.updated') useNav.getState().refreshChannel().catch(()=>undefined);
       else if (m.type === 'channel.deleted') { const nav = useNav.getState(); if (nav.channelId === m.channel_id) useUi.getState().toast('The channel you were in was deleted.'); nav.forgetChannel(m.channel_id).catch(() => undefined); }
       else if (m.type === 'server.deleted') { const nav = useNav.getState(); if (nav.serverId === m.server_id) useUi.getState().toast('The server you were on was deleted.'); nav.forgetServer(m.server_id).catch(() => undefined); }
       else if (m.type === 'server.settings') { useNav.getState().applyServerSettings(m.settings); useNav.getState().loadSpectatable().catch(() => undefined); }
@@ -68,7 +69,7 @@ export function useRealtime() {
       if (m.type === 'document.updated') { useDocuments.getState().onUpdated(m, ch, sceneId); useUi.getState().setAiActivity(`${m.doc_type.replace('_', ' ')} updated (v${m.version})`); setTimeout(() => useUi.getState().setAiActivity(null), 4000); }
       else if (m.type === 'knowledge.reset') {
         bumpEpoch(); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useChat.getState().forgetChannel(ch); useHypertext.getState().reset(); useUi.getState().reset(); useReminders.getState().reset(); useReminders.getState().load(ch).catch(() => undefined);
-        useDocuments.getState().loadList(ch).catch(()=>undefined); useHighlights.getState().load(ch).catch(()=>undefined); useNav.getState().refreshWindows(); useNav.getState().refreshScenes();
+        useDocuments.getState().loadList(ch).catch(()=>undefined); useHighlights.getState().load(ch).catch(()=>undefined); useNav.getState().refreshWindows().catch(()=>undefined); useNav.getState().refreshScenes().catch(()=>undefined);
         const win=useNav.getState().windowId; if(win) useChat.getState().open(ch,win,accessKey(useNav.getState().channel)).catch(()=>undefined);
       }
       else if (m.type === 'reminder.created' || m.type === 'reminders.changed' || m.type === '_open') useReminders.getState().load(ch).catch(() => undefined);
@@ -91,8 +92,8 @@ export function useRealtime() {
   }, []);
   useEffect(() => {
     if (!channelId) return;
-    useDocuments.getState().loadList(channelId);
-    useHighlights.getState().load(channelId);
+    useDocuments.getState().loadList(channelId).catch(()=>undefined);
+    useHighlights.getState().load(channelId).catch(()=>undefined);
     useReminders.getState().load(channelId).catch(() => undefined);
     if (useNav.getState().channel?.my_role === 'gm') useKp.getState().load(channelId);
     // Reconcile revocations even after a missed/disconnected socket notification.
@@ -105,18 +106,29 @@ export function useRealtime() {
         const next=groups.map(g=>`${g.id}:${g.version}`).join(',');
         if(groupVersion && groupVersion!==next) {
           bumpEpoch(); useReminders.getState().reset(); useReminders.getState().load(channelId).catch(() => undefined); useDocuments.getState().reset(); useHighlights.getState().reset(); useChat.getState().reset(); useChat.getState().forgetChannel(channelId); useHypertext.getState().reset(); useUi.getState().reset();
-          useNav.getState().refreshWindows(); useNav.getState().refreshScenes(); await useNav.getState().refreshChannel();
+          useNav.getState().refreshWindows().catch(()=>undefined); useNav.getState().refreshScenes().catch(()=>undefined); await useNav.getState().refreshChannel().catch(()=>undefined);
           const win=useNav.getState().windowId; if(win) useChat.getState().open(channelId,win,accessKey(useNav.getState().channel)).catch(()=>undefined);
         }
         groupVersion=next; await useDocuments.getState().loadList(channelId);
       } catch { /* socket reconnect or next poll will retry */ }
     };
+    const reconcile = async () => {
+      if (!active || document.hidden || useNav.getState().channelId !== channelId) return;
+      const nav = useNav.getState();
+      try { await nav.refreshChannel(); }
+      catch (err) {
+        if (active && [403,404].includes((err as {status:number}).status)) await nav.forgetChannel(channelId);
+        return;
+      }
+      if (!active || useNav.getState().channelId !== channelId) return;
+      await Promise.allSettled([nav.refreshWindows(),nav.refreshCharacters(),nav.refreshScenes(false),nav.loadServerSettings(),useDocuments.getState().loadList(channelId)]);
+    };
+    const metaTimer = setInterval(reconcile,30000);
     const remindersTimer = setInterval(() => useReminders.getState().load(channelId).catch(() => undefined), 30000);
     poll(); const timer=setInterval(poll,10000);
-    return ()=>{active=false;clearInterval(timer);clearInterval(remindersTimer);};
-  }, [channelId]);
+    return ()=>{active=false;clearInterval(timer);clearInterval(remindersTimer);clearInterval(metaTimer);};
+  }, [channelId, access]);
   // Opening a window shows what is kept at once, and checks it against the server when that is due.
-  const access = useNav((s) => accessKey(s.channel));
   useEffect(() => {
     if (!channelId || !windowId || !access) return;
     useChat.getState().open(channelId, windowId, access).catch(() => undefined);

@@ -374,7 +374,11 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
   const [settings, setSettings] = useState<ServerSettings | null>(null);
   const myRole = servers.find((s) => s.id === serverId)?.my_role ?? 'member';
   const [loadError, setLoadError] = useState('');
-  useEffect(() => { if (serverId) api.serverSettings(serverId).then(setSettings).catch((e) => setLoadError(e.message)); }, [serverId]);
+  useEffect(() => {
+    let live=true; const show=(s:ServerSettings)=>{if(live)setSettings(s);};
+    if(serverId) api.serverSettings(serverId,{cached:show}).then(show).catch(e=>{if(live){if([401,403,404].includes(e.status))setSettings(null);setLoadError(e.message);}});
+    return ()=>{live=false;};
+  }, [serverId]);
   if (!serverId) return null;
   const onSaved = (s: ServerSettings) => { setSettings(s); loadServerSettings(); useNav.getState().loadServers(); };
   const tabs: [Tab, string][] = [['general', 'General'], ['access', 'Access'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['channels', 'Channels'], ['dice', 'Dice texts']];

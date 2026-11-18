@@ -9,6 +9,7 @@ import { sessionEpoch, isStale } from './session';
 interface DocState {
   list: DocumentSummary[];
   full: Record<string, DocumentFull>;
+  fullScene: Record<string, string | undefined>;
   seenVersion: Record<string, number>;         // version the user last looked at (for change badges)
   pulse: Record<string, number>;               // bump to animate a bubble when an update arrives
   expandedId: string | null;
@@ -24,19 +25,28 @@ interface DocState {
   byType: (t: DocType) => DocumentSummary | undefined;
   reset: () => void;
 }
+let documentRead = 0;
 export const useDocuments = create<DocState>((set, get) => ({
-  list: [], full: {}, seenVersion: readJson<Record<string, number>>('acerciae.seen', {}), pulse: {}, expandedId: null, dockCollapsed: false, focusEntryId: null,
-  loadList: async (ch) => { const e = sessionEpoch(); const list = await api.documents(ch); if (isStale(e)) return; set(s=>({list, full:Object.fromEntries(Object.entries(s.full).filter(([id])=>list.some(d=>d.id===id))), expandedId:list.some(d=>d.id===s.expandedId)?s.expandedId:null})); },
-  loadDocument: async (ch, id, sceneId) => {
-    const since = get().seenVersion[id] ?? -1;
+  list: [], full: {}, fullScene: {}, seenVersion: readJson<Record<string, number>>('acerciae.seen', {}), pulse: {}, expandedId: null, dockCollapsed: false, focusEntryId: null,
+  loadList: async (ch) => {
     const e = sessionEpoch();
-    try {
-      const doc = await api.document(ch, id, sceneId, since);
-      if (isStale(e)) return;
-      set((s) => ({ full: { ...s.full, [id]: doc } }));
-    } catch {
-      // A document that no longer exists in this context must not keep showing cached content.
-      if (!isStale(e)) set((s) => { const full = { ...s.full }; delete full[id]; return { full, expandedId: s.expandedId === id ? null : s.expandedId }; });
+    const apply = (list: DocumentSummary[]) => {
+      if (isStale(e) || get().list === list) return;
+      set(s => ({ list, full: Object.fromEntries(Object.entries(s.full).filter(([id]) => list.some(d => d.id === id))), expandedId: list.some(d => d.id === s.expandedId) ? s.expandedId : null }));
+    };
+    apply(await api.documents(ch, { cached: apply }));
+  },
+  loadDocument: async (ch, id, sceneId) => {
+    const since = get().seenVersion[id] ?? -1, e = sessionEpoch(), call = ++documentRead;
+    const current = () => !isStale(e) && call === documentRead;
+    const apply = (doc: DocumentFull) => {
+      if (!current() || (get().full[id] === doc && get().fullScene[id] === sceneId)) return;
+      set(s => ({ full: { ...s.full, [id]: doc }, fullScene: { ...s.fullScene, [id]: sceneId } }));
+    };
+    try { apply(await api.document(ch, id, sceneId, since, { cached: apply })); }
+    catch (err) {
+      if (current() && [401,403,404].includes((err as {status:number}).status))
+        set(s => { const full = { ...s.full }; delete full[id]; return { full, expandedId: s.expandedId === id ? null : s.expandedId }; });
     }
   },
   expand: (id) => { set({ expandedId: id, dockCollapsed: false }); if (id) get().markSeen(id); },
@@ -56,7 +66,7 @@ export const useDocuments = create<DocState>((set, get) => ({
     if (get().expandedId === p.document_id) get().loadDocument(ch, p.document_id, sceneId);
     get().loadList(ch).catch(() => undefined);
   },
-  reset: () => set({ list: [], full: {}, pulse: {}, expandedId: null, focusEntryId: null }),
+  reset: () => set({ list: [], full: {}, fullScene: {}, pulse: {}, expandedId: null, focusEntryId: null }),
   focusEntry: (entryId) => set({ focusEntryId: entryId }),
   byType: (t) => get().list.find((d) => d.doc_type === t),
 }));

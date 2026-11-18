@@ -8,6 +8,11 @@ import { buildConfig } from '../src/config.mjs';
 import { Roster } from '../src/roles/roster.mjs';
 import { plannerWindowWanted } from '../src/table/social.mjs';
 import { Store } from '../src/store.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { startForge } from '../src/forge/runtime.mjs';
+import { loadState, saveState } from '../src/state.mjs';
 const setup = () => {const s=newSession({world:'public',secrets:'SECRET',rule:'pbta'});join(s,{user_id:'a',display_name:'A'});join(s,{user_id:'b',display_name:'B'});s.candidate={world:'world',characters:[]};s.phase='review';return s;};
 test('Forge requires improv, preserves completed authority, and planner window is improv-only',()=>{
   const cfg=buildConfig({}, {}, {forge:{enabled:true}});
@@ -57,7 +62,7 @@ test('application resumes lost create response using same receipt and hands over
 });
 test('runtime only reads submitted messages, ignores old revisions and persists a cardless participant',async()=>{
   const store=new Store(':memory:');let seq=0;const lines=[];
-  const api={user:{id:'gm'},channelMembers:async()=>[{user_id:'a',role:'player',display_name:'A'}],createWindow:async()=>({id:'forge'}),windows:async()=>[{id:'forge',purpose:'forge'}],characters:async()=>[],postMessage:async(_,w,b)=>{lines.push(b);return {id:`m${++seq}`};},postHypertext:async()=>({id:`c${++seq}`}),closeHypertext:async()=>{}};
+  const api={user:{id:'gm'},channelMembers:async()=>[{user_id:'a',role:'player',display_name:'A'}],windowMembers:async()=>[{user_id:'a'}],createWindow:async()=>({id:'forge'}),windows:async()=>[{id:'forge',purpose:'forge'}],characters:async()=>[],postMessage:async(_,w,b)=>{lines.push(b);return {id:`m${++seq}`};},postHypertext:async()=>({id:`c${++seq}`}),closeHypertext:async()=>{}};
   const f=new Forge({api,cfg:{language:'en'},channel:{id:'ch',forge_eligible:true,rule_system:'coc7e'},store,llm:{complete:()=>{throw Error('unexpected');}}});
   try{await f.init();const m=content=>({seq:++seq,author_id:'a',kind:'ooc',visibility:'window',chat_window_id:'forge',content});
     const old=command(f.s,'join'),cardId=f.s.cards.at(-1);
@@ -70,6 +75,27 @@ test('runtime only reads submitted messages, ignores old revisions and persists 
   }finally{store.close();}
 });
 
+test('empty Forge waits; all arrivals can use one invitation, including after a failed delivery and restart',async t=>{
+  const store=new Store(':memory:'); t.after(()=>store.close());
+  const players=[], seats=new Set(), deliveries=[], greetings=[]; let failCard=true;
+  const api={user:{id:'bot'},channelMembers:async()=>[{id:'bot',role:'gm'},...players.map(id=>({id,role:'player'}))],
+    createWindow:async(_,doc)=>{for(const p of doc.members) seats.add(p.user_id);return {id:'w'};},windows:async()=>[{id:'w'}],characters:async()=>[],messages:async()=>[],
+    windowMembers:async()=>[...seats].map(user_id=>({user_id})),addWindowMember:async(_,w,p)=>seats.add(p.user_id),
+    postMessage:async(_,w,b)=>greetings.push(b.content),postHypertext:async(_,w,b)=>{if(failCard) throw Error('offline');deliveries.push({seats:[...seats],doc:b});return {id:'c'+deliveries.length};}};
+  const runtime=()=>new Forge({api,cfg:{},channel:{id:'ch',rule_system:'coc7e',forge_eligible:true},store});
+  let f=runtime();await f.init();await f.catchup();assert.equal(greetings.length+deliveries.length,0);
+  players.push('a','b');await assert.rejects(f.catchup(),/offline/);failCard=false;await f.catchup();
+  assert.equal(greetings.length,1);assert.deepEqual(deliveries.map(d=>d.seats),[['a','b']]);
+  f=runtime();await f.init();await f.catchup();assert.equal(deliveries.length,1);
+  const button=deliveries[0].doc.hypertext.body.find(n=>n.label==='加入共创');
+  assert.deepEqual(button.enable_if,{key:'joined',eq:false});assert.deepEqual(button.act.set,{joined:true});
+  const click=(seq,author_id)=>f.message({seq,author_id,kind:'ooc',visibility:'window',chat_window_id:'w',via_hypertext_id:'c1',content:button.act.say});
+  await click(1,'a'); const afterFirst=deliveries.length;await click(2,'a'); assert.equal(deliveries.length,afterFirst);
+  await click(3,'b');assert.deepEqual(Object.keys(f.s.participants),['a','b']);assert.ok(!deliveries.at(-1).doc.hypertext.body.some(n=>n.label==='加入共创'));
+  players.push('late');const before=deliveries.length;await f.catchup();await f.catchup();assert.equal(deliveries.length,before+1);
+  assert.deepEqual(deliveries.at(-1).seats,['a','b','late']);assert.ok(deliveries.at(-1).doc.hypertext.body.some(n=>n.label==='加入共创'));
+});
+
 test('private initial state maps C keys to real IDs exactly once and cannot assign NPC feelings to a co-player',async()=>{
   const {importSeed,createSeed}=await import('../src/forge/seed.mjs');
   const s=setup();s.characterIds={C1:'npc-id',C2:'pc-id'};
@@ -79,4 +105,24 @@ test('private initial state maps C keys to real IDs exactly once and cannot assi
   const wrong={...s,candidate:{world:'World',characters:[{key:'C1',kind:'coplayer'},{key:'C2',kind:'player'}]}};
   await assert.rejects(createSeed({complete:async()=>JSON.stringify(s.worldStateSeed)},wrong),/NPC/);
   assert.equal(JSON.stringify(publicDossier(s)).includes('worldStateSeed'),false);
+});
+
+test('Forge hands the selected casual mode to play without losing existing phone state', async () => {
+  for (const casual of [true, false, undefined]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-casual-'));
+    let runtime, started;
+    const channel = { id: 'ch', server_id: 'server', forge_eligible: true, rule_system: 'coc7e' };
+    const api = { user: { id: 'gm' }, token: 'fixture', channel: async () => channel, channelMembers: async () => [], characters: async () => [],
+      createWindow: async () => ({ id: 'forge' }), windows: async () => [{ id: 'forge', purpose: 'forge' }], postMessage: async () => ({ id: 'message' }), postHypertext: async () => ({ id: 'card' }) };
+    try {
+      saveState(dir, { channelId: 'ch', casual: { on: true, phones: { player: 'phone-window' } } });
+      const cfg = { ...buildConfig({}, {}, { data: { llm: { provider: 'mock' } } }), stateDir: dir, apiBase: 'http://127.0.0.1:0', improv: true, casual };
+      runtime = await startForge({ cfg, api, channel, release: () => {}, managed: true, log: () => {}, run: async () => { started = loadState(dir, 'ch'); return { stop: async () => {} }; } });
+      Object.assign(runtime.table.s, { candidate: { world: 'Confirmed world', opening: 'The door opens', characters: [] }, privateWorld: 'Secret', characterIds: {} });
+      await runtime.table.onStart(runtime.table.s);
+      assert.equal(started.casual.on, casual ?? true);
+      assert.deepEqual(started.casual.phones, { player: 'phone-window' });
+      assert.equal(started.forge.phase, 'playing'); assert.equal(started.improv.on, true);
+    } finally { await runtime?.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+  }
 });

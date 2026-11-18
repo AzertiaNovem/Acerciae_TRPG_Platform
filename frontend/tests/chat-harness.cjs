@@ -14,8 +14,9 @@ function chatStore({ kept = new Map() } = {}) {
     recallMessage: (ch, id) => wait('recall', { ch, id }),
   };
   const history = {
-    readHistory: async (w) => kept.get(w) ?? null,
-    writeHistory: (w, entry) => { const e = entry(); if (e) { kept.set(w, e); writes.push(e); } },
+    readHistory: async (w,before) => before ? null : kept.get(w) ?? null,
+    writeHistory: (e,verified=true) => { if (verified) { kept.set(e.windowId, e); writes.push(e); } },
+    recallHistory: async()=>{},
     dropHistory: async (match) => { drops.push(match); for (const [w, e] of kept) if (w === match.windowId || e.channelId === match.channelId) kept.delete(w); },
   };
   // As the app is built: an ES5 spread of a Map iterator would be empty.

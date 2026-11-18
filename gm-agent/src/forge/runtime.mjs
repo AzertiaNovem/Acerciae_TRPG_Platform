@@ -6,8 +6,9 @@ import { usageSink } from '../usage.mjs';
 import { Realtime } from '../realtime.mjs';
 import { rulesProfile } from '../rules/index.mjs';
 import { loadState, saveState } from '../state.mjs';
+import { writeWorldbookTexts } from '../table/worldbook.mjs';
 import { newSession, SESSION_KEY, fact, join, acceptAnswer, approve, allApproved, publicDossier, status, hash } from './state.mjs';
-import { controlsCard, questionCard, command, bindingFor } from './cards.mjs';
+import { controlsCard, questionCard, command, bindingFor, CONTROL_LIFETIME_SECONDS } from './cards.mjs';
 import { interview, compile, secrets, playtest } from './design.mjs';
 import { createSeed, importSeed } from './seed.mjs';
 import { applyCandidate } from './apply.mjs';
@@ -39,7 +40,10 @@ export class Forge {
     try { const binding=bindingFor(this.s,body); const row=await this.api.postHypertext(this.channelId,this.s.window,body); this.s.cards.push(row.id); (this.s.bindings??={})[row.id]=binding; this.save(); }
     catch(e) { if([400,404,405,429].includes(e.status) || e.code==='feature_disabled') await this.say(body.content); else throw e; }
   }
-  async controls() { await this.card(controlsCard(this.s)); }
+  async controls(audience) {
+    await this.card(controlsCard(this.s,audience));
+    this.s.controlsUntil=Date.now()+CONTROL_LIFETIME_SECONDS*1000; this.save();
+  }
   async showDraft() {
     if(!this.s.candidate) throw Error('请先生成草案。');
     await this.say(`完整草案 v${this.s.revision}\n${this.s.candidate.world}\n\n开局条件\n${this.s.candidate.opening}`);
@@ -50,7 +54,7 @@ export class Forge {
       await this.say(`${c.key} · ${c.name} · ${c.kind==='player'?this.s.participants[c.owner_user_id].name:c.kind==='npc'?'NPC':'AI 陪玩'}${c.existing_id?'（修改后）':''}\n${c.persona}\n表达方式：${c.speaking_style}\n外观：${c.appearance_prompt}\n${JSON.stringify(c.role_card,null,2)}`);
     }
   }
-  async closeCards() { const ids=this.s.cards.splice(0); this.save(); for(const id of ids) try {await this.api.closeHypertext(this.channelId,id);} catch(e) {this.log(`Forge card close: ${e.message}`);} }
+  async closeCards() { const ids=this.s.cards.splice(0); this.s.controlsUntil=0; this.save(); for(const id of ids) try {await this.api.closeHypertext(this.channelId,id);} catch(e) {this.log(`Forge card close: ${e.message}`);} }
   async init() {
     if(!this.channel.forge_eligible) throw Error('Forge 只能在正式剧情开始前使用。进行中的修改请在即兴模式下致剧情规划。');
     if(!this.s) {
@@ -63,21 +67,33 @@ export class Forge {
     const members=(await this.api.channelMembers(this.channelId)).map(m=>({...m,user_id:m.user_id??m.id}));
     if(!this.s.window) {
       this.s.windowIntent??={name:'开局共创 · Forge',kind:'group',purpose:'forge',request_id:`forge:${this.s.id}:window`,members:members.filter(m=>['player','gm'].includes(m.role)&&m.user_id!==this.api.user.id).map(m=>({user_id:m.user_id}))}; this.save();
-      this.s.members=this.s.windowIntent.members.map(m=>m.user_id);
       this.s.window=(await this.api.createWindow(this.channelId,this.s.windowIntent)).id; this.save();
     }
     this.windows=await this.api.windows(this.channelId);
     this.characters=await this.api.characters(this.channelId);
-    await this.say('这里是开局共创。先加入，再回答每轮少量问题；也可以直接写想法。所有参与者确认同一份世界、规则和自己的角色后，才会启用。筹备可随时保存，正式开局另行确认。');
-    await this.controls();
+    try { await this.syncInvitations(members); } catch(e) { this.log(`Forge invitation: ${e.message}`); this.s.error=e.message; this.save(); }
   }
-  enqueue(fn) { this.queue=this.queue.then(fn).catch(async e=>{this.log(`Forge: ${e.message}`);if(this.stopped){this.forge.error=e.message;return;}this.s.error=e.message;this.save(); if(!this.stopped) try{await this.say(`筹备已保留：${e.message}`);await this.controls();}catch{}}); return this.queue; }
+  async syncInvitations(members) {
+    const audience=members.filter(m=>['player','gm'].includes(m.role) && m.user_id!==this.api.user.id).map(m=>m.user_id);
+    const seated=new Set(audience.length ? (await this.api.windowMembers(this.channelId,this.s.window)).map(m=>m.user_id) : []);
+    // Only count an invitation delivered if the player was in the window when it was posted.
+    const delivered=(this.s.invitedMembers??[]).filter(id=>audience.includes(id) && seated.has(id));
+    if (delivered.length!==(this.s.invitedMembers??[]).length) { this.s.invitedMembers=delivered; this.save(); }
+    if (!audience.length || !this.s.welcomed && !members.some(m=>m.role==='player' && m.user_id!==this.api.user.id)) return;
+    if (audience.every(id=>delivered.includes(id)) && this.s.controlsUntil>Date.now()) return;
+    for(const id of audience) if(!seated.has(id)) await this.api.addWindowMember(this.channelId,this.s.window,{user_id:id});
+    if(!this.s.welcomed) {
+      await this.say('这里是开局共创。先加入，再回答每轮少量问题；也可以直接写想法。所有参与者确认同一份世界、规则和自己的角色后，才会启用。筹备可随时保存，正式开局另行确认。');
+      this.s.welcomed=true; this.save();
+    }
+    await this.controls(audience);
+    this.s.invitedMembers=audience; this.save();
+  }
+  enqueue(fn) { this.queue=this.queue.then(fn).catch(async e=>{this.log(`Forge: ${e.message}`);if(this.stopped){this.forge.error=e.message;return;}this.s.error=e.message;this.save(); if(e.fromForgeMessage) try{await this.say(`筹备已保留：${e.message}`);await this.controls();}catch{}}); return this.queue; }
   async catchup() {
     if(!this.s.window || this.stopped) return;
     const members=(await this.api.channelMembers(this.channelId)).map(m=>({...m,user_id:m.user_id??m.id}));
-    for(const m of members) if(['player','gm'].includes(m.role) && m.user_id!==this.api.user.id && !(this.s.members??[]).includes(m.user_id)) {
-      await this.api.addWindowMember(this.channelId,this.s.window,{user_id:m.user_id});(this.s.members??=[]).push(m.user_id);this.save();
-    }
+    await this.syncInvitations(members);
     const found=[]; let before=0;
     for(;;) {
       const page=await this.api.messages(this.channelId,this.s.window,100,before);
@@ -86,7 +102,7 @@ export class Forge {
       if(rows.length<100 || fresh.length<rows.length || !rows.length) break;
       const next=Math.min(...rows.map(m=>m.seq)); if(before&&next>=before) break; before=next;
     }
-    for(const m of found.sort((a,b)=>a.seq-b.seq)) { if(this.stopped) break; await this.message(m); }
+    for(const m of found.sort((a,b)=>a.seq-b.seq)) { if(this.stopped) break; try { await this.message(m); } catch(e) { e.fromForgeMessage=true; throw e; } }
   }
   async message(m) {
     if(m.chat_window_id!==this.s.window || m.seq<=this.s.cursor || this.stopped) return;
@@ -97,20 +113,22 @@ export class Forge {
     let raw=String(m.content??'').trim();
     if(m.via_hypertext_id) {
       const binding=this.s.bindings?.[m.via_hypertext_id];
-      if(!binding || binding.revision!==this.s.revision) {await this.say('这张卡片已过期，请使用当前版本。');await this.controls();return;}
+      const joinFromInvite=binding?.actions?.[raw]==='join' && this.s.phase==='interview';
+      if(!binding || binding.revision!==this.s.revision && !joinFromInvite) {await this.say('这张卡片已过期，请使用当前版本。');await this.controls();return;}
       const action=binding.question && raw.startsWith(binding.prefix) ? `answer ${binding.question} ${raw.slice(binding.prefix.length)}` : binding.actions?.[raw];
       if(!action) return;
       raw=command(this.s,action);
     }
     const match=raw.match(/^\/forge ([a-z0-9-]+) (\d+) (\w+)(?: ([\s\S]*))?$/);
-    if(raw.startsWith('/forge') && (!match || match[1]!==this.s.id || Number(match[2])!==this.s.revision)) {await this.say('这条操作来自旧版草案，请使用下方当前版本。');await this.controls();return;}
+    const pendingJoin=match?.[3]==='join' && this.s.phase==='interview' && !this.s.participants[member.user_id] && Number(match[2])>0 && Number(match[2])<this.s.revision;
+    if(raw.startsWith('/forge') && (!match || match[1]!==this.s.id || Number(match[2])!==this.s.revision && !pendingJoin)) {await this.say('这条操作来自旧版草案，请使用下方当前版本。');await this.controls();return;}
     let action=match?.[3]??'answer', value=match?.[4]??raw;
     this.s.error=null;
     if(action==='save') {this.save();await this.say('草案已保存。');return;}
     if(action==='cancel') {if(['applying','ready'].includes(this.s.phase)) throw Error('启用已开始，请完成后再开局。');this.s.resumePhase=this.s.phase;this.s.phase='cancelled';this.save();await this.controls();return;}
     if(action==='resume' && this.s.phase==='cancelled') {this.s.phase=this.s.resumePhase??'interview';this.save();await this.controls();return;}
     if(this.s.phase==='cancelled') throw Error('筹备已暂停，请先继续筹备。');
-    if(action==='join') {join(this.s,member);this.save();await this.controls();return;}
+    if(action==='join') {if(join(this.s,member)){this.save();await this.controls([]);}return;}
     if(!this.s.participants[member.user_id] && member.role!=='gm') throw Error('请先加入共创。');
     if(action==='view') {await this.showDraft();return;}
     if(action==='answer') {
@@ -170,6 +188,9 @@ export async function startForge({cfg,api,channel,release,managed,run,log}) {
     let state=loadState(cfg.stateDir,channel.id)??{channelId:channel.id,serverId:channel.server_id};
     state=importSeed(state,s,await api.characters(channel.id));
     state.improv={on:true,world:s.candidate.world+'\n\n开局条件\n'+s.candidate.opening,secrets:s.privateWorld,truths:[]};
+    // Forge skips ordinary setup/card generation; carry the selected casual mode into play here.
+    if(cfg.casual!==undefined) state.casual={...(state.casual??{}),on:cfg.casual};
+    try{state.improv.book=writeWorldbookTexts(cfg.stateDir,channel.id,state.improv,'forge');}catch(e){log('worldbook: '+e.message);}
     state.forge={id:s.id,revision:s.revision,phase:'playing',characterIds:s.characterIds};state.pbtaSetup={ready:true};saveState(cfg.stateDir,state);
     s.phase='playing';store.set(SESSION_KEY,s);table.forge=status(s);table.stopped=true;
     clearInterval(timer);rt?.stop();release();store.close();

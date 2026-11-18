@@ -8,7 +8,11 @@ import { channelConfig, atomicWrite, parseChannel, sharedConfig, editRegistry, r
 import { keptChannels } from './channels.mjs';
 import { RULE_SYSTEMS } from './rules/index.mjs';
 import { applyChanges, formValues } from './host-schema.mjs';
-import { lockPath } from './state.mjs';
+import { lockPath, loadState } from './state.mjs';
+import { operatorPath, readOperatorFile, writeOperatorFile } from './operator-files.mjs';
+import { worldbookState, validateWorldbook, ENTRIES_MAX, TITLE_MAX, BODY_MAX, KEYS_MAX, KEY_MAX } from './worldbook.mjs';
+import { WORLD_MAX, SECRETS_MAX } from './improv.mjs';
+import { intentionsState, applyIntentions, INTENTION_MAX } from './intentions.mjs';
 
 const LOG_LINES = 600, LOG_LINE_CHARS = 2000;
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
@@ -36,6 +40,12 @@ export function redact(text, secrets = []) {
 
 const invalid = message => { throw Object.assign(Error(message), { code: 'INVALID_SETTING' }); };
 const conflict = message => { throw Object.assign(Error(message), { code: 'CONFLICT' }); };
+function playerIds(ids = []) {
+  const uuid = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
+  if (!Array.isArray(ids) || ids.length > 32 || !ids.every(id => typeof id === 'string' && uuid.test(id))) invalid('请从搜索结果中选择最多 32 位平台玩家');
+  return [...new Set(ids.map(id => id.toLowerCase()))];
+}
+const rolesById = members => new Map(members.map(m => [m.id ?? m.user_id, m.role]));
 // A new hosting task from the Web UI: attach a channel the account keeps, or create one on the platform first.
 export function checkTask(spec) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) invalid('缺少主持任务');
@@ -172,6 +182,35 @@ export class HostManager {
       live: await this.snapshot(id) };
   }
   logs(id, after = 0) { this.entry(id); const rt = this.runtime(id); return { lines: rt.logs.filter(l => l.seq > after), last: rt.seq }; }
+
+  // ---- the worldbook and the co-players' intentions: files in the state directory, edited here whether the channel
+  // runs or not (a running table re-reads them when they change). A write must start from the revision it was read at.
+  operatorFile(id, kind) { this.entry(id); return operatorPath(this.host.stateDir, id, kind); }
+  worldbook(id) {
+    const file = this.operatorFile(id, 'worldbook'), raw = readOperatorFile(file), state = loadState(this.host.stateDir, id);
+    // Before the first start with a worldbook, the world the state holds is the starting point.
+    const book = worldbookState(raw ?? { bible: state?.improv?.world, hidden: state?.improv?.secrets });
+    return { file: path.relative(this.host.root, file) || file, exists: Boolean(raw), improv: state?.improv?.on === true, revision: raw ? book.revision : 0,
+      updatedAt: book.updatedAt, updatedBy: raw?.updatedBy ?? null, bible: book.bible, hidden: book.hidden, entries: book.entries,
+      limits: { bible: WORLD_MAX, hidden: SECRETS_MAX, entries: ENTRIES_MAX, title: TITLE_MAX, body: BODY_MAX, keys: KEYS_MAX, key: KEY_MAX } };
+  }
+  saveWorldbook(id, body) {
+    if (!Number.isInteger(body?.revision) || body.revision < 0) throw Error('Worldbook revision required');
+    writeOperatorFile(this.operatorFile(id, 'worldbook'), cur => ({ ...validateWorldbook(body.book, { nextId: worldbookState(cur).nextId }), updatedBy: 'web' }), { expect: body.revision });
+    return this.worldbook(id);
+  }
+  intentions(id) {
+    const file = this.operatorFile(id, 'intentions'), raw = readOperatorFile(file), state = loadState(this.host.stateDir, id);
+    const { revision, intentions } = intentionsState(raw);
+    const coplayers = (state?.coplayers ?? []).map(c => ({ id: c.characterId, name: c.name, intention: intentions[c.characterId]?.text ?? '', at: intentions[c.characterId]?.at ?? null }));
+    return { file: path.relative(this.host.root, file) || file, revision: raw ? revision : 0, coplayers, limit: INTENTION_MAX };
+  }
+  saveIntentions(id, body) {
+    if (!Number.isInteger(body?.revision) || body.revision < 0) throw Error('Intentions revision required');
+    const coplayers = (loadState(this.host.stateDir, id)?.coplayers ?? []).map(c => c.characterId);
+    writeOperatorFile(this.operatorFile(id, 'intentions'), cur => ({ intentions: applyIntentions(cur, body.changes, { coplayers }) }), { expect: body.revision });
+    return this.intentions(id);
+  }
   config(id) {
     const entry = this.entry(id), yaml = fs.readFileSync(entry.config, 'utf8');
     return { yaml, revision: digest(yaml), values: this.values(entry, yaml) };
@@ -223,27 +262,69 @@ export class HostManager {
     const [channels, servers] = await Promise.all([keptChannels(api), api.servers().catch(() => [])]);
     const hosted = new Set(this.host.channels.map(e => e.id));
     return { account: cfg.username, defaults: this.defaults(),
-      channels: channels.map(c => ({ id: c.id, name: c.name, server: c.server, serverId: c.serverId, knowledge: c.knowledge_mode ?? 'public', rule: c.rule_system ?? 'coc7e', hosted: hosted.has(c.id) })),
+      channels: channels.map(c => {
+        const state = validId(c.id) ? loadState(this.host.stateDir, c.id) : null;
+        return { id: c.id, name: c.name, server: c.server, serverId: c.serverId, knowledge: c.knowledge_mode ?? 'public', rule: c.rule_system ?? 'coc7e', hosted: hosted.has(c.id), hasModule: Boolean(c.module_id),
+          // Only mode availability is needed by the wizard, never the world text or GM secrets.
+          saved: state ? { improv: Boolean(state.improv?.on || state.forge), casual: Boolean(state.casual?.on), hasWorld: typeof state.improv?.world === 'string' && Boolean(state.improv.world.trim()), forgePhase: state.forge?.phase ?? null } : null };
+      }),
       servers: (servers ?? []).map(s => ({ id: s.id, name: s.name })) };
   }
-  create(spec) { return this.serial(async () => {
+  async searchPlayers(query) {
+    const q = (query ?? '').trim();
+    if (!q || q.length > 100) invalid('请输入不超过 100 字的用户名或显示名');
+    const { api } = await this.signIn();
+    return (await api.searchUsers(q)).filter(u => u.id !== api.user.id).map(({ id, username, display_name }) => ({ id, username, display_name }));
+  }
+  invitePlayers(spec) { return this.serial(async () => {
+    const id = spec?.channel_id, ids = playerIds(spec?.player_ids);
+    if (!validId(id) || !ids.length) invalid('请选择频道和玩家');
+    if (this.host.channels.some(e => e.id === id)) conflict('这个频道已经在主持中');
+    const { api } = await this.signIn();
+    if ((await api.channel(id)).my_role !== 'gm') invalid('当前账号不是这个频道的 GM');
+    const current = rolesById(await api.channelMembers(id)), errors = {};
+    for (const uid of ids) {
+      if (uid === api.user.id || current.get(uid) === 'gm') invalid('不能把频道 GM 邀请为玩家');
+    }
+    for (const uid of ids) if (!current.has(uid)) {
+      try { await api.invitePlayer(id, uid); } catch (e) { errors[uid] = e.message; }
+    }
+    const roster = rolesById(await api.channelMembers(id));
+    return ids.map(id => ({ id, joined: roster.get(id) === 'player', error: roster.get(id) === 'player' ? null : errors[id] ?? '尚未出现在频道玩家名单中' }));
+  }); }
+  prepareChannel(spec) { return this.serial(async () => {
+    if (spec?.source !== 'new') invalid('只能预建新频道');
+    const { target } = await this.taskTarget(spec);
+    return { id: target.channel.id, name: target.channel.name, invite: target.invite?.code ?? null };
+  }); }
+  async taskTarget(spec) {
     if (this.closed) throw Error('Host is shutting down');
     const task = checkTask(spec);
     const settings = { ...task.settings };
     if (task.source === 'new' && task.era) settings['channel.era'] = task.era;
     const text = applyChanges('', settings), dir = this.channelDir();
     // The channel file must be valid before anything is created on the platform.
-    channelConfig(this.host, { id: 'new-channel', config: path.join(dir, 'new-channel.yml') }, text);
+    const initialCfg = channelConfig(this.host, { id: 'new-channel', config: path.join(dir, 'new-channel.yml') }, text);
     if (task.source === 'existing' && this.host.channels.some(e => e.id === task.channelId)) conflict('这个频道已经在主持中');
     const { resolveChannel } = await import('./cli.mjs');
     const { cfg, api } = await this.signIn();
-    const casual = [true, 'true'].includes(settings['modes.casual']);
+    const casual = initialCfg.casual === true, sceneForks = initialCfg.sceneForks;
     const target = task.source === 'existing'
       ? await resolveChannel(api, { ...cfg, channelId: task.channelId }, { create: false })
-      : await resolveChannel(api, { ...cfg, channelId: '', create: true, serverId: task.serverId, serverName: task.serverName, channelName: task.channelName, ruleSystem: task.ruleSystem, era: task.era, casual }, { create: true });
+      : await resolveChannel(api, { ...cfg, channelId: '', create: true, serverId: task.serverId, serverName: task.serverName, channelName: task.channelName, ruleSystem: task.ruleSystem, era: task.era, casual, sceneForks }, { create: true });
     const id = target.channel.id;
     if (!validId(id)) throw Error('The platform returned an unusable channel id');
     if (this.host.channels.some(e => e.id === id)) conflict('这个频道已经在主持中');
+    return { task, text, dir, target, api, id };
+  }
+  create(spec) { return this.serial(async () => {
+    const expected = playerIds(spec?.expected_players);
+    if (expected.length && spec.source !== 'existing') invalid('请先完成频道邀请');
+    const { task, text, dir, target, api, id } = await this.taskTarget(spec);
+    if (expected.length) {
+      const roster = rolesById(await api.channelMembers(id));
+      if (!expected.every(uid => roster.get(uid) === 'player')) conflict('有受邀玩家尚未进入频道，请返回邀请步骤重新确认。');
+    }
     fs.mkdirSync(dir, { recursive: true });
     let file = path.join(dir, `${id}.yml`);
     for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${id}-${n}.yml`);
