@@ -52,6 +52,7 @@ export async function startWeb(manager, options) {
       if (req.method === 'GET' && url.pathname === '/api/host') return send(200, manager.hostInfo());
       if (req.method === 'GET' && url.pathname === '/api/schema') return send(200, schema(providerNames(manager.host)));
       if (req.method === 'GET' && url.pathname === '/api/platform') return send(200, await manager.platform());
+      if (req.method === 'GET' && url.pathname === '/api/platform/players') return send(200, await manager.searchPlayers(url.searchParams.get('q')));
       const readJson = async () => {
         if (!req.headers['content-type']?.startsWith('application/json')) throw Object.assign(Error('Use application/json'), { code: 'HTTP', status: 415 });
         let text = '', bytes = 0;
@@ -59,6 +60,8 @@ export async function startWeb(manager, options) {
         return JSON.parse(text);
       };
       // A new hosting task: attach a kept channel or create one on the platform, then (by default) start it.
+      if (req.method === 'POST' && url.pathname === '/api/platform/prepare') return send(200, await manager.prepareChannel(await readJson()));
+      if (req.method === 'POST' && url.pathname === '/api/platform/invite') return send(200, await manager.invitePlayers(await readJson()));
       if (req.method === 'POST' && url.pathname === '/api/channels') return send(200, { ok: true, ...(await manager.create(await readJson())) });
       const match = url.pathname.match(/^\/api\/channels\/([a-zA-Z0-9_-]{1,128})\/([a-z]+)$/);
       if (!match || !OPERATIONS.includes(match[2])) return send(404, { error: 'Not found' });

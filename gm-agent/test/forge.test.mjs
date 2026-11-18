@@ -62,7 +62,7 @@ test('application resumes lost create response using same receipt and hands over
 });
 test('runtime only reads submitted messages, ignores old revisions and persists a cardless participant',async()=>{
   const store=new Store(':memory:');let seq=0;const lines=[];
-  const api={user:{id:'gm'},channelMembers:async()=>[{user_id:'a',role:'player',display_name:'A'}],createWindow:async()=>({id:'forge'}),windows:async()=>[{id:'forge',purpose:'forge'}],characters:async()=>[],postMessage:async(_,w,b)=>{lines.push(b);return {id:`m${++seq}`};},postHypertext:async()=>({id:`c${++seq}`}),closeHypertext:async()=>{}};
+  const api={user:{id:'gm'},channelMembers:async()=>[{user_id:'a',role:'player',display_name:'A'}],windowMembers:async()=>[{user_id:'a'}],createWindow:async()=>({id:'forge'}),windows:async()=>[{id:'forge',purpose:'forge'}],characters:async()=>[],postMessage:async(_,w,b)=>{lines.push(b);return {id:`m${++seq}`};},postHypertext:async()=>({id:`c${++seq}`}),closeHypertext:async()=>{}};
   const f=new Forge({api,cfg:{language:'en'},channel:{id:'ch',forge_eligible:true,rule_system:'coc7e'},store,llm:{complete:()=>{throw Error('unexpected');}}});
   try{await f.init();const m=content=>({seq:++seq,author_id:'a',kind:'ooc',visibility:'window',chat_window_id:'forge',content});
     const old=command(f.s,'join'),cardId=f.s.cards.at(-1);
@@ -73,6 +73,27 @@ test('runtime only reads submitted messages, ignores old revisions and persists 
     await f.message({...m('开局共创 · Q1：Bookshop / I want a bookshop'),via_hypertext_id:f.s.cards.at(-1)});assert.match(f.s.history.at(-1).text,/Where to begin.*\n.*I want a bookshop/);
     assert.equal(store.get('forge.session').history.length,1);
   }finally{store.close();}
+});
+
+test('empty Forge waits; all arrivals can use one invitation, including after a failed delivery and restart',async t=>{
+  const store=new Store(':memory:'); t.after(()=>store.close());
+  const players=[], seats=new Set(), deliveries=[], greetings=[]; let failCard=true;
+  const api={user:{id:'bot'},channelMembers:async()=>[{id:'bot',role:'gm'},...players.map(id=>({id,role:'player'}))],
+    createWindow:async(_,doc)=>{for(const p of doc.members) seats.add(p.user_id);return {id:'w'};},windows:async()=>[{id:'w'}],characters:async()=>[],messages:async()=>[],
+    windowMembers:async()=>[...seats].map(user_id=>({user_id})),addWindowMember:async(_,w,p)=>seats.add(p.user_id),
+    postMessage:async(_,w,b)=>greetings.push(b.content),postHypertext:async(_,w,b)=>{if(failCard) throw Error('offline');deliveries.push({seats:[...seats],doc:b});return {id:'c'+deliveries.length};}};
+  const runtime=()=>new Forge({api,cfg:{},channel:{id:'ch',rule_system:'coc7e',forge_eligible:true},store});
+  let f=runtime();await f.init();await f.catchup();assert.equal(greetings.length+deliveries.length,0);
+  players.push('a','b');await assert.rejects(f.catchup(),/offline/);failCard=false;await f.catchup();
+  assert.equal(greetings.length,1);assert.deepEqual(deliveries.map(d=>d.seats),[['a','b']]);
+  f=runtime();await f.init();await f.catchup();assert.equal(deliveries.length,1);
+  const button=deliveries[0].doc.hypertext.body.find(n=>n.label==='加入共创');
+  assert.deepEqual(button.enable_if,{key:'joined',eq:false});assert.deepEqual(button.act.set,{joined:true});
+  const click=(seq,author_id)=>f.message({seq,author_id,kind:'ooc',visibility:'window',chat_window_id:'w',via_hypertext_id:'c1',content:button.act.say});
+  await click(1,'a'); const afterFirst=deliveries.length;await click(2,'a'); assert.equal(deliveries.length,afterFirst);
+  await click(3,'b');assert.deepEqual(Object.keys(f.s.participants),['a','b']);assert.ok(!deliveries.at(-1).doc.hypertext.body.some(n=>n.label==='加入共创'));
+  players.push('late');const before=deliveries.length;await f.catchup();await f.catchup();assert.equal(deliveries.length,before+1);
+  assert.deepEqual(deliveries.at(-1).seats,['a','b','late']);assert.ok(deliveries.at(-1).doc.hypertext.body.some(n=>n.label==='加入共创'));
 });
 
 test('private initial state maps C keys to real IDs exactly once and cannot assign NPC feelings to a co-player',async()=>{

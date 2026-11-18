@@ -76,7 +76,15 @@
         <div id="c-budget"></div>
       </section>
       <section class="card step" data-create-step="3" aria-labelledby="create-heading-3" hidden>
-        <h3 id="create-heading-3" tabindex="-1">4 · 确认并启动</h3>
+        <h3 id="create-heading-3" tabindex="-1">4 · 邀请玩家</h3>
+        <p>搜索玩家的平台账号，选好后点击「邀请并继续」。这会把他们加入频道，主持要到最后一步才会启动。玩家无需此刻在线。</p>
+        <div class="field"><label for="c-player-query">用户名或显示名</label><div class="control row"><input id="c-player-query" type="search" maxlength="100" autocomplete="off"><button id="c-player-search" type="button">搜索</button></div></div>
+        <div id="c-player-results" class="row" aria-live="polite"></div>
+        <h4>邀请名单</h4><div id="c-players" aria-live="polite"></div>
+        <p class="help" id="c-invite-help"></p>
+      </section>
+      <section class="card step" data-create-step="4" aria-labelledby="create-heading-4" hidden>
+        <h3 id="create-heading-4" tabindex="-1">确认并启动</h3>
         <div id="c-review"></div>
         <h4>启动方式</h4>
         <label class="check"><input id="c-enabled" type="checkbox" checked> 随主机自动启动</label>

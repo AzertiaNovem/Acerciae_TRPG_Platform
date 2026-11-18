@@ -40,6 +40,12 @@ export function redact(text, secrets = []) {
 
 const invalid = message => { throw Object.assign(Error(message), { code: 'INVALID_SETTING' }); };
 const conflict = message => { throw Object.assign(Error(message), { code: 'CONFLICT' }); };
+function playerIds(ids = []) {
+  const uuid = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
+  if (!Array.isArray(ids) || ids.length > 32 || !ids.every(id => typeof id === 'string' && uuid.test(id))) invalid('请从搜索结果中选择最多 32 位平台玩家');
+  return [...new Set(ids.map(id => id.toLowerCase()))];
+}
+const rolesById = members => new Map(members.map(m => [m.id ?? m.user_id, m.role]));
 // A new hosting task from the Web UI: attach a channel the account keeps, or create one on the platform first.
 export function checkTask(spec) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) invalid('缺少主持任务');
@@ -264,7 +270,34 @@ export class HostManager {
       }),
       servers: (servers ?? []).map(s => ({ id: s.id, name: s.name })) };
   }
-  create(spec) { return this.serial(async () => {
+  async searchPlayers(query) {
+    const q = (query ?? '').trim();
+    if (!q || q.length > 100) invalid('请输入不超过 100 字的用户名或显示名');
+    const { api } = await this.signIn();
+    return (await api.searchUsers(q)).filter(u => u.id !== api.user.id).map(({ id, username, display_name }) => ({ id, username, display_name }));
+  }
+  invitePlayers(spec) { return this.serial(async () => {
+    const id = spec?.channel_id, ids = playerIds(spec?.player_ids);
+    if (!validId(id) || !ids.length) invalid('请选择频道和玩家');
+    if (this.host.channels.some(e => e.id === id)) conflict('这个频道已经在主持中');
+    const { api } = await this.signIn();
+    if ((await api.channel(id)).my_role !== 'gm') invalid('当前账号不是这个频道的 GM');
+    const current = rolesById(await api.channelMembers(id)), errors = {};
+    for (const uid of ids) {
+      if (uid === api.user.id || current.get(uid) === 'gm') invalid('不能把频道 GM 邀请为玩家');
+    }
+    for (const uid of ids) if (!current.has(uid)) {
+      try { await api.invitePlayer(id, uid); } catch (e) { errors[uid] = e.message; }
+    }
+    const roster = rolesById(await api.channelMembers(id));
+    return ids.map(id => ({ id, joined: roster.get(id) === 'player', error: roster.get(id) === 'player' ? null : errors[id] ?? '尚未出现在频道玩家名单中' }));
+  }); }
+  prepareChannel(spec) { return this.serial(async () => {
+    if (spec?.source !== 'new') invalid('只能预建新频道');
+    const { target } = await this.taskTarget(spec);
+    return { id: target.channel.id, name: target.channel.name, invite: target.invite?.code ?? null };
+  }); }
+  async taskTarget(spec) {
     if (this.closed) throw Error('Host is shutting down');
     const task = checkTask(spec);
     const settings = { ...task.settings };
@@ -282,6 +315,16 @@ export class HostManager {
     const id = target.channel.id;
     if (!validId(id)) throw Error('The platform returned an unusable channel id');
     if (this.host.channels.some(e => e.id === id)) conflict('这个频道已经在主持中');
+    return { task, text, dir, target, api, id };
+  }
+  create(spec) { return this.serial(async () => {
+    const expected = playerIds(spec?.expected_players);
+    if (expected.length && spec.source !== 'existing') invalid('请先完成频道邀请');
+    const { task, text, dir, target, api, id } = await this.taskTarget(spec);
+    if (expected.length) {
+      const roster = rolesById(await api.channelMembers(id));
+      if (!expected.every(uid => roster.get(uid) === 'player')) conflict('有受邀玩家尚未进入频道，请返回邀请步骤重新确认。');
+    }
     fs.mkdirSync(dir, { recursive: true });
     let file = path.join(dir, `${id}.yml`);
     for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${id}-${n}.yml`);

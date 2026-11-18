@@ -9,7 +9,8 @@ export const FEATURES = [
 export const BASICS = ['table.language', 'table.coplayers', 'table.level'];
 const PHONE_FIELDS = ['modes.casual_max_delay_minutes', 'modes.casual_ai_texts_per_hour', 'modes.casual_ai_chain', 'calendar.max_days'];
 const RULES = { coc7e: 'CoC 7e', dnd2024: 'D&D 2024', pbta: 'PbtA' };
-const STEPS = ['频道', '故事模式', '配套功能', '确认启动'];
+const STEPS = ['频道', '故事模式', '配套功能', '邀请玩家', '确认启动'];
+const playerLabel = p => p.display_name && p.display_name !== p.username ? `${p.display_name}（@${p.username}）` : `@${p.username}`;
 const isOn = v => v === true || v === 'true';
 export function effective(draft, key, defaults = {}, channel = null) {
   if (key === 'modes.casual' && channel?.saved?.forgePhase === 'playing') return Boolean(channel.saved.casual);
@@ -74,8 +75,11 @@ export class CreateWizard {
     this.$ = id => document.getElementById(id);
     this.loadId = 0; this.clear();
     const $ = this.$;
-    $('create-back').onclick = () => this.go(this.step - 1);
-    $('create-next').onclick = () => { if (this.validate(this.step)) this.go(this.step + 1); };
+    $('create-back').onclick = () => this.go(this.steps()[this.steps().indexOf(this.step) - 1]);
+    $('create-next').onclick = () => { if (this.validate(this.step)) this.step === 3 ? this.inviteAndContinue() : this.go(this.steps()[this.steps().indexOf(this.step) + 1]); };
+    $('c-player-search').onclick = () => this.searchPlayers();
+    $('c-player-query').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); this.searchPlayers(); } };
+    $('c-player-query').oninput = () => { this.searchId++; this.matches = []; this.renderPlayers(); };
     $('create-submit').onclick = () => this.submit();
     $('create-cancel').onclick = () => { if (!this.isBusy()) { this.clear(); $('create').hidden = true; $('empty').hidden = false; } };
     $('c-refresh').onclick = () => this.load();
@@ -90,10 +94,48 @@ export class CreateWizard {
     for (const id of ['c-start', 'c-prepare', 'c-enabled']) $(id).onchange = () => this.renderReview();
   }
   clear() {
+    this.searchId = (this.searchId ?? 0) + 1; this.matches = []; this.players = new Map(); this.prepared = null;
     this.loadId++; this.platform = null; this.loading = false; this.done = false; this.step = 0; this.expanded = new Set(); this.wasPlayed = false;
     this.draft = { source: 'existing', story: '', world: 'forge', rule: null, values: {} };
   }
   channel() { return this.draft.source === 'existing' ? this.platform?.channels.find(c => c.id === this.$('c-channel').value) : null; }
+  steps() { return this.draft.source === 'new' ? [0, 1, 2, 3, 4] : [0, 1, 2, 4]; }
+  async searchPlayers() {
+    const q = this.$('c-player-query').value.trim(), request = ++this.searchId;
+    if (!q || this.isBusy()) return;
+    this.$('c-player-results').textContent = '正在搜索…';
+    try {
+      const matches = await this.api(`/api/platform/players?q=${encodeURIComponent(q)}`);
+      if (request !== this.searchId) return;
+      this.matches = matches; this.renderPlayers();
+      if (!matches.length) this.$('c-player-results').textContent = '没有找到匹配的账号。';
+    } catch (e) { if (request === this.searchId) this.$('c-player-results').textContent = `搜索失败：${e.message}`; }
+  }
+  renderPlayers() {
+    const { h } = this, $ = this.$, busy = this.isBusy();
+    $('c-player-results').replaceChildren(...this.matches.map(p => h('button', { type: 'button', disabled: busy || this.players.has(p.id) || this.players.size >= 32,
+      text: `${this.players.has(p.id) ? '已选' : '选择'} ${playerLabel(p)}`, onclick: () => { this.players.set(p.id, p); this.renderPlayers(); } })));
+    $('c-players').replaceChildren(...[...this.players.values()].map(p => h('div', { class: 'row' }, h('span', { text: playerLabel(p) }), p.joined ? h('span', { text: '已在频道' }) : h('button', { type: 'button', text: '移除', disabled: busy, onclick: () => { this.players.delete(p.id); this.renderPlayers(); } }), p.error ? h('span', { class: 'error-text', text: p.error }) : null)));
+    $('c-invite-help').textContent = this.prepared ? `平台频道「${this.prepared.name}」已建好。取消向导也会保留频道及已加入的玩家，可从「接入已有频道」继续。` : '也可以先跳过。空频道启用 Forge 时，会等第一位玩家加入才发共创卡。';
+    $('c-player-query').disabled = $('c-player-search').disabled = busy;
+    if (this.step === 3) $('create-next').textContent = this.players.size ? '邀请并继续' : '跳过邀请';
+  }
+  async inviteAndContinue() {
+    if (this.isBusy()) return;
+    if (!this.players.size) { this.go(4); return; }
+    this.onBusy(true); this.renderSteps(); this.renderPlayers();
+    this.$('create-status').textContent = '正在确认玩家的频道成员资格…';
+    let ready = false;
+    try {
+      this.prepared ??= await this.api('/api/platform/prepare', this.taskBody());
+      const result = await this.api('/api/platform/invite', { channel_id: this.prepared.id, player_ids: [...this.players.keys()] });
+      for (const p of result) Object.assign(this.players.get(p.id), p);
+      ready = [...this.players.values()].every(p => p.joined);
+      if (!ready) this.error('部分玩家未能加入。请查看名单中的原因，重试或移除未加入的账号。');
+    } catch (e) { this.error(`邀请失败：${e.message}`); }
+    finally { this.onBusy(false); this.renderSteps(); this.renderPlayers(); }
+    if (ready) this.go(4);
+  }
   defaults() { return this.platform?.defaults ?? {}; }
   get(key) { return effective(this.draft, key, this.defaults(), this.channel()); }
   branch() { return branches(this.draft, this.channel(), this.defaults()); }
@@ -182,6 +224,7 @@ export class CreateWizard {
     $('c-prepare').disabled = b.playedForge; this.wasPlayed = b.playedForge;
     const row = (name, value) => h('div', { class: 'kv' }, h('span', { text: name }), h('span', { text: value }));
     const items = [row('频道', this.draft.source === 'new' ? $('c-name').value.trim() : this.channel()?.name ?? '尚未选择'), row('规则', RULES[this.draft.rule] ?? ''),
+      ...(this.draft.source === 'new' ? [row('受邀玩家', [...this.players.values()].map(playerLabel).join('、') || '未邀请玩家')] : []),
       row('故事模式', `${this.draft.story === 'inherit' ? '沿用 · ' : ''}${b.improv ? '即兴故事' : '模组故事'}`),
       row('世界准备', b.pendingForge ? '继续已保留的开局共创' : b.forge ? '先共创开局，全体确认后再开始' : settings['modes.world_file'] || (b.improv ? '沿用本机已有世界' : '使用频道的模组知识')),
       row('日常模式', b.casual ? '开启' : '关闭'), row('知识可见性', b.isolated ? '隔离；手机和私有场景还需独立玩家组' : '公开'),
@@ -206,16 +249,21 @@ export class CreateWizard {
   }
   renderSteps() {
     const { h } = this, $ = this.$;
-    $('create-steps').replaceChildren(...STEPS.map((label, i) => h('button', { type: 'button', disabled: i > this.step || this.loading || this.isBusy() || this.done, 'aria-current': i === this.step ? 'step' : undefined, onclick: () => this.go(i), text: `${i + 1} · ${label}` })));
+    const steps = this.steps(), first = this.prepared ? 3 : 0;
+    $('create-steps').replaceChildren(...steps.map((i, n) => h('button', { type: 'button', disabled: i < first || i > this.step || this.loading || this.isBusy() || this.done, 'aria-current': i === this.step ? 'step' : undefined, onclick: () => this.go(i), text: `${n + 1} · ${STEPS[i]}` })));
+    $('create-heading-4').textContent = `${steps.length} · 确认并启动`;
     for (const panel of document.querySelectorAll('[data-create-step]')) panel.hidden = Number(panel.dataset.createStep) !== this.step;
     $('create-flow').hidden = this.done;
-    $('create-back').hidden = this.step === 0;
-    $('create-next').hidden = this.step === 3;
-    $('create-submit').hidden = this.step !== 3;
+    $('create-back').hidden = this.step === first;
+    $('create-next').hidden = this.step === 4;
+    $('create-next').textContent = '下一步';
+    if (this.step === 3) this.renderPlayers();
+    $('c-refresh').disabled = this.loading || this.isBusy() || Boolean(this.prepared);
+    $('create-submit').hidden = this.step !== 4;
     for (const id of ['create-back', 'create-next', 'create-submit']) $(id).disabled = this.loading || this.isBusy() || !this.platform;
   }
   go(step) {
-    if (this.loading || this.isBusy() || step < 0 || step > 3) return;
+    if (this.loading || this.isBusy() || !this.steps().includes(step) || this.prepared && step < 3) return;
     this.step = step; this.$('create-status').textContent = ''; this.redraw();
     this.$(`create-heading-${step}`).focus();
   }
@@ -244,14 +292,14 @@ export class CreateWizard {
         if (this.draft.world === 'file' && !String(this.draft.values['modes.world_file'] ?? '').trim()) return this.error('请填写世界设定文件的位置，或选择共创开局。', 'c-modes-world_file');
       }
     }
-    if (step === 3 && !b.playedForge && !$('c-prepare').checked && (this.draft.story !== 'inherit' || this.draft.values['modes.casual'] !== undefined && this.draft.values['modes.casual'] !== '')) return this.error('所选模式需要在启动时应用，请开启“启动时准备频道”。', 'c-prepare');
+    if (step === 4 && !b.playedForge && !$('c-prepare').checked && (this.draft.story !== 'inherit' || this.draft.values['modes.casual'] !== undefined && this.draft.values['modes.casual'] !== '')) return this.error('所选模式需要在启动时应用，请开启“启动时准备频道”。', 'c-prepare');
     const panel = document.querySelector(`[data-create-step="${step}"]`);
     for (const input of panel.querySelectorAll('input, select')) if (!input.disabled && !input.checkValidity()) { const details = input.closest('details'); if (details) details.open = true; input.reportValidity(); return false; }
     return true;
   }
   async open() {
     this.clear(); const $ = this.$;
-    for (const id of ['c-name', 'c-era', 'c-server-name']) $(id).value = '';
+    for (const id of ['c-name', 'c-era', 'c-server-name', 'c-player-query']) $(id).value = '';
     for (const id of ['c-enabled', 'c-prepare', 'c-start']) { $(id).checked = true; $(id).disabled = false; }
     $('create-result').hidden = true; $('create-cancel').textContent = '取消'; this.renderSource(); this.redraw();
     await this.load();
@@ -275,16 +323,23 @@ export class CreateWizard {
     } catch (e) { if (request === this.loadId) { this.platform = null; this.error(`无法读取平台：${e.message}。可点击“刷新”重试。`); } }
     finally { if (request === this.loadId) { this.loading = false; $('c-refresh').disabled = false; this.redraw(); } }
   }
+  taskBody() {
+    const $ = this.$, body = { source: this.draft.source, settings: creationSettings(this.draft, this.channel(), this.defaults()), enabled: $('c-enabled').checked, prepare_on_start: $('c-prepare').checked, start: $('c-start').checked };
+    if (this.prepared) {
+      if ($('c-era').value.trim()) body.settings['channel.era'] = $('c-era').value.trim();
+      return { ...body, source: 'existing', channel_id: this.prepared.id, expected_players: [...this.players.keys()] };
+    }
+    if (body.source === 'existing') return { ...body, channel_id: $('c-channel').value };
+    return { ...body, server_id: $('c-server').value, server_name: $('c-server-name').value.trim(), channel_name: $('c-name').value.trim(), rule_system: this.draft.rule, era: $('c-era').value.trim() };
+  }
   async submit() {
-    if (this.isBusy() || this.loading || this.done || this.step !== 3) return;
-    for (let step = 0; step <= 3; step++) {
+    if (this.isBusy() || this.loading || this.done || this.step !== 4) return;
+    for (const step of this.steps()) {
       // Validate in the visible panel so native validity feedback and focus work after going back.
       this.step = step; this.renderSteps();
       if (!this.validate(step)) return;
     }
-    const $ = this.$, body = { source: this.draft.source, settings: creationSettings(this.draft, this.channel(), this.defaults()), enabled: $('c-enabled').checked, prepare_on_start: $('c-prepare').checked, start: $('c-start').checked };
-    if (body.source === 'existing') body.channel_id = $('c-channel').value;
-    else Object.assign(body, { server_id: $('c-server').value, server_name: $('c-server-name').value.trim(), channel_name: $('c-name').value.trim(), rule_system: this.draft.rule, era: $('c-era').value.trim() });
+    const $ = this.$, body = this.taskBody();
     this.onBusy(true); this.renderSteps();
     // Freeze all draft controls while the request is in flight, including source and startup switches.
     const controls = [...document.querySelectorAll('#create input, #create select, #create button')].map(el => [el, el.disabled]);
@@ -293,8 +348,9 @@ export class CreateWizard {
     try {
       const made = await this.api('/api/channels', body), { h } = this;
       this.done = true; $('create-status').textContent = ''; $('create-cancel').textContent = '完成';
-      $('create-result').replaceChildren(h('p', { text: `已${made.created ? '新建并' : ''}接入「${made.name}」。${body.start ? this.branch().forge || this.branch().pendingForge ? '正在进入开局共创。' : '正在准备并启动主持。' : '任务已保存，可稍后手动启动。'}` }),
-        made.invite ? h('p', { text: `服务器邀请码：${made.invite}` }) : null, h('button', { type: 'button', class: 'primary', onclick: () => this.viewChannel(made.id), text: '查看频道' }));
+      const invite = made.invite ?? this.prepared?.invite;
+      $('create-result').replaceChildren(h('p', { text: `已${made.created || this.prepared ? '新建并' : ''}接入「${made.name}」。${body.start ? this.branch().forge || this.branch().pendingForge ? '正在进入开局共创。' : '正在准备并启动主持。' : '任务已保存，可稍后手动启动。'}` }),
+        invite ? h('p', { text: `服务器邀请码：${invite}` }) : null, h('button', { type: 'button', class: 'primary', onclick: () => this.viewChannel(made.id), text: '查看频道' }));
       $('create-result').hidden = false; this.notice('主持任务已创建。', 'ok');
       await this.onCreated();
     } catch (e) { this.error(`创建失败：${e.message}`); }

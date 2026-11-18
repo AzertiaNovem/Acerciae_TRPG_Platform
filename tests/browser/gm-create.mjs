@@ -20,7 +20,12 @@ const rows = [
   { id: 'forging', name: '正在共创', knowledge_mode: 'isolated' },
 ].map(c => ({ server_id: 'server', rule_system: 'coc7e', my_role: 'gm', ...c }));
 const created = [], servers = [{ id: 'server', name: '周末故事' }];
-const platform = { servers: async () => servers, channels: async () => rows, channel: async id => rows.find(c => c.id === id),
+const users = ['alice', 'amy'].map(username => ({ id: crypto.randomUUID(), username, display_name: username })), roster = new Set(), invitations = [];
+const [aliceId, amyId] = users.map(p => p.id);
+let rejectAmy = true;
+const platform = { user: { id: 'gm' }, searchUsers: async q => users.filter(p => p.username.includes(q)), channelMembers: async () => [...roster].map(id => ({ id, role: 'player' })),
+  invitePlayer: async (_, id) => { invitations.push(id); if (id === amyId && rejectAmy) throw Error('invite denied'); roster.add(id); },
+  servers: async () => servers, channels: async () => rows, channel: async id => rows.find(c => c.id === id),
   createServer: async name => { const s = { id: 'new-server', name }; servers.push(s); return s; },
   createChannel: async (server, body) => { const c = { id: `created-${created.length + 1}`, server_id: server, my_role: 'gm', ...body }; rows.push(c); created.push(c); return c; },
   updateChannel: async (id, body) => Object.assign(rows.find(c => c.id === id), body), createInvite: async () => ({ code: 'TEST-INVITE' }) };
@@ -80,9 +85,17 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: `/tmp/gm-create-features-mobile-${engine}.png`, fullPage: true });
-  await next(); assert.match(await page.locator('#c-review').innerText(), /先共创开局/);
+  await next(); await page.locator('#c-player-query').fill('a'); await page.locator('#c-player-search').click();
+  for (const p of users) await page.getByRole('button', { name: `选择 @${p.username}`, exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '已选 @alice' }).isDisabled(), true);
+  await next(); await page.getByText('invite denied', { exact: true }).waitFor();
+  assert.equal(manager.host.channels.length, 0); assert.deepEqual([...roster], [aliceId]);
+  rejectAmy = false; await next(); await page.locator('#c-review').waitFor(); assert.deepEqual(invitations, [aliceId, amyId, amyId]);
+  assert.match(await page.locator('#c-review').innerText(), /先共创开局/); assert.match(await page.locator('#c-review').innerText(), /@alice、@amy/);
+  roster.delete(amyId); await page.locator('#create-submit').click(); await page.getByText(/创建失败：有受邀玩家/).waitFor();
+  assert.equal(manager.host.channels.length, 0); await page.locator('#create-back').click(); await next(); await page.locator('#c-review').waitFor();
   await page.locator('#c-prepare').uncheck(); await page.locator('#create-submit').click();
-  assert.match(await page.locator('#create-status').innerText(), /启动时准备频道/); assert.equal(created.length, 0);
+  assert.match(await page.locator('#create-status').innerText(), /启动时准备频道/); assert.equal(created.length, 1); assert.equal(manager.host.channels.length, 0);
   await page.locator('#c-prepare').check();
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: `/tmp/gm-create-review-${engine}.png`, fullPage: true });
@@ -117,7 +130,7 @@ try {
   assert.equal('modes.improv' in bodies.at(-1).settings, false); assert.equal('modes.casual' in bodies.at(-1).settings, false);
   // New scene forks alone must actually create private windows' prerequisite, without enabling casual mode.
   await open(); await page.getByLabel('在平台上新建频道', { exact: true }).check(); await page.locator('#c-server').selectOption('server'); await page.locator('#c-name').fill('分头调查'); await page.locator('#c-rule').selectOption('pbta');
-  await next(); await page.locator('#c-story-module').check(); await next(); await page.locator('#c-timelines-scene_forks').selectOption('true'); await next();
+  await next(); await page.locator('#c-story-module').check(); await next(); await page.locator('#c-timelines-scene_forks').selectOption('true'); await next(); await next();
   assert.match(await page.locator('#c-review').innerText(), /审核规则草案/);
   await page.locator('#c-start').uncheck(); await page.locator('#create-submit').click(); await page.locator('#create-result').waitFor();
   assert.equal(created[1].knowledge_mode, 'isolated'); assert.equal(bodies.at(-1).settings['modes.casual'], false);
