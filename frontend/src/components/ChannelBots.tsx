@@ -11,7 +11,8 @@ export default function ChannelBots({ channelId }: { channelId: string }) {
   const toast = useUi((s) => s.toast);
   const [view, setView] = useState<View | null>(null);
   const [open, setOpen] = useState(false);
-  const load = useCallback(() => { api.channelBots(channelId).then(setView).catch(() => setView(null)); }, [channelId]);
+  // An older server (no such route) or anything malformed shows nothing rather than breaking the sidebar.
+  const load = useCallback(() => { api.channelBots(channelId).then((v) => setView(v && Array.isArray(v.present) && Array.isArray(v.invitable) ? v : null)).catch(() => setView(null)); }, [channelId]);
   useEffect(() => {
     load();
     const changed = (e: Event) => { if ((e as CustomEvent).detail === channelId) load(); };
