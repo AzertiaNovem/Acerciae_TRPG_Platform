@@ -7,7 +7,7 @@ import { MAIN } from "../timelines.mjs";
 import { noteCalendarLine } from "../calendar.mjs";
 import { TRIGGER_KINDS, HOUR } from "./shared.mjs";
 import { pictureOnly } from "../pictureLines.mjs";
-import { timetableAt } from "../daily.mjs";
+
 import { attentionCandidates } from './attention.mjs';
 
 export function cancelTimer(table, windowId) {
@@ -71,29 +71,6 @@ export function updatePause(table, m, { historical = false } = {}) {
 
 export function onMessage(table, m) {
     if (table.forgeWindows?.has(m?.chat_window_id) || (table.isPlannerWindow(m?.chat_window_id) && !table.improv.on)) return;
-    if (!m || m.channel_id !== table.channelId || !table.dailyOn() || !table.isHuman(m)) return dispatchMessage(table, m);
-    // The same live event twice is handled once. The local chat copy is no guide: a GM context build may already have
-    // fetched this line from the platform before its event arrived, and the line still needs its answer.
-    if (m.id) {
-      if (table.handledMessages.has(m.id)) return;
-      table.handledMessages.add(m.id);
-      if (table.handledMessages.size > 2000) table.handledMessages.delete(table.handledMessages.values().next().value);
-    }
-    if (table.pauseCommand(m)) {
-      const now = Math.max(table.daily.lastHumanAt, Date.parse(m.created_at) || table.now());
-      table.daily.frozen = table.daily.anchor ? timetableAt(table.daily.anchor, now, table.cfg.daily.day_hours) : table.daily.frozen ?? table.dailyStatus().clock;
-      table.daily.anchor = null;
-      // Pause immediately, even while the serial queue is waiting for a model response.
-      Promise.resolve(table.updatePause(m)).catch(e => table.log(`pause: ${e.message}`));
-    }
-    if (table.isTrigger(m) && !table.isTableWindow(m.chat_window_id)) table.dailyInterrupt = (table.dailyInterrupt ?? 0) + 1;
-    // A failure in the daily bookkeeping is logged; the line is still answered.
-    const ready = table.queue.then(() => table.beforeDailyMessage(m)).catch(e => table.log(`daily message: ${e.message}`));
-    table.queue = ready;
-    return ready.then(() => dispatchMessage(table, m));
-  }
-
-function dispatchMessage(table, m) {
     if (!m || m.channel_id !== table.channelId) return;
     // A picture request in the planner window: handled here, never the planner's, and never a resumption of play.
     if (table.noteArt(m)) {
@@ -175,17 +152,16 @@ export function noteIgnored(table, windowId, ignored) {
 export function scheduleArrival(table, windowId, arrival, { autonomous = false, force = false } = {}) {
     if (table.deferArrivals) { table.owedArrivals.push({ windowId, arrival }); return null; }
     const now = table.now();
-    const parent = table.turnScope.getStore();
     table.arrivalTimes = table.arrivalTimes.filter((t) => now - t < HOUR);
     if (!force) {
       if (table.arrivalTimes.length >= table.cfg.timelineMaxArrivalsPerHour) { table.log(`arrival in "${table.windowName(windowId)}" skipped: hourly arrival cap`); return null; }
       if (autonomous) {
         table.autonomousTurns = table.autonomousTurns.filter((t) => now - t < HOUR);
-        if ((!parent?.gentle && now - table.lastHumanAt > table.cfg.autonomyIdleMinutes * 60000) || table.autonomousTurns.length >= table.cfg.autonomyMaxTurnsPerHour || table.overBudget() || (parent?.gentle && (table.sparkCancelled() || parent.dailyBudget.posted >= parent.dailyBudget.limit))) { table.log("arrival skipped: autonomy paused"); return null; }
+        if (now - table.lastHumanAt > table.cfg.autonomyIdleMinutes * 60000 || table.autonomousTurns.length >= table.cfg.autonomyMaxTurnsPerHour || table.overBudget()) { table.log("arrival skipped: autonomy paused"); return null; }
       }
     }
     table.arrivalTimes.push(now);
-    return table.schedule(windowId, { mode: "arrival", delay: 0, arrival, autonomous, ...(parent?.gentle ? { gentle: true, dailyEpoch: parent.dailyEpoch } : {}) });
+    return table.schedule(windowId, { mode: "arrival", delay: 0, arrival, autonomous });
   }
 
 export function overBudget(table) {
@@ -197,12 +173,6 @@ export function overBudget(table) {
     return true;
   }
 
-export function budgetPressure(table) {
-    if (!table.cfg.dailyTokenBudget) return "none";
-    if (table.overBudget()) return "spent";
-    const day = new Date(table.now()); day.setHours(0, 0, 0, 0);
-    return billableTokens(table.store.usageSince(day.getTime())) >= table.cfg.dailyTokenBudget * .6 ? "tight" : "none";
-  }
 
 export function checkInvariants(table) {
     const ids = investigatorsFor(table.characters, table.roster).map((c) => c.id);
@@ -224,10 +194,7 @@ export function startTicker(table) {
     // Pending phone replies arrive on their own clock, autonomy or not; the same clock notices a session's end.
     if (!table.phoneTimer) {
       table.phoneTimer = setInterval(() => {
-        if (table.dailyOn() && !table.dailyTickPending) {
-          table.dailyTickPending = true;
-          table.queue = table.queue.then(() => table.clockTick()).catch(e => table.log(`daily: ${e.message}`)).finally(() => { table.dailyTickPending = false; });
-        }
+
         table.deliverDue().catch((e) => table.log(`phones: ${e.message}`));
         try { table.checkSessionEnd(); } catch (e) { table.log(`final review: ${e.message}`); }
         // The platform says nothing when a player creates a character: look again now and then.
@@ -245,12 +212,11 @@ export function stopTicker(table) { clearInterval(table.ticker); table.ticker = 
 export async function tick(table) {
     if (table.generation.paused || !table.cfg.autonomy || table.pending > 0) return null;
     if (table.overBudget()) return null;
-    if (table.dailyOn() && table.dailyMode() !== "attended") return null;
     const now = table.now();
     const idle = table.cfg.autonomyIdleMinutes * 60000;
     // Away: nobody at the table. Only co-players-only threads move, every AWAY_SIDE_INTERVAL_MS (0: not at all).
     const away = now - table.lastHumanAt > idle;
-    if (away && (table.dailyOn() || !table.cfg.awaySideIntervalMs)) return null;
+    if (away && !table.cfg.awaySideIntervalMs) return null;
     table.autonomousTurns = table.autonomousTurns.filter((t) => now - t < HOUR);
     if (table.autonomousTurns.length >= table.cfg.autonomyMaxTurnsPerHour) return null;
     const candidates = [];

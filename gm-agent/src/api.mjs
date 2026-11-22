@@ -80,7 +80,6 @@ export class Api {
   cancelAgentMessage(ch, requestId) { return this.call('DELETE', `/api/channels/${ch}/agent-messages/${encodeURIComponent(requestId)}`); }
   createCharacter(ch, body) { return this.post(`/api/channels/${ch}/characters`, body); }
   transferCharacter(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/owner`, body); }
-  setCharacterPresence(ch, cid, passive) { return this.put(`/api/channels/${ch}/characters/${cid}/presence`, { passive }); }
   characterSpace(ch, cid) { return this.get(`/api/channels/${ch}/characters/${cid}/space`); }
   pbtaRules(ch) { return this.get(`/api/channels/${ch}/pbta`); }
   pbtaDraft(ch) { return this.get(`/api/channels/${ch}/pbta/draft`); }

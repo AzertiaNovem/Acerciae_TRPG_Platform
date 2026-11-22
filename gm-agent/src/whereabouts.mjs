@@ -79,7 +79,7 @@ export function whereaboutsBrief({ timelines, scene, nameOf, windowName, isPc, m
 
 // reports: validated whereabouts. scene: {timeline, windowId} (timeline null outside any thread's window).
 // scopeIds: who may be reported this round. speakers: player characters whose player posted in this turn's lines here.
-export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers = new Set(), verifiedCompanions = false, decisionSeqs = new Map(), passiveFollowers = new Set(), mode, resolve, isPc, userOf = () => null, windowUsers = () => [], guard, turn, now, cfg }) {
+export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers = new Set(), verifiedCompanions = false, decisionSeqs = new Map(), mode, resolve, isPc, userOf = () => null, windowUsers = () => [], guard, turn, now, cfg }) {
   const forks = Boolean(cfg?.sceneForks);
   const ignored = [];
   const updates = {};
@@ -120,7 +120,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
       if (target.kind === "tl" && target.id === curOf(id)) continue;
       // 2. Authority.
       if (!override && isPc(id)) {
-        if (!(verifiedCompanions && passiveFollowers.has(id)) && (!["human", "relay"].includes(mode) || !speakers.has(id))) { ignored.push({ id, why: "a player character moves only when its player says so" }); continue; }
+        if (!["human", "relay"].includes(mode) || !speakers.has(id)) { ignored.push({ id, why: "a player character moves only when its player says so" }); continue; }
       } else if (!override && !verifiedCompanions && !["followup", "side"].includes(mode)) { ignored.push({ id, why: "a co-player moves only after its own line" }); continue; }
       // 3. Guard (players' own moves are exempt).
       if (!isPc(id) && !override) {
@@ -154,13 +154,6 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   };
   const pcsIn = (ids) => ids.filter(isPc).length;
   const sources = [timelines.main(), ...timelines.active().filter((t) => t.id !== MAIN)];
-  // A passive PC may follow a companion from its own scene, never move alone.
-  for (const id of passiveFollowers) {
-    const target = decisions.get(id);
-    if (!target) continue;
-    const companion = [...decisions].some(([other, dest]) => other !== id && !passiveFollowers.has(other) && curOf(other) === curOf(id) && JSON.stringify(dest) === JSON.stringify(target));
-    if (!companion) { decisions.delete(id); for (const group of groups.values()) group.ids = group.ids.filter(x => x !== id); ignored.push({ id, why: "a passive character cannot move alone" }); }
-  }
   for (const F of sources) {
     const leavers = F.members.filter((id) => decisions.has(id));
     if (!leavers.length) continue;

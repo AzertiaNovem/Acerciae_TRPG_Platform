@@ -46,9 +46,9 @@ A save validates the configuration, rejects stale edits from another browser, wr
 
 Settings → 纯文本写作指导 provides separate multiline editors for GM/NPC prose (`writing.gm`) and co-player scene
 prose (`writing.coplayer`). Each is prefilled with the original style guidance. Custom text replaces that
-guidance in the creative call, including GM phone replies and unattended co-player scenes; the formatter does
+guidance in the creative call, including GM phone replies; the formatter does
 not receive it. Clear the field or choose 恢复默认 to restore the built-in guidance. Each field supports up to
-12,000 characters. Table rules, character agency, and unattended-play limits remain in the role prompts.
+12,000 characters. Table rules and character agency remain in the role prompts.
 
 Settings → 消息呈现指导（结构化输出） edits `writing.formatting`, prefilled with the current paragraph-grouping
 guidance. It goes only to the second, formatting request. Ask for shorter bubbles split at sentence boundaries,
@@ -56,7 +56,7 @@ longer bubbles combining adjacent paragraphs, or one message per speaker. Each m
 order, speaker and audience; distinct speakers and private recipients cannot be combined. Use the prose editors
 above to change total narrative length or level of detail. Co-player speech can also become multiple messages;
 when the remaining turn budget is smaller, the tail is combined into the last available message. Rolls, phone
-replies and passive stand-ins retain their own operation limits. The presentation editor has its own save/reset
+replies retain their own operation limits. The presentation editor has its own save/reset
 value and the same 12,000-character limit.
 
 The Overview's “AI 队友所在窗口” card lists each co-player's current conversation windows and timeline, updating with the live status. Closed historical seats are excluded; archived, ended or unavailable windows are labelled explicitly. Hover over a window name to see its ID when names repeat. A stopped or unresponsive worker's retained locations are marked as the last record rather than a live position.
@@ -557,8 +557,7 @@ The rules that keep this safe:
   cannot leave someone who went home listening to the human's bookshop scene. The repair creates or joins the
   appropriate thread without replaying travel, carries the confirming public context into the new thread's GM
   notes, and lets its normal scheduler continue it. Independent classes, errands and visits persist until a reunion.
-  Invitations, future plans and planner wishes alone do not move anyone. Before an unattended spark, the same
-  check repairs established placement only; cancellation and the daily token budget still apply.
+  Invitations, future plans and planner wishes alone do not move anyone.
 - **No flip-flopping.** A co-player's proposed reversal without a verified decision newer than the last move needs
   two agreeing turns (`timelines.guard_turns`, `timelines.guard_ms`). A fresh explicit choice takes effect immediately;
   players' own moves and reconciliation of established presence are also never deferred by this guard.
@@ -642,11 +641,8 @@ or wait; the same co-player is not reviewed again for twenty minutes. Review sta
 with a recalled turn. Human players and NPCs are not selected by this co-player check.
 
 A review can ride on a normal turn, or run autonomously in a recently active scene after its quiet interval even if
-ordinary quiet turns have been used. Typing, hosting pause, idle and hourly limits still hold. In unattended daily
-life it replaces one scheduled daily spark, including that slot's day/night and token limits; it adds no extra daily
-slots. Only ordinary personal activities may develop, with no player-dependent plot, secrets, danger or relationship
-escalation. New arrival turns inherit those restrictions and share the same line allowance. Passive humans are not
-summoned or moved along. A budget of at least two actions is needed for a review. Set `autonomy.coplayer_idle_lines`
+ordinary quiet turns have been used. Typing, hosting pause, idle and hourly limits still hold. A budget of at least
+two actions is needed for a review. Set `autonomy.coplayer_idle_lines`
 to `0` to disable the check; both thresholds are configurable in the GM-agent web settings.
 
 Autonomy is capped at `autonomy.max_turns_per_hour` (and by `context.daily_token_budget`), never runs while another turn
@@ -673,89 +669,6 @@ is pending, and any human line wakes the table up. `autonomy.enabled: false` tur
 Pausing/resuming an existing member preserves accumulated memory. A split or reunion may also cost an arrival turn
 (a GM call, the co-players and a follow-up).
 
-## Daily life
-
-`daily.enabled: true` opts an improvised casual game into unattended daily life. It requires working private phones
-(`casualOn()`) and no module. Other modes log the incompatibility once and retain their existing behavior. Leaving
-it off preserves the existing prompts, including the byte-for-byte prompt cache fixtures.
-
-Only a human line in a scene counts as joining. The story clock stands still for two real hours after that line,
-then the timetable advances one story day per 17 real hours. One campaign date is shared; each thread keeps its own
-numeric `HH:MM` clock. Lagging threads meet the latest clock when unattended play begins. Between 23:00 and 07:00
-there are no sparks; a scene line during unattended night jumps to 07:00. Phones and the planner window do not
-restart the scene timer. Seven days without any human message freezes the timetable; any human message resumes
-from that instant. `/pause` freezes it too. All timestamps and anchors survive a restart; missed sparks are not replayed.
-While attended, the GM may advance one date after at least 180 real minutes, with no player-line requirement.
-The final review records developments and the next opening but moves neither date nor time.
-
-An unattended spark is a small topic from one randomly chosen co-player and scene, with at most one other co-player
-invited to reply. They follow their own interests and relationships; passive PCs are not the default audience.
-If the starter passes, the exchange ends without calling other characters or the GM. Otherwise the GM may briefly
-voice an existing, present NPC or let the exchange end. Only narration, existing NPC speech, private GM notes and NPC phone texts are accepted;
-no plot developments, secrets, danger, relationship changes, movement, new NPCs or scenario changes. The exchange
-is capped by `daily.spark_max_lines`. A topic can stay open with its local clock held; after
-`daily.max_lag_minutes` the GM must close it or carry it into the next routine period. A human scene line interrupts
-the spark after the model call already in flight, before any further post. Sparks respect a rolling 24-hour cap.
-At 60% of `context.daily_token_budget`, their intervals double and their prompts and line limits become shorter;
-at 100%, autonomous model calls stop. Player responses remain available.
-
-While unattended, an enabled planner makes one lightweight `planner_daily` call per current story date, including
-the day unattended play begins. It reads a bounded public briefing (world setting, calendar, routine and previous
-topics), without the GM's private context, and updates only today's routine and up to four small-talk suggestions.
-Sparks use a suggestion when no topic is already open; it is conversation material, not an event that happened.
-The call never changes plot threads, their owners, relationships, world facts, character placement or the clock.
-It uses the planner model route, with no draft/critique/revision cycle or JSON repair round. At 60% of the daily
-token budget it asks for shorter text and at most two topics; at 100% it waits, keeping the existing routine.
-Each transport retry checks the same budget. The attempt and result are durable: a failure is not retried every
-tick, and a restart does not repeat that day's paid attempt. Catch-up plans only the current story day, not missed
-dates. Hosting pause, seven-day freeze, disabling the planner or disabling daily mode suppresses these calls.
-A player joining during a request discards its result. The host overview shows its status and today's topics;
-usage lists it as 每日轻量规划. `models.planner_daily` can override the normal planner route.
-
-A PC becomes passively present after 30 minutes without their player's scene line, or immediately with `/away` in
-their own phone. `/away <free text>` saves a rule (up to 1000 characters), `/away` shows it, `/away clear` clears the
-rule, and `/back` clears declared absence. `/离开` and `/回来` are aliases. Only the phone's owner can issue these
-commands, including as OOC lines. A phone text does not end passive presence; a scene line does. Rule-reading failures
-retain the original text and grant no optional permissions.
-
-The character stays quietly with friends and daily routines. AI dialogue mentioning their name alone never triggers
-a reply. Co-players may mark a genuine direct question/request with `needs_reply_from` (full names); the GM uses
-`spotlight`. Only passive PCs in the same scene can receive a co-player request, and it lasts for the current turn.
-A separate `standin_turn` call may answer that request or pass,
-using only that character's witnessed scenes, own card, known bonds, phone and rule. It cannot roll, text, go alone,
-reveal secrets, suffer serious harm or change a relationship with another PC. Important decisions become open
-questions (five per PC, expiring after 14 story days). The GM, NPCs and co-players remember existing closeness without
-repeatedly greeting, naming or questioning passive characters; bond mutations are refused. Typing holds stand-ins, as does a previous unanswered stand-in
-line; there are at most 12 per character per real hour. `daily.pc_sparks` additionally permits a passive PC to start
-small talk only when its own rule explicitly permits it.
-
-The platform marks passive characters and every stand-in line. The character's owner can recall a stand-in at any
-time; it leaves contexts and loses its deferred question without rolling play back. Derived summaries and memory
-chapters that may depend on it are discarded from future context, including compactions still in flight. Old platforms without presence
-support log once and disable marks and stand-ins; the clock and sparks continue. An unmarked stand-in response is
-recalled and further stand-ins are disabled. A clean shutdown clears platform marks; a crash leaves them until restart.
-
-On each date change, PCs who were passive and witnessed something receive a GM summary in their phone, from only
-their own perspective. Something means a scene line or a phone text; the table's own notices in the phone do not
-count, and a day with nothing witnessed costs no model call. A summary does not repeat open questions: each one is
-posted to the phone once, when it is asked. Summaries are stored in local SQLite. The planner supplies a public weekly
-routine as the fallback for the daily refresh. Timetable day turns rejoin short splits without arrival turns and retain
-long splits. On return, the phone gets a recap: a summary of what the character witnessed, when enough happened and no
-day summary covers it, and every open question together, listed by the table without a model call. The GM receives
-the newest three summaries, open questions and stand-in count, and welcomes the player in one or two sentences.
-
-Plot threads name their PC owners and require `one` or `all` to be present. Turning points and endings require all.
-Only player characters own a thread: a name that is not one (an NPC, a co-player, a misspelling) is logged and
-ignored, and a thread with no player-character owner belongs to the world and never waits. Owners are kept by
-character id when a plan is adopted, so renaming a character keeps the gate. A request in the planner window to join
-or leave a plot updates its owners in the next plan. The GM sees `WAITS` until the requirement is met; owners absent
-seven real days stop blocking. Sparks never advance any plot.
-
-Deploy migration `0065_passive_presence.sql` and the backend first, then the web/mobile clients, then manually update
-the GM agent. Platform deployment does not deploy the agent. The host's 日常推进 settings group controls the feature,
-clock, spark rate and passive thresholds; its overview and status payload report the current mode, clock, anchor,
-frozen instant and pause deadline.
-
 ## The story planner
 
 The GM reads the recent chat and plays step by step. In a long casual campaign nobody holds the whole story: one
@@ -774,8 +687,7 @@ event has run its course.
   (`planner.stall_turns` turns in the same place with no world change, no new truth, no split and no scenario change);
   or `planner.interval_minutes` of play and `planner.min_lines` lines have passed. Never while everyone is away (no
   player line for `autonomy.idle_minutes`; co-players' and NPCs' lines do not count), never over the daily token
-  budget, at most `planner.max_runs_per_hour` and `planner.cooldown_minutes` apart. Unattended daily mode uses the
-  separate once-per-story-day lightweight call described above; the final review below also remains available.
+  budget, at most `planner.max_runs_per_hour` and `planner.cooldown_minutes` apart.
 - **The final review closes every session.** A session is a stretch of player lines with no gap longer than
   `autonomy.idle_minutes`. When one with at least `planner.final_review_min_lines` player lines ends (nobody has
   written for the idle time, or `run` is stopped), the planner reviews the whole session once, reading every window's
@@ -944,14 +856,14 @@ When an entry is needed:
 - **Its title or a key comes up.** The window's last `worldbook.recent_lines` lines (30), the scene's place and the
   scenario's title are searched. Keys in Latin scripts match whole words ("Guild" is not found in "Guildford"); CJK
   keys match anywhere; case does not matter; a single-character key is ignored. A co-player's search covers only the
-  lines it witnessed, its place and its intention; a stand-in's, only what its character witnessed.
+  lines it witnessed, its place and its intention.
 - **The GM opens it.** The GM sees the list of all entries (titles and keys) and opens any of them with the
   `worldbook_read` tool when the story reaches it; an opened entry stays in play in that window for the next
   `worldbook.recent_lines` lines there. The planner can read entries with the same tool.
 - Entries in play are limited to `worldbook.gm_tokens` (3,000) for the GM and `worldbook.coplayer_tokens` (1,200) for a
   co-player; the most recently mentioned and the opened ones come first.
 
-Secret entries reach only the GM, the real NPCs and the planner, never a co-player or a stand-in. A table without
+Secret entries reach only the GM, the real NPCs and the planner, never a co-player. A table without
 entries reads exactly as before: no list, no tool.
 
 **Where it lives.** `STATE_DIR/<channel>.worldbook.json`, edited in the host's Web UI (世界书), private to the owner
@@ -974,11 +886,11 @@ The host's operator can give an AI co-player a standing intention by hand, in th
 while keeping the club united". It is a light, occasional control over where a co-player leans; nothing sets,
 advances, completes or clears an intention automatically.
 
-- Only that co-player reads it, in its turns, its unattended small talk and its phone replies, as its own long-term
+- Only that co-player reads it, in its turns and its phone replies, as its own long-term
   aim to pursue in character, step by step, when the moment allows. It keeps it to itself.
-- The GM, the real NPCs, the planner, the other co-players and the stand-ins never read it.
-- It never overrides how the table plays: a co-player still never decides for a player character, never presses a
-  passive one, and keeps to the players' corrections.
+- The GM, the real NPCs, the planner and the other co-players never read it.
+- It never overrides how the table plays: a co-player still never decides for a player character and keeps to the
+  players' corrections.
 - Worldbook entries its intention names come into its prompt, so it knows what it is aiming at.
 
 Intentions live in `STATE_DIR/<channel>.intentions.json`, keyed by character id (a rename keeps them), at most 1,000
@@ -1230,22 +1142,8 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `timelines.max_arrivals_per_hour` | | `12` | arrival turns (opening a new or changed scene) per hour |
 | `scenarios.auto` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the primary story window only) |
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
-| `daily.enabled` | `--daily-enabled` | `false` | opt into unattended daily life (casual improvisation only) |
-| `daily.day_hours` | `--daily-day-hours` | `17` | real hours per unattended story day; 1–168 |
-| `daily.min_day_minutes` | `--daily-min-day-minutes` | `180` | attended date-change minimum in real minutes |
-| `daily.silence_minutes` | `--daily-silence-minutes` | `120` | real minutes after the last scene line before the timetable starts |
-| `daily.night_start` | `--daily-night-start` | `23:00` | story night begins; HH:MM |
-| `daily.night_end` | `--daily-night-end` | `07:00` | story night ends; HH:MM |
-| `daily.pause_days` | `--daily-pause-days` | `7` | real days without human messages before freezing; owner-blocking expiry |
-| `daily.sparks_per_day` | `--daily-sparks-per-day` | `8` | maximum sparks in any rolling 24 real hours; 0 disables sparks |
-| `daily.spark_max_lines` | `--daily-spark-max-lines` | `6` | maximum lines per spark exchange |
-| `daily.max_lag_minutes` | `--daily-max-lag-minutes` | `120` | story-minute lag before the topic must move on |
-| `daily.pc_sparks` | `--daily-pc-sparks` | `false` | allow PC sparks only with explicit /away permission |
-| `daily.passive_minutes` | `--daily-passive-minutes` | `30` | real minutes without that player's scene line before passive presence |
-| `daily.summaries` | `--daily-summaries` | `true` | personal summaries for PCs who were passive during the day |
 | `worldbook.gm_tokens`, `worldbook.coplayer_tokens` | `--worldbook-gm-tokens`, `--worldbook-coplayer-tokens` | `3000`, `1200` | the most worldbook entries in play a GM's or a co-player's prompt carries (see "The worldbook") |
 | `worldbook.recent_lines` | `--worldbook-recent-lines` | `30` | how many of a window's latest lines are searched for entries' titles and keys, and how long an opened entry stays in play |
-| `context.standin_tokens` | `--standin-context-tokens` | `12000` | witnessed context budget for the separate stand-in call |
 | `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
 | `illustrations.enabled` | `--illustrations` | `true` | evocative moments and the scenario-change pictures (see Illustrations) |
 | `illustrations.max_per_hour` | `--illustrations-per-hour` | `6` | pictures in play each hour: the ends of small events and the GM's `illustrate` together (0: none in play; scenario and requested pictures are not counted) |
@@ -1284,9 +1182,9 @@ The purposes fall into eight functions, and a table may run each on a different 
 | Function | Purposes | What it is |
 |---|---|---|
 | `director` | `director` | the GM's turns: the largest context, the most judgement |
-| `coplayers` | `coplayer_turn`, `coplayer_phone`, `standin_turn` | the co-players' lines and texts, and passive characters' stand-in lines |
+| `coplayers` | `coplayer_turn`, `coplayer_phone` | the co-players' lines and texts |
 | `formatting` | `chat_format` | places the drafted prose in chat and converts explicit table directions into actions |
-| `planner` | `planner`, `planner_daily` | full story planning and the unattended day's single routine/topic call |
+| `planner` | `planner` | full story planning |
 | `memory` | `compact`, `coplayer_memory` | compacting older chat into chapters |
 | `readers` | `scene_presence`, `movement_evidence`, `placement_correction`, `scene_handoff` | the small calls that check who is where |
 | `pictures` | `scenario_illustration`, `event_illustration`, `plot_search`, `plot_illustration` | choosing moments to draw, finding past plots |
@@ -1302,8 +1200,7 @@ part optional (a missing model or effort is the provider's), or just a provider'
 
 The GM and the co-player write their turns as plain text first. A second call receives only the draft, assigns its
 paragraphs (or sentence ranges) to the appropriate chat messages, and translates any explicit table directions. The client takes
-each message's wording and any private recipient directly from the draft. This includes phone replies and
-stand-in lines. Both calls count toward the usual token budget and are cancelled together on pause.
+each message's wording and any private recipient directly from the draft. This includes phone replies. Both calls count toward the usual token budget and are cancelled together on pause.
 `models.formatting` (or the `chat_format` purpose) can use a faster model. Without a separate setting it uses
 the default model, with low effort where supported and an output cap of at most 2048 tokens.
 
@@ -1329,11 +1226,6 @@ section by its type). One model object serves the whole table: instances are mad
 model, so two functions on the same model share one, and prompt caches with it.
 
 ## Tests
-
-`test/daily.test.mjs` covers clock math, night boundaries, spark scheduling, commands and owner gates.
-`test/daily-loop.test.mjs` exercises persistence, pause/resume, privacy, stand-ins, recalls, summaries, topic limits,
-lightweight daily planning (once per date, budget, interruption, private-data isolation and rejected plot mutations),
-short-thread reunions and old-platform fallback with the in-memory platform and an injected clock/random source.
 
 ```bash
 npm test
@@ -1375,10 +1267,6 @@ The worldbook finds an entry by its title and keys, not by meaning: a scene that
 or describes it without naming it, does not bring its entry into play by itself (the GM can still open it with
 `worldbook_read`). Give each entry the names people actually use for it as keys. Entries are not handed to the
 platform's world record or its observers.
-
-Stand-ins have witnessed recent context and lexical recall rather than their own long-term memory. Their interpretation
-of free-text permissions and consequential decisions still depends on the model. Co-player lines retain the existing
-GM-account provenance; only explicitly marked PC stand-ins have player event provenance.
 
 - **Co-player lines count as GM lines.** They are posted by the GM account, so the platform records them with
   `actor_role = gm`. The platform's chronicler accepts GM-authored lines as grounds for `confirmed` facts, so a

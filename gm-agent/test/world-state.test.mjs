@@ -88,9 +88,9 @@ function runtime() {
     characters:structuredClone(characters),cards:new Map(),botMessageIds:new Set(),turnScope:new AsyncLocalStorage(),cfg:{postDelayMs:0},
     roster:{npcs:[{characterId:'npc'}],npcByName:n=>n==='Maren'?{characterId:'npc'}:null,isCoplayer:id=>id==='cp'},
     calendar:{date:'2026-01-01'},scenario:{id:'s1'},generation:{signal:new AbortController().signal},
-    now:()=>ctx.now,nameOf:id=>characters.find(c=>c.id===id)?.name,isPc:id=>['alice','bob'].includes(id),dailyOn:()=>false,isPassive:()=>false,
+    now:()=>ctx.now,nameOf:id=>characters.find(c=>c.id===id)?.name,isPc:id=>['alice','bob'].includes(id),
     scene:()=>({id:'main',members:['alice','cp']}),sceneHistory:()=>lines,primaryWindowId:()=> 'main',noteLine:m=>{if(!lines.some(l=>l.id===m.id))lines.push(m);},
-    characterByName:n=>characters.find(c=>c.name===n),persist:t=>{if(failSave)throw Error('disk full');disk=structuredClone(t.worldState);},log:()=>{},sleep:async()=>{},sparkCancelled:()=>false,overBudget:()=>false,
+    characterByName:n=>characters.find(c=>c.name===n),persist:t=>{if(failSave)throw Error('disk full');disk=structuredClone(t.worldState);},log:()=>{},sleep:async()=>{},overBudget:()=>false,
     api:{
       agentMessage:async(_,id)=>({message:messages.get(id)??null,cancelled:cancelled.has(id)}),
       cancelAgentMessage:async(_,id)=>{if(!messages.has(id))cancelled.add(id);return {message:messages.get(id)??null,cancelled:cancelled.has(id)};},
@@ -160,11 +160,4 @@ test('planner state is read-only and frozen for its cycle',()=>{
   assert.throws(()=>tools.call('world_state_set',{}),/read-only/);
   r.table.worldState=set(r.table.worldState,'cp',2);
   assert.equal(tools.call('world_state_read',{}).values.length,0);
-});
-test('state-linked messages obey spark and unattended line limits without committing edits',async()=>{
-  for(const cp of [{mode:'spark',dailyPosted:1,lineLimit:1},{gentle:true,dailyBudget:{posted:1,limit:1}}]) {
-    const r=runtime();
-    assert.equal(await r.table.turnScope.run(cp,()=>runWorldAction(r.table,'main',r.entries,r.action,()=>{throw Error('must not post');})),0);
-    assert.equal(r.posts,0);assert.equal(r.writes,0);assert.equal(Object.keys(r.table.worldState.values).length,0);
-  }
 });

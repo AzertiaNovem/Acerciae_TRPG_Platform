@@ -278,17 +278,18 @@ async function openTable(cfg, { llm = null, plannerLlm = null, write = true, hea
   let version = Number(state.version) || 0;
   const persist = write
     ? (t) => {
-      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, worldState: t.worldState, casual: t.casual, planner: t.planner, calendar: t.calendar, daily: t.daily, bonds: t.bonds, journal: t.journal, owedArrivals: t.owedArrivals, rollCards: [...t.rollCards.values()] };
+      const next = { ...state, channelId: channel.id, serverId: channel.server_id, ...t.roster.toJSON(), timelines: t.timelines.toJSON(), guard: t.guard.toJSON(), scenario: t.scenario, improv: t.improv, worldState: t.worldState, casual: t.casual, planner: t.planner, calendar: t.calendar, bonds: t.bonds, journal: t.journal, owedArrivals: t.owedArrivals, rollCards: [...t.rollCards.values()] };
       delete next.version;
+      delete next.daily;   // daily life, removed: its state is dropped
       try { version = saveState(cfg.stateDir, next, { expectVersion: version }); }
       catch (e) { if (!(e instanceof StateConflict)) throw e; onConflict(e); }
     }
     : () => {};
   const table = new Table({
     api, llm, cfg, channelId: channel.id, operatorDir: cfg.stateDir, store: Store.open(cfg.stateDir, channel.id), roster: new Roster(state), timelines: new Timelines(state.timelines ?? []), guard: new Guard(state.guard ?? {}),
-    scenario: state.scenario ?? null, improv: state.improv ?? null, worldState: state.worldState ?? null, casual: state.casual ?? null, planner: state.planner ?? null, calendar: state.calendar ?? null, daily: state.daily ?? null, bonds: state.bonds ?? null, plannerLlm, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], rollCards: state.rollCards ?? [], deferArrivals, log, persist,
+    scenario: state.scenario ?? null, improv: state.improv ?? null, worldState: state.worldState ?? null, casual: state.casual ?? null, planner: state.planner ?? null, calendar: state.calendar ?? null, bonds: state.bonds ?? null, plannerLlm, journal: state.journal ?? null, owedArrivals: state.owedArrivals ?? [], rollCards: state.rollCards ?? [], deferArrivals, log, persist,
   });
-  await table.init({ heal, dailyStart: write });
+  await table.init({ heal, syncWorld: write });
   if (write) table.save();
   if (write && table.splitWarning && cfg.timelineAuto) log(`note: ${table.splitWarning}`);
   return { api, channel, table };
@@ -350,7 +351,6 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
     stopping = true;
     table.stopTicker(); fs.unwatchFile(inbox); rt.stop();
     try { if (await table.finishSession()) log("final review done"); } catch (e) { log(`final review failed: ${e.message}`); }
-    await table.reconcilePassive({ force: true, clear: true });
     finish();
   };
   const finish = () => { table.store.close(); release(); process.exit(0); };
@@ -359,7 +359,7 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
     for (const pending of table.timers.values()) clearTimeout(pending.timer);
     table.generation.pause();
     try { await table.queue; await table.memoryIdle(); }
-    finally { await table.reconcilePassive({ force: true, clear: true }); table.store.close(); release(); }
+    finally { table.store.close(); release(); }
   }};
   process.on("SIGINT", () => { if (!stopping && cfg.planner.finalReview && table.planner.session?.lines >= cfg.planner.finalReviewMinLines) log("stopping: the session's final review runs first (Ctrl-C again to skip it)"); stop(); });
   process.on("SIGTERM", stop);

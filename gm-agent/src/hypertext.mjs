@@ -142,7 +142,7 @@ const uniqueLabels = (xs, max) => {
   return out;
 };
 
-// ---- strings, by the table's language (Table.language: the 11 names of daily-locale.mjs, or a code); English for
+// ---- strings, by the table's language (Table.language: a language name, or a code); English for
 // any other language.
 const STRINGS = {
   English: {

@@ -76,13 +76,9 @@ export class MockLlm {
       case "plot_illustration": return JSON.stringify(this.plotMoment(user));
       case "director": return draftFor(purpose, this.director(user));
       case "coplayer_turn": return draftFor(purpose, this.coplayer(user, system));
-      case "standin_turn": return draftFor(purpose, this.standin?.(user) ?? { action: "pass" });
-      case "away_rule": return JSON.stringify(this.awayRule?.(user) ?? { allow: [], forbid: [], maySpark: false });
-      case "day_summary": return JSON.stringify({ text: "[mock] You spent time with your friends. Your phone holds any questions waiting for you." });
       case "coplayer_phone": return draftFor(purpose, { reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
       case "chat_format": return JSON.parse(messages[0].content).findLast(p => p.kind === "directions")?.text ?? "{}";
       case "planner": return JSON.stringify(this.planner(user));
-      case "planner_daily": return JSON.stringify(this.dailyPlanner?.(user) ?? { routine: '[mock] Ordinary classes and a quiet lunch break.', topics: ['A favourite lunch', 'The changing season'] });
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }

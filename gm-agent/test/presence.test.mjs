@@ -67,7 +67,6 @@ test("separation requires the co-player's own recent action and a later public G
     { confirmation_seq: 10 }, { confirmation_seq: 12 }, { confirmation_seq: 999 }, { place: "别人的家" }, { place: "晚风书店" },
   ]) assert.deepEqual(await readPresence(separate([{ ...departure, ...change }]), { current: "T0", threads: shared }), [], JSON.stringify(change));
   for (const mutate of [
-    t => { t[0].lines[0].standIn = true; },
     t => { t[0].lines[0].kind = "ooc"; },
     t => { t[0].members[1].since = 10; },
     t => { t[0].lines[1].keeper = false; },

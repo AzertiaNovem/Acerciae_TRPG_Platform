@@ -65,15 +65,12 @@ try {
   await page.locator('#c-modes-casual').selectOption('true');
   await page.screenshot({ path: `/tmp/gm-create-modes-${engine}.png`, fullPage: true });
   await next();
-  await page.locator('#c-daily-enabled').selectOption('true'); await page.locator('#c-daily-sparks_per_day').fill('3');
   await page.locator('#c-table-level').fill('5'); await page.locator('#c-timelines-scene_forks').selectOption('true');
   await page.locator('#c-planner-enabled').selectOption('false'); assert.equal(await page.locator('#c-planner-final_review').count(), 0);
   await page.locator('#c-illustrations-enabled').selectOption('false'); assert.equal(await page.locator('#c-illustrations-allow_cloud').count(), 0);
   await page.locator('#c-context-daily_token_budget').fill('20000');
   // Moving between modes keeps drafts, but removes hidden branches from the resulting configuration.
   await step(2); await page.locator('#c-story-module').check(); await next();
-  assert.equal(await page.locator('#c-daily-enabled').count(), 0);
-  assert.match(await page.locator('[data-feature="daily.enabled"]').innerText(), /选择即兴/);
   assert.equal(await page.locator('#c-table-level').inputValue(), '5');
   await step(1); await page.locator('#c-rule').selectOption('coc7e'); await next();
   await page.locator('#c-story-improv').check(); await page.locator('#c-world-file').check();
@@ -81,7 +78,7 @@ try {
   await page.locator('#c-modes-world_file').fill('/srv/world.md'); await page.locator('#c-modes-secrets_file').fill('/srv/secrets.md');
   await page.locator('#c-world-forge').check(); await next();
   assert.equal(await page.locator('#c-table-level').count(), 0);
-  assert.equal(await page.locator('#c-daily-sparks_per_day').inputValue(), '3');
+  assert.equal(await page.locator('#c-context-daily_token_budget').inputValue(), '20000');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: `/tmp/gm-create-features-mobile-${engine}.png`, fullPage: true });
@@ -107,24 +104,24 @@ try {
   await page.locator('#create-result').waitFor();
   assert.equal(created.length, 1); assert.equal(created[0].knowledge_mode, 'isolated');
   const submitted = bodies.at(-1).settings;
-  assert.equal(submitted['forge.enabled'], true); assert.equal(submitted['daily.enabled'], 'true'); assert.equal(submitted['daily.sparks_per_day'], '3');
+  assert.equal(submitted['forge.enabled'], true); assert.equal(submitted['context.daily_token_budget'], '20000');
+  assert.ok(!Object.keys(submitted).some(k => k.startsWith('daily.')));
   for (const key of ['table.level', 'modes.world_file', 'modes.secrets_file', 'illustrations.allow_cloud', 'planner.final_review']) assert.equal(key in submitted, false, key);
   const persisted = YAML.parse(fs.readFileSync(manager.entry('created-1').config, 'utf8'));
-  assert.equal(persisted.daily.sparks_per_day, 3); assert.equal(persisted.planner.enabled, false);
+  assert.equal(persisted.context.daily_token_budget, 20000); assert.equal(persisted.planner.enabled, false);
   assert.equal(await page.locator('#create-flow').isVisible(), false);
   // Existing public channels explain the restrictions; saved modes and pending Forge are discovered without exposing prose.
   await open(); await page.locator('#c-channel').selectOption('public'); await next(); await page.locator('#c-story-inherit').check();
   await page.locator('#c-modes-casual').selectOption('true'); assert.match(await page.locator('#c-casual').innerText(), /私密手机不能启用/); await next();
-  assert.equal(await page.locator('#c-timelines-scene_forks').count(), 0); assert.equal(await page.locator('#c-daily-enabled').count(), 0);
+  assert.equal(await page.locator('#c-timelines-scene_forks').count(), 0);
   await step(1); await page.locator('#c-channel').selectOption('module'); await next(); await page.locator('#c-story-inherit').check(); await next();
-  assert.match(await page.locator('[data-feature="daily.enabled"]').innerText(), /解除模组绑定/);
   await step(1); await page.locator('#c-channel').selectOption('forging'); await next(); assert.equal(await page.locator('#c-story-module').isDisabled(), true);
   await step(1); await page.locator('#c-channel').selectOption('playing'); await next(); await page.locator('#c-story-improv').check();
   assert.equal(await page.locator('#c-world-forge').isDisabled(), true); assert.equal(await page.locator('#c-world-saved').isChecked(), true);
   await page.locator('#create-cancel').click();
   await open(); await page.locator('#c-channel').selectOption('saved'); await next(); await page.locator('#c-story-inherit').check(); await next();
-  assert.equal(await page.locator('#c-daily-enabled').count(), 1);
-  await page.locator('#c-daily-enabled').selectOption('true'); await next();
+  assert.equal(await page.locator('[data-feature^="daily."]').count(), 0, 'no daily-life switch');
+  await next();
   await page.locator('#c-prepare').uncheck(); await page.locator('#c-start').uncheck(); await page.locator('#create-submit').click(); await page.locator('#create-result').waitFor();
   assert.equal(manager.entry('saved').prepareOnStart, false);
   assert.equal('modes.improv' in bodies.at(-1).settings, false); assert.equal('modes.casual' in bodies.at(-1).settings, false);
