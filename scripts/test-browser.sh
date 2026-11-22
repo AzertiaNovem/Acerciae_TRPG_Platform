@@ -20,7 +20,7 @@ for port in "$PREVIEW_PORT" "$DEV_PORT"; do
 done
 cd "$ROOT/tests/browser"
 for engine in chromium webkit; do
-  for suite in desktop-accounts references recall theme pbta pbta-review session-retry hypertext gm-create; do
+  for suite in desktop-accounts references recall theme pbta pbta-review session-retry hypertext gm-create bots; do
     WEB_BASE="http://127.0.0.1:$PREVIEW_PORT" node "$suite.mjs" "$engine"
   done
   WEB_BASE="http://127.0.0.1:$DEV_PORT" node view-cache.mjs "$engine"

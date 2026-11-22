@@ -43,6 +43,7 @@ Fields beyond the API key:
 | `text_chronicle` | text | inherit | optional override for the chronicler and Keeper: observer, consolidation, reminders, scenario detection and summaries, Keeper board/review, channel atmosphere |
 | `text_assist` | text | inherit | optional override for player assists: consistency check and Inspiration |
 | `text_writing` | text | inherit | optional override for long writing: visual-novel scripts, log performance, module import, script knowledge |
+| `text_bots` | text | inherit | optional override for bots (docs/BOTS.md): their turns, role cards and memory |
 | `embedding` | embedding | off | semantic recall over the chat log; vectors are fitted to 1536 dimensions |
 | `image_generation` | image generation | off | backgrounds, portraits, illustrations, atmosphere |
 | `image_edit` | image editing | inherit | requests with reference images (poses, outfits, styled references); inherit = the generation provider |

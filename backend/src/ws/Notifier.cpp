@@ -96,6 +96,10 @@ void Notifier::serverDeleted(const std::string& serverId, const std::vector<std:
     Json::Value msg; msg["type"] = "server.deleted"; msg["server_id"] = serverId;
     for (auto& u : members) WsGateway::instance().sendToUser("chat", u, msg);
 }
+void Notifier::botsChanged(const std::string& channelId) {
+    Json::Value msg; msg["type"] = "bots.changed"; msg["channel_id"] = channelId;
+    WsGateway::instance().broadcast("chat", channelId, msg);
+}
 void Notifier::channelUpdated(const std::string& channelId) {
     Json::Value msg; msg["type"] = "channel.updated"; msg["channel_id"] = channelId;
     WsGateway::instance().broadcast("chat", channelId, msg);

@@ -55,7 +55,7 @@ Json::Value AdminService::overview(const Principal& p) {
         "SELECT count(*) AS total, count(*) FILTER (WHERE suspended_at IS NOT NULL) AS suspended, count(*) FILTER (WHERE is_admin) AS admins, "
         "count(*) FILTER (WHERE created_at > now() - interval '7 days') AS new_7d, count(*) FILTER (WHERE created_at > now() - interval '30 days') AS new_30d, "
         "(SELECT count(*) FROM auth_tokens WHERE expires_at > now()) AS active_sessions, "
-        "(SELECT count(DISTINCT user_id) FROM auth_tokens WHERE created_at > now() - interval '7 days') AS signed_in_7d FROM users");
+        "(SELECT count(DISTINCT user_id) FROM auth_tokens WHERE created_at > now() - interval '7 days') AS signed_in_7d FROM users WHERE NOT is_bot");
     users["listed_admins"] = Json::arrayValue;
     for (const auto& u : auth_.listedAdminUsernames()) users["listed_admins"].append(u);
     out["users"] = users;
@@ -120,7 +120,8 @@ Json::Value AdminService::users(const Principal& p, const std::string& q, const 
         {"last_seen", "last_seen_at DESC NULLS LAST, u.created_at DESC"}, {"servers", "server_count DESC, u.created_at DESC"}, {"name", "lower(u.username)"},
         {"suspended", "u.suspended_at DESC NULLS LAST, u.created_at DESC"}};
     auto it = sorts.find(sort); std::string order = it == sorts.end() ? sorts.at("created") : it->second;
-    const std::string where = " WHERE ($1='' OR u.username ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%') ";
+    // People only: bots are a server's own members, managed in its settings.
+    const std::string where = " WHERE NOT u.is_bot AND ($1='' OR u.username ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%') ";
     auto total = db_.queryOne("SELECT count(*) AS n FROM users u" + where, {like(q)})["n"].asInt64();
     auto rows = db_.queryJson(std::string("WITH ") + kObjects +
         ", user_use AS (SELECT created_by AS user_id, sum(bytes) AS bytes, sum(n) AS objects, sum(n) FILTER (WHERE kind='image') AS images, sum(bytes) FILTER (WHERE kind='image') AS image_bytes FROM objects WHERE created_by IS NOT NULL GROUP BY created_by) "
@@ -255,7 +256,7 @@ Json::Value AdminService::setAdmin(const Principal& p, const std::string& userId
     auto reason = reasonOf(body, false);
     if (!admin && userId == p.userId) throw badRequest("you cannot revoke your own administrator role");
     db_.tx([&](pqxx::work& w) {
-        auto u = Db::queryOne(w, "SELECT username, is_admin FROM users WHERE id=$1 FOR UPDATE", {userId});
+        auto u = Db::queryOne(w, "SELECT username, is_admin FROM users WHERE id=$1 AND NOT is_bot FOR UPDATE", {userId});
         if (u.isNull()) throw notFound("user not found");
         if (!admin && auth_.listedAdmin(u["username"].asString())) throw badRequest("this account is named in PLATFORM_ADMINS; remove it there to revoke it");
         if (u["is_admin"].asBool() == admin) return;

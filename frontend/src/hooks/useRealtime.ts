@@ -51,6 +51,8 @@ export function useRealtime() {
       else if (m.type === 'hypertext.state') useHypertext.getState().applyState(m.message_id, m.state ?? null, m.version);
       else if (m.type === 'hypertext.closed') useHypertext.getState().applyClosed(m.message_id, m.closed_at);
       else if (m.type === 'initiative.changed') window.dispatchEvent(new CustomEvent('acerciae:initiative', { detail: m.chat_window_id }));
+      // A bot joined, left or changed: the sidebar's bot list refetches; its characters may have changed hands.
+      else if (m.type === 'bots.changed') { window.dispatchEvent(new CustomEvent('acerciae:bots', { detail: m.channel_id })); useNav.getState().refreshCharacters().catch(()=>undefined); }
       else if (m.type === 'window.changed') { useNav.getState().applyWindowChange(m.window); useNav.getState().refreshWindows().catch(()=>undefined); }
       else if (m.type === 'scene.changed') { useNav.getState().applySceneChange(m.scene); useNav.getState().refreshScenes().catch(()=>undefined); }
       else if (m.type === 'character.updated') useNav.getState().refreshCharacters().catch(()=>undefined);

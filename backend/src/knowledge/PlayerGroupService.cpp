@@ -1,4 +1,5 @@
 #include "KnowledgeService.h"
+#include "Visibility.h"
 #include "../core/Errors.h"
 #include "../core/Text.h"
 #include "../core/Json.h"
@@ -31,6 +32,8 @@ Json::Value KnowledgeService::renamePlayerGroup(const ChannelAccess& a,const std
 }
 Json::Value KnowledgeService::movePlayer(const ChannelAccess& a,const std::string& groupId,const std::string& userId) {
     if(!a.isGm) throw forbidden("GM role required");
+    // A bot reads only what it witnessed itself: it never joins a player group.
+    if(Visibility::isUuid(userId) && !db_.queryOne("SELECT 1 AS ok FROM users WHERE id=$1 AND is_bot",{userId}).isNull()) throw badRequest("a bot does not join player groups");
     db_.tx([&](pqxx::work& w) {
         Db::queryOne(w,"SELECT id FROM channels WHERE id=$1 FOR UPDATE",{a.channelId});
         auto g=Db::queryOne(w,"SELECT id FROM player_groups WHERE id=$1 AND channel_id=$2",{groupId,a.channelId});

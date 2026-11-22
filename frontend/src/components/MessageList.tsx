@@ -1,4 +1,5 @@
 import { t as tr, currentLocale, useLocale } from '../i18n';
+import { BotTag } from './BotTag';
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../store/auth';
 import { api } from '../api/client';
@@ -64,7 +65,7 @@ function DiceBotRow({ m }: { m: Message }) {
     <div className={`message dice-bot ${diceTones(m).card}`} id={m.dice?.type === 'hidden_notice' ? `msg-${m.id}` : undefined}>
       <div className="avatar dice">{src && !failed ? <img src={src} alt="" onError={() => setFailed(true)} /> : <span aria-hidden>🎲</span>}</div>
       <div>
-        <div className="meta"><span className="author">{name}</span>
+        <div className="meta"><span className="author">{name}</span>{m.author_is_bot && <BotTag />}
           {m.dice?.hidden && <span className="pill ai">{tr("hidden roll")}</span>}
           <span className="tiny muted">{new Date(m.created_at).toLocaleTimeString(currentLocale())}</span>
         </div>
@@ -129,7 +130,7 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
     <div className={`message ${m.kind} ${m.visibility}`} id={`msg-${m.id}`}>
       <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <CachedImg src={avatar} hash={avatarHash} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
-        <div className={`meta ${m.kind === 'hypertext' || m.via_hypertext_id ? 'hx-meta' : ''}`}><span className="author">{name}</span>
+        <div className={`meta ${m.kind === 'hypertext' || m.via_hypertext_id ? 'hx-meta' : ''}`}><span className="author">{name}</span>{m.author_is_bot && <BotTag />}
           {m.kind === 'hypertext' ? <span className="pill hx-pill">{kindLabel(m.kind)}</span> : m.kind !== 'ic' && !m.dice && <span className="pill">{kindLabel(m.kind)}</span>}
           {m.via_hypertext_id && <ViaPill m={m} />}
           {m.dice?.hidden && <span className="pill ai">{tr("hidden roll")}</span>}

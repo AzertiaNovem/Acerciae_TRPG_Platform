@@ -31,6 +31,7 @@ public:
     void sceneChanged(const std::string& channelId, const Json::Value& scene);
     void characterUpdated(const std::string& channelId, const Json::Value& character);  // NPC changes reach GMs only
     void channelUpdated(const std::string& channelId);
+    void botsChanged(const std::string& channelId);   // a bot joined, left or changed: members refetch the channel's bots
     // A member left: their sockets stop following the channel (or every channel of the server) immediately.
     void revokeChannel(const std::string& userId, const std::string& channelId);
     void revokeServer(const std::string& userId, const std::string& serverId);

@@ -44,7 +44,7 @@ static void insertWindowMembers(pqxx::work& w, const ChannelAccess& a, const std
 Json::Value ChatService::listWindows(const ChannelAccess& a) {
     std::string sql =
         "SELECT w.*, " + std::string(a.isGm ? "s.title" : "NULL::text") + " AS scene_title, "
-        "(SELECT json_agg(json_build_object('user_id', wm.user_id, 'character_id', wm.character_id, 'display_name', u.display_name, 'character_name', ch.name, 'visibility_paused', wm.visibility_paused)) "
+        "(SELECT json_agg(json_build_object('user_id', wm.user_id, 'character_id', wm.character_id, 'display_name', u.display_name, 'is_bot', u.is_bot, 'character_name', ch.name, 'visibility_paused', wm.visibility_paused)) "
         " FROM chat_window_members wm JOIN users u ON u.id=wm.user_id LEFT JOIN characters ch ON ch.id=wm.character_id WHERE wm.chat_window_id=w.id) AS members, "
         "(SELECT max(seq) FROM messages m WHERE m.chat_window_id=w.id) AS last_seq, "
         // Messages this viewer may read, posted by someone else after what they last read (counted up to 100). A

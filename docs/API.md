@@ -85,6 +85,26 @@ delivered with `Cache-Control: private, max-age=31536000, immutable`.
 | GET/PUT | `/channels/{id}/characters/{cid}/attributes` | `{attrs, editable}`; PUT `{set?: {name: number}, remove?: [name]}` (owner or GM; NPCs: GM). Names are canonicalised (`侦查`, `spot` → `Spot Hidden`) |
 | POST | `/channels/{id}/dice/preview` | `{content, chat_window_id, character_id?}` → `{hint, command}` — the composer's gray hint; never rolls |
 
+## Bots
+Bots are AI members of a server (see `docs/BOTS.md`): each is a user of its own (`is_bot`), a member of its server and a
+player of the channels it is invited to. It never signs in (`POST /auth/login` refuses it; usernames starting `bot-` are
+reserved), never appears in `GET /users/search`, cannot be added through the member routes, and never joins a player
+group. The server's `bots` feature (default off) and `bots_per_channel` (1–8, default 3) are in `PUT /servers/{id}/settings`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/servers/{id}/bots` | maintainers: `[{id, user_id, name, enabled, persona, speaking_style, unprompted_per_hour, turns_per_hour, share_tables, channels:[{id,name}]}]`; other members: `id, user_id, name, enabled` only |
+| POST | `/servers/{id}/bots` | maintainers, feature on: `{name, persona? (≤8000 bytes), speaking_style? (≤1000), enabled?, unprompted_per_hour? 0–60 (2), turns_per_hour? 1–600 (60), share_tables? (false)}`; at most 50 per server |
+| PUT/DELETE | `/servers/{id}/bots/{bid}` | maintainers. DELETE retires the bot: it leaves every channel; its lines and characters stay |
+| GET | `/channels/{id}/bots` | any member: `{feature, invites_enabled, can_invite, can_remove, limit, present:[{id, user_id, name, enabled, joined_at, invited_by_name, characters}], invitable:[{id, user_id, name}]}` |
+| POST | `/channels/{id}/bots` | `{bot_id}`: any member while the feature and the channel's `bot_invites_enabled` are on (the GM always). The bot joins at once as a player of the main window; a system line names who invited it. 409 when it is already there or the channel is full; 429 after 10 invitations by one member in an hour |
+| DELETE | `/channels/{id}/bots/{bid}` | GM: the bot leaves the channel and its windows; its characters stay |
+
+Messages carry `author_is_bot`; character rows `player_is_bot`; channel, server and window member rows `is_bot`.
+`PUT /channels/{id}` accepts `bot_invites_enabled` (GM). A GM may create a PC for a bot (`user_id`) only once the bot is
+in the channel. WebSocket chat stream: `bots.changed {channel_id}` when a bot joins, leaves or changes (refetch
+`GET /channels/{id}/bots`). The AI use `text_bots` (tasks `bot_turn`, `bot_card`, `bot_memory`) follows `text` unless set.
+
 ## Character space
 | GET | `/channels/{id}/characters/{cid}/space` | `{character (with role_card, bio, asset_mode, appearance_prompt, editable), avatar, portrait, subtitles[{subtitle, id, version, …}], jobs[], era, narrative_time, attrs, generation_available, card_archives[{id, rule_system, numbers, attrs, reason: rule_change|restore|legacy, archived_at, archived_by_name}]}`; `character.card_pending` is true while the numbers still need rebuilding for the channel's rule system (also on the character list). Former cards are read-only. Players read any PC's space; NPC spaces are 404 for players. |
 | GET/PUT | `/channels/{id}/pbta` | Channel rule pack and revision. GM-only replacement, import preview, playbooks, move commands and character fields are described in [PbtA](PBTA.md). |

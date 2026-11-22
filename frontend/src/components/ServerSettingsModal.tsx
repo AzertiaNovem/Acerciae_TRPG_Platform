@@ -10,12 +10,15 @@ import UserPicker, { userCandidate } from './UserPicker';
 import TypedConfirm from './TypedConfirm';
 import { avatarFromFile } from './UserSettingsModal';
 import AiProviders from './AiProviders';
+import { BotTag } from './BotTag';
+import { ServerBots } from './ServerBots';
 import type { BuiltinDiceTexts, DiceTextGroup, Feature, ServerInvite, ServerMember, ServerPolicy, ServerSettings } from '../types';
 
-type Tab = 'general' | 'access' | 'ai' | 'features' | 'members' | 'channels' | 'dice';
+type Tab = 'general' | 'access' | 'ai' | 'features' | 'members' | 'bots' | 'channels' | 'dice';
 import { LANGUAGE_LABELS } from '../i18n';
 export { LANGUAGE_LABELS } from '../i18n';
 const FEATURES: { key: Feature; label: string; help: string }[] = [
+  { key: 'bots', label: 'Bots', help: 'AI members this server’s maintainers set up (Bots tab). Any member can invite one into a channel; its GM can remove it or turn invitations off. Bots use this server’s text model and budget.' },
   { key: 'atmosphere', label: 'Channel atmosphere backgrounds', help: 'Allow automatic image generation from public GM narration: landscape day/night and portrait day/night. Uses this server’s image provider and budget; each person must also enable display.' },
   { key: 'consistency', label: 'Consistency Check', help: 'Players and GMs can check a draft against what their character knows.' },
   { key: 'dice', label: 'Integrated Dice', help: 'Sealdice-style commands in chat: .r .ra .sc .st .en, with the gray attribute hint while typing.' },
@@ -25,12 +28,12 @@ const FEATURES: { key: Feature; label: string; help: string }[] = [
 ];
 
 interface Form {
-  name: string; language: string; features: Record<Feature, boolean>;
+  name: string; language: string; features: Record<Feature, boolean>; bots_per_channel: number;
   ai_policy: { token_budget: string; image_budget: string; period: 'month' | 'total'; max_concurrent: string; reset_usage: boolean };
   policy: ServerPolicy;
 }
 const formFrom = (s: ServerSettings): Form => ({
-  name: s.name, language: s.language, features: { ...s.features },
+  name: s.name, language: s.language, features: { ...s.features }, bots_per_channel: s.bots_per_channel ?? 3,
   policy: { join_policy: 'invite', channel_creation: 'members', guest_invites: false, main_chat_spectators: false, ...s.policy },
   ai_policy: { token_budget: String(s.ai_policy?.token_budget ?? 0), image_budget: String(s.ai_policy?.image_budget ?? 0), period: s.ai_policy?.period ?? 'month', max_concurrent: String(s.ai_policy?.max_concurrent ?? 4), reset_usage: false },
 });
@@ -118,7 +121,15 @@ function Settings({ tab, settings, onSaved }: { tab: 'general' | 'access' | 'ai'
       {tab === 'features' && FEATURES.map((f) => (
         <label key={f.key} className="feature">
           <input type="checkbox" checked={form.features[f.key]} onChange={(e) => setForm({ ...form, features: { ...form.features, [f.key]: e.target.checked } })} />
-          <span className="col" style={{ gap: 2 }}><span>{tr(f.label)}</span><span className="tiny muted">{tr(f.help)}</span></span>
+          <span className="col" style={{ gap: 2 }}><span>{tr(f.label)}</span><span className="tiny muted">{tr(f.help)}</span>
+            {f.key === 'bots' && form.features.bots && (
+              <span className="row" style={{ gap: 6 }} onClick={(e) => e.preventDefault()}>
+                <span className="tiny">{tr('Bots per channel')}</span>
+                <input type="number" min={1} max={8} style={{ width: 64 }} value={form.bots_per_channel} aria-label={tr('Bots per channel')}
+                  onChange={(e) => setForm({ ...form, bots_per_channel: Math.max(1, Math.min(8, Number(e.target.value) || 1)) })} />
+              </span>
+            )}
+          </span>
         </label>
       ))}
       <div className="row"><span className="grow" /><button className="primary" disabled={saving} onClick={save}>{saving ? tr("Saving…") : tr("Save")}</button></div>
@@ -239,8 +250,8 @@ function Members({ serverId, myRole }: { serverId: string; myRole: string }) {
       <div className="col" style={{ gap: 4 }}>
         {members.map((m) => (
           <div key={m.id} className="pick-row">
-            <span className="grow">{m.display_name} <span className="tiny muted">@{m.username}</span></span>
-            {m.role === 'owner' ? <span className="pill gm">{tr("owner")}</span> : m.role === 'guest' ? (<>
+            <span className="grow">{m.display_name} {m.is_bot ? <BotTag /> : <span className="tiny muted">@{m.username}</span>}</span>
+            {m.is_bot ? <span className="tiny muted">{tr('Managed in the Bots tab')}</span> : m.role === 'owner' ? <span className="pill gm">{tr("owner")}</span> : m.role === 'guest' ? (<>
               <span className="pill" title={tr("Sees only the channels they were invited to")}>{tr("guest")}</span>
               <button className="small" onClick={() => run(() => api.addServerMember(serverId, m.id, 'member'))}>{tr("Make member")}</button>
             </>) : isOwner ? (
@@ -248,7 +259,7 @@ function Members({ serverId, myRole }: { serverId: string; myRole: string }) {
                 <option value="member">{tr("member")}</option><option value="admin">{tr("maintainer")}</option>
               </select>
             ) : <span className="pill">{m.role === 'admin' ? tr("maintainer") : tr("member")}</span>}
-            {m.role !== 'owner' && m.id !== me?.id && (isOwner || m.role === 'member' || m.role === 'guest') && (
+            {!m.is_bot && m.role !== 'owner' && m.id !== me?.id && (isOwner || m.role === 'member' || m.role === 'guest') && (
               <button className="small" onClick={() => confirm(tr('Remove {name} from this server? They also leave all of its channels and chat windows.', { name: m.display_name })) && run(() => api.removeServerMember(serverId, m.id))}>{tr("Remove")}</button>
             )}
           </div>
@@ -381,7 +392,7 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
   }, [serverId]);
   if (!serverId) return null;
   const onSaved = (s: ServerSettings) => { setSettings(s); loadServerSettings(); useNav.getState().loadServers(); };
-  const tabs: [Tab, string][] = [['general', 'General'], ['access', 'Access'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['channels', 'Channels'], ['dice', 'Dice texts']];
+  const tabs: [Tab, string][] = [['general', 'General'], ['access', 'Access'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['bots', 'Bots'], ['channels', 'Channels'], ['dice', 'Dice texts']];
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide col" role="dialog" aria-modal="true" aria-label={tr("Server settings")} onClick={(e) => e.stopPropagation()}>
@@ -395,6 +406,7 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
             {tab === 'members' && <Members serverId={serverId} myRole={myRole} />}
             {tab === 'channels' && <Channels serverId={serverId} />}
             {tab === 'dice' && <DiceTexts serverId={serverId} />}
+            {tab === 'bots' && <ServerBots serverId={serverId} enabled={!!settings.features?.bots} />}
           </>
         )}
         <div className="row"><span className="grow" /><button className="ghost" onClick={onClose}>{tr("Close")}</button></div>

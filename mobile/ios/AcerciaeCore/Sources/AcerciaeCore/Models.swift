@@ -57,6 +57,8 @@ public struct Message: Codable, Identifiable, Sendable, Equatable {
     public var recalledAt: String? = nil
     /// Seconds left, when the message arrived, for its author to recall it; nil when it cannot be recalled.
     public var recallSecondsLeft: Int? = nil
+    /// The author is one of the server's bots (an AI member): its name carries a "bot" tag.
+    public var authorIsBot: Bool? = nil
     /// The window the line belongs to: a line of an earlier window shows in a fork's history (its card stays locked).
     public var chatWindowId: String? = nil
     /// An interactive message's public card (kind `hypertext`) as stored; read it with `Hypertext.parseDoc`. Nil on

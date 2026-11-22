@@ -25,7 +25,7 @@ namespace acerciae {
 using namespace chatQueries;
 Json::Value ChatService::listCharacters(const ChannelAccess& a) {
     // Players see all PC names (table knowledge) but GM-only NPC sheets stay hidden.
-    std::string sql = "SELECT c.*, u.display_name AS player_name, av.version AS avatar_asset_version, av.content_hash AS avatar_asset_hash FROM characters c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN media_assets av ON av.id=c.avatar_asset_id WHERE c.channel_id=$1";
+    std::string sql = "SELECT c.*, u.display_name AS player_name, COALESCE(u.is_bot, false) AS player_is_bot, av.version AS avatar_asset_version, av.content_hash AS avatar_asset_hash FROM characters c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN media_assets av ON av.id=c.avatar_asset_id WHERE c.channel_id=$1";
     if (!a.isGm) sql += " AND c.kind='pc'";
     sql += " ORDER BY c.kind, c.created_at";
     auto list = db_.queryJson(sql, {a.channelId});
@@ -49,6 +49,10 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
     sheet.removeMember("rule_attrs");
     return db_.tx([&](pqxx::work& w) {
         auto prior=forge::receipt(w,a,"character",body); if(!prior.isNull()) return prior;
+        // A bot plays a character only at a table it was invited to.
+        if (ownerId != a.userId && Visibility::isUuid(ownerId) && !Db::queryOne(w, "SELECT 1 AS ok FROM users WHERE id=$1 AND is_bot", {ownerId}).isNull()
+            && Db::queryOne(w, "SELECT 1 AS ok FROM channel_members WHERE channel_id=$1 AND user_id=$2", {a.channelId, ownerId}).isNull())
+            throw badRequest("invite the bot to this channel before giving it a character");
         if (!sheet["attrs"].empty() && Db::queryOne(w, "SELECT rule_system FROM channels WHERE id=$1 FOR SHARE", {a.channelId})["rule_system"] == "pbta")
             throw badRequest("Create the character and select a PbtA playbook");
         auto c = Db::queryOne(w, "INSERT INTO characters(channel_id, user_id, name, kind, speaking_style, sheet) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *",

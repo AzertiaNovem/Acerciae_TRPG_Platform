@@ -35,6 +35,7 @@
 #include "../logstudio/VnScriptService.h"
 #include "../chat/Illustrations.h"
 #include "../chat/HypertextService.h"
+#include "../bots/BotService.h"
 #include "../servers/ServerSettingsService.h"
 #include "../servers/DeletionService.h"
 #include "../characters/GrowthService.h"
@@ -97,6 +98,7 @@ Services& Services::build(const Config& cfg) {
     s.illustrations = std::make_unique<IllustrationService>(*s.db, *s.auth, *s.chat, *s.creative, *s.media);
     s.creative->onIllustration = [&s](const Json::Value& job, const Json::Value& asset) { s.illustrations->posted(job, asset); };
     s.hypertext = std::make_unique<HypertextService>(s.cfg, *s.db, *s.auth, *s.chat, *s.events, *s.scenes, *s.notifier);
+    s.bots = std::make_unique<BotService>(*s.db, *s.auth, *s.chat, *s.settings, *s.dice, *s.notifier);
     s.scenarios = std::make_unique<ScenarioService>(*s.db, *s.events, *s.scenes, *s.llm, *s.notifier);
     s.growth = std::make_unique<GrowthService>(*s.db, *s.chat, *s.dice, *s.notifier);
     s.scenes->setClosedHook([&s](const std::string& ch, const std::string& scene, const std::string& actor) { s.growth->runForClosedScene(ch, scene, actor); });

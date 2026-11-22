@@ -45,16 +45,16 @@ export interface Channel {
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean; studio_player_access?: boolean;
   story_status?: 'ongoing' | 'ended'; story_ended_at?: string | null; story_reveal_all?: boolean;
-  ai_enabled: boolean; consistency_enabled?: boolean; inspiration_enabled?: boolean; atmosphere_enabled?: boolean; illustrations_enabled?: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
+  ai_enabled: boolean; consistency_enabled?: boolean; inspiration_enabled?: boolean; atmosphere_enabled?: boolean; illustrations_enabled?: boolean; bot_invites_enabled?: boolean; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }
-export interface WindowMember { user_id: string; character_id: string | null; display_name: string; character_name: string | null; visibility_paused?: boolean }
+export interface WindowMember { user_id: string; character_id: string | null; display_name: string; is_bot?: boolean; character_name: string | null; visibility_paused?: boolean }
 export interface ChatWindow {
   id: string; channel_id: string; name: string; kind: 'main' | 'group' | 'private'; active_scene_id: string | null;
   scene_title?: string | null; members: WindowMember[] | null; last_seq: number | null; unread?: number;
   fork_parent_id?: string | null; fork_seq?: number | null; archived_at?: string | null;
 }
-export interface Character { id: string; channel_id: string; user_id: string | null; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; avatar_asset_version?: number | null; avatar_asset_hash?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean; card_pending?: boolean;
+export interface Character { id: string; channel_id: string; user_id: string | null; player_is_bot?: boolean; name: string; kind: 'pc' | 'npc'; speaking_style: string; sheet: Record<string, unknown>; player_name?: string | null; avatar_asset_id?: string | null; avatar_asset_version?: number | null; avatar_asset_hash?: string | null; portrait_asset_id?: string | null; asset_mode?: 'uploaded' | 'generated'; appearance_prompt?: string; bio?: string; role_card?: RoleCard; editable?: boolean; card_pending?: boolean;
   updated_at?: string; inventory_version?: number;
   /** The outfit worn now (null = the base look); avatar_asset_id is then the outfit's avatar, base_avatar_asset_id the base one. */
   outfit_id?: string | null; outfit_name?: string | null; base_avatar_asset_id?: string | null; outfits?: { id: string; name: string }[];
@@ -116,6 +116,7 @@ export interface CharacterSpace { pbta_rules?: import('../components/pbta/types'
 export interface PlayerGroup { id: string; channel_id: string; name: string; version: number; members: {user_id: string; display_name: string}[] }
 export interface Message {
   reference_ids?: string[];
+  author_is_bot?: boolean;   // the author is one of the server's bots
   id: string; channel_id: string; chat_window_id: string; scene_id: string | null; author_id: string; author_role: 'gm' | 'player';
   character_id: string | null; character_name: string | null; character_avatar_asset_id?: string | null; character_avatar_version?: number | null; character_avatar_hash?: string | null; author_name: string; author_avatar_version?: number; author_avatar_hash?: string | null; kind: 'ic' | 'ooc' | 'narration' | 'roll' | 'system' | 'hypertext';
   content: string; visibility: 'window' | 'gm_only' | 'whisper'; whisper_to: string[]; seq: number; created_at: string;
@@ -246,12 +247,16 @@ export interface VoiceProfile { id: string; channel_id: string; character_id: st
 export interface PronunciationDictionary { id: string; name: string; entries: { term: string; reading: string; mode: 'replace' | 'phoneme'; language: string }[]; version: number }
 export interface TtsJob { id: string; presentation_id: string | null; kind: string; scope: Record<string, any>; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; total: number; done: number; failed: number; cached: number; estimated_chars: number; estimated_cost: number; provider: string; error: string | null; result: Record<string, any>; created_at: string; finished_at: string | null }
 export interface UserLite { id: string; username: string; display_name: string }
-export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member' | 'guest'; joined_at: string }
-export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null }
-export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'atmosphere' | 'illustrations';
+export interface ServerMember extends UserLite { role: 'owner' | 'admin' | 'member' | 'guest'; joined_at: string; is_bot?: boolean }
+export interface ChannelMember extends UserLite { role: 'gm' | 'player'; characters: { id: string; name: string }[] | null; is_bot?: boolean }
+export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'atmosphere' | 'illustrations' | 'bots';
+// Bots (docs/BOTS.md): a server's AI members. Members see id, user and name; maintainers every setting.
+export interface Bot { id: string; user_id: string; name: string; enabled: boolean; persona?: string; speaking_style?: string; unprompted_per_hour?: number; turns_per_hour?: number; share_tables?: boolean; created_at?: string; updated_at?: string; channels?: { id: string; name: string }[] }
+export interface ChannelBot { id: string; user_id: string; name: string; enabled: boolean; joined_at: string; invited_by_name: string | null; characters: { id: string; name: string }[] }
+export interface ChannelBots { feature: boolean; invites_enabled: boolean; can_invite: boolean; can_remove: boolean; limit: number; present: ChannelBot[]; invitable: { id: string; user_id: string; name: string }[] }
 export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; cached_tokens_used?: number; images_used: number; running: number }
 export interface ServerSettings {
-  server_id: string; name: string; language: string; features: Record<Feature, boolean>; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;
+  server_id: string; name: string; language: string; features: Record<Feature, boolean>; bots_per_channel?: number; llm_mode: 'live' | 'mock'; images_enabled?: boolean; is_maintainer?: boolean;
   llm?: { provider: 'mock' | 'openai_compatible' | 'anthropic'; api_base: string; model: string; reasoning_effort: string; embedding_model: string; api_key_set: boolean; api_key_hint: string };
   tts?: { provider: 'disabled' | 'mock' | 'qwen' | 'openai'; api_base: string; model: string; voice: string; api_key_set: boolean; api_key_hint: string };
   image?: { provider: 'disabled' | 'mock' | 'gpt_image'; api_base: string; model: string; size: string; quality: string; api_key_set: boolean; api_key_hint: string };

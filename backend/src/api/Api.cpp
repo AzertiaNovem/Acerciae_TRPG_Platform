@@ -6,6 +6,7 @@ void registerRoutes() {
     http::registerAuthRoutes();
     http::registerChannelRoutes();
     http::registerCharacterRoutes();
+    http::registerBotRoutes();
     http::registerInventoryRoutes();
     http::registerKnowledgeRoutes();
     http::registerStudioRoutes();

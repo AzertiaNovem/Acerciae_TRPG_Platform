@@ -284,6 +284,7 @@ private struct CharacterStatusLines: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
                 Text(item.name).lineLimit(1)
+                if item["player_is_bot"].bool { Text(tr("bot")).font(.caption2).foregroundStyle(.teal) }
                 if typing { Text("✎").foregroundStyle(.yellow).accessibilityLabel(tr("typing…")) }
             }
             if !parts.isEmpty { vitals(parts).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
@@ -401,6 +402,7 @@ private struct MessageBubble: View {
     // The line above the bubble: who speaks, how, and a pin while the line is pinned among the group's hints.
     private var header: String {
         var text = name
+        if message.authorIsBot == true { text += " · " + tr("bot") }
         if mine { text += " · " + tr("Me") }
         if message.kind == "narration" { text += " · " + tr("Narration") } else if message.kind == "ooc" { text += " · OOC" }
         if model.pinOf(message) != nil { text += " · 📌" }

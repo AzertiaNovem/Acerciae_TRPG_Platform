@@ -82,5 +82,5 @@ export default function UserPicker(props: {
   );
 }
 
-export const userCandidate = (u: { id: string; username: string; display_name: string }, extra?: string): Candidate =>
-  ({ id: u.id, label: u.display_name, sublabel: `@${u.username}${extra ? ` · ${extra}` : ''}` });
+export const userCandidate = (u: { id: string; username: string; display_name: string; is_bot?: boolean }, extra?: string): Candidate =>
+  ({ id: u.id, label: u.display_name, sublabel: `${u.is_bot ? tr('bot') : `@${u.username}`}${extra ? ` · ${extra}` : ''}` });

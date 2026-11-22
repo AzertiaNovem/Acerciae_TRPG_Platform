@@ -1,4 +1,5 @@
 import PbtaSheet from './pbta/Sheet';
+import { BotTag } from './BotTag';
 import { t as tr } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
@@ -207,7 +208,7 @@ export default function CharacterSpace({ characterId }: { characterId: string })
               <div className="big-avatar">{space.avatar ? <CachedImg src={url(space.avatar)} hash={space.avatar.hash} alt="" /> : c.name.slice(0, 1)}</div>
               <div className="col grow">
                 {editable ? <input value={head.name} onChange={(e) => { setHead({ ...head, name: e.target.value }); setDirty(true); }} style={{ fontSize: 18, fontWeight: 700 }} /> : <h2 style={{ margin: 0 }}>{c.name}</h2>}
-                <div className="row tiny muted"><span className="pill">{c.kind === 'npc' ? tr('NPC') : tr('PC')}</span>{c.player_name && <span>{tr('played by')} {c.player_name}</span>}<span className="pill">{look.asset_mode === 'generated' ? tr('Generated assets') : tr('Uploaded assets')}</span>{space.era && <span>{space.era}</span>}{(space.outfits?.length ?? 0) > 0 && <label className="row" style={{ gap: 4 }}>{tr('Wearing')}<select value={c.outfit_id ?? ''} disabled={!editable || busy} onChange={(e) => mutate(() => api.wearOutfit(channelId, characterId, e.target.value || null))}><option value="">{tr('Base look')}</option>{space.outfits!.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>}</div>
+                <div className="row tiny muted"><span className="pill">{c.kind === 'npc' ? tr('NPC') : tr('PC')}</span>{c.player_name && <span>{tr('played by')} {c.player_name}{c.player_is_bot && <> <BotTag /></>}</span>}<span className="pill">{look.asset_mode === 'generated' ? tr('Generated assets') : tr('Uploaded assets')}</span>{space.era && <span>{space.era}</span>}{(space.outfits?.length ?? 0) > 0 && <label className="row" style={{ gap: 4 }}>{tr('Wearing')}<select value={c.outfit_id ?? ''} disabled={!editable || busy} onChange={(e) => mutate(() => api.wearOutfit(channelId, characterId, e.target.value || null))}><option value="">{tr('Base look')}</option>{space.outfits!.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>}</div>
               </div>
               {editable && (look.asset_mode === 'uploaded' ? <button className="small" onClick={() => pickFile('avatar')}>{tr('Upload avatar')}</button> : <button className="small" onClick={() => generate(['avatar'], [])} disabled={!canGenerate || busy}>{tr('Generate avatar')}</button>)}
             </div>
