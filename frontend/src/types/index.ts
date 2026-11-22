@@ -45,7 +45,7 @@ export interface Channel {
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean; studio_player_access?: boolean;
   story_status?: 'ongoing' | 'ended'; story_ended_at?: string | null; story_reveal_all?: boolean;
-  ai_enabled: boolean; consistency_enabled?: boolean; inspiration_enabled?: boolean; atmosphere_enabled?: boolean; illustrations_enabled?: boolean; bot_invites_enabled?: boolean; bot_brief?: string; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
+  ai_enabled: boolean; consistency_enabled?: boolean; inspiration_enabled?: boolean; atmosphere_enabled?: boolean; illustrations_enabled?: boolean; bot_invites_enabled?: boolean; bot_chatter_enabled?: boolean; bot_brief?: string; auto_scenarios?: boolean; my_role: 'gm' | 'player'; my_character_ids: string[];
   dice_text_group: string;   // '' = follow server language | 'builtin:en' | 'builtin:zh' | text group id
 }
 export interface WindowMember { user_id: string; character_id: string | null; display_name: string; is_bot?: boolean; character_name: string | null; visibility_paused?: boolean }
@@ -254,6 +254,11 @@ export type Feature = 'consistency' | 'dice' | 'inspiration' | 'log_studio' | 'a
 export interface Bot { id: string; user_id: string; name: string; enabled: boolean; persona?: string; speaking_style?: string; unprompted_per_hour?: number; turns_per_hour?: number; share_tables?: boolean; created_at?: string; updated_at?: string; channels?: { id: string; name: string }[] }
 // One turn a bot took (or tried): Server settings → Bots → Activity.
 export interface BotTurn { id: string; trigger: string; mode: 'table' | 'self'; status: 'running' | 'posted' | 'passed' | 'discarded' | 'failed'; action: string; error: string; started_at: string; finished_at: string | null; lines: number; channel_name: string; window_name: string }
+// What a bot remembers (docs/BOTS.md): notes from its maintainers, notes on people, its account of each table, what was
+// whispered to it there, a GM's private briefing.
+export interface BotMemory { id: string; kind: 'note' | 'person' | 'table' | 'table_private' | 'briefing'; channel_id: string | null; channel_name: string | null; user_id: string | null; name: string | null; text: string; highlight: string; source: 'auto' | 'edited'; updated_at: string }
+export interface BotMemories { share_tables: boolean; memories: BotMemory[] }
+export interface BotTableMemory { table: BotMemory | null; table_private: BotMemory | null; briefing: BotMemory | null }
 export interface ChannelBot { id: string; user_id: string; name: string; enabled: boolean; joined_at: string; invited_by_name: string | null; characters: { id: string; name: string }[] }
 export interface ChannelBots { feature: boolean; invites_enabled: boolean; can_invite: boolean; can_remove: boolean; limit: number; present: ChannelBot[]; invitable: { id: string; user_id: string; name: string }[] }
 export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; cached_tokens_used?: number; images_used: number; running: number }

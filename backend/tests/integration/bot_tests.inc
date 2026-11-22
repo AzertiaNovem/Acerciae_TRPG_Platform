@@ -286,3 +286,151 @@
         S.cfg.botSettleMs = 6000; S.cfg.botGmWaitMs = 90000;
     });
 
+    test("bots remember a table: the window's lines in its account, whispers in a private part read only there, notes on people", [&] {
+        S.cfg.botSettleMs = 0; S.cfg.botGmWaitMs = 0;
+        for (int i = 0; i < 20 && S.botRuntime->memoryTick(true) > 0; ++i) {}   // what other tests' bots still had to write down
+        const auto sid = server["id"].asString();
+        Json::Value cb; cb["name"] = "Lighthouse"; cb["knowledge_mode"] = "isolated";
+        auto ch = S.chat->createChannel(gmP, sid, cb)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, ch);
+        S.chat->addChannelMember(keeper, "p1" + suffix, "player");
+        auto win = S.chat->listWindows(keeper)[0]["id"].asString();
+        Json::Value b; b["name"] = "Moth"; b["persona"] = "Collects ghost stories.";
+        auto bot = S.bots->create(gmP, sid, b);
+        const auto botId = bot["id"].asString(), botUser = bot["user_id"].asString();
+        // Lines from before it came are never its to remember.
+        Json::Value before; before["content"] = "Before Moth came, the lamp went out."; before["kind"] = "ic";
+        S.chat->postMessage(S.auth->channelAccess(p1User, ch), win, before);
+        S.bots->invite(keeper, botId);
+        Json::Value pc; pc["name"] = "Ivo"; pc["user_id"] = botUser;
+        // Given a character before the runtime first looked, it starts reading and remembering from the window's end.
+        auto ivo = S.chat->createCharacter(keeper, pc)["id"].asString();
+        auto seated = S.db->queryOne("SELECT cursor_seq, memory_seq FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {botId, win});
+        CHECK(!seated.isNull()); CHECK(seated["memory_seq"].asInt64() == seated["cursor_seq"].asInt64()); CHECK(seated["memory_seq"].asInt64() > 0);
+        S.botRuntime->tick(true);
+        auto post = [&](const std::string& uid, const std::string& chId, const std::string& w, const std::string& content, const char* kind = "ic", Json::Value extra = Json::Value(Json::objectValue)) {
+            Json::Value m = extra; m["content"] = content; m["kind"] = kind; return S.chat->postMessage(S.auth->channelAccess(uid, chId), w, m); };
+        post(p1User, ch, win, "We climb the lighthouse stairs.");
+        S.botRuntime->tick(true);
+        // Its run is over (the mock would answer the whisper aloud): the whisper is only witnessed.
+        S.db->exec("UPDATE bot_window_state SET chain=2 WHERE bot_id=$1 AND chat_window_id=$2", {botId, win});
+        Json::Value whisper; whisper["visibility"] = "whisper"; whisper["whisper_to"].append(ivo);
+        post(gmUser, ch, win, "Ivo, you recognise the keeper.", "narration", whisper);
+        Json::Value secret; secret["visibility"] = "gm_only";
+        post(gmUser, ch, win, "The keeper is a ghost.", "narration", secret);
+        S.botRuntime->tick(true);
+        auto memory = [&](const char* kind, const std::string& chId) { return S.db->queryOne("SELECT text, highlight FROM bot_memories WHERE bot_id=$1 AND kind=$2 AND channel_id=$3", {botId, kind, chId}); };
+        // Not yet: a few lines, no scenario closed.
+        CHECK(S.botRuntime->memoryTick(true) == 0);
+        S.botRuntime->memory().flushChannel(ch);
+        CHECK(S.botRuntime->memoryTick(true) == 1);
+        auto account = memory("table", ch), whispered = memory("table_private", ch);
+        CHECK(account["text"].asString().find("We climb the lighthouse stairs") != std::string::npos);
+        CHECK(account["text"].asString().find("Before Moth came") == std::string::npos);
+        CHECK(account["text"].asString().find("recognise the keeper") == std::string::npos);
+        CHECK(account["text"].asString().find("ghost") == std::string::npos);
+        CHECK(!account["highlight"].asString().empty());
+        CHECK(whispered["text"].asString().find("recognise the keeper") != std::string::npos);
+        CHECK(whispered["text"].asString().find("ghost") == std::string::npos);
+        CHECK(!S.db->queryOne("SELECT 1 AS ok FROM bot_memories WHERE bot_id=$1 AND kind='person' AND subject_user_id=$2", {botId, p1User}).isNull());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM bot_memories WHERE bot_id=$1 AND kind='person' AND subject_user_id IN ($2, $3)", {botId, botUser, gmUser})["n"].asInt() == 0);
+        CHECK(S.botRuntime->memoryTick(true) == 0);   // nothing new
+        // At the table: its account and the whispers. As itself elsewhere, with people who were not there: neither.
+        auto here = S.botRuntime->memory().recall(botId, ch, win, true);
+        CHECK(here.find("THIS TABLE SO FAR") != std::string::npos); CHECK(here.find("recognise the keeper") != std::string::npos);
+        Json::Value cb2; cb2["name"] = "Harbour"; cb2["knowledge_mode"] = "isolated";
+        auto ch2 = S.chat->createChannel(gmP, sid, cb2)["id"].asString();
+        auto keeper2 = S.auth->channelAccess(gmUser, ch2);
+        S.chat->addChannelMember(keeper2, "p2" + suffix, "player");
+        auto win2 = S.chat->listWindows(keeper2)[0]["id"].asString();
+        Json::Value early; early["content"] = "Earlier at the harbour, a gull stole a pie."; early["kind"] = "ooc";
+        S.chat->postMessage(S.auth->channelAccess(p2User, ch2), win2, early);
+        S.bots->invite(keeper2, botId);
+        S.bots->callTurn(keeper2, win2, Json::Value(Json::objectValue));   // the GM's call seats it before the runtime looks
+        auto called = S.db->queryOne("SELECT cursor_seq, memory_seq FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {botId, win2});
+        CHECK(!called.isNull()); CHECK(called["memory_seq"].asInt64() == called["cursor_seq"].asInt64());
+        S.botRuntime->tick(true);
+        CHECK(S.botRuntime->memory().recall(botId, ch2, win2, false).find("lighthouse") == std::string::npos);
+        // Its maintainers let it share between tables: the account comes up everywhere, never the whispers.
+        Json::Value share; share["share_tables"] = true;
+        S.bots->update(gmP, sid, botId, share);
+        auto shared = S.botRuntime->memory().recall(botId, ch2, win2, false);
+        CHECK(shared.find("Lighthouse") != std::string::npos); CHECK(shared.find("Most striking") != std::string::npos);
+        CHECK(shared.find("recognise the keeper") == std::string::npos);
+        post(p2User, ch2, win2, "Moth, tell us a story.", "ooc");
+        S.botRuntime->tick(true);
+        auto told = S.db->queryOne("SELECT content FROM messages WHERE chat_window_id=$1 AND author_id=$2 ORDER BY seq DESC LIMIT 1", {win2, botUser});
+        CHECK(told["content"].asString().find("I remember:") != std::string::npos);
+        // Maintainers read and correct it; the GM's briefing is read at that table only; the GM can make it forget.
+        auto all = S.bots->memories(gmP, sid, botId)["memories"];
+        std::set<std::string> kinds; std::string tableId;
+        for (const auto& m : all) { kinds.insert(m["kind"].asString()); if (m["kind"] == "table" && m["channel_id"].asString() == ch) tableId = m["id"].asString(); }
+        CHECK(kinds.count("table") && kinds.count("table_private") && kinds.count("person"));
+        Json::Value fix; fix["text"] = "I met a ghost's friend at the lighthouse."; fix["highlight"] = "The stairs.";
+        S.bots->editMemory(gmP, sid, botId, tableId, fix);
+        CHECK(S.db->queryOne("SELECT source FROM bot_memories WHERE id=$1", {tableId})["source"] == "edited");
+        Json::Value note; note["text"] = "Owes Ada a song.";
+        S.bots->addNote(gmP, sid, botId, note);
+        CHECK(S.botRuntime->memory().recall(botId, ch2, win2, false).find("Owes Ada a song.") != std::string::npos);
+        Json::Value brief; brief["text"] = "Ivo owes the keeper a debt.";
+        CHECK(S.bots->setBriefing(keeper, botId, brief)["briefing"]["text"] == "Ivo owes the keeper a debt.");
+        CHECK(S.botRuntime->memory().recall(botId, ch, win, true).find("owes the keeper") != std::string::npos);
+        CHECK(S.botRuntime->memory().recall(botId, ch2, win2, false).find("owes the keeper") == std::string::npos);
+        auto outcome = [](const std::function<void()>& fn) { try { fn(); return std::string("ok"); } catch (const ApiError& e) { return e.code(); } };
+        CHECK(outcome([&] { S.bots->tableMemory(S.auth->channelAccess(p1User, ch), botId); }) == "forbidden");
+        auto forgot = S.bots->forgetTable(keeper, botId);
+        CHECK(forgot["table"].isNull()); CHECK(forgot["table_private"].isNull()); CHECK(!forgot["briefing"].isNull());
+        // Leaving a table, it writes down what it saw there; invited back, it starts again from the window's end.
+        post(p2User, ch2, win2, "We row out at dawn.", "ooc");
+        S.botRuntime->tick(true);
+        S.bots->removeFromChannel(keeper2, botId);
+        CHECK(S.botRuntime->memoryTick(true) == 1);
+        CHECK(memory("table", ch2)["text"].asString().find("We row out at dawn") != std::string::npos);
+        CHECK(memory("table", ch2)["text"].asString().find("gull stole a pie") == std::string::npos);
+        S.botRuntime->tick(true);
+        CHECK(S.db->queryOne("SELECT 1 AS ok FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {botId, win2}).isNull());
+        S.cfg.botSettleMs = 6000; S.cfg.botGmWaitMs = 90000;
+    });
+
+    test("bots join in on their own outside the table: after people talk a while, within the hourly allowance and the GM's switch", [&] {
+        S.cfg.botSettleMs = 0; S.cfg.botChatterGapMs = 0; S.cfg.botChatterQuietMs = 0;
+        const auto sid = server["id"].asString();
+        Json::Value cb; cb["name"] = "Tavern"; cb["knowledge_mode"] = "isolated";
+        auto ch = S.chat->createChannel(gmP, sid, cb)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, ch);
+        S.chat->addChannelMember(keeper, "p1" + suffix, "player");
+        auto win = S.chat->listWindows(keeper)[0]["id"].asString();
+        Json::Value b; b["name"] = "Lark"; b["unprompted_per_hour"] = 1;
+        auto bot = S.bots->create(gmP, sid, b);
+        const auto botId = bot["id"].asString(), botUser = bot["user_id"].asString();
+        S.bots->invite(keeper, botId);
+        S.botRuntime->tick(true);
+        auto say = [&](const std::string& content) { Json::Value m; m["content"] = content; m["kind"] = "ooc"; S.chat->postMessage(S.auth->channelAccess(p1User, ch), win, m); };
+        auto lines = [&] { return S.db->queryJson("SELECT content FROM messages WHERE chat_window_id=$1 AND author_id=$2 ORDER BY seq", {win, botUser}); };
+        say("Nice night.");
+        CHECK(S.botRuntime->tick(true) == 0);   // one line is not yet a conversation
+        say("Anyone up for cards?");
+        CHECK(S.botRuntime->tick(true) == 1);
+        auto said = lines();
+        CHECK(said.size() == 1);
+        if (!said.empty()) CHECK(said[0]["content"].asString().find("Lark (unprompted)") != std::string::npos);
+        CHECK(S.db->queryOne("SELECT heard FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {botId, win})["heard"].asInt() == 0);
+        // Its allowance for the hour is spent.
+        say("Deal me in."); say("Me too.");
+        CHECK(S.botRuntime->tick(true) == 0);
+        CHECK(lines().size() == 1);
+        // More allowance, but the GM turns chatter off here: it only answers when named.
+        Json::Value more; more["unprompted_per_hour"] = 5;
+        S.bots->update(gmP, sid, botId, more);
+        Json::Value off; off["bot_chatter_enabled"] = false;
+        S.chat->updateChannel(keeper, off);
+        say("Shuffle."); say("Cut.");
+        CHECK(S.botRuntime->tick(true) == 0);
+        Json::Value on; on["bot_chatter_enabled"] = true;
+        S.chat->updateChannel(keeper, on);
+        say("Your turn."); say("Hearts.");
+        CHECK(S.botRuntime->tick(true) == 1);
+        CHECK(lines().size() == 2);
+        S.cfg.botSettleMs = 6000; S.cfg.botChatterGapMs = 300000; S.cfg.botChatterQuietMs = 20000;
+    });
+

@@ -22,6 +22,7 @@ public:
     static Json::Value botTurn(const Json::Value& ctx);
     // A bot's character (bots/BotCards): a fixed Call of Cthulhu librarian (with a Cthulhu Mythos wish the card drops).
     static Json::Value botCard(const Json::Value& ctx);
+    static Json::Value botMemory(const Json::Value& ctx);
     static Json::Value moduleStructure(const Json::Value& ctx);
 private:
     static Json::Value lastUserJson(const LlmRequest& req);

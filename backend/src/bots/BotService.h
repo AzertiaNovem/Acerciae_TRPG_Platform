@@ -35,6 +35,23 @@ public:
     // A bot's latest turns, for the server's maintainers.
     Json::Value activity(const Principal& p, const std::string& serverId, const std::string& botId);
 
+    // What a bot remembers (bots/BotMemory), for the server's maintainers: {share_tables, memories[{id, kind, channel_id,
+    // channel_name, user_id, name, text, highlight, source, updated_at}]}. Notes and notes on people show to every
+    // maintainer; a table's account to maintainers who are members of that channel (to all of them while the bot shares
+    // between tables); what was whispered there and the GM's briefing only to that channel's GMs.
+    Json::Value memories(const Principal& p, const std::string& serverId, const std::string& botId);
+    // A note for the bot to keep in mind everywhere: {text} (≤4000 bytes; at most 50).
+    Json::Value addNote(const Principal& p, const std::string& serverId, const std::string& botId, const Json::Value& body);
+    // Corrects one memory the caller may see: {text, highlight?}; it is marked as edited.
+    Json::Value editMemory(const Principal& p, const std::string& serverId, const std::string& botId, const std::string& memoryId, const Json::Value& body);
+    Json::Value deleteMemory(const Principal& p, const std::string& serverId, const std::string& botId, const std::string& memoryId);
+    // The GM's view of what the bot remembers of this table: {table, table_private, briefing} (null when none).
+    Json::Value tableMemory(const ChannelAccess& a, const std::string& botId);
+    // What only this bot is told at this table: {text} (≤8000 bytes; empty removes it). GM.
+    Json::Value setBriefing(const ChannelAccess& a, const std::string& botId, const Json::Value& body);
+    // Forget this table: the account and its private part go, and what the bot saw here so far is let go. GM.
+    Json::Value forgetTable(const ChannelAccess& a, const std::string& botId);
+
     static constexpr int kInvitesPerHour = 10;   // a member's invitations, all channels together
 
 private:

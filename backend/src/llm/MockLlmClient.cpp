@@ -53,6 +53,7 @@ LlmResponse MockLlmClient::complete(const LlmRequest& req) {
     else if (req.task == "inspiration") out = inspiration(ctx);
     else if (req.task == "bot_turn") out = botTurn(ctx);
     else if (req.task == "bot_card") out = botCard(ctx);
+    else if (req.task == "bot_memory") out = botMemory(ctx);
     else if (req.task == "module_structure") out = moduleStructure(ctx);
     else { out["note"] = "mock: unknown task"; }
     r.content = json::dump(out);
@@ -548,8 +549,27 @@ Json::Value MockLlmClient::botTurn(const Json::Value& ctx) {
     }
     out["action"] = "speak";
     out["kind"] = table ? "ic" : "ooc";
+    // What it remembers shows: the moment that struck it most at a table it may speak of here.
+    std::string remembers;
+    const auto memory = json::str(ctx, "memory");
+    if (auto at = memory.find("Most striking: "); at != std::string::npos) remembers = " I remember: " + memory.substr(at + 15, memory.find('\n', at) == std::string::npos ? std::string::npos : memory.find('\n', at) - at - 15);
     out["messages"].append(table ? "[mock] " + json::str(ctx, "pc") + " answers: \"" + truncate(said, 60) + "\""
-                                 : "[mock] " + json::str(ctx, "name") + " (" + json::str(ctx, "trigger") + "): you said \"" + truncate(said, 60) + "\"");
+                                 : "[mock] " + json::str(ctx, "name") + " (" + json::str(ctx, "trigger") + "): you said \"" + truncate(said, 60) + "\"" + remembers);
+    return out;
+}
+
+// A bot's memory of a table: the lines it was given, so tests can see which ones (never a whisper in the table's own
+// account); the first as the most striking moment; a note on each person.
+Json::Value MockLlmClient::botMemory(const Json::Value& ctx) {
+    Json::Value out;
+    std::vector<std::string> said; for (const auto& l : ctx["lines"]) said.push_back(truncate(l.asString(), 80));
+    const auto before = json::str(ctx, "before");
+    out["summary"] = std::string(ctx["private"].asBool() ? "[mock] whispered to me at " : "[mock] I remember ") + json::str(ctx, "channel") + ": " +
+                     (before.empty() ? "" : "(" + truncate(before, 300) + ") ") + text::join(said, " / ");
+    if (ctx["private"].asBool()) return out;
+    out["highlight"] = said.empty() ? "" : "[mock] when someone said \"" + said.front() + "\"";
+    out["people"] = Json::Value(Json::arrayValue);
+    for (const auto& id : ctx["people"]) { Json::Value p; p["id"] = id; p["note"] = "[mock] played with me at " + json::str(ctx, "channel"); out["people"].append(p); }
     return out;
 }
 

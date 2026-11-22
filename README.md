@@ -80,6 +80,7 @@ Everything is read from environment variables; see [`.env.example`](.env.example
 | `AI_HTTP_WORKERS` (4) | threads that run request-triggered model calls off the HTTP threads |
 | `AI_OBSERVER_INTERVAL_MS` (5000) | scan cadence of the high-frequency observer |
 | `BOTS_ENABLED` (true), `BOT_TICK_MS` (2000), `BOT_SETTLE_MS` (6000), `BOT_GM_WAIT_MS` (90000) | bots (docs/BOTS.md): whether they speak at all, how often the runtime looks at the tables, how long a window must be quiet before a bot speaks, how long a bot waits for the GM to answer a player first |
+| `BOT_MEMORY_QUIET_MS` (600000), `BOT_CHATTER_GAP_MS` (300000), `BOT_CHATTER_QUIET_MS` (20000) | bots: how long a window must be quiet before a bot writes down a long stretch of play; outside the table, how long a bot waits between asking itself whether to join in on its own, and the quiet it waits for first |
 | `AI_CONSOLIDATOR_INTERVAL_MS` (60000) | cadence of the low-frequency consolidation pass |
 | `HIGHLIGHT_TTL_SECONDS`, `HIGHLIGHT_CLEANUP_INTERVAL_MS` | highlight lifetime and the independent expiry sweeper |
 | `AUTH_SECRET` | HMAC key for API tokens and the key that seals per-server API keys. Required, ≥ 32 characters; the backend refuses a missing or published value unless `ALLOW_INSECURE_DEV=true` (local development only). Rotating it signs everyone out and invalidates stored server keys |

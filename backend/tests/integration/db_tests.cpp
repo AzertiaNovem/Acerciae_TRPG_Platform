@@ -4,6 +4,7 @@
 #include "logstudio/ObjectStore.h"
 #include "bots/BotService.h"
 #include "bots/BotRuntime.h"
+#include "bots/BotMemory.h"
 #include "servers/DeletionService.h"
 #include "logstudio/LogStudioService.h"
 #include "logstudio/PresentationService.h"

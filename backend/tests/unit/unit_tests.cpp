@@ -1924,6 +1924,25 @@ int main() {
             auto other = acerciae::BotCards::pbtaCard(acerciae::json::parse(R"({"book":"scout"})"), pack, {"scout"});
             CHECK(other["pbta"]["book"] == "scribe"); CHECK(other["pbta"]["stats"]["sense"] == 0); CHECK(other["pbta"]["resources"]["supply"] == 0);
         });
+        test("bots: outside the table a bot may join in after people talked a while and the window is quiet, not more often", [&] {
+            Self me = mina; me.table = false;
+            const Chatter t{2, 300, 20};
+            State s;
+            ingest(s, me, line(1, 100, "alice", false, false, "Nice night."));
+            CHECK(s.heard == 1); CHECK(!chatter(s, 200, -1000, t));
+            ingest(s, me, line(2, 110, "gm", false, true, "Cards, anyone?", "ooc"));
+            CHECK(s.heard == 2);
+            CHECK(!chatter(s, 120, -1000, t));    // not quiet yet
+            CHECK(chatter(s, 130, -1000, t));
+            CHECK(!chatter(s, 130, 100, t));   // it asked itself too recently
+            ingest(s, me, line(3, 140, "ken", true, false, "I'm in.", "ooc"));
+            CHECK(s.heard == 2);   // another bot's line does not count
+            ingest(s, me, line(4, 150, "alice", false, false, "Mina, are you in?", "ooc"));
+            CHECK(s.owed == "mention"); CHECK(!chatter(s, 500, -1000, t));   // named: it answers instead
+            State atTable; Self player = mina;
+            ingest(atTable, player, line(1, 100, "alice", false, false, "We go in."));
+            CHECK(atTable.heard == 0);
+        });
         test("bots: while a GM agent paces the bots, players' lines owe nothing; system lines are ignored", [&] {
             Self me = mina; me.agentPacing = true;
             State s;

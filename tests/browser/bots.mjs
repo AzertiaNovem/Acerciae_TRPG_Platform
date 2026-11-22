@@ -1,5 +1,6 @@
 // Bots in the web client (docs/BOTS.md): a maintainer creates one in Server settings → Bots; a player invites it from
-// the channel sidebar; its line carries the "bot" tag; the GM turns invitations off and asks the bots for their turn.
+// the channel sidebar; its line carries the "bot" tag; the GM turns invitations off and asks the bots for their turn;
+// the GM briefs a bot privately and a maintainer adds a note to its memory.
 import assert from 'node:assert/strict';
 import { chromium, webkit } from 'playwright';
 const site = process.env.WEB_BASE || 'http://127.0.0.1:5196';
@@ -59,6 +60,9 @@ try {
   // The GM turns invitations off; the player's dialog says so.
   await api('PUT', `/channels/${channel.id}`, { bot_invites_enabled: false }, gm.token);
   await page.reload();
+  // Once the sidebar has loaded again (and before navigating away: WebKit reports a request a navigation cancels as a
+  // page error).
+  await page.locator('.item.bot').filter({ hasText: 'Mina' }).waitFor();
   await page.getByRole('button', { name: 'Invite a bot' }).count().then((n) => assert.equal(n, 0, 'a player has nothing to open once invitations are off'));
   // The GM asks the bots for their turn: hers comes in character (the mock model answers).
   await as(gm.token);
@@ -67,8 +71,30 @@ try {
   await page.locator('.message').filter({ hasText: "[mock] Mina's sleuth" }).first().waitFor({ timeout: 30000 });
   assert.equal(await page.locator('.message').filter({ hasText: "[mock] Mina's sleuth" }).first().locator('.bot-tag').count(), 1);
   if (shots) await page.screenshot({ path: `${shots}/bots-turn-${engine}.png` });
+  // The GM opens Mina's memory of this table and briefs her privately; Server settings → Bots → Memory shows the
+  // briefing to the GM, who adds a note for her to keep in mind everywhere.
+  await page.getByRole('button', { name: 'Invite a bot' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Bots at this table' });
+  const [memory] = await Promise.all([page.waitForResponse((r) => /\/bots\/[^/]+\/memory$/.test(new URL(r.url()).pathname) && r.request().method() === 'GET'), dialog.getByRole('button', { name: 'Memory' }).click()]);
+  assert.equal(memory.status(), 200, await memory.text());
+  await dialog.getByText('It has not written anything about this table yet.', { exact: false }).waitFor();
+  await dialog.getByPlaceholder('What only this bot should know at this table', { exact: false }).fill('Her sleuth hides a stolen book.');
+  await Promise.all([page.waitForResponse((r) => r.url().endsWith('/briefing') && r.ok()), dialog.getByRole('button', { name: 'Save briefing' }).click()]);
+  if (shots) await page.screenshot({ path: `${shots}/bots-table-memory-${engine}.png` });
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await page.getByTitle('Server settings (maintainers)').click();
+  await page.getByRole('button', { name: 'Bots', exact: true }).click();
+  await page.locator('.pick-row').filter({ hasText: 'Mina' }).getByRole('button', { name: 'Memory' }).click();
+  await page.locator('.bot-memory textarea').filter({ hasText: 'Her sleuth hides a stolen book.' }).waitFor();
+  await page.getByPlaceholder('Something it should keep in mind everywhere', { exact: false }).fill('Ada promised her a riddle.');
+  await Promise.all([page.waitForResponse((r) => r.url().endsWith('/memories') && r.request().method() === 'POST' && r.ok()), page.locator('.bot-memory').getByRole('button', { name: 'Add', exact: true }).click()]);
+  await page.locator('.bot-memory textarea').filter({ hasText: 'Ada promised her a riddle.' }).waitFor();
+  if (shots) await page.screenshot({ path: `${shots}/bots-memory-${engine}.png` });
+  const kept = await api('GET', `/servers/${server.id}/bots/${mina.id}/memories`, undefined, gm.token);
+  assert.deepEqual(kept.memories.map((m) => m.kind).sort(), ['briefing', 'note']);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   assert.deepEqual(errors, []);
-  console.log(`${engine}: bots settings, invitation from the sidebar, tags and the GM's switch passed`);
+  console.log(`${engine}: bots settings, invitation from the sidebar, tags, the GM's switch and memory passed`);
 } finally { await browser.close(); }

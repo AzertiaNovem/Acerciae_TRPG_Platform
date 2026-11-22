@@ -20,5 +20,12 @@ void registerBotRoutes() {
     route2("/api/channels/{1}/windows/{2}/bot-turns", {Post}, [&](auto& req, auto& p, auto& a) { return S.bots->callTurn(access(p, a[0]), a[1], body(req)); });
     route1("/api/channels/{1}/bot-brief", {Put}, [&](auto& req, auto& p, auto& a) { return S.bots->setBrief(access(p, a[0]), body(req)); });
     route2("/api/servers/{1}/bots/{2}/activity", {Get}, [&](auto&, auto& p, auto& a) { return S.bots->activity(p, a[0], a[1]); });
+    route2("/api/servers/{1}/bots/{2}/memories", {Get}, [&](auto&, auto& p, auto& a) { return S.bots->memories(p, a[0], a[1]); });
+    route2("/api/servers/{1}/bots/{2}/memories", {Post}, [&](auto& req, auto& p, auto& a) { return S.bots->addNote(p, a[0], a[1], body(req)); });
+    route3("/api/servers/{1}/bots/{2}/memories/{3}", {Put}, [&](auto& req, auto& p, auto& a) { return S.bots->editMemory(p, a[0], a[1], a[2], body(req)); });
+    route3("/api/servers/{1}/bots/{2}/memories/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.bots->deleteMemory(p, a[0], a[1], a[2]); });
+    route2("/api/channels/{1}/bots/{2}/memory", {Get}, [&](auto&, auto& p, auto& a) { return S.bots->tableMemory(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/bots/{2}/memory", {Delete}, [&](auto&, auto& p, auto& a) { return S.bots->forgetTable(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/bots/{2}/briefing", {Put}, [&](auto& req, auto& p, auto& a) { return S.bots->setBriefing(access(p, a[0]), a[1], body(req)); });
 }
 }

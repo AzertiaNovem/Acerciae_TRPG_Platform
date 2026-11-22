@@ -37,6 +37,8 @@
 #include "../chat/HypertextService.h"
 #include "../bots/BotService.h"
 #include "../bots/BotRuntime.h"
+#include "../bots/BotMemory.h"
+#include "../core/Log.h"
 #include "../servers/ServerSettingsService.h"
 #include "../servers/DeletionService.h"
 #include "../characters/GrowthService.h"
@@ -103,7 +105,11 @@ Services& Services::build(const Config& cfg) {
     s.botRuntime = std::make_unique<BotRuntime>(s.cfg, *s.db, *s.auth, *s.chat, *s.llm, *s.settings, *s.characterSpace, *s.dice);
     s.scenarios = std::make_unique<ScenarioService>(*s.db, *s.events, *s.scenes, *s.llm, *s.notifier);
     s.growth = std::make_unique<GrowthService>(*s.db, *s.chat, *s.dice, *s.notifier);
-    s.scenes->setClosedHook([&s](const std::string& ch, const std::string& scene, const std::string& actor) { s.growth->runForClosedScene(ch, scene, actor); });
+    s.scenes->setClosedHook([&s](const std::string& ch, const std::string& scene, const std::string& actor) {
+        // The bots there write down what they saw in it, once the window is quiet.
+        try { if (s.botRuntime) s.botRuntime->memory().flushChannel(ch); } catch (const std::exception& e) { ALOG_WARN << "bots: memory: " << e.what(); }
+        s.growth->runForClosedScene(ch, scene, actor);
+    });
     s.reminders = std::make_unique<ReminderService>(*s.db, *s.llm, *s.retrieval, *s.notifier);
     s.script = std::make_unique<ScriptKnowledgeService>(*s.db, *s.llm, *s.retrieval, *s.reminders, *s.notifier);
     s.modules->setPostProcess([&s](const std::string& channelId, const std::string& moduleId) { int calls = 0; s.script->buildFromModule(channelId, moduleId, calls); });
