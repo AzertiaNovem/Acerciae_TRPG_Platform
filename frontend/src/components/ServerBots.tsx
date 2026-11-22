@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useUi } from '../store/ui';
 import { BotTag } from './BotTag';
-import type { Bot } from '../types';
+import type { Bot, BotTurn } from '../types';
 
 // Server settings → Bots: the server's AI members (docs/BOTS.md). Maintainers give each a name, a persona for outside
 // the table and a speaking style, and limit how often it talks; members invite them into channels.
@@ -18,6 +18,11 @@ export function ServerBots({ serverId, enabled }: { serverId: string; enabled: b
   const [bots, setBots] = useState<Bot[]>([]);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [activity, setActivity] = useState<{ bot: string; turns: BotTurn[] } | null>(null);
+  const showActivity = async (b: Bot) => {
+    if (activity?.bot === b.id) { setActivity(null); return; }
+    try { setActivity({ bot: b.id, turns: await api.botActivity(serverId, b.id) }); } catch (e: any) { toast(e.message, 'error'); }
+  };
   const load = useCallback(() => { api.bots(serverId).then(setBots).catch(() => undefined); }, [serverId]);
   useEffect(load, [load]);
 
@@ -73,12 +78,28 @@ export function ServerBots({ serverId, enabled }: { serverId: string; enabled: b
           <div key={b.id} className="pick-row">
             <span className="grow">{b.name} <BotTag />{!b.enabled && <span className="pill">{tr('off')}</span>}
               <span className="tiny muted"> {b.channels?.length ? tr('in {list}', { list: b.channels.map((c) => c.name).join(', ') }) : tr('in no channel')}</span></span>
+            <button className="small" aria-expanded={activity?.bot === b.id} onClick={() => showActivity(b)}>{tr('Activity')}</button>
             <button className="small" disabled={!enabled} onClick={() => setEditing(draftOf(b))}>{tr('Edit')}</button>
             <button className="small" onClick={() => retire(b)}>{tr('Retire')}</button>
           </div>
-        ))}
+        )).flatMap((row, i) => activity?.bot === bots[i].id ? [row, <BotActivity key={`${bots[i].id}-activity`} turns={activity.turns} />] : [row])}
       </div>
       <div className="row"><span className="grow" /><button className="primary" disabled={!enabled} onClick={() => setEditing({ ...blank })}>{tr('New bot')}</button></div>
     </div>
+  );
+}
+
+// A bot's latest turns: where, why, and what came of it (posted, passed, discarded for a newer line, failed and why).
+const STATUS: Record<BotTurn['status'], string> = { running: 'running', posted: 'spoke', passed: 'passed', discarded: 'dropped for a newer line', failed: 'failed' };
+const TRIGGER: Record<string, string> = { player: 'after a player', addressed: 'spoken to', mention: 'named', called: "the GM's call", adopt: 'given a character', unprompted: 'on its own' };
+function BotActivity({ turns }: { turns: BotTurn[] }) {
+  if (!turns.length) return <p className="tiny muted bot-activity">{tr('No turns yet.')}</p>;
+  return (
+    <ul className="bot-activity tiny">
+      {turns.map((t) => (
+        <li key={t.id}><span className="muted">{new Date(t.started_at).toLocaleString()}</span> · {t.channel_name} / {t.window_name} · {tr(TRIGGER[t.trigger] ?? t.trigger)} · {tr(STATUS[t.status] ?? t.status)}
+          {t.error && <span className="warn-text"> — {t.error}</span>}</li>
+      ))}
+    </ul>
   );
 }

@@ -51,6 +51,7 @@ LlmResponse MockLlmClient::complete(const LlmRequest& req) {
     else if (req.task == "consolidate") out = consolidate(ctx);
     else if (req.task == "consistency") out = consistency(ctx);
     else if (req.task == "inspiration") out = inspiration(ctx);
+    else if (req.task == "bot_turn") out = botTurn(ctx);
     else if (req.task == "module_structure") out = moduleStructure(ctx);
     else { out["note"] = "mock: unknown task"; }
     r.content = json::dump(out);
@@ -526,6 +527,25 @@ Json::Value MockLlmClient::consistency(const Json::Value& ctx) {
 }
 
 // ---- inspiration ---------------------------------------------------------------------------------
+Json::Value MockLlmClient::botTurn(const Json::Value& ctx) {
+    Json::Value out; out["messages"] = Json::Value(Json::arrayValue); out["command"] = "";
+    const auto said = json::str(ctx["newest"], "content");
+    const bool table = json::str(ctx, "mode") == "table";
+    if (said.find("[quiet]") != std::string::npos) { out["action"] = "pass"; return out; }
+    static const std::regex roll("roll\\s+([A-Za-z][A-Za-z ]{1,30}[A-Za-z])", std::regex::icase);
+    std::smatch m;
+    if (table && std::regex_search(said, m, roll)) {
+        out["action"] = "roll"; out["kind"] = "ic"; out["command"] = ".ra " + m[1].str();
+        out["messages"].append("[mock] " + json::str(ctx, "pc") + " tries.");
+        return out;
+    }
+    out["action"] = "speak";
+    out["kind"] = table ? "ic" : "ooc";
+    out["messages"].append(table ? "[mock] " + json::str(ctx, "pc") + " answers: \"" + truncate(said, 60) + "\""
+                                 : "[mock] " + json::str(ctx, "name") + " (" + json::str(ctx, "trigger") + "): you said \"" + truncate(said, 60) + "\"");
+    return out;
+}
+
 Json::Value MockLlmClient::inspiration(const Json::Value& ctx) {
     auto name = json::str(ctx["character"], "name", "I");
     auto style = lower(json::str(ctx["character"], "speaking_style"));

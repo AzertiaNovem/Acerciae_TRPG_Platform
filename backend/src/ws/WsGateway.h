@@ -53,6 +53,12 @@ public:
     void setTyping(const drogon::WebSocketConnectionPtr& conn, const std::string& channelId, const std::string& chatWindowId,
                    const std::string& characterId, bool active, std::set<std::string> audience);
     void sweepTyping();   // drops flags whose heartbeats stopped; run every couple of seconds on the event loop
+    // A flag raised by the server itself (a bot composing its turn), for the readers of the window; it falls when lowered
+    // or after kServerTypingTtl.
+    static constexpr std::chrono::seconds kServerTypingTtl{90};
+    void setServerTyping(const std::string& channelId, const std::string& chatWindowId, const std::string& characterId, const std::string& userId, bool active);
+    // Whether anyone but `exceptUserId` is writing in the window now.
+    bool someoneTyping(const std::string& chatWindowId, const std::string& exceptUserId);
     // The flags of a channel the user may see: [{chat_window_id, character_id}] (for the `typing.snapshot` on subscribe).
     Json::Value typingSnapshot(const std::string& channelId, const std::string& userId);
 

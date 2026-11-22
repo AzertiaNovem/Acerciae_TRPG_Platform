@@ -1,4 +1,7 @@
 #include "logstudio/VnScriptRecovery.h"
+#include "bots/BotPacing.h"
+#include "bots/BotRuntime.h"
+#include "core/Json.h"
 #include "logstudio/ContentPolicy.h"
 #include "documents/NarrativeMemoryPolicy.h"
 // Core unit tests: no database required.
@@ -1802,6 +1805,81 @@ int main() {
         std::cout << "  " << f["validation"].size() + f["fallback"].size() + f["templates"].size() + f["dice_policy"].size() + f["defaults"].size()
             + f["state_validation"].size() + f["conditions"].size() + f["interpolation"].size() << " fixture cases\n";
     });
+    // ---- bots: when a bot speaks (bots/BotPacing) ----
+    {
+        using namespace acerciae::bots;
+        const Timing t{6, 90};
+        auto line = [](long long seq, double at, const char* who, bool bot, bool gm, const char* text, const char* kind = "ic") {
+            Line l; l.seq = seq; l.at = at; l.authorId = who; l.authorIsBot = bot; l.authorIsGm = gm; l.content = text; l.kind = kind; return l; };
+        Self mina; mina.userId = "mina"; mina.names = {"Mina", "Harriet"}; mina.table = true;
+        test("bots: a player's line owes one turn, taken once the GM has answered and the window is quiet", [&] {
+            State s;
+            ingest(s, mina, line(1, 100, "alice", false, false, "I open the door."));
+            CHECK(s.owed == "player"); CHECK(!due(s, 110, t));               // the GM answers first
+            ingest(s, mina, line(2, 112, "gm", false, true, "It creaks open."));
+            CHECK(s.gmSeen); CHECK(!due(s, 115, t)); CHECK(due(s, 118, t));    // then a quiet moment
+        });
+        test("bots: with no GM line the turn comes after the longer wait", [&] {
+            State s;
+            ingest(s, mina, line(1, 100, "alice", false, false, "Anyone?"));
+            CHECK(!due(s, 150, t)); CHECK(due(s, 190, t));
+        });
+        test("bots: a GM line naming its character owes a turn, at most twice per human line", [&] {
+            State s; s.chain = 0;
+            ingest(s, mina, line(1, 100, "gm", false, true, "Harriet, what do you see?"));
+            CHECK(s.owed == "addressed"); CHECK(due(s, 106, t));
+            s.owed.clear(); s.chain = 1;
+            ingest(s, mina, line(2, 110, "gm", false, true, "Harriet?"));
+            CHECK(s.owed == "addressed");
+            s.owed.clear(); s.chain = 2;                                       // GM and bot ping-pong stops here
+            ingest(s, mina, line(3, 120, "gm", false, true, "Harriet, again?"));
+            CHECK(s.owed.empty());
+            ingest(s, mina, line(4, 130, "alice", false, false, "Let's go."));   // a person speaks: the run restarts
+            CHECK(s.chain == 0); CHECK(s.owed == "player");
+        });
+        test("bots: another bot's line owes nothing unless it names this one; its own lines never", [&] {
+            State s;
+            ingest(s, mina, line(1, 100, "ken", true, false, "I check the window."));
+            CHECK(s.owed.empty());
+            ingest(s, mina, line(2, 101, "mina", true, false, "Harriet looks around."));
+            CHECK(s.owed.empty()); CHECK(s.lastLineAt == 101);
+            ingest(s, mina, line(3, 102, "ken", true, false, "Harriet, help me with this."));
+            CHECK(s.owed == "addressed");
+        });
+        test("bots: outside the table a bot answers only when named, whole words in Latin scripts", [&] {
+            Self me = mina; me.table = false; me.names = {"Mina", "米娜"};
+            State s;
+            ingest(s, me, line(1, 100, "alice", false, false, "Hello everyone!", "ooc"));
+            CHECK(s.owed.empty());
+            ingest(s, me, line(2, 101, "alice", false, false, "Minamoto is late.", "ooc"));
+            CHECK(s.owed.empty());
+            ingest(s, me, line(3, 102, "alice", false, false, "mina, are you there?", "ooc"));
+            CHECK(s.owed == "mention");
+            CHECK(names("你好米娜！", me.names)); CHECK(names("Ask MINA.", me.names)); CHECK(!names("Ok.", {"O"}));
+        });
+        test("bots: a turn's answer is checked: only its own dice, never .st, .en or a hidden roll; at most two lines", [&] {
+            auto refused = [](const char* json, bool table, const char* rs) { try { acerciae::BotRuntime::checkTurn(acerciae::json::parse(json), table, rs); return false; } catch (const std::exception&) { return true; } };
+            CHECK(refused(R"({"action":"roll","command":".st hp-2"})", true, "coc7e"));
+            CHECK(refused(R"({"action":"roll","command":".en Spot Hidden"})", true, "coc7e"));
+            CHECK(refused(R"({"action":"roll","command":".rh 1d100"})", true, "coc7e"));
+            CHECK(refused(R"({"action":"roll","command":".ra Spot Hidden"})", false, "coc7e"));   // not at the table
+            CHECK(refused(R"({"action":"roll","command":".move act-under-pressure"})", true, "pbta"));
+            CHECK(refused(R"({"action":"speak","messages":[".ra Luck"]})", true, "coc7e"));
+            CHECK(refused(R"({"action":"dance"})", true, "coc7e"));
+            auto roll = acerciae::BotRuntime::checkTurn(acerciae::json::parse(R"({"action":"roll","command":"。ra Spot Hidden","messages":["I look."]})"), true, "coc7e");
+            CHECK(roll["command"] == ".ra Spot Hidden"); CHECK(roll["kind"] == "ic");
+            auto said = acerciae::BotRuntime::checkTurn(acerciae::json::parse(R"({"action":"speak","kind":"ic","messages":["a","b","c"]})"), false, "coc7e");
+            CHECK(said["kind"] == "ooc"); CHECK(said["messages"].size() == 2); CHECK(said["messages"][1] == "b\n\nc");
+        });
+        test("bots: while a GM agent paces the bots, players' lines owe nothing; system lines are ignored", [&] {
+            Self me = mina; me.agentPacing = true;
+            State s;
+            ingest(s, me, line(1, 100, "alice", false, false, "We go in."));
+            CHECK(s.owed.empty());
+            ingest(s, me, line(2, 101, "gm", false, true, "Ada invited Ken (bot) to the table.", "system"));
+            CHECK(s.lastLineAt == 100);
+        });
+    }
     std::cout << passed << " checks passed, " << failures << " failed\n";
     return failures == 0 ? 0 : 1;
 }

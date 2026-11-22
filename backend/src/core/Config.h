@@ -34,6 +34,10 @@ struct Config {
 
     bool observerEnabled = true;
     int observerIntervalMs = 5000;
+    // Bots (bots/BotRuntime): how often the runtime looks at the tables, how long a window must be quiet before a bot
+    // speaks, and how long it waits for the GM to answer a player first. BOTS_ENABLED=false keeps every bot silent.
+    bool botsEnabled = true;
+    int botTickMs = 2000, botSettleMs = 6000, botGmWaitMs = 90000;
     int consolidatorIntervalMs = 60000;
     int observerMaxBatch = 40;
     int highlightTtlSeconds = 900;

@@ -18,7 +18,16 @@ export default function WindowTools({ win }: { win: ChatWindow }) {
     catch (e: any) { toast(e.message, 'error'); }
     finally { setBusy(false); }
   };
+  // The bots in this window take their turn now (docs/BOTS.md), whatever they last did.
+  const bots = (win.members ?? []).filter(m => m.is_bot);
+  const callBots = async () => {
+    setBusy(true);
+    try { const r = await api.callBotTurn(win.channel_id, win.id); toast(r.called.length ? tr('Called: {names}', { names: r.called.map(b => b.name).join(', ') }) : tr('No bot is in this window.')); }
+    catch (e: any) { toast(e.message, 'error'); }
+    finally { setBusy(false); }
+  };
   return <>
+    {bots.length > 0 && !win.archived_at && <button className="small" disabled={busy} onClick={callBots} title={tr('Ask the bots in this window to take their turn now')}>{tr("Bots' turn")}</button>}
     <button className="small" onClick={() => setForking(true)}>{tr('Fork scene')}</button>
     {win.kind !== 'main' && <button className="ghost small" disabled={busy} onClick={archive}>{tr(win.archived_at ? 'Restore window' : 'Archive window')}</button>}
     {forking && <ForkWindowModal win={win} onClose={() => setForking(false)} />}

@@ -1,5 +1,5 @@
 // Bots in the web client (docs/BOTS.md): a maintainer creates one in Server settings → Bots; a player invites it from
-// the channel sidebar; its line carries the "bot" tag; the GM turns invitations off.
+// the channel sidebar; its line carries the "bot" tag; the GM turns invitations off and asks the bots for their turn.
 import assert from 'node:assert/strict';
 import { chromium, webkit } from 'playwright';
 const site = process.env.WEB_BASE || 'http://127.0.0.1:5196';
@@ -60,6 +60,13 @@ try {
   await api('PUT', `/channels/${channel.id}`, { bot_invites_enabled: false }, gm.token);
   await page.reload();
   await page.getByRole('button', { name: 'Invite a bot' }).count().then((n) => assert.equal(n, 0, 'a player has nothing to open once invitations are off'));
+  // The GM asks the bots for their turn: hers comes in character (the mock model answers).
+  await as(gm.token);
+  await page.getByRole('button', { name: "Bots' turn" }).click();
+  await page.getByText('Called: Mina').waitFor();
+  await page.locator('.message').filter({ hasText: "[mock] Mina's sleuth" }).first().waitFor({ timeout: 30000 });
+  assert.equal(await page.locator('.message').filter({ hasText: "[mock] Mina's sleuth" }).first().locator('.bot-tag').count(), 1);
+  if (shots) await page.screenshot({ path: `${shots}/bots-turn-${engine}.png` });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   assert.deepEqual(errors, []);

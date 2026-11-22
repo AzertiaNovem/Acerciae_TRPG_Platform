@@ -3,6 +3,7 @@
 #include <drogon/utils/Utilities.h>
 #include "logstudio/ObjectStore.h"
 #include "bots/BotService.h"
+#include "bots/BotRuntime.h"
 #include "servers/DeletionService.h"
 #include "logstudio/LogStudioService.h"
 #include "logstudio/PresentationService.h"

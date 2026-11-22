@@ -62,6 +62,10 @@ Config Config::fromEnv() {
         throw std::runtime_error("HTTP/API/AI worker and queue limits are outside the supported range");
     c.observerEnabled = envBool("AI_OBSERVER_ENABLED", c.observerEnabled);
     c.observerIntervalMs = envInt("AI_OBSERVER_INTERVAL_MS", c.observerIntervalMs);
+    c.botsEnabled = envBool("BOTS_ENABLED", c.botsEnabled);
+    c.botTickMs = std::max(100, envInt("BOT_TICK_MS", c.botTickMs));
+    c.botSettleMs = std::max(0, envInt("BOT_SETTLE_MS", c.botSettleMs));
+    c.botGmWaitMs = std::max(0, envInt("BOT_GM_WAIT_MS", c.botGmWaitMs));
     c.consolidatorIntervalMs = envInt("AI_CONSOLIDATOR_INTERVAL_MS", c.consolidatorIntervalMs);
     c.observerMaxBatch = envInt("AI_OBSERVER_MAX_BATCH", c.observerMaxBatch);
     c.highlightTtlSeconds = envInt("HIGHLIGHT_TTL_SECONDS", c.highlightTtlSeconds);

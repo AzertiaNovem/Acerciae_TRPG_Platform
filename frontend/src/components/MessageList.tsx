@@ -101,6 +101,8 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const pin = useReminders((s) => s.list.find((r) => r.kind === 'pinned' && r.pinned_message_id === m.id));
   const pinLine = useReminders((s) => s.pin), unpinLine = useReminders((s) => s.unpin);
   const isGm = useNav((s) => s.channel?.my_role === 'gm');
+  // The GM moderates the bots: a bot's line can be taken back at any time (rolls and system lines stay on the record).
+  const gmOverBot = isGm && !readOnly && !!m.author_is_bot && !m.recalled_at && m.kind !== 'roll' && m.kind !== 'system';
   const meId = useAuth((s) => s.user?.id);
   const toast = useUi((s) => s.toast);
   // Out of character the player speaks: their own avatar and name. Otherwise the character's avatar first, the
@@ -141,7 +143,7 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
           {!readOnly && m.kind !== 'system' && m.kind !== 'hypertext' && (pin
             ? ((pin.pinned_by === meId || isGm) && <button className="ghost small" onClick={() => unpinLine(m.channel_id, pin.id).catch((e: any) => toast(e.message, 'error'))} title={tr('Remove this line from the context bubbles')}>{tr('Unpin')}</button>)
             : <button className="ghost small" onClick={() => pinLine(m.channel_id, m.id).then(() => toast(tr('Pinned to the context bubbles'))).catch((e: any) => toast(e.message, 'error'))} title={tr('Keep this line in the context bubbles for your group')}>{tr('Pin')}</button>)}
-          {recallable && <button className="ghost small" onClick={()=>recall(m)} title={tr('Take this message back from everyone in this chat')}>{tr('Recall')}</button>}
+          {(recallable || gmOverBot) && <button className="ghost small" onClick={()=>recall(m)} title={tr('Take this message back from everyone in this chat')}>{tr('Recall')}</button>}
         </div>
         {!readOnly && m.reference_ids?.map(id=><ChatReference key={id} channelId={m.channel_id} messageId={id}/>)}
         {m.kind === 'hypertext' ? <HypertextBody m={m} readOnly={readOnly} jumped={jumped} />

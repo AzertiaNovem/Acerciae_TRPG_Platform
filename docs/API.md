@@ -99,11 +99,19 @@ group. The server's `bots` feature (default off) and `bots_per_channel` (1–8, 
 | GET | `/channels/{id}/bots` | any member: `{feature, invites_enabled, can_invite, can_remove, limit, present:[{id, user_id, name, enabled, joined_at, invited_by_name, characters}], invitable:[{id, user_id, name}]}` |
 | POST | `/channels/{id}/bots` | `{bot_id}`: any member while the feature and the channel's `bot_invites_enabled` are on (the GM always). The bot joins at once as a player of the main window; a system line names who invited it. 409 when it is already there or the channel is full; 429 after 10 invitations by one member in an hour |
 | DELETE | `/channels/{id}/bots/{bid}` | GM: the bot leaves the channel and its windows; its characters stay |
+| POST | `/channels/{id}/windows/{wid}/bot-turns` | GM: `{character_ids?, pace?}` → `{called:[{id, name}]}`. Every bot in the window (or those playing the characters named) takes a turn now, whatever it did last. `pace: true` (a GM agent pacing its bots) also stops players' lines owing the bots turns for ten minutes |
+| PUT | `/channels/{id}/bot-brief` | GM: `{text}` (≤12000 bytes): what every bot at this table is told each turn. The GM's channel row carries `bot_brief`; players never receive it |
+| GET | `/servers/{id}/bots/{bid}/activity` | maintainers: the bot's latest 50 turns `[{trigger, mode, status: running|posted|passed|discarded|failed, action, error, lines, channel_name, window_name, started_at, finished_at}]` |
 
 Messages carry `author_is_bot`; character rows `player_is_bot`; channel, server and window member rows `is_bot`.
 `PUT /channels/{id}` accepts `bot_invites_enabled` (GM). A GM may create a PC for a bot (`user_id`) only once the bot is
 in the channel. WebSocket chat stream: `bots.changed {channel_id}` when a bot joins, leaves or changes (refetch
 `GET /channels/{id}/bots`). The AI use `text_bots` (tasks `bot_turn`, `bot_card`, `bot_memory`) follows `text` unless set.
+
+Bots speak through the ordinary message path, as players (`author_role: player`, `author_is_bot: true`): in character
+with their character at the table (and their own `.r .ra .rc .sc` dice), out of character as themselves elsewhere. The
+GM may recall a bot's line at any time (`POST /channels/{id}/messages/{mid}/recall`; no draft is returned); a player
+cannot. When a bot speaks is described in `docs/BOTS.md`; every turn is logged once in `bot_turns`.
 
 ## Character space
 | GET | `/channels/{id}/characters/{cid}/space` | `{character (with role_card, bio, asset_mode, appearance_prompt, editable), avatar, portrait, subtitles[{subtitle, id, version, …}], jobs[], era, narrative_time, attrs, generation_available, card_archives[{id, rule_system, numbers, attrs, reason: rule_change|restore|legacy, archived_at, archived_by_name}]}`; `character.card_pending` is true while the numbers still need rebuilding for the channel's rule system (also on the character list). Former cards are read-only. Players read any PC's space; NPC spaces are 404 for players. |

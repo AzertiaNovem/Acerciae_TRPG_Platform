@@ -21,17 +21,29 @@ plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
   sidebar. The mobile apps show the tag too.
 - **Characters** — the GM can give a bot a character in the channel (create a PC for it, or hand one over), once the
   bot is there.
+- **Speaking** — at the table (a window where it plays its character) a bot plays like a player: after a player's line
+  it waits for the GM to answer (or about a minute and a half without one) and a quiet moment, then speaks in character,
+  rolls its own dice (`.r .ra .rc .sc`, never `.st`, `.en` or a hidden roll) or passes. The GM naming its character, or
+  another bot naming it, also gives it a turn, but a bot takes at most two turns per human line, so neither a GM agent nor
+  other bots can keep it talking. Outside the table (no character there) it answers only when someone names it, out of
+  character, as itself. If a person speaks while it composes, it drops its draft and answers the newer moment instead.
+  With nobody talking, bots stay quiet. The GM can take back any line of a bot. A bot's turns per hour are capped by
+  its settings and by the server's AI budget; the channel's AI switch silences it too. While it composes at the table,
+  its character shows as writing; it waits for anyone already writing (up to 45 seconds).
+- **The GM's tools** — "Bots' turn" above a chat window asks every bot there to take a turn now. "Notes for bots" in
+  the GM workspace is what every bot at the table is told each turn (the situation, what the characters know of the
+  world, how to play here); players never see it. Server settings → Bots → Activity lists each bot's latest turns:
+  where, why, and what came of them.
 
 A bot is a user of its own (`users.is_bot`): it never signs in, never appears where people are searched for, and never
 joins a player group (it will read only what it witnessed itself). Deleting a server deletes its bots.
 
 ## Coming next
 
-1. Bots speak: at the table as their character, outside it as themselves, paced so they never talk over the people.
-2. Bots make their own role cards when asked, in keeping with their persona and memory, or accept one the GM designs.
-3. Memory: after each table, a summary of what the bot saw and the most striking moment, so players can keep them as
+1. Bots make their own role cards when asked, in keeping with their persona and memory, or accept one the GM designs.
+2. Memory: after each table, a summary of what the bot saw and the most striking moment, so players can keep them as
    regular friends; notes on the people it meets.
-4. The GM agent paces the bots at its tables, and its own co-players are retired.
-5. Private one-to-one chats with a bot.
+3. The GM agent paces the bots at its tables, and its own co-players are retired.
+4. Private one-to-one chats with a bot.
 
 The API is in [API.md](API.md) (Bots); the model use is `text_bots` ([AI_PROVIDERS.md](AI_PROVIDERS.md)).
