@@ -44,7 +44,8 @@ export async function ensureTableWindows(table) {
 export async function ensurePlannerWindow(table) {
     const { rows } = await table.channelMemberRows();
     if (!rows) return;
-    const players = rows.filter((r) => r.role === "player").map((r) => r.id ?? r.user_id).filter(Boolean);
+    // People only: a bot (one of the server's AI members) has no wishes for the planner.
+    const players = rows.filter((r) => r.role === "player" && !r.is_bot).map((r) => r.id ?? r.user_id).filter(Boolean);
     let w = table.windows.find((x) => x.id === table.planner.window);
     if (!w) {
       w = await table.api.createWindow(table.channelId, { name: WISH_WINDOW, kind: "private", members: players.map((user_id) => ({ user_id })) });

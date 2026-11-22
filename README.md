@@ -79,6 +79,7 @@ Everything is read from environment variables; see [`.env.example`](.env.example
 | `AI_ALLOW_PRIVATE_ENDPOINTS` (false) | allow server AI endpoints on private addresses or plain http — only for a trusted self-hosted model |
 | `AI_HTTP_WORKERS` (4) | threads that run request-triggered model calls off the HTTP threads |
 | `AI_OBSERVER_INTERVAL_MS` (5000) | scan cadence of the high-frequency observer |
+| `BOTS_ENABLED` (true), `BOT_TICK_MS` (2000), `BOT_SETTLE_MS` (6000), `BOT_GM_WAIT_MS` (90000) | bots (docs/BOTS.md): whether they speak at all, how often the runtime looks at the tables, how long a window must be quiet before a bot speaks, how long a bot waits for the GM to answer a player first |
 | `AI_CONSOLIDATOR_INTERVAL_MS` (60000) | cadence of the low-frequency consolidation pass |
 | `HIGHLIGHT_TTL_SECONDS`, `HIGHLIGHT_CLEANUP_INTERVAL_MS` | highlight lifetime and the independent expiry sweeper |
 | `AUTH_SECRET` | HMAC key for API tokens and the key that seals per-server API keys. Required, ≥ 32 characters; the backend refuses a missing or published value unless `ALLOW_INSECURE_DEV=true` (local development only). Rotating it signs everyone out and invalidates stored server keys |

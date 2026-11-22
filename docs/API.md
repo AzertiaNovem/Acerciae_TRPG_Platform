@@ -105,6 +105,11 @@ Messages carry `author_is_bot`; character rows `player_is_bot`; channel, server 
 in the channel. WebSocket chat stream: `bots.changed {channel_id}` when a bot joins, leaves or changes (refetch
 `GET /channels/{id}/bots`). The AI use `text_bots` (tasks `bot_turn`, `bot_card`, `bot_memory`) follows `text` unless set.
 
+Bots speak through the ordinary message path, as players (`author_role: player`, `author_is_bot: true`): in character
+with their character at the table (and their own `.r .ra .rc .sc` dice), out of character as themselves elsewhere. The
+GM may recall a bot's line at any time (`POST /channels/{id}/messages/{mid}/recall`; no draft is returned); a player
+cannot. When a bot speaks is described in `docs/BOTS.md`; every turn is logged once in `bot_turns`.
+
 ## Character space
 | GET | `/channels/{id}/characters/{cid}/space` | `{character (with role_card, bio, asset_mode, appearance_prompt, editable), avatar, portrait, subtitles[{subtitle, id, version, …}], jobs[], era, narrative_time, attrs, generation_available, card_archives[{id, rule_system, numbers, attrs, reason: rule_change|restore|legacy, archived_at, archived_by_name}]}`; `character.card_pending` is true while the numbers still need rebuilding for the channel's rule system (also on the character list). Former cards are read-only. Players read any PC's space; NPC spaces are 404 for players. |
 | GET/PUT | `/channels/{id}/pbta` | Channel rule pack and revision. GM-only replacement, import preview, playbooks, move commands and character fields are described in [PbtA](PBTA.md). |

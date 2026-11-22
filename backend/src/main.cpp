@@ -2,6 +2,7 @@
 #include "modules/ModuleImporter.h"
 #include "script/ScriptKnowledgeService.h"
 #include "app/Services.h"
+#include "bots/BotRuntime.h"
 #include "logstudio/ObjectStore.h"
 #include "logstudio/MediaMigrator.h"
 #include "api/Api.h"
@@ -115,7 +116,7 @@ int main(int argc, char** argv) {
         .setLogLevel(trantor::Logger::kInfo)
         .setIdleConnectionTimeout(300)
         .enableGzip(false);
-    drogon::app().registerBeginningAdvice([&] { S.observer->start(); S.tts->start(); S.creative->start(); S.vnScripts->start(); S.maintenance->start();
+    drogon::app().registerBeginningAdvice([&] { S.observer->start(); S.botRuntime->start(); S.tts->start(); S.creative->start(); S.vnScripts->start(); S.maintenance->start();
         // Typing flags whose heartbeats stopped fall on their own (a closed tab, a lost connection the socket has not noticed).
         drogon::app().getLoop()->runEvery(2.0, [] { WsGateway::instance().sweepTyping(); });
         // Sends local media to object storage (and non-secret media to the public bucket) whenever that is configured.

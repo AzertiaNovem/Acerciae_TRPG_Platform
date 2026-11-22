@@ -17,6 +17,9 @@ public:
     static Json::Value consolidate(const Json::Value& ctx);
     static Json::Value consistency(const Json::Value& ctx);
     static Json::Value inspiration(const Json::Value& ctx);
+    // A bot's turn (bots/BotRuntime): "[quiet]" in the newest line makes it pass; "roll <skill>" at the table makes it
+    // roll; otherwise it answers, echoing the newest line.
+    static Json::Value botTurn(const Json::Value& ctx);
     static Json::Value moduleStructure(const Json::Value& ctx);
 private:
     static Json::Value lastUserJson(const LlmRequest& req);

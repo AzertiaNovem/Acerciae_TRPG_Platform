@@ -262,19 +262,22 @@ Json::Value ChatService::recallMessage(const ChannelAccess& a, const std::string
         // ended or saves a state meanwhile, and a line being posted holds the row (postMessage), so none lands after it.
         auto card = Db::queryOne(w, "SELECT id FROM messages WHERE id=$1 AND channel_id=$2 AND kind='hypertext'", {messageId, a.channelId});
         if (!card.isNull()) Db::exec(w, "SELECT pg_advisory_xact_lock(hashtext('acerciae.hypertext.' || $1))", {card["id"].asString()});
-        auto m = Db::queryOne(w, "SELECT m.author_id, m.kind, m.content, m.recalled_at, m.created_at > now() - " + RECALL_WINDOW + " AS recent, " + ON_MOVE_RECORD + " AS on_record, "
+        auto m = Db::queryOne(w, "SELECT m.author_id, coalesce((SELECT is_bot FROM users WHERE id=m.author_id), false) AS author_is_bot, m.kind, m.content, m.recalled_at, m.created_at > now() - " + RECALL_WINDOW + " AS recent, " + ON_MOVE_RECORD + " AS on_record, "
             "w.archived_at, " + Visibility::messageFilter(a) + " AS readable FROM messages m JOIN chat_windows w ON w.id=m.chat_window_id WHERE m.id=$1 AND m.channel_id=$2 FOR UPDATE OF m",
             {messageId, a.channelId});
         if (m.isNull() || !m["readable"].asBool()) throw notFound("message not found");
-        if (json::str(m, "author_id") != a.userId) throw forbidden("Only the author can recall a message");
+        // The GM moderates the bots at the table: a bot's line can be taken back by the GM, at any time.
+        const bool gmOverBot = a.isGm && m["author_is_bot"].asBool();
+        if (!gmOverBot && json::str(m, "author_id") != a.userId) throw forbidden("Only the author can recall a message");
         if (!m["recalled_at"].isNull()) { repeated = true; return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {messageId}); }
         auto kind = json::str(m, "kind");
         if (kind == "roll") throw ApiError(409, "not_recallable", "Dice rolls cannot be recalled: their results stay on the record");
         if (kind == "system") throw ApiError(409, "not_recallable", "System lines cannot be recalled");
         if (m["on_record"].asBool()) throw ApiError(409, "not_recallable", "This line is part of a move's record and cannot be recalled");
-        if (!m["recent"].asBool()) throw ApiError(409, "recall_expired", "Messages can only be recalled within " + std::to_string(kRecallSeconds / 60) + " minutes of sending");
+        if (!gmOverBot && !m["recent"].asBool()) throw ApiError(409, "recall_expired", "Messages can only be recalled within " + std::to_string(kRecallSeconds / 60) + " minutes of sending");
         if (!m["archived_at"].isNull()) throw conflict("This window is archived. Restore it or fork it to continue.");
-        if (kind != "hypertext") original = json::str(m, "content");   // a card's fallback is no draft to send again
+        // No draft to send again for a card (its text is a fallback) or a bot's line the GM took back.
+        if (kind != "hypertext" && !gmOverBot) original = json::str(m, "content");
         for (const auto& e : Db::queryJson(w, "SELECT id FROM events WHERE message_id=$1", {messageId})) eventIds.push_back(e["id"].asString());
         // The campaign log keeps its own copy of each line: that goes with it (and with it every snapshot's line).
         Db::exec(w, "DELETE FROM log_events WHERE source_message_id=$1 OR source_event_id = ANY($2::uuid[])", {messageId, pgArrayLiteral(eventIds)});

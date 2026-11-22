@@ -376,4 +376,5 @@ mobile changes).
 
 - 1a (GM agent: daily life removed): merged (#68).
 - 1b (platform, web and apps: stand-in and passive marks removed, migration 0070): merged (#69).
-- 2 (bot accounts, settings, the "bot" tag on web and apps, invitations; migration 0071; 2a and 2b together): in review.
+- 2 (bot accounts, settings, the "bot" tag on web and apps, invitations; migration 0071; 2a and 2b together): pull request #70.
+- 3a (bots speak: pacing, turns, the runtime, GM recall of bot lines; migration 0072): in review.
