@@ -1,11 +1,10 @@
 # Bots
 
 Bots are AI members of a server. A server's maintainers (its owner and admins) set them up; the members invite them to
-their tables, where they play like any player; outside the table they talk as themselves. They replaced the AI
-co-players the GM agent (`gm-agent/`) used to play. The staged plan, and what is done so far, is in
-[BOTS_PLAN.md](BOTS_PLAN.md).
+their tables, where they play like any player; outside the table they talk as themselves, in the channels they are in
+and in private chats. They replaced the AI co-players the GM agent (`gm-agent/`) used to play.
 
-## What exists now
+## What bots do
 
 - **Setting bots up** — Server settings → Features → Bots turns them on (off by default), with the most bots one
   channel may hold (1–8, default 3). Server settings → Bots lists the server's bots: a name, a persona for outside the
