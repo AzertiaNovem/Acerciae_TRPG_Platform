@@ -1,6 +1,7 @@
-// Files the host's operator edits in the Web UI and a channel's table reads: the worldbook and the co-players'
-// intentions, one JSON file each per channel in the state directory (`<channel>.worldbook.json`,
-// `<channel>.intentions.json`). They are plain files on purpose: whoever runs the agent can read them locally.
+// Files the host's operator edits in the Web UI and a channel's table reads: the worldbook, one JSON file per channel in
+// the state directory (`<channel>.worldbook.json`). Older versions also kept the AI co-players' standing intentions
+// there (`<channel>.intentions.json`), which `bots handoff` still reads. They are plain files on purpose: whoever runs
+// the agent can read them locally.
 //
 // Two threads write them (the host's Web UI and the channel's worker), so a write takes a short lock file and is
 // refused when the file has moved past the revision the writer started from. Writes are atomic (temporary file, then

@@ -104,7 +104,7 @@ function entryMatchers(e) {
 }
 
 // The entries in play. `texts` are what the reader has in front of it, newest first (recent lines, the place, a
-// co-player's intention…); `requested` are entry ids opened on purpose. Requested entries come first, then the ones
+// text thread…); `requested` are entry ids opened on purpose. Requested entries come first, then the ones
 // mentioned most recently, as long as they fit `budget` tokens. They are returned in the book's own order, so the
 // section reads the same while the set does not change (the prompt cache holds).
 export function entriesInPlay(book, { texts = [], requested = [], secret = false, budget = WORLDBOOK_DEFAULTS.gm_tokens } = {}) {

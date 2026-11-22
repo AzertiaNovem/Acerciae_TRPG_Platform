@@ -453,12 +453,12 @@ test('Web UI origin check: its own address, a reverse proxy that forwards the ho
   assert.match((await refused.json()).error, /opened at https:\/\/evil\.example, but the request reached the host as 127\.0\.0\.1:\d+.*proxy_set_header Host \$http_host.*webui\.allowed_origins/);
 });
 
-test('Web UI edits the worldbook and the co-players\' intentions in their files, with revision checks, running or not', async t => {
+test('Web UI edits the worldbook in its file, with revision checks, running or not', async t => {
   const host = fixture(t), manager = new _M(host, { makeWorker: cfg => new TalkingWorker(cfg) });
   const web = await startWeb(manager, host.web);
   t.after(async () => { await manager.close(); await new Promise(resolve => web.close(resolve)); });
   fs.mkdirSync(host.stateDir, { recursive: true });
-  fs.writeFileSync(path.join(host.stateDir, 'a.json'), JSON.stringify({ channelId: 'a', improv: { on: true, world: 'STATE-WORLD', secrets: 'STATE-SECRET' }, coplayers: [{ characterId: 'c-h', name: 'Harriet Vance' }] }));
+  fs.writeFileSync(path.join(host.stateDir, 'a.json'), JSON.stringify({ channelId: 'a', improv: { on: true, world: 'STATE-WORLD', secrets: 'STATE-SECRET' } }));
   const base = `http://127.0.0.1:${web.address().port}`;
   const headers = { Authorization: `Bearer ${host.web.token}`, 'Content-Type': 'application/json' };
   const get = async p => { const r = await fetch(base + p, { headers }); return { status: r.status, body: await r.json() }; };
@@ -477,15 +477,7 @@ test('Web UI edits the worldbook and the co-players\' intentions in their files,
   assert.equal((await post('/api/channels/a/worldbook', { revision: 1, book: edit }, { Origin: 'http://elsewhere' })).status, 403);
   book = (await get('/api/channels/a/worldbook')).body;
   assert.equal(book.revision, 1);
-  // Intentions: only co-players, set and cleared by hand.
-  let intents = (await get('/api/channels/a/intentions')).body;
-  assert.deepEqual(intents.coplayers, [{ id: 'c-h', name: 'Harriet Vance', intention: '', at: null }]);
-  const set = await post('/api/channels/a/intentions', { revision: 0, changes: { 'c-h': 'Win Mina over; keep the club united.' } });
-  assert.equal(set.status, 200);
-  assert.equal(set.body.coplayers[0].intention, 'Win Mina over; keep the club united.');
-  assert.match((await post('/api/channels/a/intentions', { revision: 1, changes: { 'c-alice': 'x' } })).body.error, /not a co-player/);
-  assert.equal((await post('/api/channels/a/intentions', { revision: 0, changes: { 'c-h': '' } })).status, 409);
-  intents = (await post('/api/channels/a/intentions', { revision: 1, changes: { 'c-h': '' } })).body;
-  assert.deepEqual([intents.revision, intents.coplayers[0].intention], [2, '']);
+  // There are no intentions to edit: an older console asking for them finds nothing.
+  assert.equal((await get('/api/channels/a/intentions')).status, 404);
   assert.equal((await get('/api/channels/zz/worldbook')).status, 404);
 });

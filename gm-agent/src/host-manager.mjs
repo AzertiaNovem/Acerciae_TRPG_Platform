@@ -12,7 +12,6 @@ import { lockPath, loadState } from './state.mjs';
 import { operatorPath, readOperatorFile, writeOperatorFile } from './operator-files.mjs';
 import { worldbookState, validateWorldbook, ENTRIES_MAX, TITLE_MAX, BODY_MAX, KEYS_MAX, KEY_MAX } from './worldbook.mjs';
 import { WORLD_MAX, SECRETS_MAX } from './improv.mjs';
-import { intentionsState, applyIntentions, INTENTION_MAX } from './intentions.mjs';
 
 const LOG_LINES = 600, LOG_LINE_CHARS = 2000;
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
@@ -183,8 +182,8 @@ export class HostManager {
   }
   logs(id, after = 0) { this.entry(id); const rt = this.runtime(id); return { lines: rt.logs.filter(l => l.seq > after), last: rt.seq }; }
 
-  // ---- the worldbook and the co-players' intentions: files in the state directory, edited here whether the channel
-  // runs or not (a running table re-reads them when they change). A write must start from the revision it was read at.
+  // ---- the worldbook: a file in the state directory, edited here whether the channel runs or not (a running table
+  // re-reads it when it changes). A write must start from the revision it was read at.
   operatorFile(id, kind) { this.entry(id); return operatorPath(this.host.stateDir, id, kind); }
   worldbook(id) {
     const file = this.operatorFile(id, 'worldbook'), raw = readOperatorFile(file), state = loadState(this.host.stateDir, id);
@@ -198,18 +197,6 @@ export class HostManager {
     if (!Number.isInteger(body?.revision) || body.revision < 0) throw Error('Worldbook revision required');
     writeOperatorFile(this.operatorFile(id, 'worldbook'), cur => ({ ...validateWorldbook(body.book, { nextId: worldbookState(cur).nextId }), updatedBy: 'web' }), { expect: body.revision });
     return this.worldbook(id);
-  }
-  intentions(id) {
-    const file = this.operatorFile(id, 'intentions'), raw = readOperatorFile(file), state = loadState(this.host.stateDir, id);
-    const { revision, intentions } = intentionsState(raw);
-    const coplayers = (state?.coplayers ?? []).map(c => ({ id: c.characterId, name: c.name, intention: intentions[c.characterId]?.text ?? '', at: intentions[c.characterId]?.at ?? null }));
-    return { file: path.relative(this.host.root, file) || file, revision: raw ? revision : 0, coplayers, limit: INTENTION_MAX };
-  }
-  saveIntentions(id, body) {
-    if (!Number.isInteger(body?.revision) || body.revision < 0) throw Error('Intentions revision required');
-    const coplayers = (loadState(this.host.stateDir, id)?.coplayers ?? []).map(c => c.characterId);
-    writeOperatorFile(this.operatorFile(id, 'intentions'), cur => ({ intentions: applyIntentions(cur, body.changes, { coplayers }) }), { expect: body.revision });
-    return this.intentions(id);
   }
   config(id) {
     const entry = this.entry(id), yaml = fs.readFileSync(entry.config, 'utf8');

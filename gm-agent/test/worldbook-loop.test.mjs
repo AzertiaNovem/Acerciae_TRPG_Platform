@@ -1,4 +1,4 @@
-// The worldbook and the co-players' intentions at a real table: the files the host's Web UI edits, read by the turns.
+// The worldbook at a real table: the file the host's Web UI edits, read by the turns.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -19,7 +19,6 @@ const ENTRIES = [
 ];
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "worldbook-"));
 const bookFile = (dir) => operatorPath(dir, "ch", "worldbook");
-const intentFile = (dir) => operatorPath(dir, "ch", "intentions");
 
 async function setup({ improv = IMPROV, llm = new MockLlm(), dir = tmp(), logs = [] } = {}) {
   const api = new FakeApi();
@@ -122,23 +121,4 @@ test("worldbook: without entries a table reads exactly as before, no section and
   assert.ok(!tools.includes("worldbook_read"));
   assert.ok(!last(llm, "director").includes("## Worldbook"));
   assert.ok(!llm.calls.find((c) => c.purpose === "director").system.includes("worldbook_read"));
-});
-
-test("intentions: only that co-player reads its intention, it pulls in the entries it names, and clearing it takes effect", async () => {
-  const dir = tmp();
-  writeOperatorFile(bookFile(dir), () => ({ bible: IMPROV.world, hidden: IMPROV.secrets, entries: ENTRIES, nextId: 4 }));
-  writeOperatorFile(intentFile(dir), () => ({ intentions: { "c-harriet": { text: "INTENT-X: win the dockmasters over while keeping the club united." }, "c-alice": { text: "INTENT-ALICE" } } }));
-  const { t, api, llm } = await setup({ dir });
-  await says(t, api, "Good morning.");
-  await settle(t);
-  const cp = last(llm, "coplayer_turn");
-  assert.match(cp, /YOUR STANDING INTENTION/);
-  assert.ok(cp.includes("INTENT-X"));
-  assert.ok(cp.includes("LORE-GUILD"), "the entry its intention names");
-  assert.ok(!llm.calls.some((c) => c.purpose !== "coplayer_turn" && JSON.stringify(c).includes("INTENT-X")), "the GM never reads it");
-  assert.equal(t.intentionOf("c-alice"), "", "a player character has no intention");
-  writeOperatorFile(intentFile(dir), (cur) => ({ ...cur, intentions: {} }));
-  await says(t, api, "Anything new?");
-  await settle(t);
-  assert.ok(!last(llm, "coplayer_turn").includes("INTENT-X"));
 });

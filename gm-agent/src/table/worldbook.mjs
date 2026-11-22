@@ -107,7 +107,7 @@ export function gmWorldbook(table, windowId, { lines = [], place = "", scenario 
 }
 
 // What a co-player or a stand-in knows of what came up: public entries only, from the lines it witnessed and the other
-// texts given (its place, its intention). "" without entries.
+// texts given (its place, a text thread). "" without entries.
 export function publicLore(table, { lines = [], texts = [] } = {}) {
   if (!table.improv.on) return "";
   const book = worldbook(table);

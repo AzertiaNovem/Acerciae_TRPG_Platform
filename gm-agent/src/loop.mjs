@@ -47,7 +47,6 @@ import { rulesProfile, ruleSystemOf } from "./rules/index.mjs";
 const TYPING_STALE_MS = 10 * 60000;
 
 import * as book from "./table/worldbook.mjs";
-import { intentionOf } from "./table/intentions.mjs";
 import * as context from "./table/context.mjs";
 import * as recovery from "./table/recovery.mjs";
 import * as scheduling from "./table/scheduling.mjs";
@@ -82,7 +81,7 @@ export class Table {
     this.now = now;
     this.startedAt = now();
     this.random = random;
-    this.operatorDir = operatorDir;   // the state directory: the worldbook and intentions files the host's Web UI edits
+    this.operatorDir = operatorDir;   // the state directory: the worldbook file the host's Web UI edits
 
     this.timelines = timelines ?? new Timelines([], { now });
     this.guard = guard ?? new Guard();
@@ -953,7 +952,6 @@ export class Table {
   publicLore(...args) { return book.publicLore(this, ...args); }
   withWorldbookTool(...args) { return book.withWorldbookTool(this, ...args); }
   worldbookToolRule(...args) { return book.worldbookToolRule(this, ...args); }
-  intentionOf(...args) { return intentionOf(this, ...args); }
 
   // Posts the world setting in the Main Chat for the human players, once per version of the text.
 
